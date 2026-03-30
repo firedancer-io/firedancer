@@ -47,7 +47,7 @@
 
 /* FD_SHMEM_NAME_MAX gives the maximum number of bytes needed to hold
    the cstr with the name fd_shmem region.  That is, a valid fd_shmem
-   region name will have a strlen in [1,FD_SHMEM_NAME_MAX).  (Harmonized
+   region name will have a strlen in [1,FD_SHMEM_NAME_MAX].  (Harmonized
    with FD_LOG_NAME_MAX but this is not strictly required.) */
 
 #define FD_SHMEM_NAME_MAX FD_LOG_NAME_MAX

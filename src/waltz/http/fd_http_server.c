@@ -16,7 +16,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <fcntl.h>
-
 #if FD_HAS_ZSTD
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
 #define ZSTD_STATIC_LINKING_ONLY
@@ -291,12 +290,37 @@ fd_http_server_fd( fd_http_server_t * http ) {
   return http->socket_fd;
 }
 
+#if defined(__linux__)
+
+int
+make_socket( void ) {
+  int sockfd = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 );
+  if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM|SOCK_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+#elif defined(__APPLE__)
+
+int
+make_socket( void ) {
+  int sockfd = socket( AF_INET, SOCK_STREAM, 0 );
+  if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  int flags = fcntl( sockfd, F_GETFL, 0 );
+  if( FD_UNLIKELY( flags==-1 ) ) FD_LOG_ERR(( "fnctl(F_GETFL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==fcntl( sockfd, F_SETFL, flags|O_NONBLOCK ) ) ) FD_LOG_ERR(( "fcntl(F_SETFL,+O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return sockfd;
+}
+
+#else
+#error "Unsupported platform"
+#endif /* OS specific socket */
+
 fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
                        uint               address,
                        ushort             port ) {
-  int sockfd = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 );
-  if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
+  int sockfd = make_socket();
 
   int optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
@@ -385,10 +409,8 @@ is_expected_network_error( int err ) {
 #ifndef ENONET
 #define ENONET 64 /* Standard Linux value, not on macOS */
 #endif
-#ifndef ENONET
-#define ENONET 64 /* Standard Linux value, not on macOS */
-#endif
     err==ENONET ||
+#endif
     err==EHOSTUNREACH ||
     err==EOPNOTSUPP ||
     err==ENETUNREACH ||
@@ -402,23 +424,15 @@ is_expected_network_error( int err ) {
 static void
 accept_conns( fd_http_server_t * http ) {
   for(;;) {
-#ifdef __APPLE__
-    int fd = accept( http->socket_fd, NULL, NULL );
-    if( fd >= 0 ) {
-      fcntl( fd, F_SETFD, FD_CLOEXEC );
-      fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
-    }
-#else
-#ifdef __APPLE__
-    int fd = accept( http->socket_fd, NULL, NULL );
-    if( fd >= 0 ) {
-      fcntl( fd, F_SETFD, FD_CLOEXEC );
-      fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
-    }
-#else
+# if defined(__linux__)
     int fd = accept4( http->socket_fd, NULL, NULL, SOCK_NONBLOCK|SOCK_CLOEXEC );
-#endif
-#endif
+# else
+    int fd = accept( http->socket_fd, NULL, NULL );
+    if( fd >= 0 ) {
+      fcntl( fd, F_SETFD, FD_CLOEXEC );
+      fcntl( fd, F_SETFL, fcntl( fd, F_GETFL, 0 ) | O_NONBLOCK );
+    }
+# endif
 
     if( FD_UNLIKELY( -1==fd ) ) {
       if( FD_LIKELY( EAGAIN==errno ) ) break;

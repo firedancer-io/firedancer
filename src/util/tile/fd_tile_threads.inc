@@ -12,6 +12,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/resource.h>
+#include <sys/mman.h>
 #ifdef __linux__
 #include <sched.h>
 #include <syscall.h>
@@ -39,6 +41,10 @@
 
 #include "../sanitize/fd_sanitize.h"
 #include "fd_tile_private.h"
+
+#if defined(__linux__)
+#include <syscall.h>
+#endif
 
 /* Operating system shims ********************************************/
 

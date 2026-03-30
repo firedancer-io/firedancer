@@ -1217,24 +1217,30 @@ fd_log_private_boot( int  *   pargc,
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the
        default behavior. */
-    fd_log_private_sig_trap( SIGABRT   );
-    fd_log_private_sig_trap( SIGALRM   );
-    fd_log_private_sig_trap( SIGFPE    );
-    fd_log_private_sig_trap( SIGHUP    );
-    fd_log_private_sig_trap( SIGILL    );
-    fd_log_private_sig_trap( SIGQUIT   );
-    fd_log_private_sig_trap( SIGPIPE   );
-    fd_log_private_sig_trap( SIGSEGV   );
-    fd_log_private_sig_trap( SIGUSR1   );
-    fd_log_private_sig_trap( SIGUSR2   );
-    fd_log_private_sig_trap( SIGBUS    );
-    fd_log_private_sig_trap( SIGPOLL   );
-    fd_log_private_sig_trap( SIGPROF   );
-    fd_log_private_sig_trap( SIGSYS    );
-    fd_log_private_sig_trap( SIGTRAP   );
-    fd_log_private_sig_trap( SIGVTALRM );
-    fd_log_private_sig_trap( SIGXCPU   );
-    fd_log_private_sig_trap( SIGXFSZ   );
+    if( !fd_log_private_unclean_exit ) {
+      fd_log_private_sig_trap( SIGABRT   );
+      fd_log_private_sig_trap( SIGALRM   );
+      fd_log_private_sig_trap( SIGFPE    );
+      fd_log_private_sig_trap( SIGHUP    );
+      fd_log_private_sig_trap( SIGILL    );
+      fd_log_private_sig_trap( SIGINT    );
+      fd_log_private_sig_trap( SIGQUIT   );
+      fd_log_private_sig_trap( SIGPIPE   );
+      fd_log_private_sig_trap( SIGSEGV   );
+      fd_log_private_sig_trap( SIGTERM   );
+      fd_log_private_sig_trap( SIGUSR1   );
+      fd_log_private_sig_trap( SIGUSR2   );
+      fd_log_private_sig_trap( SIGBUS    );
+#   if defined(__linux__)
+      fd_log_private_sig_trap( SIGPOLL   );
+#   endif
+      fd_log_private_sig_trap( SIGPROF   );
+      fd_log_private_sig_trap( SIGSYS    );
+      fd_log_private_sig_trap( SIGTRAP   );
+      fd_log_private_sig_trap( SIGVTALRM );
+      fd_log_private_sig_trap( SIGXCPU   );
+      fd_log_private_sig_trap( SIGXFSZ   );
+    }
   }
 
   /* Hook up the permanent log */
@@ -1482,6 +1488,8 @@ fd_log_private_main_stack_sz( void ) {
   return stack_sz;
 }
 
+#if defined(__linux__)
+
 /* When pthread_setstack is not used to explicitly set the memory region
    for a new thread's stack, pthread_create will create a memory region
    (using either the requested size or a default size).  And, while
@@ -1703,6 +1711,18 @@ fail:
 #include "fd_log.h"
 
 FD_FN_UNUSED static inline void _unused( void ) {} /* required due to -Wpedantic */
+
+#else
+
+void
+fd_log_private_stack_discover( ulong   stack_sz,
+                               ulong * _stack0,
+                               ulong * _stack1 ) {
+  (void)stack_sz; (void)_stack0; (void)_stack1;
+  return;
+}
+
+#endif /* defined(__linux__) */
 
 #else
 #error "Unknown FD_LOG_STYLE"

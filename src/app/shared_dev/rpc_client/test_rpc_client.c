@@ -12,9 +12,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <sys/types.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <netinet/ip.h>
-
 
 FD_STATIC_ASSERT( FD_RPC_CLIENT_ALIGN    ==alignof(fd_rpc_client_t), unit_test );
 FD_STATIC_ASSERT( FD_RPC_CLIENT_FOOTPRINT==sizeof (fd_rpc_client_t), unit_test );
