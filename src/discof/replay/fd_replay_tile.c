@@ -717,7 +717,7 @@ get_identity_balance( fd_replay_tile_t * ctx, fd_funk_txn_xid_t xid ) {
 }
 
 static void
-vpublish_slot_completed( fd_replay_tile_t *  ctx,
+publish_slot_completed( fd_replay_tile_t *  ctx,
                         fd_stem_context_t * stem,
                         fd_bank_t *         bank,
                         int                 is_initial,
