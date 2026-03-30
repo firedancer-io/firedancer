@@ -209,11 +209,11 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define POOL_T    fd_bank_cost_tracker_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define FD_BANK_FLAGS_INACTIVE   (0UL)
-#define FD_BANK_FLAGS_INIT       (1UL)
-#define FD_BANK_FLAGS_REPLAYABLE (2UL)
-#define FD_BANK_FLAGS_FROZEN     (4UL)
-#define FD_BANK_FLAGS_DEAD       (8UL)
+#define FD_BANK_STATE_INACTIVE   (0UL)
+#define FD_BANK_STATE_INIT       (1UL)
+#define FD_BANK_STATE_REPLAYABLE (2UL)
+#define FD_BANK_STATE_FROZEN     (4UL)
+#define FD_BANK_STATE_DEAD       (8UL)
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management
@@ -237,7 +237,7 @@ struct fd_bank {
   ulong parent_idx;  /* index of the parent in the node pool */
   ulong child_idx;   /* index of the left-child in the node pool */
   ulong sibling_idx; /* index of the right-sibling in the node pool */
-  ulong flags;       /* keeps track of the state of the bank */
+  ulong state;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
 
   ulong refcnt; /* reference count on the bank, see replay for more details */
