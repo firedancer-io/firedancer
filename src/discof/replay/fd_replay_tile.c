@@ -637,19 +637,15 @@ replay_block_start( fd_replay_tile_t *  ctx,
   long before = fd_log_wallclock();
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
-  if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
-  }
-  if( FD_UNLIKELY( bank->flags!=FD_BANK_FLAGS_INIT ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is not in correct state for bank index %lu", bank_idx ));
-  }
+  FD_CRIT( bank, "invariant violation: bank is NULL" );
+  FD_CRIT( bank->flags==FD_BANK_FLAGS_INIT, "invariant violation: bank is not in correct state" );
 
   bank->preparation_begin_nanos = before;
 
   fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, parent_bank_idx );
-  if( FD_UNLIKELY( !parent_bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: parent bank is NULL for bank index %lu", parent_bank_idx ));
-  }
+  FD_CRIT( parent_bank, "invariant violation: parent bank is NULL" );
+  FD_CRIT( parent_bank->flags==FD_BANK_FLAGS_FROZEN, "invariant violation: parent bank is not in correct state" );
+
   ulong parent_slot = parent_bank->f.slot;
 
   /* Clone the bank from the parent.  We must special case the first
@@ -873,8 +869,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
   bank->last_transaction_finished_nanos = fd_log_wallclock();
-
-  FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
 
   /* Set poh hash in bank. */
   fd_hash_t * poh = fd_sched_get_poh( ctx->sched, bank->idx );
@@ -1760,7 +1754,7 @@ replay( fd_replay_tile_t *  ctx,
     }
     case FD_SCHED_TT_BLOCK_END: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
-      if( FD_LIKELY( !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
+      if( FD_LIKELY( bank->flags!=FD_BANK_FLAGS_DEAD ) ) replay_block_finalize( ctx, stem, bank );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX, NULL );
       break;
     }
@@ -2299,14 +2293,11 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
           bank->f.identity_vote_idx = ctx->identity_idx;
         }
       }
-      if( FD_UNLIKELY( !msg->txn_exec->is_committable && !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) {
+      if( FD_UNLIKELY( !msg->txn_exec->is_committable && bank->flags!=FD_BANK_FLAGS_DEAD) ) {
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead. */
         mark_bank_dead( ctx, stem, bank->idx );
         fd_sched_block_abandon( ctx->sched, bank->idx );
-      }
-      if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( bank );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
@@ -2331,14 +2322,14 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         txn_info->flags  &= ~FD_SCHED_TXN_IS_COMMITTABLE;
         txn_info->flags  &= ~FD_SCHED_TXN_IS_FEES_ONLY;
       }
-      if( FD_UNLIKELY( msg->txn_sigverify->err && !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) {
+      if( FD_UNLIKELY( msg->txn_sigverify->err && bank->flags!=FD_BANK_FLAGS_DEAD ) ) {
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
         mark_bank_dead( ctx, stem, bank->idx );
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
-      if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
+      if( FD_UNLIKELY( bank->flags==FD_BANK_FLAGS_DEAD && bank->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( bank );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
@@ -2350,11 +2341,8 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
     }
     case FD_EXECRP_TT_POH_HASH: {
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_POH_HASH, ULONG_MAX, exec_tile_idx, msg->poh_hash );
-      if( FD_UNLIKELY( res<0 && !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) {
+      if( FD_UNLIKELY( res<0 && bank->flags!=FD_BANK_FLAGS_DEAD ) ) {
         mark_bank_dead( ctx, stem, bank->idx );
-      }
-      if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( bank );
       }
       break;
     }

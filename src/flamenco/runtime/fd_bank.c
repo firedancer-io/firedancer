@@ -503,7 +503,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   FD_CRIT( child_bank->flags==FD_BANK_FLAGS_INIT, "invariant violation: bank is not initialized" );
 
   fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, child_bank->parent_idx );
-  FD_CRIT( parent_bank->flags&FD_BANK_FLAGS_FROZEN, "invariant violation: parent bank is not frozen" );
+  FD_CRIT( parent_bank->flags==FD_BANK_FLAGS_FROZEN, "invariant violation: parent bank is not frozen" );
 
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
   FD_CRIT( fd_bank_cost_tracker_pool_free( cost_tracker_pool )!=0UL, "invariant violation: no free cost tracker pool elements" );
@@ -715,7 +715,7 @@ fd_banks_advance_root( fd_banks_t * banks,
        is the case, we need to release the pool element. */
     fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
     if( head->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) {
-      FD_TEST( !(head->flags&FD_BANK_FLAGS_FROZEN) && head->flags&FD_BANK_FLAGS_REPLAYABLE );
+      FD_TEST( head->flags==FD_BANK_FLAGS_REPLAYABLE );
       FD_LOG_DEBUG(( "releasing cost tracker pool element for bank at index %lu", head->idx ));
       fd_bank_cost_tracker_pool_idx_release( cost_tracker_pool, head->cost_tracker_pool_idx );
       head->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
@@ -855,7 +855,7 @@ fd_banks_new_bank( fd_banks_t * banks,
 
   ulong            child_bank_idx = fd_banks_pool_idx_acquire( bank_pool );
   fd_bank_t * child_bank     = fd_banks_pool_ele( bank_pool, child_bank_idx );
-  FD_CRIT( !(child_bank->flags&FD_BANK_FLAGS_INIT), "invariant violation: bank for bank index is already initialized" );
+  FD_CRIT( child_bank->flags==FD_BANK_FLAGS_INACTIVE, "invariant violation: bank for bank index is already initialized" );
 
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
 
@@ -873,8 +873,8 @@ fd_banks_new_bank( fd_banks_t * banks,
   /* Then make sure that the parent bank is valid and frozen. */
 
   fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, parent_bank_idx );
-  FD_CRIT( parent_bank->flags&FD_BANK_FLAGS_INIT, "invariant violation: parent bank for bank index is uninitialized" );
-  FD_CRIT( !(parent_bank->flags&FD_BANK_FLAGS_DEAD), "invariant violation: parent bank for bank index is dead" );
+  FD_CRIT( parent_bank->flags==FD_BANK_FLAGS_INIT, "invariant violation: parent bank for bank index is uninitialized" );
+
   /* Link node->parent */
   child_bank->parent_idx = parent_bank_idx;
   /* Link parent->node and sibling->node */
@@ -905,7 +905,7 @@ fd_banks_subtree_mark_dead( fd_banks_t * banks,
                             fd_bank_t *  bank ) {
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
 
-  bank->flags |= FD_BANK_FLAGS_DEAD;
+  bank->flags = FD_BANK_FLAGS_DEAD;
   fd_banks_dead_push_head( fd_banks_get_dead_banks_deque( banks ), (fd_bank_idx_seq_t){ .idx = bank->idx, .seq = bank->bank_seq } );
 
   /* Recursively mark all children as dead. */
@@ -982,14 +982,14 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
 
     bank->stake_rewards_fork_id = UCHAR_MAX;
 
-    int needs_cancel = !!(bank->flags&FD_BANK_FLAGS_REPLAYABLE);
+    int needs_cancel = bank->flags==FD_BANK_FLAGS_REPLAYABLE;
     if( FD_LIKELY( needs_cancel ) ) {
       cancel->txncache_fork_id = bank->txncache_fork_id;
       cancel->slot             = bank->f.slot;
       cancel->bank_idx         = bank->idx;
     }
 
-    bank->flags = 0UL;
+    bank->flags = FD_BANK_FLAGS_INACTIVE;
 
     fd_banks_pool_ele_release( bank_pool, bank );
     fd_banks_dead_pop_head( dead_banks_queue );
@@ -1002,8 +1002,8 @@ void
 fd_banks_mark_bank_frozen( fd_bank_t * bank ) {
   fd_banks_t * banks = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
 
-  FD_CRIT( !(bank->flags&FD_BANK_FLAGS_FROZEN), "invariant violation: cost tracker pool index is null" );
-  bank->flags |= FD_BANK_FLAGS_FROZEN;
+  FD_CRIT( bank->flags!=FD_BANK_FLAGS_FROZEN, "invariant violation: cost tracker pool index is null" );
+  bank->flags = FD_BANK_FLAGS_FROZEN;
 
   FD_CRIT( bank->cost_tracker_pool_idx!=ULONG_MAX, "invariant violation: cost tracker pool index is null" );
   fd_bank_cost_tracker_pool_idx_release( fd_banks_get_cost_tracker_pool( banks ), bank->cost_tracker_pool_idx );
@@ -1020,7 +1020,7 @@ fd_banks_get_frontier_private( fd_bank_t * bank_pool,
   fd_bank_t * bank = fd_banks_pool_ele( bank_pool, bank_idx );
 
   if( bank->child_idx==fd_banks_pool_idx_null( bank_pool ) ) {
-    if( !(bank->flags&(FD_BANK_FLAGS_FROZEN|FD_BANK_FLAGS_DEAD)) ) {
+    if( bank->flags!=FD_BANK_FLAGS_FROZEN && bank->flags!=FD_BANK_FLAGS_DEAD ) {
       frontier_indices_out[*frontier_cnt_out] = bank->idx;
       (*frontier_cnt_out)++;
     }
