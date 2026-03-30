@@ -202,13 +202,13 @@ fd_progcache_query( fd_progcache_t *          cache,
 }
 
 fd_progcache_rec_t * /* read locked */
-fd_progcache_peek( fd_progcache_t * cache,
-                   fd_xid_t const * xid,
-                   void const *     prog_addr,
-                   ulong            revision_slot ) {
+fd_progcache_peek( fd_progcache_t    * cache,
+                   fd_xid_t    const * xid,
+                   fd_pubkey_t const * prog_addr,
+                   ulong               revision_slot ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   fd_progcache_load_fork( cache, xid );
-  fd_funk_rec_key_t key[1]; memcpy( key->uc, prog_addr, 32UL );
+  fd_funk_rec_key_t key[1]; fd_memcpy( key->uc, prog_addr->hash, 32UL );
   fd_progcache_rec_t * rec = fd_progcache_query( cache, xid, key, revision_slot );
   if( FD_UNLIKELY( !rec ) ) return NULL;
   return rec;
@@ -554,18 +554,19 @@ fd_progcache_insert( fd_progcache_t *        cache,
 }
 
 fd_progcache_rec_t * /* read locked */
-fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_xid_t const *           xid,
-                   void const *               prog_addr,
+fd_progcache_pull( fd_progcache_t           * cache,
+                   fd_xid_t           const * xid,
+                   fd_pubkey_t        const * prog_addr,
                    fd_prog_load_env_t const * env,
-                   fd_accdb_ro_t *            prog_ro ) {
+                   fd_accdb_ro_t            * prog_ro,
+                   fd_pubkey_t        const * program_owner ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   long dt = -fd_tickcount();
   fd_progcache_load_fork( cache, xid );
   cache->metrics->lookup_cnt++;
 
   fd_prog_info_t info[1];
-  if( FD_UNLIKELY( !fd_prog_info( info, prog_ro ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_prog_info( info, prog_ro, program_owner ) ) ) return NULL;
   ulong revision_slot = fd_progcache_revision_slot( env->epoch_slot0, info->deploy_slot );
 
   insert_params_t insert[1];

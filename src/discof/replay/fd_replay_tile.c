@@ -1273,7 +1273,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
        if it is the first time in an epoch. */
     fd_accdb_ro_t tip_receiver_acc[1];
     if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, tip_receiver_acc, &xid, tip_receiver ) ) ) {
-      tip_receiver_owner = FD_LOAD( fd_pubkey_t, fd_accdb_ref_owner( tip_receiver_acc ) );
+      tip_receiver_owner = *fd_accdb_ref_owner( tip_receiver_acc );
       fd_accdb_close_ro( ctx->accdb, tip_receiver_acc );
     }
   }

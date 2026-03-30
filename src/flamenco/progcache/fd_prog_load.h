@@ -5,13 +5,16 @@
    from the account database. */
 
 #include "../accdb/fd_accdb_ref.h"
+#include "../types/fd_types_custom.h"
 
 FD_PROTOTYPES_BEGIN
 
 /* fd_prog_info derives executable info from a program data account.
    progdata_ro is a handle to the program data account (ownership stays
-   with caller).  Populates *out and returns out on success.  On failure,
-   logs warning and returns NULL. */
+   with caller). program_owner is the owner pubkey of the program account
+   (NOT the programdata account). This is used to determine the loader type.
+   Populates *out and returns out on success.
+   On failure, logs warning and returns NULL. */
 
 struct fd_prog_info {
   /* Byte range within the account's data yielding ELF file */
@@ -27,8 +30,9 @@ struct fd_prog_info {
 typedef struct fd_prog_info fd_prog_info_t;
 
 fd_prog_info_t *
-fd_prog_info( fd_prog_info_t * out,
-              fd_accdb_ro_t *  progdata_ro );
+fd_prog_info( fd_prog_info_t    * out,
+              fd_accdb_ro_t     * progdata_ro,
+              fd_pubkey_t const * program_owner );
 
 /* fd_prog_versions derives sBPF versions from the current feature set. */
 

@@ -819,7 +819,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L495-L519 */
-  if( !memcmp( program_id, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  if( fd_pubkey_eq( program_id, &fd_solana_bpf_loader_v4_program_id ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L496 */
     FD_EXEC_CU_UPDATE( instr_ctx, LOADER_V4_DEFAULT_COMPUTE_UNITS );
 
@@ -916,7 +916,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->bank );
     fd_progcache_t * progcache = instr_ctx->runtime->progcache;
     fd_progcache_rec_t * cache_entry = fd_progcache_pull(
-        progcache, &xid, program_id, load_env, program_ro );
+        progcache, &xid, program_id, load_env, program_ro, fd_accdb_ref_owner( program_ro ) );
     if( FD_UNLIKELY( !cache_entry ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

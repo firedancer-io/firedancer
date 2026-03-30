@@ -1053,7 +1053,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   }
 # endif
 
-  FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro ), owner_b58 );
+  FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
   CSTR_JSON( id, id_cstr );
   fd_http_server_printf( ctx->http,
       "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":{"
