@@ -69,6 +69,7 @@ fd_ghost_new( void * shmem,
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_ghost_align() ) == (ulong)shmem + footprint );
 
   ghost->root           = ULONG_MAX;
+  ghost->wksp_gaddr     = fd_wksp_gaddr_fast( wksp, ghost );
   ghost->blk_pool_gaddr = fd_wksp_gaddr_fast( wksp, blk_pool_join( blk_pool_new ( blk_pool, blk_max             ) ) );
   ghost->blk_map_gaddr  = fd_wksp_gaddr_fast( wksp, blk_map_join ( blk_map_new  ( blk_map,  blk_chain_cnt, seed ) ) );
   ghost->vtr_pool_gaddr = fd_wksp_gaddr_fast( wksp, vtr_pool_join( vtr_pool_new ( vtr_pool, vtr_max             ) ) );
