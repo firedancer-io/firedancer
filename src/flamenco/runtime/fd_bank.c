@@ -792,35 +792,20 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
 
   fd_bank_t * target_bank = fd_banks_pool_ele( bank_pool, target_bank_idx );
 
-  /* Mark every node from the target bank up through its parents to the
-     root as being rooted.  We also need to figure out the oldest,
-     non-rooted ancestor of the target bank since we only want to
-     advance our root bank by one. */
+  /* Walk from target_bank up to root, recording the direct child of
+     root on the path (prev).  We only advance root by one level. */
 
-  uchar is_rooted[ FD_BANKS_MAX_BANKS ] = {0};
   fd_bank_t * curr = target_bank;
   fd_bank_t * prev = NULL;
   while( curr && curr!=root ) {
-    is_rooted[curr->idx] = 1;
-    prev                 = curr;
-    curr                 = fd_banks_pool_ele( bank_pool, curr->parent_idx );
+    prev = curr;
+    curr = fd_banks_pool_ele( bank_pool, curr->parent_idx );
   }
 
   /* If we didn't reach the old root or there is no parent, target is
      not a descendant. */
   if( FD_UNLIKELY( !curr || prev->parent_idx!=root->idx ) ) {
     FD_LOG_CRIT(( "invariant violation: target bank_idx %lu is not a direct descendant of root bank_idx %lu %lu %lu", target_bank_idx, root->idx, prev->idx, prev->parent_idx ));
-  }
-
-  curr = root;
-  while( curr && is_rooted[curr->idx] && curr!=target_bank ) { /* curr!=target_bank to avoid abandoning good forks. */
-    fd_bank_t * rooted_child = NULL;
-    ulong       child_idx    = curr->child_idx;
-    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
-      fd_bank_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
-      child_idx = child_bank->sibling_idx;
-    }
-    curr = rooted_child;
   }
 
   /* We will at most advance our root bank by one.  This means we can
