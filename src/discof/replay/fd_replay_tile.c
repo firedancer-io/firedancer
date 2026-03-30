@@ -817,9 +817,21 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->tips = bank->f.tips;
   slot_info->shred_cnt = bank->f.shred_cnt;
 
-  FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_cstr );
-  FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_cstr );
-  FD_LOG_DEBUG(( "publish_slot_completed: bank_idx=%lu slot=%lu bank_hash=%s block_id=%s", bank->idx, slot, bank_hash_cstr, block_id_cstr ));
+  FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_b58 );
+  FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
+  FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, bank hash %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu)"
+                 "and timings [started prepare %ld ns, started dispatching transactions %ld ns, finished executing transactions %ld ns, finished block %ld ns]",
+                 bank->f.slot, block_id_b58,
+                 bank_hash_b58,
+                 bank->f.transaction_count,
+                 bank->f.transaction_count - bank->f.nonvote_txn_count,
+                 bank->f.shred_cnt,
+                 bank->f.total_compute_units_used,
+                 bank->f.execution_fees + bank->f.priority_fees,
+                 bank->preparation_begin_nanos - bank->first_fec_set_received_nanos,
+                 bank->first_transaction_scheduled_nanos - bank->preparation_begin_nanos,
+                 bank->last_transaction_finished_nanos - bank->first_transaction_scheduled_nanos,
+                 bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -898,20 +910,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      though we could technically do this before the hash cmp and vote
      tower stuff. */
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */ );
-
-  FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_b58 );
-  FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu)"
-                 "and timings [started prepare %ld ns, started dispatching transactions %ld ns, finished executing transactions %ld ns, finished block %ld ns]",
-                 bank->f.slot, block_id_b58,
-                 bank->f.transaction_count,
-                 bank->f.transaction_count - bank->f.nonvote_txn_count,
-                 bank->f.shred_cnt,
-                 bank->f.total_compute_units_used,
-                 bank->f.execution_fees + bank->f.priority_fees,
-                 bank->preparation_begin_nanos - bank->first_fec_set_received_nanos,
-                 bank->first_transaction_scheduled_nanos - bank->preparation_begin_nanos,
-                 bank->last_transaction_finished_nanos - bank->first_transaction_scheduled_nanos,
-                 bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
 
 # if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
@@ -1056,6 +1054,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   ctx->is_leader   = 0;
 
   maybe_switch_identity( ctx );
+
 }
 
 static void
