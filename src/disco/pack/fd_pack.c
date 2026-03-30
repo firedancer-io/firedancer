@@ -2007,6 +2007,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, scheduler_arrival_time_nanos )+sizeof(((fd_txn_p_t*)NULL)->scheduler_arrival_time_nanos )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_tpu     )+sizeof(((fd_txn_p_t*)NULL)->source_tpu    )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_ipv4    )+sizeof(((fd_txn_p_t*)NULL)->source_ipv4   )<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, pack_alloc     )+sizeof(((fd_txn_p_t*)NULL)->pack_alloc    )<=1280UL, nt_memcpy );
+
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags          )+sizeof(((fd_txn_p_t*)NULL)->flags         )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _              )                                            <=1280UL, nt_memcpy );
       const ulong offset_into_txn = 1280UL - offsetof(fd_txn_p_t, _ );
@@ -2019,6 +2021,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       out_txnp->payload_sz                      = cur->txn->payload_sz;
       out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
       out_txnp->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
+      out_txnp->pack_alloc                      = cur->txn->pack_alloc;
       out_txnp->scheduler_arrival_time_nanos    = cur->txn->scheduler_arrival_time_nanos;
       out_txnp->source_tpu                      = cur->txn->source_tpu;
       out_txnp->source_ipv4                     = cur->txn->source_ipv4;
@@ -2482,6 +2485,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     out_txnp->payload_sz                      = cur->txn->payload_sz;
     out_txnp->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
     out_txnp->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
+    out_txnp->pack_alloc                      = cur->txn->pack_alloc;
     out_txnp->scheduler_arrival_time_nanos    = cur->txn->scheduler_arrival_time_nanos;
     out_txnp->source_tpu                      = cur->txn->source_tpu;
     out_txnp->source_ipv4                     = cur->txn->source_ipv4;
@@ -2564,7 +2568,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
   ulong vote_cus = fd_ulong_min( (ulong)((float)total_cus * vote_fraction),
                                  pack->lim->max_vote_cost_per_block - pack->cumulative_vote_cost );
-  ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_SIMPLE_VOTE_COST,
+  ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_MAX_SIMPLE_VOTE_COST,
                                            (ulong)((float)pack->lim->max_txn_per_microblock * vote_fraction) );
 
 
