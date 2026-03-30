@@ -672,7 +672,7 @@ fd_banks_advance_root( fd_banks_t * banks,
      have to remove banks that aren't descendants of the new root. */
 
   fd_bank_t * old_root = fd_banks_root( banks );
-  FD_CRIT( old_root->refcnt!=0UL, "refcnt for old root bank is nonzero" );
+  FD_CRIT( old_root->refcnt==0UL, "refcnt for old root bank is nonzero" );
 
   fd_bank_t * new_root = fd_banks_pool_ele( bank_pool, root_bank_idx );
 
