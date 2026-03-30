@@ -829,7 +829,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
                  bank->f.total_compute_units_used,
                  bank->f.execution_fees + bank->f.priority_fees,
                  !!parent_bank ? parent_bank->block_completed_nanos - bank->first_fec_set_received_nanos : LONG_MAX,
-                 bank->preparation_begin_nanos - bank->block_completed_nanos,
+                 bank->preparation_begin_nanos - bank->first_fec_set_received_nanos,
                  bank->first_transaction_scheduled_nanos - bank->preparation_begin_nanos,
                  bank->last_transaction_finished_nanos - bank->first_transaction_scheduled_nanos,
                  bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
