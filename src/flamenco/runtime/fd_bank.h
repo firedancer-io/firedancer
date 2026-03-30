@@ -209,21 +209,11 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define POOL_T    fd_bank_cost_tracker_t
 #include "../../util/tmpl/fd_pool.c"
 
-/* Initialized.  Not yet replayable. */
-#define FD_BANK_FLAGS_INIT       (0x00000001UL)
-/* Replayable.  Implies that FD_BANK_FLAGS_INIT is also set. */
-#define FD_BANK_FLAGS_REPLAYABLE (0x00000002UL)
-/* Frozen.  We finished replaying or because it was a snapshot/genesis
-   loaded bank.  Implies that FD_BANK_FLAGS_REPLAYABLE is also set. */
-#define FD_BANK_FLAGS_FROZEN     (0x00000004UL)
-/* Dead.  We stopped replaying it before we could finish it (e.g.
-   invalid block or pruned minority fork).  It is implied that
-   FD_BANK_FLAGS_INIT is set, but not necessarily
-   FD_BANK_FLAGS_REPLAYABLE. */
-#define FD_BANK_FLAGS_DEAD       (0x00000008UL)
- /* Rooted.  Part of the consnensus root fork.  Implies that
-    FD_BANK_FLAGS_FROZEN is also set. */
-#define FD_BANK_FLAGS_ROOTED     (0x00000010UL)
+#define FD_BANK_FLAGS_INACTIVE   (0UL)
+#define FD_BANK_FLAGS_INIT       (1UL)
+#define FD_BANK_FLAGS_REPLAYABLE (2UL)
+#define FD_BANK_FLAGS_FROZEN     (4UL)
+#define FD_BANK_FLAGS_DEAD       (8UL)
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management
