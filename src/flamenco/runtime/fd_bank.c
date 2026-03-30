@@ -729,7 +729,7 @@ fd_banks_advance_root( fd_banks_t * banks,
       head->stake_delegations_fork_id = USHORT_MAX;
     }
 
-    head->state = 0UL;
+    head->state = FD_BANK_STATE_INACTIVE;
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;
   }

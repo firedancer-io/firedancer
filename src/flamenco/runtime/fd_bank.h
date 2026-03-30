@@ -209,11 +209,32 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define POOL_T    fd_bank_cost_tracker_t
 #include "../../util/tmpl/fd_pool.c"
 
+/* The banks follow a state machine that generally transitions forward:
+   All banks start off as INACTIVE.  Once a bank is provisioned (when
+   the first FEC is received from the reassember), it is in the state
+   INIT; at this point, the bank is not yet replayable but the memory
+   has been reserved.  At this point, it is part of the bank tree and
+   additional children bank can be assigned to the bank.  Once the bank
+   is replayable, it is moved from INIT to REPLAYABLE and any relevant
+   state is copied over from the parent bank.  We know that the parent
+   bank is done executing at this point.  Transactions can now be
+   dispatched and scheduled against the bank.  If the block for the bank
+   is done executing then it transitions to the state FROZEN and the
+   fields in the bank should no longer change.
+
+   A bank can be marked DEAD even before it enters the replayable or
+   frozen state.  A dead bank can only transition to INACTIVE.
+
+       INACTIVE -> INIT -> REPLAYABLE -> FROZEN -> INACTIVE
+                        \            \
+                         v            v
+                        DEAD    ->   DEAD -> INACTIVE */
+
 #define FD_BANK_STATE_INACTIVE   (0UL)
 #define FD_BANK_STATE_INIT       (1UL)
 #define FD_BANK_STATE_REPLAYABLE (2UL)
-#define FD_BANK_STATE_FROZEN     (4UL)
-#define FD_BANK_STATE_DEAD       (8UL)
+#define FD_BANK_STATE_FROZEN     (3UL)
+#define FD_BANK_STATE_DEAD       (4UL)
 
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management
