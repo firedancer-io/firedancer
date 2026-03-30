@@ -169,7 +169,10 @@
     OVERRIDE(v, 0x1c, FD_VM_SBPF_EXPLICIT_SIGN_EXT,         &&OPCODE(0x1c), &&OPCODE(0x1cdepr)), \
     OVERRIDE(v, 0xbc, FD_VM_SBPF_EXPLICIT_SIGN_EXT,         &&OPCODE(0xbc), &&OPCODE(0xbcdepr)), \
     OVERRIDE(v, 0x14, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS, &&OPCODE(0x14), &&OPCODE(0x14depr)), \
-    OVERRIDE(v, 0x17, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS, &&OPCODE(0x17), &&OPCODE(0x17depr))
+    OVERRIDE(v, 0x17, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS, &&OPCODE(0x17), &&OPCODE(0x17depr))  \
+                                                                                                 \
+    /* SIMD-0178: Static syscalls */                                                             \
+    OVERRIDE(v, 0x85, FD_VM_SBPF_STATIC_SYSCALLS, &&OPCODE(0x85_static), &&OPCODE(0x85)),
 
   static void const * const interp_jump_table[ FD_SBPF_VERSION_COUNT ][ 256 ] = {
     [FD_SBPF_V0] = { V0_BASE },

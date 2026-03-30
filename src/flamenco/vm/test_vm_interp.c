@@ -21,13 +21,14 @@ accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
 }
 
 static void
-test_program_success( char *                test_case_name,
+test_program_exec( char *                test_case_name,
                       ulong                 expected_result,
+                      int                   expected_err,
+                      ulong                 sbpf_version,
                       ulong const *         text,
                       ulong                 text_cnt,
                       fd_sbpf_syscalls_t *  syscalls,
                       fd_exec_instr_ctx_t * instr_ctx ) {
-//FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
@@ -49,7 +50,7 @@ test_program_success( char *                test_case_name,
       /* text_sz                                */ 8UL*text_cnt,
       /* entry_pc                               */ 0UL,
       /* calldests                              */ NULL,
-      /* sbpf_version                           */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* sbpf_version                           */ sbpf_version,
       /* syscalls                               */ syscalls,
       /* trace                                  */ NULL,
       /* sha                                    */ sha,
@@ -80,18 +81,30 @@ test_program_success( char *                test_case_name,
   err = fd_vm_exec( vm );
   dt += fd_log_wallclock();
 
-  if( FD_UNLIKELY( vm->reg[0]!=expected_result ) ) {
-    FD_LOG_WARNING(( "Interp err: %i (%s)",   err,        fd_vm_strerror( err ) ));
-    FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm->reg[0], vm->reg[0]            ));
-    FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm->pc,     vm->pc                ));
-    FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm->ic,     vm->ic                ));
+  if( expected_err!=FD_VM_SUCCESS ) {
+    if( FD_UNLIKELY( err!=expected_err ) ) {
+      FD_LOG_WARNING(( "Expected err %i (%s), got %i (%s)",
+                       expected_err, fd_vm_strerror( expected_err ),
+                       err,          fd_vm_strerror( err ) ));
+    }
+    FD_TEST( err==expected_err );
+    test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+  } else {
+    if( FD_UNLIKELY( vm->reg[0]!=expected_result ) ) {
+      FD_LOG_WARNING(( "Interp err: %i (%s)",   err,        fd_vm_strerror( err ) ));
+      FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm->reg[0], vm->reg[0]            ));
+      FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm->pc,     vm->pc                ));
+      FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm->ic,     vm->ic                ));
+    }
+    FD_TEST( vm->reg[0]==expected_result );
   }
+
 //FD_LOG_NOTICE(( "Instr counter: %lu", vm.ic ));
-  FD_TEST( vm->reg[0]==expected_result );
   FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
 //FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)vm.ic ));
 //FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.ic / (double) dt)));
 }
+
 
 static void
 generate_random_alu_instrs( fd_rng_t * rng,
@@ -350,9 +363,22 @@ main( int     argc,
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 
-# define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
-    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                       \
-    test_program_success( (test_case_name), (expected_result), _text, (text_cnt), syscalls, instr_ctx ); \
+# define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do {         \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                               \
+    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS,                 \
+                          TEST_VM_DEFAULT_SBPF_VERSION, _text, (text_cnt), syscalls, instr_ctx ); \
+  } while(0)
+
+# define TEST_V3_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                  \
+    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS,    \
+                          FD_SBPF_V3, _text, (text_cnt), syscalls, instr_ctx ); \
+  } while(0)
+
+# define TEST_V3_ERROR( test_case_name, expected_err, text_cnt, ... ) do {    \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                \
+    test_program_exec( (test_case_name), 0UL, (expected_err),              \
+                          FD_SBPF_V3, _text, (text_cnt), syscalls, instr_ctx ); \
   } while(0)
 
 # define FD_SBPF_INSTR(op, dst, src, off, val) (fd_vm_instr( op, dst, src, off, val ))
@@ -980,21 +1006,135 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
+  /* SIMD-0178: Static syscalls (SBPF V3+) */
+
+  TEST_V3_SUCCESS("static-syscall", 15, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2,  0,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3,  0,      0, 3),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4,  0,      0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5,  0,      0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           0,      0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-syscall-args", 150, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 10),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2,  0,      0, 20),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3,  0,      0, 30),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4,  0,      0, 40),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5,  0,      0, 50),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           0,      0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-fwd", 42, 4,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           1,   0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,   0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0,  0,   0, 42),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,   0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-bwd", 99, 5,
+    FD_SBPF_INSTR(FD_SBPF_OP_JA,        0,          0,     +2, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 99),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, (uint)(int)-3),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-boundary", 55, 5,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 55),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-nested", 42, 8,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 42),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-then-external-syscall", 100, 11,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R6, 0,           0, 100),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,           0, 7),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_REG, FD_SBPF_R1, FD_SBPF_R6, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          0,           0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,           0, 0),
+  );
+
+  TEST_V3_ERROR("static-syscall-external-missing", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 0, 0, 0xDEADBEEF),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-syscall-external-zero", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-hi", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 3,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, 100),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-lo", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 3,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, (uint)(int)-10),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-eq", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 4,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, 2), /* target=4==text_cnt */
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-bad-src-2", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 2, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-bad-src-9", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 9, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-stack-ovflw", FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 1, 0, (uint)(int)-1), /* self-call (target=0) */
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
   ulong   text_cnt = 128*1024*1024;
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
 
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success( "alu_bench", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu_bench", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success( "alu64_bench", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu64_bench", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   text_cnt = 1024UL;
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success( "alu_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu_bench_short", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success( "alu64_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu64_bench_short", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   test_0cu_exit( runtime );
 

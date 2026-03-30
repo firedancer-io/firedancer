@@ -702,7 +702,7 @@ interp_exec:
        (*)but after checking calldests, see point below. */
 
       /* Agave's order of checks
-         (https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L486):
+         (https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L565-L572):
           1. Lookup imm hash in FunctionRegistry (calldests_test is our equivalent)
           2. Push stack frame
           3. Check PC
@@ -737,6 +737,31 @@ interp_exec:
       FD_VM_INTERP_SYSCALL_EXEC;
 
     }
+  } FD_VM_INTERP_BRANCH_END;
+
+  /* SIMD-0178: Static syscalls (SBPF V3+)
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L542-L577 */
+  FD_VM_INTERP_BRANCH_BEGIN(0x85_static) { /* FD_SBPF_OP_CALL_IMM (static syscalls) */
+
+    if( src == 0 ) {
+      /* External syscall
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L545-L553 */
+      fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL ) : NULL;
+      if( FD_UNLIKELY( !syscall ) ) goto sigillbr;
+      FD_VM_INTERP_SYSCALL_EXEC;
+    } else if( src == 1 ) {
+      /* Internal call
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L555-L563
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L97-L103 */
+      long target_pc_l = fd_long_sat_add( (long)pc, fd_long_sat_add( (long)(int)imm, 1L ) );
+      if( FD_UNLIKELY( target_pc_l<0L || (ulong)target_pc_l>=text_cnt ) ) goto sigillbr;
+      FD_VM_INTERP_STACK_PUSH;
+      pc = (ulong)target_pc_l - 1;
+    } else {
+      /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L574-L576 */
+      goto sigillbr;
+    }
+
   } FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x86) /* FD_SBPF_OP_LMUL32_IMM */
