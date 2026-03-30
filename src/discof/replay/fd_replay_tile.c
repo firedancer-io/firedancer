@@ -717,7 +717,7 @@ get_identity_balance( fd_replay_tile_t * ctx, fd_funk_txn_xid_t xid ) {
 }
 
 static void
-publish_slot_completed( fd_replay_tile_t *  ctx,
+vpublish_slot_completed( fd_replay_tile_t *  ctx,
                         fd_stem_context_t * stem,
                         fd_bank_t *         bank,
                         int                 is_initial,
@@ -820,7 +820,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_b58 );
   FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
   FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, bank hash %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu)"
-                 "and timings [started prepare %ld ns, started dispatching transactions %ld ns, finished executing transactions %ld ns, finished block %ld ns]",
+                 "and timings [since parent fini %ld ns, started prepare %ld ns, started dispatching transactions %ld ns, finished executing transactions %ld ns, finished block %ld ns]",
                  bank->f.slot, block_id_b58,
                  bank_hash_b58,
                  bank->f.transaction_count,
@@ -828,7 +828,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
                  bank->f.shred_cnt,
                  bank->f.total_compute_units_used,
                  bank->f.execution_fees + bank->f.priority_fees,
-                 bank->preparation_begin_nanos - bank->first_fec_set_received_nanos,
+                 !!parent_bank ? parent_bank->block_completed_nanos - bank->first_fec_set_received_nanos : LONG_MAX,
+                 bank->preparation_begin_nanos - bank->block_completed_nanos,
                  bank->first_transaction_scheduled_nanos - bank->preparation_begin_nanos,
                  bank->last_transaction_finished_nanos - bank->first_transaction_scheduled_nanos,
                  bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
