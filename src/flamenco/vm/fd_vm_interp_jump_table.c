@@ -1,6 +1,6 @@
   /* interp_jump_table holds the sBPF interpreter jump table.  It is an
      array where each index is an opcode that can be jumped to be
-     executed.  Invalid opcodes branch to the sigill label.*/
+     executed.  Invalid opcodes branch to the sigill label. */
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #define OPCODE(opcode) interp_##opcode
 
@@ -15,6 +15,13 @@
      sBPF version, using the FD_VM_SBPF_* feature macros. */
 #define OVERRIDE(v, op, cond, ltrue, lfalse) \
     [op] = cond(v) ? (ltrue) : (lfalse)
+
+  /* OVERRIDE_WITH_FALLBACK is like OVERRIDE but when the condition is
+     false, it falls back to a second condition before using lfalse.
+     This is to avoid last-write-wins clobbering when two mutually
+     exclusive features share the same opcode slot. */
+#define OVERRIDE_WITH_FALLBACK(v, op, cond1, ltrue1, cond2, ltrue2, lfalse) \
+    [op] = cond1(v) ? (ltrue1) : cond2(v) ? (ltrue2) : (lfalse)
 
   /* V0_BASE: Complete sBPF v0 opcode table.
      This is the base for all versions.  Version-dependent entries
@@ -86,93 +93,111 @@
     /* 0xfc */ [0xfc]=&&sigill,           [0xfd]=&&sigill,         [0xfe]=&&sigill,       [0xff]=&&sigill
 
   /* VERSION_OVERRIDES: Applies version-dependent opcode overrides
-     on top of V0_BASE using FD_VM_SBPF_* conditional macros.
-     Grouped by SIMD specification. */
-#define VERSION_OVERRIDES(v)                                                                     \
-    /* SIMD-0173: LDDW (disabled in v2+) */                                                      \
-    OVERRIDE(v, 0x18, FD_VM_SBPF_ENABLE_LDDW, &&OPCODE(0x18), &&sigill),                         \
-    OVERRIDE(v, 0xf7, FD_VM_SBPF_ENABLE_LDDW, &&sigill,       &&OPCODE(0xf7)),                   \
-                                                                                                 \
-    /* SIMD-0173: LE (disabled in v2+) */                                                        \
-    OVERRIDE(v, 0xd4, FD_VM_SBPF_ENABLE_LE,   &&OPCODE(0xd4), &&sigill),                         \
-                                                                                                 \
-    /* SIMD-0173: LDXW, STW, STXW */                                                             \
-    OVERRIDE(v, 0x61, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x8c)),        \
-    OVERRIDE(v, 0x62, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x87)),        \
-    OVERRIDE(v, 0x63, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x8f)),        \
-    OVERRIDE(v, 0x8c, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x8c), &&sigill),              \
-    OVERRIDE(v, 0x87, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x87), &&OPCODE(0x87depr)),    \
-    OVERRIDE(v, 0x8f, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x8f), &&sigill),              \
-                                                                                                 \
-    /* SIMD-0173: LDXH, STH, STXH */                                                             \
-    OVERRIDE(v, 0x69, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x3c)),        \
-    OVERRIDE(v, 0x6a, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x37)),        \
-    OVERRIDE(v, 0x6b, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x3f)),        \
-    OVERRIDE(v, 0x3c, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x3c), &&OPCODE(0x3cdepr)),    \
-    OVERRIDE(v, 0x37, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x37), &&OPCODE(0x37depr)),    \
-    OVERRIDE(v, 0x3f, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x3f), &&OPCODE(0x3fdepr)),    \
-                                                                                                 \
-    /* SIMD-0173: LDXB, STB, STXB */                                                             \
-    OVERRIDE(v, 0x71, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x2c)),        \
-    OVERRIDE(v, 0x72, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x27)),        \
-    OVERRIDE(v, 0x73, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x2f)),        \
-    OVERRIDE(v, 0x2c, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x2c), &&OPCODE(0x2cdepr)),    \
-    OVERRIDE(v, 0x27, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x27), &&OPCODE(0x27depr)),    \
-    OVERRIDE(v, 0x2f, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x2f), &&OPCODE(0x2fdepr)),    \
-                                                                                                 \
-    /* SIMD-0173: LDXDW, STDW, STXDW */                                                          \
-    OVERRIDE(v, 0x79, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x9c)),        \
-    OVERRIDE(v, 0x7a, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x97)),        \
-    OVERRIDE(v, 0x7b, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x9f)),        \
-    OVERRIDE(v, 0x9c, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x9c), &&OPCODE(0x9cdepr)),    \
-    OVERRIDE(v, 0x97, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x97), &&OPCODE(0x97depr)),    \
-    OVERRIDE(v, 0x9f, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x9f), &&OPCODE(0x9fdepr)),    \
-                                                                                                 \
-    /* SIMD-0174: PQR (enabled in v2+) */                                                        \
-    OVERRIDE(v, 0x36, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x36), &&sigill),                          \
-    OVERRIDE(v, 0x3e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x3e), &&sigill),                          \
-    OVERRIDE(v, 0x46, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x46), &&sigill),                          \
-    OVERRIDE(v, 0x4e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x4e), &&sigill),                          \
-    OVERRIDE(v, 0x56, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x56), &&sigill),                          \
-    OVERRIDE(v, 0x5e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x5e), &&sigill),                          \
-    OVERRIDE(v, 0x66, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x66), &&sigill),                          \
-    OVERRIDE(v, 0x6e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x6e), &&sigill),                          \
-    OVERRIDE(v, 0x76, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x76), &&sigill),                          \
-    OVERRIDE(v, 0x7e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x7e), &&sigill),                          \
-    OVERRIDE(v, 0x86, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x86), &&sigill),                          \
-    OVERRIDE(v, 0x8e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x8e), &&sigill),                          \
-    OVERRIDE(v, 0x96, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x96), &&sigill),                          \
-    OVERRIDE(v, 0x9e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x9e), &&sigill),                          \
-    OVERRIDE(v, 0xb6, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xb6), &&sigill),                          \
-    OVERRIDE(v, 0xbe, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xbe), &&sigill),                          \
-    OVERRIDE(v, 0xc6, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xc6), &&sigill),                          \
-    OVERRIDE(v, 0xce, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xce), &&sigill),                          \
-    OVERRIDE(v, 0xd6, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xd6), &&sigill),                          \
-    OVERRIDE(v, 0xde, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xde), &&sigill),                          \
-    OVERRIDE(v, 0xe6, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xe6), &&sigill),                          \
-    OVERRIDE(v, 0xee, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xee), &&sigill),                          \
-    OVERRIDE(v, 0xf6, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xf6), &&sigill),                          \
-    OVERRIDE(v, 0xfe, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xfe), &&sigill),                          \
-                                                                                                 \
-    /* SIMD-0174: disable MUL, DIV, MOD (disabled in v2+) */                                     \
-    OVERRIDE(v, 0x24, FD_VM_SBPF_ENABLE_PQR, &&sigill, &&OPCODE(0x24)),                          \
-    OVERRIDE(v, 0x34, FD_VM_SBPF_ENABLE_PQR, &&sigill, &&OPCODE(0x34)),                          \
-    OVERRIDE(v, 0x94, FD_VM_SBPF_ENABLE_PQR, &&sigill, &&OPCODE(0x94)),                          \
-                                                                                                 \
-    /* SIMD-0174: NEG (disabled in v2+) */                                                       \
-    OVERRIDE(v, 0x84, FD_VM_SBPF_ENABLE_NEG, &&OPCODE(0x84), &&sigill),                          \
-                                                                                                 \
-    /* SIMD-0174: Explicit Sign Extension + Register Immediate Subtraction.                      \
-       Note: 0x14 is affected by both. */                                                        \
-    OVERRIDE(v, 0x04, FD_VM_SBPF_EXPLICIT_SIGN_EXT,         &&OPCODE(0x04), &&OPCODE(0x04depr)), \
-    OVERRIDE(v, 0x0c, FD_VM_SBPF_EXPLICIT_SIGN_EXT,         &&OPCODE(0x0c), &&OPCODE(0x0cdepr)), \
-    OVERRIDE(v, 0x1c, FD_VM_SBPF_EXPLICIT_SIGN_EXT,         &&OPCODE(0x1c), &&OPCODE(0x1cdepr)), \
-    OVERRIDE(v, 0xbc, FD_VM_SBPF_EXPLICIT_SIGN_EXT,         &&OPCODE(0xbc), &&OPCODE(0xbcdepr)), \
-    OVERRIDE(v, 0x14, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS, &&OPCODE(0x14), &&OPCODE(0x14depr)), \
-    OVERRIDE(v, 0x17, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS, &&OPCODE(0x17), &&OPCODE(0x17depr))  \
-                                                                                                 \
-    /* SIMD-0178: Static syscalls */                                                             \
-    OVERRIDE(v, 0x85, FD_VM_SBPF_STATIC_SYSCALLS, &&OPCODE(0x85_static), &&OPCODE(0x85)),
+     on top of V0_BASE. */
+#define VERSION_OVERRIDES(v)                                                                                           \
+                                                                                                                       \
+    /* === V1 (SIMD-0166) ============================================= */                                             \
+    /* (no opcode changes in V1, only stack frame semantics) */                                                        \
+                                                                                                                       \
+    /* === V2 (SIMD-0173, SIMD-0174) ================================== */                                             \
+                                                                                                                       \
+    /* SIMD-0173: disable LDDW, enable HOR64 */                                                                        \
+    OVERRIDE(v, 0x18, FD_VM_SBPF_DISABLE_LDDW, &&sigill,       &&OPCODE(0x18)),                                        \
+    OVERRIDE(v, 0xf7, FD_VM_SBPF_DISABLE_LDDW, &&OPCODE(0xf7), &&sigill),                                              \
+                                                                                                                       \
+    /* SIMD-0173: disable LE */                                                                                        \
+    OVERRIDE(v, 0xd4, FD_VM_SBPF_DISABLE_LE, &&sigill, &&OPCODE(0xd4)),                                                \
+                                                                                                                       \
+    /* SIMD-0173: move memory instruction classes */                                                                   \
+    OVERRIDE(v, 0x61, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x8c)),                              \
+    OVERRIDE(v, 0x62, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x87)),                              \
+    OVERRIDE(v, 0x63, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x8f)),                              \
+    OVERRIDE(v, 0x8c, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x8c), &&sigill),                                    \
+    OVERRIDE(v, 0x87, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x87), &&OPCODE(0x87depr)),                          \
+    OVERRIDE(v, 0x8f, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x8f), &&sigill),                                    \
+    OVERRIDE(v, 0x69, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x3c)),                              \
+    OVERRIDE(v, 0x6a, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x37)),                              \
+    OVERRIDE(v, 0x6b, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x3f)),                              \
+    OVERRIDE(v, 0x3c, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x3c), &&OPCODE(0x3cdepr)),                          \
+    OVERRIDE(v, 0x37, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x37), &&OPCODE(0x37depr)),                          \
+    OVERRIDE(v, 0x3f, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x3f), &&OPCODE(0x3fdepr)),                          \
+    OVERRIDE(v, 0x71, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x2c)),                              \
+    OVERRIDE(v, 0x72, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x27)),                              \
+    OVERRIDE(v, 0x73, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x2f)),                              \
+    OVERRIDE(v, 0x2c, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x2c), &&OPCODE(0x2cdepr)),                          \
+    OVERRIDE(v, 0x27, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x27), &&OPCODE(0x27depr)),                          \
+    OVERRIDE(v, 0x2f, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x2f), &&OPCODE(0x2fdepr)),                          \
+    OVERRIDE(v, 0x79, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x9c)),                              \
+    OVERRIDE(v, 0x7a, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x97)),                              \
+    OVERRIDE(v, 0x7b, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&sigill,       &&OPCODE(0x9f)),                              \
+    OVERRIDE(v, 0x9c, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x9c), &&OPCODE(0x9cdepr)),                          \
+    OVERRIDE(v, 0x97, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x97), &&OPCODE(0x97depr)),                          \
+    OVERRIDE(v, 0x9f, FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES, &&OPCODE(0x9f), &&OPCODE(0x9fdepr)),                          \
+                                                                                                                       \
+    /* SIMD-0174: enable PQR, disable MUL/DIV/MOD (PQR-only, no JMP32 overlap) */                                       \
+    OVERRIDE(v, 0x86, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x86), &&sigill),                                                \
+    OVERRIDE(v, 0x8e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x8e), &&sigill),                                                \
+    OVERRIDE(v, 0x96, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x96), &&sigill),                                                \
+    OVERRIDE(v, 0x9e, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x9e), &&sigill),                                                \
+    OVERRIDE(v, 0xe6, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xe6), &&sigill),                                                \
+    OVERRIDE(v, 0xee, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xee), &&sigill),                                                \
+    OVERRIDE(v, 0xf6, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xf6), &&sigill),                                                \
+    OVERRIDE(v, 0xfe, FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xfe), &&sigill),                                                \
+    OVERRIDE(v, 0x24, FD_VM_SBPF_ENABLE_PQR, &&sigill, &&OPCODE(0x24)),                                                \
+    OVERRIDE(v, 0x34, FD_VM_SBPF_ENABLE_PQR, &&sigill, &&OPCODE(0x34)),                                                \
+    OVERRIDE(v, 0x94, FD_VM_SBPF_ENABLE_PQR, &&sigill, &&OPCODE(0x94)),                                                \
+                                                                                                                       \
+    /* SIMD-0174: disable NEG */                                                                                       \
+    OVERRIDE(v, 0x84, FD_VM_SBPF_DISABLE_NEG, &&sigill, &&OPCODE(0x84)),                                               \
+                                                                                                                       \
+    /* SIMD-0174: explicit sign extension + swap sub reg/imm operands */                                               \
+    OVERRIDE(v, 0x04, FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS, &&OPCODE(0x04), &&OPCODE(0x04depr)),              \
+    OVERRIDE(v, 0x0c, FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS, &&OPCODE(0x0c), &&OPCODE(0x0cdepr)),              \
+    OVERRIDE(v, 0x1c, FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS, &&OPCODE(0x1c), &&OPCODE(0x1cdepr)),              \
+    OVERRIDE(v, 0xbc, FD_VM_SBPF_EXPLICIT_SIGN_EXTENSION_OF_RESULTS, &&OPCODE(0xbc), &&OPCODE(0xbcdepr)),              \
+    OVERRIDE(v, 0x14, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS,          &&OPCODE(0x14), &&OPCODE(0x14depr)),              \
+    OVERRIDE(v, 0x17, FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS,          &&OPCODE(0x17), &&OPCODE(0x17depr)),              \
+                                                                                                                       \
+    /* SIMD-0178: Static syscalls */                                                                                   \
+    OVERRIDE(v, 0x85, FD_VM_SBPF_STATIC_SYSCALLS, &&OPCODE(0x85_static), &&OPCODE(0x85)),                              \
+                                                                                                                       \
+    /* SIMD-0174: PQR (SBPF V2) / SIMD-0377: JMP32 (SBPF V3)
+       These opcodes conflict in SBPF V2 and SBPF V3, so we use
+       OVERRIDE_WITH_FALLBACK to avoid last-write-wins bugs.
+
+       FD_VM_SBPF_ENABLE_JMP32 and FD_VM_SBPF_ENABLE_PQR are mutually
+       exclusive - see static asserts below. */                                                                                      \
+    OVERRIDE_WITH_FALLBACK(v, 0x36, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x36_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x36), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x3e, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x3e_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x3e), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x46, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x46_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x46), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x4e, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x4e_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x4e), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x56, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x56_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x56), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x5e, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x5e_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x5e), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x66, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x66_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x66), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x6e, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x6e_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x6e), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x76, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x76_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x76), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0x7e, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x7e_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0x7e), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0xb6, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0xb6_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xb6), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0xbe, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0xbe_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xbe), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0xc6, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0xc6_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xc6), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0xce, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0xce_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xce), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0xd6, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0xd6_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xd6), &&sigill), \
+    OVERRIDE_WITH_FALLBACK(v, 0xde, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0xde_jmp32), FD_VM_SBPF_ENABLE_PQR, &&OPCODE(0xde), &&sigill), \
+                                                                                                                                     \
+    /* SIMD-0377: JMP32 non-conflicting opcodes */                                                                                   \
+    OVERRIDE(v, 0x16, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x16_jmp32), &&sigill),                                                      \
+    OVERRIDE(v, 0x1e, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x1e_jmp32), &&sigill),                                                      \
+    OVERRIDE(v, 0x26, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x26_jmp32), &&sigill),                                                      \
+    OVERRIDE(v, 0x2e, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0x2e_jmp32), &&sigill),                                                      \
+    OVERRIDE(v, 0xa6, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0xa6_jmp32), &&sigill),                                                      \
+    OVERRIDE(v, 0xae, FD_VM_SBPF_ENABLE_JMP32, &&OPCODE(0xae_jmp32), &&sigill)
+
+  /* PQR and JMP32 need to be mutually exclusive */
+  FD_STATIC_ASSERT( !(FD_VM_SBPF_ENABLE_PQR(FD_SBPF_V0) && FD_VM_SBPF_ENABLE_JMP32(FD_SBPF_V0)), pqr_jmp32_v0 );
+  FD_STATIC_ASSERT( !(FD_VM_SBPF_ENABLE_PQR(FD_SBPF_V1) && FD_VM_SBPF_ENABLE_JMP32(FD_SBPF_V1)), pqr_jmp32_v1 );
+  FD_STATIC_ASSERT( !(FD_VM_SBPF_ENABLE_PQR(FD_SBPF_V2) && FD_VM_SBPF_ENABLE_JMP32(FD_SBPF_V2)), pqr_jmp32_v2 );
+  FD_STATIC_ASSERT( !(FD_VM_SBPF_ENABLE_PQR(FD_SBPF_V3) && FD_VM_SBPF_ENABLE_JMP32(FD_SBPF_V3)), pqr_jmp32_v3 );
+  FD_STATIC_ASSERT( !(FD_VM_SBPF_ENABLE_PQR(FD_SBPF_V4) && FD_VM_SBPF_ENABLE_JMP32(FD_SBPF_V4)), pqr_jmp32_v4 );
 
   static void const * const interp_jump_table[ FD_SBPF_VERSION_COUNT ][ 256 ] = {
     [FD_SBPF_V0] = { V0_BASE },
@@ -184,5 +209,6 @@
 
 #undef V0_BASE
 #undef VERSION_OVERRIDES
+#undef OVERRIDE_WITH_FALLBACK
 #undef OVERRIDE
 #undef OPCODE

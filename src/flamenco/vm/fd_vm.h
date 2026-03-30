@@ -217,7 +217,9 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   int   direct_mapping;                         /* If direct mapping feature flag is enabled */
   int   syscall_parameter_address_restrictions; /* If syscall_parameter_address_restrictions feature flag is enabled */
   int   virtual_address_space_adjustments;      /* If virtual_address_space_adjustments feature flag is enabled */
-  int   stack_frame_gaps_enabled;               /* If fixed 4 KiB gaps exist between stack frames */
+
+  ulong stack_frame_sz;                  /* The size of a stack frame gap, in bytes. 0 if this is variable */
+  ulong stack_push_frame_count;          /* The number of stack frames to adjust the stack by on every stack push */
 
   /* Agave uses the segv vaddr in several different cases, including:
      - Determining whether or not to return a regular or stack access violation
@@ -244,7 +246,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527840UL)
+#define FD_VM_FOOTPRINT (527856UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
