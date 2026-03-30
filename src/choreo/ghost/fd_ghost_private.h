@@ -46,6 +46,7 @@
 
 struct __attribute__((aligned(128UL))) fd_ghost {
   ulong root;           /* pool idx of the root tree element */
+  ulong wksp_gaddr;     /* wksp gaddr of fd_ghost in the backing wksp */
   ulong blk_pool_gaddr; /* memory offset of the blk_pool */
   ulong blk_map_gaddr;  /* memory offset of the blk_map */
   ulong vtr_pool_gaddr; /* memory offset of the vtr_pool */
@@ -57,50 +58,52 @@ typedef struct fd_ghost fd_ghost_t;
 typedef fd_ghost_blk_t blk_pool_t;
 typedef fd_ghost_vtr_t vtr_pool_t;
 
+/* wksp returns the local join to the wksp backing the
+   ghost.  The lifetime of the returned pointer is at least as
+   long as the lifetime of the local join.  Assumes ghost is a
+   current local join. */
+
+FD_FN_PURE static inline fd_wksp_t *
+wksp( fd_ghost_t const * ghost ) {
+  return (fd_wksp_t *)( ((ulong)ghost) - ghost->wksp_gaddr );
+}
+
 static inline blk_pool_t *
 blk_pool( fd_ghost_t * ghost ) {
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  return (blk_pool_t *)fd_wksp_laddr_fast( wksp, ghost->blk_pool_gaddr );
+  return (blk_pool_t *)fd_wksp_laddr_fast( wksp( ghost ), ghost->blk_pool_gaddr );
 }
 
 static inline blk_pool_t const *
 blk_pool_const( fd_ghost_t const * ghost ) {
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  return (blk_pool_t const *)fd_wksp_laddr_fast( wksp, ghost->blk_pool_gaddr );
+  return (blk_pool_t const *)fd_wksp_laddr_fast( wksp( ghost ), ghost->blk_pool_gaddr );
 }
 
 static inline blk_map_t *
 blk_map( fd_ghost_t * ghost ) {
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  return (blk_map_t *)fd_wksp_laddr_fast( wksp, ghost->blk_map_gaddr );
+  return (blk_map_t *)fd_wksp_laddr_fast( wksp( ghost ), ghost->blk_map_gaddr );
 }
 
 static inline blk_map_t const *
 blk_map_const( fd_ghost_t const * ghost ) {
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  return (blk_map_t const *)fd_wksp_laddr_fast( wksp, ghost->blk_map_gaddr );
+  return (blk_map_t const *)fd_wksp_laddr_fast( wksp( ghost ), ghost->blk_map_gaddr );
 }
 
 static inline vtr_pool_t *
 vtr_pool( fd_ghost_t * ghost ) {
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  return (vtr_pool_t *)fd_wksp_laddr_fast( wksp, ghost->vtr_pool_gaddr );
+  return (vtr_pool_t *)fd_wksp_laddr_fast( wksp( ghost ), ghost->vtr_pool_gaddr );
 }
 
 static inline vtr_pool_t const *
 vtr_pool_const( fd_ghost_t const * ghost ) {
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  return (vtr_pool_t const *)fd_wksp_laddr_fast( wksp, ghost->vtr_pool_gaddr );
+  return (vtr_pool_t const *)fd_wksp_laddr_fast( wksp( ghost ), ghost->vtr_pool_gaddr );
 }
 
 static inline vtr_map_t *
 vtr_map( fd_ghost_t * ghost ) {
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  return (vtr_map_t *)fd_wksp_laddr_fast( wksp, ghost->vtr_map_gaddr );
+  return (vtr_map_t *)fd_wksp_laddr_fast( wksp( ghost ), ghost->vtr_map_gaddr );
 }
 
 static inline vtr_map_t const *
 vtr_map_const( fd_ghost_t const * ghost ) {
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  return (vtr_map_t const *)fd_wksp_laddr_fast( wksp, ghost->vtr_map_gaddr );
+  return (vtr_map_t const *)fd_wksp_laddr_fast( wksp( ghost ), ghost->vtr_map_gaddr );
 }
