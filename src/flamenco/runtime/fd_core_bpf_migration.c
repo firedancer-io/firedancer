@@ -155,9 +155,8 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
       /* The program data account should not exist, but a system
          account with funded lamports is acceptable. */
       if( FD_UNLIKELY( progdata_exists ) ) {
-        if( FD_UNLIKELY( 0!=memcmp( fd_accdb_ref_owner( ro ), &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) ) {
-          /* CoreBpfMigrationError::ProgramHasDataAccount(
-               *program_address) */
+        if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_system_program_id ) ) ) {
+          /* CoreBpfMigrationError::ProgramHasDataAccount(*program_address) */
           fd_accdb_close_ro( accdb, ro );
           return NULL;
         } else {
@@ -307,7 +306,7 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
 
          https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L50-L61 */
       if( FD_UNLIKELY( progdata_exists ) ) {
-        if( FD_UNLIKELY( 0!=memcmp( fd_accdb_ref_owner( ro ), &fd_solana_system_program_id, FD_PUBKEY_FOOTPRINT ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_system_program_id ) ) ) {
           /* CoreBpfMigrationError::ProgramHasDataAccount(*program_address) */
           fd_accdb_close_ro( accdb, ro );
           return NULL;

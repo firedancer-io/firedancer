@@ -135,7 +135,7 @@ fd_builtin_is_bpf( fd_accdb_user_t *         accdb,
   if( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) {
     return 0;
   }
-  int is_bpf = memcmp( fd_accdb_ref_owner( ro ), &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_solana_bpf_loader_upgradeable_program_id) )==0;
+  int is_bpf = fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_bpf_loader_upgradeable_program_id );
   fd_accdb_close_ro( accdb, ro );
   return is_bpf;
 }

@@ -69,21 +69,24 @@ fd_prog_info_v1( fd_prog_info_t *      out,
   return out;
 }
 
+/* We determine the BPF loader type based off of the program acount owner,
+   instead of the programdata owner.
+   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.5/svm/src/program_loader.rs#L29 */
 fd_prog_info_t *
-fd_prog_info( fd_prog_info_t * out,
-              fd_accdb_ro_t *  ro ){
-  void const * owner = fd_accdb_ref_owner( ro );
-  if( !memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
+fd_prog_info( fd_prog_info_t     * out,
+              fd_accdb_ro_t      * ro,
+              fd_pubkey_t const  * program_owner ){
+  if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_upgradeable_program_id ) ) {
     return fd_prog_info_v3( out, ro );
-  } else if( !memcmp( owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  } else if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_v4_program_id ) ) {
     return fd_prog_info_v4( out, ro );
-  } else if( !memcmp( owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
-             !memcmp( owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) {
+  } else if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_program_id ) ||
+             fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_deprecated_program_id ) ) {
     return fd_prog_info_v1( out, ro );
   } else {
-    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_address( ro ), addr_b58  );
-    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner  ( ro ), owner_b58 );
-    FD_LOG_WARNING(( "unsupported program data account (address=%s owner=%s)", addr_b58, owner_b58 ));
+    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_address( ro ),  addr_b58  );
+    FD_BASE58_ENCODE_32_BYTES( program_owner->key,          owner_b58 );
+    FD_LOG_WARNING(( "unsupported program data account (address=%s program_owner=%s)", addr_b58, owner_b58 ));
     return NULL;
   }
 }
