@@ -64,7 +64,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_Q->bank_seq==1UL );
   bank_Q->f.slot = 101UL;
   bank_Q->refcnt = 1UL; /* Q(1) */
-  fd_banks_mark_bank_frozen( banks, bank_Q );
+  fd_banks_mark_bank_frozen( bank_Q );
   FD_TEST( fd_banks_bank_query( banks, bank_idx_Q ) == bank_Q );
 
   /* Create A branch from P - this is on the rooted fork. */
@@ -75,7 +75,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_A->bank_seq==2UL );
   bank_A->f.slot = 102UL;
   bank_A->refcnt = 0UL; /* A(0) */
-  fd_banks_mark_bank_frozen( banks, bank_A );
+  fd_banks_mark_bank_frozen( bank_A );
 
   /* Create X branch from A. */
   fd_bank_t * bank_X = fd_banks_new_bank( banks, bank_idx_A, 0L );
@@ -85,7 +85,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_X->bank_seq==3UL );
   bank_X->f.slot = 103UL;
   bank_X->refcnt = 0UL; /* X(0) */
-  fd_banks_mark_bank_frozen( banks, bank_X );
+  fd_banks_mark_bank_frozen( bank_X );
 
   /* Create Y branch from X. */
   fd_bank_t * bank_Y = fd_banks_new_bank( banks, bank_idx_X, 0L );
@@ -95,7 +95,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_Y->bank_seq==4UL );
   bank_Y->f.slot = 104UL;
   bank_Y->refcnt = 0UL; /* Y(0) */
-  fd_banks_mark_bank_frozen( banks, bank_Y );
+  fd_banks_mark_bank_frozen( bank_Y );
 
   /* Create B branch from A - this is on the rooted fork. */
   fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_idx_A, 0L );
@@ -105,7 +105,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_B->bank_seq==5UL );
   bank_B->f.slot = 105UL;
   bank_B->refcnt = 0UL; /* B(0) */
-  fd_banks_mark_bank_frozen( banks, bank_B );
+  fd_banks_mark_bank_frozen( bank_B );
 
   /* Create C branch from A. */
   fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_idx_A, 0L );
@@ -115,7 +115,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_C->bank_seq==6UL );
   bank_C->f.slot = 106UL;
   bank_C->refcnt = 0UL; /* C(0) */
-  fd_banks_mark_bank_frozen( banks, bank_C );
+  fd_banks_mark_bank_frozen( bank_C );
 
   /* Create M branch from B - this is on the rooted fork. */
   fd_bank_t * bank_M = fd_banks_new_bank( banks, bank_idx_B, 0L );
@@ -125,7 +125,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_M->bank_seq==7UL );
   bank_M->f.slot = 107UL;
   bank_M->refcnt = 0UL; /* M(0) */
-  fd_banks_mark_bank_frozen( banks, bank_M );
+  fd_banks_mark_bank_frozen( bank_M );
 
   /* Create R branch from B. */
   fd_bank_t * bank_R = fd_banks_new_bank( banks, bank_idx_B, 0L );
@@ -135,7 +135,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_R->bank_seq==8UL );
   bank_R->f.slot = 108UL;
   bank_R->refcnt = 0UL; /* R(0) */
-  fd_banks_mark_bank_frozen( banks, bank_R );
+  fd_banks_mark_bank_frozen( bank_R );
 
   /* Create D branch from M. */
   fd_bank_t * bank_D = fd_banks_new_bank( banks, bank_idx_M, 0L );
@@ -145,7 +145,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_D->bank_seq==9UL );
   bank_D->f.slot = 109UL;
   bank_D->refcnt = 2UL; /* D(2) */
-  fd_banks_mark_bank_frozen( banks, bank_D );
+  fd_banks_mark_bank_frozen( bank_D );
 
   /* Create T branch from M - this is on the rooted fork. */
   fd_bank_t * bank_T = fd_banks_new_bank( banks, bank_idx_M, 0L );
@@ -155,7 +155,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_T->bank_seq==10UL );
   bank_T->f.slot = 110UL;
   bank_T->refcnt = 0UL; /* T(0) */
-  fd_banks_mark_bank_frozen( banks, bank_T );
+  fd_banks_mark_bank_frozen( bank_T );
 
   /* Create J branch from R. */
   fd_bank_t * bank_J = fd_banks_new_bank( banks, bank_idx_R, 0L );
@@ -165,7 +165,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_J->bank_seq==11UL );
   bank_J->f.slot = 111UL;
   bank_J->refcnt = 0UL; /* J(0) */
-  fd_banks_mark_bank_frozen( banks, bank_J );
+  fd_banks_mark_bank_frozen( bank_J );
 
   /* Create L branch from R. */
   fd_bank_t * bank_L = fd_banks_new_bank( banks, bank_idx_R, 0L );
@@ -175,7 +175,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_L->bank_seq==12UL );
   bank_L->f.slot = 112UL;
   bank_L->refcnt = 0UL; /* L(0) */
-  fd_banks_mark_bank_frozen( banks, bank_L );
+  fd_banks_mark_bank_frozen( bank_L );
 
   /* Verify all banks exist. */
   FD_TEST( fd_banks_bank_query( banks, bank_idx_P ) == bank_P );
@@ -331,7 +331,7 @@ test_bank_dead_eviction( void * mem ) {
 
   FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
-  fd_banks_mark_bank_frozen( banks, bank_D );
+  fd_banks_mark_bank_frozen( bank_D );
 
   fd_banks_mark_bank_dead( banks, bank_D->idx );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
@@ -348,7 +348,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
-  fd_banks_mark_bank_frozen( banks, bank_C );
+  fd_banks_mark_bank_frozen( bank_C );
 
   fd_bank_t * bank_R = fd_banks_new_bank( banks, bank_P->idx, 0L );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
@@ -496,7 +496,7 @@ test_bank_frontier( void * mem ) {
   fd_bank_t * bank_B = fd_banks_new_bank( banks, bank_A->idx, 0L );
   bank_B = fd_banks_clone_from_parent( banks, bank_B->idx );
   FD_TEST( bank_B );
-  fd_banks_mark_bank_frozen( banks, bank_B );
+  fd_banks_mark_bank_frozen( bank_B );
 
   fd_bank_t * bank_C = fd_banks_new_bank( banks, bank_A->idx, 0L );
   bank_C = fd_banks_clone_from_parent( banks, bank_C->idx );
@@ -505,7 +505,7 @@ test_bank_frontier( void * mem ) {
   fd_bank_t * bank_D = fd_banks_new_bank( banks, bank_B->idx, 0L );
   bank_D = fd_banks_clone_from_parent( banks, bank_D->idx );
   FD_TEST( bank_D );
-  fd_banks_mark_bank_frozen( banks, bank_D );
+  fd_banks_mark_bank_frozen( bank_D );
 
   fd_bank_t * bank_E = fd_banks_new_bank( banks, bank_B->idx, 0L );
   bank_E = fd_banks_clone_from_parent( banks, bank_E->idx );
@@ -514,12 +514,12 @@ test_bank_frontier( void * mem ) {
   fd_bank_t * bank_F = fd_banks_new_bank( banks, bank_B->idx, 0L );
   bank_F = fd_banks_clone_from_parent( banks, bank_F->idx );
   FD_TEST( bank_F );
-  fd_banks_mark_bank_frozen( banks, bank_F );
+  fd_banks_mark_bank_frozen( bank_F );
 
   fd_bank_t * bank_G = fd_banks_new_bank( banks, bank_F->idx, 0L );
   bank_G = fd_banks_clone_from_parent( banks, bank_G->idx );
   FD_TEST( bank_G );
-  fd_banks_mark_bank_frozen( banks, bank_G );
+  fd_banks_mark_bank_frozen( bank_G );
 
   fd_bank_t * bank_H = fd_banks_new_bank( banks, bank_G->idx, 0L );
   bank_H = fd_banks_clone_from_parent( banks, bank_H->idx );
@@ -544,7 +544,7 @@ test_bank_frontier( void * mem ) {
   fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==4UL );
 
-  fd_banks_mark_bank_frozen( banks, bank_J );
+  fd_banks_mark_bank_frozen( bank_J );
 
   fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==3UL );
@@ -624,7 +624,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   FD_TEST( stake_delegation->stake==11UL );
   FD_TEST( !test_bank_frontier_delegation_query( banks_small, root_stake_delegations, &stake_1 ) );
 
-  fd_banks_mark_bank_frozen( banks_small, child_bank );
+  fd_banks_mark_bank_frozen( child_bank );
   fd_banks_advance_root( banks_small, child_bank_idx );
   root_stake_delegations = fd_banks_stake_delegations_root_query( banks_small );
   stake_delegation = test_bank_frontier_delegation_query( banks_small, root_stake_delegations, &stake_0 );
@@ -756,7 +756,7 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation->stake == 100UL );
   fd_bank_stake_delegations_end_frontier_query( banks, bank2 );
 
-  fd_banks_mark_bank_frozen( banks, bank2 );
+  fd_banks_mark_bank_frozen( bank2 );
 
   fd_bank_t * bank3 = fd_banks_new_bank( banks, bank_idx, 0L );
   ulong bank_idx3 = bank3->idx;
@@ -787,7 +787,7 @@ main( int argc, char ** argv ) {
   fd_epoch_leaders_t * epoch_leaders2 = fd_bank_epoch_leaders_modify( bank3 );
   FD_TEST( epoch_leaders2 );
 
-  fd_banks_mark_bank_frozen( banks, bank3 );
+  fd_banks_mark_bank_frozen( bank3 );
 
   fd_bank_t * bank4 = fd_banks_new_bank( banks, bank_idx3, 0L );
   ulong bank_idx4 = bank4->idx;
@@ -796,7 +796,7 @@ main( int argc, char ** argv ) {
   FD_TEST( bank4->bank_seq==3UL );
   FD_TEST( bank4->f.capitalization == 2000UL );
 
-  fd_banks_mark_bank_frozen( banks, bank4 );
+  fd_banks_mark_bank_frozen( bank4 );
 
   fd_bank_t * bank5 = fd_banks_new_bank( banks, bank_idx4, 0L );
   ulong bank_idx5 = bank5->idx;
@@ -807,7 +807,7 @@ main( int argc, char ** argv ) {
   bank5->f.capitalization = 3000UL;
   FD_TEST( bank5->f.capitalization == 3000UL );
 
-  fd_banks_mark_bank_frozen( banks, bank5 );
+  fd_banks_mark_bank_frozen( bank5 );
 
   fd_bank_t * bank6 = fd_banks_new_bank( banks, bank_idx2, 0L );
   ulong bank_idx6 = bank6->idx;
@@ -819,7 +819,7 @@ main( int argc, char ** argv ) {
   bank6->f.slot = 6UL;
   FD_TEST( bank6->f.capitalization == 2100UL );
 
-  fd_banks_mark_bank_frozen( banks, bank6 );
+  fd_banks_mark_bank_frozen( bank6 );
 
   fd_bank_t * bank7 = fd_banks_new_bank( banks, bank_idx6, 0L );
   ulong bank_idx7 = bank7->idx;
@@ -845,7 +845,7 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation->stake == 100UL );
   fd_bank_stake_delegations_end_frontier_query( banks, bank7 );
 
-  fd_banks_mark_bank_frozen( banks, bank7 );
+  fd_banks_mark_bank_frozen( bank7 );
 
   /* At this point there are these forks:
      1. 1 -> 2 -> 6 -> 7
@@ -868,7 +868,7 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation->stake == 4UL );
   fd_bank_stake_delegations_end_frontier_query( banks, bank8 );
 
-  fd_banks_mark_bank_frozen( banks, bank8 );
+  fd_banks_mark_bank_frozen( bank8 );
 
   fd_bank_t * bank9 = fd_banks_new_bank( banks, bank_idx7, 0L );
   ulong bank_idx9 = bank9->idx;
@@ -893,7 +893,7 @@ main( int argc, char ** argv ) {
 
   /* Check that there are 3 free pool elements. */
 
-  fd_banks_mark_bank_frozen( banks, bank9 );
+  fd_banks_mark_bank_frozen( bank9 );
 
   /* Verify that the bank is published and that it is indeed bank7.
      Also, verify that the stake delegations have been correctly
@@ -949,7 +949,7 @@ main( int argc, char ** argv ) {
   FD_TEST( bank10->bank_seq==9UL );
   FD_TEST( bank10->f.capitalization == 2100UL );
 
-  fd_banks_mark_bank_frozen( banks, bank10 );
+  fd_banks_mark_bank_frozen( bank10 );
 
   fd_bank_t * bank11 = fd_banks_new_bank( banks, bank_idx9, 0L );
   ulong bank_idx11 = bank11->idx;

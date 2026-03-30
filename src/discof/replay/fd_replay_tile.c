@@ -817,9 +817,21 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->tips = bank->f.tips;
   slot_info->shred_cnt = bank->f.shred_cnt;
 
-  FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_cstr );
-  FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_cstr );
-  FD_LOG_DEBUG(( "publish_slot_completed: bank_idx=%lu slot=%lu bank_hash=%s block_id=%s", bank->idx, slot, bank_hash_cstr, block_id_cstr ));
+  FD_BASE58_ENCODE_32_BYTES( ctx->block_id_arr[ bank->idx ].latest_mr.uc, block_id_b58 );
+  FD_BASE58_ENCODE_32_BYTES( bank->f.bank_hash.uc, bank_hash_b58 );
+  FD_LOG_DEBUG(( "finished replaying slot %lu with (block id %s, bank hash %s, transactions %lu, votes %lu, shreds %lu, CUs used %lu, fees %lu)"
+                 "and timings [started prepare %ld ns, started dispatching transactions %ld ns, finished executing transactions %ld ns, finished block %ld ns]",
+                 bank->f.slot, block_id_b58,
+                 bank_hash_b58,
+                 bank->f.transaction_count,
+                 bank->f.transaction_count - bank->f.nonvote_txn_count,
+                 bank->f.shred_cnt,
+                 bank->f.total_compute_units_used,
+                 bank->f.execution_fees + bank->f.priority_fees,
+                 bank->preparation_begin_nanos - bank->first_fec_set_received_nanos,
+                 bank->first_transaction_scheduled_nanos - bank->preparation_begin_nanos,
+                 bank->last_transaction_finished_nanos - bank->first_transaction_scheduled_nanos,
+                 bank->block_completed_nanos - bank->last_transaction_finished_nanos ));
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -884,7 +896,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   slot_info->identity_balance = FD_UNLIKELY( slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
   /* Mark the bank as frozen. */
-  fd_banks_mark_bank_frozen( ctx->banks, bank );
+  fd_banks_mark_bank_frozen( bank );
+  bank->block_completed_nanos = fd_log_wallclock();
 
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
@@ -1023,7 +1036,8 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, ctx->leader_bank->idx } };
   slot_info->identity_balance = FD_UNLIKELY( curr_slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
-  fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
+  fd_banks_mark_bank_frozen( ctx->leader_bank );
+  ctx->leader_bank->block_completed_nanos = fd_log_wallclock();
 
   fd_hash_t const * bank_hash  = &ctx->leader_bank->f.bank_hash;
   FD_TEST( bank_hash );
@@ -1040,6 +1054,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   ctx->is_leader   = 0;
 
   maybe_switch_identity( ctx );
+
 }
 
 static void
@@ -2291,7 +2306,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
       if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( ctx->banks, bank );
+        fd_banks_mark_bank_frozen( bank );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
@@ -2324,7 +2339,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
       if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( ctx->banks, bank );
+        fd_banks_mark_bank_frozen( bank );
       }
       int res = fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, txn_idx, exec_tile_idx, NULL );
       FD_TEST( res==0 );
@@ -2339,7 +2354,7 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
         mark_bank_dead( ctx, stem, bank->idx );
       }
       if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
-        fd_banks_mark_bank_frozen( ctx->banks, bank );
+        fd_banks_mark_bank_frozen( bank );
       }
       break;
     }
