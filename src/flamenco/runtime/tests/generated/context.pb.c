@@ -18,18 +18,7 @@ PB_BIND(FD_EXEC_TEST_FEE_RATE_GOVERNOR, fd_exec_test_fee_rate_governor_t, AUTO)
 PB_BIND(FD_EXEC_TEST_EPOCH_SCHEDULE, fd_exec_test_epoch_schedule_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_RENT, fd_exec_test_rent_t, AUTO)
-
-
 PB_BIND(FD_EXEC_TEST_BLOCKHASH_QUEUE_ENTRY, fd_exec_test_blockhash_queue_entry_t, AUTO)
 
 
-
-#ifndef PB_CONVERT_DOUBLE_FLOAT
-/* On some platforms (such as AVR), double is really float.
- * To be able to encode/decode double on these platforms, you need.
- * to define PB_CONVERT_DOUBLE_FLOAT in pb.h or compiler command line.
- */
-PB_STATIC_ASSERT(sizeof(double) == 8, DOUBLE_MUST_BE_8_BYTES)
-#endif
 

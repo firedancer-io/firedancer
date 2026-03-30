@@ -212,10 +212,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( block_bank->has_epoch_schedule );
   fd_solfuzz_pb_restore_epoch_schedule( bank, &block_bank->epoch_schedule );
 
-  /* Rent */
-  FD_TEST( block_bank->has_rent );
-  fd_solfuzz_pb_restore_rent( bank, &block_bank->rent );
-
   /* Feature set */
   FD_TEST( block_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &block_bank->features;
@@ -342,6 +338,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore_fuzz( bank, accdb, xid );
+
+  /* Rent */
+  FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
 
   /* Prepare raw transaction pointers and block / microblock infos */
   ulong        txn_cnt  = test_ctx->txns_count;

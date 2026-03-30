@@ -35,17 +35,6 @@ fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank
 }
 
 void
-fd_solfuzz_pb_restore_rent( fd_bank_t *                 bank,
-                            fd_exec_test_rent_t const * rent ) {
-  fd_rent_t * r = &bank->f.rent;
-  *r = (fd_rent_t){
-    .lamports_per_uint8_year = rent->lamports_per_byte_year,
-    .exemption_threshold     = rent->exemption_threshold,
-    .burn_percent            = (uchar)rent->burn_percent,
-  };
-}
-
-void
 fd_solfuzz_pb_restore_blockhash_queue( fd_bank_t *                                    bank,
                                        fd_exec_test_blockhash_queue_entry_t const *   entries,
                                        ulong                                          entries_cnt ) {

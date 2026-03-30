@@ -341,17 +341,6 @@ dump_epoch_schedule( fd_bank_t *                     bank,
 }
 
 static void
-dump_rent( fd_bank_t *           bank,
-           fd_exec_test_rent_t * out ) {
-  fd_rent_t const * r = &bank->f.rent;
-  *out = (fd_exec_test_rent_t){
-    .lamports_per_byte_year = r->lamports_per_uint8_year,
-    .exemption_threshold    = r->exemption_threshold,
-    .burn_percent           = r->burn_percent,
-  };
-}
-
-static void
 dump_blockhash_queue( fd_bank_t *                             bank,
                       fd_spad_t *                             spad,
                       fd_exec_test_blockhash_queue_entry_t ** entries_out,
@@ -400,10 +389,6 @@ dump_txn_bank( fd_bank_t *                  bank,
   /* TxnBank -> epoch_schedule */
   txn_bank->has_epoch_schedule = true;
   dump_epoch_schedule( bank, &txn_bank->epoch_schedule );
-
-  /* TxnBank -> rent */
-  txn_bank->has_rent = true;
-  dump_rent( bank, &txn_bank->rent );
 
   /* TxnBank -> features */
   txn_bank->has_features = true;
@@ -765,10 +750,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   /* BlockBank -> epoch_schedule */
   block_bank->has_epoch_schedule = true;
   dump_epoch_schedule( parent_bank, &block_bank->epoch_schedule );
-
-  /* BlockBank -> rent */
-  block_bank->has_rent = true;
-  dump_rent( parent_bank, &block_bank->rent );
 
   /* BlockBank -> features */
   block_bank->has_features = true;
