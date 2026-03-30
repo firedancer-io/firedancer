@@ -853,7 +853,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
   FD_CRIT( fd_banks_pool_free( bank_pool )!=0UL, "invariant violation: no free bank indices available" );
 
-  ulong            child_bank_idx = fd_banks_pool_idx_acquire( bank_pool );
+  ulong       child_bank_idx = fd_banks_pool_idx_acquire( bank_pool );
   fd_bank_t * child_bank     = fd_banks_pool_ele( bank_pool, child_bank_idx );
   FD_CRIT( child_bank->state==FD_BANK_STATE_INACTIVE, "invariant violation: bank for bank index is already initialized" );
 
@@ -873,7 +873,7 @@ fd_banks_new_bank( fd_banks_t * banks,
   /* Then make sure that the parent bank is valid and frozen. */
 
   fd_bank_t * parent_bank = fd_banks_pool_ele( bank_pool, parent_bank_idx );
-  FD_CRIT( parent_bank->state==FD_BANK_STATE_INIT, "invariant violation: parent bank for bank index is uninitialized" );
+  FD_CRIT( parent_bank->state!=FD_BANK_STATE_INACTIVE && parent_bank->state!=FD_BANK_STATE_DEAD, "invariant violation: parent bank is dead or inactive" );
 
   /* Link node->parent */
   child_bank->parent_idx = parent_bank_idx;
@@ -933,7 +933,7 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
   while( !fd_banks_dead_empty( dead_banks_queue ) ) {
     fd_bank_idx_seq_t * head = fd_banks_dead_peek_head( dead_banks_queue );
     fd_bank_t *         bank = fd_banks_pool_ele( bank_pool, head->idx );
-    if( !bank->state || bank->bank_seq!=head->seq ) {
+    if( bank->state==FD_BANK_STATE_INACTIVE || bank->bank_seq!=head->seq ) {
       fd_banks_dead_pop_head( dead_banks_queue );
       continue;
     } else if( bank->refcnt!=0UL ) {
