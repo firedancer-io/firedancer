@@ -378,35 +378,40 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
 
       /* Iterate vote_accounts from funk branch */
-      int is_full = fd_ssmsg_sig_message( sig )==FD_SSMSG_MANIFEST_FULL;
-      fd_funk_txn_xid_t va_xid = is_full ? FD_SSMSG_MANIFEST_XID_FULL_VOTE_ACCOUNTS
-                                         : FD_SSMSG_MANIFEST_XID_INCR_VOTE_ACCOUNTS;
-      fd_funk_txn_map_query_t query[1];
-      int query_err;
-      for(;;) {
-        query_err = fd_funk_txn_map_query_try( ctx->funk->txn_map, &va_xid, NULL, query, 0 );
-        if( FD_LIKELY( query_err!=FD_MAP_ERR_AGAIN ) ) break;
-      }
-      if( FD_UNLIKELY( query_err ) ) FD_LOG_ERR(( "manifest funk branch for vote accounts not found" ));
-      fd_funk_txn_t * va_txn = fd_funk_txn_map_query_ele( query );
-      uint rec_idx = va_txn->rec_head_idx;
-      while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-        fd_funk_rec_t const * rec = &ctx->funk->rec_pool->ele[ rec_idx ];
-        fd_snapshot_manifest_vote_account_t const * va = fd_funk_val_const( rec, fd_funk_wksp( ctx->funk ) );
-        FD_TEST( va );
-        FD_TEST( rec->val_sz>=sizeof(fd_snapshot_manifest_vote_account_t) );
-        if( FD_LIKELY( va->stake>0UL ) ) {
-          ctx->wfs_stake.total += va->stake;
-          if( FD_UNLIKELY( wfs_stakes_unconverted_cnt>=40200UL ) ) {
-            rec_idx = rec->next_idx;
-            continue;
-          }
-          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc,   va->node_account_pubkey, sizeof(fd_pubkey_t) );
-          fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, va->vote_account_pubkey, sizeof(fd_pubkey_t) );
-          ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = va->stake;
-          wfs_stakes_unconverted_cnt++;
+      if( FD_LIKELY( ctx->funk ) ) {
+        int is_full = fd_ssmsg_sig_message( sig )==FD_SSMSG_MANIFEST_FULL;
+        fd_funk_txn_xid_t va_xid = is_full ? FD_SSMSG_MANIFEST_XID_FULL_VOTE_ACCOUNTS
+                                           : FD_SSMSG_MANIFEST_XID_INCR_VOTE_ACCOUNTS;
+        fd_funk_txn_map_query_t query[1];
+        int query_err;
+        for(;;) {
+          query_err = fd_funk_txn_map_query_try( ctx->funk->txn_map, &va_xid, NULL, query, 0 );
+          if( FD_LIKELY( query_err!=FD_MAP_ERR_AGAIN ) ) break;
         }
-        rec_idx = rec->next_idx;
+        if( FD_UNLIKELY( query_err ) ) {
+          FD_LOG_WARNING(( "manifest funk branch for vote accounts not found" ));
+        } else {
+          fd_funk_txn_t * va_txn = fd_funk_txn_map_query_ele( query );
+          uint rec_idx = va_txn->rec_head_idx;
+          while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+            fd_funk_rec_t const * rec = &ctx->funk->rec_pool->ele[ rec_idx ];
+            fd_snapshot_manifest_vote_account_t const * va = fd_funk_val_const( rec, fd_funk_wksp( ctx->funk ) );
+            FD_TEST( va );
+            FD_TEST( rec->val_sz>=sizeof(fd_snapshot_manifest_vote_account_t) );
+            if( FD_LIKELY( va->stake>0UL ) ) {
+              ctx->wfs_stake.total += va->stake;
+              if( FD_UNLIKELY( wfs_stakes_unconverted_cnt>=40200UL ) ) {
+                rec_idx = rec->next_idx;
+                continue;
+              }
+              fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc,   va->node_account_pubkey, sizeof(fd_pubkey_t) );
+              fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, va->vote_account_pubkey, sizeof(fd_pubkey_t) );
+              ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = va->stake;
+              wfs_stakes_unconverted_cnt++;
+            }
+            rec_idx = rec->next_idx;
+          }
+        }
       }
       ctx->wfs_stakes_cnt = compute_id_weights_from_vote_weights( ctx->wfs_stakes, ctx->wfs_stakes_scratch, wfs_stakes_unconverted_cnt );
 
@@ -546,10 +551,13 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Join funk for read-only access to manifest branches */
-  ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
-  ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
-  ctx->funk = fd_funk_join( ctx->funk_ljoin, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, funk_locks_obj_id ) );
-  FD_TEST( ctx->funk );
+  ulong funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX );
+  ulong funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX );
+  if( FD_LIKELY( funk_obj_id!=ULONG_MAX && funk_locks_obj_id!=ULONG_MAX ) ) {
+    ctx->funk = fd_funk_join( ctx->funk_ljoin, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, funk_locks_obj_id ) );
+  } else {
+    ctx->funk = NULL;
+  }
 
   ctx->ticks_per_ns   = fd_tempo_tick_per_ns( NULL );
   ctx->last_wallclock = fd_log_wallclock();

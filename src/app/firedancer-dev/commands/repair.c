@@ -139,6 +139,13 @@ repair_topo( config_t * config ) {
 
   fd_topob_wksp( topo, "tower_out"    ); /* mock tower_out for confirmation msgs. Not needed for any topo except eqvoc. */
 
+  /* Funk is needed by the scap tile to store manifest data (vote accounts,
+     stake delegations, epoch stakes) parsed from snapshot manifests.
+     Use modest sizes since no account data is stored. */
+  fd_topob_wksp( topo, "funk"       );
+  fd_topob_wksp( topo, "funk_locks" );
+  setup_topo_funk( topo, 4000000UL, 64UL, 1UL );
+
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
   ulong pending_fec_shreds_depth = fd_ulong_min( fd_ulong_pow2_up( config->tiles.shred.max_pending_shred_sets * FD_REEDSOL_DATA_SHREDS_MAX ), USHORT_MAX + 1 /* dcache max */ );
@@ -284,6 +291,12 @@ repair_topo( config_t * config ) {
     fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
     fd_topob_tile_uses( topo, scap_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+    ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+    ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+    fd_topob_tile_uses( topo, scap_tile, &topo->objs[ funk_obj_id       ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, scap_tile, &topo->objs[ funk_locks_obj_id ], FD_SHMEM_JOIN_MODE_READ_WRITE );
+
     fd_topob_tile_out( topo, "scap", 0UL, "replay_epoch", 0UL );
     fd_topob_tile_out( topo, "scap", 0UL, "snapin_manif", 0UL );
   }

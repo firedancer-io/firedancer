@@ -11,6 +11,11 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
+#include "../../funk/fd_funk.h"
+#include "../../funk/fd_funk_val.h"
+#include "../../funk/fd_funk_rec.h"
+#include "../../util/pod/fd_pod.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -127,6 +132,9 @@ struct fd_capture_tile_ctx {
 
   fd_alloc_t * alloc;
   uchar contact_info_buffer[ MAX_BUFFER_SIZE ];
+
+  fd_funk_t   funk_ljoin[1];
+  fd_funk_t * funk;
 };
 typedef struct fd_capture_tile_ctx fd_capture_tile_ctx_t;
 
@@ -215,10 +223,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline ulong
 generate_epoch_info_msg_manifest( ulong                                       epoch,
                                   fd_epoch_schedule_t const *                 epoch_schedule,
-                                  fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
+                                  ulong                                       epoch_idx,
+                                  fd_funk_t *                                 funk,
                                   ulong *                                     epoch_info_msg_out ) {
-  (void)epoch_stakes;
   fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
+  fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
+
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
@@ -227,16 +237,49 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   /* Set all features as deactivated as we don't have available feature info from manifest. */
   fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
 
-  /* vote_stakes data is now stored in funk branches and not available
-     in the manifest struct.  Set staked counts to 0.
-     TODO: Add funk access to shredcap tile if epoch stake weights are
-     needed for shred capture. */
-  epoch_info_msg->staked_vote_cnt = 0UL;
+  ulong idx = 0UL;
+  if( FD_LIKELY( funk ) ) {
+    /* Read vote_stakes from the appropriate funk branch.  The shredcap
+       tile always parses full snapshots (from file), so use the FULL XIDs. */
+    fd_funk_txn_xid_t es_xid = epoch_idx==0UL ? FD_SSMSG_MANIFEST_XID_FULL_EPOCH_STAKES_0
+                                               : FD_SSMSG_MANIFEST_XID_FULL_EPOCH_STAKES_1;
+    fd_funk_txn_map_query_t query[1];
+    int query_err;
+    for(;;) {
+      query_err = fd_funk_txn_map_query_try( funk->txn_map, &es_xid, NULL, query, 0 );
+      if( FD_LIKELY( query_err!=FD_MAP_ERR_AGAIN ) ) break;
+    }
+    if( FD_UNLIKELY( query_err ) ) {
+      FD_LOG_WARNING(( "manifest funk branch for epoch stakes %lu not found", epoch_idx ));
+    } else {
+      fd_funk_txn_t * es_txn = fd_funk_txn_map_query_ele( query );
+      uint rec_idx = es_txn->rec_head_idx;
+      while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+        fd_funk_rec_t const * rec = &funk->rec_pool->ele[ rec_idx ];
+        fd_snapshot_manifest_vote_stakes_t const * vs = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
+        FD_TEST( vs );
+        FD_TEST( rec->val_sz>=sizeof(fd_snapshot_manifest_vote_stakes_t) );
+        if( FD_LIKELY( vs->stake>0UL ) ) {
+          if( FD_UNLIKELY( idx>=MAX_SHRED_DESTS ) ) {
+            rec_idx = rec->next_idx;
+            continue;
+          }
+          stake_weights[ idx ].stake = vs->stake;
+          fd_memcpy( stake_weights[ idx ].id_key.uc,   vs->identity, sizeof(fd_pubkey_t) );
+          fd_memcpy( stake_weights[ idx ].vote_key.uc, vs->vote,     sizeof(fd_pubkey_t) );
+          idx++;
+        }
+        rec_idx = rec->next_idx;
+      }
+    }
+  }
+  epoch_info_msg->staked_vote_cnt = idx;
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
 
   fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
-  (void)id_weights;
+  epoch_info_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_weights, stake_weights, epoch_info_msg->staked_vote_cnt );
 
-  epoch_info_msg->staked_id_cnt = 0UL;
+  FD_TEST( idx<=MAX_SHRED_DESTS );
 
   epoch_info_msg->epoch_schedule = *epoch_schedule;
 
@@ -252,7 +295,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
 
   /* current epoch */
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
+  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, 0UL, ctx->funk, stake_weights_msg );
   ulong stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
@@ -260,7 +303,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
 
   /* next current epoch */
   stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
+  stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, 1UL, ctx->funk, stake_weights_msg );
   stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
@@ -453,7 +496,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
         fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc(
                 fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
         FD_TEST( parser );
-        fd_ssmanifest_parser_init( parser, manifest, NULL, 1 );
+        fd_ssmanifest_parser_init( parser, manifest, ctx->funk, 1 );
         int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
         FD_TEST( parser_err==1 );
         // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
@@ -814,6 +857,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->manifest_spad      = fd_spad_join( fd_spad_new( ctx->manifest_spad_mem, manifest_spad_max_alloc_footprint() ) );
   ctx->shared_spad_mem    = shared_spad_mem;
   ctx->shared_spad        = fd_spad_join( fd_spad_new( ctx->shared_spad_mem, shared_spad_max_alloc_footprint() ) );
+
+  /* Join funk for read-only access to manifest branches */
+  ulong funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX );
+  ulong funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX );
+  if( FD_LIKELY( funk_obj_id!=ULONG_MAX && funk_locks_obj_id!=ULONG_MAX ) ) {
+    ctx->funk = fd_funk_join( ctx->funk_ljoin, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, funk_locks_obj_id ) );
+  } else {
+    ctx->funk = NULL;
+  }
 
   /* Allocate the write buffers */
   ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_mem, FD_SHREDCAP_ALLOC_TAG ), fd_tile_idx() );
