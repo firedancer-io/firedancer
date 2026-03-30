@@ -1527,6 +1527,10 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
        For full-only loads, FULL_PARENT is still a child of root.
 
+       Note: gossip and GUI tiles may not have processed the MANIFEST
+       message yet when this runs (they poll on a separate thread).
+       They handle missing branches gracefully with FD_LOG_WARNING.
+
        Use retry loops for FD_MAP_ERR_AGAIN (concurrent map access). */
     {
       fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );

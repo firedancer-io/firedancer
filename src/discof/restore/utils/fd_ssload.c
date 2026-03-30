@@ -269,8 +269,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
       fd_funk_rec_t * rec = &funk->rec_pool->ele[ rec_idx ];
       fd_snapshot_manifest_vote_stakes_t const * elem = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
 
-      if( FD_UNLIKELY( i>=runtime_stack->expected_vote_accounts ) ) {
-        FD_LOG_ERR(( "snapshot loading currently does not support more than %lu vote accounts, %lu", runtime_stack->expected_vote_accounts, manifest->epoch_stakes[1].vote_stakes_len ));
+      if( FD_UNLIKELY( i>=runtime_stack->max_vote_accounts ) ) {
+        FD_LOG_ERR(( "snapshot has more vote accounts (%lu) than max_vote_accounts (%lu)",
+                     i, runtime_stack->max_vote_accounts ));
       }
 
       /* First convert the epoch credits to the format expected by the
@@ -294,11 +295,16 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
       }
       fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
 
-      runtime_stack->stakes.epoch_credits[i].cnt = elem->epoch_credits_history_len;
-      for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-        runtime_stack->stakes.epoch_credits[ i ].epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
-        runtime_stack->stakes.epoch_credits[ i ].credits[ j ]      = elem->epoch_credits[ j ].credits;
-        runtime_stack->stakes.epoch_credits[ i ].prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+      /* Only cache epoch_credits for the first expected_vote_accounts
+         entries.  For overflow entries, fd_rewards.c will fetch epoch
+         credits directly from accdb as a fallback. */
+      if( FD_LIKELY( i<runtime_stack->expected_vote_accounts ) ) {
+        runtime_stack->stakes.epoch_credits[i].cnt = elem->epoch_credits_history_len;
+        for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
+          runtime_stack->stakes.epoch_credits[ i ].epoch[ j ]        = (ushort)elem->epoch_credits[ j ].epoch;
+          runtime_stack->stakes.epoch_credits[ i ].credits[ j ]      = elem->epoch_credits[ j ].credits;
+          runtime_stack->stakes.epoch_credits[ i ].prev_credits[ j ] = elem->epoch_credits[ j ].prev_credits;
+        }
       }
       i++;
       rec_idx = rec->next_idx;

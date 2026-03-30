@@ -377,7 +377,9 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       ctx->wfs_peers.total  = 0UL;
       memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
 
-      /* Iterate vote_accounts from funk branch */
+      /* Iterate vote_accounts from funk branch.  If there are more
+         than 40200 staked vote accounts, keep the top-staked entries
+         by replacing the minimum-stake entry in the array. */
       if( FD_LIKELY( ctx->funk ) ) {
         int is_full = fd_ssmsg_sig_message( sig )==FD_SSMSG_MANIFEST_FULL;
         fd_funk_txn_xid_t va_xid = is_full ? FD_SSMSG_MANIFEST_XID_FULL_VOTE_ACCOUNTS
@@ -393,6 +395,8 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
         } else {
           fd_funk_txn_t * va_txn = fd_funk_txn_map_query_ele( query );
           uint rec_idx = va_txn->rec_head_idx;
+          ulong min_stake     = ULONG_MAX;
+          ulong min_stake_idx = 0UL;
           while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
             fd_funk_rec_t const * rec = &ctx->funk->rec_pool->ele[ rec_idx ];
             fd_snapshot_manifest_vote_account_t const * va = fd_funk_val_const( rec, fd_funk_wksp( ctx->funk ) );
@@ -401,12 +405,31 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
             if( FD_LIKELY( va->stake>0UL ) ) {
               ctx->wfs_stake.total += va->stake;
               if( FD_UNLIKELY( wfs_stakes_unconverted_cnt>=40200UL ) ) {
+                /* Array full — replace the minimum-stake entry if this
+                   record has higher stake, keeping the top-K. */
+                if( va->stake>min_stake ) {
+                  fd_memcpy( ctx->wfs_stakes_scratch[ min_stake_idx ].id_key.uc,   va->node_account_pubkey, sizeof(fd_pubkey_t) );
+                  fd_memcpy( ctx->wfs_stakes_scratch[ min_stake_idx ].vote_key.uc, va->vote_account_pubkey, sizeof(fd_pubkey_t) );
+                  ctx->wfs_stakes_scratch[ min_stake_idx ].stake = va->stake;
+                  /* Rescan for new minimum */
+                  min_stake = ULONG_MAX;
+                  for( ulong k=0UL; k<40200UL; k++ ) {
+                    if( ctx->wfs_stakes_scratch[ k ].stake<min_stake ) {
+                      min_stake     = ctx->wfs_stakes_scratch[ k ].stake;
+                      min_stake_idx = k;
+                    }
+                  }
+                }
                 rec_idx = rec->next_idx;
                 continue;
               }
               fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].id_key.uc,   va->node_account_pubkey, sizeof(fd_pubkey_t) );
               fd_memcpy( ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].vote_key.uc, va->vote_account_pubkey, sizeof(fd_pubkey_t) );
               ctx->wfs_stakes_scratch[ wfs_stakes_unconverted_cnt ].stake = va->stake;
+              if( va->stake<min_stake ) {
+                min_stake     = va->stake;
+                min_stake_idx = wfs_stakes_unconverted_cnt;
+              }
               wfs_stakes_unconverted_cnt++;
             }
             rec_idx = rec->next_idx;

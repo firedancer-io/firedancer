@@ -240,7 +240,9 @@ generate_epoch_info_msg_manifest( ulong                                       ep
   ulong idx = 0UL;
   if( FD_LIKELY( funk ) ) {
     /* Read vote_stakes from the appropriate funk branch.  The shredcap
-       tile always parses full snapshots (from file), so use the FULL XIDs. */
+       tile always parses full snapshots (from file), so use the FULL XIDs.
+       If there are more than MAX_SHRED_DESTS staked entries, keep the
+       top-staked by replacing the minimum-stake entry in the array. */
     fd_funk_txn_xid_t es_xid = epoch_idx==0UL ? FD_SSMSG_MANIFEST_XID_FULL_EPOCH_STAKES_0
                                                : FD_SSMSG_MANIFEST_XID_FULL_EPOCH_STAKES_1;
     fd_funk_txn_map_query_t query[1];
@@ -254,6 +256,8 @@ generate_epoch_info_msg_manifest( ulong                                       ep
     } else {
       fd_funk_txn_t * es_txn = fd_funk_txn_map_query_ele( query );
       uint rec_idx = es_txn->rec_head_idx;
+      ulong min_stake     = ULONG_MAX;
+      ulong min_stake_idx = 0UL;
       while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
         fd_funk_rec_t const * rec = &funk->rec_pool->ele[ rec_idx ];
         fd_snapshot_manifest_vote_stakes_t const * vs = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
@@ -261,12 +265,31 @@ generate_epoch_info_msg_manifest( ulong                                       ep
         FD_TEST( rec->val_sz>=sizeof(fd_snapshot_manifest_vote_stakes_t) );
         if( FD_LIKELY( vs->stake>0UL ) ) {
           if( FD_UNLIKELY( idx>=MAX_SHRED_DESTS ) ) {
+            /* Array full — replace the minimum-stake entry if this
+               record has higher stake, keeping the top-K. */
+            if( vs->stake>min_stake ) {
+              stake_weights[ min_stake_idx ].stake = vs->stake;
+              fd_memcpy( stake_weights[ min_stake_idx ].id_key.uc,   vs->identity, sizeof(fd_pubkey_t) );
+              fd_memcpy( stake_weights[ min_stake_idx ].vote_key.uc, vs->vote,     sizeof(fd_pubkey_t) );
+              /* Rescan for new minimum */
+              min_stake = ULONG_MAX;
+              for( ulong k=0UL; k<idx; k++ ) {
+                if( stake_weights[ k ].stake<min_stake ) {
+                  min_stake     = stake_weights[ k ].stake;
+                  min_stake_idx = k;
+                }
+              }
+            }
             rec_idx = rec->next_idx;
             continue;
           }
           stake_weights[ idx ].stake = vs->stake;
           fd_memcpy( stake_weights[ idx ].id_key.uc,   vs->identity, sizeof(fd_pubkey_t) );
           fd_memcpy( stake_weights[ idx ].vote_key.uc, vs->vote,     sizeof(fd_pubkey_t) );
+          if( vs->stake<min_stake ) {
+            min_stake     = vs->stake;
+            min_stake_idx = idx;
+          }
           idx++;
         }
         rec_idx = rec->next_idx;
