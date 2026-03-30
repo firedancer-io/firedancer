@@ -267,6 +267,7 @@ struct fd_bank {
   long preparation_begin_nanos;
   long first_transaction_scheduled_nanos;
   long last_transaction_finished_nanos;
+  long block_completed_nanos;
 
   /* This field should only be accessed by the replay and executor
      tiles. */
@@ -663,12 +664,10 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
    should be done when the bank is no longer being updated: it should be
    done at the end of a slot.  This also releases the memory for the
    cost tracker which only has to be persisted from the start of a slot
-   to the end.
-   TODO: bank param should be replaced with bank_idx */
+   to the end. */
 
 void
-fd_banks_mark_bank_frozen( fd_banks_t * banks,
-                           fd_bank_t *  bank );
+fd_banks_mark_bank_frozen( fd_bank_t * bank );
 
 /* fd_banks_new_bank reserves a bank index for a new bank.  New bank
    indicies should always be available.  After this function is called,

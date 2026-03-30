@@ -199,7 +199,6 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
   if( FD_UNLIKELY( !pos->obj_max ) ) {
     /* Sysvar is directly stored - does not need to be deserialized */
     desc->flags |= FD_SYSVAR_FLAG_VALID;
-    FD_LOG_DEBUG(( "Restored sysvar %s (data_sz=%lu)", pos->name, data_sz ));
     return 0;
   }
 
@@ -218,7 +217,5 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
   pos->decode( (uchar *)cache+pos->obj_off, &ctx );
   desc->flags |= FD_SYSVAR_FLAG_VALID;
 
-  FD_LOG_DEBUG(( "Restored sysvar %s (data_sz=%lu obj_sz=%lu)",
-                 pos->name, data_sz, obj_sz ));
   return 0;
 }
