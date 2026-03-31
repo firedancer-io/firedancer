@@ -163,6 +163,12 @@ fd_curve25519_scalar_inv( uchar *       s,
   return s;
 }
 
+/* fd_curve25519_scalar_batch_inv computes the modular inverse of each
+   scalar in a[] using Montgomery's batch inversion trick (one inversion
+   + 3(sz-1) multiplications).  s[] receives the individual inverses;
+   allinv receives the inverse of the product of all nonzero inputs.
+   Zero inputs are skipped and their corresponding output set to zero.
+   https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/scalar.rs#L788-L837 */
 static inline void
 fd_curve25519_scalar_batch_inv( uchar       s     [ 32 ], /* sz scalars */
                                 uchar       allinv[ 32 ], /* 1 scalar */
@@ -171,14 +177,19 @@ fd_curve25519_scalar_batch_inv( uchar       s     [ 32 ], /* sz scalars */
   uchar acc[ 32 ];
   fd_memcpy( acc, fd_curve25519_scalar_one, 32 );
   for( ulong i=0; i<sz; i++ ) {
-    fd_memcpy( &s[ i*32 ], acc, 32 );
-    fd_curve25519_scalar_mul( acc, acc, &a[ i*32 ] );
+    if( FD_UNLIKELY( fd_memeq( &a[ i*32 ], fd_curve25519_scalar_zero, 32 ) ) ) {
+      fd_memcpy( &s[ i*32 ], fd_curve25519_scalar_zero, 32 );
+    } else {
+      fd_memcpy( &s[ i*32 ], acc, 32 );
+      fd_curve25519_scalar_mul( acc, acc, &a[ i*32 ] );
+    }
   }
 
   fd_curve25519_scalar_inv( acc, acc );
   fd_memcpy( allinv, acc, 32 );
 
   for( int i=(int)sz-1; i>=0; i-- ) {
+    if( FD_UNLIKELY( fd_memeq( &a[ i*32 ], fd_curve25519_scalar_zero, 32 ) ) ) continue;
     fd_curve25519_scalar_mul( &s[ i*32 ], &s[ i*32 ], acc );
     fd_curve25519_scalar_mul( acc, acc, &a[ i*32 ] );
   }
