@@ -675,13 +675,15 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
     if( idx==UINT_MAX ) continue;
-    ulong cnt = runtime_stack->stakes.epoch_credits[idx].cnt;
+    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[idx];
+    ulong cnt  = ec->cnt;
+    ulong base = ec->base_credits;
     va_t1[i].epoch_credits_count = (pb_size_t)cnt;
     va_t1[i].epoch_credits = fd_spad_alloc( spad, alignof(fd_exec_test_epoch_credit_t), cnt * sizeof(fd_exec_test_epoch_credit_t) );
     for( ulong j=0; j<cnt; j++ ) {
-      va_t1[i].epoch_credits[j].epoch        = runtime_stack->stakes.epoch_credits[idx].epoch[j];
-      va_t1[i].epoch_credits[j].credits      = runtime_stack->stakes.epoch_credits[idx].credits[j];
-      va_t1[i].epoch_credits[j].prev_credits = runtime_stack->stakes.epoch_credits[idx].prev_credits[j];
+      va_t1[i].epoch_credits[j].epoch        = ec->epoch[j];
+      va_t1[i].epoch_credits[j].credits      = base + ec->credits_delta[j];
+      va_t1[i].epoch_credits[j].prev_credits = base + ec->prev_credits_delta[j];
     }
   }
 

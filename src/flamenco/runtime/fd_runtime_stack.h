@@ -31,9 +31,10 @@ typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
 
 struct fd_epoch_credits {
   ulong  cnt;
-  ushort epoch       [ FD_EPOCH_CREDITS_MAX ];
-  ulong  credits     [ FD_EPOCH_CREDITS_MAX ];
-  ulong  prev_credits[ FD_EPOCH_CREDITS_MAX ];
+  ulong  base_credits;
+  ushort epoch             [ FD_EPOCH_CREDITS_MAX ];
+  uint   credits_delta     [ FD_EPOCH_CREDITS_MAX ];
+  uint   prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
 };
 typedef struct fd_epoch_credits fd_epoch_credits_t;
 

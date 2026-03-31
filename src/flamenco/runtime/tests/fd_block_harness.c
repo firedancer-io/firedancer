@@ -316,11 +316,13 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     vote_ele->commission_t_1 = (uchar)prev_vote_accs->commission;
 
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
-    runtime_stack->stakes.epoch_credits[i].cnt = prev_vote_accs->epoch_credits_count;
+    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[i];
+    ec->cnt          = prev_vote_accs->epoch_credits_count;
+    ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
-      runtime_stack->stakes.epoch_credits[i].epoch[j]        = (ushort)prev_vote_accs->epoch_credits[j].epoch;
-      runtime_stack->stakes.epoch_credits[i].credits[j]      = prev_vote_accs->epoch_credits[j].credits;
-      runtime_stack->stakes.epoch_credits[i].prev_credits[j] = prev_vote_accs->epoch_credits[j].prev_credits;
+      ec->epoch[j]              = (ushort)prev_vote_accs->epoch_credits[j].epoch;
+      ec->credits_delta[j]      = (uint)( prev_vote_accs->epoch_credits[j].credits      - ec->base_credits );
+      ec->prev_credits_delta[j] = (uint)( prev_vote_accs->epoch_credits[j].prev_credits - ec->base_credits );
     }
 
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );

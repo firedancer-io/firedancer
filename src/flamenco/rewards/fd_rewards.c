@@ -118,14 +118,24 @@ get_credits( uchar const *       account_data,
     FD_LOG_CRIT(( "invalid vote state version %u", vsv->discriminant ));
   }
 
-  epoch_credits->cnt = 0UL;
+  epoch_credits->cnt          = 0UL;
+  epoch_credits->base_credits = 0UL;
+
+  deq_fd_vote_epoch_credits_t_iter_t first = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
+  if( !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, first ) ) {
+    fd_vote_epoch_credits_t * first_ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, first );
+    epoch_credits->base_credits = first_ele->prev_credits;
+  }
+
+  ulong base = epoch_credits->base_credits;
   for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
        !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, iter );
        iter = deq_fd_vote_epoch_credits_t_iter_next( vote_credits, iter ) ) {
     fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, iter );
-    epoch_credits->epoch[ epoch_credits->cnt ]        = (ushort)ele->epoch;
-    epoch_credits->credits[ epoch_credits->cnt ]      = ele->credits;
-    epoch_credits->prev_credits[ epoch_credits->cnt ] = ele->prev_credits;
+    ulong i = epoch_credits->cnt;
+    epoch_credits->epoch[ i ]              = (ushort)ele->epoch;
+    epoch_credits->credits_delta[ i ]      = (uint)( ele->credits      - base );
+    epoch_credits->prev_credits_delta[ i ] = (uint)( ele->prev_credits - base );
     epoch_credits->cnt++;
   }
 }
@@ -143,7 +153,8 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
 
   ulong credits_in_stake = stake->credits_observed;
   ulong credits_cnt      = epoch_credits->cnt;
-  ulong credits_in_vote  = credits_cnt > 0UL ? epoch_credits->credits[ credits_cnt - 1UL ] : 0UL;
+  ulong base             = epoch_credits->base_credits;
+  ulong credits_in_vote  = credits_cnt > 0UL ? base + epoch_credits->credits_delta[ credits_cnt - 1UL ] : 0UL;
 
 
   /* If the Vote account has less credits observed than the Stake account,
@@ -173,8 +184,8 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
   ulong   new_credits_observed = credits_in_stake;
   for( ulong i=0UL; i<epoch_credits->cnt; i++ ) {
 
-    ulong final_epoch_credits   = epoch_credits->credits[ i ];
-    ulong initial_epoch_credits = epoch_credits->prev_credits[ i ];
+    ulong final_epoch_credits   = base + epoch_credits->credits_delta[ i ];
+    ulong initial_epoch_credits = base + epoch_credits->prev_credits_delta[ i ];
 
     /* Vote account credits can only increase or stay the same, so
        initial_epoch_credits <= final_epoch_credits always holds. */
