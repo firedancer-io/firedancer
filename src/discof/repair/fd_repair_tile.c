@@ -625,21 +625,31 @@ after_snap( ctx_t * ctx,
 }
 
 static inline void
-after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
-  fd_gossip_contact_info_t const * contact_info = msg->contact_info->value;
-  fd_ip4_port_t repair_peer;
-  repair_peer.addr = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].is_ipv6 ? 0U : contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].ip4;
-  repair_peer.port = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].port;
-  if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
-  fd_policy_peer_t const * peer = fd_policy_peer_upsert( ctx->policy, fd_type_pun_const( msg->origin ), &repair_peer );
-  if( FD_LIKELY( peer && !fd_signs_queue_full( ctx->pong_queue ) ) ) {
-    /* The repair process uses a Ping-Pong protocol that incurs one
-       round-trip time (RTT) for the initial repair request.  To
-       optimize this, we proactively send a placeholder repair request
-       as soon as we receive a peer's contact information for the first
-       time, effectively prepaying the RTT cost. */
-    fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, fd_type_pun_const( msg->origin ), (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
-    fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *init } );
+after_gossip( ctx_t * ctx, fd_gossip_update_message_t const * msg, ulong sig ) {
+  switch( sig ) {
+    case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
+      fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
+      break;
+    }
+    case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
+      fd_gossip_contact_info_t const * contact_info = msg->contact_info->value;
+      fd_ip4_port_t repair_peer;
+      repair_peer.addr = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].is_ipv6 ? 0U : contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].ip4;
+      repair_peer.port = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].port;
+      if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
+      fd_policy_peer_t const * peer = fd_policy_peer_upsert( ctx->policy, fd_type_pun_const( msg->origin ), &repair_peer );
+      if( FD_LIKELY( peer && !fd_signs_queue_full( ctx->pong_queue ) ) ) {
+        /* The repair process uses a Ping-Pong protocol that incurs one
+           round-trip time (RTT) for the initmial repair request.  To
+           optimize this, we proactively send a placeholder repair request
+           as soon as we receive a peer's contact information for the first
+           time, effectively prepaying the RTT cost. */
+        fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, fd_type_pun_const( msg->origin ), (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
+        fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *init } );
+      }
+      break;
+    }
+    default: FD_LOG_ERR(( "bad gossip sig %lu", sig ));
   }
 }
 
@@ -897,6 +907,40 @@ after_evict( ctx_t * ctx,
   fd_forest_fec_clear( ctx->forest, evicted->slot, evicted->fec_set_idx, FD_FEC_SHRED_CNT - 1 );
 }
 
+static inline void
+after_tower( ctx_t *       ctx,
+             ulong         sig,
+             uchar const * chunk ) {
+
+  switch( sig ) {
+    case FD_TOWER_SIG_SLOT_DONE: {
+      fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( chunk );
+      if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
+      break;
+    }
+    case FD_TOWER_SIG_SLOT_CONFIRMED: {
+      fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( chunk );
+      if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
+        fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
+        if( FD_UNLIKELY( !blk ) ) {
+          /* If we receive a confirmation for a slot we don't have,
+              create a sentinel forest block that we can repair from. */
+          ulong evicted = ULONG_MAX;
+          blk = fd_forest_blk_insert( ctx->forest, msg->slot, ULONG_MAX, &evicted );
+          FD_LOG_INFO(("[%s] creating sentinel for duplicate confirmed block %lu", __func__, msg->slot));
+          if( FD_UNLIKELY( !blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) return;
+        }
+
+        /* Confirm the block */
+        blk->confirmed_bid = msg->block_id;
+        check_confirmed( ctx, blk, &msg->block_id );
+      }
+      break;
+    }
+    default: return;
+  }
+}
+
 static void
 after_frag( ctx_t *             ctx,
             ulong               in_idx,
@@ -934,11 +978,7 @@ after_frag( ctx_t *             ctx,
     }
     case IN_KIND_GOSSIP: {
       fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
-      if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
-        after_contact( ctx, msg );
-      } else {
-        fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
-      }
+      after_gossip( ctx, msg, sig );
       break;
     }
     case IN_KIND_REPLAY: {
@@ -947,26 +987,7 @@ after_frag( ctx_t *             ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
-        fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
-        if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
-      } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-        fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
-        if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
-          fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
-          if( FD_UNLIKELY( !blk ) ) {
-            /* If we receive a confirmation for a slot we don't have,
-               create a sentinel forest block that we can repair from. */
-            ulong evicted = ULONG_MAX;
-            blk = fd_forest_blk_insert( ctx->forest, msg->slot, ULONG_MAX, &evicted );
-            if( FD_UNLIKELY( !blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) break;
-          }
-
-          /* Confirm the block */
-          blk->confirmed_bid = msg->block_id;
-          check_confirmed( ctx, blk, &msg->block_id );
-        }
-      }
+      after_tower( ctx, sig, fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
       break;
     }
     case IN_KIND_SHRED: {
