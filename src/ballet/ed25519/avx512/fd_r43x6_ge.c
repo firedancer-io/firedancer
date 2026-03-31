@@ -131,8 +131,8 @@ fd_r43x6_ge_decode( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
   //     RFC 8032 says "if x=0 and x_0=1, decoding fails", but Dalek
   //     does not enforce this — neg(0)==0 so it silently accepts.
   //     We match Dalek for compatibility.
-  //     https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/edwards.rs#L180-L209
-  //     https://github.com/dalek-cryptography/curve25519-dalek/blob/3.2.1/src/edwards.rs#L191-L209
+  //     https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/edwards.rs#L194-L240
+  //     https://github.com/dalek-cryptography/curve25519-dalek/blob/3.2.1/src/edwards.rs#L193-L209
 
   int x_mod_2 = fd_r43x6_diagnose( x );
 
@@ -226,8 +226,8 @@ fd_r43x6_ge_decode2( wwl_t * _Pa03, wwl_t * _Pa14, wwl_t * _Pa25,
 
   /* Note: RFC 8032 says "if x=0 and x_0=1, decoding fails", but Dalek does not enforce
      this — neg(0)==0 so it silently accepts.  We match Dalek for compatibility.
-     https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/edwards.rs#L180-L209
-     https://github.com/dalek-cryptography/curve25519-dalek/blob/3.2.1/src/edwards.rs#L191-L209 */
+     https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/edwards.rs#L194-L240
+     https://github.com/dalek-cryptography/curve25519-dalek/blob/3.2.1/src/edwards.rs#L193-L209 */
   int x_mod_2a = fd_r43x6_diagnose( xa );                          int x_mod_2b = fd_r43x6_diagnose( xb );
   xa = fd_r43x6_if( x_0a!=x_mod_2a, fd_r43x6_neg( xa ), xa );      xb = fd_r43x6_if( x_0b!=x_mod_2b, fd_r43x6_neg( xb ), xb );
 
