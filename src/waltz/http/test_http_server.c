@@ -68,7 +68,7 @@ test_oring( void ) {
   };
 
   uchar scratch[ 1633024 ] __attribute__((aligned(128UL)));
-#ifdef FD_HAS_ZSTD
+#if FD_HAS_ZSTD
   FD_TEST( fd_http_server_footprint( params )==1633024 );
 #else
   FD_TEST( fd_http_server_footprint( params )==329344 );
