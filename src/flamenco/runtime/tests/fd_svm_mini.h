@@ -90,6 +90,11 @@ struct fd_svm_mini_params {
   ulong init_feature_accounts : 1;
   ulong init_builtins         : 1;
 
+  /* If non-zero, creates mock_validator_cnt validators with uniform
+     stake and populates the epoch leader schedule.  For each validator,
+     creates identity, vote, and stake accounts in the accounts DB. */
+  ulong mock_validator_cnt;
+
   /* Sysvar overrides */
   fd_sol_sysvar_clock_t const * clock;
   fd_epoch_schedule_t const *   epoch_schedule;
@@ -185,6 +190,7 @@ fd_svm_mini_params_default( fd_svm_mini_params_t * params ) {
     .init_sysvars           = 1,
     .init_feature_accounts  = 0,
     .init_builtins          = 1,
+    .mock_validator_cnt     = 1UL,
     .clock                  = NULL,
     .epoch_schedule         = NULL,
     .rent                   = NULL,

@@ -1,6 +1,8 @@
 #include "fd_svm_mini.h"
 #include "../../accdb/fd_accdb_sync.h"
 #include "../../runtime/fd_bank.h"
+#include "../../leaders/fd_leaders.h"
+#include "../../stakes/fd_vote_stakes.h"
 
 static const fd_pubkey_t test_pubkey  = {{ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,
                                            17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32 }};
@@ -102,18 +104,20 @@ main( int     argc,
   fd_accdb_ro_t ro[1];
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &root_xid, &test_pubkey ) );
   FD_TEST( fd_accdb_ref_lamports( ro )==1000UL );
+  fd_accdb_close_ro( mini->accdb, ro );
 
   /* put_account_rooted: overwrite (remove + re-insert) */
-  fd_svm_mini_put_account_rooted( mini, ro );
-  fd_accdb_close_ro( mini->accdb, ro );
+  fd_account_meta_t tmp_meta = { .lamports = 500UL };
+  fd_accdb_ro_t tmp_ro[1]; fd_accdb_ro_init_nodb( tmp_ro, &test_pubkey, &tmp_meta );
+  fd_svm_mini_put_account_rooted( mini, tmp_ro );
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &root_xid, &test_pubkey ) );
-  FD_TEST( fd_accdb_ref_lamports( ro )==1000UL );
+  FD_TEST( fd_accdb_ref_lamports( ro )==500UL );
   fd_accdb_close_ro( mini->accdb, ro );
 
   /* add_lamports_rooted: existing account */
   fd_svm_mini_add_lamports_rooted( mini, &test_pubkey, 500UL );
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &root_xid, &test_pubkey ) );
-  FD_TEST( fd_accdb_ref_lamports( ro )==1500UL );
+  FD_TEST( fd_accdb_ref_lamports( ro )==1000UL );
   fd_accdb_close_ro( mini->accdb, ro );
 
   /* add_lamports (non-rooted fork) */
@@ -128,6 +132,55 @@ main( int     argc,
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &fork_xid, &test_pubkey2 ) );
   FD_TEST( fd_accdb_ref_lamports( ro )==1000UL );
   fd_accdb_close_ro( mini->accdb, ro );
+
+  /* mock_validator_cnt=0: no validators, no leader schedule */
+  params->mock_validator_cnt = 0UL;
+  params->root_slot          = 0UL;
+  params->slots_per_epoch    = 16UL;
+  root_idx = fd_svm_mini_reset( mini, params );
+  bank = fd_svm_mini_bank( mini, root_idx );
+  FD_TEST( bank );
+
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
+  FD_TEST( leaders==NULL );
+
+  fd_vote_stakes_t * vs0 = fd_bank_vote_stakes( bank );
+  ushort vs0_root_idx = fd_vote_stakes_get_root_idx( vs0 );
+  FD_TEST( fd_vote_stakes_ele_cnt( vs0, vs0_root_idx )==0U );
+
+  /* mock_validator_cnt=1: single validator */
+  params->mock_validator_cnt = 1UL;
+  root_idx = fd_svm_mini_reset( mini, params );
+  bank = fd_svm_mini_bank( mini, root_idx );
+  FD_TEST( bank );
+
+  leaders = fd_bank_epoch_leaders_query( bank );
+  FD_TEST( leaders );
+  FD_TEST( leaders->pub_cnt==1UL );
+  FD_TEST( leaders->slot_cnt==bank->f.epoch_schedule.slots_per_epoch );
+  FD_TEST( fd_epoch_leaders_get( leaders, leaders->slot0 ) );
+
+  fd_vote_stakes_t * vs1 = fd_bank_vote_stakes( bank );
+  ushort vs1_root_idx = fd_vote_stakes_get_root_idx( vs1 );
+  FD_TEST( fd_vote_stakes_ele_cnt( vs1, vs1_root_idx )==1U );
+
+  /* mock_validator_cnt=4: multiple validators */
+  params->mock_validator_cnt = 4UL;
+  root_idx = fd_svm_mini_reset( mini, params );
+  bank = fd_svm_mini_bank( mini, root_idx );
+  FD_TEST( bank );
+
+  leaders = fd_bank_epoch_leaders_query( bank );
+  FD_TEST( leaders );
+  FD_TEST( leaders->pub_cnt==4UL );
+  FD_TEST( leaders->slot_cnt==bank->f.epoch_schedule.slots_per_epoch );
+  for( ulong s=leaders->slot0; s<leaders->slot0+leaders->slot_cnt; s++ ) {
+    FD_TEST( fd_epoch_leaders_get( leaders, s ) );
+  }
+
+  fd_vote_stakes_t * vs4 = fd_bank_vote_stakes( bank );
+  ushort vs4_root_idx = fd_vote_stakes_get_root_idx( vs4 );
+  FD_TEST( fd_vote_stakes_ele_cnt( vs4, vs4_root_idx )==4U );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

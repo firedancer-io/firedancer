@@ -13,6 +13,13 @@
 #include "../../runtime/fd_runtime.h"
 #include "../../runtime/sysvar/fd_sysvar_cache.h"
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
+#include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../runtime/program/fd_vote_program.h"
+#include "../../stakes/fd_stake_types.h"
+#include "../../stakes/fd_vote_stakes.h"
+#include "../../stakes/fd_stake_delegations.h"
+#include "../../stakes/fd_top_votes.h"
+#include "../../leaders/fd_leaders.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -228,6 +235,157 @@ fd_svm_mini_destroy( fd_svm_mini_t * mini ) {
   fd_wksp_free_laddr( mini );
 }
 
+static void
+fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
+                                  fd_bank_t *                  bank,
+                                  fd_svm_mini_params_t const * params ) {
+
+  ulong const N             = params->mock_validator_cnt;
+  ulong const uniform_stake = 1000000000UL; /* 1 SOL */
+  ulong const vote_min_bal  = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V3_SZ );
+  ulong const stake_min_bal = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_STAKE_STATE_SZ );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_reset( vote_stakes );
+
+  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
+  fd_top_votes_init( top_votes_t_1 );
+  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
+  fd_top_votes_init( top_votes_t_2 );
+
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( mini->banks );
+
+  fd_vote_stake_weight_t * stakes = calloc( N, sizeof(fd_vote_stake_weight_t) );
+  FD_TEST( stakes );
+
+  fd_rng_t rng[1];
+  fd_rng_join( fd_rng_new( rng, (uint)params->hash_seed, 0UL ) );
+
+  for( ulong i=0UL; i<N; i++ ) {
+
+    /* Generate deterministic pubkeys */
+
+    fd_pubkey_t identity_key, vote_key, stake_key;
+    for( ulong j=0UL; j<4UL; j++ ) identity_key.ul[j] = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) vote_key.ul[j]     = fd_rng_ulong( rng );
+    for( ulong j=0UL; j<4UL; j++ ) stake_key.ul[j]     = fd_rng_ulong( rng );
+
+    /* Identity account */
+
+    fd_svm_mini_add_lamports_rooted( mini, &identity_key, 500000000000UL /* 500 SOL */ );
+
+    /* Vote account */
+
+    {
+      uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
+
+      fd_vote_state_versioned_t vsv[1];
+      fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_v3 );
+      fd_vote_state_v3_t * vs = &vsv->inner.v3;
+      vs->node_pubkey           = identity_key;
+      vs->authorized_withdrawer = identity_key;
+      vs->commission            = 100;
+
+      uchar auth_mem[ 1024 ] __attribute__((aligned(128)));
+      void * alloc_mem = auth_mem;
+      vs->authorized_voters.pool  = fd_vote_authorized_voters_pool_join_new( &alloc_mem, 1UL );
+      vs->authorized_voters.treap = fd_vote_authorized_voters_treap_join_new( &alloc_mem, 1UL );
+
+      fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( vs->authorized_voters.pool );
+      *ele = (fd_vote_authorized_voter_t){
+        .epoch  = 0UL,
+        .pubkey = identity_key,
+        .prio   = identity_key.ul[0],
+      };
+      fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
+
+      fd_bincode_encode_ctx_t encode = {
+        .data    = vote_state_data,
+        .dataend = vote_state_data + sizeof(vote_state_data)
+      };
+      FD_TEST( fd_vote_state_versioned_encode( vsv, &encode )==FD_BINCODE_SUCCESS );
+
+      fd_account_meta_t meta = { .lamports = vote_min_bal, .dlen = FD_VOTE_STATE_V3_SZ };
+      memcpy( meta.owner, fd_solana_vote_program_id.uc, 32UL );
+      fd_accdb_ro_t ro[1];
+      fd_accdb_ro_init_nodb_oob( ro, &vote_key, &meta, vote_state_data );
+      fd_svm_mini_put_account_rooted( mini, ro );
+    }
+
+    /* Stake account */
+
+    {
+      uchar stake_data[ FD_STAKE_STATE_SZ ] = {0};
+      FD_STORE( fd_stake_state_t, stake_data, ((fd_stake_state_t) {
+        .stake_type = FD_STAKE_STATE_STAKE,
+        .stake = {
+          .meta = {
+            .rent_exempt_reserve = stake_min_bal,
+            .staker              = identity_key,
+            .withdrawer          = identity_key,
+          },
+          .stake = (fd_stake_t) {
+            .delegation = (fd_delegation_t) {
+              .voter_pubkey         = vote_key,
+              .stake                = uniform_stake,
+              .activation_epoch     = ULONG_MAX,
+              .deactivation_epoch   = ULONG_MAX,
+              .warmup_cooldown_rate = 0.25,
+            },
+            .credits_observed = 0UL,
+          },
+        },
+      }) );
+
+      fd_account_meta_t meta = {
+        .lamports = fd_ulong_max( stake_min_bal, uniform_stake ),
+        .dlen     = FD_STAKE_STATE_SZ,
+      };
+      memcpy( meta.owner, fd_solana_stake_program_id.uc, 32UL );
+      fd_accdb_ro_t ro[1];
+      fd_accdb_ro_init_nodb_oob( ro, &stake_key, &meta, stake_data );
+      fd_svm_mini_put_account_rooted( mini, ro );
+    }
+
+    /* Populate bank structures */
+
+    fd_vote_stakes_root_insert_key ( vote_stakes, &vote_key, &identity_key, uniform_stake, 0, 0UL );
+    fd_vote_stakes_root_update_meta( vote_stakes, &vote_key, &identity_key, uniform_stake, 0, 0UL );
+
+    fd_top_votes_insert( top_votes_t_1, &vote_key, &identity_key, uniform_stake, 0 );
+    fd_top_votes_insert( top_votes_t_2, &vote_key, &identity_key, uniform_stake, 0 );
+
+    fd_stake_delegations_root_update( stake_delegations,
+                                      &stake_key, &vote_key,
+                                      uniform_stake,
+                                      ULONG_MAX,  /* activation_epoch (bootstrap) */
+                                      ULONG_MAX,  /* deactivation_epoch */
+                                      0UL,        /* credits_observed */
+                                      0.25        /* warmup_cooldown_rate */ );
+
+    stakes[i] = (fd_vote_stake_weight_t){
+      .vote_key = vote_key,
+      .id_key   = identity_key,
+      .stake    = uniform_stake,
+    };
+  }
+
+  fd_vote_stakes_genesis_fini( vote_stakes );
+
+  /* Create leader schedule */
+
+  ulong epoch    = bank->f.epoch;
+  ulong slot0    = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
+  ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
+
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
+      leaders_mem, epoch, slot0, slot_cnt, N, stakes, 0UL ) ) );
+
+  fd_rng_delete( fd_rng_leave( rng ) );
+  free( stakes );
+}
+
 ulong
 fd_svm_mini_reset( fd_svm_mini_t *        mini,
                    fd_svm_mini_params_t * params ) {
@@ -393,6 +551,10 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     free( slot_history_enc );
 
     fd_sysvar_cache_restore( bank, mini->accdb, &root_xid );
+  }
+
+  if( params->mock_validator_cnt ) {
+    fd_svm_mini_init_mock_validators( mini, bank, params );
   }
 
   return bank_idx;
