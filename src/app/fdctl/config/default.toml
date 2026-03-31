@@ -810,6 +810,12 @@ dynamic_port_range = "8900-9000"
     # the agave runtime for execution, which takes various locks and
     # uses concurrent data structures which slow down with multiple
     # parallel users.
+    #
+    # If using the revenue scheduling strategy (see tiles.pack), the
+    # bank tile count can be increased, and more bank tiles will likely
+    # result in better blocks.  Adding too many bank tiles does have
+    # diminishing returns, and it's suggested to experiment with values
+    # around 10-20.
     bank_tile_count = 4
 
     # How many shred tiles to run.  Should be set to 1.  This is
@@ -1282,7 +1288,7 @@ dynamic_port_range = "8900-9000"
         # Over time, as the network gets faster and compute unit limits
         # are raised, this trade-off will become less pronounced.
         #
-        # The Firedancer team supports two different strategies which
+        # The Firedancer team supports three different strategies which
         # are described below:
         #
         #  "perf"
@@ -1302,6 +1308,20 @@ dynamic_port_range = "8900-9000"
         #
         #   When using the balanced mode, there is no reason to increase
         #   bank tile count beyond the default of 4.
+        #
+        #  "revenue"
+        #   Fill blocks extremely lazily, saving most work for the end
+        #   of the block.  This strategy results in high revenue from
+        #   MEV, but results in regularly unfull blocks, and decreased
+        #   priority fees compared to the balanced strategy.
+        #
+        #   When scheduling with the revenue mode, it is suggested to
+        #   use a high number of bank tiles.  The more bank tiles in
+        #   use, the faster the scheduler can fill blocks during the
+        #   short working window at the end of each slot.
+        #
+        #   WARNING: The revenue scheduler is deprecated and will be
+        #   removed in a future version.
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to

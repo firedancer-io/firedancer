@@ -854,6 +854,12 @@ telemetry = true
     # mainnet-beta, except when using unique scheduling strategies.  For
     # development and benchmarking, it can be useful to increase this
     # number further.
+    #
+    # If using the revenue scheduling strategy (see tiles.pack), the
+    # execle tile count can be increased, and more execle tiles will
+    # likely result in better blocks.  Adding too many execle tiles does
+    # have diminishing returns, and it's suggested to experiment with
+    # values around 10-20.
     execle_tile_count = 2
 
     # How many execrp tiles to run.  These tiles execute transactions
@@ -1377,7 +1383,7 @@ telemetry = true
         # Over time, as the network gets faster and compute unit limits
         # are raised, this trade-off will become less pronounced.
         #
-        # The Firedancer team supports two different strategies which
+        # The Firedancer team supports three different strategies which
         # are described below:
         #
         #  "perf"
@@ -1386,7 +1392,7 @@ telemetry = true
         #   consistently 100% full blocks.
         #
         #   When using the perf scheduling mode, there is no reason to
-        #   increase the execle tile count beyond the default of 2.
+        #   increase the execle tile count beyond the default of 4.
         #
         #  "balanced" (default)
         #   Try to fill the block at a rate that is just fast enough to
@@ -1396,7 +1402,21 @@ telemetry = true
         #   an external block builder.
         #
         #   When using the balanced mode, there is no reason to increase
-        #   execle tile count beyond the default of 2.
+        #   execle tile count beyond the default of 4.
+        #
+        #  "revenue"
+        #   Fill blocks extremely lazily, saving most work for the end
+        #   of the block.  This strategy results in high revenue from
+        #   MEV, but results in regularly unfull blocks, and decreased
+        #   priority fees compared to the balanced strategy.
+        #
+        #   When scheduling with the revenue mode, it is suggested to
+        #   use a high number of execle tiles.  The more execle tiles in
+        #   use, the faster the scheduler can fill blocks during the
+        #   short working window at the end of each slot.
+        #
+        #   WARNING: The revenue scheduler is deprecated and will be
+        #   removed in a future version.
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
