@@ -20,9 +20,9 @@ fd_accdb_search_chain( fd_funk_t const *          funk,
   fd_funk_rec_t *                               rec_tbl   = funk->rec_pool->ele;
   ulong                                         rec_max   = fd_funk_rec_pool_ele_max( funk->rec_pool );
 
-  uint            ele_idx   = chain->head_cidx;
   ulong _Atomic * ver_cnt_p = (ulong _Atomic *)&chain->ver_cnt;
   ulong           ver_cnt   = atomic_load_explicit( ver_cnt_p, memory_order_acquire );
+  uint            ele_idx   = chain->head_cidx;
 
   /* Start a speculative transaction for the chain containing revisions
      of the account key we are looking for. */
@@ -62,12 +62,11 @@ fd_accdb_search_chain( fd_funk_t const *          funk,
 next:
     ele_idx = ele_next;
   }
-  if( FD_UNLIKELY( !best && ele_idx!=FD_FUNK_REC_IDX_NULL ) ) {
-    FD_LOG_CRIT(( "fd_accdb_search_chain detected malformed chain (%lu): found more nodes than chain header indicated (%lu)", chain_idx, cnt ));
-  }
-
   if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
     return FD_MAP_ERR_AGAIN;
+  }
+  if( FD_UNLIKELY( !best && ele_idx!=FD_FUNK_REC_IDX_NULL ) ) {
+    FD_LOG_CRIT(( "fd_accdb_search_chain detected malformed chain (%lu): found more nodes than chain header indicated (%lu)", chain_idx, cnt ));
   }
   *out_rec = best;
   return FD_MAP_SUCCESS;
