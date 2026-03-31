@@ -622,47 +622,104 @@ test_affine_is_small_order( FD_PARAM_UNUSED fd_rng_t * rng ) {
 
   // Passsing condition
   fd_hex_decode(s, "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( ! fd_ed25519_affine_is_small_order( r ) );
 
-  fd_hex_decode(s, "0000000000000000000000000000000000000000000000000000000000000001", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  fd_hex_decode(s, "5866666666666666666666666666666666666666666666666666666666666666", 32 );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( ! fd_ed25519_affine_is_small_order( r ) );
 
   // Small order points
   fd_hex_decode(s, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( fd_ed25519_affine_is_small_order( r ) );
 
   fd_hex_decode(s, "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( fd_ed25519_affine_is_small_order( r ) );
 
   fd_hex_decode(s, "0000000000000000000000000000000000000000000000000000000000000000", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( fd_ed25519_affine_is_small_order( r ) );
 
   fd_hex_decode(s, "0000000000000000000000000000000000000000000000000000000000000080", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( fd_ed25519_affine_is_small_order( r ) );
 
   fd_hex_decode(s, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( fd_ed25519_affine_is_small_order( r ) );
 
   fd_hex_decode(s, "26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc85", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( fd_ed25519_affine_is_small_order( r ) );
 
   fd_hex_decode(s, "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( fd_ed25519_affine_is_small_order( r ) );
 
   fd_hex_decode(s, "c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac03fa", 32 );
-  fd_ed25519_point_frombytes( r, s );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+
+  /* x=0 with sign bit set: accepted to match Dalek behavior (neg(0)==0). */
+  fd_hex_decode(s, "0100000000000000000000000000000000000000000000000000000000000080", 32 );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
+  FD_TEST( fd_ed25519_affine_is_small_order( r ) );
+  fd_hex_decode(s, "ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  FD_TEST( fd_ed25519_point_frombytes( r, s ) );
   FD_TEST( fd_ed25519_affine_is_small_order( r ) );
 
   FD_LOG_NOTICE(( "test_affine_is_small_order: ok" ));
+}
+
+static void
+test_frombytes_2x( FD_PARAM_UNUSED fd_rng_t * rng ) {
+  uchar _s1[32]; uchar * s1 = _s1;
+  uchar _s2[32]; uchar * s2 = _s2;
+  fd_ed25519_point_t _r1[1]; fd_ed25519_point_t * r1 = _r1;
+  fd_ed25519_point_t _r2[1]; fd_ed25519_point_t * r2 = _r2;
+
+  /* Two valid points */
+  fd_hex_decode(s1, "5866666666666666666666666666666666666666666666666666666666666666", 32 ); /* base point */
+  fd_hex_decode(s2, "0100000000000000000000000000000000000000000000000000000000000000", 32 ); /* identity */
+  FD_TEST( fd_ed25519_point_frombytes_2x( r1, s1, r2, s2 )==0 );
+
+  /* First invalid => -1 */
+  fd_hex_decode(s1, "0200000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_hex_decode(s2, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
+  FD_TEST( fd_ed25519_point_frombytes_2x( r1, s1, r2, s2 )==-1 );
+
+  /* Second invalid => -2 */
+  fd_hex_decode(s1, "0100000000000000000000000000000000000000000000000000000000000000", 32 );
+  fd_hex_decode(s2, "0200000000000000000000000000000000000000000000000000000000000000", 32 );
+  FD_TEST( fd_ed25519_point_frombytes_2x( r1, s1, r2, s2 )==-2 );
+
+  /* x=0, sign=1 in slot 1: should succeed (match Dalek) */
+  fd_hex_decode(s1, "0100000000000000000000000000000000000000000000000000000000000080", 32 );
+  fd_hex_decode(s2, "5866666666666666666666666666666666666666666666666666666666666666", 32 );
+  FD_TEST( fd_ed25519_point_frombytes_2x( r1, s1, r2, s2 )==0 );
+  FD_TEST( fd_ed25519_affine_is_small_order( r1 ) );
+
+  /* x=0, sign=1 in slot 2: should succeed (match Dalek) */
+  fd_hex_decode(s1, "5866666666666666666666666666666666666666666666666666666666666666", 32 );
+  fd_hex_decode(s2, "0100000000000000000000000000000000000000000000000000000000000080", 32 );
+  FD_TEST( fd_ed25519_point_frombytes_2x( r1, s1, r2, s2 )==0 );
+  FD_TEST( fd_ed25519_affine_is_small_order( r2 ) );
+
+  /* non-canonical y=1, sign=1 in slot 1: should succeed (match Dalek) */
+  fd_hex_decode(s1, "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  fd_hex_decode(s2, "5866666666666666666666666666666666666666666666666666666666666666", 32 );
+  FD_TEST( fd_ed25519_point_frombytes_2x( r1, s1, r2, s2 )==0 );
+  FD_TEST( fd_ed25519_affine_is_small_order( r1 ) );
+
+  /* non-canonical y=1, sign=1 in slot 2: should succeed (match Dalek) */
+  fd_hex_decode(s1, "5866666666666666666666666666666666666666666666666666666666666666", 32 );
+  fd_hex_decode(s2, "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
+  FD_TEST( fd_ed25519_point_frombytes_2x( r1, s1, r2, s2 )==0 );
+  FD_TEST( fd_ed25519_affine_is_small_order( r2 ) );
+
+  FD_LOG_NOTICE(( "test_frombytes_2x: ok" ));
 }
 
 /* FIXME: ADD VMUL, VSQ, VSQN TESTS HERE */
@@ -691,10 +748,10 @@ test_point_validate( FD_PARAM_UNUSED fd_rng_t * rng ) {
   FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
 
   fd_hex_decode( buf, "0100000000000000000000000000000000000000000000000000000000000080", 32 );
-  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..80)" );
 
   fd_hex_decode( buf, "eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
-  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
+  FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(ee..ff)" );
 
   fd_hex_decode( buf, "edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", 32 );
   FD_TEST_CUSTOM( fd_ed25519_point_validate( buf ), "fd_ed25519_point_validate(01..00)" );
@@ -1457,6 +1514,7 @@ main( int     argc,
 
   test_affine_frombytes      ( rng );
   test_affine_is_small_order ( rng );
+  test_frombytes_2x          ( rng );
 
   test_point_validate( rng );
   test_point_frombytes( rng );
