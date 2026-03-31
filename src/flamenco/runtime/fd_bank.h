@@ -622,6 +622,13 @@ fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank,
                      ulong        max_vote_accounts );
 
+/* fd_banks_clear releases all banks back to the pool and resets the
+   banks manager to its post-new state.  Assumes no active references to
+   any bank. */
+
+void
+fd_banks_clear( fd_banks_t * banks );
+
 /* fd_banks_advance_root_prepare returns the highest block that can be
    safely advanced between the current root of the fork tree and the
    target block.  See the note on safe publishing for more details.  In

@@ -649,6 +649,60 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   FD_TEST( root_to_epoch_large > root_to_epoch_small );
 }
 
+static void
+test_bank_clear( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 2048UL, 0, 7777UL ) );
+  FD_TEST( banks );
+
+  fd_bank_t * root = fd_banks_init_bank( banks );
+  FD_TEST( root );
+  root->f.slot           = 100UL;
+  root->f.capitalization = 5000UL;
+
+  fd_bank_t * child_A = fd_banks_new_bank( banks, root->idx, 0L );
+  ulong child_A_idx = child_A->idx;
+  child_A = fd_banks_clone_from_parent( banks, child_A_idx );
+  child_A->f.slot = 101UL;
+  fd_banks_mark_bank_frozen( child_A );
+
+  fd_bank_t * child_B = fd_banks_new_bank( banks, root->idx, 0L );
+  ulong child_B_idx = child_B->idx;
+  child_B = fd_banks_clone_from_parent( banks, child_B_idx );
+  child_B->f.slot = 102UL;
+  fd_banks_mark_bank_frozen( child_B );
+
+  FD_TEST( fd_banks_pool_used_cnt( banks ) == 3UL );
+
+  fd_banks_clear( banks );
+
+  FD_TEST( banks->root_idx == ULONG_MAX );
+  FD_TEST( banks->bank_seq == 0UL );
+  FD_TEST( fd_banks_pool_used_cnt( banks ) == 0UL );
+
+  fd_bank_t * new_root = fd_banks_init_bank( banks );
+  FD_TEST( new_root );
+  FD_TEST( new_root->f.slot == 0UL );
+  FD_TEST( new_root->f.capitalization == 0UL );
+  FD_TEST( new_root->bank_seq == 0UL );
+  new_root->f.slot = 200UL;
+  FD_TEST( new_root->f.slot == 200UL );
+
+  fd_bank_t * new_child = fd_banks_new_bank( banks, new_root->idx, 0L );
+  ulong new_child_idx = new_child->idx;
+  new_child = fd_banks_clone_from_parent( banks, new_child_idx );
+  FD_TEST( new_child );
+  new_child->f.slot = 201UL;
+  FD_TEST( new_child->f.slot == 201UL );
+  fd_banks_mark_bank_frozen( new_child );
+
+  fd_banks_advance_root( banks, new_child_idx );
+  FD_TEST( banks->root_idx == new_child_idx );
+
+  fd_banks_clear( banks );
+  FD_TEST( banks->root_idx == ULONG_MAX );
+  FD_TEST( fd_banks_pool_used_cnt( banks ) == 0UL );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -997,6 +1051,8 @@ main( int argc, char ** argv ) {
   test_bank_frontier( mem );
 
   test_bank_stake_delegations_dynamic_sizing( mem );
+
+  test_bank_clear( mem );
 
   FD_LOG_NOTICE(( "pass" ));
 

@@ -1034,3 +1034,28 @@ fd_banks_clear_bank( fd_banks_t * banks,
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   fd_vote_stakes_new( vote_stakes, max_vote_accounts, max_vote_accounts, banks->max_fork_width, 999UL );
 }
+
+void
+fd_banks_clear( fd_banks_t * banks ) {
+
+  fd_bank_t *              bank_pool         = fd_banks_get_bank_pool( banks );
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_banks_get_cost_tracker_pool( banks );
+
+  for( ulong i=0UL; i<banks->max_total_banks; i++ ) {
+    fd_bank_t * bank = fd_banks_pool_ele( bank_pool, i );
+    bank->state                 = FD_BANK_STATE_INACTIVE;
+    bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool );
+  }
+
+  fd_banks_pool_reset( bank_pool );
+  fd_bank_cost_tracker_pool_reset( cost_tracker_pool );
+  fd_banks_dead_remove_all( fd_banks_get_dead_banks_deque( banks ) );
+
+  fd_vote_stakes_reset( fd_banks_get_vote_stakes( banks ) );
+  fd_stake_delegations_init( fd_banks_get_stake_delegations( banks ) );
+
+  fd_stake_rewards_clear( fd_banks_get_stake_rewards( banks ) );
+
+  banks->root_idx = ULONG_MAX;
+  banks->bank_seq = 0UL;
+}
