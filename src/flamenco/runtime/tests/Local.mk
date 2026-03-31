@@ -29,5 +29,9 @@ $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)
 endif
 endif
 
+$(call add-hdrs,fd_svm_elfgen.h)
+$(call add-objs,fd_svm_elfgen,fd_flamenco_test)
+$(call make-unit-test,test_svm_elfgen,test_svm_elfgen,fd_flamenco_test fd_flamenco fd_ballet fd_util fd_disco)
+
 run-runtime-backtest: $(OBJDIR)/bin/firedancer-dev
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_backtest_ci.sh $(BACKTEST_ARGS)
