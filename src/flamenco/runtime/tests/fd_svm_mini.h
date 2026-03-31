@@ -212,6 +212,14 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
                           ulong           parent_bank_idx,
                           ulong           child_slot );
 
+/* fd_svm_mini_freeze freezes the bank identified by bank_idx.  Runs
+   slot boundary logic (registers POH hash into blockhash queue, updates
+   sysvars, settles fees, etc). */
+
+void
+fd_svm_mini_freeze( fd_svm_mini_t * mini,
+                    ulong           bank_idx );
+
 /* fd_svm_mini_cancel_fork cancels the subtree of the fork graph
    identified by bank_idx (i.e. the bank_idx node and all its children,
    transitively). */

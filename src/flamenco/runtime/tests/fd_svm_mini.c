@@ -10,6 +10,7 @@
 #include "../../runtime/program/fd_builtin_programs.h"
 #include "../../runtime/fd_system_ids.h"
 #include "../../log_collector/fd_log_collector.h"
+#include "../../runtime/fd_runtime.h"
 #include "../../runtime/sysvar/fd_sysvar_cache.h"
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
 #include <errno.h>
@@ -326,6 +327,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     fd_memset( genesis_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
     fd_blockhash_info_t * bh_info = fd_blockhashes_push_new( bhq, &genesis_hash );
     bh_info->fee_calculator.lamports_per_signature = 0UL;
+    bank->f.poh = genesis_hash;
 
     /* Clock */
     fd_sol_sysvar_clock_t clock = {
@@ -425,6 +427,17 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
 }
 
 void
+fd_svm_mini_freeze( fd_svm_mini_t * mini,
+                    ulong           bank_idx ) {
+  fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
+  /* Derive a mock POH hash so each frozen slot registers a unique
+     blockhash.  (Real POH is computed by the PoH tile.) */
+  fd_sha256_hash( bank->f.poh.hash, 32UL, bank->f.poh.hash );
+  fd_runtime_block_execute_finalize( bank, mini->accdb, NULL );
+}
+
+void
 fd_svm_mini_cancel_fork( fd_svm_mini_t * mini,
                          ulong           bank_idx ) {
 
@@ -476,6 +489,13 @@ fd_svm_mini_put_account_rooted( fd_svm_mini_t *       mini,
   fd_funk_rec_map_query_t query[1];
   int remove_err = fd_funk_rec_map_remove( funk->rec_map, &pair, NULL, query, 0 );
   FD_TEST( remove_err==FD_MAP_SUCCESS || remove_err==FD_MAP_ERR_KEY );
+  if( remove_err==FD_MAP_SUCCESS ) {
+    fd_funk_rec_t * old_rec = query->ele;
+    memset( &old_rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
+    old_rec->map_next = FD_FUNK_REC_IDX_NULL;
+    fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
+    fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
+  }
 
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_funk_create( funk, rw, NULL, ro->ref->address, fd_accdb_ref_data_sz( ro ) ) );
