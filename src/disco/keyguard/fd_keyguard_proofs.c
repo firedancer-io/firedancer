@@ -10,7 +10,8 @@
 void
 fd_log_private_1( int          level,
                   long         now,
-                  char const * file,
+                  char const * path,
+                  char const * file_name,
                   int          line,
                   char const * func,
                   char const * msg ) {}
@@ -19,7 +20,8 @@ fd_log_private_1( int          level,
 void
 fd_log_private_2( int          level,
                   long         now,
-                  char const * file,
+                  char const * path,
+                  char const * file_name,
                   int          line,
                   char const * func,
                   char const * msg ) __attribute__((noreturn)) {
