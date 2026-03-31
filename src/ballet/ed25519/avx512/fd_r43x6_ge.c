@@ -127,19 +127,16 @@ fd_r43x6_ge_decode( wwl_t * _P03, wwl_t * _P14, wwl_t * _P25,
   fd_r43x6_t t3  = fd_r43x6_if( t1nz, fd_r43x6_imag(), one ); /* in u43 */
   /**/       x   = fd_r43x6_mul( x, t3 );                     /* in u44 */
 
-  // 4.  Finally, use the x_0 bit to select the right square root.  If x
-  //     = 0, and x_0 = 1, decoding fails." */
-
-  /* Note that we could merge this branch with the above for even
-     more deterministic performance.
-
-     WARNING!  This check seems to be missing from the OpenSSL
-     implementation. */
+  // 4.  Finally, use the x_0 bit to select the right square root.
+  //     RFC 8032 says "if x=0 and x_0=1, decoding fails", but Dalek
+  //     does not enforce this — neg(0)==0 so it silently accepts.
+  //     We match Dalek for compatibility.
+  //     https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/edwards.rs#L180-L209
+  //     https://github.com/dalek-cryptography/curve25519-dalek/blob/3.2.1/src/edwards.rs#L191-L209
 
   int x_mod_2 = fd_r43x6_diagnose( x );
-  if( FD_UNLIKELY( (x_mod_2==-1) & (x_0==1) ) ) goto fail;
 
-  // Otherwise, if x_0 != x mod 2, set x <-- p - x.
+  // If x_0 != x mod 2, set x <-- p - x.
 
   x = fd_r43x6_if( x_0!=x_mod_2, fd_r43x6_neg( x ) /* in u44 */, x );
 
@@ -227,9 +224,11 @@ fd_r43x6_ge_decode2( wwl_t * _Pa03, wwl_t * _Pa14, wwl_t * _Pa25,
   fd_r43x6_t t3a = fd_r43x6_if( t1nza, sqrt_m1, one );             fd_r43x6_t t3b = fd_r43x6_if( t1nzb, sqrt_m1, one );
   /**/                   FD_R43X6_MUL2_INL      ( xa,   xa,t3a,    xb,   xb,t3b   );
 
+  /* Note: RFC 8032 says "if x=0 and x_0=1, decoding fails", but Dalek does not enforce
+     this — neg(0)==0 so it silently accepts.  We match Dalek for compatibility.
+     https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-4.1.3/curve25519-dalek/src/edwards.rs#L180-L209
+     https://github.com/dalek-cryptography/curve25519-dalek/blob/3.2.1/src/edwards.rs#L191-L209 */
   int x_mod_2a = fd_r43x6_diagnose( xa );                          int x_mod_2b = fd_r43x6_diagnose( xb );
-  if( FD_UNLIKELY( (x_mod_2a==-1) & (x_0a==1) ) ) goto faila;
-  /**/                                                             if( FD_UNLIKELY( (x_mod_2b==-1) & (x_0b==1) ) ) goto failb;
   xa = fd_r43x6_if( x_0a!=x_mod_2a, fd_r43x6_neg( xa ), xa );      xb = fd_r43x6_if( x_0b!=x_mod_2b, fd_r43x6_neg( xb ), xb );
 
   fd_r43x6_t xya,  xyb;  FD_R43X6_MUL2_INL      ( xya,  xa,ya,     xyb,  xb,yb    );
