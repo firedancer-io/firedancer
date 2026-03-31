@@ -810,6 +810,7 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
   ctx->signal_leader_change = signal_leader_change;
 
   /* Static configuration about the clock. */
+  tick_duration_ns /= 2UL;
   ctx->tick_duration_ns = tick_duration_ns;
   ctx->hashcnt_per_tick = hashcnt_per_tick;
   ctx->ticks_per_slot   = ticks_per_slot;

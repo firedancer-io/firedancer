@@ -3008,7 +3008,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->next_leader_slot      = ULONG_MAX;
   ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
-  ctx->slot_duration_nanos   = 350L*1000L*1000L; /* TODO: Not fixed ... not always 350ms ... */
+  ctx->slot_duration_nanos   = 200L*1000L*1000L; /* TODO: Not fixed ... not always 200ms ... */
   ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
   ctx->leader_bank = NULL;
 
