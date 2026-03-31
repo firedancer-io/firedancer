@@ -26,10 +26,11 @@
 #define INIT_DLEN    8UL
 #define TARGET_LEN   1000UL
 
-/* Per-account size in aligned serialization:
-   88 bytes metadata + aligned data + 10240 realloc + 8 rent_epoch */
-#define DATA_PREFIX_SZ 88UL
-#define ACCT_SERIALIZED_SZ (88UL + fd_ulong_align_up( INIT_DLEN, 8UL ) + 10240UL + 8UL)
+/* ABI v1 per-account serialization layout:
+   80 bytes header + 8 byte data_len + data (aligned) + 10240 realloc + 8 rent_epoch */
+#define ACCT_META_SZ       88UL  /* offset to account data start */
+#define ACCT_DLEN_OFF      (ACCT_META_SZ - sizeof(ulong))  /* offset to data_len field */
+#define ACCT_SERIALIZED_SZ (ACCT_META_SZ + fd_ulong_align_up( INIT_DLEN, 8UL ) + 10240UL + 8UL)
 
 static fd_pubkey_t const callee_program_pubkey = {{
   0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA,
@@ -57,11 +58,12 @@ static fd_pubkey_t const acct2_pubkey = {{
 
 static ulong
 build_callee_text( ulong * buf ) {
-  ulong acct2_dlen_off = 8UL + ACCT_SERIALIZED_SZ + 80UL;
+  ulong acct1_dlen_off = 8UL + ACCT_DLEN_OFF;
+  ulong acct2_dlen_off = 8UL + ACCT_SERIALIZED_SZ + ACCT_DLEN_OFF;
   FD_TEST( acct2_dlen_off <= SHRT_MAX );
   ulong ic = 0UL;
   buf[ic++] = fd_sbpf_ulong( (fd_sbpf_instr_t){ .opcode = {.raw=FD_SBPF_OP_MOV64_IMM}, .dst_reg = 2, .imm = (uint)TARGET_LEN } );
-  buf[ic++] = fd_sbpf_ulong( (fd_sbpf_instr_t){ .opcode = {.raw=FD_SBPF_OP_STXDW},     .dst_reg = 1, .src_reg = 2, .offset = (short)DATA_PREFIX_SZ } );
+  buf[ic++] = fd_sbpf_ulong( (fd_sbpf_instr_t){ .opcode = {.raw=FD_SBPF_OP_STXDW},     .dst_reg = 1, .src_reg = 2, .offset = (short)acct1_dlen_off } );
   buf[ic++] = fd_sbpf_ulong( (fd_sbpf_instr_t){ .opcode = {.raw=FD_SBPF_OP_STXDW},     .dst_reg = 1, .src_reg = 2, .offset = (short)acct2_dlen_off } );
   buf[ic++] = fd_sbpf_ulong( (fd_sbpf_instr_t){ .opcode = {.raw=FD_SBPF_OP_MOV64_IMM}, .dst_reg = 0 } );
   buf[ic++] = fd_sbpf_ulong( (fd_sbpf_instr_t){ .opcode = {.raw=FD_SBPF_OP_EXIT} } );
@@ -192,7 +194,7 @@ setup_input_region( fd_vm_t * vm ) {
   static fd_vm_input_region_t regions[1];
 
   memset( buf, 0, sizeof(buf) );
-  *(ulong *)(buf + DATA_PREFIX_SZ - sizeof(ulong)) = INIT_DLEN;
+  *(ulong *)(buf + ACCT_DLEN_OFF) = INIT_DLEN;
 
   regions[0] = (fd_vm_input_region_t) {
     .haddr                  = (ulong)buf,
@@ -250,7 +252,7 @@ setup_rust_cpi_memory( fd_vm_t * vm,
   ulong data_box_off = h;
   *(fd_vm_rc_refcell_vec_t *)&vm->heap[h] = (fd_vm_rc_refcell_vec_t){
     .strong = 1,
-    .addr   = FD_VM_MEM_MAP_INPUT_REGION_START + DATA_PREFIX_SZ,
+    .addr   = FD_VM_MEM_MAP_INPUT_REGION_START + ACCT_META_SZ,
     .len    = INIT_DLEN,
   };
   h += sizeof(fd_vm_rc_refcell_vec_t);
@@ -332,7 +334,7 @@ setup_c_cpi_memory( fd_vm_t * vm,
   h = fd_ulong_align_up( h, 8UL );
   *out_acct_infos_va = HEAP_VA( h );
   *out_num_infos = 2UL;
-  ulong data_va = FD_VM_MEM_MAP_INPUT_REGION_START + DATA_PREFIX_SZ;
+  ulong data_va = FD_VM_MEM_MAP_INPUT_REGION_START + ACCT_META_SZ;
 
   fd_vm_c_account_info_t * info0 = (fd_vm_c_account_info_t *)&vm->heap[h]; h += sizeof(*info0);
   fd_vm_c_account_info_t * info1 = (fd_vm_c_account_info_t *)&vm->heap[h]; h += sizeof(*info1);
