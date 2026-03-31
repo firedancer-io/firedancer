@@ -401,8 +401,8 @@ test_h2_buffer_guard( void ) {
     FD_TEST( fd_h2_rbuf_used_sz( rbuf_rx ) == 0 );
     FD_TEST( !( conn->flags & (FD_H2_CONN_FLAGS_SEND_GOAWAY|FD_H2_CONN_FLAGS_DEAD) ) );
     FD_TEST( test_conn_final_cnt == 0 );
-    /* Should have generated a SETTINGS ACK */
-    FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx ) == 9 );
+    /* Should have generated a SETTINGS ACK (header only) */
+    FD_TEST( fd_h2_rbuf_used_sz( rbuf_tx ) == sizeof(fd_h2_frame_hdr_t) );
   }
 
   /* (c) Frame at max_frame_size+1 -> FD_H2_ERR_FRAME_SIZE fires first
