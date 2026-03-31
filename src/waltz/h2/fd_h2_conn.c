@@ -678,6 +678,11 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
 
   /* Consume all or nothing */
   ulong const tot_sz = sizeof(fd_h2_frame_hdr_t) + frame_sz;
+  if( FD_UNLIKELY( tot_sz>rbuf_rx->bufsz ) ) {
+    /* Frame will never fit in the buffer */
+    fd_h2_conn_error( conn, FD_H2_ERR_INTERNAL );
+    return;
+  }
   if( FD_UNLIKELY( tot_sz>fd_h2_rbuf_used_sz( rbuf_rx ) ) ) {
     conn->rx_suppress = rbuf_rx->lo_off + tot_sz;
     return;
