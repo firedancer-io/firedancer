@@ -7,7 +7,6 @@ batched_grouped_ciphertext_validity_hash_context( fd_zksdk_transcript_t * transc
                                                   uchar const             pubkey2 [ 32 ],
                                                   grp_ciph_2h_t const *   grouped_ciphertext_lo,
                                                   grp_ciph_2h_t const *   grouped_ciphertext_hi ) {
-  fd_zksdk_transcript_init( transcript, FD_TRANSCRIPT_LITERAL("batched-grouped-ciphertext-validity-2-handles-instruction") );
   fd_zksdk_transcript_append_pubkey ( transcript, FD_TRANSCRIPT_LITERAL("first-pubkey"),  pubkey1 );
   fd_zksdk_transcript_append_pubkey ( transcript, FD_TRANSCRIPT_LITERAL("second-pubkey"), pubkey2 );
   fd_zksdk_transcript_append_message( transcript, FD_TRANSCRIPT_LITERAL("grouped-ciphertext-lo"), (uchar *)grouped_ciphertext_lo, sizeof(grp_ciph_2h_t) );
