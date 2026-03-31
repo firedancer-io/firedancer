@@ -155,6 +155,7 @@ fd_gui_new( void *                shmem,
   gui->summary.resolv_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolv" );
   gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
   gui->summary.execle_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execle" );
+  gui->summary.execrp_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execrp" );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
 
   gui->summary.slot_rooted                   = ULONG_MAX;
@@ -268,6 +269,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_estimated_slot,
     fd_gui_printf_live_tile_timers,
     fd_gui_printf_live_tile_metrics,
+    fd_gui_printf_live_program_cache,
     fd_gui_printf_catch_up_history,
     fd_gui_printf_vote_latency_history,
     fd_gui_printf_late_votes_history
@@ -1028,6 +1030,9 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     *gui->summary.tile_stats_reference = *gui->summary.tile_stats_current;
     fd_gui_tile_stats_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_stats_current, now );
     fd_gui_printf_live_tile_stats( gui, gui->summary.tile_stats_reference, gui->summary.tile_stats_current );
+    fd_http_server_ws_broadcast( gui->http );
+
+    fd_gui_printf_live_program_cache( gui );
     fd_http_server_ws_broadcast( gui->http );
 
     if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {

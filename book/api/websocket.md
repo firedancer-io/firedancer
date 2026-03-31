@@ -1302,6 +1302,58 @@ tile have not been published for the following fields
 Since the fields are not nullable, they contain the previously held
 value. The client should ignore / interpolate them where applicable.
 
+#### `summary.live_program_cache`
+| frequency        | type                    | example |
+|------------------|-------------------------|---------|
+| *Once* + *100ms* | `ProgramCacheMetrics`   | below   |
+
+Live program cache metrics provides a live view of program cache
+performance and utilization across the replay and execution tiles. The
+program cache is a fixed-size, fork-aware, thread-concurrent cache over
+programs in the account database. It avoids re-loading and re-validating
+sBPF ELF binaries on every transaction execution.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "live_program_cache",
+    "value": {
+        "hits": 482910,
+        "lookups": 483200,
+        "insertions": 145,
+        "insertion_bytes": 18743296,
+        "evictions": 12,
+        "eviction_bytes": 1048576,
+        "spills": 0,
+        "spill_bytes": 0,
+        "free_bytes": 104857600,
+        "size_bytes": 134217728
+    }
+}
+```
+
+:::
+
+**`ProgramCacheMetrics`**
+| Field               | Type     | Description |
+|---------------------|----------|-------------|
+| hits                | `number` | Total number of program cache hits across all execution tiles since startup. Misses can be derived as `lookups - hits` |
+| lookups             | `number` | Total number of program cache lookups across all execution tiles since startup |
+| insertions          | `number` | Total number of program cache insertions across all execution tiles since startup |
+| insertion_bytes     | `number` | Total number of bytes inserted into the program cache since startup |
+| evictions           | `number` | Total number of program cache evictions across all execution tiles since startup |
+| eviction_bytes      | `number` | Total number of bytes evicted from the program cache since startup |
+| spills              | `number` | Total number of times a compiled program was not cached because the cache was full and no entry could be evicted. The program is executed from a temporary buffer instead, which is slower |
+| spill_bytes         | `number` | Total number of bytes used by spilled programs since startup |
+| free_bytes          | `number` | Current number of free bytes in the program cache heap |
+| size_bytes          | `number` | Total size in bytes of the program cache heap |
+
+The hit rate can be derived as `hits / lookups`. Heap utilization can be
+derived as `1 - (free_bytes / size_bytes)`. A healthy validator should
+have a high hit rate (close to 1.0) and low spill counts.
+
 ### block_engine
 Block engines are providers of additional transactions to the validator,
 which are configurable by the operator. The validator may not be
