@@ -492,6 +492,6 @@ struct fd_snapshot_manifest {
   fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ 2UL ];
 };
 
-typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;
+typedef struct fd_snapshot_manifest   fd_snapshot_manifest_t;
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmsg_h */

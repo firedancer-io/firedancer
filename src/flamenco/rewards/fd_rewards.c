@@ -85,61 +85,6 @@ slot_in_year_for_inflation( fd_bank_t const * bank ) {
   return (double)num_slots / (double)bank->f.slots_per_year;
 }
 
-
-static void
-get_credits( uchar const *       account_data,
-             ulong               account_data_len,
-             uchar *             buf,
-             fd_epoch_credits_t * epoch_credits ) {
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = account_data,
-    .dataend = account_data + account_data_len,
-  };
-
-  fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( buf, &ctx );
-  if( FD_UNLIKELY( vsv==NULL ) ) {
-    FD_LOG_CRIT(( "unable to decode vote state versioned" ));
-  }
-
-  fd_vote_epoch_credits_t * vote_credits = NULL;
-
-  switch( vsv->discriminant ) {
-  case fd_vote_state_versioned_enum_v1_14_11:
-    vote_credits = vsv->inner.v1_14_11.epoch_credits;
-    break;
-  case fd_vote_state_versioned_enum_v3:
-    vote_credits = vsv->inner.v3.epoch_credits;
-    break;
-  case fd_vote_state_versioned_enum_v4:
-    vote_credits = vsv->inner.v4.epoch_credits;
-    break;
-  default:
-    FD_LOG_CRIT(( "invalid vote state version %u", vsv->discriminant ));
-  }
-
-  epoch_credits->cnt          = 0UL;
-  epoch_credits->base_credits = 0UL;
-
-  deq_fd_vote_epoch_credits_t_iter_t first = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
-  if( !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, first ) ) {
-    fd_vote_epoch_credits_t * first_ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, first );
-    epoch_credits->base_credits = first_ele->prev_credits;
-  }
-
-  ulong base = epoch_credits->base_credits;
-  for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_credits );
-       !deq_fd_vote_epoch_credits_t_iter_done( vote_credits, iter );
-       iter = deq_fd_vote_epoch_credits_t_iter_next( vote_credits, iter ) ) {
-    fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_credits, iter );
-    ulong i = epoch_credits->cnt;
-    epoch_credits->epoch[ i ]              = (ushort)ele->epoch;
-    epoch_credits->credits_delta[ i ]      = (uint)( ele->credits      - base );
-    epoch_credits->prev_credits_delta[ i ] = (uint)( ele->prev_credits - base );
-    epoch_credits->cnt++;
-  }
-}
-
 /* For a given stake and vote_state, calculate how many points were earned (credits * stake) and new value
    for credits_observed were the points paid
 
@@ -409,9 +354,7 @@ get_minimum_stake_delegation( fd_bank_t * bank ) {
 /* Calculates epoch reward points from stake/vote accounts.
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L445 */
 static uint128
-calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
-                                     fd_funk_txn_xid_t const *      xid,
-                                     fd_bank_t *                    bank,
+calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                      fd_stake_delegations_t const * stake_delegations,
                                      fd_stake_history_t const *     stake_history,
                                      fd_runtime_stack_t *           runtime_stack ) {
@@ -445,20 +388,7 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
-    fd_epoch_credits_t   epoch_credits_;
-    fd_epoch_credits_t * epoch_credits = NULL;
-    if( idx>=runtime_stack->expected_vote_accounts ) {
-      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ idx ];
-      fd_accdb_ro_t vote_ro[1];
-      FD_TEST( fd_accdb_open_ro( accdb, vote_ro, xid, &vote_ele->pubkey ) );
-
-      uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
-      get_credits( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), vsv_buf, &epoch_credits_ );
-      fd_accdb_close_ro( accdb, vote_ro );
-      epoch_credits = &epoch_credits_;
-    } else {
-      epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
-    }
+    fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
 
     calculate_stake_points_and_credits( epoch_credits,
                                         stake_history,
@@ -489,9 +419,7 @@ calculate_reward_points_partitioned( fd_accdb_user_t *              accdb,
 
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L323 */
 static void
-calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
-                              fd_funk_txn_xid_t const *      xid,
-                              fd_bank_t *                    bank,
+calculate_stake_vote_rewards( fd_bank_t *                    bank,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_capture_ctx_t *             capture_ctx FD_PARAM_UNUSED,
                               fd_stake_history_t const *     stake_history,
@@ -508,8 +436,6 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
-
-  uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -540,19 +466,7 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
     if( is_recalculation || FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
-      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ idx ];
-
-      fd_epoch_credits_t   epoch_credits_;
-      fd_epoch_credits_t * epoch_credits = NULL;
-      if( idx<runtime_stack->expected_vote_accounts ) {
-        epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
-      } else {
-        fd_accdb_ro_t vote_ro[1];
-        FD_TEST( fd_accdb_open_ro( accdb, vote_ro, xid, &vote_ele->pubkey ) );
-        get_credits( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), vsv_buf, &epoch_credits_ );
-        fd_accdb_close_ro( accdb, vote_ro );
-        epoch_credits = &epoch_credits_;
-      }
+      fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
 
       /* We have not cached the stake points yet if we are recalculating
          stake rewards so we need to recalculate them. */
@@ -605,9 +519,7 @@ calculate_stake_vote_rewards( fd_accdb_user_t *              accdb,
 }
 
 static void
-setup_stake_partitions( fd_accdb_user_t *              accdb,
-                        fd_funk_txn_xid_t const *      xid,
-                        fd_bank_t *                    bank,
+setup_stake_partitions( fd_bank_t *                    bank,
                         fd_stake_history_t const *     stake_history,
                         fd_stake_delegations_t const * stake_delegations,
                         fd_runtime_stack_t *           runtime_stack,
@@ -621,8 +533,6 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
   uchar fork_idx = fd_stake_rewards_init( stake_rewards, bank->f.epoch, parent_blockhash, starting_block_height, (uint)num_partitions );
   bank->stake_rewards_fork_id = fork_idx;
-
-  uchar __attribute__((aligned(128))) vsv_buf[ FD_VOTE_STATE_VERSIONED_FOOTPRINT ];
 
   int delay_commission_updates = FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates );
 
@@ -645,18 +555,7 @@ setup_stake_partitions( fd_accdb_user_t *              accdb,
       uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
       if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
-      fd_epoch_credits_t   epoch_credits_;
-      fd_epoch_credits_t * epoch_credits = NULL;
-      if( idx>=runtime_stack->expected_vote_accounts ) {
-        fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ idx ];
-        fd_accdb_ro_t vote_ro[1];
-        FD_TEST( fd_accdb_open_ro( accdb, vote_ro, xid, &vote_ele->pubkey ) );
-        get_credits( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), vsv_buf, &epoch_credits_ );
-        fd_accdb_close_ro( accdb, vote_ro );
-        epoch_credits = &epoch_credits_;
-      } else {
-        epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
-      }
+      fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
 
       fd_calculated_stake_points_t stake_points_result[1];
       calculate_stake_points_and_credits(
@@ -716,8 +615,6 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   /* Calculate the epoch reward points from stake/vote accounts */
   uint128 total_points = calculate_reward_points_partitioned(
-      accdb,
-      xid,
       bank,
       stake_delegations,
       stake_history,
@@ -740,8 +637,6 @@ calculate_validator_rewards( fd_bank_t *                    bank,
   /* Calculate the stake and vote rewards for each account. We want to
      use the vote states from the end of the current_epoch. */
   calculate_stake_vote_rewards(
-      accdb,
-      xid,
       bank,
       stake_delegations,
       capture_ctx,
@@ -759,8 +654,6 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                                                                                 runtime_stack->stakes.stake_rewards_cnt );
 
   setup_stake_partitions(
-      accdb,
-      xid,
       bank,
       stake_history,
       stake_delegations,
@@ -1140,8 +1033,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   }
 
   calculate_stake_vote_rewards(
-      accdb,
-      xid,
       bank,
       stake_delegations,
       capture_ctx,
@@ -1153,8 +1044,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       1 );
 
   setup_stake_partitions(
-      accdb,
-      xid,
       bank,
       stake_history,
       stake_delegations,
