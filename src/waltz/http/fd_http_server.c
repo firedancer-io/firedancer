@@ -1419,7 +1419,8 @@ fd_http_server_printf( fd_http_server_t * http,
   ulong printed_len = (ulong)vsnprintf( NULL, 0UL, fmt, ap );
   va_end( ap );
 
-  fd_http_server_reserve( http, printed_len );
+  /* reserve enough for the NULL terminator */
+  fd_http_server_reserve( http, printed_len+1UL );
   if( FD_UNLIKELY( http->stage_err ) ) return;
 
   va_start( ap, fmt );
