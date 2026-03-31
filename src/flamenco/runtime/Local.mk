@@ -97,9 +97,8 @@ endif
 ifdef FD_HAS_ATOMIC
 
 ifdef FD_HAS_HOSTED
-#$(call make-unit-test,test_archive_block,test_archive_block, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 # TODO: Flakes
-# $(call run-unit-test,test_txncache,)
+# $(call run-unit-test,test_txncache)
 $(call make-fuzz-test,fuzz_genesis_parse,fuzz_genesis_parse,fd_flamenco fd_ballet fd_util)
 endif
 endif
