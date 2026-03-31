@@ -647,6 +647,7 @@ struct fd_gui {
     ulong resolv_tile_cnt;
     ulong bank_tile_cnt;
     ulong execle_tile_cnt;
+    ulong execrp_tile_cnt;
     ulong shred_tile_cnt;
 
     ulong slot_rooted;
