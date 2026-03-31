@@ -567,12 +567,6 @@ void fd_log_enable_unclean_exit( void ) { fd_log_private_unclean_exit = 1; }
 
 #define FD_LOG_BUF_SZ (32UL*4096UL)
 
-/* Lock to used by fd_log_private_fprintf_0 to sequence calls writes
-   between different _processes_ that share the same fd. */
-
-static int fd_log_private_shared_lock_local[1] __attribute__((aligned(128))); /* location of lock if boot mmap fails */
-       int * fd_log_private_shared_lock  = fd_log_private_shared_lock_local;  /* Local lock outside boot/halt, init at boot */
-
 /* File descriptor to restore when logging a message that will terminate
    the application, incase it was redirected to some other consumer in
    the process which will not be able to process it in time */
@@ -594,61 +588,6 @@ fd_log_private_fprintf_0( int          fd,
      - Consider moving to util/io as fd_io_printf or renaming to
        fd_log_printf?
      - Is msg better to have on stack or in thread local storage?
-     - Is msg even necessary given shared lock? (probably still useful to
-       keep the message write to be a single-system-call best effort)
-     - Allow partial write to fd_io_write?  (e.g. src_min=0 such that
-       the fd_io_write below is guaranteed to be a single system call) */
-
-  char msg[ FD_LOG_BUF_SZ ];
-
-  va_list ap;
-  va_start( ap, fmt );
-  int len = vsnprintf( msg, FD_LOG_BUF_SZ, fmt, ap );
-  if( len<0                        ) len = 0;                        /* cmov */
-  if( len>(int)(FD_LOG_BUF_SZ-1UL) ) len = (int)(FD_LOG_BUF_SZ-1UL); /* cmov */
-  msg[ len ] = '\0';
-  va_end( ap );
-
-# if FD_HAS_ATOMIC
-  FD_COMPILER_MFENCE();
-  while(( FD_LIKELY( FD_ATOMIC_CAS( fd_log_private_shared_lock, 0, 1 ) ) )) ;
-  FD_COMPILER_MFENCE();
-# endif
-
-  ulong wsz;
-  fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
-
-# if FD_HAS_ATOMIC
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *fd_log_private_shared_lock ) = 0;
-  FD_COMPILER_MFENCE();
-# endif
-
-}
-
-/* This is the same as fd_log_private_fprintf_0 except that it does not try to
-   take a lock when writing to the log file.  This should almost never be used
-   except in exceptional cases when logging while the process is shutting down.
-
-   It exists because if a child process dies while holding the lock, we may
-   want to log some diagnostic messages when tearing down the process tree. */
-void
-fd_log_private_fprintf_nolock_0( int          fd,
-                                 char const * fmt, ... ) {
-
-  /* Note: while this function superficially looks vdprintf-ish, we don't
-     use that as it can do all sorts of unpleasantness under the hood
-     (fflush, mutex / futex on fd, non-AS-safe buffering, ...) that this
-     function deliberately avoids.  Also, the function uses the shared
-     lock to help keep messages generated from processes that share the
-     same log fd sane. */
-
-  /* TODO:
-     - Consider moving to util/io as fd_io_printf or renaming to
-       fd_log_printf?
-     - Is msg better to have on stack or in thread local storage?
-     - Is msg even necessary given shared lock? (probably still useful to
-       keep the message write to be a single-system-call best effort)
      - Allow partial write to fd_io_write?  (e.g. src_min=0 such that
        the fd_io_write below is guaranteed to be a single system call) */
 
@@ -664,6 +603,7 @@ fd_log_private_fprintf_nolock_0( int          fd,
 
   ulong wsz;
   fd_io_write( fd, msg, (ulong)len, (ulong)len, &wsz ); /* Note: we ignore errors because what are we doing to do? log them? */
+
 }
 
 /* Log buffer used by fd_log_private_0 and fd_log_private_hexdump_msg */
@@ -953,7 +893,7 @@ fd_log_private_raw_2( char const * file,
                       int          line,
                       char const * func,
                       char const * msg ) {
-  fd_log_private_fprintf_nolock_0( fd_log_private_stderr_fileno, "%s(%i)[%s]: %s\n", file, line, func, msg );
+  fd_log_private_fprintf_0( fd_log_private_stderr_fileno, "%s(%i)[%s]: %s\n", file, line, func, msg );
 # if defined(__linux__)
   syscall( SYS_exit_group, 1 );
 # else
@@ -1025,12 +965,6 @@ fd_log_private_sig_abort( int         sig,
                           siginfo_t * info,
                           void *      context ) {
   (void)sig; (void)info; (void)context;
-
-  /* Thread could have caught signal while holding a lock.
-     Hack around this re-entrancy problem by pointing the log lock to
-     a dummy buffer. */
-  static FD_TL int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
   FD_LOG_ERR_NOEXIT(( "Received signal %s", fd_io_strsignal( sig ) ));
@@ -1108,8 +1042,6 @@ fd_log_private_boot( int  *   pargc,
 //FD_LOG_INFO(( "fd_log: booting" )); /* Log not online yet */
 
   char buf[ FD_LOG_NAME_MAX ];
-
-  fd_log_private_shared_lock  = fd_log_private_shared_lock_local;
 
   /* Init our our application logical ids */
   /* FIXME: CONSIDER EXPLICIT SPECIFICATION OF RANGE OF THREADS
@@ -1273,8 +1205,7 @@ fd_log_private_boot( int  *   pargc,
 }
 
 void
-fd_log_private_boot_custom( int *        lock,
-                            ulong        app_id,
+fd_log_private_boot_custom( ulong        app_id,
                             char const * app,
                             ulong        thread_id,
                             char const * thread,
@@ -1295,8 +1226,6 @@ fd_log_private_boot_custom( int *        lock,
                             int          level_core,
                             int          log_fd,
                             char const * log_path ) {
-  fd_log_private_shared_lock  = lock;
-
   fd_log_private_app_id_set( app_id );
   fd_log_private_app_set( app );
   fd_log_private_thread_id_set( thread_id );
@@ -1431,19 +1360,6 @@ fd_log_private_halt( void ) {
 # endif
   fd_log_private_app[0]         = '\0';
   fd_log_private_app_id         = 0UL;
-
-  if( FD_LIKELY( fd_log_private_shared_lock!=fd_log_private_shared_lock_local ) ) {
-    /* Note: the below will not unmap this in any clones that also
-       inherited this mapping unless they were cloned with CLONE_VM.  In
-       cases like this, the caller is expected to handle the cleanup
-       semantics sanely (e.g. only have the parent do boot/halt and then
-       children only use log while parent has log booted). */
-    if( FD_UNLIKELY( munmap( fd_log_private_shared_lock, sizeof(int) ) ) )
-      fd_log_private_fprintf_0( STDERR_FILENO,
-                                "munmap( fd_log_private_shared_lock, sizeof(int) ) failed (%i-%s); attempting to continue",
-                                errno, fd_io_strerror( errno ) );
-  }
-  fd_log_private_shared_lock = NULL;
 
 //FD_LOG_INFO(( "fd_log: halt success" )); /* Log not online anymore */
 }

@@ -5,7 +5,6 @@
 #include "../../util/tile/fd_tile_private.h"
 
 #include <unistd.h>
-#include <signal.h>
 #include <errno.h>
 #include <pthread.h>
 #include <sys/syscall.h>
@@ -45,22 +44,6 @@ initialize_logging( char const * tile_name,
   fd_log_wallclock_cstr( 0L, wallclock );
 }
 
-static void
-check_wait_debugger( ulong          pid,
-                     volatile int * wait,
-                     volatile int * debugger ) {
-  if( FD_UNLIKELY( debugger ) ) {
-    FD_LOG_WARNING(( "waiting for debugger to attach to tile pid:%lu", pid ));
-    if( FD_UNLIKELY( -1==kill( getpid(), SIGSTOP ) ) )
-      FD_LOG_ERR(( "kill(SIGSTOP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    *FD_VOLATILE( debugger ) = 1;
-  }
-
-  if( FD_UNLIKELY( wait ) ) {
-    while( FD_LIKELY( !*FD_VOLATILE( wait ) ) ) FD_SPIN_PAUSE();
-  }
-}
-
 void
 fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
@@ -70,8 +53,6 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
-                  volatile int *       wait,
-                  volatile int *       debugger,
                   fd_topo_run_tile_t * tile_run ) {
   char thread_name[ 20 ];
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile->name, tile->kind_id ) );
@@ -80,7 +61,6 @@ fd_topo_run_tile( fd_topo_t *          topo,
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
-  check_wait_debugger( pid, wait, debugger );
   initialize_logging( tile->name, tile->kind_id, tid );
 
   /* preload shared memory before sandboxing, so it is already mapped */
@@ -180,7 +160,7 @@ run_tile_thread_main( void * _args ) {
     FD_LOG_ERR(( "madvise(stack,MADV_DONTFORK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  fd_topo_run_tile( args.topo, args.tile, 0, 1, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
+  fd_topo_run_tile( args.topo, args.tile, 0, 1, 1, args.uid, args.gid, -1, &args.tile_run );
   FD_TEST( args.tile->allow_shutdown );
   return NULL;
 }

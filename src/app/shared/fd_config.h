@@ -265,11 +265,6 @@ struct fd_config {
     /* File descriptor used for logging to the log file.  Stashed
        here for easy communication to child processes. */
     int  log_fd;
-
-    /* Shared memfd_create file descriptor where the first 4
-       bytes are the lock object for log sequencing.  Kind of
-       gross to stash this in here. */
-    int  lock_fd;
   } log;
 
   struct {
@@ -313,7 +308,6 @@ struct fd_config {
     int no_clone;
     int no_agave;
     int bootstrap;
-    uint debug_tile;
 
     char core_dump[ 16 ];
     int core_dump_level;
