@@ -82,7 +82,6 @@ verify_trace_accts( fd_svm_mini_t * mini, ushort expected_cnt ) {
 
 static void
 init_test_env( fd_svm_mini_t * mini,
-               ulong *         out_bank_idx,
                fd_bank_t **    out_bank,
                fd_xid_t *      out_xid,
                fd_pubkey_t *   out_fee_payer ) {
@@ -98,7 +97,6 @@ init_test_env( fd_svm_mini_t * mini,
   fd_memset( &fee_payer, 0x01, sizeof(fd_pubkey_t) );
   fd_svm_mini_add_lamports( mini, &xid, &fee_payer, 1000000000UL );
 
-  *out_bank_idx  = bank_idx;
   *out_bank      = bank;
   *out_xid       = xid;
   *out_fee_payer = fee_payer;
@@ -107,11 +105,10 @@ init_test_env( fd_svm_mini_t * mini,
 /* More than 256, the previous (incorrect) limit */
 static void
 test_500_instr_accts( fd_svm_mini_t * mini ) {
-  ulong       bank_idx;
   fd_bank_t * bank;
   fd_xid_t    xid;
   fd_pubkey_t fee_payer;
-  init_test_env( mini, &bank_idx, &bank, &xid, &fee_payer );
+  init_test_env( mini, &bank, &xid, &fee_payer );
 
   fd_txn_p_t   txn_p[1];
   fd_txn_out_t txn_out[1];
@@ -127,11 +124,10 @@ test_500_instr_accts( fd_svm_mini_t * mini ) {
 /* Worst-case allowed number of instruction accounts */
 static void
 test_1094_instr_accts( fd_svm_mini_t * mini ) {
-  ulong       bank_idx;
   fd_bank_t * bank;
   fd_xid_t    xid;
   fd_pubkey_t fee_payer;
-  init_test_env( mini, &bank_idx, &bank, &xid, &fee_payer );
+  init_test_env( mini, &bank, &xid, &fee_payer );
 
   fd_txn_p_t   txn_p[1];
   fd_txn_out_t txn_out[1];
@@ -148,11 +144,10 @@ test_1094_instr_accts( fd_svm_mini_t * mini ) {
    When activated, instructions with >255 accounts should be rejected. */
 static void
 test_limit_instr_accts_at_limit( fd_svm_mini_t * mini ) {
-  ulong       bank_idx;
   fd_bank_t * bank;
   fd_xid_t    xid;
   fd_pubkey_t fee_payer;
-  init_test_env( mini, &bank_idx, &bank, &xid, &fee_payer );
+  init_test_env( mini, &bank, &xid, &fee_payer );
 
   fd_txn_p_t   txn_p[1];
   fd_txn_out_t txn_out[1];
@@ -167,11 +162,10 @@ test_limit_instr_accts_at_limit( fd_svm_mini_t * mini ) {
 
 static void
 test_limit_instr_accts_exceeded( fd_svm_mini_t * mini ) {
-  ulong       bank_idx;
   fd_bank_t * bank;
   fd_xid_t    xid;
   fd_pubkey_t fee_payer;
-  init_test_env( mini, &bank_idx, &bank, &xid, &fee_payer );
+  init_test_env( mini, &bank, &xid, &fee_payer );
 
   fd_txn_p_t   txn_p[1];
   fd_txn_out_t txn_out[1];
