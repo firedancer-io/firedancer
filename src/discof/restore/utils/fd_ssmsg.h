@@ -153,7 +153,7 @@ struct fd_snapshot_manifest_epoch_stakes {
   /* The vote accounts and their stakes for a given epoch.
      FIXME: Snapshot manifest has to support a much larger bound. */
   ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ 19000000UL ];
+  fd_snapshot_manifest_vote_stakes_t vote_stakes[ 40200 ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -461,11 +461,11 @@ struct fd_snapshot_manifest {
      uptime, which is measured by vote account vote credits.
      FIXME: Make this unbounded or support a much larger bound. */
   ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ 19000000UL ];
+  fd_snapshot_manifest_vote_account_t vote_accounts[ 40200UL ];
 
   /* FIXME: Make this unbounded or support a much larger bound. */
   ulong stake_delegations_len;
-  fd_snapshot_manifest_stake_delegation_t stake_delegations[ 241000000UL ];
+  fd_snapshot_manifest_stake_delegation_t stake_delegations[ 3000000UL ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of the previous epoch. They are
