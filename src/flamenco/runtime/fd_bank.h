@@ -23,7 +23,7 @@ FD_PROTOTYPES_BEGIN
    for a given block.  More specifically, the bank state corresponds to
    all information needed during execution that is not stored on-chain,
    but is instead cached in a validator's memory.  Each of these bank
-   fields are repesented by a member of the fd_bank_t struct.
+   fields are represented by a member of the fd_bank_t struct.
 
    Management of fd_bank_t structs must be fork-aware: the state of each
    fd_bank_t must be based on the fd_bank_t of its parent block.  This
@@ -86,9 +86,9 @@ FD_PROTOTYPES_BEGIN
 
   Each field that is CoW has its own memory pool. The memory
   corresponding to the field is not located in the fd_bank_t struct and
-  is instead represented by a pool index and a dirty flag. If the field
-  is modified, then the dirty flag is set, and an element of the pool
-  is acquired and the data is copied over from the parent pool idx.
+  is instead represented by a pool/fork index. When the field is
+  modified, a new element of the pool is acquired and the data is
+  copied over from the parent.
 
   Currently, there is a delta-based field, fd_stake_delegations_t.
   Each bank stores a delta-based representation in the form of an
@@ -563,8 +563,9 @@ fd_banks_t *
 fd_banks_join( void * banks_data_mem );
 
 /* fd_banks_init_bank() initializes a new bank in the bank manager.
-   This should only be used during bootup.  This returns an initial
-   fd_bank_t with the corresponding bank index set to 0. */
+   This should only be used during bootup.  The bank is set to the
+   FROZEN state (skipping INIT/REPLAYABLE since no replay is needed for
+   the initial root) and is established as the root bank. */
 
 fd_bank_t *
 fd_banks_init_bank( fd_banks_t * banks );
@@ -622,27 +623,25 @@ fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank,
                      ulong        max_vote_accounts );
 
-/* fd_banks_advance_root_prepare returns the highest block that can be
-   safely advanced between the current root of the fork tree and the
-   target block.  See the note on safe publishing for more details.  In
-   general, a node in the fork tree can be pruned if:
-   (1) the node itself can be pruned, and
+/* fd_banks_advance_root_prepare returns the direct child of the current
+   root on the path to the target block, if it is safe to advance root
+   to that child.  In general, a node in the fork tree can be pruned if:
+   (1) the node itself can be pruned (zero refcnt), and
    (2) all subtrees (except for the one on the rooted fork) forking off
        of the node can be pruned.
-   The highest publishable block is the highest block on the rooted fork
-   where the above is true, or the rooted child block of such if there
-   is one.
 
-   This function assumes that the given target block has been rooted by
-   consensus.  It will mark every block on the rooted fork as rooted, up
-   to the given target block.  It will also mark minority forks as dead.
+   This function is read-only: it does not modify any bank state.  It
+   walks from the target bank up to the current root to find the direct
+   child of root on the path, then checks whether all sibling subtrees
+   of that child can be pruned.
 
    Highest advanceable block is written to the out pointer.  Returns 1
    if the advanceable block can be advanced beyond the current root.
-   Returns 0 if no such block can be found.  We will ONLY advance our
-   advanceable_bank_idx to a child of the current root.  In order to
-   advance to the target bank, fd_banks_advance_root_prepare() must be
-   called repeatedly. */
+   Returns 0 if no such block can be found (e.g. the root still has a
+   non-zero refcnt, or a sibling subtree cannot be pruned).  We will
+   ONLY advance our advanceable_bank_idx to a child of the current root.
+   In order to advance to the target bank,
+   fd_banks_advance_root_prepare() must be called repeatedly. */
 
 int
 fd_banks_advance_root_prepare( fd_banks_t * banks,
@@ -681,12 +680,12 @@ void
 fd_banks_mark_bank_frozen( fd_bank_t * bank );
 
 /* fd_banks_new_bank reserves a bank index for a new bank.  New bank
-   indicies should always be available.  After this function is called,
+   indices should always be available.  After this function is called,
    the bank will be linked to its parent bank, but not yet replayable.
    After a call to fd_banks_clone_from_parent, the bank will be
    replayable.  This assumes that there is a parent bank which exists
    and that there are available bank indices in the bank pool.  It also
-   assumes that the parent bank is not dead. */
+   assumes that the parent bank is not dead or inactive. */
 
 fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
@@ -709,11 +708,9 @@ fd_banks_get_frontier( fd_banks_t * banks,
 
 /* fd_banks_is_full returns 1 if the banks are full, 0 otherwise.  Banks
    can be full in two cases:
-   1. All banks have been allocated
-   2. There are too many active forks
-      a. There are too many cost tracker elements.  This happens from
-         wide forking across blocks.
-      b. Too many forks have crossed the epoch boundary.  */
+   1. All banks in the bank pool have been allocated.
+   2. All cost tracker pool elements have been allocated.  This happens
+      from wide forking across blocks. */
 
 int
 fd_banks_is_full( fd_banks_t * banks );
