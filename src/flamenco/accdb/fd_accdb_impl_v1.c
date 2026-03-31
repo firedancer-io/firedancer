@@ -1,6 +1,7 @@
 #include "fd_accdb_impl_v1.h"
 #include "fd_accdb_lineage.h"
 #include "fd_accdb_funk.h"
+#include "../../util/racesan/fd_racesan_target.h"
 #include <stdatomic.h>
 
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v1_t)<=alignof(fd_accdb_user_t), layout );
@@ -20,6 +21,7 @@ fd_accdb_search_chain( fd_funk_t const *          funk,
   fd_funk_rec_t *                               rec_tbl   = funk->rec_pool->ele;
   ulong                                         rec_max   = fd_funk_rec_pool_ele_max( funk->rec_pool );
 
+  fd_racesan_hook( "accdb_search_chain:seqlock_peek" );
   ulong _Atomic * ver_cnt_p = (ulong _Atomic *)&chain->ver_cnt;
   ulong           ver_cnt   = atomic_load_explicit( ver_cnt_p, memory_order_acquire );
   uint            ele_idx   = chain->head_cidx;
@@ -35,6 +37,7 @@ fd_accdb_search_chain( fd_funk_t const *          funk,
      (Each chain is sorted newest-to-oldest) */
   fd_funk_rec_t * best = NULL;
   for( ulong i=0UL; i<cnt; i++ ) {
+    fd_racesan_hook( "accdb_search_chain:walk_step" );
     uint ele_next = rec_tbl[ ele_idx ].map_next;
     if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
       return FD_MAP_ERR_AGAIN;
@@ -62,6 +65,7 @@ fd_accdb_search_chain( fd_funk_t const *          funk,
 next:
     ele_idx = ele_next;
   }
+  fd_racesan_hook( "accdb_search_chain:seqlock_check" );
   if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
     return FD_MAP_ERR_AGAIN;
   }
