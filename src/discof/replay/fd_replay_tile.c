@@ -1263,17 +1263,15 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
     fd_accdb_ro_t tip_config_acc[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, tip_config_acc, &xid, tip_payment_config ) ) ) {
-      /* FIXME This should not crash the validator */
       FD_BASE58_ENCODE_32_BYTES( tip_payment_config->b, tip_config_acc_b58 );
-      FD_LOG_CRIT(( "tip payment config account %s does not exist", tip_config_acc_b58 ));
+      FD_LOG_WARNING(( "tip payment config account %s does not exist", tip_config_acc_b58 ));
+    } else if( FD_UNLIKELY( fd_accdb_ref_data_sz( tip_config_acc )<sizeof(fd_bundle_crank_tip_payment_config_t) ) ) {
+      FD_LOG_HEXDUMP_WARNING(( "invalid tip payment config account data", fd_accdb_ref_data_const( tip_config_acc ), fd_accdb_ref_data_sz( tip_config_acc ) ));
+      fd_accdb_close_ro( ctx->accdb, tip_config_acc );
+    } else {
+      memcpy( config, fd_accdb_ref_data_const( tip_config_acc ), sizeof(fd_bundle_crank_tip_payment_config_t) );
+      fd_accdb_close_ro( ctx->accdb, tip_config_acc );
     }
-    ulong tip_cfg_sz = fd_accdb_ref_data_sz( tip_config_acc );
-    if( FD_UNLIKELY( tip_cfg_sz < sizeof(fd_bundle_crank_tip_payment_config_t) ) ) {
-      /* FIXME This should not crash the validator */
-      FD_LOG_HEXDUMP_CRIT(( "invalid tip payment config account data", fd_accdb_ref_data_const( tip_config_acc ), tip_cfg_sz ));
-    }
-    memcpy( config, fd_accdb_ref_data_const( tip_config_acc ), sizeof(fd_bundle_crank_tip_payment_config_t) );
-    fd_accdb_close_ro( ctx->accdb, tip_config_acc );
 
     /* It is possible that the tip receiver account does not exist yet
        if it is the first time in an epoch. */
@@ -1286,17 +1284,17 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  msg->slot = ctx->next_leader_slot;
-  msg->slot_start_ns = now_nanos;
-  msg->slot_end_ns   = now_nanos+(long)ctx->slot_duration_nanos;
-  msg->bank = NULL;
-  msg->bank_idx = bank->idx;
-  msg->ticks_per_slot = bank->f.ticks_per_slot;
-  msg->hashcnt_per_tick = bank->f.hashes_per_tick;
-  msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
-  msg->bundle->config[0]       = config[0];
-  memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash, sizeof(fd_hash_t)   );
-  memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc,           sizeof(fd_pubkey_t) );
+  msg->slot                = ctx->next_leader_slot;
+  msg->slot_start_ns       = now_nanos;
+  msg->slot_end_ns         = now_nanos+(long)ctx->slot_duration_nanos;
+  msg->bank                = NULL;
+  msg->bank_idx            = bank->idx;
+  msg->ticks_per_slot      = bank->f.ticks_per_slot;
+  msg->hashcnt_per_tick    = bank->f.hashes_per_tick;
+  msg->tick_duration_ns    = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
+  msg->bundle->config[0]   = config[0];
+  memcpy( msg->bundle->last_blockhash,     bank->f.poh.hash,      sizeof(fd_hash_t)   );
+  memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner.uc, sizeof(fd_pubkey_t) );
 
   if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
