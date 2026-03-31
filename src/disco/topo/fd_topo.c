@@ -259,8 +259,7 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
       key_pages += 4UL;
   }
 
-  /* All tiles lock one normal page for the fd_log shared lock. */
-  return key_pages+1UL;
+  return key_pages;
 }
 
 FD_FN_PURE static ulong

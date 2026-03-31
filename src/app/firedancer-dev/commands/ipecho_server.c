@@ -35,8 +35,6 @@ ipecho_topo( fd_topo_t *  topo,
   fd_topob_finish( topo, CALLBACKS );
 }
 
-extern int * fd_log_private_shared_lock;
-
 static void
 ipecho_server_cmd_topo( config_t * config ) {
   ipecho_topo( &config->topo, config->name );
@@ -74,7 +72,6 @@ ipecho_server_cmd_fn( args_t *   args,
 
   run_firedancer_init( config, 1, 0 );
 
-  fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 

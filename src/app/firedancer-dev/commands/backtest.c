@@ -513,8 +513,6 @@ backtest_topo( config_t * config ) {
   fd_topob_finish( topo, CALLBACKS );
 }
 
-extern int * fd_log_private_shared_lock;
-
 static void
 backtest_cmd_topo( config_t * config ) {
   backtest_topo( config );
@@ -600,7 +598,6 @@ backtest_cmd_fn( args_t *   args,
   initialize_workspaces( config );
   initialize_stacks( config );
 
-  fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
