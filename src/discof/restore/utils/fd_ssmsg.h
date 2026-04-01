@@ -153,7 +153,7 @@ struct fd_snapshot_manifest_epoch_stakes {
   /* The vote accounts and their stakes for a given epoch.
      FIXME: Snapshot manifest has to support a much larger bound. */
   ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ 40200 ];
+  fd_snapshot_manifest_vote_stakes_t vote_stakes[ 40200UL ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -492,6 +492,6 @@ struct fd_snapshot_manifest {
   fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ 2UL ];
 };
 
-typedef struct fd_snapshot_manifest   fd_snapshot_manifest_t;
+typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmsg_h */
