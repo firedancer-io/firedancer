@@ -2495,10 +2495,11 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
 
   ulong snapshot_idx = fd_ulong_if( msg->type==FD_SNAPCT_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
 
-  char const * filename = strrchr(msg->read_path, '/');
+  char const * filename = strrchr( msg->read_path, '/' );
 
   /* Skip the '/'  */
-  if( FD_UNLIKELY( filename ) ) filename++;
+  if( FD_LIKELY( filename ) ) filename++;
+  else                        filename = msg->read_path;
 
   if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_INCREMENTAL) {
       ulong slot1, slot2;
