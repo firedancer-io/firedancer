@@ -303,6 +303,9 @@ struct fd_crds_private {
   fd_gossip_activity_update_fn activity_update_fn;
   void *                       activity_update_fn_ctx;
 
+  fd_crds_vote_purge_fn vote_purge_fn;
+  void *                vote_purge_fn_ctx;
+
   fd_sha256_t sha256[1];
 
   int has_staked_node;
@@ -367,6 +370,8 @@ fd_crds_new( void *                       shmem,
              fd_gossip_purged_t *         purged,
              fd_gossip_activity_update_fn activity_update_fn,
              void *                       activity_update_fn_ctx,
+             fd_crds_vote_purge_fn        vote_purge_fn,
+             void *                       vote_purge_fn_ctx,
              fd_gossip_out_ctx_t *        gossip_update_out ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -415,6 +420,10 @@ fd_crds_new( void *                       shmem,
   FD_TEST( crds->activity_update_fn );
 
   crds->activity_update_fn_ctx = activity_update_fn_ctx;
+
+  crds->vote_purge_fn     = vote_purge_fn;
+  FD_TEST( crds->vote_purge_fn );
+  crds->vote_purge_fn_ctx = vote_purge_fn_ctx;
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );
@@ -583,6 +592,10 @@ crds_release( fd_crds_t *         crds,
 
   if( FD_UNLIKELY( evicting ) ) crds->metrics->evicted_cnt++;
   else                          crds->metrics->expired_cnt++;
+
+  if( FD_UNLIKELY( entry->key.tag==FD_GOSSIP_VALUE_VOTE ) ) {
+    crds->vote_purge_fn( crds->vote_purge_fn_ctx, entry->key.vote_index, entry->key.pubkey );
+  }
 
   crds_pool_ele_release( crds->pool, entry );
 }
