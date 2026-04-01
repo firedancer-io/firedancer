@@ -387,7 +387,7 @@ int main( int argc, char ** argv ) {
      history and target_epoch=10 this gives effective=stake,
      activating=0, deactivating=0. */
 
-  fd_stake_delegations_init( stake_delegations );
+  fd_stake_delegations_reset( stake_delegations );
   stake_delegations->effective_stake    = 0UL;
   stake_delegations->activating_stake   = 0UL;
   stake_delegations->deactivating_stake = 0UL;

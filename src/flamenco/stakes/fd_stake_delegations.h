@@ -189,12 +189,10 @@ fd_stake_delegations_new( void * mem,
 fd_stake_delegations_t *
 fd_stake_delegations_join( void * mem );
 
-/* fd_stake_delegations_init resets the state of a valid join of a
-   stake delegations struct.  Specifically, it only resets the root
-   state, leaving the deltas intact. */
+/* fd_stake_delegations_reset resets delegations to the post-new state. */
 
 void
-fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations );
+fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations );
 
 /* fd_stake_delegation_root_query looks up the stake delegation for the
    given stake account in the root map. */

@@ -41,6 +41,7 @@ typedef struct vote_ele vote_ele_t;
 #define POOL_NAME  pool
 #define POOL_T     vote_ele_t
 #define POOL_IDX_T ushort
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               map
