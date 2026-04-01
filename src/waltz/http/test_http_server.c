@@ -86,22 +86,26 @@ test_oring( void ) {
   FD_TEST( !memcmp( "ABC", http->oring, 3UL ) );
   fd_http_server_unstage( http );
 
-  for( ulong i=1UL; i<32UL; i++ ) {
+  for( ulong i=1UL; i<=7UL; i++ ) {
     for( ulong j=0UL; j<1024UL; j++ ) {
       for( ulong k=0UL; k<i; k++ ) fd_http_server_printf( http, "%c", (char)('a'+i) );
 
       fd_http_server_response_t response;
-      if( i>7 ) {
-        FD_TEST( fd_http_server_stage_body( http, &response ) );
-      } else {
-        FD_TEST( !fd_http_server_stage_body( http, &response ) );
-        FD_TEST( response._body_len==i );
-        FD_TEST( (response._body_off%8UL)<=8-i );
-        for( ulong l=0UL; l<i; l++ ) {
-          FD_TEST( http->oring[(response._body_off%8UL)+l]==(uchar)('a'+i) );
-        }
+      FD_TEST( !fd_http_server_stage_body( http, &response ) );
+      FD_TEST( response._body_len==i );
+      FD_TEST( (response._body_off%8UL)<=8-i );
+      for( ulong l=0UL; l<i; l++ ) {
+        FD_TEST( http->oring[(response._body_off%8UL)+l]==(uchar)('a'+i) );
       }
     }
+  }
+
+  /* Verify overflow is handled correctly for body sizes exceeding the
+     oring (only one iteration needed per size since no wrapping occurs). */
+  for( ulong i=8UL; i<32UL; i++ ) {
+    for( ulong k=0UL; k<i; k++ ) fd_http_server_printf( http, "%c", (char)('a'+i) );
+    fd_http_server_response_t response;
+    FD_TEST( fd_http_server_stage_body( http, &response ) );
   }
 
   fd_http_server_response_t response;
