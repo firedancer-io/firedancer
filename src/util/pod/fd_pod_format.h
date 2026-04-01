@@ -154,7 +154,7 @@ fd_pod_queryf_subpod( uchar const * FD_RESTRICT pod,
   ulong len = fd_ulong_if( ret<0, 0UL, fd_ulong_min( (ulong)ret, 128UL-1UL ) );
   buf[ len ] = '\0';
   va_end( ap );
-  if( FD_UNLIKELY( ret<0 || (ulong)ret>=128UL ) ) return 0UL;
+  if( FD_UNLIKELY( ret<0 || (ulong)ret>=128UL ) ) return NULL;
   return fd_pod_query_subpod( pod, buf );
 }
 
@@ -172,7 +172,7 @@ fd_pod_queryf_cstr( uchar const * FD_RESTRICT pod,
   ulong len = fd_ulong_if( ret<0, 0UL, fd_ulong_min( (ulong)ret, 128UL-1UL ) );
   buf[ len ] = '\0';
   va_end( ap );
-  if( FD_UNLIKELY( ret<0 || (ulong)ret>=128UL ) ) return 0UL;
+  if( FD_UNLIKELY( ret<0 || (ulong)ret>=128UL ) ) return NULL;
   return fd_pod_query_cstr( pod, buf, def );
 }
 
