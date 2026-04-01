@@ -42,17 +42,20 @@ fd_chacha_rng_refill_avx( fd_chacha_rng_t * rng,
   wu_t k6 = _mm256_shuffle_epi32( key_hi, 0xaa );
   wu_t k7 = _mm256_shuffle_epi32( key_hi, 0xff );
 
-  /* Derive block index */
+  /* Derive block index (64-bit counter split across words 12-13) */
 
   ulong idx = rng->buf_fill / FD_CHACHA_BLOCK_SZ;  /* really a right shift */
-  wu_t idxs = wu_add( wu_bcast( idx ), wu( 0, 1, 2, 3, 4, 5, 6, 7 ) );
+  wu_t offsets = wu( 0, 1, 2, 3, 4, 5, 6, 7 );
+  wu_t idxs_lo = wu_add( wu_bcast( (uint)idx ), offsets );
+  wu_t carry   = wu_and( wu_lt( idxs_lo, offsets ), wu_bcast( 1U ) );
+  wu_t idxs_hi = wu_add( wu_bcast( (uint)(idx>>32) ), carry );
 
   /* Run through the round function */
 
-  wu_t c0 = iv0;   wu_t c1 = iv1;   wu_t c2 = iv2;   wu_t c3 = iv3;
-  wu_t c4 = k0;    wu_t c5 = k1;    wu_t c6 = k2;    wu_t c7 = k3;
-  wu_t c8 = k4;    wu_t c9 = k5;    wu_t cA = k6;    wu_t cB = k7;
-  wu_t cC = idxs;  wu_t cD = zero;  wu_t cE = zero;  wu_t cF = zero;
+  wu_t c0 = iv0;      wu_t c1 = iv1;      wu_t c2 = iv2;   wu_t c3 = iv3;
+  wu_t c4 = k0;       wu_t c5 = k1;       wu_t c6 = k2;    wu_t c7 = k3;
+  wu_t c8 = k4;       wu_t c9 = k5;       wu_t cA = k6;    wu_t cB = k7;
+  wu_t cC = idxs_lo;  wu_t cD = idxs_hi;  wu_t cE = zero;  wu_t cF = zero;
 
 # define QUARTER_ROUND(a,b,c,d)                                        \
   do {                                                                 \
@@ -88,8 +91,8 @@ fd_chacha_rng_refill_avx( fd_chacha_rng_t * rng,
   c9 = wu_add( c9, k5   );
   cA = wu_add( cA, k6   );
   cB = wu_add( cB, k7   );
-  cC = wu_add( cC, idxs );
-  //cD = wu_add( cD, zero );
+  cC = wu_add( cC, idxs_lo );
+  cD = wu_add( cD, idxs_hi );
   //cE = wu_add( cE, zero );
   //cF = wu_add( cF, zero );
 
@@ -102,8 +105,7 @@ fd_chacha_rng_refill_avx( fd_chacha_rng_t * rng,
 
   /* Update ring buffer */
 
-  ulong  slot = rng->buf_fill % (8*FD_CHACHA_BLOCK_SZ);
-  uint * out  = (uint *)rng->buf + (slot*2*FD_CHACHA_BLOCK_SZ);
+  uint * out = (uint *)rng->buf;
   wu_st( out+0x00, c0 ); wu_st( out+0x08, c8 );
   wu_st( out+0x10, c1 ); wu_st( out+0x18, c9 );
   wu_st( out+0x20, c2 ); wu_st( out+0x28, cA );
