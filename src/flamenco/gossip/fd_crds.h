@@ -43,6 +43,10 @@ typedef void (*fd_gossip_activity_update_fn)( void *                           c
                                               fd_gossip_contact_info_t const * ci,
                                               int                              change_type );
 
+typedef void (*fd_crds_vote_purge_fn)( void *        ctx,
+                                       uchar         vote_index,
+                                       uchar const * pubkey );
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -64,6 +68,8 @@ fd_crds_new( void *                       shmem,
              fd_gossip_purged_t *         purged,
              fd_gossip_activity_update_fn activity_update_fn,
              void *                       activity_update_fn_ctx,
+             fd_crds_vote_purge_fn        vote_purge_fn,
+             void *                       vote_purge_fn_ctx,
              fd_gossip_out_ctx_t *        gossip_update_out  );
 
 fd_crds_t *

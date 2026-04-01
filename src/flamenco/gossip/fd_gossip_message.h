@@ -23,6 +23,9 @@
 
 #define FD_CONTACT_INFO_TABLE_SIZE (32768UL)
 
+#define FD_GOSSIP_VOTE_IDX_MAX     (12UL)
+#define FD_GOSSIP_VOTE_IDX_OLD_MAX (32UL)
+
 /* Tightest bound for a single CrdsValue given network constraints.
 
      IPv6 minimum MTU             = 1280
