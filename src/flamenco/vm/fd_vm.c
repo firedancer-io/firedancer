@@ -348,7 +348,8 @@ fd_vm_validate( fd_vm_t const * vm ) {
   if( FD_UNLIKELY( vm->text_sz / 8UL != vm->text_cnt ||
                    (const uchar *)vm->text < vm->rodata ||
                    (ulong)vm->text > (ulong)vm->text + vm->text_sz || /* Overflow chk */
-                   (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz ) )
+                   (const uchar *)vm->text + vm->text_sz > vm->rodata + vm->rodata_sz +
+                     ( FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ? vm->text_sz : 0UL ) ) )
     return FD_VM_ERR_BAD_TEXT;
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( vm->text_sz, 8UL ) ) ) /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/verifier.rs#L109 */
@@ -625,7 +626,7 @@ fd_vm_init(
      program execution, e.g. just testing some interpreter functionality
      or syscalls.
      SBPF v3+ no longer needs calldests, so we enforce it to be NULL. */
-  if( FD_UNLIKELY( calldests && fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) ) {
+  if( FD_UNLIKELY( calldests && FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS( sbpf_version ) ) ) {
     return NULL;
   }
 
@@ -637,7 +638,10 @@ fd_vm_init(
   vm->rodata_sz                              = rodata_sz;
   vm->text                                   = text;
   vm->text_cnt                               = text_cnt;
-  vm->text_off                               = text_off;
+  /* In SBPF V3, bytecode starts at vaddr 0x100000000 exactly, so
+     text_off from the POV of the VM is 0.
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L539 */
+  vm->text_off                               = FD_VM_SBPF_ENABLE_LOWER_RODATA_VADDR( sbpf_version ) ? 0UL : text_off;
   vm->text_sz                                = text_sz;
   vm->entry_pc                               = entry_pc;
   vm->calldests                              = calldests;

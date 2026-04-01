@@ -6,8 +6,8 @@
 #define PF_X  (1U)
 #define PF_R  (4U)
 
-#define MM_BYTECODE_ADDR (0x0UL)
-#define MM_RODATA_ADDR   (0x100000000UL)
+#define MM_RODATA_START   (0x0UL)
+#define MM_BYTECODE_START (0x100000000UL)
 
 #define TEST_BIN_MAX (512UL)
 
@@ -79,7 +79,7 @@ build_valid_2phdr( uchar buf[ TEST_BIN_MAX ] ) {
   ehdr.e_ident[ FD_ELF_EI_VERSION ] = 1;
   ehdr.e_machine   = FD_ELF_EM_BPF;
   ehdr.e_version   = 1;
-  ehdr.e_entry     = MM_RODATA_ADDR;
+  ehdr.e_entry     = MM_BYTECODE_START;
   ehdr.e_phoff     = sizeof(fd_elf64_ehdr);
   ehdr.e_flags     = FD_SBPF_V3;
   ehdr.e_ehsize    = sizeof(fd_elf64_ehdr);
@@ -91,8 +91,8 @@ build_valid_2phdr( uchar buf[ TEST_BIN_MAX ] ) {
   ph0.p_type   = FD_ELF_PT_LOAD;
   ph0.p_flags  = PF_R;
   ph0.p_offset = phdr_end;
-  ph0.p_vaddr  = MM_BYTECODE_ADDR;
-  ph0.p_paddr  = MM_BYTECODE_ADDR;
+  ph0.p_vaddr  = MM_RODATA_START;
+  ph0.p_paddr  = MM_RODATA_START;
   ph0.p_filesz = rodata_sz;
   ph0.p_memsz  = rodata_sz;
   set_phdr( buf, 0, &ph0 );
@@ -101,8 +101,8 @@ build_valid_2phdr( uchar buf[ TEST_BIN_MAX ] ) {
   ph1.p_type   = FD_ELF_PT_LOAD;
   ph1.p_flags  = PF_X;
   ph1.p_offset = phdr_end + rodata_sz;
-  ph1.p_vaddr  = MM_RODATA_ADDR;
-  ph1.p_paddr  = MM_RODATA_ADDR;
+  ph1.p_vaddr  = MM_BYTECODE_START;
+  ph1.p_paddr  = MM_BYTECODE_START;
   ph1.p_filesz = bytecode_sz;
   ph1.p_memsz  = bytecode_sz;
   set_phdr( buf, 1, &ph1 );
@@ -131,7 +131,7 @@ build_valid_1phdr( uchar buf[ TEST_BIN_MAX ] ) {
   ehdr.e_ident[ FD_ELF_EI_VERSION ] = 1;
   ehdr.e_machine   = FD_ELF_EM_BPF;
   ehdr.e_version   = 1;
-  ehdr.e_entry     = MM_RODATA_ADDR;
+  ehdr.e_entry     = MM_BYTECODE_START;
   ehdr.e_phoff     = sizeof(fd_elf64_ehdr);
   ehdr.e_flags     = FD_SBPF_V3;
   ehdr.e_ehsize    = sizeof(fd_elf64_ehdr);
@@ -143,8 +143,8 @@ build_valid_1phdr( uchar buf[ TEST_BIN_MAX ] ) {
   ph0.p_type   = FD_ELF_PT_LOAD;
   ph0.p_flags  = PF_X;
   ph0.p_offset = phdr_end;
-  ph0.p_vaddr  = MM_RODATA_ADDR;
-  ph0.p_paddr  = MM_RODATA_ADDR;
+  ph0.p_vaddr  = MM_BYTECODE_START;
+  ph0.p_paddr  = MM_BYTECODE_START;
   ph0.p_filesz = bytecode_sz;
   ph0.p_memsz  = bytecode_sz;
   set_phdr( buf, 0, &ph0 );
@@ -161,7 +161,7 @@ test_peek_valid_2phdr( void ) {
   FD_TEST( peek( bin, bin_sz, &info ) == FD_SBPF_ELF_SUCCESS );
   FD_TEST( info.sbpf_version == FD_SBPF_V3 );
   FD_TEST( info.bin_sz   == bin_sz );
-  FD_TEST( info.text_off == 184U );
+  FD_TEST( info.text_off == 8U );
   FD_TEST( info.text_sz  == 8UL  );
   FD_TEST( info.text_cnt == 1U   );
 }
@@ -175,7 +175,7 @@ test_peek_valid_1phdr( void ) {
   FD_TEST( peek( bin, bin_sz, &info ) == FD_SBPF_ELF_SUCCESS );
   FD_TEST( info.sbpf_version == FD_SBPF_V3 );
   FD_TEST( info.bin_sz   == bin_sz );
-  FD_TEST( info.text_off == 120U );
+  FD_TEST( info.text_off == 0U );
   FD_TEST( info.text_sz  == 8UL  );
   FD_TEST( info.text_cnt == 1U   );
 }
@@ -245,7 +245,7 @@ test_peek_entry_unaligned( void ) {
   uchar bin[ TEST_BIN_MAX ];
   ulong bin_sz = build_valid_2phdr( bin );
   fd_elf64_ehdr h = get_ehdr( bin );
-  h.e_entry = MM_RODATA_ADDR + 1UL;
+  h.e_entry = MM_BYTECODE_START + 1UL;
   set_ehdr( bin, &h );
 
   fd_sbpf_elf_info_t info;
@@ -257,7 +257,7 @@ test_peek_entry_out_of_range( void ) {
   uchar bin[ TEST_BIN_MAX ];
   ulong bin_sz = build_valid_2phdr( bin );
   fd_elf64_ehdr h = get_ehdr( bin );
-  h.e_entry = MM_RODATA_ADDR + 0x1000UL;
+  h.e_entry = MM_BYTECODE_START + 0x1000UL;
   set_ehdr( bin, &h );
 
   fd_sbpf_elf_info_t info;

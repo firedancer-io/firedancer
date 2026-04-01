@@ -61,6 +61,7 @@ fd_progcache_rec_rodata( fd_progcache_rec_t const * rec,
 static inline fd_sbpf_calldests_t const *
 fd_progcache_rec_calldests( fd_progcache_rec_t const * rec,
                             fd_wksp_t *                wksp ) {
+  if( rec->calldests_off==UINT_MAX ) return NULL;
   return fd_sbpf_calldests_join( fd_wksp_laddr_fast( wksp, rec->data_gaddr + rec->calldests_off ) );
 }
 

@@ -156,7 +156,25 @@ FD_PROTOTYPES_END
 #define FD_VM_LOG_MAX  (10000UL)
 #define FD_VM_LOG_TAIL (128UL)   /* Large enough to cover the worst case syscall log tail clobbering in string parsing */
 
-/* VM memory map constants */
+/* VM memory map constants
+
+   The sBPF virtual address space is divided into 4 GiB regions:
+
+   SBPF V0-V2:
+     region 0  0x000000000  (unmapped)
+     region 1  0x100000000  program (full ELF: rodata + text)
+     region 2  0x200000000  stack
+     region 3  0x300000000  heap
+     region 4  0x400000000  input
+
+   SBPF V3:
+     region 0  0x000000000  rodata segment (read-only)
+     region 1  0x100000000  (unmapped, bytecode execute-only)
+     region 2  0x200000000  stack
+     region 3  0x300000000  heap
+     region 4  0x400000000  input
+
+   https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/ebpf.rs#L42-L51 */
 
 #define FD_VM_LO_REGION    (0UL)
 #define FD_VM_PROG_REGION  (1UL)
@@ -165,6 +183,7 @@ FD_PROTOTYPES_END
 #define FD_VM_INPUT_REGION (4UL)
 #define FD_VM_HIGH_REGION  (5UL)
 
+#define FD_VM_MEM_MAP_RODATA_REGION_START   (0x000000000UL) /* SBPF V3+ only */
 #define FD_VM_MEM_MAP_PROGRAM_REGION_START  (0x100000000UL)
 #define FD_VM_MEM_MAP_STACK_REGION_START    (0x200000000UL)
 #define FD_VM_MEM_MAP_HEAP_REGION_START     (0x300000000UL)

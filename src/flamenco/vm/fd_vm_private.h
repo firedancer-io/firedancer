@@ -84,8 +84,6 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
    We define both, so hopefully it's foolproof. */
 
 /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L28-L93 */
-#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)          ( v != FD_SBPF_V0 )
-#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)                     ( v != FD_SBPF_V0 )
 /* SIMD-0166 */
 #define FD_VM_SBPF_MANUAL_STACK_FRAME_BUMP(v)              ( v == FD_SBPF_V1 || v == FD_SBPF_V2 ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L32-L34 */
 #define FD_VM_SBPF_STACK_FRAME_GAPS(v)                     ( v == FD_SBPF_V0 )                    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L36-L38 */
@@ -197,11 +195,12 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 /* fd_vm_mem API ******************************************************/
 
 /* fd_vm_mem APIs support the fast mapping of virtual address ranges to
-   host address ranges.  Since the SBPF virtual address space consists
-   of 4 consecutive 4GiB regions and the mapable size of each region is
-   less than 4 GiB (as implied by FD_VM_MEM_MAP_REGION_SZ==2^32-1 and
-   that Solana protocol limits are much smaller still), it is impossible
-   for a valid virtual address range to span multiple regions. */
+   host address ranges.  The SBPF virtual address space consists of
+   5 consecutive 4 GiB regions (see fd_vm_base.h for layout).  The
+   mapable size of each region is less than 4 GiB (as implied by
+   FD_VM_MEM_MAP_REGION_SZ==2^32-1 and that Solana protocol limits are
+   much smaller still), so a valid virtual address range cannot span
+   multiple regions. */
 
 /* fd_vm_mem_cfg configures the vm's tlb arrays.  Assumes vm is valid
    and vm already has configured the rodata, stack, heap and input
