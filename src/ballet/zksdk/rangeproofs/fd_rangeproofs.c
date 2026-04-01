@@ -8,7 +8,7 @@ fd_rangeproofs_delta(
   uchar const y[ 32 ],
   uchar const z[ 32 ],
   uchar const zz[ 32 ],
-  uchar const bit_lengths[ 1 ],
+  uchar const bit_lengths[ FD_RANGEPROOFS_MAX_COMMITMENTS ],
   uchar const batch_len
 ) {
   uchar exp_y[ 32 ];
@@ -43,8 +43,8 @@ int
 fd_rangeproofs_verify(
   fd_rangeproofs_range_proof_t const * range_proof,
   fd_rangeproofs_ipp_proof_t const *   ipp_proof,
-  uchar const                          commitments [ 32 ],
-  uchar const                          bit_lengths [ 1 ],
+  uchar const                          commitments [ FD_RANGEPROOFS_MAX_COMMITMENTS * 32 ],
+  uchar const                          bit_lengths [ FD_RANGEPROOFS_MAX_COMMITMENTS ],
   uchar const                          batch_len,
   fd_merlin_transcript_t *             transcript ) {
 
@@ -274,13 +274,13 @@ fd_rangeproofs_verify(
   fd_curve25519_scalar_neg(    &scalars[ 1*32 ], &scalars[ 1*32 ] );
 
   // S:   x
-  // T_1: c x
-  // T_2: c x^2
+  // T_1: d x
+  // T_2: d x^2
   fd_curve25519_scalar_set(    &scalars[ 2*32 ], x );
   fd_curve25519_scalar_mul(    &scalars[ 3*32 ], d, x );
   fd_curve25519_scalar_mul(    &scalars[ 4*32 ], &scalars[ 3*32 ], x );
 
-  // commitments: c z^2, c z^3 ...
+  // commitments: d z^2, d z^3 ...
   uchar zz[ 32 ];
   fd_curve25519_scalar_mul(    zz, z, z );
   fd_curve25519_scalar_mul(    &scalars[ 5*32 ], zz, d );
@@ -311,7 +311,7 @@ fd_rangeproofs_verify(
     }
   }
 
-  // generators_H: (-a * s_i) + (-z)
+  // generators_H: (-b * s_{n-1-i} + z^{j+2} * 2^i) * y^{-(i+1)} + z
   uchar const *a = ipp_proof->a;
   uchar const *b = ipp_proof->b;
   uchar minus_b[ 32 ];
@@ -337,7 +337,7 @@ fd_rangeproofs_verify(
     fd_curve25519_scalar_muladd( &scalars[ idx*32 ], &scalars[ idx*32 ], exp_y_inv, z );
   }
 
-  // generators_G: (-a * s_i) + (-z)
+  // generators_G: -a * s_i + (-z)
   uchar minus_z[ 32 ];
   uchar minus_a[ 32 ];
   fd_curve25519_scalar_neg( minus_z, z );
@@ -347,7 +347,7 @@ fd_rangeproofs_verify(
   }
 
   // G
-  // w * (self.t_x - a * b) + c * (delta(&bit_lengths, &y, &z) - self.t_x)
+  // w * (self.t_x - a * b) + d * (delta(&bit_lengths, &y, &z) - self.t_x)
   uchar delta[ 32 ];
   fd_rangeproofs_delta( delta, nm, y, z, zz, bit_lengths, batch_len );
   fd_curve25519_scalar_muladd(  &scalars[ 0 ], minus_a, b, range_proof->tx );
