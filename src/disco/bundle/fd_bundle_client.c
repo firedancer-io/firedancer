@@ -644,7 +644,13 @@ fd_bundle_client_visit_pb_bundle_uuid(
 
   ctx->metrics.bundle_received_cnt++;
 
+  ulong pending_cnt_before = pending_txn_cnt( ctx->pending_txns );
   if( FD_UNLIKELY( !pb_decode( istream, &bundle_BundleUuid_msg, &bundle ) ) ) {
+    /* Roll back any transactions that were partially pushed during the
+       failed decode to preserve bundle atomicity. */
+    while( pending_txn_cnt( ctx->pending_txns )>pending_cnt_before ) {
+      pending_txn_remove_tail( ctx->pending_txns );
+    }
     ctx->metrics.decode_fail_cnt++;
     FD_LOG_WARNING(( "Protobuf decode of (bundle.BundleUuid) failed (internal error): %s", istream->errmsg ));
     return false;
