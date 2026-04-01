@@ -50,7 +50,6 @@ struct fd_sysvar_cache {
   fd_sysvar_desc_t desc[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 
   uchar bin_clock             [ FD_SYSVAR_CLOCK_BINCODE_SZ             ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_clock             [ FD_SYSVAR_CLOCK_FOOTPRINT              ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_epoch_rewards     [ FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_epoch_rewards     [ FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_epoch_schedule    [ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ    ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_accdb_fd_accdb_base_h
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_base_h
 
-#include "../../util/fd_util_base.h"
+#include "../../funk/fd_funk_base.h"
 
 struct fd_accdb_admin;
 typedef struct fd_accdb_admin fd_accdb_admin_t;

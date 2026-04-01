@@ -186,18 +186,6 @@
       ]
     },
     {
-      "name": "sol_sysvar_clock",
-      "type": "struct",
-      "fields": [
-          { "name": "slot", "type": "ulong" },
-          { "name": "epoch_start_timestamp", "type": "long" },
-          { "name": "epoch", "type": "ulong" },
-          { "name": "leader_schedule_epoch", "type": "ulong" },
-          { "name": "unix_timestamp", "type": "long" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114"
-    },
-    {
       "name": "sol_sysvar_last_restart_slot",
       "type": "struct",
       "fields": [

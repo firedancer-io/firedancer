@@ -1317,41 +1317,6 @@ ulong fd_genesis_solana_size_global( fd_genesis_solana_global_t const * self ) {
   return size;
 }
 
-int fd_sol_sysvar_clock_encode( fd_sol_sysvar_clock_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->slot, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( (ulong)self->epoch_start_timestamp, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->epoch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->leader_schedule_epoch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( (ulong)self->unix_timestamp, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_sol_sysvar_clock_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 40UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 40UL );
-  return 0;
-}
-static void fd_sol_sysvar_clock_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_sol_sysvar_clock_t * self = (fd_sol_sysvar_clock_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
-  fd_bincode_uint64_decode_unsafe( (ulong *) &self->epoch_start_timestamp, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->epoch, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->leader_schedule_epoch, ctx );
-  fd_bincode_uint64_decode_unsafe( (ulong *) &self->unix_timestamp, ctx );
-}
-void * fd_sol_sysvar_clock_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_sol_sysvar_clock_t * self = (fd_sol_sysvar_clock_t *)mem;
-  fd_sol_sysvar_clock_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_sol_sysvar_clock_t);
-  void * * alloc_mem = &alloc_region;
-  fd_sol_sysvar_clock_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
 int fd_sol_sysvar_last_restart_slot_encode( fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint64_encode( self->slot, ctx );

@@ -63,21 +63,17 @@ struct fd_sysvar_pos {
 
   int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
   void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
-  int    (* encode)( void const * self, fd_bincode_encode_ctx_t * ctx );
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
 
 #define TYPES_CALLBACKS( name, suf )                                   \
   .decode_footprint = fd_##name##_decode_footprint,                    \
-  .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf, \
-  .encode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->encode))(ulong)fd_##name##_encode##suf
+  .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf
 
 static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [FD_SYSVAR_clock_IDX] =
     { .name="clock",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_clock            ), .data_max=FD_SYSVAR_CLOCK_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_clock            ), .obj_max =FD_SYSVAR_CLOCK_FOOTPRINT,
-      TYPES_CALLBACKS( sol_sysvar_clock, ) },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_clock            ), .data_max=FD_SYSVAR_CLOCK_BINCODE_SZ },
   [FD_SYSVAR_epoch_rewards_IDX] =
     { .name="epoch rewards",
       .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_rewards    ), .data_max=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ,
