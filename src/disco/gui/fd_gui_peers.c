@@ -1310,6 +1310,7 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
 
   if( FD_UNLIKELY( !fd_gui_peers_live_table_verify_sort_key( &sort_key ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
+  fd_gui_peers_live_table_sort_key_remove( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key );
   peers->client_viewports[ ws_conn_id ].sort_key = sort_key;
 
   fd_gui_printf_peers_viewport_request( peers, "query_sort", ws_conn_id, request_id );
