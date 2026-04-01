@@ -9,6 +9,7 @@
 #include "../../runtime/fd_bank.h"
 #include "../../runtime/program/fd_builtin_programs.h"
 #include "../../runtime/fd_system_ids.h"
+#include "../../runtime/fd_runtime_const.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../runtime/fd_runtime.h"
 #include "../../runtime/sysvar/fd_sysvar_cache.h"
@@ -413,6 +414,10 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     };
   }
 
+  /* Default slots_per_year matches Solana mainnet genesis defaults
+     (target_tick_duration=6250000ns, ticks_per_slot=64). */
+  bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / 6250000.0) / 64.0;
+
   if( params->rent ) {
     bank->f.rent = *params->rent;
   } else {
@@ -639,8 +644,11 @@ fd_svm_mini_put_account_rooted( fd_svm_mini_t *       mini,
   fd_funk_rec_map_query_t query[1];
   int remove_err = fd_funk_rec_map_remove( funk->rec_map, &pair, NULL, query, 0 );
   FD_TEST( remove_err==FD_MAP_SUCCESS || remove_err==FD_MAP_ERR_KEY );
+  ulong old_lamports = 0UL;
   if( remove_err==FD_MAP_SUCCESS ) {
     fd_funk_rec_t * old_rec = query->ele;
+    fd_account_meta_t const * old_meta = fd_funk_val_const( old_rec, funk->wksp );
+    if( old_meta ) old_lamports = old_meta->lamports;
     memset( &old_rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
     old_rec->map_next = FD_FUNK_REC_IDX_NULL;
     fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
@@ -658,6 +666,15 @@ fd_svm_mini_put_account_rooted( fd_svm_mini_t *       mini,
   fd_funk_rec_prepare_t prepare = { .rec = rec, .rec_head_idx = NULL, .rec_tail_idx = NULL };
   fd_funk_rec_publish( funk, &prepare );
   memset( rw, 0, sizeof(fd_accdb_rw_t) );
+
+  fd_bank_t * root = fd_banks_root( mini->banks );
+  if( root ) {
+    ulong new_lamports = fd_accdb_ref_lamports( ro );
+    if( new_lamports >= old_lamports )
+      root->f.capitalization += new_lamports - old_lamports;
+    else
+      root->f.capitalization -= old_lamports - new_lamports;
+  }
 }
 
 void
@@ -688,6 +705,9 @@ fd_svm_mini_add_lamports_rooted( fd_svm_mini_t *     mini,
   } else {
     FD_LOG_ERR(( "fd_funk_rec_map_query_try failed (%i-%s)", query_err, fd_map_strerror( query_err ) ));
   }
+
+  fd_bank_t * root = fd_banks_root( mini->banks );
+  if( root ) root->f.capitalization += lamports;
 }
 
 void
@@ -703,4 +723,7 @@ fd_svm_mini_add_lamports( fd_svm_mini_t *     mini,
   FD_TEST( !__builtin_uaddl_overflow( balance, lamports, &balance ) );
   fd_accdb_ref_lamports_set( rw, balance );
   fd_accdb_close_rw( accdb, rw );
+
+  fd_bank_t * bank = fd_svm_mini_bank( mini, xid->ul[1] );
+  if( bank ) bank->f.capitalization += lamports;
 }

@@ -98,6 +98,9 @@ main( int     argc,
   params->root_slot = 0UL;
   root_idx = fd_svm_mini_reset( mini, params );
   root_xid = fd_svm_mini_xid( mini, root_idx );
+  bank = fd_svm_mini_bank( mini, root_idx );
+
+  ulong cap0 = bank->f.capitalization;
 
   /* add_lamports_rooted: new account */
   fd_svm_mini_add_lamports_rooted( mini, &test_pubkey, 1000UL );
@@ -105,6 +108,7 @@ main( int     argc,
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &root_xid, &test_pubkey ) );
   FD_TEST( fd_accdb_ref_lamports( ro )==1000UL );
   fd_accdb_close_ro( mini->accdb, ro );
+  FD_TEST( bank->f.capitalization==cap0+1000UL );
 
   /* put_account_rooted: overwrite (remove + re-insert) */
   fd_account_meta_t tmp_meta = { .lamports = 500UL };
@@ -113,25 +117,50 @@ main( int     argc,
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &root_xid, &test_pubkey ) );
   FD_TEST( fd_accdb_ref_lamports( ro )==500UL );
   fd_accdb_close_ro( mini->accdb, ro );
+  FD_TEST( bank->f.capitalization==cap0+500UL );
+
+  /* put_account_rooted: decrease lamports (capitalization must decrease) */
+  tmp_meta.lamports = 200UL;
+  fd_accdb_ro_init_nodb( tmp_ro, &test_pubkey, &tmp_meta );
+  fd_svm_mini_put_account_rooted( mini, tmp_ro );
+  FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &root_xid, &test_pubkey ) );
+  FD_TEST( fd_accdb_ref_lamports( ro )==200UL );
+  fd_accdb_close_ro( mini->accdb, ro );
+  FD_TEST( bank->f.capitalization==cap0+200UL );
+
+  /* put_account_rooted: increase lamports back */
+  tmp_meta.lamports = 500UL;
+  fd_accdb_ro_init_nodb( tmp_ro, &test_pubkey, &tmp_meta );
+  fd_svm_mini_put_account_rooted( mini, tmp_ro );
+  FD_TEST( bank->f.capitalization==cap0+500UL );
 
   /* add_lamports_rooted: existing account */
   fd_svm_mini_add_lamports_rooted( mini, &test_pubkey, 500UL );
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &root_xid, &test_pubkey ) );
   FD_TEST( fd_accdb_ref_lamports( ro )==1000UL );
   fd_accdb_close_ro( mini->accdb, ro );
+  FD_TEST( bank->f.capitalization==cap0+1000UL );
 
   /* add_lamports (non-rooted fork) */
   ulong fork_idx = fd_svm_mini_attach_child( mini, root_idx, 1UL );
   fd_xid_t fork_xid = fd_svm_mini_xid( mini, fork_idx );
+  fd_bank_t * fork_bank = fd_svm_mini_bank( mini, fork_idx );
+  ulong fork_cap0 = fork_bank->f.capitalization;
+
   fd_svm_mini_add_lamports( mini, &fork_xid, &test_pubkey2, 777UL );
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &fork_xid, &test_pubkey2 ) );
   FD_TEST( fd_accdb_ref_lamports( ro )==777UL );
   fd_accdb_close_ro( mini->accdb, ro );
+  FD_TEST( fork_bank->f.capitalization==fork_cap0+777UL );
 
   fd_svm_mini_add_lamports( mini, &fork_xid, &test_pubkey2, 223UL );
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, &fork_xid, &test_pubkey2 ) );
   FD_TEST( fd_accdb_ref_lamports( ro )==1000UL );
   fd_accdb_close_ro( mini->accdb, ro );
+  FD_TEST( fork_bank->f.capitalization==fork_cap0+1000UL );
+
+  /* add_lamports on fork must not affect root capitalization */
+  FD_TEST( bank->f.capitalization==cap0+1000UL );
 
   /* mock_validator_cnt=0: no validators, no leader schedule */
   params->mock_validator_cnt = 0UL;
