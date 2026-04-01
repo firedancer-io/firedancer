@@ -43,6 +43,10 @@ typedef void (*fd_gossip_activity_update_fn)( void *                           c
                                               fd_gossip_contact_info_t const * ci,
                                               int                              change_type );
 
+typedef void (*fd_crds_vote_purge_fn)( void *        ctx,
+                                       uchar         vote_index,
+                                       uchar const * pubkey );
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -64,6 +68,8 @@ fd_crds_new( void *                       shmem,
              fd_gossip_purged_t *         purged,
              fd_gossip_activity_update_fn activity_update_fn,
              void *                       activity_update_fn_ctx,
+             fd_crds_vote_purge_fn        vote_purge_fn,
+             void *                       vote_purge_fn_ctx,
              fd_gossip_out_ctx_t *        gossip_update_out  );
 
 fd_crds_t *
@@ -208,6 +214,18 @@ fd_crds_mask_iter_done( fd_crds_mask_iter_t * it,
 fd_crds_entry_t const *
 fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it,
                          fd_crds_t const * crds );
+
+/* fd_crds_vote_query looks up the vote CRDS entry for a given (pubkey,
+   vote_index) pair.  If the entry exists, stores the vote_slot and
+   wallclock (in milliseconds) into the output parameters and returns 1.
+   Returns 0 if no such entry exists. */
+
+int
+fd_crds_vote_query( fd_crds_t const * crds,
+                    uchar const *     pubkey,
+                    uchar             vote_index,
+                    ulong *           vote_slot_out,
+                    ulong *           wallclock_out );
 
 FD_PROTOTYPES_END
 

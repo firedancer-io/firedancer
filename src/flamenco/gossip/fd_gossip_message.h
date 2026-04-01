@@ -23,6 +23,14 @@
 
 #define FD_CONTACT_INFO_TABLE_SIZE (32768UL)
 
+/* FD_GOSSIP_VOTE_IDX_MAX is the number of votes kept locally in our
+   published history.  FD_GOSSIP_VOTE_IDX_WIRE_MAX is the history size
+   for votes from peers on the network.  We keep this limit to
+   conform with Agave, as it's a vestigial feature that exists for
+   backwards compatibility. */
+#define FD_GOSSIP_VOTE_IDX_MAX      (12UL)
+#define FD_GOSSIP_VOTE_IDX_WIRE_MAX (32UL)
+
 /* Tightest bound for a single CrdsValue given network constraints.
 
      IPv6 minimum MTU             = 1280
@@ -121,6 +129,7 @@
 
 struct fd_gossip_vote {
   uchar index;
+  ulong vote_slot;
   ulong transaction_len;
   uchar transaction[ 1232UL ];
 };
