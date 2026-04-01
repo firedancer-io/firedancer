@@ -48,17 +48,20 @@ fd_chacha_rng_refill_avx512( fd_chacha_rng_t * rng,
   wwu_t k6 = _mm512_shuffle_epi32( key_hi, 0xaa );
   wwu_t k7 = _mm512_shuffle_epi32( key_hi, 0xff );
 
-  /* Derive block index */
+  /* Derive block index (64-bit counter split across words 12-13) */
 
   ulong idx = rng->buf_fill / FD_CHACHA_BLOCK_SZ;  /* really a right shift */
-  wwu_t idxs = wwu_add( wwu_bcast( idx ), wwu( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 ) );
+  wwu_t offsets  = wwu( 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 );
+  wwu_t idxs_lo  = wwu_add( wwu_bcast( (uint)idx ), offsets );
+  int   carry    = wwu_lt( idxs_lo, offsets );
+  wwu_t idxs_hi  = wwu_add_if( carry, wwu_bcast( (uint)(idx>>32) ), wwu_bcast( 1U ), wwu_bcast( (uint)(idx>>32) ) );
 
   /* Run through the round function */
 
-  wwu_t c0 = iv0;   wwu_t c1 = iv1;   wwu_t c2 = iv2;   wwu_t c3 = iv3;
-  wwu_t c4 = k0;    wwu_t c5 = k1;    wwu_t c6 = k2;    wwu_t c7 = k3;
-  wwu_t c8 = k4;    wwu_t c9 = k5;    wwu_t cA = k6;    wwu_t cB = k7;
-  wwu_t cC = idxs;  wwu_t cD = zero;  wwu_t cE = zero;  wwu_t cF = zero;
+  wwu_t c0 = iv0;      wwu_t c1 = iv1;      wwu_t c2 = iv2;   wwu_t c3 = iv3;
+  wwu_t c4 = k0;       wwu_t c5 = k1;       wwu_t c6 = k2;    wwu_t c7 = k3;
+  wwu_t c8 = k4;       wwu_t c9 = k5;       wwu_t cA = k6;    wwu_t cB = k7;
+  wwu_t cC = idxs_lo;  wwu_t cD = idxs_hi;  wwu_t cE = zero;  wwu_t cF = zero;
 
 # define QUARTER_ROUND(a,b,c,d)                                   \
   do {                                                            \
@@ -94,8 +97,8 @@ fd_chacha_rng_refill_avx512( fd_chacha_rng_t * rng,
   c9 = wwu_add( c9, k5   );
   cA = wwu_add( cA, k6   );
   cB = wwu_add( cB, k7   );
-  cC = wwu_add( cC, idxs );
-  //cD = wwu_add( cD, zero );
+  cC = wwu_add( cC, idxs_lo );
+  cD = wwu_add( cD, idxs_hi );
   //cE = wwu_add( cE, zero );
   //cF = wwu_add( cF, zero );
 
