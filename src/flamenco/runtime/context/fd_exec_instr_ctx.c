@@ -96,23 +96,6 @@ fd_exec_instr_ctx_try_borrow_instr_account( fd_exec_instr_ctx_t const * ctx,
 }
 
 int
-fd_exec_instr_ctx_try_borrow_instr_account_with_key( fd_exec_instr_ctx_t const * ctx,
-                                                     fd_pubkey_t const *         pubkey,
-                                                     fd_borrowed_account_t *     account ) {
-  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
-    ushort idx_in_txn = ctx->instr->accounts[ i ].index_in_transaction;
-    if( memcmp( pubkey->uc, ctx->txn_out->accounts.keys[ idx_in_txn ].uc, sizeof(fd_pubkey_t) )==0 ) {
-      return fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, account );
-    }
-  }
-
-  /* Return a NotEnoughAccountKeys error if the account is not found
-     in the instruction context to match the error code returned by
-     fd_exec_instr_ctx_try_borrow_instr_account. */
-  return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-}
-
-int
 fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * ctx,
                                                    fd_borrowed_account_t *     account ) {
   /* The index_in_instruction for a borrowed program account is invalid,

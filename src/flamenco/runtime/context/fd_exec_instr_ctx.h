@@ -134,15 +134,6 @@ fd_exec_instr_ctx_try_borrow_instr_account( fd_exec_instr_ctx_t const * ctx,
                                             ushort                      idx,
                                             fd_borrowed_account_t *     account );
 
-/* A wrapper around fd_exec_instr_ctx_try_borrow_account that accepts an account pubkey.
-
-   Borrows an account from the instruction context with a given pubkey. */
-
-int
-fd_exec_instr_ctx_try_borrow_instr_account_with_key( fd_exec_instr_ctx_t const * ctx,
-                                                     fd_pubkey_t const *         pubkey,
-                                                     fd_borrowed_account_t *     account );
-
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_last_program_account
 
    Borrows the instruction's program account. Since there is only one program account per
