@@ -199,6 +199,14 @@ fd_stake_rewards_join( void * shmem ) {
   return stake_rewards;
 }
 
+void
+fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards ) {
+  fork_pool_reset( get_fork_pool( stake_rewards ) );
+  index_map_reset( get_index_map( stake_rewards ) );
+  stake_rewards->epoch          = ULONG_MAX;
+  stake_rewards->total_ele_used = 0UL;
+}
+
 uchar
 fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        ulong                epoch,

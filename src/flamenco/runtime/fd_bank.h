@@ -623,10 +623,18 @@ fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank,
                      ulong        max_vote_accounts );
 
-/* fd_banks_advance_root_prepare returns the direct child of the current
-   root on the path to the target block, if it is safe to advance root
-   to that child.  In general, a node in the fork tree can be pruned if:
-   (1) the node itself can be pruned (zero refcnt), and
+/* fd_banks_clear releases all banks back to the pool and resets the
+   banks manager to its post-new state.  Assumes no active references to
+   any bank. */
+
+void
+fd_banks_clear( fd_banks_t * banks );
+
+/* fd_banks_advance_root_prepare returns the highest block that can be
+   safely advanced between the current root of the fork tree and the
+   target block.  See the note on safe publishing for more details.  In
+   general, a node in the fork tree can be pruned if:
+   (1) the node itself can be pruned, and
    (2) all subtrees (except for the one on the rooted fork) forking off
        of the node can be pruned.
 

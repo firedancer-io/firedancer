@@ -1177,8 +1177,6 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
-                  volatile int *       wait,
-                  volatile int *       debugger,
                   fd_topo_run_tile_t * tile_run );
 
 /* This is for determining the value of RLIMIT_MLOCK that we need to

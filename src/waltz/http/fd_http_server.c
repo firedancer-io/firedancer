@@ -1231,8 +1231,8 @@ fd_http_server_reserve( fd_http_server_t * http,
                   else.  Mark the hcache as errored and exit. */
 
       FD_LOG_WARNING(( "tried to reserve %lu bytes for an outgoing message which exceeds the entire data size", http->stage_len+len ));
-      FD_LOG_HEXDUMP_WARNING(( "start of message:\n%.*s", http->oring+(http->stage_off%http->oring_sz), fd_ulong_min( 500UL, http->oring_sz-(http->stage_off%http->oring_sz)-1UL ) ));
-      FD_LOG_HEXDUMP_WARNING(( "start of buffer:\n%.*s",  http->oring,                                  fd_ulong_min( 500UL, http->oring_sz )                     ));
+      FD_LOG_HEXDUMP_WARNING(( "start of message", http->oring+(http->stage_off%http->oring_sz), fd_ulong_min( 500UL, http->oring_sz-(http->stage_off%http->oring_sz) ) ));
+      FD_LOG_HEXDUMP_WARNING(( "start of buffer",  http->oring,                                  fd_ulong_min( 500UL, http->oring_sz )                     ));
       http->stage_err = 1;
       return;
     } else {
@@ -1419,7 +1419,8 @@ fd_http_server_printf( fd_http_server_t * http,
   ulong printed_len = (ulong)vsnprintf( NULL, 0UL, fmt, ap );
   va_end( ap );
 
-  fd_http_server_reserve( http, printed_len );
+  /* reserve enough for the NULL terminator */
+  fd_http_server_reserve( http, printed_len+1UL );
   if( FD_UNLIKELY( http->stage_err ) ) return;
 
   va_start( ap, fmt );

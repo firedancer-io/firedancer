@@ -91,6 +91,12 @@ fd_stake_rewards_new( void * shmem,
 fd_stake_rewards_t *
 fd_stake_rewards_join( void * shmem );
 
+/* fd_stake_rewards_clear resets the stake rewards structure to a
+   post-new state. */
+
+void
+fd_stake_rewards_clear( fd_stake_rewards_t * stake_rewards );
+
 /* fd_stake_rewards_init initializes the stake rewards structure for a
    given fork.  It should be used at the start of epoch reward
    calculation or recalculation.  It returns a fork index. */

@@ -76,9 +76,9 @@ $(call add-objs,fd_runtime,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_deprecate_rent_exemption_threshold,)
-$(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_instr_acct_bounds,)
-$(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_accounts_resize_delta,)
 endif
 endif
@@ -97,9 +97,8 @@ endif
 ifdef FD_HAS_ATOMIC
 
 ifdef FD_HAS_HOSTED
-#$(call make-unit-test,test_archive_block,test_archive_block, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 # TODO: Flakes
-# $(call run-unit-test,test_txncache,)
+# $(call run-unit-test,test_txncache)
 $(call make-fuzz-test,fuzz_genesis_parse,fuzz_genesis_parse,fd_flamenco fd_ballet fd_util)
 endif
 endif

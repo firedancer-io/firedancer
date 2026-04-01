@@ -42,6 +42,9 @@ $(call add-objs,fd_accdb_fsck_funk fd_accdb_fsck_vinyl,fd_flamenco)
 ifdef FD_HAS_ATOMIC
 $(call make-unit-test,test_accdb_v1,test_accdb_v1,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_accdb_v1)
+ifdef FD_HAS_RACESAN
+$(call make-unit-test,test_accdb_v1_racesan,test_accdb_v1_racesan,fd_flamenco fd_funk fd_ballet fd_util)
+endif
 ifdef FD_HAS_LZ4
 $(call make-unit-test,test_accdb_v2,test_accdb_v2,fd_flamenco fd_vinyl fd_funk fd_tango fd_ballet fd_util)
 endif

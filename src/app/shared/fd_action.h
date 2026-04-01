@@ -46,7 +46,6 @@ union fdctl_args {
     int  no_configure;
     int  no_init_workspaces;
     int  no_agave;
-    char debug_tile[ 32 ];
   } dev;
 
   struct {

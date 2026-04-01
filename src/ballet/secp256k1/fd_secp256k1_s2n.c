@@ -57,11 +57,11 @@ fd_secp256k1_scalar_negate( fd_secp256k1_scalar_t *       r,
   /* We cannot use bignum_modsub() as it requires a < n /\ b < n.
 
      The best way to implement it using the current API is to use
-     bignum_sub(n, a), getting a reuslt bound within [0, n+1). Then
+     bignum_sub(n, a), getting a result bounded within [0, n+1). Then
      we perform a second reduction from [0, n+1) to [0, n) with
      bignum_mod_n256k1_4(). */
 
-  /* t \in [0, n + 1). There is not carry-out, as a < n. */
+  /* t \in [0, n + 1). There is no carry-out, as a < n. */
   ulong t[4];
   bignum_sub( 4, t, 4, (ulong *)fd_secp256k1_const_n[ 0 ].limbs, 4, (ulong *)a->limbs );
   bignum_mod_n256k1_4( r->limbs, t );

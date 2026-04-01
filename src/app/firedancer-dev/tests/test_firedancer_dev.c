@@ -99,7 +99,6 @@ firedancer_dev_dev( config_t * config,
     .dev.no_agave           = 0,
     .dev.no_watch           = 1,
   };
-  args.dev.debug_tile[ 0 ] = '\0';
   fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
   dev_cmd_perm( &args, chk, config );
   FD_TEST( !fd_cap_chk_err_cnt( chk ) );
@@ -158,14 +157,6 @@ wait_children( struct child_info * children,
   return exited_child;
 }
 
-static int
-init_log_memfd( void ) {
-  int memfd = memfd_create( "fd_log_lock_page", 0U );
-  if( FD_UNLIKELY( -1==memfd) ) FD_LOG_ERR(( "memfd_create(\"fd_log_lock_page\",0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( -1==ftruncate( memfd, 4096 ) ) ) FD_LOG_ERR(( "ftruncate(memfd,4096) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  return memfd;
-}
-
 int
 firedancer_dev_test_run( int     argc,
                          char ** argv,
@@ -185,7 +176,6 @@ firedancer_dev_test_run( int     argc,
       fd_config_load( 1, 1, (char const *)firedancer_default_config, firedancer_default_config_sz, NULL, NULL, 0UL, NULL, 0UL, NULL, config );
       fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();
-      config->log.lock_fd = init_log_memfd();
       config->frankendancer.consensus.poh_speed_test = 0;
 
       return run( config );

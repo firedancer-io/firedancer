@@ -18,7 +18,6 @@ INGEST_MODE="rocksdb"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-HAS_INCREMENTAL="false"
 REDOWNLOAD=1
 SKIP_CHECKSUM=1
 DEBUG=( )
@@ -95,10 +94,6 @@ while [[ $# -gt 0 ]]; do
     --tile-cpus)
         TILE_CPUS="--tile-cpus $2"
         shift
-        shift
-        ;;
-    -v|--has-incremental)
-        HAS_INCREMENTAL="$2"
         shift
         ;;
     -nr|--no-redownload)
@@ -234,16 +229,12 @@ fi
 
 chmod -R 0700 $DUMP/$LEDGER
 
-if [[ -n "$GENESIS" ]]; then
-  HAS_INCREMENTAL="false"
-fi
 
 CONFIG_FILE="$DUMP_DIR/${LEDGER}_backtest.toml"
 cat <<EOF > ${CONFIG_FILE}
 [snapshots]
     max_full_snapshots_to_keep = 5
     max_incremental_snapshots_to_keep = 5
-    incremental_snapshots = $HAS_INCREMENTAL
     [snapshots.sources]
         servers = []
         [snapshots.sources.gossip]

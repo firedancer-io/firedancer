@@ -300,8 +300,6 @@ snapshot_load_topo1( config_t * config ) {
   snapshot_load_topo( config );
 }
 
-extern int * fd_log_private_shared_lock;
-
 static void
 snapshot_load_args( int *    pargc,
                     char *** pargv,
@@ -686,7 +684,6 @@ snapshot_load_cmd_fn( args_t *   args,
 
   run_firedancer_init( config, 1, 0 );
 
-  fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( topo );
 
