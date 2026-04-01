@@ -5,13 +5,14 @@
  * @kind problem
  * @problem.severity warning
  * @precision high
- * @id cpp/return-zero-for-pointer
+ * @id asymmetric-research/return-zero-for-pointer
  * @tags readability
  *       correctness
  *       style
  */
 
 import cpp
+import filter
 
 from ReturnStmt ret, Function f, Literal lit
 where
@@ -20,5 +21,5 @@ where
   f.getType().getUnspecifiedType() instanceof PointerType and
   lit.getValue() = "0" and
   not lit.isInMacroExpansion() and
-  lit instanceof IntegerLiteral
+  included(ret.getLocation())
 select ret, "Function $@ returns 0 instead of NULL for pointer return type.", f, f.getName()
