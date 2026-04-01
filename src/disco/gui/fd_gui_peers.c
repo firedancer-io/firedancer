@@ -1507,7 +1507,11 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       FD_TEST( !fd_http_server_ws_send( peers->http, peers->active_ws_conn_id ) );
     }
 
-    peers->next_client_nanos = now + ((FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS * 1000000L) / (long)peers->open_ws_conn_cnt);
+    /* fd_http_server_ws_send above can close the websocket connection,
+       which decrements open_ws_conn_cnt.  If the last client was just
+       closed, avoid division by zero and fall back to the base interval. */
+    long divisor = fd_long_max( (long)peers->open_ws_conn_cnt, 1L );
+    peers->next_client_nanos = now + ((FD_GUI_PEERS_WS_VIEWPORT_UPDATE_INTERVAL_MILLIS * 1000000L) / divisor);
     did_work = 1;
   }
 
