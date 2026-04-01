@@ -484,13 +484,10 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
       .leader_schedule_epoch = 1,
     };
     if( params->clock ) clock = *params->clock;
-    uchar clock_enc[ FD_SYSVAR_CLOCK_BINCODE_SZ ];
-    fd_bincode_encode_ctx_t ctx = { .data = clock_enc, .dataend = clock_enc + sizeof(clock_enc) };
-    FD_TEST( !fd_sol_sysvar_clock_encode( &clock, &ctx ) );
 
     /* Epoch schedule */
     uchar esched_enc[ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ];
-    ctx = (fd_bincode_encode_ctx_t){ .data = esched_enc, .dataend = esched_enc + sizeof(esched_enc) };
+    fd_bincode_encode_ctx_t ctx = { .data = esched_enc, .dataend = esched_enc + sizeof(esched_enc) };
     FD_TEST( !fd_epoch_schedule_encode( &bank->f.epoch_schedule, &ctx ) );
 
     /* Rent */
@@ -519,14 +516,14 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     uchar stake_history_enc[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ] = {0};
 
     struct { fd_pubkey_t const * addr; void const * data; ulong sz; } sysvars[] = {
-      { &fd_sysvar_clock_id,                clock_enc,          sizeof(clock_enc)                  },
-      { &fd_sysvar_epoch_schedule_id,       esched_enc,         sizeof(esched_enc)                 },
-      { &fd_sysvar_rent_id,                 rent_enc,           sizeof(rent_enc)                   },
-      { &fd_sysvar_last_restart_slot_id,    last_restart_enc,   sizeof(last_restart_enc)           },
-      { &fd_sysvar_recent_block_hashes_id,  recent_hashes_enc,  sizeof(recent_hashes_enc)          },
-      { &fd_sysvar_slot_hashes_id,          slot_hashes_enc,    sizeof(slot_hashes_enc)            },
-      { &fd_sysvar_slot_history_id,         slot_history_enc,   FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ  },
-      { &fd_sysvar_stake_history_id,        stake_history_enc,  sizeof(stake_history_enc)           },
+      { &fd_sysvar_clock_id,               &clock,             sizeof(clock)                     },
+      { &fd_sysvar_epoch_schedule_id,      esched_enc,         sizeof(esched_enc)                },
+      { &fd_sysvar_rent_id,                rent_enc,           sizeof(rent_enc)                  },
+      { &fd_sysvar_last_restart_slot_id,   last_restart_enc,   sizeof(last_restart_enc)          },
+      { &fd_sysvar_recent_block_hashes_id, recent_hashes_enc,  sizeof(recent_hashes_enc)         },
+      { &fd_sysvar_slot_hashes_id,         slot_hashes_enc,    sizeof(slot_hashes_enc)           },
+      { &fd_sysvar_slot_history_id,        slot_history_enc,   FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ },
+      { &fd_sysvar_stake_history_id,       stake_history_enc,  sizeof(stake_history_enc)         },
     };
     for( ulong i=0UL; i<8UL; i++ ) {
       fd_account_meta_t meta = {

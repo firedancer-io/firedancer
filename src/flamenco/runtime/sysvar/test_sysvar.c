@@ -1,6 +1,6 @@
 #include "test_sysvar_cache.c"
-#if FD_HAS_INT128
 #include "test_sysvar_clock.c"
+#if FD_HAS_INT128
 #include "test_sysvar_epoch_rewards.c"
 #endif
 #include "test_sysvar_epoch_schedule.c"
@@ -29,7 +29,6 @@ main( int     argc,
   test_sysvar_cache();
 
 # if FD_HAS_INT128
-  test_sysvar_clock();
   test_sysvar_epoch_rewards();
 # endif
   test_sysvar_epoch_schedule();

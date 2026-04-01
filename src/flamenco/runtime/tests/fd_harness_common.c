@@ -3,7 +3,6 @@
 #include "../fd_runtime.h"
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
-#include "../sysvar/fd_sysvar_clock.h"
 #include "../../features/fd_features.h"
 #include "../../accdb/fd_accdb_sync.h"
 #include <assert.h>

@@ -1,4 +1,3 @@
-#include "fd_sysvar.h"
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
 #include "../fd_runtime_stack.h"
@@ -57,24 +56,6 @@ unix_timestamp_from_genesis( fd_bank_t * bank ) {
       (long)( fd_uint128_sat_mul( bank->f.slot, bank->f.ns_per_slot.ud ) / NS_IN_S ) );
 }
 
-void
-fd_sysvar_clock_write( fd_bank_t *               bank,
-                       fd_accdb_user_t *         accdb,
-                       fd_funk_txn_xid_t const * xid,
-                       fd_capture_ctx_t *        capture_ctx,
-                       fd_sol_sysvar_clock_t *   clock ) {
-  uchar enc[ sizeof(fd_sol_sysvar_clock_t) ];
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = enc,
-    .dataend = enc + sizeof(fd_sol_sysvar_clock_t),
-  };
-  if( FD_UNLIKELY( fd_sol_sysvar_clock_encode( clock, &ctx ) ) ) {
-    FD_LOG_ERR(( "fd_sol_sysvar_clock_encode failed" ));
-  }
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
-}
-
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
@@ -88,17 +69,15 @@ fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro ) == 0UL ||
+                   fd_accdb_ref_data_sz ( ro ) <  sizeof(fd_sol_sysvar_clock_t) ) ) {
     fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
-  fd_sol_sysvar_clock_t * res = fd_bincode_decode_static(
-      sol_sysvar_clock, clock,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
+  fd_memcpy( clock, fd_accdb_ref_data_const( ro ), sizeof(fd_sol_sysvar_clock_t) );
   fd_accdb_close_ro( accdb, ro );
-  return res;
+  return clock;
 }
 
 void
