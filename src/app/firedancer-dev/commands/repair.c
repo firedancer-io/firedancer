@@ -164,7 +164,7 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "txsend_out",   "txsend_out",   128UL,                                    FD_TXN_MTU,                    1UL );
 
-  /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t),1UL );
+  /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 16UL,                                     0UL,                           1UL ); /* depth=16UL to avoid any stem bust backpressure due to this link */
 
   /**/                 fd_topob_link( topo, "genesi_out",   "genesi_out",   1UL,                                      FD_GENESIS_TILE_MTU,            1UL );
   /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_msg_t),         1UL );
@@ -286,6 +286,11 @@ repair_topo( config_t * config ) {
     fd_topob_tile_uses( topo, scap_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_out( topo, "scap", 0UL, "replay_epoch", 0UL );
     fd_topob_tile_out( topo, "scap", 0UL, "snapin_manif", 0UL );
+
+    fd_topo_obj_t * snapshot_manif_obj = fd_topob_obj( topo, "snap_manif", "snapin_manif" );
+    fd_topob_tile_uses( topo, scap_tile,   snapshot_manif_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, repair_tile, snapshot_manif_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, snapshot_manif_obj->id, "snap_manif" ) );
   }
 
   /* Repair and shred share a secret they use to generate the nonces.

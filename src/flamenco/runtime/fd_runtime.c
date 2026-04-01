@@ -87,7 +87,7 @@ update_next_leaders( fd_bank_t *          bank,
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_top_votes_t const *   top_votes_t_1    = fd_bank_top_votes_t_1_query( bank );
-  fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
+  fd_vote_stake_weight_t * epoch_weights    = fd_runtime_stack_stake_weights(runtime_stack);
   ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( top_votes_t_1, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
 
   void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
@@ -133,15 +133,15 @@ update_next_leaders( fd_bank_t *          bank,
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
-  ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
+  ulong staked_cnt = compute_id_weights_from_vote_weights( fd_runtime_stack_id_weights(runtime_stack), epoch_weights, stake_weight_cnt );
   ulong excluded_stake = 0UL;
   if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
     for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
-      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
+      excluded_stake += fd_runtime_stack_id_weights(runtime_stack)[i].stake;
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
-  memcpy( runtime_stack->epoch_weights.next_id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  memcpy( runtime_stack->epoch_weights.next_id_weights, fd_runtime_stack_id_weights(runtime_stack), staked_cnt * sizeof(fd_stake_weight_t) );
   runtime_stack->epoch_weights.next_id_weights_cnt      = staked_cnt;
   runtime_stack->epoch_weights.next_id_weights_excluded  = excluded_stake;
 }
@@ -161,7 +161,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   update_next_leaders( bank, runtime_stack, vote_stakes );
 
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
-  fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
+  fd_vote_stake_weight_t * epoch_weights    = fd_runtime_stack_stake_weights(runtime_stack);
   ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
@@ -209,15 +209,15 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
-  ulong staked_cnt = compute_id_weights_from_vote_weights( runtime_stack->stakes.id_weights, epoch_weights, stake_weight_cnt );
+  ulong staked_cnt = compute_id_weights_from_vote_weights( fd_runtime_stack_id_weights(runtime_stack), epoch_weights, stake_weight_cnt );
   ulong excluded_stake = 0UL;
   if( FD_UNLIKELY( staked_cnt>MAX_SHRED_DESTS ) ) {
     for( ulong i=MAX_SHRED_DESTS; i<staked_cnt; i++ ) {
-      excluded_stake += runtime_stack->stakes.id_weights[i].stake;
+      excluded_stake += fd_runtime_stack_id_weights(runtime_stack)[i].stake;
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
-  memcpy( runtime_stack->epoch_weights.id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  memcpy( runtime_stack->epoch_weights.id_weights, fd_runtime_stack_id_weights(runtime_stack), staked_cnt * sizeof(fd_stake_weight_t) );
   runtime_stack->epoch_weights.id_weights_cnt      = staked_cnt;
   runtime_stack->epoch_weights.id_weights_excluded = excluded_stake;
 }

@@ -308,22 +308,22 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */
 
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->expected_vote_accounts );
-  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map, chain_cnt, 999 ) ) );
+  FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( fd_runtime_stack_vote_map( runtime_stack ), chain_cnt, 999 ) ) );
 
   /* Populate vote_ele and vote_ele_map for partitioned epoch rewards.
      Use epoch_credits from the proto if available (captured at epoch
      boundary time), otherwise fall back to the vote account in funk. */
-  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_vote_rewards_map_t * vote_ele_map = fd_runtime_stack_vote_map( runtime_stack );
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     fd_exec_test_prev_vote_account_t const * prev_vote_accs = &block_bank->vote_accounts_t_1[i];
     fd_pubkey_t                              vote_pubkey    = FD_LOAD( fd_pubkey_t, prev_vote_accs->address );
 
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+    fd_vote_rewards_t * vote_ele = &fd_runtime_stack_vote_ele( runtime_stack )[i];
     fd_memcpy( vote_ele->pubkey.uc, &vote_pubkey, sizeof(fd_pubkey_t) );
     vote_ele->commission_t_1 = (uchar)prev_vote_accs->commission;
 
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
-    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[i];
+    fd_epoch_credits_t * ec = &fd_runtime_stack_epoch_credits( runtime_stack )[i];
     ec->cnt          = prev_vote_accs->epoch_credits_count;
     ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
@@ -332,7 +332,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       ec->prev_credits_delta[j] = (uint)( prev_vote_accs->epoch_credits[j].prev_credits - ec->base_credits );
     }
 
-    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
+    fd_vote_rewards_map_idx_insert( vote_ele_map, i, fd_runtime_stack_vote_ele( runtime_stack ) );
   }
 
   /* Update leader schedule */

@@ -11,6 +11,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -42,6 +43,11 @@
 #define MAX_BUFFER_SIZE                    (20000UL * sizeof(fd_shred_dest_wire_t))
 #define MANIFEST_MAX_TOTAL_BANKS           (2UL) /* the minimum is 2 */
 #define MANIFEST_MAX_FORK_WIDTH            (1UL) /* banks are only needed during publish_stake_weights() */
+
+/* Maximum number of vote_stakes entries buffered in tile's scratch
+   memory during manifest parsing.  Both E and E+1 use slim structs
+   since shredcap only needs vote/identity/stake. */
+#define FD_SHREDCAP_MAX_VOTE_STAKES_BUFFERED (FD_RUNTIME_MAX_VOTE_ACCOUNTS)
 
 #define NET_SHRED        (0UL)
 #define REPAIR_NET       (1UL)
@@ -87,6 +93,7 @@ struct fd_capture_tile_ctx {
 
   out_link_t  stake_out[1];
   out_link_t  snap_out[1];
+  fd_snapshot_manifest_t * snapshot_manif;
   int         enable_publish_stake_weights;
   ulong *     manifest_wmark;
   char        manifest_path[ PATH_MAX ];
@@ -127,6 +134,12 @@ struct fd_capture_tile_ctx {
 
   fd_alloc_t * alloc;
   uchar contact_info_buffer[ MAX_BUFFER_SIZE ];
+
+  /* vote_stakes buffers for manifest epoch_stakes.  Both E and E+1 use
+     the slim struct since shredcap only needs vote/identity/stake
+     (no epoch_credits). */
+  fd_snapshot_epoch_stakes_slim_t * vote_stakes_slim[ 2 ];
+  ulong                             vote_stakes_slim_len[ 2 ];
 };
 typedef struct fd_capture_tile_ctx fd_capture_tile_ctx_t;
 
@@ -205,18 +218,21 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_capture_tile_ctx_t),  sizeof(fd_capture_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, manifest_spad_max_alloc_align(), fd_spad_footprint( manifest_spad_max_alloc_footprint() ) );
-  l = FD_LAYOUT_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_capture_tile_ctx_t),           sizeof(fd_capture_tile_ctx_t)                                                );
+  l = FD_LAYOUT_APPEND( l, manifest_spad_max_alloc_align(),          fd_spad_footprint( manifest_spad_max_alloc_footprint() )                     );
+  l = FD_LAYOUT_APPEND( l, shared_spad_max_alloc_align(),            fd_spad_footprint( shared_spad_max_alloc_footprint() )                       );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                         fd_alloc_footprint()                                                         );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_epoch_stakes_slim_t), sizeof(fd_snapshot_epoch_stakes_slim_t)*FD_SHREDCAP_MAX_VOTE_STAKES_BUFFERED ); /* E */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_epoch_stakes_slim_t), sizeof(fd_snapshot_epoch_stakes_slim_t)*FD_SHREDCAP_MAX_VOTE_STAKES_BUFFERED ); /* E+1 */
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static inline ulong
-generate_epoch_info_msg_manifest( ulong                                       epoch,
-                                  fd_epoch_schedule_t const *                 epoch_schedule,
-                                  fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
-                                  ulong *                                     epoch_info_msg_out ) {
+generate_epoch_info_msg_manifest( ulong                                      epoch,
+                                  fd_epoch_schedule_t const *                epoch_schedule,
+                                  fd_snapshot_epoch_stakes_slim_t const *    entries,
+                                  ulong                                      entries_len,
+                                  ulong *                                    epoch_info_msg_out ) {
   fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
   fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
 
@@ -230,12 +246,12 @@ generate_epoch_info_msg_manifest( ulong                                       ep
 
   /* Filter zero-stake entries (match replay: wsample and leader schedule reject zero weight). */
   ulong idx = 0UL;
-  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
-    ulong stake = epoch_stakes->vote_stakes[ i ].stake;
+  for( ulong i=0UL; i<entries_len; i++ ) {
+    ulong stake = entries[ i ].stake;
     if( FD_UNLIKELY( !stake ) ) continue;
     stake_weights[ idx ].stake = stake;
-    memcpy( stake_weights[ idx ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].id_key.uc, entries[ i ].identity, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, entries[ i ].vote, sizeof(fd_pubkey_t) );
     idx++;
   }
   epoch_info_msg->staked_vote_cnt = idx;
@@ -253,6 +269,29 @@ generate_epoch_info_msg_manifest( ulong                                       ep
 }
 
 static void
+shredcap_on_vote_stakes( void *                                     ctx_,
+                         ulong                                      epoch_idx,
+                         fd_snapshot_manifest_vote_stakes_t const * vs ) {
+  fd_capture_tile_ctx_t * ctx = (fd_capture_tile_ctx_t *)ctx_;
+
+  if( FD_UNLIKELY( epoch_idx==ULONG_MAX ) ) return;
+  if( vs->stake==0UL && vs->epoch_credits_history_len==0UL ) return;
+  if( FD_UNLIKELY( epoch_idx>=2UL ) ) return;
+
+  ulong len = ctx->vote_stakes_slim_len[ epoch_idx ];
+  if( FD_UNLIKELY( len>=FD_SHREDCAP_MAX_VOTE_STAKES_BUFFERED ) )
+    FD_LOG_ERR(( "shredcap vote_stakes buffer overflow: epoch_idx=%lu len=%lu", epoch_idx, len ));
+
+  fd_snapshot_epoch_stakes_slim_t * dst = &ctx->vote_stakes_slim[ epoch_idx ][ len ];
+  fd_memcpy( dst->vote,     vs->vote,     32UL );
+  fd_memcpy( dst->identity, vs->identity, 32UL );
+  dst->has_identity_bls = vs->has_identity_bls;
+  dst->stake            = vs->stake;
+  dst->commission       = vs->commission;
+  ctx->vote_stakes_slim_len[ epoch_idx ] = len + 1UL;
+}
+
+static void
 publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
                                 fd_stem_context_t *    stem,
                                 fd_snapshot_manifest_t const * manifest ) {
@@ -261,7 +300,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
 
   /* current epoch */
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
+  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, ctx->vote_stakes_slim[0], ctx->vote_stakes_slim_len[0], stake_weights_msg );
   ulong stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
@@ -269,7 +308,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
 
   /* next current epoch */
   stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
+  stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, ctx->vote_stakes_slim[1], ctx->vote_stakes_slim_len[1], stake_weights_msg );
   stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
@@ -454,6 +493,10 @@ after_credit( fd_capture_tile_ctx_t * ctx,
       } FD_SPAD_FRAME_END;
       FD_TEST( manifest );
 
+      /* Reset vote_stakes slim buffers. */
+      ctx->vote_stakes_slim_len[0] = 0UL;
+      ctx->vote_stakes_slim_len[1] = 0UL;
+
       FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
         uchar * buf    = fd_spad_alloc( ctx->shared_spad, manifest_load_align(), manifest_load_footprint() );
         ulong   buf_sz = 0;
@@ -463,6 +506,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
                 fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
         FD_TEST( parser );
         fd_ssmanifest_parser_init( parser, manifest );
+        fd_ssmanifest_parser_set_vote_stakes_cb( parser, shredcap_on_vote_stakes, ctx );
         int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
         FD_TEST( parser_err==1 );
         // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
@@ -471,12 +515,9 @@ after_credit( fd_capture_tile_ctx_t * ctx,
 
       fd_fseq_update( ctx->manifest_wmark, manifest->slot );
 
-      uchar * chunk = fd_chunk_to_laddr( ctx->snap_out->mem, ctx->snap_out->chunk );
-      ulong   sz    = sizeof(fd_snapshot_manifest_t);
-      ulong   sig   = fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
-      memcpy( chunk, manifest, sz );
-      fd_stem_publish( stem, ctx->snap_out->idx, sig, ctx->snap_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->snap_out->chunk = fd_dcache_compact_next( ctx->snap_out->chunk, sz, ctx->snap_out->chunk0, ctx->snap_out->wmark );
+      FD_TEST( ctx->snapshot_manif );
+      memcpy( &ctx->snapshot_manif[ fd_ssmsg_manif_idx_from_full( 0 ) ], manifest, sizeof(fd_snapshot_manifest_t) );
+      fd_stem_publish( stem, ctx->snap_out->idx, fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL ), 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
       fd_stem_publish( stem, ctx->snap_out->idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
 
@@ -738,10 +779,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_capture_tile_ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t),  sizeof(fd_capture_tile_ctx_t) );
-  void * manifest_spad_mem          = FD_SCRATCH_ALLOC_APPEND( l, manifest_spad_max_alloc_align(), fd_spad_footprint( manifest_spad_max_alloc_footprint() ) );
-  void * shared_spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
-  void * alloc_mem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
+  fd_capture_tile_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t),           sizeof(fd_capture_tile_ctx_t)                                                );
+  void * manifest_spad_mem     = FD_SCRATCH_ALLOC_APPEND( l, manifest_spad_max_alloc_align(),          fd_spad_footprint( manifest_spad_max_alloc_footprint() )                     );
+  void * shared_spad_mem       = FD_SCRATCH_ALLOC_APPEND( l, shared_spad_max_alloc_align(),            fd_spad_footprint( shared_spad_max_alloc_footprint() )                       );
+  void * alloc_mem             = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),                         fd_alloc_footprint()                                                         );
+  ctx->vote_stakes_slim[0]     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_epoch_stakes_slim_t), sizeof(fd_snapshot_epoch_stakes_slim_t)*FD_SHREDCAP_MAX_VOTE_STAKES_BUFFERED );
+  ctx->vote_stakes_slim[1]     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_epoch_stakes_slim_t), sizeof(fd_snapshot_epoch_stakes_slim_t)*FD_SHREDCAP_MAX_VOTE_STAKES_BUFFERED );
+  ctx->vote_stakes_slim_len[0] = 0UL;
+  ctx->vote_stakes_slim_len[1] = 0UL;
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /* Input links */
@@ -794,13 +839,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->snap_out->idx          = fd_topo_find_tile_out_link( topo, tile, "snapin_manif", 0 );
   if( FD_LIKELY( ctx->snap_out->idx!=ULONG_MAX ) ) {
     fd_topo_link_t * snap_out = &topo->links[tile->out_link_id[ctx->snap_out->idx]];
-    ctx->snap_out->mem        = topo->workspaces[topo->objs[snap_out->dcache_obj_id].wksp_id].wksp;
-    ctx->snap_out->chunk0     = fd_dcache_compact_chunk0( ctx->snap_out->mem, snap_out->dcache );
-    ctx->snap_out->wmark      = fd_dcache_compact_wmark( ctx->snap_out->mem, snap_out->dcache, snap_out->mtu );
-    ctx->snap_out->chunk      = ctx->snap_out->chunk0;
+    if( FD_LIKELY( snap_out->mtu ) ) {
+      ctx->snap_out->mem      = topo->workspaces[topo->objs[snap_out->dcache_obj_id].wksp_id].wksp;
+      ctx->snap_out->chunk0   = fd_dcache_compact_chunk0( ctx->snap_out->mem, snap_out->dcache );
+      ctx->snap_out->wmark    = fd_dcache_compact_wmark( ctx->snap_out->mem, snap_out->dcache, snap_out->mtu );
+      ctx->snap_out->chunk    = ctx->snap_out->chunk0;
+    }
   } else {
     FD_LOG_WARNING(( "no connection to snap_out link" ));
     memset( ctx->snap_out, 0, sizeof(out_link_t) );
+  }
+
+  ulong snapshot_manif_obj_id = fd_pod_query_ulong( topo->props, "snap_manif", ULONG_MAX );
+  if( FD_LIKELY( snapshot_manif_obj_id!=ULONG_MAX ) ) {
+    ctx->snapshot_manif = (fd_snapshot_manifest_t *)fd_topo_obj_laddr( topo, snapshot_manif_obj_id );
   }
 
   /* If the manifest is enabled (for processing), the stake_out link
