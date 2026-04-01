@@ -181,21 +181,22 @@ test_lthash_adder_no_avx_regression( void ) {
 }
 
 static void
-bench_lthash_adder( void ) {
-  FD_LOG_NOTICE(( "Benchmarking lthash_adder (128 byte input)" ));
+bench_lthash_adder_sz( ulong input_sz ) {
+  FD_LOG_NOTICE(( "Benchmarking lthash_adder (%lu byte input)", input_sz ));
 
-  uchar input[ 128 ];
-  fd_memset( input, 0x41, sizeof(input) );
+  uchar input[ FD_BLAKE3_CHUNK_SZ ];
+  fd_memset( input, 0x41, fd_ulong_min( input_sz, sizeof(input) ) );
 
   fd_lthash_value_t out[1];
   fd_lthash_adder_t adder[1];
 
-  /* warmup */
   ulong iter_target = 1<<22UL;
+
+  /* warmup */
   ulong iter = iter_target>>7;
   long dt = fd_log_wallclock();
   fd_lthash_adder_new( adder );
-  for( ulong rem=iter; rem; rem-- ) fd_lthash_adder_push( adder, out, input, 128UL );
+  for( ulong rem=iter; rem; rem-- ) fd_lthash_adder_push( adder, out, input, input_sz );
   fd_lthash_adder_flush( adder, out );
   fd_lthash_adder_delete( adder );
   dt = fd_log_wallclock() - dt;
@@ -204,7 +205,7 @@ bench_lthash_adder( void ) {
   iter = iter_target;
   dt = fd_log_wallclock();
   fd_lthash_adder_new( adder );
-  for( ulong rem=iter; rem; rem-- ) fd_lthash_adder_push( adder, out, input, 128UL );
+  for( ulong rem=iter; rem; rem-- ) fd_lthash_adder_push( adder, out, input, input_sz );
   fd_lthash_adder_flush( adder, out );
   fd_lthash_adder_delete( adder );
   dt = fd_log_wallclock() - dt;
@@ -212,4 +213,14 @@ bench_lthash_adder( void ) {
   FD_LOG_NOTICE(( "~%.2e hash/s; %f ns per hash",
                   (double)(((float)(iter))/((float)dt*1e-9f)),
                   (double)dt/(double)iter ));
+}
+
+static void
+bench_lthash_adder( void ) {
+  bench_lthash_adder_sz( 128UL );
+  bench_lthash_adder_sz( 165UL );
+  bench_lthash_adder_sz( 256UL );
+  bench_lthash_adder_sz( 512UL );
+  bench_lthash_adder_sz( 768UL );
+  bench_lthash_adder_sz( 1024UL );
 }

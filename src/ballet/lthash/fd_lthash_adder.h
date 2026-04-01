@@ -67,7 +67,7 @@ fd_lthash_adder_push( fd_lthash_adder_t * adder,
                       void const *        input,
                       ulong               input_sz ) {
   fd_lthash_value_t value[1];
-  if( FD_LTHASH_ADDER_PARA_CNT<=1 || FD_UNLIKELY( input_sz>512UL ) ) {
+  if( FD_LTHASH_ADDER_PARA_CNT<=1 || FD_UNLIKELY( input_sz>FD_BLAKE3_CHUNK_SZ ) ) {
     fd_blake3_t blake[1];
     fd_blake3_init( blake );
     fd_blake3_append( blake, input, input_sz );
@@ -132,7 +132,7 @@ fd_lthash_adder_push_solana_account(
   /* FIXME opportunities for memcpy hax here */
 
   ulong const static_sz       =  73UL;
-  ulong const batch_threshold = 512UL;
+  ulong const batch_threshold = FD_BLAKE3_CHUNK_SZ;
   if( FD_LTHASH_ADDER_PARA_CNT<=1 ||
       FD_UNLIKELY( data_sz > batch_threshold-static_sz ) ) {
     fd_blake3_t blake[1];
