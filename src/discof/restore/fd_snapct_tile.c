@@ -456,6 +456,8 @@ init_load( fd_snapct_tile_t *  ctx,
       FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->peer.full_slot, ctx->peer.incr_slot, encoded_hash ) );
     }
 
+    out->is_https = 0; /* if not found in the config list, it's not https */
+    out->hostname[0] = '\0'; /* .. and it doesn't have a hostname either. */
     for( ulong i=0UL; i<SERVER_PEERS_MAX; i++ ) {
       if( FD_UNLIKELY( ctx->peer.addr.l==ctx->config.sources.servers[ i ].addr.l ) ) {
         fd_cstr_ncpy( out->hostname, ctx->config.sources.servers[ i ].hostname, sizeof(out->hostname) );
