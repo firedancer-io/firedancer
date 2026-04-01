@@ -53,8 +53,8 @@ int
 fd_rangeproofs_verify(
   fd_rangeproofs_range_proof_t const * range_proof,
   fd_rangeproofs_ipp_proof_t const *   ipp_proof,
-  uchar const                          commitments [ 32 ],
-  uchar const                          bit_lengths [ 1 ],
+  uchar const                          commitments [ FD_RANGEPROOFS_MAX_COMMITMENTS * 32 ],
+  uchar const                          bit_lengths [ FD_RANGEPROOFS_MAX_COMMITMENTS ],
   uchar const                          batch_len,
   fd_merlin_transcript_t *             transcript );
 
