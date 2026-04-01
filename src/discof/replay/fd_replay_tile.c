@@ -31,11 +31,11 @@
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/metrics/fd_metrics.h"
 
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/fd_genesis_parse.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
@@ -160,6 +160,8 @@ struct fd_replay_tile {
   fd_accdb_admin_t    accdb_admin[1];
   fd_accdb_user_t     accdb[1];
   fd_progcache_join_t progcache[1];
+  fd_wksp_mon_t       progcache_wksp_mon[1];
+  fd_wksp_mon_t       accdb_cache_wksp_mon[1];
 
   fd_txncache_t * txncache;
   fd_store_t *    store;
@@ -469,8 +471,6 @@ struct fd_replay_tile {
 
     fd_histf_t root_slot_dur[1];
     fd_histf_t root_account_dur[1];
-
-    long wksp_sample_ts;
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
@@ -570,17 +570,22 @@ metrics_write( fd_replay_tile_t * ctx ) {
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  pcm->root_cnt    );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, pcm->gc_root_cnt );
-  long now = fd_log_wallclock();
-# define PROGCACHE_WKSP_SAMPLE_INTERVAL 695234851L /* sampling the wksp is expensive, so do it no more frequent than every ~700ms */
-  if( FD_UNLIKELY( !ctx->metrics.wksp_sample_ts ||
-                   now - ctx->metrics.wksp_sample_ts > PROGCACHE_WKSP_SAMPLE_INTERVAL ) ) {
-    fd_progcache_wksp_metrics_update( ctx->progcache );
-    FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTS,          pcm->wksp.free_part_cnt );
-    FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_BYTES,          pcm->wksp.free_sz       );
-    FD_MGAUGE_SET( REPLAY, PROGCACHE_SIZE_BYTES,          pcm->wksp.total_sz      );
-    FD_MGAUGE_SET( REPLAY, PROGCACHE_PART_SIZE_MAX_BYTES, pcm->wksp.free_part_max );
-    ctx->metrics.wksp_sample_ts = now;
-  }
+
+  fd_wksp_mon_t * wm = fd_wksp_mon_tick( ctx->progcache_wksp_mon, fd_tickcount() );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTS,             wm->free_cnt       );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_BYTES,             wm->free_sz        );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_SIZE_BYTES,             wm->wksp->data_max );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PART_MAX_BYTES,    wm->free_max_sz    );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PART_MEDIAN_BYTES, wm->part_median_sz );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PART_MEAN_BYTES,   wm->part_mean_sz   );
+
+  fd_wksp_mon_t * am = fd_wksp_mon_tick( ctx->accdb_cache_wksp_mon, fd_tickcount() );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_PARTS,             am->free_cnt       );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_BYTES,             am->free_sz        );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_SIZE_BYTES,             am->wksp->data_max );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_PART_MAX_BYTES,    am->free_max_sz    );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_USED_PART_MEDIAN_BYTES, am->part_median_sz );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_USED_PART_MEAN_BYTES,   am->part_mean_sz   );
 }
 
 static void
@@ -2869,6 +2874,10 @@ unprivileged_init( fd_topo_t *      topo,
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id       ) ) );
 
+  fd_wksp_t * progcache_wksp = fd_wksp_containing( ctx->progcache->shmem );
+  FD_TEST( progcache_wksp );
+  fd_wksp_mon_init( ctx->progcache_wksp_mon, progcache_wksp, FD_WKSP_MON_DEFAULT_RATE, fd_tickcount() );
+
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   ulong max_depth = tile->replay.max_live_slots + tile->replay.write_delay_slots;
@@ -2890,6 +2899,10 @@ unprivileged_init( fd_topo_t *      topo,
     fd_accdb_admin_v2_delay_set( ctx->accdb_admin, tile->replay.write_delay_slots );
   }
   fd_accdb_init_from_topo( ctx->accdb, topo, tile, max_depth );
+
+  fd_wksp_t * funk_wksp = fd_wksp_containing( fd_topo_obj_laddr( topo, funk_obj_id ) );
+  FD_TEST( funk_wksp );
+  fd_wksp_mon_init( ctx->accdb_cache_wksp_mon, funk_wksp, FD_WKSP_MON_DEFAULT_RATE, fd_tickcount() );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
