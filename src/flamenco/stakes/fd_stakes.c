@@ -446,14 +446,24 @@ get_vote_credits_commission( uchar const *        account_data,
   }
 
   if( !epoch_credits_opt ) return;
-  epoch_credits_opt->cnt = 0UL;
+  epoch_credits_opt->cnt          = 0UL;
+  epoch_credits_opt->base_credits = 0UL;
+
+  deq_fd_vote_epoch_credits_t_iter_t first = deq_fd_vote_epoch_credits_t_iter_init( vote_epoch_credits );
+  if( !deq_fd_vote_epoch_credits_t_iter_done( vote_epoch_credits, first ) ) {
+    fd_vote_epoch_credits_t * first_ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_epoch_credits, first );
+    epoch_credits_opt->base_credits = first_ele->prev_credits;
+  }
+
+  ulong base = epoch_credits_opt->base_credits;
   for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( vote_epoch_credits );
        !deq_fd_vote_epoch_credits_t_iter_done( vote_epoch_credits, iter );
        iter = deq_fd_vote_epoch_credits_t_iter_next( vote_epoch_credits, iter ) ) {
     fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( vote_epoch_credits, iter );
-    epoch_credits_opt->epoch[ epoch_credits_opt->cnt ]        = (ushort)ele->epoch;
-    epoch_credits_opt->credits[ epoch_credits_opt->cnt ]      = ele->credits;
-    epoch_credits_opt->prev_credits[ epoch_credits_opt->cnt ] = ele->prev_credits;
+    ulong i = epoch_credits_opt->cnt;
+    epoch_credits_opt->epoch[ i ]              = (ushort)ele->epoch;
+    epoch_credits_opt->credits_delta[ i ]      = (uint)( ele->credits      - base );
+    epoch_credits_opt->prev_credits_delta[ i ] = (uint)( ele->prev_credits - base );
     epoch_credits_opt->cnt++;
   }
 }
@@ -612,7 +622,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       exists_curr = 0;
       fd_accdb_close_ro( accdb, vote_ro );
     } else {
-      fd_epoch_credits_t * epoch_credits = vote_reward_cnt<runtime_stack->expected_vote_accounts ? &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ] : NULL;
+      fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ];
       get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), vsv_buf, &commission_t_1, &node_account_t_1, epoch_credits );
 
       stake_t_1 = stake_accum->stake;
