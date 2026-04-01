@@ -184,7 +184,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   /* Stake delegations for the current epoch. */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  if( is_incremental ) fd_stake_delegations_init( stake_delegations );
+  if( is_incremental ) fd_stake_delegations_reset( stake_delegations );
   for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
     fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
     if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {

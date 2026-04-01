@@ -1052,7 +1052,7 @@ fd_banks_clear( fd_banks_t * banks ) {
   fd_banks_dead_remove_all( fd_banks_get_dead_banks_deque( banks ) );
 
   fd_vote_stakes_reset( fd_banks_get_vote_stakes( banks ) );
-  fd_stake_delegations_init( fd_banks_get_stake_delegations( banks ) );
+  fd_stake_delegations_reset( fd_banks_get_stake_delegations( banks ) );
 
   fd_stake_rewards_clear( fd_banks_get_stake_rewards( banks ) );
 

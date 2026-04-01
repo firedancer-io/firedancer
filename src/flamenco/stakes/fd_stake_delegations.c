@@ -6,6 +6,7 @@
 #define POOL_T     fd_stake_delegation_t
 #define POOL_NEXT  next_
 #define POOL_IDX_T uint
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               root_map
@@ -22,6 +23,7 @@
 #define POOL_T     fd_stake_delegation_t
 #define POOL_NEXT  next_
 #define POOL_IDX_T uint
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 #define DLIST_NAME  fork_dlist
