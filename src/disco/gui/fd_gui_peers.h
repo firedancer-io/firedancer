@@ -155,6 +155,12 @@ struct fd_gui_peers_voter {
 };
 typedef struct fd_gui_peers_voter fd_gui_peers_voter_t;
 
+struct fd_gui_peers_voter_idx {
+  fd_pubkey_t key;
+  ulong       idx;
+};
+typedef struct fd_gui_peers_voter_idx fd_gui_peers_voter_idx_t;
+
 struct fd_gui_peers_node {
   int valid;
   long update_time_nanos;
@@ -394,15 +400,15 @@ struct fd_gui_peers_ctx {
 
   ulong slot_voted; /* last vote slot for this validator */
 
-  /* We want the gui to reflect stakes_t_2 since this is what matters
-     consequentially for delinquency / leader schedule info.
-
-     All arrays are sorted descending by vote pubkey. */
+  /* stakes is sorted descending by identity pubkey.  vote_idx is sorted
+     descending by vote account pubkey, each entry pointing back into
+     the stakes array. */
   struct {
     ulong epoch;
 
-    ulong                stakes_cnt;
-    fd_gui_peers_voter_t stakes[ MAX_STAKED_LEADERS ];
+    ulong                    stakes_cnt;
+    fd_gui_peers_voter_t     stakes  [ MAX_STAKED_LEADERS ];
+    fd_gui_peers_voter_idx_t vote_idx[ MAX_STAKED_LEADERS ];
   } epochs[ 2 ];
 
   union {
@@ -417,6 +423,7 @@ struct fd_gui_peers_ctx {
       fd_stake_weight_t      manifest_id_weights  [ 40200UL ];
       fd_vote_stake_weight_t manifest_vote_weights[ 40200UL ];
     };
+    fd_gui_peers_voter_t voters_scratch[ MAX_STAKED_LEADERS ];
   } scratch;
 
 #if FD_HAS_ZSTD
