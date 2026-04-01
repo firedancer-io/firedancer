@@ -191,7 +191,7 @@ main( int argc, char ** argv ) {
   test_limit_instr_accts_at_limit( mini );
   test_limit_instr_accts_exceeded( mini );
 
-  fd_svm_test_halt( mini );
   FD_LOG_NOTICE(( "pass" ));
+  fd_svm_test_halt( mini );
   return 0;
 }

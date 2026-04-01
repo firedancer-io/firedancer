@@ -315,34 +315,40 @@ test_allocate_20mib_succeeds( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_allocate_20mib_succeeds: PASSED (delta = %ld MiB)", get_resize_delta( env ) / MiB ));
 }
 
-/* 15+10=25 MiB exceeds limit */
+/* 7+7+7=21 MiB exceeds per-txn limit (20 MiB).
+   Each allocation is under the 10 MiB per-account limit, so this
+   exercises the MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN branch. */
 static void
-test_allocate_25mib_fails( fd_svm_mini_t * mini ) {
+test_allocate_21mib_fails( fd_svm_mini_t * mini ) {
   test_env_t env[1];
   setup_test( env, mini, 0 );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA1UL };
   fd_pubkey_t acct_b = { .ul[0] = 0xB1UL };
+  fd_pubkey_t acct_c = { .ul[0] = 0xC1UL };
   create_allocatable_account( env, &acct_a );
   create_allocatable_account( env, &acct_b );
+  create_allocatable_account( env, &acct_c );
 
   fd_pubkey_t system = fd_solana_system_program_id;
-  fd_pubkey_t keys[3] = { acct_a, acct_b, system };
+  fd_pubkey_t keys[4] = { acct_a, acct_b, acct_c, system };
 
-  uchar data_a[12], data_b[12];
-  build_allocate_instr( data_a, 15UL * (ulong)MiB );
-  build_allocate_instr( data_b, 10UL * (ulong)MiB );
+  uchar data_a[12], data_b[12], data_c[12];
+  build_allocate_instr( data_a, 7UL * (ulong)MiB );
+  build_allocate_instr( data_b, 7UL * (ulong)MiB );
+  build_allocate_instr( data_c, 7UL * (ulong)MiB );
 
-  uchar idx_a[1] = {0}, idx_b[1] = {1};
-  txn_instr_t instrs[2] = {
-    { .program_id_idx = 2, .account_idxs = idx_a, .account_idxs_cnt = 1, .data = data_a, .data_sz = 12 },
-    { .program_id_idx = 2, .account_idxs = idx_b, .account_idxs_cnt = 1, .data = data_b, .data_sz = 12 },
+  uchar idx_a[1] = {0}, idx_b[1] = {1}, idx_c[1] = {2};
+  txn_instr_t instrs[3] = {
+    { .program_id_idx = 3, .account_idxs = idx_a, .account_idxs_cnt = 1, .data = data_a, .data_sz = 12 },
+    { .program_id_idx = 3, .account_idxs = idx_b, .account_idxs_cnt = 1, .data = data_b, .data_sz = 12 },
+    { .program_id_idx = 3, .account_idxs = idx_c, .account_idxs_cnt = 1, .data = data_c, .data_sz = 12 },
   };
-  execute_txn( env, keys, 3, 2, 1, instrs, 2 );
+  execute_txn( env, keys, 4, 3, 1, instrs, 3 );
 
   FD_TEST( !txn_succeeded( env ) );
 
-  FD_LOG_NOTICE(( "test_allocate_25mib_fails: PASSED" ));
+  FD_LOG_NOTICE(( "test_allocate_21mib_fails: PASSED" ));
 }
 
 /* Shrink gives negative delta */
@@ -437,7 +443,7 @@ main( int argc, char ** argv ) {
   test_empty_txn_delta_is_zero( mini );
   test_allocate_19mib_succeeds( mini );
   test_allocate_20mib_succeeds( mini );
-  test_allocate_25mib_fails( mini );
+  test_allocate_21mib_fails( mini );
   test_shrink_gives_negative_delta( mini );
   test_shrink_enables_more_allocation( mini );
 
