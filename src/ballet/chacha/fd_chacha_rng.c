@@ -86,7 +86,7 @@ fd_chacha_rng_refill_seq( fd_chacha_rng_t * rng,
   while( (buf_avail=(rng->buf_fill - rng->buf_off))<fill_target ) {
     ulong idx = rng->buf_fill >> 6;
     uint idx_nonce[4] __attribute__((aligned(16))) =
-      { (uint)idx, 0U, 0U, 0U };
+      { (uint)idx, (uint)(idx>>32), 0U, 0U };
     block_fn( rng->buf + (rng->buf_fill % FD_CHACHA_RNG_BUFSZ),
               rng->key,
               idx_nonce );
