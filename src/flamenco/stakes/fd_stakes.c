@@ -671,6 +671,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   /* We can update our stake history sysvar based on the bank stake values.
      Afterward, we can refresh the stake values for the vote accounts. */
 
+  long _t0, _t1;
   fd_stake_history_t stake_history[1];
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
@@ -684,7 +685,10 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
       .deactivating = stake_delegations->deactivating_stake,
     }
   };
+  _t0 = fd_log_wallclock();
   fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &elem );
+  _t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "stakes_activate_epoch stake history sysvar update: %.6f seconds", (double)(_t1 - _t0) / 1e9 ));
 
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
@@ -695,6 +699,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
 
   bank->f.epoch = bank->f.epoch + 1UL;
 
+  _t0 = fd_log_wallclock();
   fd_refresh_vote_accounts( bank,
                             accdb,
                             xid,
@@ -702,6 +707,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                             stake_delegations,
                             stake_history,
                             new_rate_activation_epoch );
+  _t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "stakes_activate_epoch refresh vote accounts: %.6f seconds", (double)(_t1 - _t0) / 1e9 ));
 
 }
 

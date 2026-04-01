@@ -636,7 +636,10 @@ fd_stake_delegations_t *
 fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
                                           fd_bank_t *  bank ) {
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
+  long start = fd_log_wallclock();
   fd_bank_stake_delegation_mark_deltas( banks, bank, stake_delegations );
+  long end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bank_stake_delegations_frontier_query took %.6f seconds", (double)(end - start) / 1e9 ));
 
   return stake_delegations;
 }
@@ -645,7 +648,10 @@ void
 fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
                                               fd_bank_t *  bank ) {
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
+  long start = fd_log_wallclock();
   fd_bank_stake_delegation_unmark_deltas( banks, bank, stake_delegations );
+  long end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bank_stake_delegations_end_frontier_query took %.6f seconds", (double)(end - start) / 1e9 ));
 }
 
 

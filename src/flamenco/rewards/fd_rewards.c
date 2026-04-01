@@ -723,11 +723,14 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   fd_vote_rewards_t *     vote_ele_pool = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map  = runtime_stack->stakes.vote_map;
 
+  long _t0, _t1;
+
   /* First we must compute the stake and vote rewards for the just
      completed epoch.  We store the stake account rewards and vote
      states rewards in the bank */
 
   fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
+  _t0 = fd_log_wallclock();
   calculate_rewards_for_partitioning( bank,
                                       accdb,
                                       xid,
@@ -737,10 +740,14 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                       prev_epoch,
                                       rewards_calc_result );
 
+  _t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "calculate_rewards_and_distribute calculate_rewards_for_partitioning: %.6f seconds",
+                  (double)(_t1 - _t0) / 1e9 ));
 
   /* Iterate over all the vote reward nodes and distribute the rewards
      to the vote accounts.  After each reward has been paid out,
      calcualte the lthash for each vote account. */
+  _t0 = fd_log_wallclock();
   ulong distributed_rewards = 0UL;
   for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
        !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
@@ -773,6 +780,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
   }
+  _t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "calculate_rewards_and_distribute vote rewards distribution: %.6f seconds",
+                  (double)(_t1 - _t0) / 1e9 ));
 
   /* Verify that we didn't pay any more than we expected to */
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
@@ -951,6 +961,9 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_hash_t const *              parent_blockhash,
                               ulong                          parent_epoch ) {
 
+  long _t0, _t1;
+
+  _t0 = fd_log_wallclock();
   calculate_rewards_and_distribute_vote_rewards(
       bank,
       accdb,
@@ -959,6 +972,9 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       stake_delegations,
       capture_ctx,
       parent_epoch );
+  _t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "begin_partitioned_rewards calculate_rewards_and_distribute_vote_rewards: %.6f seconds",
+                  (double)(_t1 - _t0) / 1e9 ));
 
   /* Once the rewards for vote accounts have been distributed and stake
      account rewards have been calculated, we can now set our epoch
@@ -974,6 +990,8 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
   ulong distribution_starting_block_height = bank->f.block_height + REWARD_CALCULATION_NUM_BLOCKS;
   uint  num_partitions                     = fd_stake_rewards_num_partitions( fd_bank_stake_rewards_query( bank ), bank->stake_rewards_fork_id );
 
+
+  _t0 = fd_log_wallclock();
   fd_sysvar_epoch_rewards_init(
       bank,
       accdb,
@@ -985,6 +1003,8 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       runtime_stack->stakes.total_rewards,
       runtime_stack->stakes.total_points.ud,
       parent_blockhash );
+  _t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "begin_partitioned_rewards epoch_rewards sysvar init: %.6f seconds", (double)(_t1 - _t0) / 1e9 ));
 }
 
 /*

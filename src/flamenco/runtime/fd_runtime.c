@@ -628,6 +628,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                               ulong                     parent_epoch,
                               fd_runtime_stack_t *      runtime_stack ) {
   long start = fd_log_wallclock();
+  long t0, t1;
 
   fd_compute_and_apply_new_feature_activations( bank, accdb, xid, runtime_stack, capture_ctx );
 
@@ -640,18 +641,25 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   /* Updates stake history sysvar accumulated values and recomputes
      stake delegations for vote accounts. */
 
+  t0 = fd_log_wallclock();
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+  t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bank_stake_delegations_frontier_query: %.6f seconds", (double)(t1 - t0) / 1e9 ));
   if( FD_UNLIKELY( !stake_delegations ) ) {
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
   }
 
+  t0 = fd_log_wallclock();
   fd_stakes_activate_epoch( bank, runtime_stack, accdb, xid, capture_ctx, stake_delegations,
                             &bank->f.warmup_cooldown_rate_epoch );
+  t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_stakes_activate_epoch: %.6f seconds", (double)(t1 - t0) / 1e9 ));
 
   /* Distribute rewards.  This involves calculating the rewards for
      every vote and stake account. */
 
   fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  t0 = fd_log_wallclock();
   fd_begin_partitioned_rewards( bank,
                                 accdb,
                                 xid,
@@ -660,8 +668,13 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                                 stake_delegations,
                                 parent_blockhash,
                                 parent_epoch );
+  t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_begin_partitioned_rewards: %.6f seconds", (double)(t1 - t0) / 1e9 ));
 
+  t0 = fd_log_wallclock();
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
+  t1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "fd_bank_stake_delegations_end_frontier_query: %.6f seconds", (double)(t1 - t0) / 1e9 ));
 
   /* The Agave client handles updating their stakes cache with a call to
      update_epoch_stakes() which keys stakes by the leader schedule
@@ -711,7 +724,11 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
       *is_epoch_boundary = 0;
     }
 
+    long _t0 = fd_log_wallclock();
     fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
+    long _t1 = fd_log_wallclock();
+    FD_LOG_NOTICE(( "epoch rewards partition distribution slot %lu block_height %lu: %.6f seconds",
+                    bank->f.slot, bank->f.block_height, (double)(_t1 - _t0) / 1e9 ));
   } else {
     *is_epoch_boundary = 0;
   }
