@@ -83,6 +83,8 @@ struct fd_backt_tile {
 
   fd_store_t * store;
 
+  fd_snapshot_manifest_t const * snapshot_manif;
+
   int in_kind[ 16UL ];
   fd_backt_in_t in[ 16UL ];
 
@@ -363,7 +365,9 @@ returnable_frag( fd_backt_tile_t *   ctx,
         return 0;
       }
 
-      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      ulong manif_idx = fd_ssmsg_manif_idx_from_sig( sig );
+      FD_TEST( manif_idx!=ULONG_MAX );
+      fd_snapshot_manifest_t const * manifest = &ctx->snapshot_manif[ manif_idx ];
 
       ctx->initialized = 1;
       ctx->reading_slot = manifest->slot;
@@ -579,17 +583,24 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( uint i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
-
-    ctx->in[ i ].mem    = link_wksp->wksp;
-    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
-    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-    ctx->in[ i ].mtu    = link->mtu;
 
     if(      !strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
+
+    if( !strcmp( link->name, "snapin_manif" ) ) continue;
+
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    ctx->in[ i ].mem    = link_wksp->wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+    ctx->in[ i ].mtu    = link->mtu;
+  }
+
+  ulong snapshot_manif_obj_id = fd_pod_query_ulong( topo->props, "snap_manif", ULONG_MAX );
+  if( FD_LIKELY( snapshot_manif_obj_id!=ULONG_MAX ) ) {
+    ctx->snapshot_manif = (fd_snapshot_manifest_t const *)fd_topo_obj_laddr( topo, snapshot_manif_obj_id );
   }
 
   *ctx->repair_out = out1( topo, tile, "repair_out" );

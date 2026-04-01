@@ -59,11 +59,9 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 }
 
 void
-fd_ssload_recover( fd_snapshot_manifest_t * manifest,
-                   fd_banks_t *             banks,
-                   fd_bank_t *              bank,
-                   fd_runtime_stack_t *     runtime_stack,
-                   int                      is_incremental ) {
+fd_ssload_recover_bank( fd_snapshot_manifest_t * manifest,
+                        fd_bank_t *             bank ) {
+
   /* Slot */
 
   bank->f.slot = manifest->slot;
@@ -181,26 +179,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     }
   }
 
-  /* Stake delegations for the current epoch. */
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  if( is_incremental ) fd_stake_delegations_reset( stake_delegations );
-  for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
-    fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
-    if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {
-      continue;
-    }
-    fd_stake_delegations_root_update(
-        stake_delegations,
-        (fd_pubkey_t *)elem->stake_pubkey,
-        (fd_pubkey_t *)elem->vote_pubkey,
-        elem->stake_delegation,
-        elem->activation_epoch,
-        elem->deactivation_epoch,
-        elem->credits_observed,
-        elem->warmup_cooldown_rate
-    );
-  }
-
   /* We also want to set the total stake to be the total amount of stake
      at the end of the previous epoch. This value is used for the
      get_epoch_stake syscall.
@@ -222,71 +200,101 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      in fd_ssmanifest_parser.c. */
   bank->f.total_epoch_stake = manifest->epoch_stakes[1].total_stake;
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
+  bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
+}
 
-  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+void
+fd_ssload_recover_epoch_stakes_e1_init( fd_bank_t *          bank,
+                                        fd_runtime_stack_t * runtime_stack ) {
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_reset( vote_stakes );
+
+  fd_vote_rewards_map_t * vote_ele_map = fd_runtime_stack_vote_map( runtime_stack );
   fd_vote_rewards_map_reset( vote_ele_map );
 
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
-  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_init( top_votes_t_1 );
+
+  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_init( top_votes_t_2 );
+}
 
-  /* Vote stakes for the previous epoch (E-1). */
-  for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
-    /* First convert the epoch credits to the format expected by the
-       vote states.  We need to do this because we may need the vote
-       state credits from the end of the previous epoch in case we need
-       to recalculate the stake reward partitions. */
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
-    fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
-    vote_ele->commission_t_2 = vote_ele->commission_t_1 = (uchar)elem->commission;
-    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
-    fd_vote_stakes_root_insert_key(
-        vote_stakes,
-        (fd_pubkey_t *)elem->vote,
-        (fd_pubkey_t *)elem->identity,
-        elem->stake,
-        vote_ele->commission_t_1,
-        bank->f.epoch );
+void
+fd_ssload_recover_epoch_stakes_e1_entry( fd_snapshot_manifest_vote_stakes_t const * entry,
+                                         ulong                                      idx,
+                                         ulong                                      epoch,
+                                         fd_bank_t *                                bank,
+                                         fd_runtime_stack_t *                       runtime_stack ) {
+  FD_TEST( idx<FD_RUNTIME_MAX_VOTE_ACCOUNTS );
 
-    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
-    }
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
 
-    fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
+  fd_vote_rewards_map_t * vote_ele_map = fd_runtime_stack_vote_map( runtime_stack );
 
-    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[i];
-    ec->cnt          = elem->epoch_credits_history_len;
-    ec->base_credits = ec->cnt > 0UL ? elem->epoch_credits[0].prev_credits : 0UL;
-    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      ec->epoch[ j ]              = (ushort)elem->epoch_credits[ j ].epoch;
-      ec->credits_delta[ j ]      = (uint)( elem->epoch_credits[ j ].credits      - ec->base_credits );
-      ec->prev_credits_delta[ j ] = (uint)( elem->epoch_credits[ j ].prev_credits - ec->base_credits );
-    }
+  /* First convert epoch credits to the format expected by vote states.
+     This is because we may need the vote state credits from the end of
+     the previous epoch if required to recalculate the stake reward
+     partitions. */
+  fd_vote_rewards_t * vote_ele = &fd_runtime_stack_vote_ele( runtime_stack )[ idx ];
+  fd_memcpy( vote_ele->pubkey.uc, entry->vote, 32UL );
+  vote_ele->commission_t_2 = vote_ele->commission_t_1 = (uchar)entry->commission;
+  fd_vote_rewards_map_idx_insert( vote_ele_map, idx, fd_runtime_stack_vote_ele( runtime_stack ) );
+  fd_vote_stakes_root_insert_key(
+      vote_stakes,
+      (fd_pubkey_t const *)entry->vote,
+      (fd_pubkey_t const *)entry->identity,
+      entry->stake,
+      vote_ele->commission_t_1,
+      epoch );
+
+  int insert_top_vote = 1;
+  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+    if( FD_UNLIKELY( !entry->has_identity_bls ) ) insert_top_vote = 0;
   }
 
-  /* Vote stakes for the previous epoch (E-2) */
-  for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
+  if( FD_LIKELY( insert_top_vote ) ) {
+    fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
+    fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t const *)entry->vote, (fd_pubkey_t const *)entry->identity, entry->stake, (uchar)entry->commission );
+  }
 
-    fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (const fd_pubkey_t *)elem->vote, NULL, runtime_stack->stakes.vote_ele );
+  fd_epoch_credits_t * ec = &fd_runtime_stack_epoch_credits( runtime_stack )[ idx ];
+  ec->cnt          = entry->epoch_credits_history_len;
+  ec->base_credits = ec->cnt > 0UL ? entry->epoch_credits[0].prev_credits : 0UL;
+  for( ulong j=0UL; j<entry->epoch_credits_history_len; j++ ) {
+    ec->epoch[ j ]              = (ushort)entry->epoch_credits[ j ].epoch;
+    ec->credits_delta[ j ]      = (uint)( entry->epoch_credits[ j ].credits      - ec->base_credits );
+    ec->prev_credits_delta[ j ] = (uint)( entry->epoch_credits[ j ].prev_credits - ec->base_credits );
+  }
+}
+
+void
+fd_ssload_recover_epoch_stakes_e0( fd_snapshot_epoch_stakes_slim_t const * entries,
+                                   ulong                                   len,
+                                   fd_bank_t *                             bank,
+                                   fd_runtime_stack_t *                    runtime_stack ) {
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+
+  fd_vote_rewards_map_t * vote_ele_map = fd_runtime_stack_vote_map( runtime_stack );
+
+  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
+
+  /* Vote stakes for the previous epoch (E-2) */
+  for( ulong i=0UL; i<len; i++ ) {
+    fd_snapshot_epoch_stakes_slim_t const * elem = &entries[i];
+
+    fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t const *)elem->vote, NULL, fd_runtime_stack_vote_ele( runtime_stack ) );
     if( FD_LIKELY( vote_ele ) ) vote_ele->commission_t_2 = (uchar)elem->commission;
 
     if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
       if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
     }
-    fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
+    fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t const *)elem->vote, (fd_pubkey_t const *)elem->identity, elem->stake, (uchar)elem->commission );
     fd_vote_stakes_root_update_meta(
         vote_stakes,
-        (fd_pubkey_t *)elem->vote,
-        (fd_pubkey_t *)elem->identity,
+        (fd_pubkey_t const *)elem->vote,
+        (fd_pubkey_t const *)elem->identity,
         elem->stake,
         (uchar)elem->commission,
         bank->f.epoch );
   }
-
-  bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 }

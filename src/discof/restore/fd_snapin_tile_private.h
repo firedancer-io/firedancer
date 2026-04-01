@@ -11,6 +11,9 @@
 #include "utils/fd_ssctrl.h"
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_user.h"
+#include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
@@ -18,6 +21,11 @@
 /* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
    root slots Agave could possibly serve in a snapshot. */
 #define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
+
+/* Maximum number of vote_stakes entries buffered in tile's scratch
+   memory during manifest parsing.  E entries use the slim struct and
+   are buffered for deferred processing. */
+#define FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED (FD_RUNTIME_MAX_VOTE_ACCOUNTS)
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];
@@ -51,6 +59,7 @@ struct fd_snapin_tile {
   uint full      : 1;       /* loading a full snapshot? */
   uint use_vinyl : 1;       /* using vinyl-backed accdb? */
   uint lthash_disabled : 1; /* disable lthash checking? */
+  int  callback_error;      /* set by parser callbacks on overflow */
 
   ulong seed;
   long boot_timestamp;
@@ -58,6 +67,8 @@ struct fd_snapin_tile {
   fd_accdb_admin_t accdb_admin[1];
   fd_accdb_user_t  accdb[1];
   fd_funk_t *      funk;
+  fd_banks_t *     banks;
+  fd_runtime_stack_t * runtime_stack;
 
   fd_txncache_t * txncache;
   uchar *         acc_data;
@@ -93,7 +104,17 @@ struct fd_snapin_tile {
 
   struct {
     ulong capitalization;
-  } recovery; /* stores the capitalization value from the last full snapshot */
+
+    /* Backup of bank fields populated at CTRL_NEXT (full snapshot
+       completion) for rollback during incremental snapshot CTRL_FAIL.
+       This ensures the bank state can be properly reverted to the full
+       snapshot's values if an incremental snapshot fails at any point
+       after its manifest has been processed. */
+    uchar bank_f[ sizeof(((fd_bank_t *)NULL)->f) ];
+    fd_txncache_fork_id_t txncache_fork_id;
+    uchar top_votes_t_1[ FD_TOP_VOTES_MAX_FOOTPRINT ];
+    uchar top_votes_t_2[ FD_TOP_VOTES_MAX_FOOTPRINT ];
+  } recovery;
 
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
@@ -126,6 +147,19 @@ struct fd_snapin_tile {
     ulong       mtu;
     ulong       pos;
   } in;
+
+  fd_snapshot_manifest_t * snapshot_manif; /* array of 2 manifests [full, incr] (shared object) */
+
+  /* vote_stakes buffers (removed from fd_snapshot_manifest_t struct):
+       E+1 is processed on-the-fly in the on_vote_stakes callback
+           (no buffer needed; writes directly to runtime_stack arrays).
+       E   uses the slim struct (only vote/identity/has_identity_bls/
+                                 stake/commission). */
+  ulong                                vote_stakes_e1_len; /* running counter for E+1 entries */
+  fd_snapshot_epoch_stakes_slim_t    * vote_stakes_e0;
+  ulong                                vote_stakes_e0_len;
+
+  ulong                                stake_delegations_inserted; /* running counter */
 
   ulong                out_ct_idx;
   fd_snapin_out_link_t manifest_out;

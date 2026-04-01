@@ -417,11 +417,11 @@ struct fd_gui_peers_ctx {
       ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
     };
     struct {
-      ulong wfs_peers[ 40200UL ];
+      ulong wfs_peers[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
     };
     struct {
-      fd_stake_weight_t      manifest_id_weights  [ 40200UL ];
-      fd_vote_stake_weight_t manifest_vote_weights[ 40200UL ];
+      fd_stake_weight_t      manifest_id_weights  [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+      fd_vote_stake_weight_t manifest_vote_weights[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
     };
     fd_gui_peers_voter_t voters_scratch[ MAX_STAKED_LEADERS ];
   } scratch;
@@ -433,7 +433,7 @@ struct fd_gui_peers_ctx {
   fd_gui_ip_db_t dbip;
 
   int                       wfs_enabled;
-  fd_gui_wfs_peer_t         wfs_peers[ 40200UL ];
+  fd_gui_wfs_peer_t         wfs_peers[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   ulong                     wfs_peers_cnt;
   int                       wfs_peers_valid;
   int                       wfs_stakes_sent;

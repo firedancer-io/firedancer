@@ -4,10 +4,13 @@
 #include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/runtime/fd_runtime_stack.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../funk/fd_funk.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -282,6 +285,57 @@ fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss = {
   .footprint = rnonce_ss_footprint,
   .align     = rnonce_ss_align,
   .new       = rnonce_ss_new,
+};
+
+static ulong
+runtime_stack_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                         fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS );
+}
+
+static ulong
+runtime_stack_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_runtime_stack_align();
+}
+
+static void
+runtime_stack_new( fd_topo_t const *     topo,
+                   fd_topo_obj_t const * obj ) {
+  ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
+  FD_TEST( fd_runtime_stack_new( fd_topo_obj_laddr( topo, obj->id ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS, seed ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_runtime_stack = {
+  .name      = "rtstack",
+  .footprint = runtime_stack_footprint,
+  .align     = runtime_stack_align,
+  .new       = runtime_stack_new,
+};
+
+static ulong
+snapshot_manif_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                          fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return 2UL * sizeof(fd_snapshot_manifest_t);
+}
+
+static ulong
+snapshot_manif_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                      fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return alignof(fd_snapshot_manifest_t);
+}
+
+static void
+snapshot_manif_new( fd_topo_t const *     topo,
+                    fd_topo_obj_t const * obj ) {
+  memset( fd_topo_obj_laddr( topo, obj->id ), 0, snapshot_manif_footprint( topo, obj ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_snapshot_manif = {
+  .name      = "snap_manif",
+  .footprint = snapshot_manif_footprint,
+  .align     = snapshot_manif_align,
+  .new       = snapshot_manif_new,
 };
 
 #undef VAL

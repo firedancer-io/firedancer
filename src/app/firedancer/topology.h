@@ -59,6 +59,10 @@ setup_topo_accdb_cache( fd_topo_t *    topo,
                         fd_configf_t * config );
 
 fd_topo_obj_t *
+setup_topo_runtime_stack( fd_topo_t *  topo,
+                          char const * wksp_name );
+
+fd_topo_obj_t *
 setup_topo_vinyl_admin( fd_topo_t *  topo,
                         char const * wksp_name );
 

@@ -110,7 +110,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
                           uint128 *                 total_stake_out,
                           ulong *                   ts_ele_cnt_out ) {
 
-  ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
+  ts_est_ele_t * ts_eles = fd_runtime_stack_staked_ts(runtime_stack);
   ulong ts_ele_cnt = 0UL;
 
   uint128 total_stake = 0UL;
@@ -200,7 +200,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
                        uint128 *            total_stake_out,
                        ulong *              ts_ele_cnt_out ) {
 
-  ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
+  ts_est_ele_t * ts_eles = fd_runtime_stack_staked_ts(runtime_stack);
   ulong ts_ele_cnt = 0UL;
 
   uint128 total_stake = 0UL;
@@ -281,7 +281,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
   ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->f.slot;
 
-  ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
+  ts_est_ele_t * ts_eles = fd_runtime_stack_staked_ts(runtime_stack);
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L41 */
   ulong  ts_ele_cnt   = 0UL;
