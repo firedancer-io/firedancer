@@ -519,7 +519,7 @@ fd_rdisp_new( void * mem,
               ulong  block_depth,
               ulong  seed ) {
   if( FD_UNLIKELY( (depth>FD_RDISP_MAX_DEPTH)             | (depth<2UL) |
-                   (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) | (block_depth<4UL) ) ) return 0UL;
+                   (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) | (block_depth<4UL) ) ) return NULL;
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
   ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
