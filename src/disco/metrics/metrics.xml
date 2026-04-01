@@ -869,11 +869,20 @@ metric introduced.
        cut down with time -->
   <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
   <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
-  <gauge name="ProgcacheFreeParts" summary="Number of program cache heap partitions free" />
+  <gauge name="ProgcacheFreeParts" summary="Number of program cache heap partitions free (indicates fragmentation)" />
   <gauge name="ProgcacheFreeBytes" summary="Program cache heap utilization (free bytes)" />
   <gauge name="ProgcacheSizeBytes" summary="Program cache heap utilization (total size)" />
-  <gauge name="ProgcachePartSizeMaxBytes" summary="Program cache heap utilization (largest free partition)" />
+  <gauge name="ProgcacheFreePartMaxBytes" summary="Largest free heap partition in program cache" />
+  <gauge name="ProgcacheUsedPartMedianBytes" summary="Median used heap partition size in program cache" />
+  <gauge name="ProgcacheUsedPartMeanBytes" summary="Mean used heap partition size in program cache" />
   <counter name="ProgcacheTimeSeconds" converter="seconds" summary="Total time in seconds spent doing program cache tasks" />
+
+  <gauge name="AccdbCacheFreeParts" summary="Number of account database cache heap partitions free (indicates fragmentation)" />
+  <gauge name="AccdbCacheFreeBytes" summary="Account database cache heap utilization (free bytes)" />
+  <gauge name="AccdbCacheSizeBytes" summary="Account database cache heap utilization (total size)" />
+  <gauge name="AccdbCacheFreePartMaxBytes" summary="Largest free heap partition in account database cache" />
+  <gauge name="AccdbCacheUsedPartMedianBytes" summary="Median used heap partition size in account database cache" />
+  <gauge name="AccdbCacheUsedPartMeanBytes" summary="Mean used heap partition size in account database cache" />
 </tile>
 
 <enum name="RepairSentRequestTypes">

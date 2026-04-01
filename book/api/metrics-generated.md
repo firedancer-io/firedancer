@@ -995,11 +995,19 @@
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;parts</span> | gauge | Number of program cache heap partitions free |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;parts</span> | gauge | Number of program cache heap partitions free (indicates fragmentation) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;bytes</span> | gauge | Program cache heap utilization (free bytes) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;size_&#8203;bytes</span> | gauge | Program cache heap utilization (total size) |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;part_&#8203;size_&#8203;max_&#8203;bytes</span> | gauge | Program cache heap utilization (largest free partition) |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;part_&#8203;max_&#8203;bytes</span> | gauge | Largest free heap partition in program cache |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;used_&#8203;part_&#8203;median_&#8203;bytes</span> | gauge | Median used heap partition size in program cache |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;used_&#8203;part_&#8203;mean_&#8203;bytes</span> | gauge | Mean used heap partition size in program cache |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;time_&#8203;seconds</span> | counter | Total time in seconds spent doing program cache tasks |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;parts</span> | gauge | Number of account database cache heap partitions free (indicates fragmentation) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;bytes</span> | gauge | Account database cache heap utilization (free bytes) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;size_&#8203;bytes</span> | gauge | Account database cache heap utilization (total size) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;part_&#8203;max_&#8203;bytes</span> | gauge | Largest free heap partition in account database cache |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;used_&#8203;part_&#8203;median_&#8203;bytes</span> | gauge | Median used heap partition size in account database cache |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;used_&#8203;part_&#8203;mean_&#8203;bytes</span> | gauge | Mean used heap partition size in account database cache |
 
 </div>
 
