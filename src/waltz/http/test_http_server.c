@@ -159,7 +159,12 @@ test_content_length_overflow_close( void ) {
 
   FD_LOG_NOTICE(( "footprint %lu", fd_http_server_footprint( params ) ));
   uchar scratch[ 1306624 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1306624 );
+#if FD_HAS_ZSTD
+  FD_TEST( fd_http_server_footprint( params )==sizeof( scratch ) );
+#else
+  FD_TEST( fd_http_server_footprint( params )==3072 );
+  FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
+#endif
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );
