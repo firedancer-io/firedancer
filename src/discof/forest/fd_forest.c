@@ -1332,6 +1332,7 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
       /* hop to the parent slot, but first we've made it through this
          slot successfully verifying the chain! mark it confirmed! */
       ele->chain_confirmed = 1;
+      FD_LOG_DEBUG(( "fd_forest_fec_chain_verify: confirmed full slot %lu", ele->slot ));
       ele = fd_forest_pool_ele( fd_forest_pool( forest ), ele->parent );
       if( FD_UNLIKELY( !ele || ele->complete_idx == UINT_MAX || ele->buffered_idx != ele->complete_idx ) ) {
         /* can't verify the chain further */
