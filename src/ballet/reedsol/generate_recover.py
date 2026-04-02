@@ -149,6 +149,11 @@ def make_recover_var(n, max_shreds):
 
         cprint('shred_pos += GF_WIDTH;')
         cprint('shred_pos = fd_ulong_if( ((shred_sz-GF_WIDTH)<shred_pos) & (shred_pos<shred_sz), shred_sz-GF_WIDTH, shred_pos );')
+        cprint('#undef STORE_COMPARE_RELOAD')
+        cprint('#undef STORE_COMPARE')
+        cprint('#undef ALL_VARS')
+        if n>64:
+            cprint('#undef ALL_VARS_REF')
         cprint('}')
         cprint('return FD_REEDSOL_SUCCESS;')
         cprint('}')
