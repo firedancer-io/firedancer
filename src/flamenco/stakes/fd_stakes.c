@@ -223,47 +223,9 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
   }
 }
 
-static void
-write_stake_config( fd_accdb_user_t *         accdb,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_stake_config_t const * stake_config ) {
-  ulong               data_sz = fd_stake_config_size( stake_config );
-  fd_pubkey_t const * address = &fd_solana_stake_program_config_id;
-
-  fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( accdb, rw, xid, address, data_sz, FD_ACCDB_FLAG_CREATE );
-
-  /* FIXME update capitalization? */
-  /* FIXME set owner to Config program? */
-  /* FIXME Agave reflink? */
-  /* FIXME derive lamport balance from rent instead of hardcoding */
-
-  fd_accdb_ref_lamports_set( rw, 960480UL );
-  fd_accdb_ref_exec_bit_set( rw, 0 );
-  fd_accdb_ref_data_sz_set( accdb, rw, data_sz, 0 );
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = fd_accdb_ref_data( rw ),
-    .dataend = (uchar *)fd_accdb_ref_data( rw ) + data_sz
-  };
-  if( fd_stake_config_encode( stake_config, &ctx ) )
-    FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
-
-  fd_accdb_close_rw( accdb, rw );
-}
-
 /**********************************************************************/
 /* Public API                                                         */
 /**********************************************************************/
-
-void
-fd_stakes_config_init( fd_accdb_user_t *         accdb,
-                       fd_funk_txn_xid_t const * xid ) {
-  fd_stake_config_t stake_config = {
-      .warmup_cooldown_rate = DEFAULT_WARMUP_COOLDOWN_RATE,
-      .slash_penalty        = DEFAULT_SLASH_PENALTY,
-  };
-  write_stake_config( accdb, xid, &stake_config );
-}
 
 fd_stake_state_t const *
 fd_stake_state_view( uchar const * data,
