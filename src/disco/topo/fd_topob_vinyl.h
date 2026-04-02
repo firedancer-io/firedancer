@@ -7,6 +7,9 @@
 #include "fd_topob.h"
 #include "../../util/pod/fd_pod_format.h"
 
+#define FD_VINYL_PERM_READ_ONLY  0U
+#define FD_VINYL_PERM_READ_WRITE 1U
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_topob_vinyl_client declares a new vinyl client and attaches it to
@@ -21,7 +24,8 @@ fd_topob_vinyl_rq( fd_topo_t *  topo,
                    char const * link_name,
                    ulong        req_batch_max,
                    ulong        req_batch_key_max,
-                   ulong        quota_max ) {
+                   ulong        quota_max,
+                   uint         vinyl_perm ) {
 
   /* Assumes there is only one vinyl tile in the topology */
   ulong accdb_tile_id;
@@ -41,6 +45,7 @@ fd_topob_vinyl_rq( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, req_batch_max, "obj.%lu.req_cnt",   rq_obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, rq_obj->id,    "obj.%lu.link_id",   rq_obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, quota_max,     "obj.%lu.quota_max", rq_obj->id ) );
+  FD_TEST( fd_pod_insertf_uint ( topo->props, vinyl_perm,    "obj.%lu.perm",      rq_obj->id ) );
 
   /* No database client uses the completion queue yet, but one is
      required to join a database client to the server. */

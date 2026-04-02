@@ -1368,18 +1368,18 @@ fd_topo_initialize( config_t * config ) {
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
   if( vinyl_enabled ) {
-    fd_topob_vinyl_rq( topo, "genesi", 0UL, "accdb_genesi", "genesi", 4UL, 1024UL, 1024UL );
-    fd_topob_vinyl_rq( topo, "replay", 0UL, "accdb_replay", "replay", 4UL, 1024UL, 1024UL );
+    fd_topob_vinyl_rq( topo, "genesi", 0UL, "accdb_genesi", "genesi", 4UL, 1024UL, 1024UL, FD_VINYL_PERM_READ_WRITE );
+    fd_topob_vinyl_rq( topo, "replay", 0UL, "accdb_replay", "replay", 4UL, 1024UL, 1024UL, FD_VINYL_PERM_READ_WRITE );
     for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
-      fd_topob_vinyl_rq( topo, "execrp", i, "accdb_execrp", "execrp", 4UL, 1024UL, 1024UL );
+      fd_topob_vinyl_rq( topo, "execrp", i, "accdb_execrp", "execrp", 4UL, 1024UL, 1024UL, FD_VINYL_PERM_READ_WRITE );
     }
     for( ulong i=0UL; i<execle_tile_cnt; i++ ) {
-      fd_topob_vinyl_rq( topo, "execle", i, "accdb_execle", "execle", 4UL, 1024UL, 1024UL );
+      fd_topob_vinyl_rq( topo, "execle", i, "accdb_execle", "execle", 4UL, 1024UL, 1024UL, FD_VINYL_PERM_READ_WRITE );
     }
-    fd_topob_vinyl_rq( topo, "tower", 0UL, "accdb_tower", "tower", 4UL, 128UL, 128UL );
-    FOR(resolv_tile_cnt) fd_topob_vinyl_rq( topo, "resolv", i, "accdb_resolv", "resolv", 4UL, 1UL, 1UL );
+    fd_topob_vinyl_rq( topo, "tower", 0UL, "accdb_tower", "tower", 4UL, 128UL, 128UL, FD_VINYL_PERM_READ_ONLY );
+    FOR(resolv_tile_cnt) fd_topob_vinyl_rq( topo, "resolv", i, "accdb_resolv", "resolv", 4UL, 1UL, 1UL, FD_VINYL_PERM_READ_ONLY );
     if( rpc_enabled ) {
-      fd_topob_vinyl_rq( topo, "rpc", 0UL, "accdb_rpc", "rpc", 4UL, 1UL, 1UL );
+      fd_topob_vinyl_rq( topo, "rpc", 0UL, "accdb_rpc", "rpc", 4UL, 1UL, 1UL, FD_VINYL_PERM_READ_ONLY );
     }
   }
 
