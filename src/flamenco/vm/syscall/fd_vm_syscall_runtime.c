@@ -162,7 +162,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
     return FD_VM_ERR_INVAL;
   }
 
-  memcpy( var_query.haddr, &last_restart_slot, 8UL );
+  memcpy( var_query.haddr, &last_restart_slot, sizeof(ulong) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
