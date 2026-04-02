@@ -133,7 +133,7 @@ def make_recover_var(n, max_shreds):
             cprint(f"FD_REEDSOL_GENERATE_FFT(  {n}, {n*(chunk_cnt+1):2}, ALL_VARS );")
             cprint("")
             cprint(f"switch( fd_ulong_min( shreds_remaining, {n}UL ) ) " + "{")
-            for k in range(min(n-1, potential_shreds_remaining), -1, -1):
+            for k in range(min(n, potential_shreds_remaining)-1, -1, -1):
                 fallthru = ""
                 if k>0:
                     fallthru = " FALLTHRU"
