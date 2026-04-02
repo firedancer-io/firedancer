@@ -17,6 +17,11 @@
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 
+/* base58 decode of EE6eyUYuXPR9YHH4GwX5YAkBVFLyztSSNGRuBqoe36ky */
+static const uchar bundle_trace_program_id[FD_TXN_ACCT_ADDR_SZ] = {
+  0xC4U,0x82U,0xDFU,0xD6U,0xD4U,0xB6U,0x83U,0xABU,0x52U,0x54U,0xAFU,0xABU,0x54U,0x2AU,0xDDU,0x13U,
+  0xF6U,0xC1U,0x39U,0x24U,0x95U,0x54U,0x09U,0xA2U,0x94U,0x49U,0xD0U,0x34U,0x2AU,0x1EU,0x33U,0x0AU };
+
 struct fd_execle_out {
   ulong       idx;
   fd_wksp_t * mem;
@@ -68,6 +73,8 @@ struct fd_execle_tile {
 
   fd_log_collector_t log_collector[ 1 ];
 
+  uchar * tracing_mem;
+
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
     ulong txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_CNT ];
@@ -89,6 +96,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,      FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->execle.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -357,6 +365,18 @@ handle_microblock( fd_execle_tile_t *  ctx,
   ctx->out_poh->chunk = fd_dcache_compact_next( ctx->out_poh->chunk, new_sz, ctx->out_poh->chunk0, ctx->out_poh->wmark );
 }
 
+static int
+txn_references_program( fd_txn_p_t const * txnp,
+                        uchar const *      target_program_id ) {
+  fd_txn_t const *       txn       = TXN( txnp );
+  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, txnp->payload );
+  for( ushort i=0; i<txn->instr_cnt; i++ ) {
+    ulong prog_id_idx = (ulong)txn->instr[i].program_id;
+    if( fd_memeq( addr_base[prog_id_idx].b, target_program_id, FD_TXN_ACCT_ADDR_SZ ) ) return 1;
+  }
+  return 0;
+}
+
 static inline void
 handle_bundle( fd_execle_tile_t *  ctx,
                ulong               seq,
@@ -411,7 +431,19 @@ handle_bundle( fd_execle_tile_t *  ctx,
     txn_in->txn              = txn;
     txn_in->bundle.is_bundle = 1;
 
+    int trace_this_txn = txn_references_program( txn, bundle_trace_program_id );
+    if( FD_UNLIKELY( trace_this_txn ) ) {
+      ctx->runtime->log.enable_vm_tracing = 1;
+      ctx->runtime->log.tracing_mem       = ctx->tracing_mem;
+    }
+
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
+
+    if( FD_UNLIKELY( trace_this_txn ) ) {
+      ctx->runtime->log.enable_vm_tracing = 0;
+      ctx->runtime->log.tracing_mem       = NULL;
+    }
+
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
@@ -623,6 +655,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * bmtree          = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
   void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execle.max_live_slots ) );
   void * pc_scratch      = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  void * tracing_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -662,6 +695,7 @@ unprivileged_init( fd_topo_t *      topo,
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->fuzz.enabled             = 0;
+  ctx->tracing_mem                       = tracing_mem;
   ctx->runtime->accounts.executable_cnt  = 0UL;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
