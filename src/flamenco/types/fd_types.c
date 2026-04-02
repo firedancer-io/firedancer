@@ -1317,29 +1317,6 @@ ulong fd_genesis_solana_size_global( fd_genesis_solana_global_t const * self ) {
   return size;
 }
 
-int fd_sol_sysvar_last_restart_slot_encode( fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->slot, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_sol_sysvar_last_restart_slot_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 8UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 8UL );
-  return 0;
-}
-static void fd_sol_sysvar_last_restart_slot_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_sol_sysvar_last_restart_slot_t * self = (fd_sol_sysvar_last_restart_slot_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->slot, ctx );
-}
-void * fd_sol_sysvar_last_restart_slot_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_sol_sysvar_last_restart_slot_t * self = (fd_sol_sysvar_last_restart_slot_t *)mem;
-  fd_sol_sysvar_last_restart_slot_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_sol_sysvar_last_restart_slot_t);
-  void * * alloc_mem = &alloc_region;
-  fd_sol_sysvar_last_restart_slot_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
 int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_bool_encode( self->has_bits, ctx );

@@ -170,13 +170,12 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      (There might be some hard forks in the future, ignore these)
 
      SIMD-0047: The first restart slot should be `0` */
-  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = &bank->f.last_restart_slot;
-  last_restart_slot->slot = 0UL;
+  bank->f.last_restart_slot = 0UL;
   if( FD_LIKELY( manifest->hard_forks_len ) ) {
     for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
       ulong slot = manifest->hard_forks[ manifest->hard_forks_len-1UL-i ];
       if( FD_LIKELY( slot<=manifest->slot ) ) {
-        last_restart_slot->slot = slot;
+        bank->f.last_restart_slot = slot;
         break;
       }
     }
