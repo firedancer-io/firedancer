@@ -78,6 +78,23 @@ fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
   if( FD_UNLIKELY( hi+chunk_sz > rbuf->buf1 ) ) {
     /* Split copy */
     if( FD_UNLIKELY( lo>hi ) ) {
+static inline void
+fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
+                 void const *   chunk,
+                 ulong          chunk_sz ) {
+  if (chunk_sz > fd_h2_rbuf_free_sz(rbuf)) {
+    FD_LOG_CRIT(( "Buffer overflow: chunk_sz %lu exceeds available buffer space %lu", chunk_sz, fd_h2_rbuf_free_sz(rbuf) ));
+    return;
+  }
+  uchar * buf0 = rbuf->buf0;
+  uchar * buf1 = rbuf->buf1;
+  uchar * lo   = rbuf->lo;
+  uchar * hi   = rbuf->hi;
+  rbuf->hi_off += chunk_sz;
+
+  if( FD_UNLIKELY( hi+chunk_sz > rbuf->buf1 ) ) {
+    /* Split copy */
+    if( FD_UNLIKELY( lo>hi ) ) {
       FD_LOG_CRIT(( "rbuf overflow: buf_sz=%lu lo=%ld hi=%ld chunk_sz=%lu",
                     rbuf->bufsz, rbuf->lo-buf0, rbuf->hi-buf0, chunk_sz ));
     }
@@ -93,6 +110,11 @@ fd_h2_rbuf_push( fd_h2_rbuf_t * rbuf,
   /* One-shot copy */
   uchar * new_hi = hi+chunk_sz;
   if( new_hi==buf1 ) new_hi = buf0;
+  fd_memcpy( hi, chunk, chunk_sz );
+  rbuf->hi = new_hi;
+  fd_h2_rbuf_validate_private( rbuf );
+  return;
+}
   fd_memcpy( hi, chunk, chunk_sz );
   rbuf->hi = new_hi;
   fd_h2_rbuf_validate_private( rbuf );
