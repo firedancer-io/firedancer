@@ -21,13 +21,14 @@ accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
 }
 
 static void
-test_program_success( char *                test_case_name,
+test_program_exec( char *                test_case_name,
                       ulong                 expected_result,
+                      int                   expected_err,
+                      ulong                 sbpf_version,
                       ulong const *         text,
                       ulong                 text_cnt,
                       fd_sbpf_syscalls_t *  syscalls,
                       fd_exec_instr_ctx_t * instr_ctx ) {
-//FD_LOG_NOTICE(( "Test program: %s", test_case_name ));
 
   fd_sha256_t _sha[1];
   fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
@@ -49,7 +50,7 @@ test_program_success( char *                test_case_name,
       /* text_sz                                */ 8UL*text_cnt,
       /* entry_pc                               */ 0UL,
       /* calldests                              */ NULL,
-      /* sbpf_version                           */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* sbpf_version                           */ sbpf_version,
       /* syscalls                               */ syscalls,
       /* trace                                  */ NULL,
       /* sha                                    */ sha,
@@ -80,17 +81,86 @@ test_program_success( char *                test_case_name,
   err = fd_vm_exec( vm );
   dt += fd_log_wallclock();
 
-  if( FD_UNLIKELY( vm->reg[0]!=expected_result ) ) {
-    FD_LOG_WARNING(( "Interp err: %i (%s)",   err,        fd_vm_strerror( err ) ));
-    FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm->reg[0], vm->reg[0]            ));
-    FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm->pc,     vm->pc                ));
-    FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm->ic,     vm->ic                ));
+  if( expected_err!=FD_VM_SUCCESS ) {
+    if( FD_UNLIKELY( err!=expected_err ) ) {
+      FD_LOG_WARNING(( "Expected err %i (%s), got %i (%s)",
+                       expected_err, fd_vm_strerror( expected_err ),
+                       err,          fd_vm_strerror( err ) ));
+    }
+    FD_TEST( err==expected_err );
+    test_vm_clear_txn_ctx_err( instr_ctx->txn_out );
+  } else {
+    if( FD_UNLIKELY( vm->reg[0]!=expected_result ) ) {
+      FD_LOG_WARNING(( "Interp err: %i (%s)",   err,        fd_vm_strerror( err ) ));
+      FD_LOG_WARNING(( "RET:        %lu 0x%lx", vm->reg[0], vm->reg[0]            ));
+      FD_LOG_WARNING(( "PC:         %lu 0x%lx", vm->pc,     vm->pc                ));
+      FD_LOG_WARNING(( "IC:         %lu 0x%lx", vm->ic,     vm->ic                ));
+    }
+    FD_TEST( vm->reg[0]==expected_result );
   }
+
 //FD_LOG_NOTICE(( "Instr counter: %lu", vm.ic ));
-  FD_TEST( vm->reg[0]==expected_result );
   FD_LOG_NOTICE(( "%-20s %11li ns", test_case_name, dt ));
 //FD_LOG_NOTICE(( "Time/Instr: %f ns", (double)dt / (double)vm.ic ));
 //FD_LOG_NOTICE(( "Mega Instr/Sec: %f", 1000.0 * ((double)vm.ic / (double) dt)));
+}
+
+
+static int
+test_vm_validate( ulong                 sbpf_version,
+                       ulong const *         text,
+                       ulong                 text_cnt,
+                       fd_sbpf_syscalls_t *  syscalls,
+                       fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
+  int ok = !!fd_vm_init(
+      vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+      (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+      0UL, NULL, sbpf_version, syscalls, NULL, sha, NULL, 0UL, NULL, 0,
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      0, 0UL );
+  FD_TEST( ok );
+  vm->pc        = vm->entry_pc;
+  vm->ic        = 0UL;
+  vm->cu        = vm->entry_cu;
+  vm->frame_cnt = 0UL;
+  vm->heap_sz   = 0UL;
+  fd_vm_mem_cfg( vm );
+  return fd_vm_validate( vm );
+}
+
+static void
+test_stack_configuration( fd_sbpf_syscalls_t *  syscalls,
+                          fd_exec_instr_ctx_t * instr_ctx ) {
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  ulong text[] = { fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ) };
+
+  ulong versions[]    = { FD_SBPF_V0, FD_SBPF_V1, FD_SBPF_V2, FD_SBPF_V3 };
+  ulong expected_sz[] = { FD_VM_STACK_FRAME_SZ, 0UL, 0UL, FD_VM_STACK_FRAME_SZ };
+  ulong expected_ct[] = { 2UL, 0UL, 0UL, 1UL };
+
+  for( ulong i=0; i<4; i++ ) {
+    FD_TEST( fd_vm_init( vm, instr_ctx, FD_VM_HEAP_DEFAULT, FD_VM_COMPUTE_UNIT_LIMIT,
+        (uchar *)text, 8UL, text, 1UL, 0UL, 8UL, 0UL, NULL,
+        versions[i], syscalls, NULL, sha, NULL, 0UL, NULL, 0,
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+        0, 0UL ) );
+    FD_TEST( vm->stack_frame_sz==expected_sz[i] );
+    FD_TEST( vm->stack_push_frame_count==expected_ct[i] );
+  }
+
+  FD_LOG_NOTICE(( "%-20s PASS", "stack-frame-cfg" ));
 }
 
 static void
@@ -346,9 +416,22 @@ main( int     argc,
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 
-# define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
-    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                       \
-    test_program_success( (test_case_name), (expected_result), _text, (text_cnt), syscalls, instr_ctx ); \
+# define TEST_PROGRAM_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do {         \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                               \
+    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS,                 \
+                          TEST_VM_DEFAULT_SBPF_VERSION, _text, (text_cnt), syscalls, instr_ctx ); \
+  } while(0)
+
+# define TEST_V3_SUCCESS( test_case_name, expected_result, text_cnt, ... ) do { \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                  \
+    test_program_exec( (test_case_name), (expected_result), FD_VM_SUCCESS,    \
+                          FD_SBPF_V3, _text, (text_cnt), syscalls, instr_ctx ); \
+  } while(0)
+
+# define TEST_V3_ERROR( test_case_name, expected_err, text_cnt, ... ) do {    \
+    ulong _text[ text_cnt ] = { __VA_ARGS__ };                                \
+    test_program_exec( (test_case_name), 0UL, (expected_err),              \
+                          FD_SBPF_V3, _text, (text_cnt), syscalls, instr_ctx ); \
   } while(0)
 
 # define FD_SBPF_INSTR(op, dst, src, off, val) (fd_vm_instr( op, dst, src, off, val ))
@@ -976,21 +1059,796 @@ main( int     argc,
     FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,      0,      0, 0),
   );
 
+  /* SIMD-0178: Static syscalls (SBPF V3+) */
+
+  TEST_V3_SUCCESS("static-syscall", 15, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2,  0,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3,  0,      0, 3),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4,  0,      0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5,  0,      0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           0,      0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-syscall-args", 150, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1,  0,      0, 10),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2,  0,      0, 20),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3,  0,      0, 30),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4,  0,      0, 40),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5,  0,      0, 50),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           0,      0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-fwd", 42, 4,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,           1,   0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,   0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0,  0,   0, 42),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,           0,   0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-bwd", 99, 5,
+    FD_SBPF_INSTR(FD_SBPF_OP_JA,        0,          0,     +2, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 99),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, (uint)(int)-3),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-boundary", 55, 5,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 55),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-nested", 42, 8,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,      0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,      0, 42),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,      0, 0),
+  );
+
+  TEST_V3_SUCCESS("static-call-then-external-syscall", 100, 11,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R6, 0,           0, 100),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1,           0, 7),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_REG, FD_SBPF_R1, FD_SBPF_R6, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R3, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R4, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R5, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          0,           0, fd_murmur3_32( "accumulator", 11UL, 0U ) ),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,           0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,           0, 0),
+  );
+
+  TEST_V3_ERROR("static-syscall-external-missing", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 0, 0, 0xDEADBEEF),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-syscall-external-zero", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-hi", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 3,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, 100),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-lo", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 3,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, (uint)(int)-10),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-call-oob-eq", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 4,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM,  0,          1, 0, 2), /* target=4==text_cnt */
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-bad-src-2", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 2, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-bad-src-9", FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 9, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  TEST_V3_ERROR("static-stack-ovflw", FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED, 2,
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_IMM, 0, 1, 0, (uint)(int)-1), /* self-call (target=0) */
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,     0, 0, 0, 0),
+  );
+
+  /* SIMD-0377: JMP32 (SBPF V3+)
+     Branch taken -> r0=2, not taken -> r0=1. */
+
+  /* JEQ32 */
+
+  TEST_V3_SUCCESS("jeq32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jeq32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jeq32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jeq32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JGT32 */
+
+  TEST_V3_SUCCESS("jgt32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jgt32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jgt32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jgt32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JGE32 */
+
+  TEST_V3_SUCCESS("jge32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jge32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jge32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jge32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JSET32 */
+
+  TEST_V3_SUCCESS("jset32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 3),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jset32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jset32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 3),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jset32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JNE32 */
+
+  TEST_V3_SUCCESS("jne32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_IMM, FD_SBPF_R1, 0, 1, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jne32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jne32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jne32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JSGT32 */
+
+  TEST_V3_SUCCESS("jsgt32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JSGE32 */
+
+  TEST_V3_SUCCESS("jsge32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsge32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsge32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jsge32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JLT32 */
+
+  TEST_V3_SUCCESS("jlt32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jlt32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jlt32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 4),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jlt32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JLE32 */
+
+  TEST_V3_SUCCESS("jle32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jle32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLE32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jle32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jle32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0,          0, 6),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  /* JSLT32 */
+
+  TEST_V3_SUCCESS("jslt32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jslt32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jslt32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jslt32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JSLE32 */
+
+  TEST_V3_SUCCESS("jsle32-imm-taken", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLE32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsle32-imm-ntaken", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLE32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsle32-reg-taken", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+  TEST_V3_SUCCESS("jsle32-reg-ntaken", 1, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JMP32 32-bit truncation: upper 32 bits should be ignored */
+  TEST_V3_SUCCESS("jeq32-trunc-imm", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0, 0, 5),
+    FD_SBPF_INSTR(0,                     0,          0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 5),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jeq32-trunc-reg", 2, 9,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0,          0, 5),
+    FD_SBPF_INSTR(0,                     0,          0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R2, 0,          0, 5),
+    FD_SBPF_INSTR(0,                     0,          0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  TEST_V3_SUCCESS("jne32-trunc-reg", 1, 9,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0,          0, 0x42),
+    FD_SBPF_INSTR(0,                     0,          0,          0, 0xDEAD),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R2, 0,          0, 0x42),
+    FD_SBPF_INSTR(0,                     0,          0,          0, 0xBEEF),
+    FD_SBPF_INSTR(FD_SBPF_OP_JNE32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0,          0, 0),
+  );
+
+  TEST_V3_SUCCESS("jeq32-hi-set-lo0", 2, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(0,                     0,          0, 0, 0xFFFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  /* JMP32 signed vs unsigned cross-boundary edge cases */
+  TEST_V3_SUCCESS("jgt32-0x80000000", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-0x80000000", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jgt32-0xffffffff", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-neg1-vs-0", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jsgt32-max-vs-min", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jgt32-max-vs-min", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jsgt32-neg2-neg1", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-2),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jsgt32-neg1-neg2", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGT32_IMM, FD_SBPF_R1, 0, 1, (uint)(int)-2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jsge32-min-vs-max", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSGE32_IMM, FD_SBPF_R1, 0, 1, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jge32-min-vs-max", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_JGE32_IMM, FD_SBPF_R1, 0, 1, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jslt32-max-vs-min", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSLT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+  TEST_V3_SUCCESS("jlt32-max-vs-min", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0x7FFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JLT32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  /* JSET32 bit-test edge cases */
+  TEST_V3_SUCCESS("jset32-no-overlap", 1, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0xAAAAAAAAU),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 0x55555555U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jset32-all-overlap", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 0xFFFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jset32-high-bit", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R1, 0, 0, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_IMM, FD_SBPF_R1, 0, 1, 0x80000000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jset32-upper-only", 1, 9,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,       FD_SBPF_R1, 0,          0, 0),
+    FD_SBPF_INSTR(0,                      0,          0,          0, 0xFFFF0000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,       FD_SBPF_R2, 0,          0, 0),
+    FD_SBPF_INSTR(0,                      0,          0,          0, 0xFFFF0000U),
+    FD_SBPF_INSTR(FD_SBPF_OP_JSET32_REG, FD_SBPF_R1, FD_SBPF_R2, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM,  FD_SBPF_R0, 0,          0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,       0,          0,          0, 0),
+  );
+
+  /* JMP32 boundary values */
+  TEST_V3_SUCCESS("jeq32-both-zero", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  TEST_V3_SUCCESS("jeq32-both-max", 2, 6,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R1, 0, 0, (uint)(int)-1),
+    FD_SBPF_INSTR(FD_SBPF_OP_JEQ32_IMM, FD_SBPF_R1, 0, 1, 0xFFFFFFFFU),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 2),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  /* SIMD-0377: CALLX uses dst register in V3 */
+
+  TEST_V3_SUCCESS("callx-dst-reg", 42, 7,
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_LDDW,      FD_SBPF_R1, 0, 0, 5*8),
+    FD_SBPF_INSTR(0,                     0,         0, 0, 1),
+    FD_SBPF_INSTR(FD_SBPF_OP_CALL_REG,  FD_SBPF_R1, 0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+    FD_SBPF_INSTR(FD_SBPF_OP_MOV64_IMM, FD_SBPF_R0, 0, 0, 42),
+    FD_SBPF_INSTR(FD_SBPF_OP_EXIT,      0,          0, 0, 0),
+  );
+
+  /* CALLX validation */
+  {
+    ulong vtext_callx_inv[] = {
+      fd_vm_instr( FD_SBPF_OP_CALL_REG, 10, 0, 0, 0 ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0 ),
+    };
+    FD_TEST( test_vm_validate( FD_SBPF_V3, vtext_callx_inv, 2, syscalls, instr_ctx )==FD_VM_ERR_INVALID_REG );
+    FD_LOG_NOTICE(( "%-20s PASS", "callx-dst-inv-v3" ));
+  }
+
+  {
+    ulong vtext_callx_ok[] = {
+      fd_vm_instr( FD_SBPF_OP_CALL_REG, 9, 0, 0, 0 ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,     0, 0, 0, 0 ),
+    };
+    FD_TEST( test_vm_validate( FD_SBPF_V3, vtext_callx_ok, 2, syscalls, instr_ctx )==FD_VM_SUCCESS );
+    FD_LOG_NOTICE(( "%-20s PASS", "callx-dst-max-v3" ));
+  }
+
+  {
+    ulong vtext_jmp32[] = {
+      fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 0, 0, 0, 0 ),
+      fd_vm_instr( FD_SBPF_OP_JEQ32_IMM, 0, 0, 0, 0 ),
+      fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0 ),
+    };
+    FD_TEST( test_vm_validate( FD_SBPF_V0, vtext_jmp32, 3, syscalls, instr_ctx )!=FD_VM_SUCCESS );
+    FD_TEST( test_vm_validate( FD_SBPF_V3, vtext_jmp32, 3, syscalls, instr_ctx )==FD_VM_SUCCESS );
+    FD_LOG_NOTICE(( "%-20s PASS", "jmp32-vfy-gate" ));
+  }
+
+  test_stack_configuration( syscalls, instr_ctx );
+
   ulong   text_cnt = 128*1024*1024;
   ulong * text     = (ulong *)malloc( sizeof(ulong)*text_cnt ); /* FIXME: gross */
 
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success( "alu_bench", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu_bench", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success( "alu64_bench", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu64_bench", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   text_cnt = 1024UL;
   generate_random_alu_instrs( rng, text, text_cnt );
-  test_program_success( "alu_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu_bench_short", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   generate_random_alu64_instrs( rng, text, text_cnt );
-  test_program_success( "alu64_bench_short", 0x0, text, text_cnt, syscalls, instr_ctx );
+  test_program_exec( "alu64_bench_short", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   test_0cu_exit( runtime );
 

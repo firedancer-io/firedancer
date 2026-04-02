@@ -37,12 +37,14 @@ typedef union fd_sbpf_elf fd_sbpf_elf_t;
 
    FIXME: These should be defined elsewhere */
 
-#define FD_SBPF_MM_BYTECODE_ADDR (0x0UL)         /* bytecode */
-#define FD_SBPF_MM_RODATA_ADDR   (0x100000000UL) /* readonly program data */
-#define FD_SBPF_MM_PROGRAM_ADDR  (0x100000000UL) /* readonly program data */
-#define FD_SBPF_MM_STACK_ADDR    (0x200000000UL) /* stack */
-#define FD_SBPF_MM_HEAP_ADDR     (0x300000000UL) /* heap */
-#define FD_SBPF_MM_REGION_SZ     (0x100000000UL) /* max region size */
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/ebpf.rs#L42-L43 */
+#define FD_SBPF_MM_RODATA_START   (0x0UL)         /* readonly data */
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/ebpf.rs#L44-L45 */
+#define FD_SBPF_MM_BYTECODE_START (0x100000000UL) /* bytecode / program region */
+#define FD_SBPF_MM_PROGRAM_ADDR   FD_SBPF_MM_BYTECODE_START
+#define FD_SBPF_MM_STACK_ADDR     (0x200000000UL) /* stack */
+#define FD_SBPF_MM_HEAP_ADDR      (0x300000000UL) /* heap */
+#define FD_SBPF_MM_REGION_SZ      (0x100000000UL) /* max region size */
 
 #define FD_SBPF_PF_X  (1U) /* executable */
 #define FD_SBPF_PF_W  (2U) /* writable */
@@ -174,21 +176,19 @@ fd_sbpf_program_new( void *                     prog_mem,
 
   /* Note that entry_pc and rodata_sz get set during the loading phase. */
   *prog = (fd_sbpf_program_t) {
-    .info      = *elf_info,
-    .rodata    = rodata,
-    .rodata_sz = 0UL,
-    .text      = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
-    .entry_pc  = ULONG_MAX,
+    .info            = *elf_info,
+    .rodata          = rodata,
+    .rodata_sz       = 0UL,
+    .text            = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
+    .entry_pc        = ULONG_MAX,
+    .calldests_shmem = NULL,
+    .calldests       = NULL,
   };
 
-  /* If the text section is empty, then we do not need a calldests map. */
+  /* If the text section is empty, or the program is SBPF V3+, then we
+     do not need a calldests map. */
   ulong pc_max = elf_info->calldests_max;
-  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) || pc_max==0UL ) ) {
-    /* No calldests map in SBPF v3+ or if text_cnt is 0. */
-    prog->calldests_shmem = NULL;
-    prog->calldests       = NULL;
-  } else {
-    /* Initialize calldests map. */
+  if( FD_LIKELY( ( !fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) ) && pc_max!=0UL ) ) {
     prog->calldests_shmem = fd_sbpf_calldests_new(
           FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
                                           fd_sbpf_calldests_footprint( pc_max ) ),
@@ -737,8 +737,7 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
 
   /* Parse file header */
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L425
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L278
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L418
      (Agave does some extra checks on alignment, but they don't seem necessary) */
   if( FD_UNLIKELY( bin_sz<sizeof(fd_elf64_ehdr) ) ) {
     return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
@@ -746,19 +745,20 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
 
   fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, bin );
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L430-L453 */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L419-L422 */
   ulong program_header_table_end = fd_ulong_sat_add( sizeof(fd_elf64_ehdr), fd_ulong_sat_mul( ehdr.e_phnum, sizeof(fd_elf64_phdr) ) );
 
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L423-L446 */
   int parse_ehdr_err =
       ( fd_uint_load_4( ehdr.e_ident )    != FD_ELF_MAG_LE         )
     | ( ehdr.e_ident[ FD_ELF_EI_CLASS   ] != FD_ELF_CLASS_64       )
     | ( ehdr.e_ident[ FD_ELF_EI_DATA    ] != FD_ELF_DATA_LE        )
     | ( ehdr.e_ident[ FD_ELF_EI_VERSION ] != 1                     )
     | ( ehdr.e_ident[ FD_ELF_EI_OSABI   ] != FD_ELF_OSABI_NONE     )
-    // The 7 padding bytes [9, 16) must be 0. Byte 8 (EI_OSABI) is 0 due to above check, so check [8, 16).
+    // The 7 padding bytes [9, 16) must be 0. Byte 8 (EI_ABIVERSION) is also 0, so check [8, 16).
     | ( fd_ulong_load_8( ehdr.e_ident+8 ) != 0UL                   )
-    | ( ehdr.e_type                       != FD_ELF_ET_DYN         )
-    | ( ehdr.e_machine                    != FD_ELF_EM_SBPF        )
+    // | ( ehdr.e_type )                                              /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L430 */
+    | ( ehdr.e_machine                    != FD_ELF_EM_BPF         )  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L431 */
     | ( ehdr.e_version                    != 1                     )
     // | ( ehdr.e_entry )
     | ( ehdr.e_phoff                      != sizeof(fd_elf64_ehdr) )
@@ -766,62 +766,81 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
     // | ( ehdr.e_flags )
     | ( ehdr.e_ehsize                     != sizeof(fd_elf64_ehdr) )
     | ( ehdr.e_phentsize                  != sizeof(fd_elf64_phdr) )
-    | ( ehdr.e_phnum                      <  EXPECTED_PHDR_CNT     ) /* SIMD-0189 says < instead of != */
-    | ( program_header_table_end          >= bin_sz                )
-    | ( ehdr.e_shentsize                  != sizeof(fd_elf64_shdr) )
-    // | ( ehdr.e_shnum )
-    | ( ehdr.e_shstrndx                   >= ehdr.e_shnum          )
+    | ( ehdr.e_phnum                      == 0                     ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L439 */
+    | ( program_header_table_end          >  bin_sz                ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L440 */
+    // | ( ehdr.e_shentsize )                                        /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L441 */
+    // | ( ehdr.e_shnum )                                            /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L442 */
+    // | ( ehdr.e_shstrndx )                                         /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L443 */
   ;
   if( FD_UNLIKELY( parse_ehdr_err ) ) {
     return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L462 */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L452-L453 */
   if( FD_UNLIKELY( (program_header_table_end-sizeof(fd_elf64_ehdr))%sizeof(fd_elf64_phdr) ) ) {
     return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
   }
-  if( FD_UNLIKELY( program_header_table_end>bin_sz ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+
+  /* Parse program headers (expecting up to 2 segments: rodata + bytecode)
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L448-L484 */
+
+  #define STRICT_EXPECTED_PHDR_CNT (2U)
+  ulong expected_p_vaddr[ STRICT_EXPECTED_PHDR_CNT ] = { FD_SBPF_MM_RODATA_START, FD_SBPF_MM_BYTECODE_START };
+  uint  expected_p_flags[ STRICT_EXPECTED_PHDR_CNT ] = { FD_SBPF_PF_R,            FD_SBPF_PF_X              };
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L455-L463
+     If the first PH is not marked as readonly, expect the rodata
+     segment to be skipped. */
+  fd_elf64_phdr phdr0 = FD_LOAD( fd_elf64_phdr, bin + sizeof(fd_elf64_ehdr) );
+  int skip_rodata = ( phdr0.p_flags != expected_p_flags[ 0 ] );
+  uint ph_start = skip_rodata ? 1U : 0U;
+
+  if( FD_UNLIKELY( !skip_rodata && ehdr.e_phnum < 2 ) ) {
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L461-L463 */
+    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
   }
-  /* This is always true ... */
-  // if( FD_UNLIKELY( !fd_ulong_is_aligned( sizeof(fd_elf64_ehdr), 8UL ) ) ) {
-  //   return FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT;
-  // }
 
-  /* Parse program headers (expecting 4 segments) */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L464 */
+  ulong expected_offset = program_header_table_end;
+  fd_elf64_phdr bytecode_phdr = {0};
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L455-L487
-     Note: Agave iterates with a zip, i.e. it cuts the loop to 4, even
-           though the number of phdrs is allowed to be higher. */
-  ulong expected_p_vaddr[ EXPECTED_PHDR_CNT ] = { FD_SBPF_MM_BYTECODE_ADDR, FD_SBPF_MM_RODATA_ADDR, FD_SBPF_MM_STACK_ADDR, FD_SBPF_MM_HEAP_ADDR };
-  uint  expected_p_flags[ EXPECTED_PHDR_CNT ] = { FD_SBPF_PF_X,             FD_SBPF_PF_R,           FD_SBPF_PF_RW,         FD_SBPF_PF_RW        };
-  fd_elf64_phdr     phdr[ EXPECTED_PHDR_CNT ];
-  for( uint i=0; i<EXPECTED_PHDR_CNT; i++ ) {
-    ulong phdr_off = sizeof(fd_elf64_ehdr) + i*sizeof(fd_elf64_phdr);
-    phdr[ i ] = FD_LOAD( fd_elf64_phdr, bin+phdr_off );
+  uint ph_count = fd_uint_min( ehdr.e_phnum, STRICT_EXPECTED_PHDR_CNT );
+  for( uint ei=ph_start, pi=0; ei<STRICT_EXPECTED_PHDR_CNT && pi<ph_count; ei++, pi++ ) {
+    fd_elf64_phdr phdr_i = FD_LOAD( fd_elf64_phdr, bin + sizeof(fd_elf64_ehdr) + pi*sizeof(fd_elf64_phdr) );
 
-    ulong p_filesz = ( expected_p_flags[ i ] & FD_SBPF_PF_W ) ? 0UL : phdr[ i ].p_memsz;
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L468-L479 */
     int parse_phdr_err =
-        ( phdr[ i ].p_type         != FD_ELF_PT_LOAD              )
-      | ( phdr[ i ].p_flags        != expected_p_flags[ i ]       )
-      | ( phdr[ i ].p_offset       <  program_header_table_end    )
-      | ( phdr[ i ].p_offset       >= bin_sz                      )
-      | ( phdr[ i ].p_offset % 8UL != 0UL                         )
-      | ( phdr[ i ].p_vaddr        != expected_p_vaddr[ i ]       )
-      | ( phdr[ i ].p_paddr        != expected_p_vaddr[ i ]       )
-      | ( phdr[ i ].p_filesz       != p_filesz                    )
-      | ( phdr[ i ].p_filesz       >  bin_sz - phdr[ i ].p_offset )
-      | ( phdr[ i ].p_filesz % 8UL != 0UL                         )
-      | ( phdr[ i ].p_memsz        >= FD_SBPF_MM_REGION_SZ        )
+        ( phdr_i.p_type         != FD_ELF_PT_LOAD              )
+      | ( phdr_i.p_flags        != expected_p_flags[ ei ]      )
+      | ( phdr_i.p_offset       != expected_offset             ) /* exact sequential: https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L470 */
+      | ( phdr_i.p_offset       >= bin_sz                      )
+      | ( phdr_i.p_offset % 8UL != 0UL                         )
+      | ( phdr_i.p_vaddr        != expected_p_vaddr[ ei ]      )
+      | ( phdr_i.p_paddr        != expected_p_vaddr[ ei ]      )
+      | ( phdr_i.p_filesz       != phdr_i.p_memsz              ) /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L475 */
+      | ( phdr_i.p_filesz       >  bin_sz - phdr_i.p_offset    )
+      | ( phdr_i.p_filesz % 8UL != 0UL                         )
+      | ( phdr_i.p_memsz        >= FD_SBPF_MM_REGION_SZ        )
     ;
     if( FD_UNLIKELY( parse_phdr_err ) ) {
       return FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER;
     }
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L483 */
+    expected_offset = fd_ulong_sat_add( expected_offset, phdr_i.p_filesz );
+    if( ei == 1 ) { bytecode_phdr = phdr_i; }
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L489-L506 */
-  ulong vm_range_start = phdr[ 0 ].p_vaddr;
-  ulong vm_range_end = phdr[ 0 ].p_vaddr + phdr[ 0 ].p_memsz;
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L486-L496
+     Determine bytecode_header based on skip_rodata */
+  if( skip_rodata ) {
+    bytecode_phdr = phdr0;
+  }
+  #undef STRICT_EXPECTED_PHDR_CNT
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L501-L508 */
+  ulong vm_range_start = bytecode_phdr.p_vaddr;
+  ulong vm_range_end = bytecode_phdr.p_vaddr + bytecode_phdr.p_memsz;
   ulong entry_chk = ehdr.e_entry + 7UL;
   int parse_e_entry_err =
      !( vm_range_start <= entry_chk && entry_chk < vm_range_end ) /* rust contains includes min, excludes max*/
@@ -831,23 +850,17 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
     return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L507-L515 */
-  ulong entry_pc = ( ehdr.e_entry - phdr[ 0 ].p_vaddr ) / 8UL;
-  ulong insn = fd_ulong_load_8( (uchar const *) bin + phdr[ 0 ].p_offset + entry_pc*8UL );
-  /* Entrypoint must be a valid function start (ADD64_IMM with dst=r10)
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L588 */
-  if( FD_UNLIKELY( !fd_sbpf_is_function_start( fd_sbpf_instr( insn ) ) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
-  }
+  /* entry_pc is computed later in fd_sbpf_program_load.
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L510-L514 */
 
   /* config.enable_symbol_and_section_labels is false in production,
      so there's nothing else to do.
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L519 */
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L516-L518 */
 
   info->bin_sz   = bin_sz;
-  info->text_off = (uint)phdr[ 0 ].p_offset;
-  info->text_sz  = (uint)phdr[ 0 ].p_memsz;
-  info->text_cnt = (uint)( phdr[ 0 ].p_memsz / 8UL );
+  info->text_off = skip_rodata ? 0U : (uint)phdr0.p_memsz;
+  info->text_sz  = (uint)bytecode_phdr.p_memsz;
+  info->text_cnt = (uint)( bytecode_phdr.p_memsz / 8UL );
 
   return FD_SBPF_ELF_SUCCESS;
 }
@@ -1459,7 +1472,7 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L620-L638 */
   {
-    ulong text_section_vaddr = fd_ulong_sat_add( text_shdr.sh_addr, FD_SBPF_MM_RODATA_ADDR );
+    ulong text_section_vaddr = fd_ulong_sat_add( text_shdr.sh_addr, FD_SBPF_MM_BYTECODE_START );
     ulong vaddr_end          = text_section_vaddr;
 
     /* Validate bounds and text section addrs / offsets.
@@ -1610,8 +1623,8 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L886-L897 */
     ulong vaddr_end = section_addr;
-    if( section_addr<FD_SBPF_MM_RODATA_ADDR ) {
-      vaddr_end = fd_ulong_sat_add( section_addr, FD_SBPF_MM_RODATA_ADDR );
+    if( section_addr<FD_SBPF_MM_BYTECODE_START ) {
+      vaddr_end = fd_ulong_sat_add( section_addr, FD_SBPF_MM_BYTECODE_START );
     }
 
     if( FD_UNLIKELY( ( config->reject_broken_elfs && invalid_offsets ) ||
@@ -1887,6 +1900,42 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
   return FD_SBPF_ELF_SUCCESS;
 }
 
+/* Strict ELF loading (for SBPF V3+ programs).
+
+   SBPF V3+ programs do not require relocations or calldests, so this
+   function is much cheaper than fd_sbpf_program_load_lenient.
+
+   https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L406-L590 */
+static int
+fd_sbpf_program_load_strict( fd_sbpf_program_t * prog,
+                             void const *        bin ) {
+  fd_elf64_ehdr ehdr   = FD_LOAD( fd_elf64_ehdr, bin );
+  fd_elf64_phdr phdr_0 = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr) );
+  int skip_rodata      = phdr_0.p_flags != FD_SBPF_PF_R;
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L486-L496 */
+  fd_elf64_phdr bytecode_phdr;
+  if( FD_UNLIKELY( skip_rodata ) ) {
+    prog->rodata_sz = 0UL;
+    bytecode_phdr   = phdr_0;
+  } else {
+    prog->rodata_sz = phdr_0.p_memsz;
+    bytecode_phdr   = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr)+sizeof(fd_elf64_phdr) );
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L493
+       https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L497 */
+    fd_memcpy( prog->rodata, (uchar const *)bin + phdr_0.p_offset, phdr_0.p_filesz );
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L498-L499 */
+  prog->text = (ulong *)( (uchar *)prog->rodata + prog->rodata_sz );
+  fd_memcpy( (uchar *)prog->text, (uchar const *)bin + bytecode_phdr.p_offset, bytecode_phdr.p_filesz );
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L510-L514 */
+  prog->entry_pc = fd_ulong_sat_sub( ehdr.e_entry, bytecode_phdr.p_vaddr ) / 8UL;
+  return FD_SBPF_ELF_SUCCESS;
+}
+
 int
 fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       void const *                    bin,
@@ -1902,24 +1951,11 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
 
   /* Invoke strict vs lenient loader
      Note: info.sbpf_version is already set by fd_sbpf_program_parse()
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L409 */
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L396-L402 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( prog->info.sbpf_version ) ) ) {
-    /* There is nothing else to do in the strict case except updating
-       the prog->rodata_sz field from phdr[ 1 ].p_memsz, and setting
-       the entry_pc. */
-    fd_elf64_ehdr ehdr     = FD_LOAD( fd_elf64_ehdr, bin );
-    fd_elf64_phdr phdr_0   = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr) );
-    fd_elf64_phdr phdr_1   = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr)+sizeof(fd_elf64_phdr) );
-    prog->rodata_sz        = phdr_1.p_memsz;
-    prog->entry_pc         = ( ehdr.e_entry-phdr_0.p_vaddr )/8UL;
-    return FD_SBPF_ELF_SUCCESS;
+    return fd_sbpf_program_load_strict( prog, bin );
   }
-  int res = fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config, scratch, scratch_sz );
-  if( FD_UNLIKELY( res!=FD_SBPF_ELF_SUCCESS ) ) {
-    return res;
-  }
-
-  return FD_SBPF_ELF_SUCCESS;
+  return fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config, scratch, scratch_sz );
 }
 
 #undef ERR

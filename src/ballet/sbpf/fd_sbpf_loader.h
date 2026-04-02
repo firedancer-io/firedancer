@@ -347,28 +347,46 @@ fd_sbpf_program_delete( fd_sbpf_program_t * program );
 #define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN (64U)
 
 /* SIMD-0166 */
-static inline int fd_sbpf_dynamic_stack_frames_enabled       ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V1; }
-
-/* SIMD-0173 */
-static inline int fd_sbpf_callx_uses_src_reg_enabled         ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
-static inline int fd_sbpf_enable_lddw_enabled                ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
-static inline int fd_sbpf_enable_le_enabled                  ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
-static inline int fd_sbpf_move_memory_ix_classes_enabled     ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L32-L34 */
+static inline int fd_sbpf_manual_stack_frame_bump_enabled            ( ulong v ) { return v==FD_SBPF_V1 || v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L36-L38 */
+static inline int fd_sbpf_stack_frame_gaps_enabled                   ( ulong v ) { return v==FD_SBPF_V0; }
 
 /* SIMD-0174 */
-static inline int fd_sbpf_enable_neg_enabled                 ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
-static inline int fd_sbpf_swap_sub_reg_imm_operands_enabled  ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
-static inline int fd_sbpf_explicit_sign_ext_enabled          ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
-static inline int fd_sbpf_enable_pqr_enabled                 ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L41-L43 */
+static inline int fd_sbpf_enable_pqr_enabled                         ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L45-L47 */
+static inline int fd_sbpf_explicit_sign_extension_of_results_enabled ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L49-L51 */
+static inline int fd_sbpf_swap_sub_reg_imm_operands_enabled          ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L53-L55 */
+static inline int fd_sbpf_disable_neg_enabled                        ( ulong v ) { return v==FD_SBPF_V2; }
+
+/* SIMD-0173 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L58-L60 */
+static inline int fd_sbpf_callx_uses_src_reg_enabled                 ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L62-L64 */
+static inline int fd_sbpf_disable_lddw_enabled                       ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L66-L68 */
+static inline int fd_sbpf_disable_le_enabled                         ( ulong v ) { return v==FD_SBPF_V2; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L70-L72 */
+static inline int fd_sbpf_move_memory_ix_classes_enabled             ( ulong v ) { return v==FD_SBPF_V2; }
 
 /* SIMD-0178 */
-static inline int fd_sbpf_static_syscalls_enabled            ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
-static inline int fd_sbpf_enable_elf_vaddr_enabled           ( ulong sbpf_version ) { return sbpf_version!=FD_SBPF_V0; }
-static inline int fd_sbpf_reject_rodata_stack_overlap_enabled( ulong sbpf_version ) { return sbpf_version!=FD_SBPF_V0; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L75-L77 */
+static inline int fd_sbpf_static_syscalls_enabled                    ( ulong v ) { return v>=FD_SBPF_V3; }
 
 /* SIMD-0189 */
-static inline int fd_sbpf_enable_stricter_elf_headers_enabled( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
-static inline int fd_sbpf_enable_lower_bytecode_vaddr_enabled( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L79-L81 */
+static inline int fd_sbpf_enable_stricter_elf_headers_enabled        ( ulong v ) { return v>=FD_SBPF_V3; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L83-L85 */
+static inline int fd_sbpf_enable_lower_rodata_vaddr_enabled          ( ulong v ) { return v>=FD_SBPF_V3; }
+
+/* SIMD-0377 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L87-L89 */
+static inline int fd_sbpf_enable_jmp32_enabled                       ( ulong v ) { return v>=FD_SBPF_V3; }
+/* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L91-L93 */
+static inline int fd_sbpf_callx_uses_dst_reg_enabled                 ( ulong v ) { return v>=FD_SBPF_V3; }
 
 FD_PROTOTYPES_END
 

@@ -477,7 +477,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        In this case, Agave fails the transaction but does not error out.
 
        https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1396 */
-    FD_LOG_WARNING(( "null vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 

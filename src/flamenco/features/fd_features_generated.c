@@ -1450,8 +1450,8 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_sbpf_v3_deployment_and_execution)>>3,
-    .id                        = {"\x9b\xbc\xe8\x7b\x1e\x38\xee\x66\x59\xb3\x0e\x4c\x46\xc7\xc0\xc8\xc2\xd4\xc4\x58\x7f\xcb\x89\x1a\xa1\x2a\x01\xd6\xe2\xf4\x69\xa1"},
-                                 /* BUwGLeF3Lxyfv1J1wY8biFHBB2hrk2QhbNftQf3VV3cC */
+    .id                        = {"\x44\x72\x90\xd7\xfd\xc5\x1f\x0f\x09\xfb\xd2\x3d\xab\x6b\xc2\xa5\x66\x47\x49\xe7\x6e\xe5\xff\xb6\x3b\xb9\xb6\x3c\x39\x78\x78\xcd"},
+                                 /* 5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC */
     .name                      = "enable_sbpf_v3_deployment_and_execution",
     .cleaned_up                = 0 },
 
@@ -2052,7 +2052,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_206 0xe5937c9dd5edd306UL, .val = &ids[206]
 #define MAP_PERFECT_207 0xefc2cb9c2b40f3ffUL, .val = &ids[207]
 #define MAP_PERFECT_208 0x408e6a8a269a6ad1UL, .val = &ids[208]
-#define MAP_PERFECT_209 0x66ee381e7be8bc9bUL, .val = &ids[209]
+#define MAP_PERFECT_209 0x0f1fc5fdd7907244UL, .val = &ids[209]
 #define MAP_PERFECT_210 0xf46b1f18665c4236UL, .val = &ids[210]
 #define MAP_PERFECT_211 0xa9a90df1904da912UL, .val = &ids[211]
 #define MAP_PERFECT_212 0x2434a84be5b684a5UL, .val = &ids[212]
