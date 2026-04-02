@@ -313,7 +313,7 @@ struct fd_bank {
     ulong                             tips;
     ulong                             signature_count;
     fd_hash_t                         poh;
-    fd_sol_sysvar_last_restart_slot_t last_restart_slot;
+    ulong                             last_restart_slot;
     fd_hash_t                         bank_hash;
     fd_hash_t                         prev_bank_hash;
     fd_hash_t                         genesis_hash;

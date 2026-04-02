@@ -139,7 +139,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_last_restart_slot_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, 8UL ) );
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -149,20 +149,20 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT,
-    .sz       = sizeof(fd_sol_sysvar_last_restart_slot_t),
+    .sz       = 8UL,
     .is_slice = 0,
   };
 
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
-  if( FD_UNLIKELY( !fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache, &last_restart_slot ) ) ) {
+  ulong last_restart_slot = fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache );
+  if( FD_UNLIKELY( last_restart_slot==ULONG_MAX ) ) {
     FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
 
-  memcpy( var_query.haddr, &last_restart_slot, sizeof(fd_sol_sysvar_last_restart_slot_t) );
+  memcpy( var_query.haddr, &last_restart_slot, 8UL );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;

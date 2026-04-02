@@ -10,7 +10,6 @@
 SIMPLE_SYSVAR( clock,             CLOCK,             sol_sysvar_clock             ) \
 SIMPLE_SYSVAR( epoch_rewards,     EPOCH_REWARDS,     sysvar_epoch_rewards         ) \
 SIMPLE_SYSVAR( epoch_schedule,    EPOCH_SCHEDULE,    epoch_schedule               ) \
-SIMPLE_SYSVAR( last_restart_slot, LAST_RESTART_SLOT, sol_sysvar_last_restart_slot ) \
 SIMPLE_SYSVAR( rent,              RENT,              rent                         )
 
 /* Declare a perfect hash table mapping sysvar IDs to sysvar cache slots
@@ -88,7 +87,7 @@ static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
     { .name="last restart slot",
       .data_off=offsetof(fd_sysvar_cache_t, bin_last_restart_slot), .data_max=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ,
       .obj_off =offsetof(fd_sysvar_cache_t, obj_last_restart_slot), .obj_max =FD_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT,
-      TYPES_CALLBACKS( sol_sysvar_last_restart_slot, ) },
+    },
   [FD_SYSVAR_recent_hashes_IDX] =
     { .name="recent blockhashes",
       .data_off=offsetof(fd_sysvar_cache_t, bin_recent_hashes    ), .data_max=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ,
