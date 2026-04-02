@@ -156,8 +156,6 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_CHECK_CALL_REG_SRC  ((uchar)9)  /* Validation should check that callx has valid register number in src */
 # define FD_CHECK_CALL_REG_DST  ((uchar)13) /* Validation should check that callx has a valid register number in dst */
 # define FD_CHECK_CALL_REG_IMM  ((uchar)10) /* Validation should check that callx has a valid register number in imm */
-# define FD_CHECK_CALL_IMM      ((uchar)11) /* Check call against functions registry */
-# define FD_CHECK_SYSCALL       ((uchar)12) /* Check call against syscalls registry */
 
   uchar validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -436,27 +434,6 @@ fd_vm_validate( fd_vm_t const * vm ) {
     case FD_CHECK_CALL_REG_DST: {
       if( FD_UNLIKELY( instr.dst_reg > 9 ) ) {
         return FD_VM_ERR_INVALID_REG;
-      }
-      break;
-    }
-
-    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/verifier.rs#L403-L409 */
-    case FD_CHECK_CALL_IMM: {
-      ulong target_pc = (ulong)( fd_long_sat_add( (long)i, fd_long_sat_add( (long)(int)instr.imm, 1 ) ) );
-      if( FD_UNLIKELY( !(
-        target_pc<text_cnt && fd_sbpf_is_function_start( fd_sbpf_instr( text[target_pc] ) )
-      ) ) ) {
-        return FD_VM_INVALID_FUNCTION;
-      }
-      break;
-    }
-
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L414-L423 */
-    case FD_CHECK_SYSCALL: {
-      /* check active syscall */
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, (ulong)instr.imm, NULL );
-      if( FD_UNLIKELY( !syscall ) ) {
-        return FD_VM_INVALID_SYSCALL;
       }
       break;
     }
