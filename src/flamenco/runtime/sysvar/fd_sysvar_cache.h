@@ -240,11 +240,8 @@ fd_sysvar_cache_last_restart_slot_is_valid( fd_sysvar_cache_t const * sysvar_cac
   return FD_SYSVAR_IS_VALID( sysvar_cache, last_restart_slot );
 }
 
-fd_sol_sysvar_last_restart_slot_t *
-fd_sysvar_cache_last_restart_slot_read(
-    fd_sysvar_cache_t const *           sysvar_cache,
-    fd_sol_sysvar_last_restart_slot_t * out
-);
+ulong
+fd_sysvar_cache_last_restart_slot_read( fd_sysvar_cache_t const * sysvar_cache );
 
 static inline int
 fd_sysvar_cache_rent_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {

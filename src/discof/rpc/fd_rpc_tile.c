@@ -248,7 +248,7 @@ struct fd_rpc_tile {
 
   long next_poll_deadline;
 
-  char version_string[ 16UL ];
+  char version_string[ 64UL ];
 
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];

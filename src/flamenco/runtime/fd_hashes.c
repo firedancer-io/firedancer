@@ -35,7 +35,7 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
     return;
   }
 
-  uchar executable_flag = executable & 0x1;
+  uchar executable_flag = !!executable;
 
   fd_blake3_t b3[1];
   fd_blake3_init( b3 );

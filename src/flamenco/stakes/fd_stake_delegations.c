@@ -6,6 +6,7 @@
 #define POOL_T     fd_stake_delegation_t
 #define POOL_NEXT  next_
 #define POOL_IDX_T uint
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               root_map
@@ -22,6 +23,7 @@
 #define POOL_T     fd_stake_delegation_t
 #define POOL_NEXT  next_
 #define POOL_IDX_T uint
+#define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
 
 #define DLIST_NAME  fork_dlist
@@ -210,11 +212,20 @@ fd_stake_delegations_join( void * mem ) {
 }
 
 void
-fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations ) {
-  root_map_t *            map  = get_root_map( stake_delegations );
-  fd_stake_delegation_t * pool = get_root_pool( stake_delegations );
-  root_pool_reset( pool );
-  root_map_reset( map );
+fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
+  root_pool_reset ( get_root_pool ( stake_delegations ) );
+  root_map_reset  ( get_root_map  ( stake_delegations ) );
+  delta_pool_reset( get_delta_pool( stake_delegations ) );
+  fork_pool_ele_t * fork_pool = get_fork_pool( stake_delegations );
+  fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
+  ulong max_forks = fork_pool_max( fork_pool );
+  for( ulong i=0UL; i<max_forks; i++ ) {
+    fork_dlist_remove_all( get_fork_dlist( stake_delegations, (ushort)i ), delta_pool );
+  }
+  fork_pool_reset( fork_pool );
+  stake_delegations->effective_stake    = 0UL;
+  stake_delegations->activating_stake   = 0UL;
+  stake_delegations->deactivating_stake = 0UL;
 }
 
 fd_stake_delegation_t const *

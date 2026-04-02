@@ -137,14 +137,6 @@ struct fd_poh_config {
 typedef struct fd_poh_config fd_poh_config_t;
 #define FD_POH_CONFIG_ALIGN alignof(fd_poh_config_t)
 
-/* https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/sdk/program/src/last_restart_slot.rs#L7 */
-/* Encoded Size: Fixed (8 bytes) */
-struct fd_sol_sysvar_last_restart_slot {
-  ulong slot;
-};
-typedef struct fd_sol_sysvar_last_restart_slot fd_sol_sysvar_last_restart_slot_t;
-#define FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN alignof(fd_sol_sysvar_last_restart_slot_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
 /* Encoded Size: Dynamic */
 struct fd_slot_history {
@@ -751,17 +743,6 @@ ulong fd_poh_config_size( fd_poh_config_t const * self );
 static inline ulong fd_poh_config_align( void ) { return FD_POH_CONFIG_ALIGN; }
 int fd_poh_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_poh_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_sol_sysvar_last_restart_slot_new( fd_sol_sysvar_last_restart_slot_t * self ) { fd_memset( self, 0, sizeof(fd_sol_sysvar_last_restart_slot_t) ); }
-int fd_sol_sysvar_last_restart_slot_encode( fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_sol_sysvar_last_restart_slot_size( fd_sol_sysvar_last_restart_slot_t const * self ) { (void)self; return 8UL; }
-static inline ulong fd_sol_sysvar_last_restart_slot_align( void ) { return FD_SOL_SYSVAR_LAST_RESTART_SLOT_ALIGN; }
-static inline int fd_sol_sysvar_last_restart_slot_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_sol_sysvar_last_restart_slot_t);
-  if( (ulong)ctx->data + 8UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_sol_sysvar_last_restart_slot_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_history_new( fd_slot_history_t * self );
 int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx );

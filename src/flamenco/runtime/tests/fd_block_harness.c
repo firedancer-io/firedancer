@@ -5,7 +5,6 @@
 #include "../fd_system_ids.h"
 #include "../fd_runtime_stack.h"
 #include "../../stakes/fd_stake_types.h"
-#include "../../stakes/fd_stakes.h"
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -77,8 +76,8 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
       fd_vote_stakes_root_insert_key( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
     } else {
       fd_vote_stakes_root_update_meta( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
-      fd_top_votes_insert( top_votes, &vote_pubkey, &node_pubkey, stake, commission );
     }
+    fd_top_votes_insert( top_votes, &vote_pubkey, &node_pubkey, stake, commission );
   }
 }
 
@@ -237,23 +236,27 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Load in accounts, populate stake delegations and vote accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  fd_stake_delegations_init( stake_delegations );
+  fd_stake_delegations_reset( stake_delegations );
 
   bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   bank->vote_stakes_fork_id = fd_vote_stakes_get_root_idx( vote_stakes );
 
-  fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
-  fd_top_votes_init( top_votes );
+  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
+  fd_top_votes_init( top_votes_t_1 );
+
+  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
+  fd_top_votes_init( top_votes_t_2 );
 
   /* Cap number of vote accounts at FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS */
   FD_TEST( block_bank->vote_accounts_t_1_count<=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
   FD_TEST( block_bank->vote_accounts_t_2_count<=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
 
-  /* Update vote cache for epoch T-1 */
+  /* Update vote cache for epoch T-1.  Populates top_votes_t_1 so that
+     fd_refresh_vote_accounts can shift it into t_2 via memcpy. */
   fd_solfuzz_block_update_prev_epoch_stakes(
-      top_votes,
+      top_votes_t_1,
       vote_stakes,
       block_bank->vote_accounts_t_1,
       block_bank->vote_accounts_t_1_count,
@@ -262,7 +265,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Update vote cache for epoch T-2 */
   fd_solfuzz_block_update_prev_epoch_stakes(
-      top_votes,
+      top_votes_t_2,
       vote_stakes,
       block_bank->vote_accounts_t_2,
       block_bank->vote_accounts_t_2_count,
@@ -276,7 +279,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t pubkey;
     memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
     fd_solfuzz_block_register_vote_account(
-        top_votes,
+        top_votes_t_2,
         accdb,
         xid,
         &pubkey );
