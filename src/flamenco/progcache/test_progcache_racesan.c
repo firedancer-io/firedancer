@@ -957,6 +957,80 @@ test_root_evict_two( fd_wksp_t * wksp ) {
   test_progcache_shmem_delete( shmem );
 }
 
+/* test_publish_evict_stale races advance_root against clock eviction
+   where the evicted record's CLOCK bits are stale.
+   Reproduces the crash from auditor-internal#460 */
+
+static void
+test_publish_evict_stale( fd_wksp_t * wksp ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+
+  fd_xid_t    xid0 = ROOT_XID;
+  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_pubkey_t key  = test_key( 42UL );
+
+  /* epoch_slot0=0 for root pull gives revision_slot=0.
+     epoch_slot0=2 for child pull gives revision_slot=2, which matches
+     xid1.ul[0]=2 so fd_lineage_xid returns xid1 and the record is
+     inserted under xid1's txn (not at root). */
+  fd_prog_load_env_t load_env_root  = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env_child = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 2UL };
+
+  test_account_t acc;
+  test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+
+    /* Pre-populate the same program at root (revision_slot=0) */
+    {
+      fd_progcache_t tmp[1];
+      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, &xid0, &key, &load_env_root, acc.ro, fd_accdb_ref_owner( acc.ro ) );
+      FD_TEST( rec );
+      fd_progcache_rec_close( tmp, rec );
+      fd_progcache_leave( tmp, NULL );
+    }
+
+    /* Create child fork and populate the same key under xid1's txn
+       (revision_slot=2, matching xid1.ul[0]=2).  Peek won't hit
+       the root record because slot 2 != slot 0. */
+    fd_progcache_attach_child( admin, &xid0, &xid1 );
+    {
+      fd_progcache_t tmp[1];
+      FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, &xid1, &key, &load_env_child, acc.ro, fd_accdb_ref_owner( acc.ro ) );
+      FD_TEST( rec );
+      fd_progcache_rec_close( tmp, rec );
+      fd_progcache_leave( tmp, NULL );
+    }
+
+    /* Race advance_root (which gc's old root and retags child to
+       root) against clock eviction (which may see stale CLOCK bits
+       for the gc'd record).  Request evicting 2 records so that
+       clock_evict does a full 2*rec_max scan, wrapping around to
+       revisit entries whose visited bits were cleared on pass 1. */
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_advance_root( &g_fiber[ 0 ], shmem, &xid1 ) );
+    fd_racesan_weave_add( w, fiber_evict(        &g_fiber[ 1 ], shmem, 2UL, 0UL ) );
+
+    metrics_reset();
+    fd_racesan_weave_exec_rand( w, i, STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+
+    fd_racesan_weave_delete( w );
+    fiber_delete( &g_fiber[ 0 ] );
+    fiber_delete( &g_fiber[ 1 ] );
+    FD_TEST( !fd_progcache_verify( admin ) );
+    test_progcache_clear( admin );
+  }
+
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -993,6 +1067,7 @@ main( int     argc,
     TEST( test_root_evict_two ),
     TEST( test_publish_reclaim_evicted ),
     TEST( test_publish_reclaim_queued ),
+    TEST( test_publish_evict_stale ),
     {0}
   };
 # undef TEST
