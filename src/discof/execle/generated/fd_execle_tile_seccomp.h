@@ -24,20 +24,30 @@
 #else
 # error "Target architecture is unsupported by seccomp."
 #endif
-static const unsigned int sock_filter_policy_fd_execle_tile_instr_cnt = 14;
+static const unsigned int sock_filter_policy_fd_execle_tile_instr_cnt = 19;
 
 static void populate_sock_filter_policy_fd_execle_tile( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd ) {
-  FD_TEST( out_cnt >= 14 );
-  struct sock_filter filter[14] = {
+  FD_TEST( out_cnt >= 19 );
+  struct sock_filter filter[19] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 10 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 15 ),
     /* loading syscall number in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
     /* allow write based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 2, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 7, 0 ),
     /* allow fsync based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 5, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 10, 0 ),
+    /* simply allow fstat */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, /* RET_ALLOW */ 12, 0 ),
+    /* simply allow ioctl */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ioctl, /* RET_ALLOW */ 11, 0 ),
+    /* simply allow brk */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_brk, /* RET_ALLOW */ 10, 0 ),
+    /* simply allow mmap */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_mmap, /* RET_ALLOW */ 9, 0 ),
+    /* simply allow writev */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_writev, /* RET_ALLOW */ 8, 0 ),
     /* none of the syscalls matched */
     { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 6 },
 //  check_write:
