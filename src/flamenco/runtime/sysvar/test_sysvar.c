@@ -1,8 +1,6 @@
 #include "test_sysvar_cache.c"
 #include "test_sysvar_clock.c"
-#if FD_HAS_INT128
 #include "test_sysvar_epoch_rewards.c"
-#endif
 #include "test_sysvar_epoch_schedule.c"
 #include "test_sysvar_last_restart_slot.c"
 #include "test_sysvar_recent_hashes.c"
@@ -28,9 +26,6 @@ main( int     argc,
 
   test_sysvar_cache();
 
-# if FD_HAS_INT128
-  test_sysvar_epoch_rewards();
-# endif
   test_sysvar_epoch_schedule();
   test_sysvar_last_restart_slot();
   test_sysvar_recent_hashes( wksp );

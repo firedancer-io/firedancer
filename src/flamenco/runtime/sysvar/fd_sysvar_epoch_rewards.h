@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_rewards_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_rewards_h
 
-#include "../../types/fd_types.h"
-#include "../../accdb/fd_accdb_user.h"
+#include "fd_sysvar.h"
 
 FD_PROTOTYPES_BEGIN
 

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h
 
-#include "../../fd_flamenco_base.h"
+#include "../../types/fd_types_custom.h"
 #include "../../accdb/fd_accdb_base.h"
 
 #define FD_SYSVAR_ALIGN_MAX (16UL)
@@ -9,8 +9,6 @@
 #define FD_SYSVAR_CLOCK_BINCODE_SZ         (    40UL)
 
 #define FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ (    81UL)
-/*      FD_SYSVAR_EPOCH_REWARDS_ALIGN provided by fd_types.h (16UL) */
-#define FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT  (    96UL)
 
 #define FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ (   33UL)
 #define FD_SYSVAR_EPOCH_SCHEDULE_ALIGN      (    8UL)
@@ -40,7 +38,7 @@
 #define FD_SYSVAR_STAKE_HISTORY_ALIGN      (     8UL)
 #define FD_SYSVAR_STAKE_HISTORY_FOOTPRINT  ( 16408UL)
 
-struct fd_sol_sysvar_clock {
+struct __attribute__((packed)) fd_sol_sysvar_clock {
   ulong slot;
   long  epoch_start_timestamp;
   ulong epoch;
@@ -48,5 +46,16 @@ struct fd_sol_sysvar_clock {
   long  unix_timestamp;
 };
 typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
+
+struct __attribute__((packed)) fd_sysvar_epoch_rewards {
+  ulong       distribution_starting_block_height;
+  ulong       num_partitions;
+  fd_hash_t   parent_blockhash;
+  fd_w_u128_t total_points;
+  ulong       total_rewards;
+  ulong       distributed_rewards;
+  uchar       active;
+};
+typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h */

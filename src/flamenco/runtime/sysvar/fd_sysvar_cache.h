@@ -51,7 +51,6 @@ struct fd_sysvar_cache {
 
   uchar bin_clock             [ FD_SYSVAR_CLOCK_BINCODE_SZ             ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_epoch_rewards     [ FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_epoch_rewards     [ FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_epoch_schedule    [ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ    ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_epoch_schedule    [ FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_last_restart_slot [ FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));

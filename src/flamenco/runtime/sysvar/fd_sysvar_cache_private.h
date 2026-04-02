@@ -76,9 +76,8 @@ static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
       .data_off=offsetof(fd_sysvar_cache_t, bin_clock            ), .data_max=FD_SYSVAR_CLOCK_BINCODE_SZ },
   [FD_SYSVAR_epoch_rewards_IDX] =
     { .name="epoch rewards",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_rewards    ), .data_max=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_epoch_rewards    ), .obj_max =FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT,
-      TYPES_CALLBACKS( sysvar_epoch_rewards, ) },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_rewards    ), .data_max=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ },
+      /* FIXME validation!!!! */
   [FD_SYSVAR_epoch_schedule_IDX] =
     { .name="epoch schedule",
       .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_schedule   ), .data_max=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ,
