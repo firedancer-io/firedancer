@@ -1080,6 +1080,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
 
   uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );;
   if( FD_UNLIKELY( !encoded ) ) {
+    fd_http_server_unstage( ctx->http );
     fd_accdb_close_ro( ctx->accdb, ro );
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: large accounts unsupported\"},\"id\":%s}\n", id_cstr );
