@@ -150,39 +150,11 @@
       ]
     },
     {
-      "name": "string_pubkey_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "string", "type": "string" },
-        { "name": "pubkey", "type": "pubkey" }
-      ]
-    },
-    {
       "name": "pubkey_account_pair",
       "type": "struct",
       "fields": [
         { "name": "key", "type": "pubkey" },
         { "name": "account", "type": "solana_account" }
-      ]
-    },
-    {
-      "name": "genesis_solana",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "creation_time", "type": "ulong" },
-        { "name": "accounts", "type": "vector", "element": "pubkey_account_pair" },
-        { "name": "native_instruction_processors", "type": "vector", "element": "string_pubkey_pair" },
-        { "name": "rewards_pools", "type": "vector", "element": "pubkey_account_pair" },
-        { "name": "ticks_per_slot", "type": "ulong" },
-        { "name": "unused", "type": "ulong" },
-        { "name": "poh_config", "type": "poh_config" },
-        { "name": "__backwards_compat_with_v0_23", "type": "ulong" },
-        { "name": "fee_rate_governor", "type": "fee_rate_governor" },
-        { "name": "rent", "type": "rent" },
-        { "name": "inflation", "type": "inflation" },
-        { "name": "epoch_schedule", "type": "epoch_schedule" },
-        { "name": "cluster_type", "type": "uint" }
       ]
     },
     {

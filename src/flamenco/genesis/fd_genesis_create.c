@@ -13,6 +13,145 @@
 #define SORT_BEFORE(a,b) (0>memcmp( (a).key.ul, (b).key.ul, sizeof(fd_pubkey_t) ))
 #include "../../util/tmpl/fd_sort.c"
 
+static inline uchar *
+emit_u8( uchar * p, uchar * end, uchar v ) {
+  if( FD_UNLIKELY( p+1>end ) ) return NULL;
+  *p = v;
+  return p+1;
+}
+
+static inline uchar *
+emit_u32( uchar * p, uchar * end, uint v ) {
+  if( FD_UNLIKELY( p+4>end ) ) return NULL;
+  FD_STORE( uint, p, v );
+  return p+4;
+}
+
+static inline uchar *
+emit_u64( uchar * p, uchar * end, ulong v ) {
+  if( FD_UNLIKELY( p+8>end ) ) return NULL;
+  FD_STORE( ulong, p, v );
+  return p+8;
+}
+
+static inline uchar *
+emit_f64( uchar * p, uchar * end, double v ) {
+  if( FD_UNLIKELY( p+8>end ) ) return NULL;
+  FD_STORE( double, p, v );
+  return p+8;
+}
+
+static inline uchar *
+emit_bytes( uchar * p, uchar * end, void const * src, ulong n ) {
+  if( FD_UNLIKELY( p+n>end ) ) return NULL;
+  fd_memcpy( p, src, n );
+  return p+n;
+}
+
+/* Private struct mirroring the Solana GenesisConfig bincode layout.
+   Only used locally for building up state before serialization. */
+
+struct genesis_solana {
+  ulong                      creation_time;
+  ulong                      accounts_len;
+  fd_pubkey_account_pair_t * accounts;
+  ulong                      native_instruction_processors_len;
+  ulong                      rewards_pools_len;
+  ulong                      ticks_per_slot;
+  ulong                      unused;
+  fd_poh_config_t            poh_config;
+  ulong                      __backwards_compat_with_v0_23;
+  fd_fee_rate_governor_t     fee_rate_governor;
+  fd_rent_t                  rent;
+  fd_inflation_t             inflation;
+  fd_epoch_schedule_t        epoch_schedule;
+  uint                       cluster_type;
+};
+typedef struct genesis_solana genesis_solana_t;
+
+/* genesis_encode serializes a genesis_solana_t into a bincode blob
+   byte-for-byte compatible with Anza's genesis.bin format.  Returns the
+   number of bytes written, or 0 on failure (buffer too small). */
+
+static ulong
+genesis_encode( genesis_solana_t const * g,
+                uchar *                  buf,
+                ulong                    bufsz ) {
+  uchar * p   = buf;
+  uchar * end = buf + bufsz;
+
+# define EMIT(expr) do { p = (expr); if( FD_UNLIKELY( !p ) ) return 0UL; } while(0)
+
+  EMIT( emit_u64( p, end, g->creation_time ) );
+
+  /* accounts vector */
+  EMIT( emit_u64( p, end, g->accounts_len ) );
+  for( ulong i=0; i<g->accounts_len; i++ ) {
+    fd_pubkey_account_pair_t const * a = &g->accounts[i];
+    EMIT( emit_bytes( p, end, a->key.key, 32 ) );
+    EMIT( emit_u64(   p, end, a->account.lamports ) );
+    EMIT( emit_u64(   p, end, a->account.data_len ) );
+    if( a->account.data_len )
+      EMIT( emit_bytes( p, end, a->account.data, a->account.data_len ) );
+    EMIT( emit_bytes( p, end, a->account.owner.key, 32 ) );
+    EMIT( emit_u8(    p, end, !!a->account.executable ) );
+    EMIT( emit_u64(   p, end, a->account.rent_epoch ) );
+  }
+
+  /* native_instruction_processors vector (always empty) */
+  EMIT( emit_u64( p, end, g->native_instruction_processors_len ) );
+
+  /* rewards_pools vector (always empty) */
+  EMIT( emit_u64( p, end, g->rewards_pools_len ) );
+
+  EMIT( emit_u64( p, end, g->ticks_per_slot ) );
+  EMIT( emit_u64( p, end, g->unused ) );
+
+  /* poh_config */
+  EMIT( emit_u64( p, end, g->poh_config.target_tick_duration.seconds ) );
+  EMIT( emit_u32( p, end, g->poh_config.target_tick_duration.nanoseconds ) );
+  EMIT( emit_u8(  p, end, !!g->poh_config.has_target_tick_count ) );
+  if( g->poh_config.has_target_tick_count )
+    EMIT( emit_u64( p, end, g->poh_config.target_tick_count ) );
+  EMIT( emit_u8(  p, end, !!g->poh_config.has_hashes_per_tick ) );
+  if( g->poh_config.has_hashes_per_tick )
+    EMIT( emit_u64( p, end, g->poh_config.hashes_per_tick ) );
+
+  EMIT( emit_u64( p, end, g->__backwards_compat_with_v0_23 ) );
+
+  /* fee_rate_governor */
+  EMIT( emit_u64( p, end, g->fee_rate_governor.target_lamports_per_signature ) );
+  EMIT( emit_u64( p, end, g->fee_rate_governor.target_signatures_per_slot ) );
+  EMIT( emit_u64( p, end, g->fee_rate_governor.min_lamports_per_signature ) );
+  EMIT( emit_u64( p, end, g->fee_rate_governor.max_lamports_per_signature ) );
+  EMIT( emit_u8(  p, end, g->fee_rate_governor.burn_percent ) );
+
+  /* rent */
+  EMIT( emit_u64( p, end, g->rent.lamports_per_uint8_year ) );
+  EMIT( emit_f64( p, end, g->rent.exemption_threshold ) );
+  EMIT( emit_u8(  p, end, g->rent.burn_percent ) );
+
+  /* inflation */
+  EMIT( emit_f64( p, end, g->inflation.initial ) );
+  EMIT( emit_f64( p, end, g->inflation.terminal ) );
+  EMIT( emit_f64( p, end, g->inflation.taper ) );
+  EMIT( emit_f64( p, end, g->inflation.foundation ) );
+  EMIT( emit_f64( p, end, g->inflation.foundation_term ) );
+  EMIT( emit_f64( p, end, g->inflation.unused ) );
+
+  /* epoch_schedule */
+  EMIT( emit_u64( p, end, g->epoch_schedule.slots_per_epoch ) );
+  EMIT( emit_u64( p, end, g->epoch_schedule.leader_schedule_slot_offset ) );
+  EMIT( emit_u8(  p, end, !!g->epoch_schedule.warmup ) );
+  EMIT( emit_u64( p, end, g->epoch_schedule.first_normal_epoch ) );
+  EMIT( emit_u64( p, end, g->epoch_schedule.first_normal_slot ) );
+
+  EMIT( emit_u32( p, end, g->cluster_type ) );
+
+# undef EMIT
+  return (ulong)(p - buf);
+}
+
 static ulong
 genesis_create( void *                       buf,
                 ulong                        bufsz,
@@ -26,8 +165,7 @@ genesis_create( void *                       buf,
     }                                       \
   } while(0);
 
-  fd_genesis_solana_t genesis[1];
-  fd_genesis_solana_new( genesis );
+  genesis_solana_t genesis[1] = {0};
 
   genesis->cluster_type = 3;  /* development */
 
@@ -271,15 +409,12 @@ genesis_create( void *                       buf,
 
   /* Serialize bincode blob */
 
-  fd_bincode_encode_ctx_t encode =
-    { .data    = buf,
-      .dataend = (uchar *)buf + bufsz };
-  int encode_err = fd_genesis_solana_encode( genesis, &encode );
-  if( FD_UNLIKELY( encode_err ) ) {
+  ulong encoded_sz = genesis_encode( genesis, (uchar *)buf, bufsz );
+  if( FD_UNLIKELY( !encoded_sz ) ) {
     FD_LOG_WARNING(( "Failed to encode genesis blob (bufsz=%lu)", bufsz ));
     return 0UL;
   }
-  return (ulong)encode.data - (ulong)buf;
+  return encoded_sz;
 
 # undef REQUIRE
 }
