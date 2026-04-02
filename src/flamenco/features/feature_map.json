@@ -266,5 +266,6 @@
   {"name":"discard_unexpected_data_complete_shreds","pubkey":"shredXP8xLjJWp1AWh3gAFsFn4GSH1vohhCMDHw5koU"},
   {"name":"create_account_allow_prefund","pubkey":"6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331"},
   {"name":"replace_spl_token_with_p_token","pubkey":"ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP"},
-  {"name":"delay_commission_updates","pubkey":"76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B"}
+  {"name":"delay_commission_updates","pubkey":"76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B"},
+  {"name":"validate_chained_block_id","pubkey":"vcmrbYbiMVKaq1snKP6eCacNDcr6qZvpCNUjmk6gxvZ"}
 ]
