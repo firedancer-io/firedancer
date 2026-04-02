@@ -124,15 +124,13 @@ streamlined_hash( fd_snapla_tile_t * ctx,
   if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
   if( FD_UNLIKELY( lamports==0UL ) ) return;
 
-  uchar executable_flag = executable & 0x1;
-
   fd_lthash_adder_push_solana_account( ctx->adder,
                                        &ctx->running_lthash,
                                        pubkey,
                                        frame+0x88UL,
                                        data_len,
                                        lamports,
-                                       executable_flag,
+                                       executable,
                                        owner );
 
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
