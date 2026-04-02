@@ -738,7 +738,6 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   fd_hash_t const * bank_hash  = &bank->f.bank_hash;
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
-  FD_TEST( bank_hash  );
   FD_TEST( block_hash );
 
   if( FD_LIKELY( !is_initial ) ) fd_txncache_finalize_fork( ctx->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
