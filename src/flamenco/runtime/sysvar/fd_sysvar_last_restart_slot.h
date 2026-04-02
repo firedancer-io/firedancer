@@ -7,11 +7,6 @@
 
 typedef struct fd_hard_forks_global fd_hard_forks_global_t;
 
-struct fd_last_restart_slot {
-  ulong slot;
-};
-typedef struct fd_last_restart_slot fd_last_restart_slot_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_sysvar_last_restart_slot_init creates or updates the "last restart
@@ -45,7 +40,7 @@ fd_sysvar_last_restart_slot_update( fd_bank_t *               bank,
 
 /* fd_sysvar_last_restart_slot_read queries the last restart slot sysvar
    from the given funk. If the account doesn't exist in funk or if the
-   account has zero lamports, this function returns NULL. */
+   account has zero lamports, this function returns sentinel. */
 
 ulong
 fd_sysvar_last_restart_slot_read( fd_accdb_user_t *         accdb,
