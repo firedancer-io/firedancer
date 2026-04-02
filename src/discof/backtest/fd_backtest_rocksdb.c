@@ -266,7 +266,5 @@ fd_backtest_rocksdb_bank_hash( fd_backtest_rocksdb_t * db,
   char const * frozen_hash = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 4 ], key, 8UL, &vallen, &err );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"bank_hashes\",%lu) failed: %s", slot, err ));
 
-  void * mem = fd_alloca_check( alignof(fd_hash_t), sizeof(fd_hash_t) );
-  memcpy( mem, frozen_hash, sizeof(fd_hash_t) );
-  return mem;
+  return fd_type_pun_const( frozen_hash );
 }
