@@ -266,15 +266,7 @@ fd_backtest_rocksdb_bank_hash( fd_backtest_rocksdb_t * db,
   char const * frozen_hash = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 4 ], key, 8UL, &vallen, &err );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"bank_hashes\",%lu) failed: %s", slot, err ));
 
-  fd_bincode_decode_ctx_t decode = {
-    .data    = frozen_hash,
-    .dataend = frozen_hash+vallen,
-  };
-
-  ulong total_sz = 0UL;
-  FD_TEST( !fd_frozen_hash_versioned_decode_footprint( &decode, &total_sz ) );
-
-  void * mem = fd_alloca_check( FD_FROZEN_HASH_VERSIONED_ALIGN, total_sz );
-  fd_frozen_hash_versioned_t const * fhv = fd_frozen_hash_versioned_decode( mem, &decode );
-  return fhv->inner.current.frozen_hash.uc;
+  void * mem = fd_alloca_check( alignof(fd_hash_t), sizeof(fd_hash_t) );
+  memcpy( mem, frozen_hash, sizeof(fd_hash_t) );
+  return mem;
 }
