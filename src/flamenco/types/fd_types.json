@@ -30,17 +30,6 @@
       "agave": "solana_fee_calculator::FeeCalculator"
     },
     {
-      "name": "fee_rate_governor",
-      "type": "struct",
-      "fields": [
-        { "name": "target_lamports_per_signature", "type": "ulong" },
-        { "name": "target_signatures_per_slot", "type": "ulong" },
-        { "name": "min_lamports_per_signature", "type": "ulong" },
-        { "name": "max_lamports_per_signature", "type": "ulong" },
-        { "name": "burn_percent", "type": "uchar" }
-      ]
-    },
-    {
       "name": "slot_pair",
       "type": "struct",
       "archival": "true",
@@ -215,26 +204,6 @@
         { "name": "active", "type": "bool" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14"
-    },
-    {
-      "name": "cluster_type",
-      "type": "enum",
-      "variants": [
-        { "name": "Testnet" },
-        { "name": "MainnetBeta" },
-        { "name": "Devnet" },
-        { "name": "Development" }
-      ]
-    },
-    {
-      "name": "cluster_version",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "major", "type": "uint" },
-        { "name": "minor", "type": "uint" },
-        { "name": "patch", "type": "uint" }
-      ]
     },
     {
       "name": "system_program_instruction_create_account",

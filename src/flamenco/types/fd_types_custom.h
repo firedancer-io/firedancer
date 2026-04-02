@@ -110,6 +110,15 @@ typedef struct fd_stake_weight fd_stake_weight_t;
 #define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )<0)
 #include "../../util/tmpl/fd_sort.c"
 
+struct fd_fee_rate_governor {
+  ulong target_lamports_per_signature;
+  ulong target_signatures_per_slot;
+  ulong min_lamports_per_signature;
+  ulong max_lamports_per_signature;
+  uchar burn_percent;
+};
+typedef struct fd_fee_rate_governor fd_fee_rate_governor_t;
+
 static inline void fd_hash_new( fd_hash_t * self ) { (void)self; }
 static inline int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   return fd_bincode_bytes_encode( (uchar const *)self, sizeof(fd_hash_t), ctx );
