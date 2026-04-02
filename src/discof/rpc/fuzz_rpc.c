@@ -81,7 +81,7 @@ setup_topo_funk( fd_topo_t *  topo,
   ulong funk_footprint = fd_funk_shmem_footprint( max_database_transactions, max_account_records );
   if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [accounts] parameters" ));
 
-  /* Increase workspace partition count */
+  /* Adjust workspace partition count */
   ulong wksp_idx = fd_topo_find_wksp( topo, "funk" );
   FD_TEST( wksp_idx!=ULONG_MAX );
   fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];

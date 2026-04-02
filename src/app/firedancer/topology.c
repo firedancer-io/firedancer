@@ -98,13 +98,13 @@ setup_topo_funk( fd_topo_t *  topo,
   ulong funk_footprint = fd_funk_shmem_footprint( max_database_transactions, max_account_records );
   if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [accounts] parameters" ));
 
-  /* Increase workspace partition count */
+  /* Adjust workspace partition count */
   ulong wksp_idx = fd_topo_find_wksp( topo, "funk" );
   FD_TEST( wksp_idx!=ULONG_MAX );
   fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
   ulong size     = funk_footprint+(heap_size_gib*(1UL<<30));
-  ulong part_max = fd_wksp_part_max_est( size, 1U<<14U );
-  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", size ));
+  ulong part_max = fd_wksp_part_max_est( size, 1U<<18U );
+  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,256KiB) failed", size ));
   wksp->part_max += part_max;
 
   fd_topo_obj_t * locks_obj = fd_topob_obj( topo, "funk_locks", "funk_locks" );
@@ -131,12 +131,12 @@ setup_topo_progcache( fd_topo_t *  topo,
                  ( 2*pcache_footprint )>>20 ));
   }
 
-  /* Increase workspace partition count */
+  /* Adjust workspace partition count */
   ulong wksp_idx = fd_topo_find_wksp( topo, wksp_name );
   FD_TEST( wksp_idx!=ULONG_MAX );
   fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
-  ulong part_max = fd_wksp_part_max_est( heap_size, 1U<<14U );
-  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", pcache_footprint ));
+  ulong part_max = fd_wksp_part_max_est( heap_size, 1U<<18U );
+  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,256KiB) failed", heap_size ));
   wksp->part_max += part_max;
 }
 
