@@ -491,9 +491,9 @@ backtest_topo( config_t * config ) {
   }
 
   if( vinyl_enabled ) {
-    fd_topob_vinyl_rq( topo, "replay", 0UL, "accdb_replay", "replay", 4UL, 1024UL, 1024UL );
+    fd_topob_vinyl_rq( topo, "replay", 0UL, "accdb_replay", "replay", 4UL, 1024UL, 1024UL, FD_VINYL_PERM_READ_WRITE );
     for( ulong i=0UL; i<execrp_tile_cnt; i++ ) {
-      fd_topob_vinyl_rq( topo, "execrp", i, "accdb_execrp", "execrp", 4UL, 1024UL, 1024UL );
+      fd_topob_vinyl_rq( topo, "execrp", i, "accdb_execrp", "execrp", 4UL, 1024UL, 1024UL, FD_VINYL_PERM_READ_WRITE );
     }
   }
 
