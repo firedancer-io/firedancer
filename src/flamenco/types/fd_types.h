@@ -422,25 +422,6 @@ struct fd_sysvar_epoch_rewards {
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 #define FD_SYSVAR_EPOCH_REWARDS_ALIGN alignof(fd_sysvar_epoch_rewards_t)
 
-/* Encoded Size: Fixed (33 bytes) */
-struct fd_config_keys_pair {
-  fd_pubkey_t key;
-  uchar signer;
-};
-typedef struct fd_config_keys_pair fd_config_keys_pair_t;
-#define FD_CONFIG_KEYS_PAIR_ALIGN alignof(fd_config_keys_pair_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/config.rs#L14 */
-/* Encoded Size: Dynamic */
-struct fd_stake_config {
-  ushort config_keys_len;
-  fd_config_keys_pair_t * config_keys;
-  double warmup_cooldown_rate;
-  uchar slash_penalty;
-};
-typedef struct fd_stake_config fd_stake_config_t;
-#define FD_STAKE_CONFIG_ALIGN alignof(fd_stake_config_t)
-
 struct fd_cluster_type {
   uint discriminant;
 };
@@ -1062,20 +1043,6 @@ static inline ulong fd_sysvar_epoch_rewards_size( fd_sysvar_epoch_rewards_t cons
 static inline ulong fd_sysvar_epoch_rewards_align( void ) { return FD_SYSVAR_EPOCH_REWARDS_ALIGN; }
 int fd_sysvar_epoch_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_sysvar_epoch_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_config_keys_pair_new( fd_config_keys_pair_t * self );
-int fd_config_keys_pair_encode( fd_config_keys_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_config_keys_pair_size( fd_config_keys_pair_t const * self ) { (void)self; return 33UL; }
-static inline ulong fd_config_keys_pair_align( void ) { return FD_CONFIG_KEYS_PAIR_ALIGN; }
-int fd_config_keys_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_config_keys_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_stake_config_new( fd_stake_config_t * self );
-int fd_stake_config_encode( fd_stake_config_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_stake_config_size( fd_stake_config_t const * self );
-static inline ulong fd_stake_config_align( void ) { return FD_STAKE_CONFIG_ALIGN; }
-int fd_stake_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_cluster_type_new_disc( fd_cluster_type_t * self, uint discriminant ) { self->discriminant = discriminant; }
 static inline void fd_cluster_type_new( fd_cluster_type_t * self ) { self->discriminant = (uint)ULONG_MAX; }

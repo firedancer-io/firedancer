@@ -1509,7 +1509,6 @@ fd_runtime_genesis_init_program( fd_bank_t *               bank,
   fd_sysvar_last_restart_slot_init( bank, accdb, xid, capture_ctx );
 
   fd_builtin_programs_init( bank, accdb, xid, capture_ctx );
-  fd_stakes_config_init( accdb, xid );
 }
 
 static void

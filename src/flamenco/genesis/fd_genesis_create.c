@@ -173,25 +173,6 @@ genesis_create( void *                       buf,
     }) );
   } while(0);
 
-  /* Create stake config account */
-
-  ulong const stake_cfg_account_index = genesis->accounts_len++;
-
-  uchar stake_cfg_data[10];
-  do {
-    fd_stake_config_t config[1] = {{
-      .config_keys_len      =  0,
-      .warmup_cooldown_rate =  0.25,
-      .slash_penalty        = 12
-    }};
-
-    fd_bincode_encode_ctx_t encode =
-      { .data    = stake_cfg_data,
-        .dataend = stake_cfg_data + sizeof(stake_cfg_data) };
-    REQUIRE( fd_stake_config_encode( config, &encode ) == FD_BINCODE_SUCCESS );
-    REQUIRE( encode.data == encode.dataend );
-  } while(0);
-
   /* Read enabled features */
 
   ulong         feature_cnt = 0UL;
@@ -227,15 +208,6 @@ genesis_create( void *                       buf,
       .data_len   = FD_STAKE_STATE_SZ,
       .data       = stake_data,
       .owner      = fd_solana_stake_program_id
-    }
-  };
-  genesis->accounts[ stake_cfg_account_index ] = (fd_pubkey_account_pair_t) {
-    .key     = fd_solana_stake_program_config_id,
-    .account = (fd_solana_account_t) {
-      .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, sizeof(stake_cfg_data) ),
-      .data_len   = sizeof(stake_cfg_data),
-      .data       = stake_cfg_data,
-      .owner      = fd_solana_config_program_id
     }
   };
   genesis->accounts[ vote_account_index ] = (fd_pubkey_account_pair_t) {
