@@ -366,7 +366,7 @@ rq_completion( fd_vinyl_io_ur_t * ur ) {
   uint * psz;
   if( FD_LIKELY( req_type==UR_REQ_READ ) ) {
     poff = &rd->head_off; psz = &rd->head_sz;
-  } else if( req_type==UR_REQ_WRITE ) {
+  } else if( req_type==UR_REQ_READ_TAIL ) {
     poff = &rd->tail_off; psz = &rd->tail_sz;
   } else {
     FD_LOG_CRIT(( "unexpected CQE (user_data=0x%016llx)", cqe->user_data ));
