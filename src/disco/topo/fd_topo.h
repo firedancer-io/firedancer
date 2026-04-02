@@ -698,7 +698,7 @@ typedef struct {
    between them. */
 struct fd_topo {
   char           app_name[ 256UL ];
-  uchar          props[ 16384UL ];
+  uchar          props[ 32768UL ];
 
   ulong          wksp_cnt;
   ulong          link_cnt;
