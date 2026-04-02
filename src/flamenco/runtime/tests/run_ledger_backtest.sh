@@ -282,12 +282,11 @@ elif [[ "$DB" == "vinyl" ]]; then
   if [[ "$INDEX_MAX" -lt "1000000" ]]; then
     INDEX_MAX=1000000
   fi
-  INDEX_MAX=$(( INDEX_MAX * 2 ))
   cat <<EOF >> ${CONFIG_FILE}
 [accounts]
     in_memory_only = false
     max_accounts = $INDEX_MAX
-    file_size_gib = $((FUNK_PAGES * 4))
+    file_size_gib = $((FUNK_PAGES))
     max_unrooted_account_size_gib = 2
     cache_size_gib = 10
     io_provider = "io_uring"
