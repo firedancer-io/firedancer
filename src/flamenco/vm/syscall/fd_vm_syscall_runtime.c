@@ -149,7 +149,7 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT,
-    .sz       = 8UL,
+    .sz       = sizeof(ulong),
     .is_slice = 0,
   };
 
