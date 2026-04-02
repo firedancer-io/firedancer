@@ -267,6 +267,17 @@ fd_poh_must_publish_skipped_tick( fd_poh_t const * poh ) {
 }
 
 void
+fd_poh_update_max_microblocks( fd_poh_t * poh,
+                               ulong      new_max ) {
+  ulong inflated = new_max + 1UL;
+
+  /* Guaranteed to be monotonically decreasing. */
+  FD_TEST( inflated <= poh->max_microblocks_per_slot );
+  poh->max_microblocks_per_slot = inflated;
+  FD_TEST( poh->max_microblocks_per_slot >= poh->microblocks_lower_bound );
+}
+
+void
 fd_poh_done_packing( fd_poh_t * poh,
                      ulong      microblocks_in_slot ) {
   FD_TEST( poh->state==STATE_LEADER );

@@ -521,6 +521,15 @@ fd_poh1_mixin( fd_poh_t *          poh,
                ulong               txn_cnt,
                fd_txn_p_t const *  txns );
 
+/* fd_poh_update_max_microblocks: Tighten the upper bound on
+   max_microblocks_per_slot using the latest bound from pack.
+   new_max is the un-inflated bound (pack's view).  PoH inflates
+   by +1 which causes it to wait for pack's slot_done message before
+   finishing a slot. */
+void
+fd_poh_update_max_microblocks( fd_poh_t * poh,
+                               ulong      new_max );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_poh_fd_poh_h */

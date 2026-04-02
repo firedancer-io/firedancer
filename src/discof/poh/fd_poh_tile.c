@@ -127,7 +127,17 @@ returnable_frag( fd_poh_tile_t *     ctx,
   /* TODO: Pack has a workaround for Frankendancer that sequences bank
      release to manage lifetimes, but it's not needed in Firedancer so
      we just drop it.  We shouldn't send it at all in future. */
-  if( FD_UNLIKELY( sig==ULONG_MAX && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    return 0;
+  }
+
+  /* Pack periodically publishes a tighter microblock bound over the
+     pack_poh link. */
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    FD_TEST( sz==sizeof(ulong) );
+    ulong const * new_max = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_poh_update_max_microblocks( ctx->poh, *new_max );
     ctx->idle_cnt = 0UL;
     return 0;
   }

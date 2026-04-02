@@ -1851,12 +1851,16 @@ before_frag( fd_pohh_tile_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_BANK && ctx->in_kind[ in_idx ]!=IN_KIND_PACK ) ) return 0;
 
-  if( FD_UNLIKELY( sig==ULONG_MAX ) ) {
-    /* Banks are drained, release pack's owenership of the current bank */
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING ) ) {
+    /* Banks are drained, release pack's ownership of the current bank */
     if( FD_UNLIKELY( ctx->pack_leader_bank ) ) fd_ext_bank_release( ctx->pack_leader_bank );
     ctx->pack_leader_bank = NULL;
     return 1; /* discard */
   }
+
+  /* Firedancer publishes dynamic microblock bound updates over the
+     pack_poh link.  Frankendancer does not use them. */
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND ) ) return 1; /* discard */
 
   uint pack_idx = (uint)fd_disco_execle_sig_pack_idx( sig );
   FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
