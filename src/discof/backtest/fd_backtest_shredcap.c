@@ -229,9 +229,10 @@ fd_backtest_shredcap_shred( fd_backtest_shredcap_t * db,
   return shred;
 }
 
-uchar const *
+void
 fd_backtest_shredcap_bank_hash( fd_backtest_shredcap_t * db,
-                                ulong                    slot ) {
+                                ulong                    slot,
+                                uchar *                  bank_hash_out ) {
   FD_TEST( slot==db->slot );
-  return db->bank_hash;
+  memcpy( bank_hash_out, db->bank_hash, 32UL );
 }

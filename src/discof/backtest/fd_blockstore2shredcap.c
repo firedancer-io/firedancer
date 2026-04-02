@@ -191,8 +191,8 @@ main( int     argc,
     ulong shred_cnt;
     int root_ok = fd_backtest_rocksdb_next_root_slot( rocksdb, &root_slot, &shred_cnt );
     if( !root_ok ) break;
-    uchar const * bank_hash = fd_backtest_rocksdb_bank_hash( rocksdb, root_slot );
-    if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR(( "failed to extract bank hash for root slot %lu", root_slot ));
+    uchar bank_hash[32];
+    fd_backtest_rocksdb_bank_hash( rocksdb, root_slot, bank_hash );
     if( root_slot>end_slot ) break;
 
     write_bank_hash( out, root_slot, shred_cnt, bank_hash );

@@ -50,9 +50,10 @@ fd_backtest_rocksdb_shred( fd_backtest_rocksdb_t * db,
                            ulong                   slot,
                            ulong                   shred_idx );
 
-uchar const *
+void
 fd_backtest_rocksdb_bank_hash( fd_backtest_rocksdb_t * db,
-                               ulong                   slot );
+                               ulong                   slot,
+                               uchar *                 bank_hash_out );
 
 FD_PROTOTYPES_END
 

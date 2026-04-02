@@ -22,7 +22,9 @@ main( int     argc,
     ulong shred_cnt;
     int root_ok = fd_backtest_shredcap_next_root_slot( db, &root_slot, &shred_cnt );
     if( !root_ok ) break;
-    FD_BASE58_ENCODE_32_BYTES( fd_backtest_shredcap_bank_hash( db, root_slot ), bank_hash_b58 );
+    uchar bank_hash[32];
+    fd_backtest_shredcap_bank_hash( db, root_slot, bank_hash );
+    FD_BASE58_ENCODE_32_BYTES( bank_hash , bank_hash_b58 );
     printf( "root_slot=%lu shred_cnt=%5lu bank_hash=%s\n", root_slot, shred_cnt, bank_hash_b58 );
     for( ulong i=0UL; i<shred_cnt; i++ ) {
       FD_TEST( !!fd_backtest_shredcap_shred( db, root_slot, i ) );

@@ -2,6 +2,7 @@
 
 #include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/types/fd_types.h"
+#include <stdlib.h>
 
 #ifdef FD_HAS_ROCKSDB
 #include <rocksdb/c.h>
@@ -170,6 +171,8 @@ fd_backtest_rocksdb_next_slot_private( fd_backtest_rocksdb_t * db,
 
   *slot_out       = meta->slot;
   *shred_cnt_out  = meta->received;
+
+  free( (void *)slot_meta );
   return 1;
 }
 
@@ -255,9 +258,10 @@ fd_backtest_rocksdb_shred( fd_backtest_rocksdb_t * db,
   return shred;
 }
 
-uchar const *
+void
 fd_backtest_rocksdb_bank_hash( fd_backtest_rocksdb_t * db,
-                               ulong                   slot ) {
+                               ulong                   slot,
+                               uchar *                 bank_hash_out ) {
   char key[ 8UL ];
   FD_STORE( ulong, key, fd_ulong_bswap( slot ) );
 
@@ -265,6 +269,6 @@ fd_backtest_rocksdb_bank_hash( fd_backtest_rocksdb_t * db,
   char * err = NULL;
   char const * frozen_hash = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 4 ], key, 8UL, &vallen, &err );
   if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"bank_hashes\",%lu) failed: %s", slot, err ));
-
-  return fd_type_pun_const( frozen_hash + 4UL );
+  memcpy( bank_hash_out, frozen_hash+4UL, sizeof(fd_hash_t) );
+  free( (void *)frozen_hash );
 }

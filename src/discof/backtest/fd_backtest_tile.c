@@ -183,13 +183,14 @@ source_next_slot( fd_backt_tile_t * ctx,
   return fd_backtest_shredcap_next_root_slot( ctx->shredcap, slot_out, shred_cnt );
 }
 
-static uchar const *
+void
 source_bank_hash( fd_backt_tile_t * ctx,
-                  ulong             slot ) {
+                  ulong             slot,
+                  uchar *           bank_hash_out ) {
 # if FD_HAS_ROCKSDB
-  if( ctx->rocksdb ) return fd_backtest_rocksdb_bank_hash( ctx->rocksdb, slot );
+  if( ctx->rocksdb ) fd_backtest_rocksdb_bank_hash( ctx->rocksdb, slot, bank_hash_out );
 # endif
-  return fd_backtest_shredcap_bank_hash( ctx->shredcap, slot );
+  fd_backtest_shredcap_bank_hash( ctx->shredcap, slot, bank_hash_out );
 }
 
 static void const *
@@ -234,7 +235,8 @@ before_credit( fd_backt_tile_t *   ctx,
     ctx->reading_shred_idx = 0UL;
 
     if( is_slot_rooted ) {
-      uchar const * bank_hash = source_bank_hash( ctx, ctx->reading_slot );
+      uchar bank_hash[32];
+      source_bank_hash( ctx, ctx->reading_slot, bank_hash );
       fd_memcpy( ctx->bank_hashes[ (ctx->bank_hash_idx+ctx->bank_hash_cnt)%BANK_HASH_BUFFER_LEN ], bank_hash, 32UL );
       ctx->bank_hash_cnt++;
       rooted_slots_push_tail( ctx->rooted_slots, ctx->reading_slot );
