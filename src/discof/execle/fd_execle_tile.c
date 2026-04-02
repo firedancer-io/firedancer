@@ -472,12 +472,13 @@ handle_bundle( fd_execle_tile_t *  ctx,
     FD_TEST( failed_idx != ULONG_MAX );
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
-      fd_txn_t const * txn = TXN( ctx->txn_in[i].txn );
+      fd_txn_t const * txn = TXN( &txns[i] );
       for( ushort j=0; j<txn->instr_cnt; ++j ) {
-        fd_txn_instr_t const * instr  = &txn->instr[j];
-        fd_pubkey_t *          program_id = &ctx->txn_out[ i ].accounts.keys[instr->program_id];
+        if( j>failed_idx ) continue;
 
-        uchar *        signature = (uchar *)ctx->txn_in[ i ].txn->payload + TXN( ctx->txn_in[ i ].txn )->signature_off;
+        fd_txn_instr_t const * instr      = &txn->instr[j];
+        fd_pubkey_t *          program_id = &ctx->txn_out[ i ].accounts.keys[instr->program_id];
+        uchar *                signature  = (uchar *)txns[ i ].payload + TXN( &txns[ i ] )->signature_off;
 
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
         FD_BASE58_ENCODE_32_BYTES( program_id->uc, program_id_b58 );
