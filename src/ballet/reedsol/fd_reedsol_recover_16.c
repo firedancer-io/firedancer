@@ -319,6 +319,9 @@ fd_reedsol_private_recover_var_16( ulong           shred_sz,
     if( FD_UNLIKELY( GF_ANY( diff ) ) ) return FD_REEDSOL_ERR_CORRUPT;
     shred_pos += GF_WIDTH;
     shred_pos = fd_ulong_if( ((shred_sz-GF_WIDTH)<shred_pos) & (shred_pos<shred_sz), shred_sz-GF_WIDTH, shred_pos );
+    #undef STORE_COMPARE_RELOAD
+    #undef STORE_COMPARE
+    #undef ALL_VARS
   }
   return FD_REEDSOL_SUCCESS;
 }
