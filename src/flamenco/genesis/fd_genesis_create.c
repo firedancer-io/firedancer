@@ -8,8 +8,24 @@
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../types/fd_types.h"
 
+struct fd_genesis_account {
+  ulong       lamports;
+  ulong       data_len;
+  uchar *     data;
+  fd_pubkey_t owner;
+  uchar       executable;
+  ulong       rent_epoch;
+};
+typedef struct fd_genesis_account fd_genesis_account_t;
+
+struct fd_genesis_account_pair {
+  fd_pubkey_t          key;
+  fd_genesis_account_t account;
+};
+typedef struct fd_genesis_account_pair fd_genesis_account_pair_t;
+
 #define SORT_NAME sort_acct
-#define SORT_KEY_T fd_pubkey_account_pair_t
+#define SORT_KEY_T fd_genesis_account_pair_t
 #define SORT_BEFORE(a,b) (0>memcmp( (a).key.ul, (b).key.ul, sizeof(fd_pubkey_t) ))
 #include "../../util/tmpl/fd_sort.c"
 
@@ -54,7 +70,7 @@ emit_bytes( uchar * p, uchar * end, void const * src, ulong n ) {
 struct genesis_solana {
   ulong                      creation_time;
   ulong                      accounts_len;
-  fd_pubkey_account_pair_t * accounts;
+  fd_genesis_account_pair_t * accounts;
   ulong                      native_instruction_processors_len;
   ulong                      rewards_pools_len;
   ulong                      ticks_per_slot;
@@ -87,7 +103,7 @@ genesis_encode( genesis_solana_t const * g,
   /* accounts vector */
   EMIT( emit_u64( p, end, g->accounts_len ) );
   for( ulong i=0; i<g->accounts_len; i++ ) {
-    fd_pubkey_account_pair_t const * a = &g->accounts[i];
+    fd_genesis_account_pair_t const * a = &g->accounts[i];
     EMIT( emit_bytes( p, end, a->key.key, 32 ) );
     EMIT( emit_u64(   p, end, a->account.lamports ) );
     EMIT( emit_u64(   p, end, a->account.data_len ) );
@@ -232,7 +248,7 @@ genesis_create( void *                       buf,
 
   /* Create faucet account */
 
-  fd_pubkey_account_pair_t const faucet_account = {
+  fd_genesis_account_pair_t const faucet_account = {
     .key = options->faucet_pubkey,
     .account = {
       .lamports   = options->faucet_balance,
@@ -243,7 +259,7 @@ genesis_create( void *                       buf,
 
   /* Create identity account (vote authority, withdraw authority) */
 
-  fd_pubkey_account_pair_t const identity_account = {
+  fd_genesis_account_pair_t const identity_account = {
     .key = options->identity_pubkey,
     .account = {
       .lamports   = 500000000000UL /* 500 SOL */,
@@ -333,24 +349,24 @@ genesis_create( void *                       buf,
   ulong default_funded_idx = genesis->accounts_len;      genesis->accounts_len += default_funded_cnt;
   ulong feature_gate_idx   = genesis->accounts_len;      genesis->accounts_len += feature_cnt;
 
-  genesis->accounts = fd_scratch_alloc( alignof(fd_pubkey_account_pair_t),
-                                        genesis->accounts_len * sizeof(fd_pubkey_account_pair_t) );
-  fd_memset( genesis->accounts, 0,      genesis->accounts_len * sizeof(fd_pubkey_account_pair_t) );
+  genesis->accounts = fd_scratch_alloc( alignof(fd_genesis_account_pair_t),
+                                        genesis->accounts_len * sizeof(fd_genesis_account_pair_t) );
+  fd_memset( genesis->accounts, 0,      genesis->accounts_len * sizeof(fd_genesis_account_pair_t) );
 
   genesis->accounts[ faucet_account_index ] = faucet_account;
   genesis->accounts[ identity_account_index ] = identity_account;
-  genesis->accounts[ stake_account_index ] = (fd_pubkey_account_pair_t) {
+  genesis->accounts[ stake_account_index ] = (fd_genesis_account_pair_t) {
     .key     = options->stake_pubkey,
-    .account = (fd_solana_account_t) {
+    .account = (fd_genesis_account_t) {
       .lamports   = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
       .data_len   = FD_STAKE_STATE_SZ,
       .data       = stake_data,
       .owner      = fd_solana_stake_program_id
     }
   };
-  genesis->accounts[ vote_account_index ] = (fd_pubkey_account_pair_t) {
+  genesis->accounts[ vote_account_index ] = (fd_genesis_account_pair_t) {
     .key     = options->vote_pubkey,
-    .account = (fd_solana_account_t) {
+    .account = (fd_genesis_account_t) {
       .lamports   = vote_min_bal,
       .data_len   = FD_VOTE_STATE_V3_SZ,
       .data       = vote_state_data,
@@ -362,14 +378,14 @@ genesis_create( void *                       buf,
 
   ulong default_funded_balance = options->fund_initial_amount_lamports;
   for( ulong j=0UL; j<default_funded_cnt; j++ ) {
-    fd_pubkey_account_pair_t * pair = &genesis->accounts[ default_funded_idx+j ];
+    fd_genesis_account_pair_t * pair = &genesis->accounts[ default_funded_idx+j ];
 
     uchar privkey[ 32 ] = {0};
     FD_STORE( ulong, privkey, j );
     fd_sha512_t sha[1];
     fd_ed25519_public_from_private( pair->key.key, privkey, sha );
 
-    pair->account = (fd_solana_account_t) {
+    pair->account = (fd_genesis_account_t) {
       .lamports   = default_funded_balance,
       .data_len   = 0UL,
       .owner      = fd_solana_system_program_id
@@ -382,10 +398,10 @@ genesis_create( void *                       buf,
 
   /* Set up feature gate accounts */
   for( ulong j=0UL; j<feature_cnt; j++ ) {
-    fd_pubkey_account_pair_t * pair = &genesis->accounts[ feature_gate_idx+j ];
+    fd_genesis_account_pair_t * pair = &genesis->accounts[ feature_gate_idx+j ];
 
     pair->key     = features[ j ];
-    pair->account = (fd_solana_account_t) {
+    pair->account = (fd_genesis_account_t) {
       .lamports   = default_feature_enabled_balance,
       .data_len   = FEATURE_ENABLED_SZ,
       .data       = (uchar *)feature_enabled_data,

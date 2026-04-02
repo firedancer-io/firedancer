@@ -118,19 +118,6 @@ struct fd_stake_history {
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_ALIGN alignof(fd_stake_history_t)
 
-/* https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37 */
-/* Encoded Size: Dynamic */
-struct fd_solana_account {
-  ulong lamports;
-  ulong data_len;
-  uchar* data;
-  fd_pubkey_t owner;
-  uchar executable;
-  ulong rent_epoch;
-};
-typedef struct fd_solana_account fd_solana_account_t;
-#define FD_SOLANA_ACCOUNT_ALIGN alignof(fd_solana_account_t)
-
 /* Encoded Size: Fixed (12 bytes) */
 struct fd_rust_duration {
   ulong seconds;
@@ -149,14 +136,6 @@ struct fd_poh_config {
 };
 typedef struct fd_poh_config fd_poh_config_t;
 #define FD_POH_CONFIG_ALIGN alignof(fd_poh_config_t)
-
-/* Encoded Size: Dynamic */
-struct fd_pubkey_account_pair {
-  fd_pubkey_t key;
-  fd_solana_account_t account;
-};
-typedef struct fd_pubkey_account_pair fd_pubkey_account_pair_t;
-#define FD_PUBKEY_ACCOUNT_PAIR_ALIGN alignof(fd_pubkey_account_pair_t)
 
 /* https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/sdk/program/src/last_restart_slot.rs#L7 */
 /* Encoded Size: Fixed (8 bytes) */
@@ -755,13 +734,6 @@ static inline ulong fd_stake_history_align( void ) { return FD_STAKE_HISTORY_ALI
 int fd_stake_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_stake_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_solana_account_new( fd_solana_account_t * self );
-int fd_solana_account_encode( fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_solana_account_size( fd_solana_account_t const * self );
-static inline ulong fd_solana_account_align( void ) { return FD_SOLANA_ACCOUNT_ALIGN; }
-int fd_solana_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_solana_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 static inline void fd_rust_duration_new( fd_rust_duration_t * self ) { fd_memset( self, 0, sizeof(fd_rust_duration_t) ); }
 int fd_rust_duration_encode( fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx );
 static inline ulong fd_rust_duration_size( fd_rust_duration_t const * self ) { (void)self; return 12UL; }
@@ -779,13 +751,6 @@ ulong fd_poh_config_size( fd_poh_config_t const * self );
 static inline ulong fd_poh_config_align( void ) { return FD_POH_CONFIG_ALIGN; }
 int fd_poh_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_poh_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_pubkey_account_pair_new( fd_pubkey_account_pair_t * self );
-int fd_pubkey_account_pair_encode( fd_pubkey_account_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_pubkey_account_pair_size( fd_pubkey_account_pair_t const * self );
-static inline ulong fd_pubkey_account_pair_align( void ) { return FD_PUBKEY_ACCOUNT_PAIR_ALIGN; }
-int fd_pubkey_account_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_pubkey_account_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_sol_sysvar_last_restart_slot_new( fd_sol_sysvar_last_restart_slot_t * self ) { fd_memset( self, 0, sizeof(fd_sol_sysvar_last_restart_slot_t) ); }
 int fd_sol_sysvar_last_restart_slot_encode( fd_sol_sysvar_last_restart_slot_t const * self, fd_bincode_encode_ctx_t * ctx );
