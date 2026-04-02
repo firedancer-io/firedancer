@@ -1,4 +1,5 @@
 include src/app/firedancer/version.mk
+$(info Using FIREDANCER_VERSION=$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_PATCH) ($(FIREDANCER_CI_COMMIT)))
 $(shell echo "#define FIREDANCER_MAJOR_VERSION $(VERSION_MAJOR)"                          >  src/app/firedancer/version2.h)
 $(shell echo "#define FIREDANCER_MINOR_VERSION $(VERSION_MINOR)"                          >> src/app/firedancer/version2.h)
 $(shell echo "#define FIREDANCER_PATCH_VERSION $(VERSION_PATCH)"                          >> src/app/firedancer/version2.h)

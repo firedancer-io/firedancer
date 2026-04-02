@@ -131,7 +131,7 @@ typedef struct {
 
   long next_poll_deadline;
 
-  char version_string[ 16UL ];
+  char version_string[ 64UL ];
 
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
