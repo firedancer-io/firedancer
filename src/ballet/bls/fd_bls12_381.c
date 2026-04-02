@@ -499,8 +499,8 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
 int
 fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
                                          ulong       msg_sz,
-                                         uchar const proof[ 96 ],
-                                         uchar const public_key[ 48 ] ) {
+                                         uchar const proof[ static 96 ],
+                                         uchar const public_key[ static 48 ] ) {
   /* Agave supports the case of empty msg, where the public key is used
      instead (i.e. the plain RFC proof of possession). But that's not really
      used anywhere, and probably shouldn't be used for security reasons.
