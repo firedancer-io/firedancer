@@ -561,23 +561,6 @@
       "comment": "https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L33-L43"
     },
     {
-      "name": "frozen_hash_status",
-      "type": "struct",
-      "fields": [
-        { "name": "frozen_hash", "type": "hash" },
-        { "name": "is_duplicate_confirmed", "type": "bool" }
-      ],
-      "comment": "https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L178"
-    },
-    {
-      "name": "frozen_hash_versioned",
-      "type": "enum",
-      "variants": [
-        { "name": "current", "type": "frozen_hash_status" }
-      ],
-      "comment": "https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L157"
-    },
-    {
       "name": "lookup_table_meta",
       "type": "struct",
       "fields": [

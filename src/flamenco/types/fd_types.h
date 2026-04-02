@@ -738,28 +738,6 @@ struct fd_loader_v4_state {
 typedef struct fd_loader_v4_state fd_loader_v4_state_t;
 #define FD_LOADER_V4_STATE_ALIGN alignof(fd_loader_v4_state_t)
 
-/* https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L178 */
-/* Encoded Size: Fixed (33 bytes) */
-struct fd_frozen_hash_status {
-  fd_hash_t frozen_hash;
-  uchar is_duplicate_confirmed;
-};
-typedef struct fd_frozen_hash_status fd_frozen_hash_status_t;
-#define FD_FROZEN_HASH_STATUS_ALIGN alignof(fd_frozen_hash_status_t)
-
-union fd_frozen_hash_versioned_inner {
-  fd_frozen_hash_status_t current;
-};
-typedef union fd_frozen_hash_versioned_inner fd_frozen_hash_versioned_inner_t;
-
-/* https://github.com/firedancer-io/solana/blob/f4b7c54f9e021b40cfc7cbd32dc12b19dedbe791/ledger/src/blockstore_meta.rs#L157 */
-struct fd_frozen_hash_versioned {
-  uint discriminant;
-  fd_frozen_hash_versioned_inner_t inner;
-};
-typedef struct fd_frozen_hash_versioned fd_frozen_hash_versioned_t;
-#define FD_FROZEN_HASH_VERSIONED_ALIGN alignof(fd_frozen_hash_versioned_t)
-
 /* Encoded Size: Dynamic */
 struct fd_lookup_table_meta {
   ulong deactivation_slot;
@@ -1418,25 +1396,6 @@ static inline int fd_loader_v4_state_decode_footprint( fd_bincode_decode_ctx_t *
 }
 void * fd_loader_v4_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_frozen_hash_status_new( fd_frozen_hash_status_t * self );
-int fd_frozen_hash_status_encode( fd_frozen_hash_status_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_frozen_hash_status_size( fd_frozen_hash_status_t const * self ) { (void)self; return 33UL; }
-static inline ulong fd_frozen_hash_status_align( void ) { return FD_FROZEN_HASH_STATUS_ALIGN; }
-int fd_frozen_hash_status_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_frozen_hash_status_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_frozen_hash_versioned_new_disc( fd_frozen_hash_versioned_t * self, uint discriminant );
-void fd_frozen_hash_versioned_new( fd_frozen_hash_versioned_t * self );
-int fd_frozen_hash_versioned_encode( fd_frozen_hash_versioned_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_frozen_hash_versioned_size( fd_frozen_hash_versioned_t const * self );
-static inline ulong fd_frozen_hash_versioned_align( void ) { return FD_FROZEN_HASH_VERSIONED_ALIGN; }
-int fd_frozen_hash_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_frozen_hash_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_frozen_hash_versioned_is_current( fd_frozen_hash_versioned_t const * self );
-enum {
-fd_frozen_hash_versioned_enum_current = 0,
-};
 void fd_lookup_table_meta_new( fd_lookup_table_meta_t * self );
 int fd_lookup_table_meta_encode( fd_lookup_table_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_lookup_table_meta_size( fd_lookup_table_meta_t const * self );
