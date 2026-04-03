@@ -183,8 +183,46 @@
     FD_VM_TEST_ERR_EXISTS( vm );                                              \
     goto sigsyscall;                                                          \
   }                                                                           \
+  FD_VM_INTERP_TLB_INVALIDATE                                                 \
   /* Exit */
 
+
+  /* Soft TLB macros for memory translation acceleration.
+     In tracing mode, bypass the TLB to preserve trace events.
+     In non-tracing mode, use fd_vm_mem_haddr_with_tlb for fast-path
+     translation (~5 instructions on TLB hit). */
+
+# undef  FD_VM_INTERP_MEM_LD_TRANSLATE
+# undef  FD_VM_INTERP_MEM_ST_TRANSLATE
+# undef  FD_VM_INTERP_MEM_LD_1_TRANSLATE
+# undef  FD_VM_INTERP_MEM_ST_1_TRANSLATE
+# undef  FD_VM_INTERP_TLB_INVALIDATE
+# ifdef  FD_VM_INTERP_MEM_TRACING_ENABLED
+# define FD_VM_INTERP_MEM_LD_TRANSLATE( _vaddr, _sz ) \
+  fd_vm_mem_haddr( vm, (_vaddr), (_sz), region_haddr, region_ld_sz, 0, 0UL )
+# define FD_VM_INTERP_MEM_ST_TRANSLATE( _vaddr, _sz ) \
+  fd_vm_mem_haddr( vm, (_vaddr), (_sz), region_haddr, region_st_sz, 1, 0UL )
+# define FD_VM_INTERP_MEM_LD_1_TRANSLATE( _vaddr ) \
+  FD_VM_INTERP_MEM_LD_TRANSLATE( (_vaddr), 1UL )
+# define FD_VM_INTERP_MEM_ST_1_TRANSLATE( _vaddr ) \
+  FD_VM_INTERP_MEM_ST_TRANSLATE( (_vaddr), 1UL )
+# define FD_VM_INTERP_TLB_INVALIDATE
+# else
+# define FD_VM_INTERP_MEM_LD_TRANSLATE( _vaddr, _sz ) \
+  fd_vm_mem_haddr_with_tlb( vm, (_vaddr), (_sz), region_haddr, region_ld_sz, 0, 0UL, \
+    &tlb_ld_haddr_base, &tlb_ld_vaddr_lo, &tlb_ld_vaddr_hi, stack_gaps_enabled )
+# define FD_VM_INTERP_MEM_ST_TRANSLATE( _vaddr, _sz ) \
+  fd_vm_mem_haddr_with_tlb( vm, (_vaddr), (_sz), region_haddr, region_st_sz, 1, 0UL, \
+    &tlb_st_haddr_base, &tlb_st_vaddr_lo, &tlb_st_vaddr_hi, stack_gaps_enabled )
+# define FD_VM_INTERP_MEM_LD_1_TRANSLATE( _vaddr ) \
+  fd_vm_mem_haddr_with_tlb_1( vm, (_vaddr), region_haddr, region_ld_sz, 0, 0UL, \
+    &tlb_ld_haddr_base, &tlb_ld_vaddr_lo, &tlb_ld_vaddr_hi, stack_gaps_enabled )
+# define FD_VM_INTERP_MEM_ST_1_TRANSLATE( _vaddr ) \
+  fd_vm_mem_haddr_with_tlb_1( vm, (_vaddr), region_haddr, region_st_sz, 1, 0UL, \
+    &tlb_st_haddr_base, &tlb_st_vaddr_lo, &tlb_st_vaddr_hi, stack_gaps_enabled )
+# define FD_VM_INTERP_TLB_INVALIDATE \
+  tlb_ld_vaddr_hi = 0; tlb_st_vaddr_hi = 0;
+# endif
 
   /* FD_VM_INTERP_INSTR_BEGIN / FD_VM_INTERP_INSTR_END bracket opcode's
      implementation for an opcode that does not branch.  On entry, the
@@ -395,7 +433,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x27) { /* FD_SBPF_OP_STB */
     ulong vaddr = reg_dst + offset;
-    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL );
+    ulong haddr = FD_VM_INTERP_MEM_ST_1_TRANSLATE( vaddr );
     if( FD_UNLIKELY( !haddr ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
@@ -408,7 +446,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x2c) { /* FD_SBPF_OP_LDXB */
     ulong vaddr = reg_src + offset;
-    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_ld_sz, 0, 0UL );
+    ulong haddr = FD_VM_INTERP_MEM_LD_1_TRANSLATE( vaddr );
     if( FD_UNLIKELY( !haddr ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
@@ -425,7 +463,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x2f) { /* FD_SBPF_OP_STXB */
     ulong vaddr = reg_dst + offset;
-    ulong haddr = fd_vm_mem_haddr( vm, vaddr, sizeof(uchar), region_haddr, region_st_sz, 1, 0UL );
+    ulong haddr = FD_VM_INTERP_MEM_ST_1_TRANSLATE( vaddr );
     if( FD_UNLIKELY( !haddr ) ) {
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
@@ -466,7 +504,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x37) { /* FD_SBPF_OP_STH */
     ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL );
+    ulong haddr   = FD_VM_INTERP_MEM_ST_TRANSLATE( vaddr, sizeof(ushort) );
     int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
@@ -480,7 +518,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x3c) { /* FD_SBPF_OP_LDXH */
     ulong vaddr   = reg_src + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_ld_sz, 0, 0UL );
+    ulong haddr   = FD_VM_INTERP_MEM_LD_TRANSLATE( vaddr, sizeof(ushort) );
     int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
@@ -498,7 +536,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x3f) { /* FD_SBPF_OP_STXH */
     ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL );
+    ulong haddr   = FD_VM_INTERP_MEM_ST_TRANSLATE( vaddr, sizeof(ushort) );
     int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
@@ -768,7 +806,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x87) { /* FD_SBPF_OP_STW */
     ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL );
+    ulong haddr   = FD_VM_INTERP_MEM_ST_TRANSLATE( vaddr, sizeof(uint) );
     int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
@@ -785,7 +823,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x8c) { /* FD_SBPF_OP_LDXW */
     ulong vaddr   = reg_src + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_ld_sz, 0, 0UL );
+    ulong haddr   = FD_VM_INTERP_MEM_LD_TRANSLATE( vaddr, sizeof(uint) );
     int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
@@ -825,7 +863,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x8f) { /* FD_SBPF_OP_STXW */
     ulong vaddr    = reg_dst + offset;
-    ulong haddr    = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL );
+    ulong haddr    = FD_VM_INTERP_MEM_ST_TRANSLATE( vaddr, sizeof(uint) );
     int   sigsegv  = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
@@ -865,7 +903,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x97) { /* FD_SBPF_OP_STQ */
     ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL );
+    ulong haddr   = FD_VM_INTERP_MEM_ST_TRANSLATE( vaddr, sizeof(ulong) );
     int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
@@ -879,7 +917,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x9c) { /* FD_SBPF_OP_LDXQ */
     ulong vaddr   = reg_src + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_ld_sz, 0, 0UL );
+    ulong haddr   = FD_VM_INTERP_MEM_LD_TRANSLATE( vaddr, sizeof(ulong) );
     int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;
@@ -897,7 +935,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x9f) { /* FD_SBPF_OP_STXQ */
     ulong vaddr   = reg_dst + offset;
-    ulong haddr   = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL );
+    ulong haddr   = FD_VM_INTERP_MEM_ST_TRANSLATE( vaddr, sizeof(ulong) );
     int   sigsegv = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_vaddr       = vaddr;

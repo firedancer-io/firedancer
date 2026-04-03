@@ -379,6 +379,85 @@ test_0cu_exit( fd_runtime_t * runtime ) {
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
+
+static void
+test_mem_ld_bench( fd_runtime_t *        runtime,
+                   fd_sbpf_syscalls_t *  syscalls ) {
+
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
+
+  fd_exec_instr_ctx_t instr_ctx[1];
+  fd_bank_t           bank[1];
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+
+  ulong input_sz = 32768UL;
+  uchar * input_buf = (uchar *)malloc( input_sz );
+  FD_TEST( input_buf );
+  memset( input_buf, 0x42, input_sz );
+
+  fd_vm_input_region_t input_region;
+  memset( &input_region, 0, sizeof(input_region) );
+  input_region.vaddr_offset           = 0UL;
+  input_region.haddr                  = (ulong)input_buf;
+  input_region.region_sz              = (uint)input_sz;
+  input_region.address_space_reserved = input_sz;
+  input_region.is_writable            = 0;
+
+  ulong load_cnt = 1024UL * 1024UL;
+  ulong text_cnt = 2UL + load_cnt + 1UL;
+  ulong * text   = (ulong *)malloc( sizeof(ulong) * text_cnt );
+  FD_TEST( text );
+
+  /* LDDW r1, 0x400000000 (input region base vaddr) */
+  text[0] = fd_vm_instr( 0x18, 1, 0, 0, 0 );
+  text[1] = fd_vm_instr( 0,    0, 0, 0, 4 );
+
+  for( ulong i = 0; i < load_cnt; i++ ) {
+    short off = (short)((i * 8UL) % (input_sz - 8UL));
+    text[2 + i] = fd_vm_instr( 0x79, 0, 1, off, 0 );
+  }
+  text[text_cnt - 1] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+  int vm_ok = !!fd_vm_init(
+      vm, instr_ctx, FD_VM_HEAP_DEFAULT, text_cnt + 10UL,
+      (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+      0UL, NULL, FD_SBPF_V0, syscalls, NULL, sha,
+      &input_region, 1UL, NULL, 0,
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      0, 0UL );
+  FD_TEST( vm_ok );
+
+  vm->pc        = vm->entry_pc;
+  vm->ic        = 0UL;
+  vm->cu        = vm->entry_cu;
+  vm->frame_cnt = 0UL;
+  vm->heap_sz   = 0UL;
+  fd_vm_mem_cfg( vm );
+
+  FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+
+  long dt = -fd_log_wallclock();
+  int err = fd_vm_exec( vm );
+  dt += fd_log_wallclock();
+
+  FD_TEST( err==FD_VM_SUCCESS );
+  FD_LOG_NOTICE(( "%-20s %11li ns (%.1f ns/load, %lu loads)",
+    "mem_ld_bench", dt, (double)dt / (double)load_cnt, load_cnt ));
+
+  free( text );
+  free( input_buf );
+  fd_vm_delete( fd_vm_leave( vm ) );
+  fd_sha256_delete( fd_sha256_leave( sha ) );
+}
+
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
 int
@@ -1851,6 +1930,8 @@ main( int     argc,
   test_program_exec( "alu64_bench_short", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   test_0cu_exit( runtime );
+
+  test_mem_ld_bench( runtime, syscalls );
 
   free( text );
 
