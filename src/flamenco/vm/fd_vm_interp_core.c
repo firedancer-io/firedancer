@@ -237,63 +237,39 @@
 # define FD_VM_INTERP_INSTR_END pc++; goto interp_exec
 # endif
 
-  /* Instead of doing a lot of compute budget calcs and tests every
-     instruction, we note that the program counter increases
-     monotonically after a branch (or a program start) until the next
-     branch (or program termination).  We save the program counter of
-     the start of such a segment in pc0.  Whenever we encounter a branch
-     (or a program termination) at pc, we know we processed pc-pc0+1
-     text words (including the text word for the branch instruction
-     itself as all branch instructions are single word).
+  /* CU accounting: JIT-style instruction meter (non-tracing path)
 
-     Each instruction costs 1 cu (syscalls can cost extra on top of
-     this that is accounted separately in CALL_IMM below).  Since there
-     could have been multiword instructions in this segment, at start of
-     such a segment, we zero out the accumulator ic_correction and have
-     every multiword instruction in the segment accumulate the number of
-     extra text words it has to this variable.  (Sigh ... it would be a
-     lot simpler to bill based on text words processed but this would be
-     very difficult to make this protocol change at this point.)
+     The Agave JIT uses a combined "instruction meter" IM' = pc0 + cu
+     that encodes both the CU budget and segment start position.  We
+     adopt this as pc_max.  At the start of a segment, pc_max = pc + cu.
+     Multiword instructions (LDDW) increment pc_max to compensate for
+     consuming an extra text word without costing an extra CU.
 
-     When we encounter a branch at pc, the number of instructions
-     processed (and thus the number of compute units to bill for that
-     segment) is thus:
+     At a branch at pc:
+       - Check: pc >= pc_max implies CU exhaustion
+       - Remaining CU: cu_new = pc_max - pc - 1
+       - Segment instruction count: cu_old - cu_new
 
-       pc - pc0 + 1 - ic_correction
+     Both tracing and non-tracing paths use pc_max. */
 
-     IMPORTANT SAFETY TIP!  This implies the worst case interval before
-     checking the cu budget is the worst case text_cnt.  But since all
-     such instructions are cheap 1 cu instructions and processed fast
-     and text max is limited in size, this should be acceptable in
-     practice.  FIXME: DOUBLE CHECK THE MATH ABOVE AGAINST PROTOCOL
-     LIMITS. */
-
-  ulong pc0           = pc;
-  ulong ic_correction = 0UL;
+  ulong pc_max        = pc + cu;
 
 # define FD_VM_INTERP_BRANCH_BEGIN(opcode)                                                              \
   interp_##opcode:                                                                                      \
-    /* Bill linear text segment and this branch instruction as per the above */                         \
-    ic_correction = pc - pc0 + 1UL - ic_correction;                                                     \
-    ic += ic_correction;                                                                                \
-    if( FD_UNLIKELY( ic_correction>cu ) ) goto sigcost; /* Note: untaken branches don't consume BTB */  \
-    cu -= ic_correction;                                                                                \
-    /* At this point, cu>=0 */                                                                          \
-    ic_correction = 0UL;
+    if( FD_UNLIKELY( pc>=pc_max ) ) goto sigcost; /* Note: untaken branches don't consume BTB */        \
+    { ulong _cu_new = pc_max - pc - 1UL;                                                               \
+      ic += cu - _cu_new;                                                                               \
+      cu  = _cu_new; }
 
-  /* FIXME: debatable if it is better to do pc++ here or have the
-     instruction implementations do it in their code path. */
-
-# ifndef FD_VM_INTERP_EXE_TRACING_ENABLED /* Non-tracing path only, ~4% faster in some benchmarks, slower in others but more code footprint */
+# ifndef FD_VM_INTERP_EXE_TRACING_ENABLED
 # define FD_VM_INTERP_BRANCH_END               \
     pc++;                                      \
-    pc0 = pc; /* Start a new linear segment */ \
+    pc_max = pc + cu;                          \
     FD_VM_INTERP_INSTR_EXEC
-# else /* Use this version when tracing or optimizing code footprint */
+# else
 # define FD_VM_INTERP_BRANCH_END               \
     pc++;                                      \
-    pc0 = pc; /* Start a new linear segment */ \
-    /* FIXME: TEST sigsplit HERE */            \
+    pc_max = pc + cu;                          \
     goto interp_exec
 # endif
 
@@ -340,7 +316,7 @@ interp_exec:
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
   if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext;
-  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
+  fd_vm_trace_event_exe( vm->trace, pc, ic + pc - pc_max + cu, cu, reg, vm->text + pc, vm->text_cnt - pc, 0UL, frame_cnt );
 # endif
 
   FD_VM_INTERP_INSTR_EXEC;
@@ -399,7 +375,7 @@ interp_exec:
 
   FD_VM_INTERP_INSTR_BEGIN(0x18) /* FD_SBPF_OP_LDQ */
     pc++;
-    ic_correction++;
+    pc_max++;
     /* No need to check pc because it's already checked during validation.
        if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigsplit; // Note: untaken branches don't consume BTB */
     reg[ dst ] = (ulong)((ulong)imm | ((ulong)fd_vm_instr_imm( text[ pc ] ) << 32));
@@ -1237,23 +1213,18 @@ interp_exec:
      instruction and the number of non-branching instructions that have
      not yet been reflected in ic and cu is:
 
-       pc - pc0 + 1 - ic_correction
+       pc - pc_max + cu + 1
 
      as per the accounting described above. +1 to include the faulting
-     instruction itself.
-
-     Note that, for a sigtext caused by a branch instruction, pc0==pc
-     (from the BRANCH_END) and ic_correction==0 (from the BRANCH_BEGIN)
-     such that the below does not change the already current values in
-     ic and cu.  Thus it also "does the right thing" in both the
-     non-branching and branching cases for sigtext.  The same applies to
-     sigsplit. */
+     instruction itself.  If this count exceeds cu, err is overridden to
+     EXCEEDED_MAX_INSTRUCTIONS and cu is zeroed. */
 
 #define FD_VM_INTERP_FAULT                                                                 \
-  ic_correction = pc - pc0 + 1UL - ic_correction;                                          \
-  ic += ic_correction;                                                                     \
-  if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS; \
-  cu -= fd_ulong_min( ic_correction, cu )
+  { ulong _seg = pc - pc_max + cu + 1UL;                                                  \
+    ic += _seg;                                                                            \
+    if( FD_UNLIKELY( _seg > cu ) ) { err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS;      \
+                                     cu = 0UL; }                                           \
+    else                             cu -= _seg; }
 
 sigtext:     err = FD_VM_ERR_EBPF_EXECUTION_OVERRUN;                                     FD_VM_INTERP_FAULT;                    goto interp_halt;
 sigtextbr:   err = FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT;                             /* ic current */     /* cu current */  goto interp_halt;
@@ -1262,7 +1233,8 @@ sigill:      err = FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION;                      
 sigillbr:    err = FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION;                               /* ic current */     /* cu current */  goto interp_halt;
 siginv:      err = FD_VM_ERR_EBPF_INVALID_INSTRUCTION;                                   /* ic current */     /* cu current */  goto interp_halt;
 sigsegv:     err = fd_vm_generate_access_violation( vm->segv_vaddr, vm->sbpf_version );  FD_VM_INTERP_FAULT;                    goto interp_halt;
-sigcost:     err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS;                             /* ic current */     cu = 0UL;         goto interp_halt;
+sigcost:     err = FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS;
+             ic += pc - pc_max + cu + 1UL;                                                                    cu = 0UL;         goto interp_halt;
 sigsyscall:  err = FD_VM_ERR_EBPF_SYSCALL_ERROR;                                         /* ic current */     /* cu current */  goto interp_halt;
 sigfpe:      err = FD_VM_ERR_EBPF_DIVIDE_BY_ZERO;                                        FD_VM_INTERP_FAULT;                    goto interp_halt;
 sigfpeof:    err = FD_VM_ERR_EBPF_DIVIDE_OVERFLOW;                                       FD_VM_INTERP_FAULT;                    goto interp_halt;
