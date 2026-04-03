@@ -2,6 +2,15 @@
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 
+/* The lazy-zeroing bitmaps (FD_VM_LAZY_BITMAP_WORDS ulongs) must have one
+   bit per lazy page of the largest region.  Fail loudly here rather than
+   silently under-sizing the bitmap if the region sizes or page size
+   change. */
+FD_STATIC_ASSERT( FD_VM_LAZY_BITMAP_WORDS*64UL >=
+                  ((FD_VM_STACK_MAX+FD_VM_LAZY_PAGE_SZ-1UL)>>FD_VM_LAZY_PAGE_LG_SZ), lazy_bitmap_covers_stack );
+FD_STATIC_ASSERT( FD_VM_LAZY_BITMAP_WORDS*64UL >=
+                  ((FD_VM_HEAP_MAX +FD_VM_LAZY_PAGE_SZ-1UL)>>FD_VM_LAZY_PAGE_LG_SZ), lazy_bitmap_covers_heap );
+
 /* fd_vm_syscall_strerror() returns the error message corresponding to err,
    intended to be logged by log_collector, or an empty string if the error code
    should be omitted in logs for whatever reason.  Omitted examples are success,
@@ -658,12 +667,13 @@ fd_vm_init(
   vm->segv_access_type                       = 0;
   vm->dump_syscall_to_pb                     = dump_syscall_to_pb;
 
+  /* Reset lazy page zeroing bitmaps so stack/heap pages are lazily
+     zeroed on first access during this invocation. */
+  vm->stack_zero_bitmap[0] = 0UL; vm->stack_zero_bitmap[1] = 0UL;
+  vm->heap_zero_bitmap [0] = 0UL; vm->heap_zero_bitmap [1] = 0UL;
+
   /* Unpack input and rodata */
   fd_vm_mem_cfg( vm );
-
-  /* Zero the memory the program can observe */
-  fd_memset( vm->stack, 0, FD_VM_STACK_MAX );
-  fd_memset( vm->heap,  0, heap_max        );
 
   /* Initialize registers */
   fd_memset( vm->reg, 0, FD_VM_REG_MAX * sizeof(ulong) );
