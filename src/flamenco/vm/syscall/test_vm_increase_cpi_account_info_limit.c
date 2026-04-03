@@ -257,6 +257,8 @@ test_env_create( test_env_t * env,
       0, 0UL
   );
   FD_TEST( vm_ok );
+
+  fd_vm_mark_all_pages_initialized( vm );
 }
 
 static void

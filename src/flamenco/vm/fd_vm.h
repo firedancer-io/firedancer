@@ -205,11 +205,21 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
                                                                 [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
   fd_vm_shadow_t            shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
                                                                 bottom/top.  Aligned 16. */
-  uchar                     stack [ FD_VM_STACK_MAX       ]; /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
-                                                                frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
-                                                                FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
-                                                                current stack frame.  Aligned 16. */
-  uchar                     heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
+
+  /* Lazy page zeroing bitmaps.  Each bit tracks whether a 2KB page
+     has been zeroed.  On the first access to an unzeroed page, the
+     page is lazily zeroed and the bitmap bit is set.  This avoids
+     clearing the full 512KB stack+heap on every VM new/init, reducing
+     zeroing to ~3.5KB (config+tail) per invocation.
+
+     128 pages of 2KB = 256KB per region = 128 bits = 2 ulongs. */
+
+# define FD_VM_LAZY_PAGE_LG_SZ (11UL)                          /* log2(2048) */
+# define FD_VM_LAZY_PAGE_SZ    (1UL << FD_VM_LAZY_PAGE_LG_SZ)  /* 2048 bytes */
+# define FD_VM_LAZY_BITMAP_WORDS (2UL)
+
+  ulong stack_zero_bitmap[ FD_VM_LAZY_BITMAP_WORDS ];
+  ulong heap_zero_bitmap [ FD_VM_LAZY_BITMAP_WORDS ];
 
   fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
@@ -233,6 +243,17 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
   ulong sbpf_version;     /* SBPF version, SIMD-0161 */
 
   int dump_syscall_to_pb; /* If true, syscalls will be dumped to the specified output directory */
+
+  /* stack[] and heap[] are placed at the end of the struct so that
+     fd_vm_new can cheaply zero only the config region (up to the stack
+     offset) and rely on lazy page zeroing for the 512KB arrays. */
+
+  uchar __attribute__((aligned(FD_VM_HOST_REGION_ALIGN)))
+                            stack [ FD_VM_STACK_MAX       ]; /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
+                                                                frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
+                                                                FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
+                                                                current stack frame.  Aligned 16. */
+  uchar                     heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */
@@ -247,7 +268,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527856UL)
+#define FD_VM_FOOTPRINT (527888UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -471,6 +492,35 @@ static inline int
 fd_vm_exec( fd_vm_t * vm ) {
   if( FD_UNLIKELY( vm->trace ) ) return fd_vm_exec_trace  ( vm );
   else                           return fd_vm_exec_notrace( vm );
+}
+
+/* fd_vm_mark_all_pages_initialized sets all bitmap bits for both
+   stack and heap, effectively disabling lazy zeroing.  Useful in test
+   harnesses that directly populate vm->heap/stack via memcpy. */
+
+static inline void
+fd_vm_mark_all_pages_initialized( fd_vm_t * vm ) {
+  vm->stack_zero_bitmap[0] = ~0UL; vm->stack_zero_bitmap[1] = ~0UL;
+  vm->heap_zero_bitmap [0] = ~0UL; vm->heap_zero_bitmap [1] = ~0UL;
+}
+
+/* fd_vm_zero_uninitialized_pages zeros every page whose bitmap bit is
+   still clear (never accessed through fd_vm_mem_haddr during execution).
+   Call after execution but before reading heap/stack for deterministic
+   comparison. */
+
+static inline void
+fd_vm_zero_uninitialized_pages( ulong * bitmap,
+                                uchar * region_base,
+                                ulong   region_sz ) {
+  ulong page_cnt = region_sz >> FD_VM_LAZY_PAGE_LG_SZ;
+  for( ulong p = 0; p < page_cnt; p++ ) {
+    ulong w = p >> 6;
+    ulong b = 1UL << (p & 63UL);
+    if( FD_UNLIKELY( !(bitmap[w] & b) ) ) {
+      fd_memset( region_base + (p << FD_VM_LAZY_PAGE_LG_SZ), 0, FD_VM_LAZY_PAGE_SZ );
+    }
+  }
 }
 
 FD_PROTOTYPES_END
