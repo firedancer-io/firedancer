@@ -30,10 +30,28 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
+  /* Precompute stack gap flag to avoid struct field load on every TLB miss (B1a) */
+  int stack_gaps_enabled = (vm->stack_push_frame_count > 1);
+
+  /* Soft TLB: single-slot cache for load and store translations.
+     Bounds stored in vaddr space (region bits included) so the hit
+     check is just two comparisons.  Initialized to guaranteed-miss
+     state (vaddr_hi=0). */
+  ulong tlb_ld_haddr_base = 0;
+  ulong tlb_ld_vaddr_lo   = ULONG_MAX;
+  ulong tlb_ld_vaddr_hi   = 0;
+  ulong tlb_st_haddr_base = 0;
+  ulong tlb_st_vaddr_lo   = ULONG_MAX;
+  ulong tlb_st_vaddr_hi   = 0;
+
   int err = FD_VM_SUCCESS;
 
   /* Run the VM */
 # include "fd_vm_interp_core.c"
+
+  (void)stack_gaps_enabled;
+  (void)tlb_ld_haddr_base; (void)tlb_ld_vaddr_lo; (void)tlb_ld_vaddr_hi;
+  (void)tlb_st_haddr_base; (void)tlb_st_vaddr_lo; (void)tlb_st_vaddr_hi;
 
   return err;
 }
