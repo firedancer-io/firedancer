@@ -186,6 +186,10 @@ test_env_setup( fd_svm_mini_t * mini ) {
     FD_FEATURE_ACTIVE_BANK( bank, virtual_address_space_adjustments ),
     0, 0UL
   ) );
+
+  /* Test writes directly to vm->heap, bypassing VM address translation.
+     Mark all pages as initialized so lazy zeroing doesn't clobber them. */
+  fd_vm_mark_all_pages_initialized( vm );
 }
 
 static void

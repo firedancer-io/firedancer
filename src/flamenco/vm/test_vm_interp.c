@@ -458,6 +458,235 @@ test_mem_ld_bench( fd_runtime_t *        runtime,
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
+
+
+static void
+test_branch_bench( fd_runtime_t *       runtime,
+                   fd_sbpf_syscalls_t * syscalls ) {
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_exec_instr_ctx_t instr_ctx[1];
+  fd_bank_t           bank[1];
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+
+  /* Branch-heavy program: tight loop of JNE (taken) + ADD.
+     Pattern: add64_imm r0, 1 ; jne r0, LIMIT.
+     Every 2 instructions hits BRANCH_BEGIN/BRANCH_END. */
+
+  ulong loop_iters = 1UL << 20;
+  ulong text_cnt = 2UL + 1UL; /* add + jne + exit */
+  ulong * text = (ulong *)malloc( sizeof(ulong) * text_cnt );
+  FD_TEST( text );
+
+  text[0] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 0, 0, 0, 1 );
+  text[1] = fd_vm_instr( FD_SBPF_OP_JNE_IMM, 0, 0, (short)(-2), (uint)loop_iters );
+  text[2] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
+
+  int vm_ok = !!fd_vm_init(
+      vm, instr_ctx, FD_VM_HEAP_DEFAULT, 4UL * loop_iters,
+      (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+      0UL, NULL, FD_SBPF_V0, syscalls, NULL, sha,
+      NULL, 0UL, NULL, 0,
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+      FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+      0, 0UL );
+  FD_TEST( vm_ok );
+  vm->pc = vm->entry_pc; vm->ic = 0UL; vm->cu = vm->entry_cu;
+  vm->frame_cnt = 0UL; vm->heap_sz = 0UL;
+  fd_vm_mem_cfg( vm );
+  FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+
+  long dt = -fd_log_wallclock();
+  int err = fd_vm_exec( vm );
+  dt += fd_log_wallclock();
+
+  FD_TEST( err==FD_VM_SUCCESS );
+  FD_LOG_NOTICE(( "%-20s %11li ns (%.1f ns/branch, %lu branches)",
+    "branch_bench", dt, (double)dt / (double)loop_iters, loop_iters ));
+
+  free( text );
+  fd_vm_delete( fd_vm_leave( vm ) );
+  fd_sha256_delete( fd_sha256_leave( sha ) );
+}
+
+
+static void
+test_lazy_zero_bench( fd_runtime_t *       runtime,
+                      fd_sbpf_syscalls_t * syscalls ) {
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_exec_instr_ctx_t instr_ctx[1];
+  fd_bank_t           bank[1];
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+
+  /* Benchmark 1: fd_vm_new cost (now only zeros config+tail, not stack/heap). */
+  {
+    ulong const ITERS = 1UL << 14;
+    uchar * shmem = (uchar *)aligned_alloc( FD_VM_ALIGN, FD_VM_FOOTPRINT );
+    FD_TEST( shmem );
+
+    long dt = -fd_log_wallclock();
+    for( ulong i = 0; i < ITERS; i++ ) {
+      fd_vm_new( shmem );
+      fd_vm_delete( shmem );
+      __asm__ volatile( "" ::: "memory" );
+    }
+    dt += fd_log_wallclock();
+    FD_LOG_NOTICE(( "%-20s %11li ns (%.0f ns/call, %lu calls)",
+      "vm_new_lazy", dt, (double)dt / (double)ITERS, ITERS ));
+    free( shmem );
+  }
+
+  /* Benchmark 2: program that accesses N distinct stack pages via stores.
+     This measures the per-page lazy zeroing overhead (memset 2KB on first access).
+     Uses r1 = stack_base, then stores to r1+page_offset for each page.
+     r10 in V1 = stack_top (0x200040000), so r10 - FD_VM_STACK_MAX = stack_base. */
+  {
+    ulong pages_to_touch = 16;
+    /* lddw r1,stack_base (2 words) + per-page: stb [r1+off],r0 + add r0,1 + exit */
+    ulong text_cnt = 2UL + pages_to_touch * 2UL + 1UL;
+    ulong * text = (ulong *)malloc( sizeof(ulong) * text_cnt );
+    FD_TEST( text );
+
+    ulong stack_base = FD_VM_MEM_MAP_STACK_REGION_START;
+    text[0] = fd_vm_instr( FD_SBPF_OP_LDDW, 2, 0, 0, (uint)(stack_base) );
+    text[1] = fd_vm_instr( 0, 0, 0, 0, (uint)(stack_base >> 32) );
+
+    for( ulong p = 0; p < pages_to_touch; p++ ) {
+      short off = (short)(p * FD_VM_LAZY_PAGE_SZ);
+      text[2 + p*2]     = fd_vm_instr( FD_SBPF_OP_STB, 2, 0, off, 0x42 );
+      text[2 + p*2 + 1] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 0, 0, 0, 1 );
+    }
+    text[text_cnt - 1] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    ulong const ITERS = 1UL << 14;
+    fd_vm_t _vm[1];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    FD_TEST( vm );
+
+    long dt = -fd_log_wallclock();
+    for( ulong i = 0; i < ITERS; i++ ) {
+      int vm_ok = !!fd_vm_init(
+          vm, instr_ctx, FD_VM_HEAP_DEFAULT, 10UL * text_cnt,
+          (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+          0UL, NULL, FD_SBPF_V1, syscalls, NULL, sha,
+          NULL, 0UL, NULL, 0,
+          FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+          FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+          FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+          0, 0UL );
+      FD_TEST( vm_ok );
+      int err = fd_vm_exec( vm );
+      FD_TEST( err==FD_VM_SUCCESS );
+      __asm__ volatile( "" ::: "memory" );
+    }
+    dt += fd_log_wallclock();
+    FD_LOG_NOTICE(( "%-20s %11li ns (%.0f ns/call, %lu pages touched)",
+      "lazy_16pg_exec", dt, (double)dt / (double)ITERS, pages_to_touch ));
+
+    free( text );
+    fd_vm_delete( fd_vm_leave( vm ) );
+  }
+
+  /* Benchmark 3: program that writes to heap via stack-relative addressing.
+     Touches 4 heap pages to verify heap lazy zeroing works correctly. */
+  {
+    ulong pages_to_touch = 4;
+    ulong text_cnt = 2UL + pages_to_touch * 3UL + 1UL;
+    ulong * text = (ulong *)malloc( sizeof(ulong) * text_cnt );
+    FD_TEST( text );
+
+    /* r1 = heap base vaddr (0x300000000) */
+    text[0] = fd_vm_instr( FD_SBPF_OP_LDDW, 1, 0, 0, (uint)(FD_VM_MEM_MAP_HEAP_REGION_START) );
+    text[1] = fd_vm_instr( 0, 0, 0, 0, (uint)(FD_VM_MEM_MAP_HEAP_REGION_START >> 32) );
+
+    for( ulong p = 0; p < pages_to_touch; p++ ) {
+      ushort off = (ushort)(p * FD_VM_LAZY_PAGE_SZ);
+      text[2 + p*3]     = fd_vm_instr( FD_SBPF_OP_STB, 1, 0, (short)off, 0 );
+      /* Load back to verify reads zero (testing lazy zero correctness) */
+      text[2 + p*3 + 1] = fd_vm_instr( FD_SBPF_OP_LDXB, 0, 1, (short)(off+1), 0 );
+      text[2 + p*3 + 2] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 0, 0, 0, 0 );
+    }
+    text[text_cnt - 1] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    fd_vm_t _vm[1];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    FD_TEST( vm );
+
+    int vm_ok = !!fd_vm_init(
+        vm, instr_ctx, FD_VM_HEAP_DEFAULT, 10UL * text_cnt,
+        (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+        0UL, NULL, FD_SBPF_V1, syscalls, NULL, sha,
+        NULL, 0UL, NULL, 0,
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+        0, 0UL );
+    FD_TEST( vm_ok );
+    int err = fd_vm_exec( vm );
+    FD_TEST( err==FD_VM_SUCCESS );
+
+    /* Verify correctness: r0 should be 0 (all lazy-zeroed bytes read as 0) */
+    FD_TEST( vm->reg[0] == 0UL );
+
+    FD_LOG_NOTICE(( "%-20s PASS (heap lazy zero correctness)", "lazy_heap_check" ));
+
+    free( text );
+    fd_vm_delete( fd_vm_leave( vm ) );
+  }
+
+  /* Benchmark 4: Stack correctness with lazy zeroing.
+     Write to one stack page, then read from a DIFFERENT (untouched) page.
+     The untouched page must read zero due to lazy zeroing. */
+  {
+    ulong text_cnt = 4;
+    ulong * text = (ulong *)malloc( sizeof(ulong) * text_cnt );
+    FD_TEST( text );
+
+    /* Write 0x42 to stack page 0 (near top of stack: r10 - small offset) */
+    text[0] = fd_vm_instr( FD_SBPF_OP_STB, 10, 0, (short)(-1), 0x42 );
+    /* Read from a different stack page (r10 - 4096, which is 2 pages away) */
+    text[1] = fd_vm_instr( FD_SBPF_OP_LDXB, 0, 10, (short)(-4096), 0 );
+    /* r0 should be 0 if lazy zeroing works */
+    text[2] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 0, 0, 0, 0 );
+    text[3] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    fd_vm_t _vm[1];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    FD_TEST( vm );
+
+    int vm_ok = !!fd_vm_init(
+        vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+        (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+        0UL, NULL, FD_SBPF_V1, syscalls, NULL, sha,
+        NULL, 0UL, NULL, 0,
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+        0, 0UL );
+    FD_TEST( vm_ok );
+    int err = fd_vm_exec( vm );
+    FD_TEST( err==FD_VM_SUCCESS );
+    FD_TEST( vm->reg[0] == 0UL );
+
+    FD_LOG_NOTICE(( "%-20s PASS (stack lazy zero correctness)", "lazy_stack_check" ));
+
+    free( text );
+    fd_vm_delete( fd_vm_leave( vm ) );
+  }
+
+  fd_sha256_delete( fd_sha256_leave( sha ) );
+}
+
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
 int
@@ -1932,6 +2161,9 @@ main( int     argc,
   test_0cu_exit( runtime );
 
   test_mem_ld_bench( runtime, syscalls );
+  test_branch_bench( runtime, syscalls );
+  test_lazy_zero_bench( runtime, syscalls );
+
 
   free( text );
 

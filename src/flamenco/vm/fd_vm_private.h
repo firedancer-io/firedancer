@@ -190,6 +190,72 @@ FD_FN_CONST static inline ulong fd_vm_instr_normal_opmode ( ulong instr ) { retu
 FD_FN_CONST static inline ulong fd_vm_instr_mem_opsize    ( ulong instr ) { return (instr>>3) &  3UL; } /* In [0,4)  */
 FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { return (instr>>5) &  7UL; } /* In [0,16) */
 
+/* Lazy page zeroing ******************************************************
+
+   fd_vm_lazy_zero_pages checks whether the 2KB page(s) covering
+   [offset, offset+sz) within a stack or heap region have been zeroed.
+   If any page's bitmap bit is clear, the page is zeroed via fd_memset
+   and the bit is set.  On the fast path (page already zeroed), this
+   costs a shift, a bit-test, and a predicted-taken branch (~3 cycles).
+
+   fd_vm_lazy_zero_range zeros all pages in [off_lo, off_lo+len).
+   Used after TLB setup to pre-zero the entire cached range so that
+   TLB hits don't need per-access bitmap checks. */
+
+static inline void
+fd_vm_lazy_zero_pages( ulong * bitmap,
+                       uchar * region_base,
+                       ulong   offset,
+                       ulong   sz ) {
+  if( FD_UNLIKELY( !sz ) ) return;
+  ulong p_lo = offset >> FD_VM_LAZY_PAGE_LG_SZ;
+  ulong p_hi = (offset + sz - 1UL) >> FD_VM_LAZY_PAGE_LG_SZ;
+  for( ulong p = p_lo; p <= p_hi; p++ ) {
+    ulong w = p >> 6;
+    ulong b = 1UL << (p & 63UL);
+    if( FD_UNLIKELY( !(bitmap[w] & b) ) ) {
+      fd_memset( region_base + (p << FD_VM_LAZY_PAGE_LG_SZ), 0, FD_VM_LAZY_PAGE_SZ );
+      bitmap[w] |= b;
+    }
+  }
+}
+
+static inline void
+fd_vm_lazy_zero_range( ulong * bitmap,
+                       uchar * region_base,
+                       ulong   off_lo,
+                       ulong   len ) {
+  if( FD_UNLIKELY( !len ) ) return;
+  ulong p_lo = off_lo >> FD_VM_LAZY_PAGE_LG_SZ;
+  ulong p_hi = (off_lo + len - 1UL) >> FD_VM_LAZY_PAGE_LG_SZ;
+  for( ulong p = p_lo; p <= p_hi; p++ ) {
+    ulong w = p >> 6;
+    ulong b = 1UL << (p & 63UL);
+    if( FD_UNLIKELY( !(bitmap[w] & b) ) ) {
+      fd_memset( region_base + (p << FD_VM_LAZY_PAGE_LG_SZ), 0, FD_VM_LAZY_PAGE_SZ );
+      bitmap[w] |= b;
+    }
+  }
+}
+
+/* fd_vm_lazy_zero_mark sets the bitmap bits for [off, off+len) WITHOUT
+   zeroing the pages.  Use this only when memory has already been
+   initialized by writing directly to vm->stack or vm->heap (bypassing
+   VM address translation), so that subsequent fd_vm_mem_haddr calls
+   do not clobber the data.  Typically needed only in test harnesses. */
+
+static inline void
+fd_vm_lazy_zero_mark( ulong * bitmap,
+                      ulong   off,
+                      ulong   len ) {
+  if( FD_UNLIKELY( !len ) ) return;
+  ulong p_lo = off >> FD_VM_LAZY_PAGE_LG_SZ;
+  ulong p_hi = (off + len - 1UL) >> FD_VM_LAZY_PAGE_LG_SZ;
+  for( ulong p = p_lo; p <= p_hi; p++ ) {
+    bitmap[ p >> 6 ] |= 1UL << (p & 63UL);
+  }
+}
+
 /* fd_vm_mem API ******************************************************/
 
 /* fd_vm_mem APIs support the fast mapping of virtual address ranges to
@@ -478,12 +544,22 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
   }
 
+  ulong haddr = fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+
+  if( FD_LIKELY( haddr != sentinel ) &&
+      FD_UNLIKELY( region == FD_VM_STACK_REGION || region == FD_VM_HEAP_REGION ) ) {
+    fd_vm_t * vm_mut = (fd_vm_t *)vm;
+    ulong * bitmap = (region == FD_VM_STACK_REGION) ? vm_mut->stack_zero_bitmap : vm_mut->heap_zero_bitmap;
+    uchar * base   = (region == FD_VM_STACK_REGION) ? vm_mut->stack : vm_mut->heap;
+    fd_vm_lazy_zero_pages( bitmap, base, offset, sz );
+  }
+
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
-  if ( FD_LIKELY( sz<=sz_max ) ) {
-    fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
+  if ( FD_LIKELY( haddr != sentinel ) ) {
+    fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, haddr );
   }
 # endif
-  return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+  return haddr;
 }
 
 /* fd_vm_mem_haddr_tlb_miss handles the TLB miss path: translates the
@@ -516,9 +592,21 @@ fd_vm_mem_haddr_tlb_miss( fd_vm_t const * vm,
 
     if( FD_LIKELY( region != FD_VM_INPUT_REGION ) ) {
       if( FD_UNLIKELY( region == FD_VM_STACK_REGION && stack_gaps_enabled ) ) {
+        /* Stack with gaps: TLB covers one 4KB data frame (contains 2 lazy pages).
+           Pre-zero all pages in the frame so TLB hits are safe.
+           The gap adjustment maps virtual frame_base to physical frame_base>>1. */
         ulong frame_base = offset & ~0x1FFFUL;
         *p_tlb_vaddr_lo = region_bits | frame_base;
         *p_tlb_vaddr_hi = region_bits | (frame_base + 0x1000UL);
+        {
+          fd_vm_t * vm_mut  = (fd_vm_t *)vm;
+          ulong     phys_lo = frame_base >> 1;
+          fd_vm_lazy_zero_range( vm_mut->stack_zero_bitmap, vm_mut->stack, phys_lo, 0x1000UL );
+        }
+      } else if( FD_UNLIKELY( region == FD_VM_STACK_REGION || region == FD_VM_HEAP_REGION ) ) {
+        ulong page_base = offset & ~(FD_VM_LAZY_PAGE_SZ - 1UL);
+        *p_tlb_vaddr_lo = region_bits | page_base;
+        *p_tlb_vaddr_hi = region_bits | (page_base + FD_VM_LAZY_PAGE_SZ);
       } else {
         *p_tlb_vaddr_lo = region_bits;
         *p_tlb_vaddr_hi = region_bits | (ulong)vm_region_sz[ region ];
