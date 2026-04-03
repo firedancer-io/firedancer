@@ -486,6 +486,118 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
   return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
 }
 
+/* fd_vm_mem_haddr_tlb_miss handles the TLB miss path: translates the
+   address via fd_vm_mem_haddr and populates the TLB cache on success.
+   Deliberately not inlined so that the hot (hit) path stays tiny.
+
+   The TLB stores bounds in vaddr space (region bits included) so the
+   hit check is just two comparisons with no region extraction. */
+
+static __attribute__((noinline)) ulong
+fd_vm_mem_haddr_tlb_miss( fd_vm_t const * vm,
+                          ulong           vaddr,
+                          ulong           sz,
+                          ulong const *   vm_region_haddr,
+                          uint  const *   vm_region_sz,
+                          uchar           write,
+                          ulong           sentinel,
+                          ulong *         p_tlb_haddr_base,
+                          ulong *         p_tlb_vaddr_lo,
+                          ulong *         p_tlb_vaddr_hi,
+                          int             stack_gaps_enabled ) {
+  ulong region = FD_VADDR_TO_REGION( vaddr );
+  ulong offset = vaddr & FD_VM_OFFSET_MASK;
+  ulong region_bits = region << FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS;
+
+  ulong haddr = fd_vm_mem_haddr( vm, vaddr, sz, vm_region_haddr, vm_region_sz, write, sentinel );
+
+  if( FD_LIKELY( haddr != sentinel ) ) {
+    *p_tlb_haddr_base = haddr - offset;
+
+    if( FD_LIKELY( region != FD_VM_INPUT_REGION ) ) {
+      if( FD_UNLIKELY( region == FD_VM_STACK_REGION && stack_gaps_enabled ) ) {
+        ulong frame_base = offset & ~0x1FFFUL;
+        *p_tlb_vaddr_lo = region_bits | frame_base;
+        *p_tlb_vaddr_hi = region_bits | (frame_base + 0x1000UL);
+      } else {
+        *p_tlb_vaddr_lo = region_bits;
+        *p_tlb_vaddr_hi = region_bits | (ulong)vm_region_sz[ region ];
+      }
+    } else {
+      ulong idx = fd_vm_get_input_mem_region_idx( vm, offset );
+      *p_tlb_vaddr_lo   = region_bits | vm->input_mem_regions[ idx ].vaddr_offset;
+      *p_tlb_vaddr_hi   = region_bits | (vm->input_mem_regions[ idx ].vaddr_offset
+                                        + vm->input_mem_regions[ idx ].region_sz);
+      *p_tlb_haddr_base = vm->input_mem_regions[ idx ].haddr
+                        - vm->input_mem_regions[ idx ].vaddr_offset;
+    }
+  }
+
+  return haddr;
+}
+
+/* fd_vm_mem_haddr_with_tlb is a TLB-accelerated wrapper around
+   fd_vm_mem_haddr.  It caches the most recent successful translation
+   in a single-slot "soft TLB" using vaddr-space bounds (3 ulongs:
+   haddr_base, vaddr_lo, vaddr_hi).  On hit, translation costs ~8
+   x86 instructions (always inlined): two range comparisons on vaddr
+   plus an add for the host address.  On miss, calls
+   fd_vm_mem_haddr_tlb_miss (not inlined) to resolve and populate.
+
+   The TLB must be invalidated (set vaddr_hi=0) after any event that
+   could change memory mappings (syscalls, CPI).
+
+   Callers must use separate TLB instances for loads vs stores, since
+   region_ld_sz and region_st_sz can differ. */
+
+static inline __attribute__((always_inline)) ulong
+fd_vm_mem_haddr_with_tlb( fd_vm_t const * vm,
+                          ulong           vaddr,
+                          ulong           sz,
+                          ulong const *   vm_region_haddr,
+                          uint  const *   vm_region_sz,
+                          uchar           write,
+                          ulong           sentinel,
+                          ulong *         p_tlb_haddr_base,
+                          ulong *         p_tlb_vaddr_lo,
+                          ulong *         p_tlb_vaddr_hi,
+                          int             stack_gaps_enabled ) {
+  if( FD_LIKELY( vaddr >= *p_tlb_vaddr_lo
+              && (vaddr + sz) <= *p_tlb_vaddr_hi ) ) {
+    return *p_tlb_haddr_base + (uint)vaddr;
+  }
+
+  return fd_vm_mem_haddr_tlb_miss( vm, vaddr, sz, vm_region_haddr, vm_region_sz,
+                                   write, sentinel, p_tlb_haddr_base,
+                                   p_tlb_vaddr_lo, p_tlb_vaddr_hi, stack_gaps_enabled );
+}
+
+/* fd_vm_mem_haddr_with_tlb_1 is a specialized variant of
+   fd_vm_mem_haddr_with_tlb for single-byte accesses (sz=1).
+   The TLB hit check simplifies to vaddr < vaddr_hi (since
+   vaddr+1 <= hi iff vaddr < hi). */
+
+static inline __attribute__((always_inline)) ulong
+fd_vm_mem_haddr_with_tlb_1( fd_vm_t const * vm,
+                            ulong           vaddr,
+                            ulong const *   vm_region_haddr,
+                            uint  const *   vm_region_sz,
+                            uchar           write,
+                            ulong           sentinel,
+                            ulong *         p_tlb_haddr_base,
+                            ulong *         p_tlb_vaddr_lo,
+                            ulong *         p_tlb_vaddr_hi,
+                            int             stack_gaps_enabled ) {
+  if( FD_LIKELY( vaddr >= *p_tlb_vaddr_lo
+              && vaddr <  *p_tlb_vaddr_hi ) ) {
+    return *p_tlb_haddr_base + (uint)vaddr;
+  }
+
+  return fd_vm_mem_haddr_tlb_miss( vm, vaddr, 1UL, vm_region_haddr, vm_region_sz,
+                                   write, sentinel, p_tlb_haddr_base,
+                                   p_tlb_vaddr_lo, p_tlb_vaddr_hi, stack_gaps_enabled );
+}
+
 static inline ulong
 fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong           vaddr,
