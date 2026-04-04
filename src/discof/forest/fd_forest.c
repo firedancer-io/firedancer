@@ -915,21 +915,6 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
   FD_TEST( slot > fd_forest_root_slot( forest ) ); /* caller error - inval */
 # endif
 
-  fd_forest_blk_t * ele = query( forest, slot );
-  if( FD_LIKELY( ele ) ) {
-    // potentially may need to update the parent_slot, if this
-    // this was a sentinel block that was created for a confirmed msg
-    if( FD_UNLIKELY( parent_slot != ele->parent_slot ) ) {
-      ele->parent_slot = parent_slot;
-      subtrees_orphaned_remove( forest, slot ); // if this is a sentinel block, then it must be in subtrees
-    } else {
-      return ele;
-    }
-  } else {
-    ele = acquire( forest, slot, parent_slot, evicted );
-    if( FD_UNLIKELY( !ele ) ) return NULL; /* no space in pool, so we can't add this slot */
-  }
-
   fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
@@ -939,9 +924,26 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
   fd_forest_ref_t *      conspool = fd_forest_conspool( forest );
   fd_forest_requests_t * requests = fd_forest_requests( forest );
   fd_forest_ref_t *      reqspool = fd_forest_reqspool( forest );
-  fd_forest_blk_t *      pool     = fd_forest_pool ( forest );
+  fd_forest_blk_t *      pool     = fd_forest_pool    ( forest );
   ulong *                bfs      = fd_forest_deque( forest );
   ulong                  null     = fd_forest_pool_idx_null( pool );
+
+  fd_forest_blk_t * ele = query( forest, slot );
+  if( FD_LIKELY( ele ) ) {
+    /* potentially may need to update the parent_slot, if this
+       this was a sentinel block that was created for a confirmed msg.
+       This update is only allowed once */
+    if( FD_UNLIKELY( ele->slot == ele->parent_slot && ele->parent_slot != parent_slot ) ) {
+      ele->parent_slot = parent_slot;
+      FD_TEST( fd_forest_subtrees_ele_query( subtrees, &slot, NULL, pool ) || fd_forest_orphaned_ele_query( orphaned, &slot, NULL, pool ) );
+      subtrees_orphaned_remove( forest, slot ); // if this is a sentinel block, then it must be orphaned
+    } else {
+      return ele;
+    }
+  } else {
+    ele = acquire( forest, slot, parent_slot, evicted );
+    if( FD_UNLIKELY( !ele ) ) return NULL; /* no space in pool, so we can't add this slot */
+  }
 
   fd_forest_blk_t * parent = NULL;
 
@@ -1087,6 +1089,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
      and invalidating the merkle root if we see more than 1 version of
      the FEC. */
   uint fec_idx = fec_set_idx / 32UL;
+  if( FD_UNLIKELY( fec_idx + 1 >= FD_FEC_BLK_MAX ) ) return NULL;
   if( FD_UNLIKELY( merkle_verified( ele, fec_idx + 1 ) ) ) { /* if the cmr pointing to this FEC has been verified, then... */
     if( FD_UNLIKELY(
          ( fec_idx == (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->confirmed_bid, mr ) ) ||
