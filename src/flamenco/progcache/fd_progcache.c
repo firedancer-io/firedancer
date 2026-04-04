@@ -1,4 +1,5 @@
 #include "fd_progcache.h"
+#include "fd_progcache_clock.h"
 
 #define POOL_NAME       fd_prog_recp
 #define POOL_ELE_T      fd_progcache_rec_t
@@ -16,7 +17,6 @@
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MAGIC             (0xf173da2ce77ecdb8UL)
-#define MAP_CUSTOM_CHAIN      1
 #define MAP_IMPL_STYLE        2
 #include "../../util/tmpl/fd_map_chain_para.c"
 
@@ -29,7 +29,7 @@
 
 #define  MAP_NAME              fd_prog_txnm
 #define  MAP_ELE_T             fd_progcache_txn_t
-#define  MAP_KEY_T             fd_funk_txn_xid_t
+#define  MAP_KEY_T             fd_xid_t
 #define  MAP_KEY               xid
 #define  MAP_KEY_EQ(k0,k1)     fd_funk_txn_xid_eq((k0),(k1))
 #define  MAP_KEY_HASH(k0,seed) fd_funk_txn_xid_hash((k0),(seed))
@@ -41,7 +41,7 @@
 
 FD_FN_CONST ulong
 fd_progcache_shmem_align( void ) {
-  return fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max(
+  return fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max( fd_ulong_max(
       alignof(fd_progcache_shmem_t),
       fd_prog_txnm_align() ),
       fd_prog_txnp_align() ),
@@ -49,7 +49,8 @@ fd_progcache_shmem_align( void ) {
       fd_prog_recm_align() ),
       fd_prog_recp_align() ),
       alignof(fd_progcache_rec_t) ),
-      fd_alloc_align() );
+      fd_alloc_align() ),
+      fd_prog_cbits_align() );
 }
 
 FD_FN_CONST ulong
@@ -72,6 +73,8 @@ fd_progcache_shmem_footprint( ulong txn_max,
   l = FD_LAYOUT_APPEND( l, alignof(fd_progcache_rec_t), sizeof(fd_progcache_rec_t) * rec_max );
 
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+
+  l = FD_LAYOUT_APPEND( l, fd_prog_cbits_align(), fd_prog_cbits_footprint( rec_max ) );
 
   return FD_LAYOUT_FINI( l, fd_progcache_shmem_align() );
 }
@@ -128,9 +131,11 @@ fd_progcache_shmem_new( void * shmem,
 
   void * alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 
-  FD_TEST( _l == (ulong)pc + fd_progcache_shmem_footprint( txn_max, rec_max ) );
+  atomic_ulong * cbits = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_cbits_align(), fd_prog_cbits_footprint( rec_max ) );
 
-  fd_memset( pc, 0, sizeof(fd_progcache_shmem_t) );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_progcache_shmem_align() ) == (ulong)pc + fd_progcache_shmem_footprint( txn_max, rec_max ) );
+
+  fd_memset( pc, 0, offsetof(fd_progcache_shmem_t, spill) );
 
   pc->wksp_tag = wksp_tag;
   pc->seed     = seed;
@@ -140,7 +145,6 @@ fd_progcache_shmem_new( void * shmem,
   pc->txn.pool_gaddr = fd_wksp_gaddr_fast( wksp, txn_pool2 );
   fd_progcache_txn_t * txn_ele = fd_prog_txnp_join( txn_pool2 );
   pc->txn.ele_gaddr = fd_wksp_gaddr_fast( wksp, txn_ele );
-  fd_prog_txnp_leave( txn_ele );
   pc->txn.max = txn_max;
   pc->txn.child_head_idx = UINT_MAX;
   pc->txn.child_tail_idx = UINT_MAX;
@@ -148,6 +152,7 @@ fd_progcache_shmem_new( void * shmem,
   for( ulong i=0UL; i<txn_max; i++ ) {
     fd_rwlock_new( &txn_ele[ i ].lock );
   }
+  fd_prog_txnp_leave( txn_ele );
 
   pc->rec.map_gaddr = fd_wksp_gaddr_fast( wksp, fd_prog_recm_new( rec_map, rec_chain_cnt, seed ) );
   void * rec_pool2 = fd_prog_recp_new( rec_pool );
@@ -156,19 +161,24 @@ fd_progcache_shmem_new( void * shmem,
   fd_prog_recp_join( rec_join, rec_pool2, rec_ele, rec_max );
   fd_prog_recp_reset( rec_join, 0UL );
   pc->rec.ele_gaddr = fd_wksp_gaddr_fast( wksp, rec_ele );
-  fd_prog_recp_leave( rec_join );
   pc->rec.max = (uint)rec_max;
   for( ulong i=0UL; i<rec_max; i++ ) {
     fd_rwlock_new( &rec_ele[ i ].lock );
   }
+  fd_prog_recp_leave( rec_join );
 
-  fd_rwlock_new( &pc->clock.lock );
-  pc->clock.head = 0U;
+  fd_rwlock_new( &pc->txn.rwlock );
 
   fd_rwlock_new( &pc->spill.lock );
+  pc->spill.rec_used  = 0U;
   pc->spill.spad_used = 0U;
 
   pc->alloc_gaddr = fd_wksp_gaddr_fast( wksp, fd_alloc_join( fd_alloc_new( alloc, wksp_tag ), 0UL ) );
+
+  pc->clock.cbits_gaddr = fd_wksp_gaddr_fast( wksp, cbits );
+  pc->clock.head        = 0UL;
+  fd_rwlock_new( &pc->clock.lock );
+  fd_prog_clock_init( cbits, rec_max );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( pc->magic ) = FD_PROGCACHE_SHMEM_MAGIC;
@@ -207,7 +217,11 @@ fd_progcache_shmem_join( fd_progcache_join_t *  ljoin,
   memset( ljoin, 0, sizeof(fd_progcache_join_t) );
 
   ljoin->shmem = shmem;
-  ljoin->wksp  = wksp;
+  if( FD_UNLIKELY( fd_progcache_use_malloc ) ) {
+    ljoin->data_base = NULL;
+  } else {
+    ljoin->data_base = wksp;
+  }
 
   ljoin->txn.pool = fd_prog_txnp_join( fd_wksp_laddr( wksp, shmem->txn.pool_gaddr ) );
   if( FD_UNLIKELY( !ljoin->txn.pool ) ) {
@@ -227,11 +241,14 @@ fd_progcache_shmem_join( fd_progcache_join_t *  ljoin,
     FD_LOG_WARNING(( "fd_prog_recp_join failed" ));
     return NULL;
   }
+  ljoin->rec.reclaim_head = UINT_MAX;
 
   if( FD_UNLIKELY( !( ljoin->alloc = fd_alloc_join( fd_wksp_laddr( wksp, shmem->alloc_gaddr ), fd_tile_idx() ) ) ) ) {
     FD_LOG_WARNING(( "fd_alloc_join failed" ));
     return NULL;
   }
+
+  ljoin->clock.bits = fd_wksp_laddr( wksp, shmem->clock.cbits_gaddr );
 
   return ljoin;
 }
@@ -272,11 +289,20 @@ fd_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
     FD_LOG_WARNING(( "shmem must be part of a workspace" ));
     return NULL;
   }
+  void * data_base = fd_progcache_use_malloc ? NULL : wksp;
 
   if( FD_UNLIKELY( shmem->magic!=FD_PROGCACHE_SHMEM_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
+
+  FD_TEST( !shmem->txn.rwlock.value );
+  FD_TEST( !shmem->spill.lock.value );
+  FD_TEST( !shmem->clock.lock.value );
+  fd_progcache_txn_t * txn0 = fd_wksp_laddr_fast( wksp, shmem->txn.ele_gaddr );
+  fd_progcache_rec_t * rec0 = fd_wksp_laddr_fast( wksp, shmem->rec.ele_gaddr );
+  for( ulong i=0UL; i<shmem->txn.max; i++ ) FD_TEST( !txn0[ i ].lock.value );
+  for( ulong i=0UL; i<shmem->rec.max; i++ ) FD_TEST( !rec0[ i ].lock.value );
 
   /* Free all fd_alloc allocations made, individually
      (FIXME consider walking the element pool instead of the map?) */
@@ -299,7 +325,7 @@ fd_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
     ) {
       fd_progcache_rec_t * rec = fd_prog_recm_iter_ele( iter );
       if( rec->data_gaddr ) {
-        fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, rec->data_gaddr ) );
+        fd_progcache_val_free1( rec, fd_wksp_laddr_fast( data_base, rec->data_gaddr ), alloc );
       }
       rec->data_gaddr = 0UL;
       rec->data_max   = 0U;
@@ -342,6 +368,10 @@ fd_progcache_shmem_delete_fast( fd_progcache_shmem_t * shmem ) {
     FD_LOG_WARNING(( "shmem must be part of a workspace" ));
     return NULL;
   }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( shmem->magic ) = 0UL;
+  FD_COMPILER_MFENCE();
 
   ulong const tags[1] = { shmem->wksp_tag };
   fd_wksp_tag_free( wksp, tags, 1UL );

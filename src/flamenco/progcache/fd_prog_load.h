@@ -4,27 +4,35 @@
 /* fd_prog_load.h provides high-level APIs for loading Solana programs
    from the account database. */
 
-#include "../accdb/fd_accdb_user.h"
+#include "../accdb/fd_accdb_ref.h"
+#include "../types/fd_types_custom.h"
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_prog_load_elf opens a program data account.  prog_addr points to
-   the program account (not necessarily the same address as the program
-   data account).  Populates *ro and returns it on success.  Returns
-   NULL on failure (e.g. account not found, program not deployed).
-   On success, sets *out_offset to the byte offset within the program
-   data account's data region where the ELF binary starts. */
+/* fd_prog_info derives executable info from a program data account.
+   progdata_ro is a handle to the program data account (ownership stays
+   with caller). program_owner is the owner pubkey of the program account
+   (NOT the programdata account). This is used to determine the loader type.
+   Populates *out and returns out on success.
+   On failure, logs warning and returns NULL. */
 
-fd_accdb_ro_t *
-fd_prog_load_elf( fd_accdb_user_t *         accdb,
-                  fd_funk_txn_xid_t const * xid,
-                  fd_accdb_ro_t *           ro,
-                  void const *              prog_addr,
-                  ulong *                   out_offset );
+struct fd_prog_info {
+  /* Byte range within the account's data yielding ELF file */
+  ulong elf_off;
+  ulong elf_sz;
 
-/* FIXME provide an API to detect data race */
-/* FIXME clarify edge case where program account and program data
-         account were modified in different funk txns */
+  /* deploy_slot meaning depends on program loader version:
+     - v1, v2: always zero
+     - v3: slot at which this program was deployed at */
+  ulong deploy_slot;
+};
+
+typedef struct fd_prog_info fd_prog_info_t;
+
+fd_prog_info_t *
+fd_prog_info( fd_prog_info_t    * out,
+              fd_accdb_ro_t     * progdata_ro,
+              fd_pubkey_t const * program_owner );
 
 /* fd_prog_versions derives sBPF versions from the current feature set. */
 
@@ -43,7 +51,6 @@ FD_PROTOTYPES_END
 struct fd_prog_load_env {
   fd_features_t const * features;
 
-  ulong slot;         /* current slot */
   ulong epoch;        /* current epoch */
   ulong epoch_slot0;  /* slot0 of current epoch */
 };

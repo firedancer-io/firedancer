@@ -25,7 +25,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_clock_t) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -61,7 +61,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_epoch_schedule_t) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -104,7 +104,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_rent_t) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -139,9 +139,9 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_last_restart_slot_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, 8UL ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -149,20 +149,20 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT,
-    .sz       = sizeof(fd_sol_sysvar_last_restart_slot_t),
+    .sz       = sizeof(ulong),
     .is_slice = 0,
   };
 
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
-  if( FD_UNLIKELY( !fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache, &last_restart_slot ) ) ) {
+  ulong last_restart_slot = fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache );
+  if( FD_UNLIKELY( last_restart_slot==ULONG_MAX ) ) {
     FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
 
-  memcpy( var_query.haddr, &last_restart_slot, sizeof(fd_sol_sysvar_last_restart_slot_t) );
+  memcpy( var_query.haddr, &last_restart_slot, sizeof(ulong) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -186,7 +186,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   ulong sysvar_buf_cost = sz / FD_VM_CPI_BYTES_PER_UNIT;
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, fd_ulong_max( sysvar_buf_cost, FD_VM_MEM_OP_BASE_COST ) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
@@ -273,7 +273,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = fd_bank_total_epoch_stake_get( vm->instr_ctx->bank );
+    *_ret = vm->instr_ctx->bank->f.total_epoch_stake;
     return FD_VM_SUCCESS;
   }
 
@@ -287,13 +287,17 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   fd_pubkey_t const * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( vm->instr_ctx->bank );
 
-  ulong       stake;
-  fd_pubkey_t node_account;
-  int found = fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->data->vote_stakes_fork_id, vote_address, &stake, &node_account );
-  *_ret = found ? stake : 0UL;
-  fd_bank_vote_stakes_end_locking_modify( vm->instr_ctx->bank );
+  ulong stake = 0UL;
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket ) ) {
+    fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
+    fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL );
+  } else {
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( vm->instr_ctx->bank );
+    fd_vote_stakes_query_t_1( vote_stakes, vm->instr_ctx->bank->vote_stakes_fork_id, vote_address, &stake, NULL, NULL );
+  }
+
+  *_ret = stake;
 
   return FD_VM_SUCCESS;
 }
@@ -596,7 +600,7 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_epoch_rewards_t) ) );
 
-  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+  if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }

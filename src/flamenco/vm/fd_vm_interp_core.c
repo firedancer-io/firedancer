@@ -283,16 +283,15 @@
 
   /* FIXME: unvalidated code mucking with r10 */
 
-# define FD_VM_INTERP_STACK_PUSH                                                                             \
-  shadow[ frame_cnt ].r6  = reg[6];                                                                          \
-  shadow[ frame_cnt ].r7  = reg[7];                                                                          \
-  shadow[ frame_cnt ].r8  = reg[8];                                                                          \
-  shadow[ frame_cnt ].r9  = reg[9];                                                                          \
-  shadow[ frame_cnt ].r10 = reg[10];                                                                         \
-  shadow[ frame_cnt ].pc  = pc;                                                                              \
-  if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */  \
-  if( !fd_sbpf_dynamic_stack_frames_enabled( sbpf_version ) ) reg[10] += FD_VM_STACK_FRAME_SZ * 2UL;         \
-
+# define FD_VM_INTERP_STACK_PUSH                                                                            \
+  shadow[ frame_cnt ].r6  = reg[6];                                                                         \
+  shadow[ frame_cnt ].r7  = reg[7];                                                                         \
+  shadow[ frame_cnt ].r8  = reg[8];                                                                         \
+  shadow[ frame_cnt ].r9  = reg[9];                                                                         \
+  shadow[ frame_cnt ].r10 = reg[10];                                                                        \
+  shadow[ frame_cnt ].pc  = pc;                                                                             \
+  if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
+  reg[10]                += vm->stack_frame_sz * vm->stack_push_frame_count;                                \
   /* We subtract the heap cost in the BPF loader */
 
   goto interp_exec; /* Silly but to avoid unused label warning in some configurations */
@@ -701,7 +700,7 @@ interp_exec:
        (*)but after checking calldests, see point below. */
 
       /* Agave's order of checks
-         (https://github.com/solana-labs/rbpf/blob/v0.8.5/src/interpreter.rs#L486):
+         (https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L565-L572):
           1. Lookup imm hash in FunctionRegistry (calldests_test is our equivalent)
           2. Push stack frame
           3. Check PC
@@ -736,6 +735,31 @@ interp_exec:
       FD_VM_INTERP_SYSCALL_EXEC;
 
     }
+  } FD_VM_INTERP_BRANCH_END;
+
+  /* SIMD-0178: Static syscalls (SBPF V3+)
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L542-L577 */
+  FD_VM_INTERP_BRANCH_BEGIN(0x85_static) { /* FD_SBPF_OP_CALL_IMM (static syscalls) */
+
+    if( src == 0 ) {
+      /* External syscall
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L545-L553 */
+      fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL ) : NULL;
+      if( FD_UNLIKELY( !syscall ) ) goto sigillbr;
+      FD_VM_INTERP_SYSCALL_EXEC;
+    } else if( src == 1 ) {
+      /* Internal call
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L555-L563
+         https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/program.rs#L97-L103 */
+      long target_pc_l = fd_long_sat_add( (long)pc, fd_long_sat_add( (long)(int)imm, 1L ) );
+      if( FD_UNLIKELY( target_pc_l<0L || (ulong)target_pc_l>=text_cnt ) ) goto sigillbr;
+      FD_VM_INTERP_STACK_PUSH;
+      pc = (ulong)target_pc_l - 1;
+    } else {
+      /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L574-L576 */
+      goto sigillbr;
+    }
+
   } FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x86) /* FD_SBPF_OP_LMUL32_IMM */
@@ -777,7 +801,10 @@ interp_exec:
 
     FD_VM_INTERP_STACK_PUSH;
 
-    ulong vaddr = fd_sbpf_callx_uses_src_reg_enabled( sbpf_version ) ? reg_src : reg[ imm & 15U ];
+    /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L528-L540 */
+    ulong vaddr = fd_sbpf_callx_uses_src_reg_enabled( sbpf_version ) ? reg_src
+                : fd_sbpf_callx_uses_dst_reg_enabled( sbpf_version ) ? reg[ dst ]
+                : reg[ imm & 15U ];
 
     /* Notes: Agave checks region and target_pc before updating the pc.
        To match their state, we do the same, even though we could simply
@@ -1065,6 +1092,99 @@ interp_exec:
     if( FD_UNLIKELY( ((long)reg_dst==LONG_MIN) & ((long)reg_src==-1L) ) ) goto sigfpeof;
     reg[ dst ] = (ulong)( (long)reg_dst % (long)reg_src );
   FD_VM_INTERP_INSTR_END;
+
+  /* SIMD-0377: JMP32
+     https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/interpreter.rs#L480-L501
+
+     0x16 - 0xde ******************************************************/
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x16_jmp32) /* FD_SBPF_OP_JEQ32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst==(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x1e_jmp32) /* FD_SBPF_OP_JEQ32_REG */
+    pc += fd_ulong_if( (uint)reg_dst==(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x26_jmp32) /* FD_SBPF_OP_JGT32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst>(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x2e_jmp32) /* FD_SBPF_OP_JGT32_REG */
+    pc += fd_ulong_if( (uint)reg_dst>(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x36_jmp32) /* FD_SBPF_OP_JGE32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst>=(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x3e_jmp32) /* FD_SBPF_OP_JGE32_REG */
+    pc += fd_ulong_if( (uint)reg_dst>=(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x46_jmp32) /* FD_SBPF_OP_JSET32_IMM */
+    pc += fd_ulong_if( !!((uint)reg_dst & (uint)imm), offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x4e_jmp32) /* FD_SBPF_OP_JSET32_REG */
+    pc += fd_ulong_if( !!((uint)reg_dst & (uint)reg_src), offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x56_jmp32) /* FD_SBPF_OP_JNE32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst!=(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x5e_jmp32) /* FD_SBPF_OP_JNE32_REG */
+    pc += fd_ulong_if( (uint)reg_dst!=(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x66_jmp32) /* FD_SBPF_OP_JSGT32_IMM */
+    pc += fd_ulong_if( (int)reg_dst>(int)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x6e_jmp32) /* FD_SBPF_OP_JSGT32_REG */
+    pc += fd_ulong_if( (int)reg_dst>(int)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x76_jmp32) /* FD_SBPF_OP_JSGE32_IMM */
+    pc += fd_ulong_if( (int)reg_dst>=(int)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0x7e_jmp32) /* FD_SBPF_OP_JSGE32_REG */
+    pc += fd_ulong_if( (int)reg_dst>=(int)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xa6_jmp32) /* FD_SBPF_OP_JLT32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst<(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xae_jmp32) /* FD_SBPF_OP_JLT32_REG */
+    pc += fd_ulong_if( (uint)reg_dst<(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xb6_jmp32) /* FD_SBPF_OP_JLE32_IMM */
+    pc += fd_ulong_if( (uint)reg_dst<=(uint)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xbe_jmp32) /* FD_SBPF_OP_JLE32_REG */
+    pc += fd_ulong_if( (uint)reg_dst<=(uint)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xc6_jmp32) /* FD_SBPF_OP_JSLT32_IMM */
+    pc += fd_ulong_if( (int)reg_dst<(int)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xce_jmp32) /* FD_SBPF_OP_JSLT32_REG */
+    pc += fd_ulong_if( (int)reg_dst<(int)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xd6_jmp32) /* FD_SBPF_OP_JSLE32_IMM */
+    pc += fd_ulong_if( (int)reg_dst<=(int)imm, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
+
+  FD_VM_INTERP_BRANCH_BEGIN(0xde_jmp32) /* FD_SBPF_OP_JSLE32_REG */
+    pc += fd_ulong_if( (int)reg_dst<=(int)reg_src, offset, 0UL );
+  FD_VM_INTERP_BRANCH_END;
 
   /* FIXME: sigbus/sigrdonly are mapped to sigsegv for simplicity
      currently but could be enabled if desired. */

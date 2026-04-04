@@ -26,21 +26,15 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   fd_accdb_user_t * accdb = fd_accdb_user_v1_init( env->accdb, funk_mem, shlocks, txn_max );
   FD_TEST( accdb );
 
-  fd_banks_locks_t * bank_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag );
-  fd_banks_locks_init( bank_locks );
-  FD_TEST( bank_locks );
-  fd_bank_data_t * bank_data = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_data_t), sizeof(fd_bank_data_t), wksp_tag );
-  FD_TEST( bank_data );
   fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
   FD_TEST( bank );
-  bank->data  = bank_data;
-  bank->locks = bank_locks;
+  fd_rwlock_new( &bank->lthash_lock );
 
   env->shfunk       = funk_mem;
   env->shlocks      = shlocks;
   env->bank         = bank;
   env->xid          = (fd_funk_txn_xid_t) { .ul={ 0UL, 0UL } };
-  env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->data->non_cow.sysvar_cache ) );
+  env->sysvar_cache = fd_sysvar_cache_join( fd_sysvar_cache_new( &bank->f.sysvar_cache ) );
 
   fd_accdb_admin_t admin[1];
   FD_TEST( fd_accdb_admin_v1_init( admin, funk_mem, shlocks ) );
@@ -161,8 +155,7 @@ test_sysvar_cache_empty( void ) {
   FD_TEST( !fd_sysvar_cache_epoch_rewards_read( cache1, &epoch_rewards ) );
   fd_epoch_schedule_t epoch_schedule;
   FD_TEST( !fd_sysvar_cache_epoch_schedule_read( cache1, &epoch_schedule ) );
-  fd_sol_sysvar_last_restart_slot_t last_restart_slot;
-  FD_TEST( !fd_sysvar_cache_last_restart_slot_read( cache1, &last_restart_slot ) );
+  FD_TEST( fd_sysvar_cache_last_restart_slot_read( cache1 )==ULONG_MAX );
   fd_rent_t rent;
   FD_TEST( !fd_sysvar_cache_rent_read( cache1, &rent ) );
 

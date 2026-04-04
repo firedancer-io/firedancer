@@ -602,7 +602,7 @@ int main( int     argc,
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 1 /*BE*/, 0 /* no length check */ )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 1 /*BE*/ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 32 );
       if( !fd_memeq( res, exp, 32 ) ) {
@@ -644,7 +644,7 @@ int main( int     argc,
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 32 );
       fd_bn254_el_bswap( exp );
@@ -683,7 +683,7 @@ int main( int     argc,
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/ )==0 );
 
       fd_hex_decode( exp, tests_le[2*i+1], 32 );
       if( !fd_memeq( res, exp, 32 ) ) {
@@ -692,6 +692,14 @@ int main( int     argc,
         FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
       }
     }
+
+    /* negative tests: input length not a multiple of 192 must be rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 0UL,   0 /*LE*/ )==0  ); /* 0 is a multiple of 192, empty pairing succeeds */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 1UL,   0 /*LE*/ )==-1 ); /* 1 byte: rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 191UL, 0 /*LE*/ )==-1 ); /* 192 - 1: rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 193UL, 0 /*LE*/ )==-1 ); /* 192 + 1: rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 191UL, 1 /*BE*/ )==-1 ); /* big endian, 192 - 1: rejected */
+    FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, 193UL, 1 /*BE*/ )==-1 ); /* big endian, 192 + 1: rejected */
 
     {
       ulong iter = 10000UL;
@@ -733,7 +741,7 @@ int main( int     argc,
       ulong iter = 100UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/, 1 /* length check */ );
+        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 /*LE*/ );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_pairing_is_one_syscall", iter, dt );

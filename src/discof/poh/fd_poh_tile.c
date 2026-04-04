@@ -62,6 +62,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline void
+during_housekeeping( fd_poh_tile_t * ctx ) {
+  long now = fd_clock_epoch_y( ctx->poh->clock_epoch, fd_tickcount() );
+  if( FD_UNLIKELY( now >= ctx->poh->recal_next ) ) {
+    ctx->poh->recal_next = fd_clock_default_recal( ctx->poh->clock );
+    fd_clock_epoch_refresh( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
+  }
+}
+
+static inline void
 after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
@@ -118,7 +127,17 @@ returnable_frag( fd_poh_tile_t *     ctx,
   /* TODO: Pack has a workaround for Frankendancer that sequences bank
      release to manage lifetimes, but it's not needed in Firedancer so
      we just drop it.  We shouldn't send it at all in future. */
-  if( FD_UNLIKELY( sig==ULONG_MAX && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_DONE_DRAINING && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    return 0;
+  }
+
+  /* Pack periodically publishes a tighter microblock bound over the
+     pack_poh link. */
+  if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    FD_TEST( sz==sizeof(ulong) );
+    ulong const * new_max = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    fd_poh_update_max_microblocks( ctx->poh, *new_max );
     ctx->idle_cnt = 0UL;
     return 0;
   }
@@ -246,6 +265,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out ) );
 
+  fd_clock_default_init( ctx->poh->clock, ctx->poh->clock_mem );
+  ctx->poh->recal_next = fd_clock_recal_next( ctx->poh->clock );
+  fd_clock_epoch_init( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -289,6 +312,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_tile_t)
 
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 

@@ -194,10 +194,11 @@ fd_sched_footprint( ulong depth,           /* in [FD_SCHED_MIN_DEPTH,FD_SCHED_MA
    parameter is invalid. */
 
 void *
-fd_sched_new( void * mem,
-              ulong  depth,
-              ulong  block_cnt_max,
-              ulong  exec_cnt );
+fd_sched_new( void *     mem,
+              fd_rng_t * rng,
+              ulong      depth,
+              ulong      block_cnt_max,
+              ulong      exec_cnt );
 
 fd_sched_t *
 fd_sched_join( void * mem );
@@ -360,6 +361,9 @@ fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx );
 
 uint
 fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx );
+
+void
+fd_sched_metrics_write( fd_sched_t * sched );
 
 /* Serialize the current state as a cstr to the returned buffer.  Caller
    may read from the buffer until the next invocation of any fd_sched

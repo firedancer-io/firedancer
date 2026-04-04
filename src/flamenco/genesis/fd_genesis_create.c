@@ -4,6 +4,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_vote_program.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../types/fd_types.h"
 
@@ -120,31 +121,23 @@ genesis_create( void *                       buf,
   uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
 
   FD_SCRATCH_SCOPE_BEGIN {
-    fd_vote_state_versioned_t vsv[1];
-    fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_v3 );
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
 
-    fd_vote_state_v3_t * vs = &vsv->inner.v3;
-    vs->node_pubkey             = options->identity_pubkey;
-    vs->authorized_withdrawer   = options->identity_pubkey;
-    vs->commission              = 100;
-    uchar * pool_mem = fd_scratch_alloc( fd_vote_authorized_voters_pool_align(), fd_vote_authorized_voters_pool_footprint( 1UL ) );
-    vs->authorized_voters.pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( pool_mem, 1UL ) );
-    uchar * mem = fd_scratch_alloc( fd_vote_authorized_voters_treap_align(), fd_vote_authorized_voters_treap_footprint( 1UL ) );
-    vs->authorized_voters.treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( mem, 1UL ) );
+    fd_vote_state_v3_t * vote_state   = &versioned->v3;
+    vote_state->node_pubkey           = options->identity_pubkey;
+    vote_state->authorized_withdrawer = options->identity_pubkey;
+    vote_state->commission            = 100;
 
-    fd_vote_authorized_voter_t * ele =
-      fd_vote_authorized_voters_pool_ele_acquire( vs->authorized_voters.pool );
-    *ele = (fd_vote_authorized_voter_t) {
+    fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
+    *voter = (fd_vote_authorized_voter_t) {
       .epoch  = 0UL,
       .pubkey = options->identity_pubkey,
-      .prio   = options->identity_pubkey.ul[0],  /* treap prio */
+      .prio   = options->identity_pubkey.uc[0],
     };
-    fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
+    fd_vote_authorized_voters_treap_ele_insert( vote_state->authorized_voters.treap, voter, vote_state->authorized_voters.pool );
 
-    fd_bincode_encode_ctx_t encode =
-      { .data    = vote_state_data,
-        .dataend = vote_state_data + sizeof(vote_state_data) };
-    REQUIRE( fd_vote_state_versioned_encode( vsv, &encode ) == FD_BINCODE_SUCCESS );
+    REQUIRE( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
   }
   FD_SCRATCH_SCOPE_END;
 
@@ -152,57 +145,32 @@ genesis_create( void *                       buf,
 
   ulong const stake_account_index = genesis->accounts_len++;
 
-  uchar stake_data[ FD_STAKE_STATE_V2_SZ ] = {0};
+  uchar stake_data[ FD_STAKE_STATE_SZ ] = {0};
 
-  ulong stake_state_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, FD_STAKE_STATE_V2_SZ );
-  ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V3_SZ  );
+  ulong stake_state_min_bal = fd_rent_exempt_minimum_balance( &genesis->rent, FD_STAKE_STATE_SZ   );
+  ulong vote_min_bal        = fd_rent_exempt_minimum_balance( &genesis->rent, FD_VOTE_STATE_V3_SZ );
 
   do {
-    fd_stake_state_v2_t state[1];
-    fd_stake_state_v2_new_disc( state, fd_stake_state_v2_enum_stake );
-
-    fd_stake_state_v2_stake_t * stake = &state->inner.stake;
-    stake->meta = (fd_stake_meta_t) {
-      .rent_exempt_reserve = stake_state_min_bal,
-      .authorized = {
-        .staker     = options->identity_pubkey,
-        .withdrawer = options->identity_pubkey,
+    FD_STORE( fd_stake_state_t, stake_data, ((fd_stake_state_t) {
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = {
+        .meta = {
+          .rent_exempt_reserve = stake_state_min_bal,
+          .staker              = options->identity_pubkey,
+          .withdrawer          = options->identity_pubkey,
+        },
+        .stake = (fd_stake_t) {
+          .delegation = (fd_delegation_t) {
+            .voter_pubkey         = options->vote_pubkey,
+            .stake                = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
+            .activation_epoch     = ULONG_MAX, /* bootstrap stake denoted with ULONG_MAX */
+            .deactivation_epoch   = ULONG_MAX,
+            .warmup_cooldown_rate = 0.25
+          },
+          .credits_observed = 0UL
+        }
       }
-    };
-    stake->stake = (fd_stake_t) {
-      .delegation = (fd_delegation_t) {
-        .voter_pubkey         = options->vote_pubkey,
-        .stake                = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
-        .activation_epoch     = ULONG_MAX, /* bootstrap stake denoted with ULONG_MAX */
-        .deactivation_epoch   = ULONG_MAX,
-        .warmup_cooldown_rate = 0.25
-      },
-      .credits_observed = 0UL
-    };
-
-    fd_bincode_encode_ctx_t encode =
-      { .data    = stake_data,
-        .dataend = stake_data + sizeof(stake_data) };
-    REQUIRE( fd_stake_state_v2_encode( state, &encode ) == FD_BINCODE_SUCCESS );
-  } while(0);
-
-  /* Create stake config account */
-
-  ulong const stake_cfg_account_index = genesis->accounts_len++;
-
-  uchar stake_cfg_data[10];
-  do {
-    fd_stake_config_t config[1] = {{
-      .config_keys_len      =  0,
-      .warmup_cooldown_rate =  0.25,
-      .slash_penalty        = 12
-    }};
-
-    fd_bincode_encode_ctx_t encode =
-      { .data    = stake_cfg_data,
-        .dataend = stake_cfg_data + sizeof(stake_cfg_data) };
-    REQUIRE( fd_stake_config_encode( config, &encode ) == FD_BINCODE_SUCCESS );
-    REQUIRE( encode.data == encode.dataend );
+    }) );
   } while(0);
 
   /* Read enabled features */
@@ -237,18 +205,9 @@ genesis_create( void *                       buf,
     .key     = options->stake_pubkey,
     .account = (fd_solana_account_t) {
       .lamports   = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
-      .data_len   = FD_STAKE_STATE_V2_SZ,
+      .data_len   = FD_STAKE_STATE_SZ,
       .data       = stake_data,
       .owner      = fd_solana_stake_program_id
-    }
-  };
-  genesis->accounts[ stake_cfg_account_index ] = (fd_pubkey_account_pair_t) {
-    .key     = fd_solana_stake_program_config_id,
-    .account = (fd_solana_account_t) {
-      .lamports   = fd_rent_exempt_minimum_balance( &genesis->rent, sizeof(stake_cfg_data) ),
-      .data_len   = sizeof(stake_cfg_data),
-      .data       = stake_cfg_data,
-      .owner      = fd_solana_config_program_id
     }
   };
   genesis->accounts[ vote_account_index ] = (fd_pubkey_account_pair_t) {

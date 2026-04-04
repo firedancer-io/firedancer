@@ -1171,13 +1171,6 @@
 #define MAP_CNT_WIDTH (43)
 #endif
 
-/* If MAP_CUSTOM_CHAIN is defined to non-zero, does not generate the
-   chain header struct definition. */
-
-#ifndef MAP_CUSTOM_CHAIN
-#define MAP_CUSTOM_CHAIN 0
-#endif
-
 /* MAP_ALIGN gives the alignment required for the map shared memory.
    Default is 128 for double cache line alignment.  Should be at least
    ulong alignment. */
@@ -1224,6 +1217,7 @@
 #if MAP_IMPL_STYLE!=2 /* need header */
 
 #include "../bits/fd_bits.h"
+#include "../racesan/fd_racesan_target.h"
 
 /* Note: we don't overalign chain metadata to reduce on map metadata
    footprint requirements.  Though this can cause cache false sharing
@@ -1236,12 +1230,10 @@
    chain (i.e. the former makes good use of the padding that would be
    otherwise wasted if overaligning this). */
 
-#if !MAP_CUSTOM_CHAIN
 struct MAP_(shmem_private_chain) {
   ulong     ver_cnt;   /* versioned count, cnt is in [0,ele_max] in lsb, ver in msb, odd: chain locked, even: chain unlocked */
   MAP_IDX_T head_cidx; /* compressed index of the first element on the chain */
 };
-#endif /* MAP_CUSTOM_CHAIN */
 
 typedef struct MAP_(shmem_private_chain) MAP_(shmem_private_chain_t);
 
@@ -1717,17 +1709,20 @@ FD_PROTOTYPES_END
     int              _b          = (b);                                                     \
     int              retain_lock = 0;                                                       \
     for(;;) {                                                                               \
+      fd_racesan_hook( "map_crit:check" );                                                  \
       ulong ver_cnt = *_vc;                                                                 \
       /* use a test-and-test-and-set style to reduce atomic contention */                   \
       if( FD_LIKELY( !(ver_cnt & (1UL<<MAP_CNT_WIDTH)) ) ) { /* opt for low contention */   \
         ver_cnt = MAP_(private_fetch_and_or)( _vc, 1UL<<MAP_CNT_WIDTH );                    \
         if( FD_LIKELY( !(ver_cnt & (1UL<<MAP_CNT_WIDTH)) ) ) { /* opt for low contention */ \
+          fd_racesan_hook( "map_crit:pre_acquire" );                                        \
           FD_COMPILER_MFENCE();                                                             \
           do
 
 #define MAP_CRIT_BLOCKED                                                                    \
           while(0);                                                                         \
           FD_COMPILER_MFENCE();                                                             \
+          fd_racesan_hook( "map_crit:pre_release" );                                        \
           if( !retain_lock ) *_vc = ver_cnt+(2UL<<MAP_CNT_WIDTH); /* likely compile time */ \
           FD_COMPILER_MFENCE();                                                             \
           break;                                                                            \
@@ -2920,7 +2915,6 @@ MAP_(strerror)( int err ) {
 #undef MAP_IMPL_STYLE
 #undef MAP_MAGIC
 #undef MAP_ALIGN
-#undef MAP_CUSTOM_CHAIN
 #undef MAP_CNT_WIDTH
 #undef MAP_KEY_EQ_IS_SLOW
 #undef MAP_MEMO

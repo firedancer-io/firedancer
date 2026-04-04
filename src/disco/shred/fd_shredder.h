@@ -1,18 +1,11 @@
 #ifndef HEADER_fd_src_disco_shred_fd_shredder_h
 #define HEADER_fd_src_disco_shred_fd_shredder_h
 
-#include "../keyguard/fd_keyguard_client.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/pack/fd_microblock.h"
-#include "../../ballet/wsample/fd_wsample.h"
-#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "fd_fec_set.h"
-#include "../../ballet/shred/fd_shred.h"
-
-#define FD_SHREDDER_MAX_STAKE_WEIGHTS (1UL<<20)
-
 
 #define FD_FEC_SET_MAX_BMTREE_DEPTH (7UL) /* 1+ceil(log2(DATA_SHREDS_MAX + PARITY_SHREDS_MAX)) */
 
@@ -26,7 +19,6 @@
 typedef void (fd_shredder_sign_fn)( void * ctx, uchar * sig, uchar const * merkle_root );
 
 #define FD_SHRED_FEATURES_ACTIVATION_SLOT_CNT      (3UL)
-#define FD_SHRED_FEATURES_ACTIVATION_SLOT_SZ       (8UL)
 #define FD_SHRED_FEATURES_ACTIVATION_SLOT_DISABLED (ULONG_MAX)
 
 union fd_shred_features_activation_private {
@@ -117,10 +109,6 @@ static inline void fd_shredder_set_shred_version( fd_shredder_t * shredder, usho
 #define FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ   (31840UL)
 #define FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ  (30816UL) /* -32 bytes * 32 shreds */
 #define FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ (28768UL) /* -64 bytes * 32 shreds */
-
-#define FD_SHREDDER_NORMAL_FEC_SET_RAW_BUF_SZ   (63679UL) /* 2 * ...PAYLOAD_SZ - 1 */
-#define FD_SHREDDER_CHAINED_FEC_SET_RAW_BUF_SZ  (61631UL) /* 2 * ...PAYLOAD_SZ - 1 */
-#define FD_SHREDDER_RESIGNED_FEC_SET_RAW_BUF_SZ (57535UL) /* 2 * ...PAYLOAD_SZ - 1 */
 
 FD_FN_CONST static inline ulong
 fd_shredder_count_fec_sets(      ulong sz_bytes, int block_complete ) {

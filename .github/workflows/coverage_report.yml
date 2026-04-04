@@ -18,8 +18,8 @@ jobs:
       url: ${{ vars.COVERAGE_URL }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
+
+      - uses: ./.github/actions/submodule-init
 
       - uses: ./.github/actions/deps
         with:

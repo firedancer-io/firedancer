@@ -523,7 +523,7 @@ Some interesting transitions are,
 	"topic": "summary",
 	"key": "boot_progress",
     "value": {
-        "phase": "loading_full_snapshot",
+        "phase": "waiting_for_supermajority",
         "joining_gossip_elapsed_seconds": 5,
         "loading_full_snapshot_elapsed_seconds": 7.8,
         "loading_full_snapshot_reset_count": 0,
@@ -545,7 +545,14 @@ Some interesting transitions are,
         "loading_incremental_snapshot_decompress_bytes_compressed": null,
         "loading_incremental_snapshot_insert_bytes_decompressed": null,
         "loading_incremental_snapshot_insert_accounts": null,
-        "catching_up_elapsed": null,
+        "wait_for_supermajority_bank_hash": "2CeCyRoYmcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5dGFi",
+        "wait_for_supermajority_shred_version": "37500",
+        "wait_for_supermajority_attempt": 1,
+        "wait_for_supermajority_total_stake": "1",
+        "wait_for_supermajority_connected_stake": "1",
+        "wait_for_supermajority_total_peers": 1,
+        "wait_for_supermajority_connected_peers": 1,
+        "catching_up_elapsed_seconds": null,
         "catching_up_first_replay_slot": null,
     }
 }
@@ -556,7 +563,7 @@ Some interesting transitions are,
 **`BootProgress`**
 | Field                                                                 | Type            | Description |
 |-----------------------------------------------------------------------|-----------------|-------------|
-| phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, or `running`. This indicates the current phase of the boot process |
+| phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, `waiting_for_supermajority`, or `running`. This indicates the current phase of the boot process |
 | joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
 | loading_{full\|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
 | loading_{full\|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
@@ -568,9 +575,30 @@ Some interesting transitions are,
 | loading_{full\|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
 | loading_{full\|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of inserted accounts from the snapshot into the validator's accounts database. Otherwise, `null` |
+| wait_for_supermajority_bank_hash                                      | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected bank hash of the snapshot bank.  This ensures all validators join the cluster with the same starting state. `null` if wait for supermajority is not enabled |
+| wait_for_supermajority_shred_version                                  | `string\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the expected shred version it was configured with.  Shred version is functionally a hash of (genesis_hash, cluster_restart_history) which ensures only nodes which explicitly agree on the restart slot and restart attempt count can communicate with each other. `null` if wait for supermajority is not configured |
+| wait_for_supermajority_attempt                                        | `number\|null`  | If the client was configured to include the `waiting_for_supermajority` phase at startup, this is the number of times this cluster has been restarted onto the snapshot slot, including the current attempt. `null` if wait for supermajority is not configured |
+| wait_for_supermajority_total_stake                                    | `string\|null`  | If the phase is at least `waiting_for_supermajority`, this is the total network stake in lamports used to determine the 80% restart threshold |
+| wait_for_supermajority_connected_stake                                | `string\|null`  | If the phase is at least `waiting_for_supermajority`, this is the network stake in lamports that is currently active on gossip and waiting for the restart threshold |
+| wait_for_supermajority_total_peers                                    | `number\|null`  | If the phase is at least `waiting_for_supermajority`, this is the total number of peers with an active stake |
+| wait_for_supermajority_connected_peers                                | `number\|null`  | If the phase is at least `waiting_for_supermajority`, this is the number of peers with an active stake currently active on gossip and waiting for the restart threshold |
 | catching_up_elapsed_seconds                                           | `number`        | If the phase is `catching_up`, this is the duration, in seconds, the validator has spent catching up to the current slot |
 | catching_up_first_replay_slot                                         | `number`        | If the phase is `catching_up`, this is the first slot that exited the replay pipeline after booting |
 
+
+The `wait_for_supermajority_*` fields will be `null` if the
+client is not configured to wait for a cluster restart, which is the
+case for typical client usage.
+
+The `wait_for_supermajority_*_stake` stake fields are derived
+differently from the `gossip.network_stats.health` activated stake
+(which is from the start of the epoch). These fields account for any
+stake that is activating/deactivating in the current epoch and any stake
+that was explicitly undelegated prior to restart (e.g. inactive testnet
+participants or bad actors).
+
+During the `waiting_for_supermajority` phase, per-peer offline status
+is available via the `wait_for_supermajority.peer_{add|remove}` message.
 
 #### `summary.schedule_strategy`
 | frequency  | type     | example |
@@ -1274,6 +1302,58 @@ tile have not been published for the following fields
 Since the fields are not nullable, they contain the previously held
 value. The client should ignore / interpolate them where applicable.
 
+#### `summary.live_program_cache`
+| frequency        | type                    | example |
+|------------------|-------------------------|---------|
+| *Once* + *100ms* | `ProgramCacheMetrics`   | below   |
+
+Live program cache metrics provides a live view of program cache
+performance and utilization across the replay and execution tiles. The
+program cache is a fixed-size, fork-aware, thread-concurrent cache over
+programs in the account database. It avoids re-loading and re-validating
+sBPF ELF binaries on every transaction execution.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "live_program_cache",
+    "value": {
+        "hits": 482910,
+        "lookups": 483200,
+        "insertions": 145,
+        "insertion_bytes": 18743296,
+        "evictions": 12,
+        "eviction_bytes": 1048576,
+        "spills": 0,
+        "spill_bytes": 0,
+        "free_bytes": 104857600,
+        "size_bytes": 134217728
+    }
+}
+```
+
+:::
+
+**`ProgramCacheMetrics`**
+| Field               | Type     | Description |
+|---------------------|----------|-------------|
+| hits                | `number` | Total number of program cache hits across all execution tiles since startup. Misses can be derived as `lookups - hits` |
+| lookups             | `number` | Total number of program cache lookups across all execution tiles since startup |
+| insertions          | `number` | Total number of program cache insertions across all execution tiles since startup |
+| insertion_bytes     | `number` | Total number of bytes inserted into the program cache since startup |
+| evictions           | `number` | Total number of program cache evictions across all execution tiles since startup |
+| eviction_bytes      | `number` | Total number of bytes evicted from the program cache since startup |
+| spills              | `number` | Total number of times a compiled program was not cached because the cache was full and no entry could be evicted. The program is executed from a temporary buffer instead, which is slower |
+| spill_bytes         | `number` | Total number of bytes used by spilled programs since startup |
+| free_bytes          | `number` | Current number of free bytes in the program cache heap |
+| size_bytes          | `number` | Total size in bytes of the program cache heap |
+
+The hit rate can be derived as `hits / lookups`. Heap utilization can be
+derived as `1 - (free_bytes / size_bytes)`. A healthy validator should
+have a high hit rate (close to 1.0) and low spill counts.
+
 ### block_engine
 Block engines are providers of additional transactions to the validator,
 which are configurable by the operator. The validator may not be
@@ -1748,7 +1828,7 @@ identity is no longer in these three data sources, it will be removed.
             },
             "vote": [
                 {
-                    "vote_pubkey": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL",
+                    "vote_account": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL",
                     "activated_stake": "5812",
                     "last_vote": 281795801,
                     "root_slot": 281795770,
@@ -1789,7 +1869,7 @@ identity is no longer in these three data sources, it will be removed.
 **`PeerUpdateVoteAccount`**
 | Field           | Type           | Description |
 |-----------------|----------------|-------------|
-| vote_pubkey     | `string`       | The public key of vote account, encoded in base58 |
+| vote_account    | `string`       | The public key of vote account, encoded in base58 |
 | activated_stake | `string`       | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
 | last_vote       | `number\|null` | The last vote by the vote account that was landed on chain, as seen by this validator. If the vote account has not yet landed any votes on the chain this will be `null` |
 | root_slot       | `number\|null` | The last slot that was rooted by the vote account, based on the vote history. If the vote account has not yet rooted any slots this will be `null` |
@@ -1830,6 +1910,107 @@ list of gossip peers added, removed, or updated. The list of peers is
 full and includes this node itself, nodes with a different
 `shred_version`, nodes publishing corrupt or bad information, and so
 on.
+
+### wait_for_supermajority
+Messages published during the wait-for-supermajority phase. These
+messages are only published if the client is configured to boot with
+the `waiting_for_supermajority` phase enabled.
+
+#### `wait_for_supermajority.stakes`
+| frequency | type                          | example |
+|-----------|-------------------------------|---------|
+| *Once*    | `WaitForSupermajorityEpoch`   | below   |
+
+Sent once per connection, after the snapshot is fully loaded and
+validator info has been parsed from the ConfigProgram accounts in
+the snapshot.
+
+::: details Example
+
+```json
+{
+    "topic": "wait_for_supermajority",
+    "key": "stakes",
+    "value": {
+        "staked_pubkeys": [
+            "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
+            "2CeCyRoYQcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5QGFi",
+            "6JPDr4URdEDP5MqPgmDT6jk2nToyMUzNU27qsGxrRgKz"
+        ],
+        "staked_lamports": [
+            "360",
+            "240",
+            "180"
+        ],
+        "infos": [
+            null,
+            null,
+            {
+                "name": "Validator",
+                "details": "",
+                "website": "",
+                "icon_url": "",
+                "keybase_username": ""
+            }
+        ]
+    }
+}
+```
+
+:::
+
+**`WaitForSupermajorityEpoch`**
+| Field           | Type                       | Description |
+|-----------------|----------------------------|-------------|
+| staked_pubkeys  | `string[]`                 | Identity pubkeys of all staked validators in the snapshot epoch, base58 encoded |
+| staked_lamports | `string[]`                 | A list with the same length as `staked_pubkeys`. `staked_lamports[ i ]` is the number of lamports staked on `staked_pubkeys[ i ]` |
+| infos           | `(PeerUpdateInfo\|null)[]` | A list with the same length as `staked_pubkeys`. Each element is a `PeerUpdateInfo` object if the validator has published self-reported info via ConfigProgram in the snapshot, or `null` otherwise |
+
+#### `wait_for_supermajority.peer_add`
+| frequency       | type       | example |
+|-----------------|------------|---------|
+| *Once* + *Live* | `string[]` | below   |
+
+::: details Example
+
+```json
+{
+    "topic": "wait_for_supermajority",
+    "key": "peer_add",
+    "value": [
+        "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
+        "2CeCyRoYQcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5QGFi"
+    ]
+}
+```
+
+:::
+
+Value is a flat array of base58-encoded identity pubkeys that have come
+online since the last message (or all currently-online peers on initial
+connect).
+
+#### `wait_for_supermajority.peer_remove`
+| frequency | type       | example |
+|-----------|------------|---------|
+| *Live*    | `string[]` | below   |
+
+::: details Example
+
+```json
+{
+    "topic": "wait_for_supermajority",
+    "key": "peer_remove",
+    "value": [
+        "9aE6Bp1hbDpMFKqnWGUMbfxfMPXswPbkNwNrSjhpFiSN"
+    ]
+}
+```
+
+:::
+
+Value is a flat array of base58-encoded identity pubkeys that have gone
+offline (activity timeout expired) since the last message.
 
 ### slot
 Slots are opportunities for a leader to produce a block. A slot can be
@@ -2575,7 +2756,7 @@ explicitly mentioned, skipped slots are not included.
 |------------------------------|-------------------|-------------|
 | block_hash                   | `string`          | The final POH hash in the block as a base58 encoded string |
 | end_slot_reason              | `string`          | The reason pack ended packing for this leader slot. One of `"timeout"`, `"microblock_limit"`, or `"leader_switch"` |
-| slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_taken", "fail_fast_path", "fail_byte_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
+| slot_schedule_counts         | `number[]`        | `slot_schedule_counts[i]` is the number of transactions across the leader slot that had `["success", "fail_cu_limit", "fail_fast_path", "fail_byte_limit", "fail_alloc_limit", "fail_write_cost", "fail_slow_path", "fail_defer_skip"][i]` as the outcome after being scheduled. "success" means the transaction was successfully scheduled to a bank. "fail_cu_limit" means Pack skipped the transaction because it would have exceeded the block CU limit. "fail_fast_path" means Pack skipped the transaction because of account conflicts using the fast bitvector check. "fail_byte_limit" means Pack skipped the transaction because it would have exceeded the block data size limit. "fail_alloc_limit" means Pack skipped the transaction because it would have exceeded the block account allocation limit. "fail_write_cost" means Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit. "fail_slow_path" means Pack skipped the transaction because of account conflicts using the full slow check. "fail_defer_skip" means Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times |
 | end_slot_schedule_counts     | `number[]`        | `end_slot_schedule_counts` has the same meaning as `slot_schedule_counts` except only transactions that occur after the last successfully scheduled transaction in the slot are counted |
 | pending_smallest_cost        | `number`          | The cost in compute units of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |
 | pending_smallest_bytes       | `number`          | The size in bytes of the smallest eligible non-vote transaction in pack's transaction buffer at the end of the slot.  If the buffer is empty, then this is `null` |

@@ -31,7 +31,7 @@ fd_sysvar_rent_init( fd_bank_t *               bank,
                      fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid,
                      fd_capture_ctx_t *        capture_ctx ) {
-  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_rent_t const * rent = &bank->f.rent;
   fd_sysvar_rent_write( bank, accdb, xid, capture_ctx, rent );
 }
 

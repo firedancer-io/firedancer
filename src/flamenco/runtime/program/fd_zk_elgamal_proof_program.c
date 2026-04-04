@@ -311,8 +311,7 @@ fd_zksdk_process_close_proof_context( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/zk-elgamal-proof/src/lib.rs#L175-L187 */
-  if( FD_LIKELY(  FD_FEATURE_ACTIVE_BANK( ctx->bank, disable_zk_elgamal_proof_program )
-              && !FD_FEATURE_ACTIVE_BANK( ctx->bank, reenable_zk_elgamal_proof_program ) ) ) {
+  if( FD_LIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->bank, reenable_zk_elgamal_proof_program ) ) ) {
     fd_log_collector_msg_literal( ctx, "zk-elgamal-proof program is temporarily disabled" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }

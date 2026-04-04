@@ -18,7 +18,6 @@ static fd_http_static_file_t * STATIC_FILES;
 
 #include "generated/fd_gui_tile_seccomp.h"
 
-#include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../disco/tiles.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -53,6 +52,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_SNAPIN        (15UL) /* firedancer only */
 #define IN_KIND_EXECRP_REPLAY (16UL) /* firedancer only */
 #define IN_KIND_BUNDLE        (17UL)
+#define IN_KIND_SNAPIN_MANIF  (18UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -131,7 +131,7 @@ typedef struct {
 
   long next_poll_deadline;
 
-  char version_string[ 16UL ];
+  char version_string[ 64UL ];
 
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
@@ -229,8 +229,8 @@ before_frag( fd_gui_ctx_t * ctx,
              ulong          sig ) {
   (void)seq;
 
-  /* Ignore "done draining banks" signal from pack->poh */
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && sig==ULONG_MAX ) ) return 1;
+  /* Ignore "done draining banks" and "reduce microblock bound" signals from pack->poh */
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_POH && (sig==FD_PACK_MSG_DONE_DRAINING || sig==FD_PACK_MSG_REDUCE_MB_BOUND) ) ) return 1;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP_OUT &&
                  (sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE || sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED) ) ) return 1;
@@ -259,15 +259,17 @@ during_frag( fd_gui_ctx_t * ctx,
       FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
       sz = 8UL + peer_cnt*112UL;
     } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
-      ulong staked_cnt = ((ulong *)src)[ 1 ];
-      FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
-      sz = fd_stake_weight_msg_sz( staked_cnt );
+      ulong staked_vote_cnt = ((ulong *)src)[ 1 ];
+      ulong staked_id_cnt   = ((ulong *)src)[ 2 ];
+      FD_TEST( staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+      FD_TEST( staked_id_cnt<=MAX_SHRED_DESTS );
+      sz = fd_stake_weight_msg_sz( staked_vote_cnt, staked_id_cnt );
     }
   }
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
-    sz = fd_epoch_info_msg_sz( epoch_info->staked_cnt );
+    sz = fd_epoch_info_msg_sz( epoch_info->staked_vote_cnt, epoch_info->staked_id_cnt );
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
@@ -278,7 +280,7 @@ during_frag( fd_gui_ctx_t * ctx,
     if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_BECAME_LEADER  ) ) return;
   }
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
+  if( FD_UNLIKELY( (sz>0UL && (chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark)) || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "in_kind %lu chunk %lu %lu corrupt, not in range [%lu,%lu] or too large (%lu)", ctx->in_kind[ in_idx ], chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark, ctx->in[ in_idx ].mtu ));
 
   switch( ctx->in_kind[ in_idx ] ) {
@@ -384,6 +386,17 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_gui_peers_handle_config_account( ctx->peers, src, sz );
       break;
     }
+    case IN_KIND_SNAPIN_MANIF: {
+      FD_TEST( ctx->is_full_client );
+
+      if( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) {
+        fd_gui_peers_commit_snapshot_manifest( ctx->peers );
+      } else {
+        fd_gui_stage_snapshot_manifest( ctx->gui, (fd_snapshot_manifest_t const *)src );
+        fd_gui_peers_stage_snapshot_manifest( ctx->peers, (fd_snapshot_manifest_t const *)src, fd_clock_now( ctx->clock ) );
+      }
+      break;
+    }
     case IN_KIND_GENESI_OUT: {
       FD_TEST( ctx->is_full_client );
       fd_genesis_meta_t const * meta = (fd_genesis_meta_t const *)src;
@@ -397,7 +410,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_now( ctx->clock ) );
       }
       if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-        fd_gui_handle_notarization_update( ctx->gui, (fd_tower_slot_confirmed_t const *)src );
+        fd_gui_handle_votes_update( ctx->gui, (fd_tower_slot_confirmed_t const *)src );
       }
       break;
     }
@@ -725,8 +738,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
   ctx->topo = topo;
-  ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, fd_clock_now( ctx->clock) ) );
-  ctx->gui  = fd_gui_join(  fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo, fd_clock_now( ctx->clock ) ) );
+  ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, fd_clock_now( ctx->clock ) ) );
+  ctx->gui  = fd_gui_join(  fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, fd_clock_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
@@ -768,6 +781,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "replay_epoch"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EPOCH;         /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT;    /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN;        /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snapin_manif"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN_MANIF;  /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "execrp_replay" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECRP_REPLAY; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "bundle_status"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;        /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));

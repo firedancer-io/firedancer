@@ -11,6 +11,7 @@
 #include "../capture/fd_capture_ctx.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "program/vote/fd_vote_codec.h"
 
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
@@ -41,7 +42,8 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
 /* Load the accounts in the address lookup tables of txn into out_accts_alt */
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *          txn,
+fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
+                                           fd_txn_t const *          txn,
                                            uchar const *             payload,
                                            fd_accdb_user_t *         accdb,
                                            fd_funk_txn_xid_t const * xid,
@@ -131,7 +133,7 @@ typedef int fd_txn_account_condition_fn_t ( fd_txn_in_t const * txn_in,
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L223-L230 */
 
-int
+fd_accdb_ref_t *
 fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  ushort                          idx,
@@ -140,7 +142,7 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
 /* A wrapper around fd_exec_txn_ctx_get_account_at_index that obtains an
    account from the transaction context by its pubkey. */
 
-int
+fd_accdb_ref_t *
 fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  fd_pubkey_t const *             pubkey,
@@ -149,12 +151,11 @@ fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
 
 /* Gets an executable (program data) account via its pubkey. */
 
-int
-fd_runtime_get_executable_account( fd_runtime_t *              runtime,
-                                   fd_txn_in_t const *         txn_in,
-                                   fd_txn_out_t *              txn_out,
-                                   fd_pubkey_t const *         pubkey,
-                                   fd_account_meta_t const * * meta );
+fd_accdb_ro_t *
+fd_runtime_get_executable_account( fd_runtime_t *      runtime,
+                                   fd_txn_in_t const * txn_in,
+                                   fd_txn_out_t *      txn_out,
+                                   fd_pubkey_t const * pubkey );
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
 
@@ -181,7 +182,6 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
 int
 fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     fd_txn_out_t const * txn_out,
-                                    fd_bank_t *          bank,
                                     ushort               idx );
 
 /* Account pre-condition filtering functions

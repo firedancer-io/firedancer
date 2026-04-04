@@ -21,6 +21,7 @@
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
 #include "../../waltz/http/fd_http_server.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../topo/fd_topo.h"
 
 #if FD_HAS_ZSTD
@@ -85,6 +86,23 @@ struct fd_gui_geoip_node {
 
 typedef struct fd_gui_geoip_node fd_gui_geoip_node_t;
 
+struct fd_gui_wfs_peer {
+  fd_pubkey_t identity_key;
+  ulong       stake;
+  int         is_online;
+  long        update_time_nanos;
+
+  ulong       fresh_prev;
+  ulong       fresh_next;
+};
+typedef struct fd_gui_wfs_peer fd_gui_wfs_peer_t;
+
+#define DLIST_NAME  wfs_fresh_dlist
+#define DLIST_ELE_T fd_gui_wfs_peer_t
+#define DLIST_PREV  fresh_prev
+#define DLIST_NEXT  fresh_next
+#include "../../util/tmpl/fd_dlist.c"
+
 #define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
 #define FD_GUI_PEERS_NODE_UPDATE (2)
@@ -136,6 +154,12 @@ struct fd_gui_peers_voter {
   ulong vote_slot;
 };
 typedef struct fd_gui_peers_voter fd_gui_peers_voter_t;
+
+struct fd_gui_peers_voter_idx {
+  fd_pubkey_t key;
+  ulong       idx;
+};
+typedef struct fd_gui_peers_voter_idx fd_gui_peers_voter_idx_t;
 
 struct fd_gui_peers_node {
   int valid;
@@ -376,15 +400,15 @@ struct fd_gui_peers_ctx {
 
   ulong slot_voted; /* last vote slot for this validator */
 
-  /* We want the gui to reflect stakes_t_2 since this is what matters
-     consequentially for delinquency / leader schedule info.
-
-     All arrays are sorted descending by vote pubkey. */
+  /* stakes is sorted descending by identity pubkey.  vote_idx is sorted
+     descending by vote account pubkey, each entry pointing back into
+     the stakes array. */
   struct {
     ulong epoch;
 
-    ulong                stakes_cnt;
-    fd_gui_peers_voter_t stakes[ MAX_STAKED_LEADERS ];
+    ulong                    stakes_cnt;
+    fd_gui_peers_voter_t     stakes  [ MAX_STAKED_LEADERS ];
+    fd_gui_peers_voter_idx_t vote_idx[ MAX_STAKED_LEADERS ];
   } epochs[ 2 ];
 
   union {
@@ -392,6 +416,14 @@ struct fd_gui_peers_ctx {
       int   actions[ FD_CONTACT_INFO_TABLE_SIZE ];
       ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
     };
+    struct {
+      ulong wfs_peers[ 40200UL ];
+    };
+    struct {
+      fd_stake_weight_t      manifest_id_weights  [ 40200UL ];
+      fd_vote_stake_weight_t manifest_vote_weights[ 40200UL ];
+    };
+    fd_gui_peers_voter_t voters_scratch[ MAX_STAKED_LEADERS ];
   } scratch;
 
 #if FD_HAS_ZSTD
@@ -399,9 +431,21 @@ struct fd_gui_peers_ctx {
 #endif
 
   fd_gui_ip_db_t dbip;
+
+  int                       wfs_enabled;
+  fd_gui_wfs_peer_t         wfs_peers[ 40200UL ];
+  ulong                     wfs_peers_cnt;
+  int                       wfs_peers_valid;
+  int                       wfs_stakes_sent;
+  wfs_fresh_dlist_t         wfs_fresh_dlist[ 1 ];
 };
 
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
+
+/* FIXME: see src/discof/restore/utils/fd_ssmsg.h */
+FD_STATIC_ASSERT( sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers)/sizeof(((fd_gui_peers_ctx_t *)NULL)->wfs_peers[0])==
+                  sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts)/sizeof(((struct fd_snapshot_manifest *)NULL)->vote_accounts[0]),
+                  wfs_peers_vote_accounts );
 
 FD_PROTOTYPES_BEGIN
 
@@ -416,6 +460,7 @@ fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
                   fd_topo_t *        topo,
                   ulong              max_ws_conn_cnt,
+                  char const *       wfs_expected_bank_hash_cstr,
                   long               now );
 
 fd_gui_peers_ctx_t *
@@ -472,6 +517,14 @@ void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
                                     uchar const *         data,
                                     ulong                 sz );
+
+void
+fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
+                                      fd_snapshot_manifest_t const * manifest,
+                                      long                           now );
+
+void
+fd_gui_peers_commit_snapshot_manifest( fd_gui_peers_ctx_t * peers );
 
 /* fd_gui_peers_ws_message handles incoming websocket request payloads
    requesting peer-related responses.  ws_conn_id is the connection id

@@ -36,7 +36,7 @@ jobs:
       #     node-version: 18
       #     cache: npm # or pnpm / yarn
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Install dependencies
         run: bun install --cwd ./book # or pnpm install / yarn install / bun install
       - name: Build with VitePress
@@ -59,4 +59,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

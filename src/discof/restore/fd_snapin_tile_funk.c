@@ -301,7 +301,7 @@ fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
                   acct_addr_b58, data_sz, data_max ));
   }
 
-  memcpy( meta->owner, fd_accdb_ref_owner( ro ), sizeof(fd_pubkey_t) );
+  fd_memcpy( meta->owner, fd_accdb_ref_owner( ro )->hash, sizeof(fd_pubkey_t) );
   meta->lamports   = fd_accdb_ref_lamports( ro );
   meta->slot       = fd_accdb_ref_slot( ro );
   meta->dlen       = (uint)data_sz;

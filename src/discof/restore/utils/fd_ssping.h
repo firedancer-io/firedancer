@@ -21,6 +21,10 @@
 struct fd_sspeer_selector_private;
 typedef struct fd_sspeer_selector_private fd_sspeer_selector_t;
 
+#define FD_SSPING_FD_CNT    (249UL) /* Limit to how many pings can be
+                                       inflight.  Chosen so that it doesn't
+                                       overflow the tile limit. */
+
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 
 struct fd_ssping_private;
@@ -30,6 +34,13 @@ typedef void
 (* fd_ssping_on_ping_fn_t)( void *        _ctx,
                             fd_ip4_port_t addr,
                             ulong         latency );
+
+/* fd_ssping_sockfd_range_t is used by get_sockfds and a few internal
+   uses to represent the range of file descriptors [min_fd, max_fd]. */
+typedef struct {
+  int min_fd;
+  int max_fd; /* inclusive */
+} fd_ssping_sockfd_range_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -91,10 +102,11 @@ fd_ssping_advance( fd_ssping_t *          ssping,
                    long                   now,
                    fd_sspeer_selector_t * selector);
 
-/* Return the ping socket file descriptor */
-
-int
-fd_ssping_get_sockfd( fd_ssping_t const * ssping );
+/* Returns the socket file descriptors that this ping tracker may use.
+   These file descriptors are guaranteed to be contiguous to facilitate
+   SECCOMP filtering. */
+fd_ssping_sockfd_range_t
+fd_ssping_get_sockfds( fd_ssping_t const * ssping );
 
 FD_PROTOTYPES_END
 

@@ -62,14 +62,14 @@ fd_sysvar_slot_history_init( fd_bank_t *               bank,
   fd_slot_history_global_t * history = (fd_slot_history_global_t *)slot_history_mem;
   ulong *                    blocks  = (ulong *)fd_ulong_align_up( (ulong)((uchar*)history + sizeof(fd_slot_history_global_t)), alignof(ulong) );
 
-  history->next_slot          = fd_bank_slot_get( bank ) + 1UL;
+  history->next_slot          = bank->f.slot + 1UL;
   history->bits_bitvec_offset = (ulong)((uchar*)blocks - (uchar*)history);
   history->bits_len           = FD_SLOT_HISTORY_MAX_ENTRIES;
   history->bits_bitvec_len    = FD_SLOT_HISTORY_BLOCKS_LEN;
   history->has_bits           = 1;
 
   /* TODO: handle slot != 0 init case */
-  fd_sysvar_slot_history_set( history, fd_bank_slot_get( bank ) );
+  fd_sysvar_slot_history_set( history, bank->f.slot );
   fd_sysvar_slot_history_write_history( bank, accdb, xid, capture_ctx, history );
 }
 
@@ -95,8 +95,8 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
   fd_accdb_close_ro( accdb, ro );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  fd_sysvar_slot_history_set( history, fd_bank_slot_get( bank ) );
-  history->next_slot = fd_bank_slot_get( bank ) + 1;
+  fd_sysvar_slot_history_set( history, bank->f.slot );
+  history->next_slot = bank->f.slot + 1;
 
   fd_sysvar_slot_history_write_history( bank, accdb, xid, capture_ctx, history );
 

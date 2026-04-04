@@ -80,7 +80,9 @@
 #define FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC (2)
 #define FD_TOWER_SLOT_CONFIRMED_SUPER      (3)
 #define FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT  (4)
+#define FD_TOWER_SLOT_CONFIRMED_RATIO_CNT  FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT
 #define FD_TOWER_SLOT_CONFIRMED_LEVELS     { FD_TOWER_SLOT_CONFIRMED_PROPAGATED, FD_TOWER_SLOT_CONFIRMED_DUPLICATE, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC, FD_TOWER_SLOT_CONFIRMED_SUPER }
+#define FD_TOWER_SLOT_CONFIRMED_RATIOS     { 1.0/3,                              0.52,                              2.0/3,                              4.0/5 }
 
 struct fd_tower_slot_confirmed {
   int       level;    /* the confirmation level, see FD_TOWER_SLOT_CONFIRMED_{...} above */

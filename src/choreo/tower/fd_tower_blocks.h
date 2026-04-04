@@ -5,7 +5,7 @@
 #include "fd_tower_voters.h"
 
 /* fd_tower_blocks maintains tower-specific metadata about every block,
-   such as what block_id we first replayed, what block_id we voted for,
+   such as what block_id we last replayed, what block_id we voted for,
    and what block_id was ultimately "duplicate confirmed".
 
    This is used by tower to make voting decisions, such as whether or
@@ -35,12 +35,14 @@ struct fd_tower_blk {
   ulong     parent_slot;        /* parent slot */
   ulong     epoch;              /* epoch of this slot */
   int       replayed;           /* whether we've replayed this slot yet */
-  fd_hash_t replayed_block_id;  /* the block_id we _first_ replayed for this slot */
+  fd_hash_t replayed_block_id;  /* the block_id we _last_ replayed for this slot */
   int       voted;              /* whether we voted for this slot yet */
   fd_hash_t voted_block_id;     /* the block_id we voted on for this slot */
-  int       confirmed;          /* whether this slot has been duplicate confirmed */
+  int       confirmed;          /* whether this slot has been duplicate confirmjed */
   fd_hash_t confirmed_block_id; /* the block_id that was duplicate confirmed */
-  ulong     bank_idx;           /* pool idx of the bank as of this replayed block */
+  int       leader;             /* whether this slot was our own leader slot */
+  int       propagated;         /* whether this slot has been propagation confirmed (1/3 stake) */
+  ulong     prev_leader_slot;   /* previous slot in which we were leader as of this slot */
 };
 typedef struct fd_tower_blk fd_tower_blk_t;
 

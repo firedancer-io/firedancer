@@ -40,7 +40,6 @@ default_enable_features( fd_features_t * features ) {
   features->disable_bpf_loader_instructions = 0UL;
   features->full_inflation_enable = 0UL;
   features->vote_state_add_vote_latency = 0UL;
-  features->curve25519_syscall_enabled = 0UL;
   features->error_on_syscall_bpf_function_hash_collisions = 0UL;
   features->update_hashes_per_tick3 = 0UL;
   features->update_hashes_per_tick4 = 0UL;
@@ -48,7 +47,6 @@ default_enable_features( fd_features_t * features ) {
   features->enable_loader_v4 = 0UL;
   features->increase_tx_account_lock_limit = 0UL;
   features->stake_raise_minimum_delegation_to_1_sol = 0UL;
-  features->enable_alt_bn128_syscall = 0UL;
   features->revise_turbine_epoch_stakes = 0UL;
   features->clean_up_delegation_errors = 0UL;
   features->update_hashes_per_tick5 = 0UL;
@@ -58,14 +56,13 @@ default_enable_features( fd_features_t * features ) {
   features->enable_turbine_fanout_experiments = 0UL;
   features->devnet_and_testnet = 0UL;
   features->enable_big_mod_exp_syscall = 0UL;
-  features->enable_alt_bn128_compression_syscall = 0UL;
   features->update_hashes_per_tick2 = 0UL;
   features->account_data_direct_mapping = 0UL;
-  features->stricter_abi_and_runtime_constraints = 0UL;
+  features->syscall_parameter_address_restrictions = 0UL;
+  features->virtual_address_space_adjustments = 0UL;
   features->bpf_account_data_direct_mapping = 0UL;
   features->relax_authority_signer_check_for_lookup_table_creation = 0UL;
   features->update_hashes_per_tick6 = 0UL;
-  features->enable_poseidon_syscall = 0UL;
   features->better_error_codes_for_tx_lamport_check = 0UL;
   features->stake_minimum_delegation_for_rewards = 0UL;
   features->loosen_cpi_size_restriction = 0UL;

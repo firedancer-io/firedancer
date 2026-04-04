@@ -843,6 +843,17 @@ fd_bundle_client_request_failed( fd_bundle_tile_t * ctx,
   case FD_BUNDLE_CLIENT_REQ_Auth_GenerateAuthTokens:
     fd_bundle_auther_handle_request_fail( &ctx->auther );
     break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
+    ctx->builder_info_wait = 0;
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
+    ctx->packet_subscription_live = 0;
+    ctx->packet_subscription_wait = 0;
+    break;
+  case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
+    ctx->bundle_subscription_live = 0;
+    ctx->bundle_subscription_wait = 0;
+    break;
   }
 }
 

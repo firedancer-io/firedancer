@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_h
 
 #include "../fd_bank.h"
-#include "../../fd_flamenco_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank.rs#L1833 */
 #define FD_SYSVAR_RENT_UNADJUSTED_INITIAL_BALANCE ( 1UL )

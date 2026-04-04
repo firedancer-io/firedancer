@@ -5,7 +5,6 @@
    account database. */
 
 #include "fd_accdb_admin.h"
-#include "fd_accdb_lineage.h"
 #include "../../funk/fd_funk.h"
 
 struct fd_accdb_admin_v1 {

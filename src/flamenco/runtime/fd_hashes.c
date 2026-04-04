@@ -35,7 +35,7 @@ fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOT
     return;
   }
 
-  uchar executable_flag = executable & 0x1;
+  uchar executable_flag = !!executable;
 
   fd_blake3_t b3[1];
   fd_blake3_init( b3 );
@@ -94,7 +94,7 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
   fd_bank_lthash_end_locking_modify( bank );
 
   if( capture_ctx && capture_ctx->capture_solcap &&
-      fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
+      bank->f.slot>=capture_ctx->solcap_start_slot ) {
     fd_solana_account_meta_t solana_meta[1];
     fd_solana_account_meta_init(
         solana_meta,
@@ -107,7 +107,7 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
       capture_ctx->current_txn_idx,
       pubkey,
       solana_meta,
-      fd_bank_slot_get( bank ),
+      bank->f.slot,
       fd_account_data( meta ),
       meta->dlen );
   }

@@ -1,8 +1,9 @@
 include src/app/fdctl/with-version.mk
-$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH) ($(FIREDANCER_CI_COMMIT)))
+$(info Using FRANKENDANCER_VERSION=$(FIREDANCER_VERSION_CSTR) ($(FIREDANCER_CI_COMMIT)))
 $(shell echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)"                          >  src/app/fdctl/version2.h)
 $(shell echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)"                          >> src/app/fdctl/version2.h)
 $(shell echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)"                          >> src/app/fdctl/version2.h)
+$(shell echo '#define FDCTL_VERSION_CSTR "$(FIREDANCER_VERSION_CSTR)"'                          >> src/app/fdctl/version2.h)
 $(shell echo '#define FDCTL_COMMIT_REF_CSTR "$(FIREDANCER_CI_COMMIT)"'                          >> src/app/fdctl/version2.h)
 $(shell echo "#define FDCTL_COMMIT_REF_U32 0x$(shell echo $(FIREDANCER_CI_COMMIT) | cut -c -8)" >> src/app/fdctl/version2.h)
 

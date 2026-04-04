@@ -87,7 +87,6 @@ fd_instr_info_setup_instr_account( fd_instr_info_t * instr,
 
 void
 fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
-                                   fd_bank_t *            bank,
                                    fd_txn_in_t const *    txn_in,
                                    fd_txn_out_t *         txn_out,
                                    fd_txn_instr_t const * txn_instr );

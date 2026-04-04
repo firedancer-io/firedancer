@@ -892,6 +892,7 @@
 | <span class="metrics-name">repair_&#8203;rerequest_&#8203;queue</span> | counter | How many times we re-request a shred from the inflights queue |
 | <span class="metrics-name">repair_&#8203;malformed_&#8203;ping</span> | counter | How many times we received a malformed ping |
 | <span class="metrics-name">repair_&#8203;unknown_&#8203;peer_&#8203;ping</span> | counter | How many times we received a ping from an unknown peer |
+| <span class="metrics-name">repair_&#8203;failed_&#8203;sigverify_&#8203;ping</span> | counter | How many times we failed to verify the signature of a ping |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;time</span> | histogram | Time in seconds it took to complete a slot |
 | <span class="metrics-name">repair_&#8203;response_&#8203;latency</span> | histogram | Time in nanoseconds it took to receive a repair request response |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
@@ -924,7 +925,57 @@
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;free</span> | gauge | The number of free FEC sets in the reassembly queue |
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;slot</span> | gauge | Slot of the latest FEC set in the reassembly queue that can be replayed |
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;latest_&#8203;fec_&#8203;idx</span> | gauge | FEC set index of the latest FEC set in the reassembly queue that can be replayed |
-| <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;active_&#8203;bank_&#8203;idx</span> | gauge | The bank that the replay scheduler is currently dispatching work for |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;last_&#8203;dispatch_&#8203;bank_&#8203;idx</span> | gauge | The bank that the replay scheduler last dispatched work for |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;last_&#8203;dispatch_&#8203;time_&#8203;nanos</span> | gauge | Timestamp when the replay scheduler last dispatched work |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;popcnt</span> | gauge | The total number of staging lanes that are currently occupied in the replay scheduler. Up to four staging lanes can be occupied at once |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;popcnt_&#8203;wmk</span> | gauge | The high watermark number of staging lanes that were at one point occupied in the replay scheduler |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;head_&#8203;bank_&#8203;idx0</span> | gauge | The bank at the head of staging lane 0 of the replay dispatcher |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;head_&#8203;bank_&#8203;idx1</span> | gauge | The bank at the head of staging lane 1 of the replay dispatcher |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;head_&#8203;bank_&#8203;idx2</span> | gauge | The bank at the head of staging lane 2 of the replay dispatcher |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;staging_&#8203;lane_&#8203;head_&#8203;bank_&#8203;idx3</span> | gauge | The bank at the head of staging lane 3 of the replay dispatcher |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;pool_&#8203;popcnt</span> | gauge | The total number of transactions that are available to be scheduled in the replay scheduler |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;pool_&#8203;size</span> | gauge | The maximum number of transactions that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for TxnPoolPopcnt |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;pool_&#8203;popcnt</span> | gauge | The total number of microblocks that are available to be scheduled in the replay scheduler |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;pool_&#8203;size</span> | gauge | The maximum number of microblocks that the replay scheduler can consider. This value is fixed at Firedancer startup but is a useful reference for MblkPoolPopcnt |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;pool_&#8203;popcnt</span> | gauge | The total number of blocks that are alive in the replay scheduler |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;pool_&#8203;size</span> | gauge | The maximum number of blocks that the replay scheduler can keep track of. This value is fixed at Firedancer startup but is a useful reference for BlockPoolPopcnt |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;added_&#8203;staged</span> | counter | Blocks added to the replay scheduler as staged |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;added_&#8203;unstaged</span> | counter | Blocks added to the replay scheduler as unstaged |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;replayed</span> | counter | Blocks that the replay scheduler considers fully replayed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;abandoned</span> | counter | Blocks that the replay scheduler abandoned for any reason |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;bad</span> | counter | Blocks that the replay scheduler considers bad |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;promoted</span> | counter | Blocks that the replay scheduler promoted from unstaged to a staging lane |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;block_&#8203;demoted</span> | counter | Blocks that the replay scheduler demoted from a staging lane to unstaged |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;deactivate_&#8203;no_&#8203;child</span> | counter | Number of times that the replay scheduler stopped dispatching because a block fully replayed and there was no child block available yet |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;deactivate_&#8203;no_&#8203;work</span> | counter | Number of times that the replay scheduler stopped dispatching because a partially replayed block ran out of work to dispatch |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;deactivate_&#8203;abandoned</span> | counter | Number of times that the replay scheduler stopped dispatching because a block got abandoned for any reason |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;deactivate_&#8203;minority</span> | counter | Number of times that the replay scheduler stopped dispatching because a block got abandoned for being on a minority fork |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;switch</span> | counter | Number of times that the replay scheduler switched the lane that it is dispatching from |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;promote</span> | counter | Number of times that the replay scheduler promoted one or more blocks onto a staging lane |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;lane_&#8203;demote</span> | counter | Number of times that the replay scheduler demoted one or more blocks from a staging lane |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;fork_&#8203;observed</span> | counter | Number of forks that the replay scheduler has observed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;alut_&#8203;success</span> | counter | Number of transactions with address lookup tables that the replay scheduler successfully expanded |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;alut_&#8203;failure</span> | counter | Number of transactions with address lookup tables that the replay scheduler failed to expand |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;abandoned_&#8203;parsed</span> | counter | Number of transactions that were parsed but ended up being in abandoned blocks |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;abandoned_&#8203;exec</span> | counter | Number of transactions that were executed but ended up being in abandoned blocks |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;abandoned_&#8203;done</span> | counter | Number of transactions that were fully replayed but ended up being in abandoned blocks |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;weighted_&#8203;in_&#8203;flight</span> | counter | Cumulative number of transactions that have been in-flight from the replay scheduler's point of view, weighted by the duration of each transaction. This value is useful as the dividend for TxnWeightedInFlightDuration |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;weighted_&#8203;in_&#8203;flight_&#8203;duration</span> | counter | Duration over which TxnWeightedInFlight was accumulated. Use this as divisor to get the average number of in-flight transactions |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;none_&#8203;in_&#8203;flight_&#8203;duration</span> | counter | Duration over which the replay scheduler had no transaction in-flight. This value is useful in a ratio against WeightedInFlightDuration to see how often the replay transaction execution pipeline was idle |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;parsed</span> | counter | Number of transactions that the replay pipeline has parsed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;exec</span> | counter | Number of transactions that the replay pipeline has executed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;sigverify</span> | counter | Number of transactions that the replay pipeline has sigverified |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;mixin</span> | counter | Number of transactions that the replay pipeline has performed PoH mixin |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;txn_&#8203;done</span> | counter | Number of transactions that were fully replayed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;parsed</span> | counter | Number of microblocks that the replay pipeline has parsed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;hashed</span> | counter | Number of microblocks that the replay pipeline has fully hashed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;mblk_&#8203;done</span> | counter | Number of microblocks that were fully replayed |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;ingested</span> | counter | Number of bytes that the replay scheduler has ingested |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;ingested_&#8203;padding</span> | counter | Number of bytes that the replay scheduler ingested but did not parse for being padding |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;bytes_&#8203;dropped</span> | counter | Number of bytes that the replay scheduler refused to ingest because the block is considered abandoned |
+| <span class="metrics-name">replay_&#8203;sched_&#8203;fec</span> | counter | Number of FEC sets that the replay scheduler has been given |
+| <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully or leader slots packed and shredded successfully |
 | <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
 | <span class="metrics-name">replay_&#8203;sched_&#8203;full</span> | counter | Times where sched is full and a FEC set can't be processed |
 | <span class="metrics-name">replay_&#8203;reasm_&#8203;empty</span> | counter | Times where reasm is empty and a FEC set can't be processed |
@@ -944,11 +995,19 @@
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;parts</span> | gauge | Number of program cache heap partitions free |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;parts</span> | gauge | Number of program cache heap partitions free (indicates fragmentation) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;bytes</span> | gauge | Program cache heap utilization (free bytes) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;size_&#8203;bytes</span> | gauge | Program cache heap utilization (total size) |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;part_&#8203;size_&#8203;max_&#8203;bytes</span> | gauge | Program cache heap utilization (largest free partition) |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;part_&#8203;max_&#8203;bytes</span> | gauge | Largest free heap partition in program cache |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;used_&#8203;part_&#8203;median_&#8203;bytes</span> | gauge | Median used heap partition size in program cache |
+| <span class="metrics-name">replay_&#8203;progcache_&#8203;used_&#8203;part_&#8203;mean_&#8203;bytes</span> | gauge | Mean used heap partition size in program cache |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;time_&#8203;seconds</span> | counter | Total time in seconds spent doing program cache tasks |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;parts</span> | gauge | Number of account database cache heap partitions free (indicates fragmentation) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;bytes</span> | gauge | Account database cache heap utilization (free bytes) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;size_&#8203;bytes</span> | gauge | Account database cache heap utilization (total size) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;part_&#8203;max_&#8203;bytes</span> | gauge | Largest free heap partition in account database cache |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;used_&#8203;part_&#8203;median_&#8203;bytes</span> | gauge | Median used heap partition size in account database cache |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;used_&#8203;part_&#8203;mean_&#8203;bytes</span> | gauge | Mean used heap partition size in account database cache |
 
 </div>
 
@@ -976,7 +1035,6 @@
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;lookups</span> | counter | Program cache lookup counter |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;hits</span> | counter | Program cache hit counter |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;misses</span> | counter | Program cache miss counter |
-| <span class="metrics-name">execrp_&#8203;progcache_&#8203;invalidations</span> | counter | Program cache invalidation counter |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;oom_&#8203;heap</span> | counter | Program cache out-of-memory event counter (heap) |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;oom_&#8203;desc</span> | counter | Program cache out-of-memory event counter (descriptor table) |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |
@@ -1034,25 +1092,20 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;ignored_&#8203;gauge</span> | gauge | Slot number of most recently ignored replay_slot_completed frag |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
-| <span class="metrics-name">tower_&#8203;slot_&#8203;eqvoced_&#8203;gauge</span> | gauge | Slot number of most recently equivocating replay_slot_completed frag |
+| <span class="metrics-name">tower_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored |
+| <span class="metrics-name">tower_&#8203;ignored_&#8203;slot</span> | gauge | Most recent ignored replay_slot_completed frag |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;slot</span> | gauge | Most recent equivocating replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Vote slot |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Most recent vote slot, ULONG_MAX if no vote cast |
 | <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |
 | <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | Root slot |
 | <span class="metrics-name">tower_&#8203;init_&#8203;slot</span> | gauge | Init slot |
-| <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
-| <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
-| <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
-| <span class="metrics-name">tower_&#8203;switch_&#8203;pass</span> | counter | Prev vote was on a different fork, but we are allowed to switch (can vote) |
-| <span class="metrics-name">tower_&#8203;switch_&#8203;fail</span> | counter | Prev vote was on a different fork, and we are not allowed to switch (can't vote) |
-| <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
-| <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
-| <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;invalid</span> | counter | Number of invalid vote txns (malformed, bad signature, etc.) |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;ignored</span> | counter | Number of ignored vote txns (unrecognized slot or block id) |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;deser</span> | counter | Vote txn failed to deserialize |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;tower</span> | counter | Vote txn deserialized but tower was invalid |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;not_&#8203;tower_&#8203;sync</span> | counter | Vote txn was not a TowerSync instruction |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;empty_&#8203;tower</span> | counter | Vote txn had an empty tower (validator hasn't voted) |
+| <span class="metrics-name">tower_&#8203;txn_&#8203;not_&#8203;ready</span> | counter | Vote txn arrived before votes root was initialized |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;merkle</span> | counter | Merkle root conflict |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;meta</span> | counter | Coding metadata conflict |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;last</span> | counter | Last shred index conflict |
@@ -1071,10 +1124,28 @@
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;ignored_&#8203;slot</span> | counter | Slot older than root or unable to derive leader schedule |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;proof_&#8203;constructed</span> | counter | Number of duplicate proofs we constructed from shreds |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;proof_&#8203;verified</span> | counter | Number of duplicate proofs we verified from gossip |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;seen</span> | counter | Number of hard forks we've seen (block ids with multiple candidate bank hashes) |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;pruned</span> | counter | Number of hard forks (candidate bank hashes) we've pruned |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;max_&#8203;width</span> | gauge | Max number of candidate bank hashes for a given block id |
+| <span class="metrics-name">tower_&#8203;ghost_&#8203;not_&#8203;voted</span> | counter | Ghost vote skipped because voter hasn't voted |
+| <span class="metrics-name">tower_&#8203;ghost_&#8203;too_&#8203;old</span> | counter | Ghost vote slot was behind the root |
+| <span class="metrics-name">tower_&#8203;ghost_&#8203;already_&#8203;voted</span> | counter | Ghost vote slot was not newer than previous vote |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;unknown_&#8203;vtr</span> | counter | Hfork voter not in voter set |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;already_&#8203;voted</span> | counter | Hfork voter already voted for this block_id |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;too_&#8203;old</span> | counter | Hfork vote slot not newer than previous |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;matched_&#8203;slot</span> | gauge | Highest slot where 52%+ of stake agreed on our bank hash |
+| <span class="metrics-name">tower_&#8203;hfork_&#8203;mismatched_&#8203;slot</span> | gauge | Highest slot where 52%+ of stake agreed on a different bank hash than ours (we hard forked) |
+| <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
+| <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
+| <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
+| <span class="metrics-name">tower_&#8203;switch_&#8203;pass</span> | counter | Prev vote was on a different fork, but we are allowed to switch (can vote) |
+| <span class="metrics-name">tower_&#8203;switch_&#8203;fail</span> | counter | Prev vote was on a different fork, and we are not allowed to switch (can't vote) |
+| <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
+| <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
+| <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;too_&#8203;old</span> | counter | Vote slot was behind the votes root |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;too_&#8203;new</span> | counter | Vote slot was too far ahead of the votes root |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;vtr</span> | counter | Vote account was not in the voter set |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;already_&#8203;voted</span> | counter | Voter already voted for this slot |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;slot</span> | counter | Vote txn was for a slot we haven't replayed |
+| <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;block_&#8203;id</span> | counter | Vote txn was for a block id we don't recognize |
 
 </div>
 
@@ -1174,6 +1245,10 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">diag_&#8203;bundle_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently zhas an active connection to the block engine server |
+| <span class="metrics-name">diag_&#8203;vote_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy vote subsystem means the client has cast at least one vote in both the last 60 seconds and last 150 slots (before the currently replay slot) |
+| <span class="metrics-name">diag_&#8203;replay_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy replay subsystem means that the largest fully-processed replay slot on the chosen consensus fork is within 12 slots of the current turbine slot |
+| <span class="metrics-name">diag_&#8203;turbine_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy turbine subsystem means that the largest slot associated with received turbine shreds has not stalled for 12 seconds, and also that the average replay ingress traffic exceeds the average ingress repair traffic over the past 12 seconds |
 
 </div>
 

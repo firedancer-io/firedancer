@@ -250,8 +250,8 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
   *charge_busy = 1;
 
   if( FD_UNLIKELY( iter->shred_idx == UINT_MAX ) ) {
-    if( FD_UNLIKELY( ele->slot < highest_known_slot ) ) {
-      // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
+    // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
+    if( FD_UNLIKELY( ele->slot < highest_known_slot && !dedup_next( policy, fd_policy_dedup_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, UINT_MAX ), now ) ) ) {
       uint nonce = fd_rnonce_ss_compute( policy->rnonce_ss, 0, ele->slot, 0U, now );
       out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, nonce, ele->slot, 0 );
     }
@@ -281,7 +281,7 @@ fd_policy_peer_upsert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_por
     peer->last_resp_ts  = 0;
     peer->total_lat     = 0;
     peer->stake         = 0;
-    peer->ping_cnt      = 0;
+    peer->ping          = 0;
 
     fd_policy_peer_map_ele_insert( peer_map, peer, pool );
     fd_policy_peer_dlist_ele_push_tail( policy->peers.slow, peer, pool );

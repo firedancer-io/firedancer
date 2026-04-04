@@ -30,6 +30,7 @@ struct cost_tracker_outer {
   ulong             pool_offset;
   ulong             accounts_used;
   ulong             magic;
+  fd_rwlock_t       lock;
 };
 
 typedef struct cost_tracker_outer cost_tracker_outer_t;
@@ -77,6 +78,8 @@ fd_cost_tracker_new( void * shmem,
   cost_tracker->pool_offset = (ulong)_accounts-(ulong)cost_tracker;
 
   cost_tracker->cost_tracker->larger_max_cost_per_block = larger_max_cost_per_block;
+
+  fd_rwlock_new( &cost_tracker->lock );
 
   (void)_accounts;
 
@@ -157,7 +160,7 @@ get_instructions_data_cost( fd_txn_in_t const * txn_in ) {
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L152-L187 */
 FD_FN_PURE static inline ulong
-get_signature_cost( fd_txn_in_t const * txn_in, fd_bank_t * bank ) {
+get_signature_cost( fd_txn_in_t const * txn_in ) {
   fd_txn_t const *       txn      = TXN( txn_in->txn );
   void const *           payload  = txn_in->txn->payload;
   fd_acct_addr_t const * accounts = fd_txn_get_acct_addrs( txn, payload );
@@ -193,10 +196,7 @@ get_signature_cost( fd_txn_in_t const * txn_in, fd_bank_t * bank ) {
   ulong ed25519_verify_cost = fd_ulong_sat_mul( FD_PACK_COST_PER_ED25519_SIGNATURE, num_ed25519_instruction_signatures );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L162-L167 */
-  ulong secp256r1_verify_cost = 0UL;
-  if( FD_FEATURE_ACTIVE_BANK( bank, enable_secp256r1_precompile ) ) {
-    secp256r1_verify_cost = fd_ulong_sat_mul( FD_PACK_COST_PER_SECP256R1_SIGNATURE, num_secp256r1_instruction_signatures );
-  }
+  ulong secp256r1_verify_cost = fd_ulong_sat_mul( FD_PACK_COST_PER_SECP256R1_SIGNATURE, num_secp256r1_instruction_signatures );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L169-L186 */
   return fd_ulong_sat_add( signature_cost,
@@ -292,7 +292,7 @@ calculate_non_vote_transaction_cost( fd_bank_t *          bank,
                                      ulong                data_bytes_cost ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L132 */
-  ulong signature_cost = get_signature_cost( txn_in, bank );
+  ulong signature_cost = get_signature_cost( txn_in );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L133 */
   ulong write_lock_cost = get_write_lock_cost( fd_txn_account_cnt( TXN( txn_in->txn ), FD_TXN_ACCT_CAT_WRITABLE ) );
@@ -480,9 +480,13 @@ int
 fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,
                               fd_txn_out_t *      txn_out ) {
 
+  cost_tracker_outer_t * cost_tracker_outer = fd_type_pun( cost_tracker );
+  fd_rwlock_write( &cost_tracker_outer->lock );
+
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L167 */
   int err = would_fit( cost_tracker, txn_out, &txn_out->details.txn_cost );
   if( FD_UNLIKELY( err!=FD_COST_TRACKER_SUCCESS ) ) {
+    fd_rwlock_unwrite( &cost_tracker_outer->lock );
     return err;
   }
 
@@ -495,5 +499,7 @@ fd_cost_tracker_try_add_cost( fd_cost_tracker_t * cost_tracker,
   /* Note: We purposely omit signature counts updates since they're not relevant to cost calculations right now. */
   cost_tracker->allocated_accounts_data_size += get_allocated_accounts_data_size( &txn_out->details.txn_cost );
   add_transaction_execution_cost( cost_tracker, txn_out, transaction_cost_sum( &txn_out->details.txn_cost ) );
+
+  fd_rwlock_unwrite( &cost_tracker_outer->lock );
   return FD_COST_TRACKER_SUCCESS;
 }

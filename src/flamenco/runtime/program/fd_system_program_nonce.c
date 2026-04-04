@@ -62,7 +62,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( ctx->bank );
+  fd_blockhashes_t const *    blockhashes     = &ctx->bank->f.block_hash_queue;
   fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
   if( FD_UNLIKELY( last_bhash_info==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
@@ -883,7 +883,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
                           fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out ) {
-  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
+  fd_blockhashes_t const * block_hash_queue = &bank->f.block_hash_queue;
   fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last_hash( block_hash_queue );
   if( FD_UNLIKELY( !last_blockhash ) ) {
     FD_LOG_CRIT(( "blockhash queue is empty" ));
@@ -943,7 +943,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      - statically included in the transaction account keys (if SIMD-242
        is active)
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L110-L111 */
-  if( FD_UNLIKELY( !fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, nonce_idx ) ) ) {
+  if( FD_UNLIKELY( !fd_runtime_account_is_writable_idx( txn_in, txn_out, nonce_idx ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, require_static_nonce_account ) &&
@@ -952,7 +952,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   }
 
   fd_accdb_ro_t ro[1];
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->data->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
   if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, ro, &xid, &txn_out->accounts.keys[ nonce_idx ] ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
@@ -960,7 +960,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
   fd_pubkey_t const * owner_pubkey = fd_accdb_ref_owner( ro );
-  if( FD_UNLIKELY( memcmp( owner_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
+  if( FD_UNLIKELY( !fd_pubkey_eq( owner_pubkey, &fd_solana_system_program_id ) ) ) {
     fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
@@ -1012,7 +1012,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
 
-        fd_blockhashes_t const *    blockhashes     = fd_bank_block_hash_queue_query( bank );
+        fd_blockhashes_t const *    blockhashes     = &bank->f.block_hash_queue;
         fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
         FD_TEST( last_bhash_info ); /* Agave panics here if the blockhash queue is empty */
 
@@ -1031,8 +1031,8 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
             } }
           } }
         };
-        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_ACC_NONCE_SZ_MAX ) ) {
-          FD_LOG_CRIT(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
+        if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
+          FD_LOG_CRIT(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_SYSTEM_PROGRAM_NONCE_DLEN %lu", fd_nonce_state_versions_size( &new_state ), FD_SYSTEM_PROGRAM_NONCE_DLEN ));
         }
         /* make_modifiable uses the old length for the data copy */
         uchar * borrowed_account_data = txn_out->accounts.rollback_nonce_mem;

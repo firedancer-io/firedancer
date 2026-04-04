@@ -1,15 +1,11 @@
 #ifndef HEADER_fd_src_flamenco_progcache_fd_progcache_rec_h
 #define HEADER_fd_src_flamenco_progcache_fd_progcache_rec_h
 
-#include "../../funk/fd_funk_base.h"
+#include "fd_progcache_base.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../fd_flamenco_base.h"
 #include "../fd_rwlock.h"
-
-/* fd_progcache_join_t is a join to a fd_progcache_shmem_t. */
-
-struct fd_progcache_join; /* forward declaration */
-typedef struct fd_progcache_join fd_progcache_join_t;
+#include <stdatomic.h>
 
 /* fd_progcache_rec_t is the fixed size header of a program cache entry
    object.  Entries are either non-executable (e.g. programs that failed
@@ -19,17 +15,19 @@ typedef struct fd_progcache_join fd_progcache_join_t;
    segment, control flow metadata, ...). */
 
 struct __attribute__((aligned(64))) fd_progcache_rec {
+  fd_funk_xid_key_pair_t pair;  /* Transaction id and record key pair */
+
   /* Slot number at which this cache entry was created.
      Matches the XID's slot number for in-preparation transactions. */
   ulong slot;
 
-  fd_funk_xid_key_pair_t pair;      /* Transaction id and record key pair */
-  uint                   map_next;  /* Internal use by map */
-  uint                   next_idx;  /* Record map index of next record in its transaction */
-  uint                   prev_idx;  /* Record map index of previous record in its transaction */
+  uint        map_next;  /* Internal use by map */
+  atomic_uint txn_idx;
+  uint        next_idx;  /* Record map index of next record in its transaction */
+  uint        prev_idx;  /* Record map index of previous record in its transaction */
 
-  uint  data_max;    /* size of allocation */
   ulong data_gaddr;  /* wksp-base relative pointer to data */
+  uint  data_max;    /* size of allocation */
 
   uint entry_pc;
   uint text_cnt;
@@ -41,14 +39,12 @@ struct __attribute__((aligned(64))) fd_progcache_rec {
   uint calldests_off;  /* offset to sbpf_calldests map */
   uint rodata_off;     /* offset to rodata segment */
 
+  uint reclaim_next;
+
   ushort      sbpf_version : 8; /* SBPF version, SIMD-0161 */
-  ushort      executable   : 1; /* is this an executable entry? */
-  ushort      invalidate   : 1; /* if ==1, limits visibility of this entry to this slot */
   ushort      exists       : 1; /* if ==0, record is dead, no longer in map, and awaiting cleanup */
   fd_rwlock_t lock;
 };
-
-typedef struct fd_progcache_rec fd_progcache_rec_t;
 
 FD_STATIC_ASSERT( sizeof(fd_progcache_rec_t)==128, layout );
 
@@ -65,10 +61,17 @@ fd_progcache_rec_rodata( fd_progcache_rec_t const * rec,
 static inline fd_sbpf_calldests_t const *
 fd_progcache_rec_calldests( fd_progcache_rec_t const * rec,
                             fd_wksp_t *                wksp ) {
+  if( rec->calldests_off==UINT_MAX ) return NULL;
   return fd_sbpf_calldests_join( fd_wksp_laddr_fast( wksp, rec->data_gaddr + rec->calldests_off ) );
 }
 
-/* Private APIs */
+/* Heap allocator for variable-size cache entry data */
+
+/* fd_progcache_use_malloc allows link-time (build-time) selection of
+   libc malloc instead of fd_alloc for testing.  Cannot be configured at
+   runtime because that would create an attack vector. */
+
+extern int const fd_progcache_use_malloc;
 
 /* fd_progcache_rec_{align,footprint} give the params of backing memory
    of a progcache_rec object for the given ELF info.  If elf_info is
@@ -87,6 +90,11 @@ fd_progcache_val_alloc( fd_progcache_rec_t *  rec,
                         fd_progcache_join_t * join,
                         ulong                 val_align,
                         ulong                 val_footprint );
+
+void
+fd_progcache_val_free1( fd_progcache_rec_t * rec,
+                        void *               val,
+                        fd_alloc_t *         alloc );
 
 void
 fd_progcache_val_free( fd_progcache_rec_t *  rec,

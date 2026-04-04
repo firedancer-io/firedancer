@@ -4,15 +4,10 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
-/* FIXME: SIMD-0180 - set the correct epochs */
-#define FD_SIMD0180_ACTIVE_EPOCH_TESTNET (829)
-#define FD_SIMD0180_ACTIVE_EPOCH_MAINNET (841)
-
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */
 #define FD_EXECRP_TT_TXN_SIGVERIFY (2UL) /* Transaction sigverify. */
-#define FD_EXECRP_TT_LTHASH        (3UL) /* Account lthash. */
-#define FD_EXECRP_TT_POH_HASH      (4UL) /* PoH hashing. */
+#define FD_EXECRP_TT_POH_HASH      (3UL) /* PoH hashing. */
 
 /* Sent from the replay tile to the exec tiles.  These describe one of
    several types of tasks for an exec tile.  An idx to the bank in the

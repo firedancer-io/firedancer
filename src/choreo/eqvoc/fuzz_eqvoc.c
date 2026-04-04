@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../tower/fd_tower.h"
 #include "fd_eqvoc.h"
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
@@ -35,10 +36,10 @@ LLVMFuzzerTestOneInput( uchar const * data,
   ulong chunk_sz = sizeof(fd_gossip_duplicate_shred_t);
   if( FD_UNLIKELY( size < 32UL + 3UL * chunk_sz ) ) return -1;
 
-  ulong   footprint = fd_eqvoc_footprint( SLOT_MAX, SHRED_MAX, FROM_MAX );
+  ulong   footprint = fd_eqvoc_footprint( SLOT_MAX, SHRED_MAX, SLOT_MAX, FROM_MAX );
   uchar * mem       = aligned_alloc( fd_eqvoc_align(), footprint );
 
-  fd_eqvoc_t * eqvoc = fd_eqvoc_join( fd_eqvoc_new( mem, SLOT_MAX, SHRED_MAX, FROM_MAX, 0UL ) );
+  fd_eqvoc_t * eqvoc = fd_eqvoc_join( fd_eqvoc_new( mem, SLOT_MAX, SHRED_MAX, SLOT_MAX, FROM_MAX, 0UL ) );
 
   fd_pubkey_t from;
   memcpy( &from, data, 32UL );
@@ -47,7 +48,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   uchar voters_mem[16384] __attribute__((aligned(128)));
   fd_tower_voters_t * tower_voters = fd_tower_voters_join( fd_tower_voters_new( voters_mem, 1 ) );
-  fd_tower_voters_push_tail( tower_voters, (fd_tower_voters_t){ .id = from } );
+  fd_tower_voters_push_tail( tower_voters, (fd_tower_voters_t){ .id_key = from } );
   fd_eqvoc_update_voters( eqvoc, tower_voters );
 
   while( size >= sizeof(fd_gossip_duplicate_shred_t) ) {

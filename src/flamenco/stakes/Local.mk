@@ -1,3 +1,4 @@
+$(call add-hdrs,fd_stake_types.h)
 ifdef FD_HAS_DOUBLE
 $(call add-hdrs,fd_stakes.h)
 $(call add-objs,fd_stakes,fd_flamenco)

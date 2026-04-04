@@ -240,6 +240,9 @@ main( int     argc,
   test_lthash_adder();
   FD_LOG_NOTICE(( "OK: lthash_adder" ));
 
+  test_lthash_adder_no_avx_regression();
+  FD_LOG_NOTICE(( "OK: lthash_adder no-AVX regression" ));
+
   bench_lthash_seq();
 
   bench_lthash_adder();

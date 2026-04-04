@@ -29,7 +29,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "ggAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -86,7 +86,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "hgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -153,7 +153,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "hAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -220,7 +220,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "iAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -277,7 +277,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "lAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -334,7 +334,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "mAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -401,7 +401,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "lgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -468,7 +468,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "mgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -525,7 +525,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "ngAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -592,7 +592,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "nAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -659,7 +659,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "oAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -716,7 +716,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "pAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -783,7 +783,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "ogAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -850,7 +850,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "jAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -917,7 +917,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "igAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -984,7 +984,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "pgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1041,7 +1041,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "qgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1108,7 +1108,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "qAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1175,7 +1175,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "rAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1232,7 +1232,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1299,7 +1299,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "rgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1366,7 +1366,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "jgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1423,7 +1423,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "kgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1490,7 +1490,7 @@
       ],
       "instruction_data": "ESI=",
       "program_id": "kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1575,7 +1575,7 @@
       ],
       "instruction_data": "M0Q=",
       "program_id": "vgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1664,7 +1664,7 @@
       ],
       "instruction_data": "M0Q=",
       "program_id": "xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1773,7 +1773,7 @@
       ],
       "instruction_data": "M0Q=",
       "program_id": "wQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1869,7 +1869,7 @@
       ],
       "instruction_data": "qrs=",
       "program_id": "cAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -1938,7 +1938,7 @@
       ],
       "instruction_data": "qrs=",
       "program_id": "dAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2017,7 +2017,7 @@
       ],
       "instruction_data": "qrs=",
       "program_id": "cgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2119,7 +2119,7 @@
       ],
       "instruction_data": "d4g=",
       "program_id": "0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2232,7 +2232,7 @@
       ],
       "instruction_data": "d4g=",
       "program_id": "1gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2365,7 +2365,7 @@
       ],
       "instruction_data": "d4g=",
       "program_id": "0wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2483,7 +2483,7 @@
       ],
       "instruction_data": "VWY=",
       "program_id": "xwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2560,7 +2560,7 @@
       ],
       "instruction_data": "VWY=",
       "program_id": "zQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2657,7 +2657,7 @@
       ],
       "instruction_data": "VWY=",
       "program_id": "ygAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2767,7 +2767,7 @@
       ],
       "instruction_data": "q80=",
       "program_id": "sgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2864,7 +2864,7 @@
       ],
       "instruction_data": "q80=",
       "program_id": "ugAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -2991,7 +2991,7 @@
       ],
       "instruction_data": "q80=",
       "program_id": "tgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3092,7 +3092,7 @@
       ],
       "instruction_data": "7v8=",
       "program_id": "fAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3149,7 +3149,7 @@
       ],
       "instruction_data": "7v8=",
       "program_id": "gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3216,7 +3216,7 @@
       ],
       "instruction_data": "7v8=",
       "program_id": "fgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3283,7 +3283,7 @@
       ],
       "instruction_data": "3q2+7w==",
       "program_id": "YQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3340,7 +3340,7 @@
       ],
       "instruction_data": "3q2+7w==",
       "program_id": "ZQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3407,7 +3407,7 @@
       ],
       "instruction_data": "3q2+7w==",
       "program_id": "YwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3500,7 +3500,7 @@
       ],
       "instruction_data": "maq7",
       "program_id": "2QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3597,7 +3597,7 @@
       ],
       "instruction_data": "maq7",
       "program_id": "4QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3724,7 +3724,7 @@
       ],
       "instruction_data": "maq7",
       "program_id": "3QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3838,7 +3838,7 @@
       ],
       "instruction_data": "yv4=",
       "program_id": "ZwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -3915,7 +3915,7 @@
       ],
       "instruction_data": "yv4=",
       "program_id": "bQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -4012,7 +4012,7 @@
       ],
       "instruction_data": "yv4=",
       "program_id": "agAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -4096,7 +4096,7 @@
       ],
       "instruction_data": "zN0=",
       "program_id": "dgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -4153,7 +4153,7 @@
       ],
       "instruction_data": "zN0=",
       "program_id": "egAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -4220,7 +4220,7 @@
       ],
       "instruction_data": "zN0=",
       "program_id": "eAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": false
@@ -4292,7 +4292,7 @@
       ],
       "instruction_data": "mrw=",
       "program_id": "SQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -4361,7 +4361,7 @@
       ],
       "instruction_data": "mrw=",
       "program_id": "TQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -4435,7 +4435,7 @@
       ],
       "instruction_data": "mrw=",
       "program_id": "SwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -4509,7 +4509,7 @@
       ],
       "instruction_data": "qrs=",
       "program_id": "JQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -4578,7 +4578,7 @@
       ],
       "instruction_data": "qrs=",
       "program_id": "KQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -4657,7 +4657,7 @@
       ],
       "instruction_data": "qrs=",
       "program_id": "JwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -4759,7 +4759,7 @@
       ],
       "instruction_data": "ESIz",
       "program_id": "HAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -4872,7 +4872,7 @@
       ],
       "instruction_data": "ESIz",
       "program_id": "IgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5005,7 +5005,7 @@
       ],
       "instruction_data": "ESIz",
       "program_id": "HwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5123,7 +5123,7 @@
       ],
       "instruction_data": "Vng=",
       "program_id": "QAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5200,7 +5200,7 @@
       ],
       "instruction_data": "Vng=",
       "program_id": "RgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5292,7 +5292,7 @@
       ],
       "instruction_data": "Vng=",
       "program_id": "QwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5384,7 +5384,7 @@
       ],
       "instruction_data": "EjQ=",
       "program_id": "NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5461,7 +5461,7 @@
       ],
       "instruction_data": "EjQ=",
       "program_id": "PQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5558,7 +5558,7 @@
       ],
       "instruction_data": "EjQ=",
       "program_id": "OgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5642,7 +5642,7 @@
       ],
       "instruction_data": "7v8=",
       "program_id": "MQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5699,7 +5699,7 @@
       ],
       "instruction_data": "7v8=",
       "program_id": "NQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5771,7 +5771,7 @@
       ],
       "instruction_data": "3vA=",
       "program_id": "TwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5840,7 +5840,7 @@
       ],
       "instruction_data": "3vA=",
       "program_id": "UwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5919,7 +5919,7 @@
       ],
       "instruction_data": "3vA=",
       "program_id": "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -5993,7 +5993,7 @@
       ],
       "instruction_data": "7v8=",
       "program_id": "MwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6060,7 +6060,7 @@
       ],
       "instruction_data": "3q2+7w==",
       "program_id": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6117,7 +6117,7 @@
       ],
       "instruction_data": "3q2+7w==",
       "program_id": "BQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6184,7 +6184,7 @@
       ],
       "instruction_data": "3q2+7w==",
       "program_id": "AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6277,7 +6277,7 @@
       ],
       "instruction_data": "q83v",
       "program_id": "EAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6374,7 +6374,7 @@
       ],
       "instruction_data": "q83v",
       "program_id": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6501,7 +6501,7 @@
       ],
       "instruction_data": "q83v",
       "program_id": "FAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6628,7 +6628,7 @@
       ],
       "instruction_data": "ESIzRA==",
       "program_id": "VQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6725,7 +6725,7 @@
       ],
       "instruction_data": "ESIzRA==",
       "program_id": "XQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6847,7 +6847,7 @@
       ],
       "instruction_data": "ESIzRA==",
       "program_id": "WQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -6956,7 +6956,7 @@
       ],
       "instruction_data": "yv4=",
       "program_id": "BwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -7033,7 +7033,7 @@
       ],
       "instruction_data": "yv4=",
       "program_id": "DQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -7130,7 +7130,7 @@
       ],
       "instruction_data": "yv4=",
       "program_id": "CgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -7214,7 +7214,7 @@
       ],
       "instruction_data": "zN0=",
       "program_id": "KwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": false,
+      "virtual_address_space_adjustments": false,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -7271,7 +7271,7 @@
       ],
       "instruction_data": "zN0=",
       "program_id": "LwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": true,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true
@@ -7333,7 +7333,7 @@
       ],
       "instruction_data": "zN0=",
       "program_id": "LQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-      "stricter_abi_and_runtime_constraints": true,
+      "virtual_address_space_adjustments": true,
       "account_data_direct_mapping": false,
       "mask_out_rent_epoch_in_vm_serialization": true,
       "is_deprecated_loader": true

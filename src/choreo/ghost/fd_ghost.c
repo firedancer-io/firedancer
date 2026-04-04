@@ -9,6 +9,9 @@ fd_ghost_align( void ) {
 ulong
 fd_ghost_footprint( ulong blk_max,
                     ulong vtr_max ) {
+  ulong blk_chain_cnt = blk_map_chain_cnt_est( blk_max );
+  ulong vtr_chain_cnt = vtr_map_chain_cnt_est( vtr_max );
+
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -16,11 +19,11 @@ fd_ghost_footprint( ulong blk_max,
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_ghost_t), sizeof(fd_ghost_t)            ),
-      blk_pool_align(),    blk_pool_footprint( blk_max ) ),
-      blk_map_align(),     blk_map_footprint ( blk_max ) ),
-      vtr_pool_align(),    vtr_pool_footprint( vtr_max ) ),
-      vtr_map_align(),     vtr_map_footprint ( vtr_max ) ),
+      alignof(fd_ghost_t), sizeof(fd_ghost_t)                  ),
+      blk_pool_align(),    blk_pool_footprint( blk_max )       ),
+      blk_map_align(),     blk_map_footprint ( blk_chain_cnt ) ),
+      vtr_pool_align(),    vtr_pool_footprint( vtr_max )       ),
+      vtr_map_align(),     vtr_map_footprint ( vtr_chain_cnt ) ),
     fd_ghost_align() );
 }
 
@@ -54,19 +57,23 @@ fd_ghost_new( void * shmem,
 
   fd_memset( shmem, 0, footprint );
 
+  ulong blk_chain_cnt = blk_map_chain_cnt_est( blk_max );
+  ulong vtr_chain_cnt = vtr_map_chain_cnt_est( vtr_max );
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_ghost_t * ghost    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ghost_t), sizeof(fd_ghost_t)            );
-  void *       blk_pool = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),    blk_pool_footprint( blk_max ) );
-  void *       blk_map  = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),     blk_map_footprint ( blk_max ) );
-  void *       vtr_pool = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),    vtr_pool_footprint( vtr_max ) );
-  void *       vtr_map  = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),     vtr_map_footprint ( vtr_max ) );
+  fd_ghost_t * ghost    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ghost_t), sizeof(fd_ghost_t)                  );
+  void *       blk_pool = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),    blk_pool_footprint( blk_max )       );
+  void *       blk_map  = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),     blk_map_footprint ( blk_chain_cnt ) );
+  void *       vtr_pool = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),    vtr_pool_footprint( vtr_max )       );
+  void *       vtr_map  = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),     vtr_map_footprint ( vtr_chain_cnt ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_ghost_align() ) == (ulong)shmem + footprint );
 
   ghost->root           = ULONG_MAX;
-  ghost->blk_pool_gaddr = fd_wksp_gaddr_fast( wksp, blk_pool_join( blk_pool_new ( blk_pool, blk_max       ) ) );
-  ghost->blk_map_gaddr  = fd_wksp_gaddr_fast( wksp, blk_map_join ( blk_map_new  ( blk_map,  blk_max, seed ) ) );
-  ghost->vtr_pool_gaddr = fd_wksp_gaddr_fast( wksp, vtr_pool_join( vtr_pool_new ( vtr_pool, vtr_max       ) ) );
-  ghost->vtr_map_gaddr  = fd_wksp_gaddr_fast( wksp, vtr_map_join ( vtr_map_new  ( vtr_map,  vtr_max, seed ) ) );
+  ghost->wksp_gaddr     = fd_wksp_gaddr_fast( wksp, ghost );
+  ghost->blk_pool_gaddr = fd_wksp_gaddr_fast( wksp, blk_pool_join( blk_pool_new ( blk_pool, blk_max             ) ) );
+  ghost->blk_map_gaddr  = fd_wksp_gaddr_fast( wksp, blk_map_join ( blk_map_new  ( blk_map,  blk_chain_cnt, seed ) ) );
+  ghost->vtr_pool_gaddr = fd_wksp_gaddr_fast( wksp, vtr_pool_join( vtr_pool_new ( vtr_pool, vtr_max             ) ) );
+  ghost->vtr_map_gaddr  = fd_wksp_gaddr_fast( wksp, vtr_map_join ( vtr_map_new  ( vtr_map,  vtr_chain_cnt, seed ) ) );
 
   return shmem;
 }
@@ -149,10 +156,10 @@ fd_ghost_best( fd_ghost_t     * ghost,
 
         /* When stake is equal, tie-break by lower slot.  Two valid
            children with equal stake and equal slot (ie. equivocating
-           blocks) cannot occur: equivocating blocks are marked eqvoc=1
-           and valid=0, so at most one of them would be valid unless
-           multiple blocks for that slot are duplicate confirmed, which
-           is a consensus invariant violation. */
+           blocks) cannot occur: equivocating blocks are marked valid=0,
+           so at most one of them would be valid unless multiple blocks
+           for that slot are duplicate confirmed, which is a consensus
+           invariant violation. */
 
         best = fd_ptr_if(
           fd_int_if(
@@ -253,13 +260,12 @@ fd_ghost_insert( fd_ghost_t      * ghost,
   blk->sibling     = null;
   blk->stake       = 0;
   blk->total_stake = 0;
-  blk->eqvoc       = 0;
-  blk->conf        = 0;
   blk->valid       = 1;
   blk_map_ele_insert( blk_map( ghost ), blk, pool );
 
   if( FD_UNLIKELY( !parent_block_id ) ) {
     ghost->root = blk_pool_idx( pool, blk );
+    ghost->width = 1;
     return blk;
   }
 
@@ -272,12 +278,13 @@ fd_ghost_insert( fd_ghost_t      * ghost,
     fd_ghost_blk_t * sibling = blk_pool_ele( pool, parent->child );
     while( sibling->sibling != null ) sibling = blk_pool_ele( pool, sibling->sibling );
     sibling->sibling = blk_pool_idx( pool, blk ); /* right-sibling */
+    ghost->width++;
   }
 
   return blk;
 }
 
-void
+int
 fd_ghost_count_vote( fd_ghost_t *        ghost,
                      fd_ghost_blk_t *    blk,
                      fd_pubkey_t const * vote_acc,
@@ -287,8 +294,8 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
   fd_ghost_blk_t const * root = fd_ghost_root( ghost );
   fd_ghost_vtr_t *       vtr  = vtr_map_ele_query( vtr_map( ghost ), vote_acc, NULL, vtr_pool( ghost ) );
 
-  if( FD_UNLIKELY( slot == ULONG_MAX  ) ) return; /* hasn't voted */
-  if( FD_UNLIKELY( slot <  root->slot ) ) return; /* vote older than root */
+  if( FD_UNLIKELY( slot==ULONG_MAX  ) ) return FD_GHOST_ERR_NOT_VOTED;
+  if( FD_UNLIKELY( slot< root->slot ) ) return FD_GHOST_ERR_VOTE_TOO_OLD;
 
   if( FD_UNLIKELY( !vtr ) ) {
 
@@ -309,7 +316,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
        For example, if a voter votes for 3 then switches to 5, we might
        observe the vote for 5 before the vote for 3. */
 
-    if( FD_UNLIKELY( !( slot > vtr->prev_slot ) ) ) return;
+    if( FD_UNLIKELY( !( slot > vtr->prev_slot ) ) ) return FD_GHOST_ERR_ALREADY_VOTED;
 
     /* LMD-rule: subtract the voter's stake from the entire fork they
       previously voted for. */
@@ -345,6 +352,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
   vtr->prev_block_id = blk->id;
   vtr->prev_stake    = stake;
   vtr->prev_slot     = slot;
+  return FD_GHOST_SUCCESS;
 }
 
 void
@@ -414,6 +422,7 @@ fd_ghost_publish( fd_ghost_t     * ghost,
         tail->next = blk_pool_idx_null( blk_pool( ghost ) );
       }
       child = blk_pool_ele( blk_pool( ghost ), child->sibling ); /* next sibling */
+      ghost->width -= !!child; /* has a sibling == a fork to be pruned */
     }
     fd_ghost_blk_t * next = blk_pool_ele( blk_pool( ghost ), head->next ); /* pop prune queue head */
     blk_pool_ele_release( blk_pool( ghost ), head );                       /* free prune queue head */
@@ -421,6 +430,52 @@ fd_ghost_publish( fd_ghost_t     * ghost,
   }
   newr->parent = null;                                    /* unlink old root */
   ghost->root  = blk_pool_idx( blk_pool( ghost ), newr ); /* replace with new root */
+}
+
+ulong
+fd_ghost_width( fd_ghost_t * ghost ) {
+  return ghost->width;
+}
+
+fd_ghost_blk_t *
+fd_ghost_blk_map_remove( fd_ghost_t     * ghost,
+                         fd_ghost_blk_t * blk ) {
+  return blk_map_ele_remove( blk_map( ghost ), &blk->id, NULL, blk_pool( ghost ) );
+}
+
+void
+fd_ghost_blk_map_insert( fd_ghost_t     * ghost,
+                         fd_ghost_blk_t * blk ) {
+  blk_map_ele_insert( blk_map( ghost ), blk, blk_pool( ghost ) );
+}
+
+fd_ghost_blk_t *
+fd_ghost_blk_child( fd_ghost_t     * ghost,
+                    fd_ghost_blk_t * blk ) {
+  return blk_pool_ele( blk_pool( ghost ), blk->child );
+}
+
+fd_ghost_blk_t *
+fd_ghost_blk_sibling( fd_ghost_t     * ghost,
+                      fd_ghost_blk_t * blk ) {
+  return blk_pool_ele( blk_pool( ghost ), blk->sibling );
+}
+
+fd_ghost_blk_t *
+fd_ghost_blk_next( fd_ghost_t     * ghost,
+                   fd_ghost_blk_t * blk ) {
+  return blk_pool_ele( blk_pool( ghost ), blk->next );
+}
+
+ulong
+fd_ghost_blk_idx( fd_ghost_t     * ghost,
+                  fd_ghost_blk_t * blk ) {
+  return blk_pool_idx( blk_pool( ghost ), blk );
+}
+
+ulong
+fd_ghost_blk_idx_null( fd_ghost_t * ghost ) {
+  return blk_pool_idx_null( blk_pool( ghost ) );
 }
 
 int

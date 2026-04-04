@@ -66,6 +66,7 @@ struct fd_backt_tile {
 
   ulong start_slot;
   ulong end_slot;
+  ulong rocksdb_first_slot;
 
   ulong reading_slot_cnt;
   ulong reading_slot;
@@ -349,6 +350,13 @@ returnable_frag( fd_backt_tile_t *   ctx,
            the start slot, but there's no point.  It would just take
            disk read time away from snapshot loading which is the
            bottleneck. */
+# if FD_HAS_ROCKSDB
+        if( ctx->rocksdb && ctx->start_slot < ctx->rocksdb_first_slot ) {
+          FD_LOG_ERR(( "Snapshots too old for RocksDB! "
+                       "Snapshot slot: %lu is before RocksDB start slot: %lu",
+                       ctx->start_slot, ctx->rocksdb_first_slot ));
+        }
+# endif
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         ctx->snapshot_done = 1;
@@ -557,6 +565,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_NOTICE(( "RocksDB slot range: [%lu, %lu]", first, last ));
     if( !ctx->end_slot ) ctx->end_slot = last;
     FD_TEST( first <= ctx->end_slot );
+    ctx->rocksdb_first_slot = first;
   }
 # endif
   FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );

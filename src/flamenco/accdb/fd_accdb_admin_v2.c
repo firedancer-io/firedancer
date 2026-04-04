@@ -74,9 +74,10 @@ fd_accdb_v2_attach_child( fd_accdb_admin_t *        admin_,
                           fd_funk_txn_xid_t const * xid_parent,
                           fd_funk_txn_xid_t const * xid_new ) {
   fd_accdb_admin_v1_t * db = downcast( admin_ )->v1;
-  FD_LOG_INFO(( "accdb txn xid %lu:%lu: created with parent %lu:%lu",
-                xid_new   ->ul[0], xid_new   ->ul[1],
-                xid_parent->ul[0], xid_parent->ul[1] ));
+  if( FD_LIKELY( fd_accdb_log_enabled ) )
+    FD_LOG_INFO(( "accdb txn xid %lu:%lu: created with parent %lu:%lu",
+                  xid_new   ->ul[0], xid_new   ->ul[1],
+                  xid_parent->ul[0], xid_parent->ul[1] ));
   fd_funk_txn_prepare( db->funk, xid_parent, xid_new );
 }
 
@@ -147,7 +148,8 @@ fd_accdb_txn_publish_one( fd_accdb_admin_v2_t * accdb,
     FD_LOG_CRIT(( "fd_accdb_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
   }
   fd_funk_txn_xid_st_atomic( funk->shmem->last_publish, xid );
-  FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: publish", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
+  if( FD_LIKELY( fd_accdb_log_enabled ) )
+    FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: publish", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
 
   /* Phase 2: Drain users from transaction */
 
@@ -187,9 +189,10 @@ fd_accdb_v2_advance_root( fd_accdb_admin_t *        accdb_,
   }
   fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
-  FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: advancing root",
-                (void *)txn,
-                xid->ul[0], xid->ul[1] ));
+  if( FD_LIKELY( fd_accdb_log_enabled ) )
+    FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: advancing root",
+                  (void *)txn,
+                  xid->ul[0], xid->ul[1] ));
 
   fd_accdb_txn_cancel_siblings( accdb->v1, txn );
 
@@ -204,8 +207,9 @@ fd_accdb_v2_advance_root( fd_accdb_admin_t *        accdb_,
      without requiring fd_accdb_admin_v2_delay_set to accept 0. */
   int genesis_override = !xid->ul[0];
   if( delay >= accdb->slot_delay || genesis_override ) {
-    FD_LOG_INFO(( "accdb xid %lu:%lu: pruning",
-                  oldest_xid.ul[0], oldest_xid.ul[1] ));
+    if( FD_LIKELY( fd_accdb_log_enabled ) )
+      FD_LOG_INFO(( "accdb xid %lu:%lu: pruning",
+                    oldest_xid.ul[0], oldest_xid.ul[1] ));
     fd_funk_txn_t * oldest = &funk->txn_pool->ele[ funk->shmem->child_head_cidx ];
     FD_TEST( fd_funk_txn_xid_eq( &oldest_xid, &oldest->xid ) );
     fd_accdb_txn_publish_one( accdb, oldest );

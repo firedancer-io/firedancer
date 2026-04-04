@@ -48,16 +48,12 @@
 #define FD_REASM_USE_HANDHOLDING 1
 #endif
 
-#define FD_REASM_SUCCESS    ( 0)
-#define FD_REASM_ERR_UNIQUE (-1) /* key uniqueness conflict */
-#define FD_REASM_ERR_MERKLE (-2) /* chained merkle root conflict */
-
 /* fd_reasm is represented as a forest (multi-tree) structure.  Each
    node in the forest corresponds to a FEC set.
 
    The forest contains a single connected tree component.  Nodes in the
    connected tree are FEC sets that have chained to the reasm root. An
-   internal node is referred to as "onode" and a leaf node "oleaf".
+   internal node is referred to as "cnode" and a leaf node "cleaf".
 
                        reasm root
                      /           \
@@ -209,7 +205,7 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_reasm_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as reasm with up to
-   fec_max elements and slot_max slots. */
+   fec_max elements. */
 
 FD_FN_CONST ulong
 fd_reasm_align( void );
@@ -291,7 +287,7 @@ fd_reasm_free( fd_reasm_t * reasm );
    connected ancestry chain to the root therefore a parent is always
    guaranteed to be returned by consume before its child (see top-level
    documentation for details).  In order to actually consume and make
-   progress on consuming FEC sets, use fd_reasm_out(). */
+   progress on consuming FEC sets, use fd_reasm_pop(). */
 
 fd_reasm_fec_t *
 fd_reasm_peek( fd_reasm_t * reasm );
@@ -311,7 +307,7 @@ fd_reasm_pop( fd_reasm_t * reasm );
    set may make one or more FEC sets available for in-order delivery.
    Caller can consume these FEC sets via fd_reasm_pop.
 
-   If the reasm is full (fd_reasm_full() returns 1), reasm_insert will
+   If the reasm is full (fd_reasm_free() returns 1 [sic!]), reasm_insert will
    evict a FEC set by the policy outlined in the evict function.  The
    evicted FEC set(s) will be removed from reasm, but will remain in the
    pool.  If no FEC set was able to be evicted and the reasm insert

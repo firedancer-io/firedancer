@@ -265,7 +265,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
   /* TODO: Add an is_exempt rent API to better match Agave and clean up code
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L990 */
-  fd_rent_t const * rent        = fd_bank_rent_query( borrowed_acct->instr_ctx->bank );
+  fd_rent_t const * rent        = &borrowed_acct->instr_ctx->bank->f.rent;
   ulong             min_balance = fd_rent_exempt_minimum_balance( rent, borrowed_acct->meta->dlen );
   return borrowed_acct->meta->lamports>=min_balance;
 }
@@ -385,6 +385,12 @@ fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
     }
   }
   return 1;
+}
+
+static inline fd_accdb_ro_t *
+fd_borrowed_account_ro( fd_borrowed_account_t * b,
+                        fd_accdb_ro_t *         ro ) {
+  return fd_accdb_ro_init_nodb( ro, b->pubkey, b->meta );
 }
 
 FD_PROTOTYPES_END

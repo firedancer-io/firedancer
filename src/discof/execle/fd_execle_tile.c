@@ -52,7 +52,7 @@ struct fd_execle_tile {
   int enable_rebates;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
-  fd_banks_t banks[1];
+  fd_banks_t * banks;
 
   fd_accdb_user_t accdb[1];
   fd_progcache_t  progcache[1];
@@ -185,9 +185,9 @@ handle_microblock( fd_execle_tile_t *  ctx,
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
 
-  fd_bank_t bank[1];
-  FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
-  ulong bank_slot = fd_bank_slot_get( bank );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
+  FD_TEST( bank );
+  ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -252,7 +252,7 @@ handle_microblock( fd_execle_tile_t *  ctx,
       /* If the transaction failed to fit into the block, we need to
          updated the transaction flag with the error code. */
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
       uchar * signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
       int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
       FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
@@ -370,9 +370,9 @@ handle_bundle( fd_execle_tile_t *  ctx,
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_execle_trailer_t))/sizeof(fd_txn_e_t);
 
-  fd_bank_t bank[1];
-  FD_TEST( fd_banks_bank_query( bank, ctx->banks, ctx->_bank_idx ) );
-  ulong bank_slot = fd_bank_slot_get( bank );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
+  FD_TEST( bank );
+  ulong bank_slot = bank->f.slot;
   FD_TEST( bank_slot==slot );
 
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ];
@@ -433,7 +433,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
-        fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+        fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
         int err = fd_cost_tracker_try_add_cost( cost_tracker, txn_out );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
@@ -651,9 +651,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
-  ulong banks_locks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks_locks" );
-  FD_TEST( banks_locks_obj_id!=ULONG_MAX );
-  NONNULL( fd_banks_join( ctx->banks, fd_topo_obj_laddr( topo, banks_obj_id ), fd_topo_obj_laddr( topo, banks_locks_obj_id ) ) );
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  NONNULL( ctx->banks );
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "execle_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );

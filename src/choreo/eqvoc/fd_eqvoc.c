@@ -1,7 +1,117 @@
 #include "../fd_choreo_base.h"
+#include "../tower/fd_tower.h"
 #include "fd_eqvoc.h"
 #include "../../ballet/shred/fd_shred.h"
 
+/* fd_eqvoc maintains four bounded maps:
+
+   dup_map  (capacity dup_max): maps slot -> equivocation result,
+            recording slots we've already verified are duplicates
+            (equivocations).  LRU-evicts when at capacity: querying an
+            entry moves it to the tail of the recency list; when an
+            insert is needed and the map is full, the head
+            (least-recently-used) entry is evicted.
+
+   fec_map  (capacity fec_max): maps (slot, fec_set_idx) -> shred,
+            storing the first shred seen in each FEC set so it can be
+            compared against later siblings for equivocation.  Same LRU
+            eviction policy as dup_map.  Entries are also explicitly
+            removed when equivocation is confirmed (proof constructed).
+
+   prf_map  (capacity per_vtr_max * vtr_max): maps (slot, voter_pubkey)
+            -> in-progress proof ("chunks") assembly state, tracking
+            proofs per voter per slot.  Entries are LRU-evicted per
+            voter when that voter's in-progress proof count reaches
+            per_vtr_max.  Entries are also removed when proof assembly
+            completes (all chunks received), regardless of verification
+            outcome, or when the corresponding voter is removed from
+            vtr_map.
+
+   vtr_map  (capacity vtr_max): maps voter pubkey -> per-voter proof-
+            assembly state.  vtr entries are not evicted automatically;
+            they are explicitly inserted and removed by
+            fd_eqvoc_update_voters when the epoch stake set changes.
+            Each vtr has a pre-allocated prf_dlist that tracks
+            in-progress proofs for that voter.  Each voter's in-progress
+            proof count is bounded by per_vtr_max; when that limit is
+            reached, the oldest proof for that voter is evicted.
+
+            dup_map                         fec_map
+     map[0] +--------------------+   map[0] +--------------------+
+            | (dup_t) {          |          | (fec_t) {          |
+            |   .slot = 1,       |          |   .key  = 5|0,     |
+            |   ...              |          |   ...              |
+            | }                  |          | }                  |
+     map[1] +--------------------+   map[1] +--------------------+
+            | (dup_t) {          |          | (fec_t) {          |
+            |   .slot = 2,       |          |   .key  = 6|0,     |
+            |   ...              |          |   ...              |
+            | }                  |          | }                  |
+            +--------------------+          +--------------------+
+
+            vtr_map                         prf_map
+     map[0] +--------------------+   map[0] +--------------------+
+            | (vtr_t) {          |          | (prf_t) {          |
+            |   .from = X,       |          |   .key.slot = 5,   |
+            |   ...              |          |   .key.from = Y,   |<-----+
+            |   ...              |          |   ...              |      |
+            | }                  |          | }                  |      |
+     map[1] +--------------------+   map[1] +--------------------+      |
+            | (vtr_t) {          |          | (prf_t) {          |      |
+            |   .from = Y,       |          |   .key.slot = 6,   |      |
+            |   ...              |          |   .key.from = Y,   |<--+  |
+            |   .prf_dlist = +   |          |   ...              |   |  |
+            | }              |   |          | }                  |   |  |
+            +----------------|---+          +--------------------+   |  |
+                             |                                       |  |
+                             |                                       |  |
+                             |              +------------------------+  |
+                             |              |                           |
+                             V              |        +------------------+
+                             prf_dlist      |        |
+                             +---------+---------+---------+
+                             | (prf_t) | (prf_t) | (prf_t) |
+                             |   ...   |   ...   |   ...   |
+                             | }       | }       | }       |
+                             +---------+---------+---------+
+                             oldest                   newest
+
+   Each vtr_t owns a prf_dlist of in-progress proofs (prf_t).
+   prf_t elements are also in the global prf_map for lookup by
+   (slot, from).  When prf_dlist_cnt == per_vtr_max, the oldest
+   prf is evicted from both prf_dlist and prf_map. */
+
+typedef struct {
+  ulong slot;
+  ulong next; /* pool next */
+  struct {
+    ulong prev;
+    ulong next;
+  } map;
+  struct {
+    ulong prev;
+    ulong next;
+  } dlist;
+  int err; /* positive error code (FD_EQVOC_SUCCESS_{...}) if inserted */
+} dup_t;
+
+#define POOL_NAME dup_pool
+#define POOL_T    dup_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME                           dup_map
+#define MAP_ELE_T                          dup_t
+#define MAP_KEY                            slot
+#define MAP_PREV                           map.prev
+#define MAP_NEXT                           map.next
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME  dup_dlist
+#define DLIST_ELE_T dup_t
+#define DLIST_PREV  dlist.prev
+#define DLIST_NEXT  dlist.next
+#include "../../util/tmpl/fd_dlist.c"
 
 typedef struct {
   ulong key;  /* 32 bits = slot | 32 lsb = fec_set_idx  */
@@ -38,60 +148,9 @@ typedef struct {
 #include "../../util/tmpl/fd_dlist.c"
 
 typedef struct {
-  ulong slot;
-  ulong next; /* pool next */
-  struct {
-    ulong prev;
-    ulong next;
-  } map;
-  struct {
-    ulong prev;
-    ulong next;
-  } dlist;
-  int err; /* positive error code (FD_EQVOC_SUCCESS_{...}) if inserted */
-} dup_t;
-
-#define POOL_NAME dup_pool
-#define POOL_T    dup_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME                           dup_map
-#define MAP_ELE_T                          dup_t
-#define MAP_KEY                            slot
-#define MAP_PREV                           map.prev
-#define MAP_NEXT                           map.next
-#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
-#include "../../util/tmpl/fd_map_chain.c"
-
-#define DLIST_NAME  dup_dlist
-#define DLIST_ELE_T dup_t
-#define DLIST_PREV  dlist.prev
-#define DLIST_NEXT  dlist.next
-#include "../../util/tmpl/fd_dlist.c"
-
-typedef struct {
   ulong       slot;
   fd_pubkey_t from;
 } xid_t;
-
-/* fd_eqvoc_prf describes an equivocation proof.  Its structure is two
-   shreds that demonstrate the leader must have produced two versions of
-   a given block, because the shreds conflict in some way.
-
-   Proofs are encoded into Gossip "DuplicateShred" messages, laid out as
-   follows:
-
-   ---------
-   shred1_sz
-   ---------
-   shred1
-   ---------
-   shred2_sz
-   ---------
-   shred2
-   ---------
-
-   Note each shred is prepended with its size in bytes. */
 
 struct prf {
   xid_t key;
@@ -171,20 +230,21 @@ struct fd_eqvoc {
 
   /* copy */
 
-  ulong fec_max;
   ulong dup_max;
+  ulong fec_max;
+  ulong per_vtr_max;
   ulong vtr_max;
 
   /* owned */
 
   fd_sha512_t * sha512;
   void *        bmtree_mem;
-  fec_t *       fec_pool;
-  fec_map_t *   fec_map;
-  fec_dlist_t * fec_dlist;
   dup_t *       dup_pool;
   dup_map_t *   dup_map;
   dup_dlist_t * dup_dlist;
+  fec_t *       fec_pool;
+  fec_map_t *   fec_map;
+  fec_dlist_t * fec_dlist;
   prf_t *       prf_pool;
   prf_map_t *   prf_map;
   vtr_t *       vtr_pool;
@@ -201,23 +261,24 @@ fd_eqvoc_align( void ) {
 ulong
 fd_eqvoc_footprint( ulong dup_max,
                     ulong fec_max,
+                    ulong per_vtr_max,
                     ulong vtr_max ) {
 
-  fec_max          = fd_ulong_pow2_up( fec_max );
   dup_max          = fd_ulong_pow2_up( dup_max );
+  fec_max          = fd_ulong_pow2_up( fec_max );
+  ulong prf_max    = per_vtr_max * vtr_max;
   vtr_max          = fd_ulong_pow2_up( vtr_max );
-  ulong prf_max    = dup_max * vtr_max;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_eqvoc_t),    sizeof(fd_eqvoc_t)                                      );
   l = FD_LAYOUT_APPEND( l, fd_sha512_align(),      fd_sha512_footprint()                                   );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) );
+  l = FD_LAYOUT_APPEND( l, dup_pool_align(),       dup_pool_footprint( dup_max )                           );
+  l = FD_LAYOUT_APPEND( l, dup_map_align(),        dup_map_footprint( dup_map_chain_cnt_est( dup_max ) )   );
+  l = FD_LAYOUT_APPEND( l, dup_dlist_align(),      dup_dlist_footprint()                                   );
   l = FD_LAYOUT_APPEND( l, fec_pool_align(),       fec_pool_footprint( fec_max )                           );
   l = FD_LAYOUT_APPEND( l, fec_map_align(),        fec_map_footprint( fec_map_chain_cnt_est( fec_max ) )   );
   l = FD_LAYOUT_APPEND( l, fec_dlist_align(),      fec_dlist_footprint()                                   );
-  l = FD_LAYOUT_APPEND( l, dup_pool_align(),       dup_pool_footprint( dup_max )                          );
-  l = FD_LAYOUT_APPEND( l, dup_map_align(),        dup_map_footprint( dup_map_chain_cnt_est( dup_max ) )  );
-  l = FD_LAYOUT_APPEND( l, dup_dlist_align(),      dup_dlist_footprint()                                   );
   l = FD_LAYOUT_APPEND( l, prf_pool_align(),       prf_pool_footprint( prf_max )                           );
   l = FD_LAYOUT_APPEND( l, prf_map_align(),        prf_map_footprint( prf_map_chain_cnt_est( prf_max ) )   );
   l = FD_LAYOUT_APPEND( l, vtr_pool_align(),       vtr_pool_footprint( vtr_max )                           );
@@ -233,6 +294,7 @@ void *
 fd_eqvoc_new( void * shmem,
               ulong  dup_max,
               ulong  fec_max,
+              ulong  per_vtr_max,
               ulong  vtr_max,
               ulong  seed ) {
 
@@ -246,27 +308,27 @@ fd_eqvoc_new( void * shmem,
     return NULL;
   }
 
-  ulong footprint = fd_eqvoc_footprint( dup_max, fec_max, vtr_max );
+  ulong footprint = fd_eqvoc_footprint( dup_max, fec_max, per_vtr_max, vtr_max );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "bad dup_max (%lu), fec_max (%lu), or vtr_max (%lu)", dup_max, fec_max, vtr_max ));
     return NULL;
   }
 
-  fec_max          = fd_ulong_pow2_up( fec_max );
   dup_max          = fd_ulong_pow2_up( dup_max );
+  fec_max          = fd_ulong_pow2_up( fec_max );
   vtr_max          = fd_ulong_pow2_up( vtr_max );
-  ulong prf_max    = dup_max * vtr_max;
+  ulong prf_max    = per_vtr_max * vtr_max;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   void * eqvoc_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),    sizeof(fd_eqvoc_t)                                      );
   void * sha512     = FD_SCRATCH_ALLOC_APPEND( l, fd_sha512_align(),      fd_sha512_footprint()                                   );
   void * bmtree_mem = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT( FD_SHRED_MERKLE_LAYER_CNT ) );
+  void * dup_pool   = FD_SCRATCH_ALLOC_APPEND( l, dup_pool_align(),       dup_pool_footprint( dup_max )                           );
+  void * dup_map    = FD_SCRATCH_ALLOC_APPEND( l, dup_map_align(),        dup_map_footprint( dup_map_chain_cnt_est( dup_max ) )   );
+  void * dup_dlist  = FD_SCRATCH_ALLOC_APPEND( l, dup_dlist_align(),      dup_dlist_footprint()                                   );
   void * fec_pool   = FD_SCRATCH_ALLOC_APPEND( l, fec_pool_align(),       fec_pool_footprint( fec_max )                           );
   void * fec_map    = FD_SCRATCH_ALLOC_APPEND( l, fec_map_align(),        fec_map_footprint( fec_map_chain_cnt_est( fec_max ) )   );
   void * fec_dlist  = FD_SCRATCH_ALLOC_APPEND( l, fec_dlist_align(),      fec_dlist_footprint()                                   );
-  void * dup_pool   = FD_SCRATCH_ALLOC_APPEND( l, dup_pool_align(),       dup_pool_footprint( dup_max )                          );
-  void * dup_map    = FD_SCRATCH_ALLOC_APPEND( l, dup_map_align(),        dup_map_footprint( dup_map_chain_cnt_est( dup_max ) )  );
-  void * dup_dlist  = FD_SCRATCH_ALLOC_APPEND( l, dup_dlist_align(),      dup_dlist_footprint()                                   );
   void * prf_pool   = FD_SCRATCH_ALLOC_APPEND( l, prf_pool_align(),       prf_pool_footprint( prf_max )                           );
   void * prf_map    = FD_SCRATCH_ALLOC_APPEND( l, prf_map_align(),        prf_map_footprint( prf_map_chain_cnt_est( prf_max ) )   );
   void * vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),       vtr_pool_footprint( vtr_max )                           );
@@ -274,18 +336,19 @@ fd_eqvoc_new( void * shmem,
   void * vtr_dlist  = FD_SCRATCH_ALLOC_APPEND( l, vtr_dlist_align(),      vtr_dlist_footprint()                                   );
 
   fd_eqvoc_t * eqvoc = (fd_eqvoc_t *)eqvoc_mem;
-  eqvoc->fec_max     = fec_max;
   eqvoc->dup_max     = dup_max;
+  eqvoc->fec_max     = fec_max;
+  eqvoc->per_vtr_max = per_vtr_max;
   eqvoc->vtr_max     = vtr_max;
 
   eqvoc->sha512     = fd_sha512_new( sha512                                            );
   eqvoc->bmtree_mem = bmtree_mem;
+  eqvoc->dup_pool   = dup_pool_new ( dup_pool, dup_max                                 );
+  eqvoc->dup_map    = dup_map_new  ( dup_map,  dup_map_chain_cnt_est( dup_max ),  seed );
+  eqvoc->dup_dlist  = dup_dlist_new( dup_dlist                                         );
   eqvoc->fec_pool   = fec_pool_new ( fec_pool, fec_max                                 );
   eqvoc->fec_map    = fec_map_new  ( fec_map,  fec_map_chain_cnt_est( fec_max ),  seed );
   eqvoc->fec_dlist  = fec_dlist_new( fec_dlist                                         );
-  eqvoc->dup_pool   = dup_pool_new ( dup_pool, dup_max                                );
-  eqvoc->dup_map    = dup_map_new  ( dup_map,  dup_map_chain_cnt_est( dup_max ), seed );
-  eqvoc->dup_dlist  = dup_dlist_new( dup_dlist                                         );
   eqvoc->prf_pool   = prf_pool_new ( prf_pool, prf_max                                 );
   eqvoc->prf_map    = prf_map_new  ( prf_map,  prf_map_chain_cnt_est( prf_max ),  seed );
   eqvoc->vtr_pool   = vtr_pool_new ( vtr_pool, vtr_max                                 );
@@ -317,19 +380,19 @@ fd_eqvoc_join( void * sheqvoc ) {
   }
 
   fd_eqvoc_t * eqvoc = (fd_eqvoc_t *)sheqvoc;
-  eqvoc->sha512      = fd_sha512_join     ( eqvoc->sha512    );
+  eqvoc->sha512      = fd_sha512_join( eqvoc->sha512    );
   /* bmtree */
-  eqvoc->fec_pool    = fec_pool_join      ( eqvoc->fec_pool  );
-  eqvoc->fec_map     = fec_map_join       ( eqvoc->fec_map   );
-  eqvoc->fec_dlist   = fec_dlist_join     ( eqvoc->fec_dlist );
-  eqvoc->dup_pool    = dup_pool_join      ( eqvoc->dup_pool  );
-  eqvoc->dup_map     = dup_map_join       ( eqvoc->dup_map   );
-  eqvoc->dup_dlist   = dup_dlist_join     ( eqvoc->dup_dlist );
-  eqvoc->prf_pool    = prf_pool_join      ( eqvoc->prf_pool  );
-  eqvoc->prf_map     = prf_map_join       ( eqvoc->prf_map   );
-  eqvoc->vtr_pool    = vtr_pool_join      ( eqvoc->vtr_pool  );
-  eqvoc->vtr_map     = vtr_map_join       ( eqvoc->vtr_map   );
-  eqvoc->vtr_dlist   = vtr_dlist_join     ( eqvoc->vtr_dlist );
+  eqvoc->dup_pool    = dup_pool_join ( eqvoc->dup_pool  );
+  eqvoc->dup_map     = dup_map_join  ( eqvoc->dup_map   );
+  eqvoc->dup_dlist   = dup_dlist_join( eqvoc->dup_dlist );
+  eqvoc->fec_pool    = fec_pool_join ( eqvoc->fec_pool  );
+  eqvoc->fec_map     = fec_map_join  ( eqvoc->fec_map   );
+  eqvoc->fec_dlist   = fec_dlist_join( eqvoc->fec_dlist );
+  eqvoc->prf_pool    = prf_pool_join ( eqvoc->prf_pool  );
+  eqvoc->prf_map     = prf_map_join  ( eqvoc->prf_map   );
+  eqvoc->vtr_pool    = vtr_pool_join ( eqvoc->vtr_pool  );
+  eqvoc->vtr_map     = vtr_map_join  ( eqvoc->vtr_map   );
+  eqvoc->vtr_dlist   = vtr_dlist_join( eqvoc->vtr_dlist );
   for( ulong i = 0UL; i < eqvoc->vtr_max; i++ ) {
     eqvoc->vtr_pool[i].prf_dlist = prf_dlist_join( eqvoc->vtr_pool[i].prf_dlist );
   }
@@ -379,7 +442,7 @@ static fec_t *
 fec_query( fd_eqvoc_t * eqvoc,
            ulong        slot,
            ulong        fec_set_idx ) {
-  ulong key = slot << 32 | fec_set_idx;
+  ulong   key = slot << 32 | fec_set_idx;
   fec_t * fec = fec_map_ele_query( eqvoc->fec_map, &key, NULL, eqvoc->fec_pool );
   if( FD_LIKELY( fec ) ) {
     fec_dlist_ele_remove( eqvoc->fec_dlist, fec, eqvoc->fec_pool );
@@ -454,12 +517,12 @@ prf_insert( fd_eqvoc_t *        eqvoc,
   vtr_t * vtr = vtr_map_ele_query( eqvoc->vtr_map, from, NULL, eqvoc->vtr_pool );
   FD_TEST( vtr );
 
-  /* Each from pubkey in gossip is limited to dup_max proofs.  If
-     we receive more than dup_max from one pubkey, FIFO evict.
+  /* Each from pubkey in gossip is limited to per_vtr_max proofs.
+     If we receive more than per_vtr_max from one pubkey, FIFO evict.
      We group by pubkey to prevent a single pubkey from spamming
      junk proofs. */
 
-  if( FD_UNLIKELY( vtr->prf_dlist_cnt==eqvoc->dup_max ) ) {
+  if( FD_UNLIKELY( vtr->prf_dlist_cnt==eqvoc->per_vtr_max ) ) {
     prf_t * evict = prf_dlist_ele_pop_head( vtr->prf_dlist, eqvoc->prf_pool );
     prf_map_ele_remove_fast( eqvoc->prf_map, evict, eqvoc->prf_pool );
     prf_pool_ele_release( eqvoc->prf_pool, evict );
@@ -869,7 +932,7 @@ fd_eqvoc_update_voters( fd_eqvoc_t *              eqvoc,
   for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( tower_voters );
                                     !fd_tower_voters_iter_done( tower_voters, iter );
                               iter = fd_tower_voters_iter_next( tower_voters, iter ) ) {
-    fd_pubkey_t const * id  = &fd_tower_voters_iter_ele_const( tower_voters, iter )->id;
+    fd_pubkey_t const * id  = &fd_tower_voters_iter_ele_const( tower_voters, iter )->id_key;
     vtr_t *             vtr = vtr_map_ele_query( eqvoc->vtr_map, id, NULL, eqvoc->vtr_pool );
     if( FD_UNLIKELY( !vtr ) ) {
       vtr                = vtr_pool_ele_acquire( eqvoc->vtr_pool );

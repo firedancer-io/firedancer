@@ -6,6 +6,34 @@
 #include "../fd_metrics_base.h"
 #include "fd_metrics_enums.h"
 
-#define FD_METRICS_DIAG_TOTAL (0UL)
+enum {
+  FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_OFF = 23,
+  FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_OFF,
+  FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_OFF,
+  FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_OFF,
+};
+
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_NAME "diag_bundle_health"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently zhas an active connection to the block engine server"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_NAME "diag_vote_health"
+#define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy vote subsystem means the client has cast at least one vote in both the last 60 seconds and last 150 slots (before the currently replay slot)"
+#define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_NAME "diag_replay_health"
+#define FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy replay subsystem means that the largest fully-processed replay slot on the chosen consensus fork is within 12 slots of the current turbine slot"
+#define FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_NAME "diag_turbine_health"
+#define FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy turbine subsystem means that the largest slot associated with received turbine shreds has not stalled for 12 seconds, and also that the average replay ingress traffic exceeds the average ingress repair traffic over the past 12 seconds"
+#define FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_DIAG_TOTAL (4UL)
+extern const fd_metrics_meta_t FD_METRICS_DIAG[FD_METRICS_DIAG_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_diag_h */

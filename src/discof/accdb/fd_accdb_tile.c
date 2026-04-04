@@ -9,8 +9,8 @@
 
 #define _GNU_SOURCE
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/topo/fd_topob_vinyl.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../discof/restore/fd_snapct_tile.h"
 #include "../../vinyl/fd_vinyl.h"
 #include "../../vinyl/fd_vinyl_base.h"
 #include "../../vinyl/io/ur/fd_vinyl_io_ur.h"
@@ -47,6 +47,7 @@ struct fd_vinyl_client {
   ulong           laddr1;    /* ... and thus is in (laddr0,laddr1).  A zero gaddr maps to laddr NULL. */
   ulong           quota_rem; /* Num of remaining acquisitions this client is allowed on this vinyl instance */
   ulong           quota_max; /* Max quota */
+  uint            writable : 1;
 };
 
 typedef struct fd_vinyl_client fd_vinyl_client_t;
@@ -457,10 +458,12 @@ unprivileged_init( fd_topo_t *      topo,
     ulong quota_max       = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.quota_max",       rq_obj_id );
     ulong req_pool_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.req_pool_obj_id", rq_obj_id );
     ulong cq_obj_id       = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.cq_obj_id",       rq_obj_id );
+    uint  rq_perm         = fd_pod_queryf_uint ( topo->props, UINT_MAX,  "obj.%lu.perm",            rq_obj_id );
     FD_TEST( link_id        !=ULONG_MAX );
     FD_TEST( quota_max      !=ULONG_MAX );
     FD_TEST( req_pool_obj_id!=ULONG_MAX );
     FD_TEST( cq_obj_id      !=ULONG_MAX );
+    FD_TEST( rq_perm==FD_VINYL_PERM_READ_ONLY || rq_perm==FD_VINYL_PERM_READ_WRITE );
 
     if( FD_UNLIKELY( burst_max > burst_free ) ) {
       FD_LOG_ERR(( "too large burst_max (increase FD_VINYL_REQ_MAX or decrease burst_max)" ));
@@ -498,7 +501,8 @@ unprivileged_init( fd_topo_t *      topo,
       .laddr0    = (ulong)join_info.shmem,
       .laddr1    = (ulong)join_info.shmem + join_info.page_cnt*join_info.page_sz,
       .quota_rem = quota_max,
-      .quota_max = quota_max
+      .quota_max = quota_max,
+      .writable  = rq_perm==FD_VINYL_PERM_READ_WRITE
     };
     ctx->client_cnt++;
 
@@ -844,6 +848,7 @@ before_credit( fd_vinyl_tile_t *   ctx,
     ulong  client_idx =        req->link_id; /* See note above about link_id / client_idx conversion */
     ulong  batch_cnt  = (ulong)req->batch_cnt;
     ulong  comp_gaddr =        req->comp_gaddr;
+    uint   req_flags  =        req->flags;
 
     fd_vinyl_client_t * client = ctx->_client + client_idx;
 
@@ -852,8 +857,25 @@ before_credit( fd_vinyl_tile_t *   ctx,
     ulong           client_laddr0 = client->laddr0;
     ulong           client_laddr1 = client->laddr1;
     ulong           quota_rem     = client->quota_rem;
+    _Bool           writable      = client->writable;
 
     FD_CRIT( quota_rem<=client->quota_max, "corruption detected" );
+
+    /* Permission checks */
+    if( !writable ) {
+      switch( req->type ) {
+      case FD_VINYL_REQ_TYPE_ACQUIRE:
+      case FD_VINYL_REQ_TYPE_RELEASE:
+        if( FD_UNLIKELY( fd_vinyl_req_flag_modify( req_flags ) ) ) {
+          FD_LOG_CRIT(( "sandbox violation: client with link_id=%lu attempted write operation (req_type=%d flags=%#x)",
+                        link_id, req->type, req_flags ));
+        }
+        break;
+      default:
+        FD_LOG_CRIT(( "sandbox violation: client with link_id=%lu attempted disallowed request type (req_type=%d)",
+                      link_id, req->type ));
+      }
+    }
 
     fd_vinyl_comp_t * comp = MAP_REQ_GADDR( comp_gaddr, fd_vinyl_comp_t, 1UL );
     if( FD_UNLIKELY( (!comp) & (!!comp_gaddr) ) ) {

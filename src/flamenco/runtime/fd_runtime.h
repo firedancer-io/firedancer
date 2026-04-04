@@ -137,49 +137,35 @@ struct fd_runtime {
 
   union {
     struct {
-      uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar landed_votes_mem     [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
-      uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
+      fd_vote_state_versioned_t vote_state;
     } authorize;
 
     struct {
-      uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar landed_votes_mem     [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
-      uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
+      fd_vote_state_versioned_t vote_state;
     } update_validator_identity;
 
     struct {
-      uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar landed_votes_mem     [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
-      uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
+      fd_vote_state_versioned_t vote_state;
     } update_commission;
 
     struct {
-      uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar landed_votes_mem     [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
-      uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
+      fd_vote_state_versioned_t vote_state;
     } withdraw;
 
     struct {
-      uchar vote_state_mem       [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar authorized_voters_mem[ FD_AUTHORIZED_VOTERS_FOOTPRINT    ] __attribute__((aligned(FD_AUTHORIZED_VOTERS_ALIGN)));
-      uchar vote_lockout_mem     [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
+      fd_vote_state_versioned_t vote_state;
     } init_account;
 
     struct {
-      uchar vote_state_mem             [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar vote_state_landed_votes_mem[ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
-      uchar tower_sync_landed_votes_mem[ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
-      uchar vote_lockout_mem           [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
+      fd_vote_state_versioned_t vote_state;
+      uchar                     tower_sync_landed_votes_mem[ FD_VOTE_INSTR_LANDED_VOTES_FOOTPRINT ] __attribute__((aligned(FD_VOTE_INSTR_LANDED_VOTES_ALIGN)));
     } tower_sync;
 
     struct {
       /* Deprecated instructions */
-      uchar vote_state_mem            [ FD_VOTE_STATE_VERSIONED_FOOTPRINT ] __attribute__((aligned(FD_VOTE_STATE_VERSIONED_ALIGN)));
-      uchar landed_votes_mem          [ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
-      uchar vote_lockout_mem          [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
-      uchar compact_vs_lockout_mem    [ FD_VOTE_LOCKOUTS_FOOTPRINT        ] __attribute__((aligned(FD_VOTE_LOCKOUTS_ALIGN)));
-      uchar vs_update_landed_votes_mem[ FD_LANDED_VOTES_FOOTPRINT         ] __attribute__((aligned(FD_LANDED_VOTES_ALIGN)));
+      fd_vote_state_versioned_t vote_state;
+      uchar                     compact_vs_lockout_mem    [ FD_VOTE_INSTR_LOCKOUTS_FOOTPRINT     ] __attribute__((aligned(FD_VOTE_INSTR_LOCKOUTS_ALIGN)));
+      uchar                     vs_update_landed_votes_mem[ FD_VOTE_INSTR_LANDED_VOTES_FOOTPRINT ] __attribute__((aligned(FD_VOTE_INSTR_LANDED_VOTES_ALIGN)));
     } process_vote;
 
   } vote_program;
@@ -268,15 +254,6 @@ struct fd_txn_out {
 
     ulong                       signature_count;           /* Number of signatures in the transaction */
     int                         is_simple_vote;            /* Whether the transaction is a simple vote */
-    /* When a program is deployed or upgraded, we must queue it to be
-        updated in the program cache (if it exists already) so that
-        the cache entry's ELF / sBPF information can be updated for
-        future executions.  We keep an array of pubkeys for the
-        transaction to track which programs need to be reverified.  The
-        actual queueing for reverification is done in the transaction
-        finalization step. */
-    uchar                       programs_to_reverify_cnt;
-    fd_pubkey_t                 programs_to_reverify[ MAX_TX_ACCOUNT_LOCKS ];
   } details;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:

@@ -17,6 +17,8 @@
 #include "../../log_collector/fd_log_collector.h"
 #include "../../../ballet/hex/fd_hex.h"
 #include "fd_vote_program.h"
+#include "vote/fd_vote_codec.h"
+#include "vote/fd_authorized_voters.h"
 
 #include <stdlib.h> // ARM64: malloc(3), free(3)
 
@@ -33,8 +35,8 @@
 struct test_env {
   fd_wksp_t *          wksp;
   ulong                tag;
-  fd_banks_t           banks[1];
-  fd_bank_t            bank[1];
+  fd_banks_t *         banks;
+  fd_bank_t *          bank;
   void *               funk_mem;
   void *               funk_locks;
   fd_accdb_admin_t     accdb_admin[1];
@@ -82,7 +84,7 @@ init_rent_sysvar( test_env_t * env ) {
     .exemption_threshold     = 2.0,
     .burn_percent            = 50
   };
-  fd_bank_rent_set( env->bank, rent );
+  env->bank->f.rent = rent;
   fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
 }
 
@@ -95,7 +97,7 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
     .first_normal_epoch          = 0UL,
     .first_normal_slot           = 0UL
   };
-  fd_bank_epoch_schedule_set( env->bank, epoch_schedule );
+  env->bank->f.epoch_schedule = epoch_schedule;
   fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
 }
 
@@ -112,7 +114,7 @@ init_clock_sysvar( test_env_t * env ) {
 static void
 init_blockhash_queue( test_env_t * env ) {
   ulong blockhash_seed = 12345UL;
-  fd_blockhashes_t * bhq = fd_blockhashes_init( fd_bank_block_hash_queue_modify( env->bank ), blockhash_seed );
+  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->f.block_hash_queue, blockhash_seed );
   fd_hash_t dummy_hash = {0};
   fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
   fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
@@ -147,13 +149,12 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   FD_TEST( env->progcache_scratch );
   FD_TEST( fd_progcache_join( env->progcache, env->pcache_mem, env->progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 
-  fd_banks_data_t * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
-  FD_TEST( banks_data );
-  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), env->tag );
-  FD_TEST( banks_locks );
-  fd_banks_locks_init( banks_locks );
-  FD_TEST( fd_banks_join( env->banks, fd_banks_new( banks_data, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ), banks_locks ) );
-  FD_TEST( fd_banks_init_bank( env->bank, env->banks ) );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
+  FD_TEST( banks_mem );
+  env->banks = fd_banks_join( fd_banks_new( banks_mem, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) );
+  FD_TEST( env->banks );
+  env->bank = fd_banks_init_bank( env->banks );
+  FD_TEST( env->bank );
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
@@ -161,9 +162,9 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->data->idx } };
-  fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
-  fd_progcache_txn_attach_child( env->progcache->join, root, &env->xid );
+  env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->idx } };
+  fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
+  fd_progcache_attach_child( env->progcache->join, root, &env->xid );
 
   init_rent_sysvar( env );
   init_epoch_schedule_sysvar( env );
@@ -171,16 +172,16 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   init_clock_sysvar( env );
   init_blockhash_queue( env );
 
-  fd_bank_slot_set( env->bank, 9UL );
-  fd_bank_epoch_set( env->bank, 4UL );
+  env->bank->f.slot = 9UL;
+  env->bank->f.epoch = 4UL;
 
-  fd_bank_top_votes_modify( env->bank );
+  fd_bank_top_votes_t_2_modify( env->bank );
 
   if( enable_loader_v4 ) {
     fd_features_t features = {0};
     fd_features_disable_all( &features );
     features.enable_loader_v4 = 0UL;
-    fd_bank_features_set( env->bank, features );
+    env->bank->f.features = features;
   }
 
   fd_builtin_programs_init( env->bank, env->accdb, &env->xid, NULL );
@@ -210,8 +211,8 @@ test_env_cleanup( test_env_t * env ) {
     fd_runtime_cancel_txn( env->runtime, &env->txn_out[0] );
   }
 
-  fd_accdb_cancel( env->accdb_admin, &env->xid );
-  fd_progcache_txn_cancel( env->progcache->join, &env->xid );
+  fd_accdb_cancel    ( env->accdb_admin,     &env->xid );
+  fd_progcache_cancel( env->progcache->join, &env->xid );
 
   if( env->runtime ) {
     if( env->runtime->acc_pool ) {
@@ -221,8 +222,7 @@ test_env_cleanup( test_env_t * env ) {
   }
 
   fd_wksp_free_laddr( env->runtime_stack );
-  fd_wksp_free_laddr( env->banks->data );
-  fd_wksp_free_laddr( env->banks->locks );
+  fd_wksp_free_laddr( env->banks );
 
   fd_progcache_shmem_t * shpcache = NULL;
   fd_progcache_leave( env->progcache, &shpcache );
@@ -242,28 +242,29 @@ test_env_cleanup( test_env_t * env ) {
 static void
 process_slot( test_env_t * env, ulong slot ) {
   fd_bank_t * parent_bank = env->bank;
-  ulong parent_slot       = fd_bank_slot_get( parent_bank );
-  ulong parent_bank_idx   = parent_bank->data->idx;
+  ulong parent_slot       = parent_bank->f.slot;
+  ulong parent_bank_idx   = parent_bank->idx;
 
-  FD_TEST( parent_bank->data->flags & FD_BANK_FLAGS_FROZEN );
+  FD_TEST( parent_bank->state==FD_BANK_STATE_FROZEN );
 
-  ulong new_bank_idx = fd_banks_new_bank( env->bank, env->banks, parent_bank_idx, 0L )->data->idx;
-  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->bank, env->banks, new_bank_idx );
+  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
+  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
   FD_TEST( new_bank );
 
-  fd_bank_slot_set( new_bank, slot );
-  fd_bank_parent_slot_set( new_bank, parent_slot );
+  new_bank->f.slot = slot;
+  new_bank->f.parent_slot = parent_slot;
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( new_bank );
+  fd_epoch_schedule_t const * epoch_schedule = &new_bank->f.epoch_schedule;
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  fd_bank_epoch_set( new_bank, epoch );
+  new_bank->f.epoch = epoch;
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
-  fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
-  fd_progcache_txn_attach_child( env->progcache->join, &parent_xid, &xid );
+  fd_accdb_attach_child    ( env->accdb_admin,     &parent_xid, &xid );
+  fd_progcache_attach_child( env->progcache->join, &parent_xid, &xid );
 
-  env->xid = xid;
+  env->xid  = xid;
+  env->bank = new_bank;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( env->banks, env->bank, env->accdb, env->runtime_stack, NULL, &is_epoch_boundary );
@@ -319,7 +320,7 @@ setup_account_initialize_txn( test_env_t * env ) {
 
   process_slot( env, 10UL );
   /* features */
-  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ) );
+  fd_features_enable_cleaned_up( &env->bank->f.features );
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
@@ -330,7 +331,7 @@ setup_account_initialize_txn( test_env_t * env ) {
   /* add the blockhash */
   fd_hash_t blockhash[1];
   fd_hex_decode( blockhash, "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17", 32 );
-  fd_blockhashes_push_new( fd_bank_block_hash_queue_modify( env->bank ), blockhash );
+  fd_blockhashes_push_new( &env->bank->f.block_hash_queue, blockhash );
 
   /* add the signer to the accdb with 1 SOL */
   fd_pubkey_t pubkey[1];
@@ -388,7 +389,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
 
   process_slot( env, 10UL );
   /* features */
-  fd_features_enable_cleaned_up( fd_bank_features_modify( env->bank ) );
+  fd_features_enable_cleaned_up( &env->bank->f.features );
 
   /* decode and parse txn */
   ulong txn_sz = strlen(hex) / 2;
@@ -399,7 +400,7 @@ setup_account_initialize_v2_txn( test_env_t * env ) {
   /* add the blockhash */
   fd_hash_t blockhash[1];
   fd_hex_decode( blockhash, "f6166aa252c9331dc67ac8629abd45483ff31b6a53a8f89704cfd391ee02ba17", 32 );
-  fd_blockhashes_push_new( fd_bank_block_hash_queue_modify( env->bank ), blockhash );
+  fd_blockhashes_push_new( &env->bank->f.block_hash_queue, blockhash );
 
   /* add the signer to the accdb with 1 SOL */
   fd_pubkey_t pubkey[1];
@@ -444,8 +445,8 @@ test_account_initialize_simd_0387( fd_wksp_t * wksp ) {
   setup_account_initialize_txn( env );
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
@@ -473,8 +474,8 @@ test_account_initialize_v2( fd_wksp_t * wksp ) {
   setup_account_initialize_v2_txn( env );
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
@@ -502,8 +503,8 @@ test_account_initialize_v2_invalid_proof( fd_wksp_t * wksp ) {
   env->txn_p->payload[ proof_off ] = 0xFF;
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), vote_state_v4, 0UL );
-  FD_FEATURE_SET_ACTIVE( fd_bank_features_modify( env->bank ), bls_pubkey_management_in_vote_account, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
+  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
@@ -528,143 +529,81 @@ test_account_initialize_v2_no_simd_0387( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_account_initialize_v2_no_simd_0387... ok" ));
 }
 
-static ulong
-construct_and_measure_footprint( uint disc, uchar * vote_state_buf, ulong vote_state_buf_sz ) {
-  fd_memset( vote_state_buf, 0, vote_state_buf_sz );
+static void
+test_authorized_voters_footprint( void ) {
+  FD_TEST( FD_AUTHORIZED_VOTERS_POOL_ALIGN  == fd_vote_authorized_voters_pool_align() );
+  FD_TEST( FD_AUTHORIZED_VOTERS_TREAP_ALIGN == fd_vote_authorized_voters_treap_align() );
 
-  fd_vote_state_versioned_t * state = (fd_vote_state_versioned_t *)vote_state_buf;
-  fd_vote_state_versioned_new_disc( state, disc );
+  ulong pool_required  = fd_vote_authorized_voters_pool_footprint( MAX_AUTHORIZED_VOTERS_CAPACITY );
+  ulong treap_required = fd_vote_authorized_voters_treap_footprint( MAX_AUTHORIZED_VOTERS_CAPACITY );
 
-  void * alloc_mem = vote_state_buf + sizeof(fd_vote_state_versioned_t);
+  FD_LOG_NOTICE(( "authorized voters pool required: %lu, FD_AUTHORIZED_VOTERS_POOL_FOOTPRINT: %lu",
+                   pool_required, (ulong)FD_AUTHORIZED_VOTERS_POOL_FOOTPRINT ));
+  FD_TEST( pool_required == FD_AUTHORIZED_VOTERS_POOL_FOOTPRINT );
 
-  /* Allocate common dynamic structures */
+  FD_LOG_NOTICE(( "authorized voters treap required: %lu, FD_AUTHORIZED_VOTERS_TREAP_FOOTPRINT: %lu",
+                   treap_required, (ulong)FD_AUTHORIZED_VOTERS_TREAP_FOOTPRINT ));
+  FD_TEST( treap_required == FD_AUTHORIZED_VOTERS_TREAP_FOOTPRINT );
 
-  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join_new( &alloc_mem, 32 );
-  for( ulong i=0; i<MAX_LOCKOUT_HISTORY; i++ ) {
-    fd_landed_vote_t vote = { .latency = 0, .lockout = { .slot = i, .confirmation_count = 1 } };
-    deq_fd_landed_vote_t_push_tail( landed_votes, vote );
-  }
-
-  fd_vote_lockout_t * lockout_votes = deq_fd_vote_lockout_t_join_new( &alloc_mem, 32 );
-  for( ulong i=0; i<MAX_LOCKOUT_HISTORY; i++ ) {
-    fd_vote_lockout_t lockout = { .slot = i, .confirmation_count = 1 };
-    deq_fd_vote_lockout_t_push_tail( lockout_votes, lockout );
-  }
-
-  fd_vote_authorized_voters_t authorized_voters;
-  authorized_voters.pool  = fd_vote_authorized_voters_pool_join_new( &alloc_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN );
-  authorized_voters.treap = fd_vote_authorized_voters_treap_join_new( &alloc_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN );
-  for( ulong i=0; i<4; i++ ) {
-    fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( authorized_voters.pool );
-    fd_vote_authorized_voter_new( voter );
-    voter->epoch = i;
-    voter->prio  = i;
-    fd_vote_authorized_voters_treap_ele_insert( authorized_voters.treap, voter, authorized_voters.pool );
-  }
-
-  fd_vote_epoch_credits_t * epoch_credits = deq_fd_vote_epoch_credits_t_join_new( &alloc_mem, 64 );
-  for( ulong i=0; i<MAX_EPOCH_CREDITS_HISTORY; i++ ) {
-    fd_vote_epoch_credits_t ec = { .epoch = i, .credits = 0, .prev_credits = 0 };
-    deq_fd_vote_epoch_credits_t_push_tail( epoch_credits, ec );
-  }
-
-  /* Assign into variant-specific fields */
-
-  switch( disc ) {
-
-    case fd_vote_state_versioned_enum_uninitialized: {
-      break;
-    }
-
-    case fd_vote_state_versioned_enum_v1_14_11: {
-      fd_vote_state_1_14_11_t * inner = &state->inner.v1_14_11;
-      inner->votes              = lockout_votes;
-      inner->has_root_slot      = 1;
-      inner->root_slot          = 0;
-      inner->authorized_voters  = authorized_voters;
-      inner->prior_voters.idx   = 31;
-      inner->prior_voters.is_empty = 1;
-      inner->epoch_credits      = epoch_credits;
-      break;
-    }
-
-    case fd_vote_state_versioned_enum_v3: {
-      fd_vote_state_v3_t * inner = &state->inner.v3;
-      inner->votes              = landed_votes;
-      inner->has_root_slot      = 1;
-      inner->root_slot          = 0;
-      inner->authorized_voters  = authorized_voters;
-      inner->prior_voters.idx   = 31;
-      inner->prior_voters.is_empty = 1;
-      inner->epoch_credits      = epoch_credits;
-      break;
-    }
-
-    case fd_vote_state_versioned_enum_v4: {
-      fd_vote_state_v4_t * inner = &state->inner.v4;
-      inner->has_bls_pubkey_compressed = 1;
-      inner->votes              = landed_votes;
-      inner->has_root_slot      = 1;
-      inner->root_slot          = 0;
-      inner->authorized_voters  = authorized_voters;
-      inner->epoch_credits      = epoch_credits;
-      break;
-    }
-
-    default:
-      FD_LOG_CRIT(( "unsupported discriminant: %u", disc ));
-  }
-
-  /* Encode the vote state */
-  uchar encode_buf[8192];
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = encode_buf,
-    .dataend = encode_buf + sizeof(encode_buf),
-  };
-  int err = fd_vote_state_versioned_encode( state, &encode_ctx );
-  FD_TEST( !err );
-  ulong encoded_sz = (ulong)encode_ctx.data - (ulong)encode_buf;
-
-  /* Compute decode footprint */
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = encode_buf,
-    .dataend = encode_buf + encoded_sz,
-  };
-  ulong total_sz = 0;
-  err = fd_vote_state_versioned_decode_footprint( &decode_ctx, &total_sz );
-  FD_TEST( !err );
-
-  return total_sz;
+  FD_LOG_NOTICE(( "test_authorized_voters_footprint... ok" ));
 }
 
 static void
-test_vote_state_versioned_footprint( void ) {
-  uchar vote_state_buf[16384] __attribute__((aligned(128)));
+test_vote_lockouts_footprint( void ) {
+  FD_TEST( FD_VOTE_INSTR_LOCKOUTS_ALIGN == deq_fd_vote_lockout_t_align() );
 
-  ulong footprint_v0 = construct_and_measure_footprint(
-      fd_vote_state_versioned_enum_uninitialized, vote_state_buf, sizeof(vote_state_buf) );
-  FD_LOG_NOTICE(( "uninitialized footprint: %lu", footprint_v0 ));
+  ulong required = deq_fd_vote_lockout_t_footprint( FD_VOTE_INSTR_MAX_LOCKOUT_OFFSETS_LEN );
 
-  ulong footprint_v1 = construct_and_measure_footprint(
-      fd_vote_state_versioned_enum_v1_14_11, vote_state_buf, sizeof(vote_state_buf) );
-  FD_LOG_NOTICE(( "v1_14_11 footprint: %lu", footprint_v1 ));
+  FD_LOG_NOTICE(( "vote lockouts required: %lu, FD_VOTE_INSTR_LOCKOUTS_FOOTPRINT: %lu",
+                   required, (ulong)FD_VOTE_INSTR_LOCKOUTS_FOOTPRINT ));
+  FD_TEST( required == FD_VOTE_INSTR_LOCKOUTS_FOOTPRINT );
 
-  ulong footprint_v3 = construct_and_measure_footprint(
-      fd_vote_state_versioned_enum_v3, vote_state_buf, sizeof(vote_state_buf) );
-  FD_LOG_NOTICE(( "v3 footprint: %lu", footprint_v3 ));
+  FD_LOG_NOTICE(( "test_vote_lockouts_footprint... ok" ));
+}
 
-  ulong footprint_v4 = construct_and_measure_footprint(
-      fd_vote_state_versioned_enum_v4, vote_state_buf, sizeof(vote_state_buf) );
-  FD_LOG_NOTICE(( "v4 footprint: %lu", footprint_v4 ));
+static void
+test_landed_votes_footprint( void ) {
+  FD_TEST( FD_LANDED_VOTES_ALIGN == deq_fd_landed_vote_t_align() );
 
-  ulong max_footprint = fd_ulong_max(  fd_ulong_max( footprint_v0, footprint_v1 ),
-                                       fd_ulong_max( footprint_v3, footprint_v4 )
-  );
-  FD_LOG_NOTICE(( "max footprint: %lu, FD_VOTE_STATE_VERSIONED_FOOTPRINT: %lu",
-                   max_footprint, (ulong)FD_VOTE_STATE_VERSIONED_FOOTPRINT ));
-  FD_TEST( max_footprint==FD_VOTE_STATE_VERSIONED_FOOTPRINT );
+  ulong required = deq_fd_landed_vote_t_footprint( MAX_LOCKOUT_HISTORY_CAPACITY );
 
-  FD_LOG_NOTICE(( "test_vote_state_versioned_footprint... ok" ));
+  FD_LOG_NOTICE(( "landed votes required: %lu, MAX_LOCKOUT_HISTORY_CAPACITY: %lu",
+                   required, (ulong)FD_LANDED_VOTES_FOOTPRINT ));
+  FD_TEST( required == FD_LANDED_VOTES_FOOTPRINT );
+
+  FD_LOG_NOTICE(( "test_landed_votes_footprint... ok" ));
+}
+
+static void
+test_epoch_credits_footprint( void ) {
+  FD_TEST( FD_EPOCH_CREDITS_ALIGN == deq_fd_vote_epoch_credits_t_align() );
+
+  ulong required = deq_fd_vote_epoch_credits_t_footprint();
+
+  FD_LOG_NOTICE(( "epoch credits required: %lu, FD_EPOCH_CREDITS_FOOTPRINT: %lu",
+                   required, (ulong)FD_EPOCH_CREDITS_FOOTPRINT ));
+  FD_TEST( required == FD_EPOCH_CREDITS_FOOTPRINT );
+
+  FD_LOG_NOTICE(( "test_epoch_credits_footprint... ok" ));
+}
+
+static void
+test_vote_instruction_footprints( void ) {
+  FD_TEST( FD_VOTE_INSTR_SLOTS_ALIGN == deq_ulong_align() );
+  FD_TEST( FD_VOTE_INSTR_SLOTS_FOOTPRINT == deq_ulong_footprint( FD_VOTE_INSTR_MAX_SLOT_NUMS_LEN ) );
+
+  FD_TEST( FD_VOTE_INSTR_UPDATE_LOCKOUTS_ALIGN == deq_fd_vote_lockout_t_align() );
+  FD_TEST( FD_VOTE_INSTR_UPDATE_LOCKOUTS_FOOTPRINT == deq_fd_vote_lockout_t_footprint( FD_VOTE_INSTR_MAX_LOCKOUTS_LEN ) );
+
+  FD_TEST( FD_VOTE_INSTR_LOCKOUT_OFFSET_ALIGN == alignof(fd_lockout_offset_t) );
+  FD_TEST( FD_VOTE_INSTR_LOCKOUT_OFFSET_FOOTPRINT == sizeof(fd_lockout_offset_t) * FD_VOTE_INSTR_MAX_LOCKOUT_OFFSETS_LEN );
+
+  FD_TEST( FD_VOTE_INSTR_SEED_MAX == FD_TXN_MTU );
+
+  FD_TEST( FD_VOTE_INSTR_LANDED_VOTES_ALIGN == deq_fd_landed_vote_t_align() );
+  FD_TEST( FD_VOTE_INSTR_LANDED_VOTES_FOOTPRINT == deq_fd_landed_vote_t_footprint( FD_VOTE_INSTR_MAX_LOCKOUT_OFFSETS_LEN ) );
+
+  FD_LOG_NOTICE(( "test_vote_instruction_footprints... ok" ));
 }
 
 int
@@ -695,7 +634,11 @@ main( int     argc,
   test_account_initialize_v2_invalid_proof( wksp );
   test_account_initialize_v2_no_simd_0387( wksp ); /* remove when SIMD-0387 is cleaned up */
 
-  test_vote_state_versioned_footprint();
+  test_authorized_voters_footprint();
+  test_vote_lockouts_footprint();
+  test_landed_votes_footprint();
+  test_epoch_credits_footprint();
+  test_vote_instruction_footprints();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

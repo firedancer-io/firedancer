@@ -106,6 +106,80 @@ test_lthash_adder( void ) {
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
+/* Regression test: without the FD_LTHASH_ADDER_PARA_CNT<=1 guards,
+   builds without AVX crash here due to reads from uninitialized
+   batch_ptrs. */
+
+static void
+test_lthash_adder_no_avx_regression( void ) {
+  fd_lthash_value_t sum[1];
+  fd_lthash_value_t check[1];
+  fd_lthash_value_t tmp[1];
+  fd_lthash_zero( sum );
+  fd_lthash_zero( check );
+
+  fd_lthash_adder_t adder[1];
+  fd_lthash_adder_new( adder );
+
+  uchar input[128];
+  fd_memset( input, 0x42, sizeof(input) );
+
+  /* Push a few small inputs (< 512 bytes) — these take the batching
+     path when FD_LTHASH_ADDER_PARA_CNT>1.  On builds without AVX
+     (PARA_CNT==1), the old code would dereference NULL batch_ptrs. */
+  for( uint i=0; i<4; i++ ) {
+    input[0] = (uchar)i;
+
+    fd_blake3_t blake[1];
+    fd_blake3_init( blake );
+    fd_blake3_append( blake, input, sizeof(input) );
+    fd_blake3_fini_2048( blake, tmp->bytes );
+    fd_lthash_add( check, tmp );
+
+    fd_lthash_adder_push( adder, sum, input, sizeof(input) );
+  }
+  fd_lthash_adder_flush( adder, sum );
+
+  FD_TEST( fd_memeq( sum, check, sizeof(fd_lthash_value_t) ) );
+
+  /* Same test via push_solana_account */
+  fd_lthash_zero( sum );
+  fd_lthash_zero( check );
+  fd_lthash_adder_new( adder );
+
+  uchar data[64];
+  fd_memset( data, 0xAA, sizeof(data) );
+  uchar pubkey[32]; fd_memset( pubkey, 0x01, 32 );
+  uchar owner [32]; fd_memset( owner,  0x02, 32 );
+
+  for( uint i=0; i<4; i++ ) {
+    data[0] = (uchar)i;
+    ulong lamports   = 1000UL + i;
+    uchar executable = 0;
+
+    /* Reference: hash the same serialization that push_solana_account
+       would produce. */
+    fd_blake3_t blake[1];
+    fd_blake3_init( blake );
+    fd_blake3_append( blake, &lamports, sizeof(ulong) );
+    fd_blake3_append( blake, data, sizeof(data) );
+    uchar footer[65];
+    footer[0] = executable;
+    memcpy( footer+1,  owner,  32 );
+    memcpy( footer+33, pubkey, 32 );
+    fd_blake3_append( blake, footer, sizeof(footer) );
+    fd_blake3_fini_2048( blake, tmp->bytes );
+    fd_lthash_add( check, tmp );
+
+    fd_lthash_adder_push_solana_account( adder, sum, pubkey, data, sizeof(data), lamports, executable, owner );
+  }
+  fd_lthash_adder_flush( adder, sum );
+
+  FD_TEST( fd_memeq( sum, check, sizeof(fd_lthash_value_t) ) );
+
+  fd_lthash_adder_delete( adder );
+}
+
 static void
 bench_lthash_adder( void ) {
   FD_LOG_NOTICE(( "Benchmarking lthash_adder (128 byte input)" ));

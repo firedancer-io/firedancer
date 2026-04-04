@@ -10,6 +10,7 @@
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/bundle/fd_bundle_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../choreo/tower/fd_tower.h"
@@ -108,8 +109,9 @@ struct fd_gui_validator_info {
 #define FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP               (1)
 #define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT        (2)
 #define FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT (3)
-#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  (4)
-#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      (5)
+#define FD_GUI_BOOT_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY    (4)
+#define FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP                  (5)
+#define FD_GUI_BOOT_PROGRESS_TYPE_RUNNING                      (6)
 
 #define FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX        (0UL)
 #define FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX (1UL)
@@ -559,6 +561,10 @@ struct fd_gui {
     char const * version;
     char const * cluster;
 
+    char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
+    ushort expected_shred_version;
+    int    wfs_enabled;
+
     ulong vote_distance;
     int vote_state;
 
@@ -616,6 +622,12 @@ struct fd_gui {
           ulong insert_accounts_current;
         } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
 
+        ulong wfs_total_stake;
+        ulong wfs_connected_stake;
+        ulong wfs_total_peers;
+        ulong wfs_connected_peers;
+        ulong wfs_attempt;
+
         long  catching_up_time_nanos;
         ulong catching_up_first_replay_slot;
       } boot_progress;
@@ -635,6 +647,7 @@ struct fd_gui {
     ulong resolv_tile_cnt;
     ulong bank_tile_cnt;
     ulong execle_tile_cnt;
+    ulong execrp_tile_cnt;
     ulong shred_tile_cnt;
 
     ulong slot_rooted;
@@ -726,7 +739,6 @@ struct fd_gui {
 
       ulong start_slot;
       ulong end_slot;
-      ulong excluded_stake;
       fd_epoch_leaders_t * lsched;
       uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH) ];
       fd_vote_stake_weight_t stakes[ MAX_STAKED_LEADERS ];
@@ -794,6 +806,8 @@ fd_gui_new( void *                shmem,
             int                   snapshots_enabled,
             int                   is_voting,
             int                   schedule_strategy,
+            char const *          wfs_expected_bank_hash_cstr,
+            ushort                expected_shred_version,
             fd_topo_t *           topo,
             long                  now );
 
@@ -898,6 +912,10 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
                                fd_snapct_update_t const * msg );
 
 void
+fd_gui_stage_snapshot_manifest( fd_gui_t *                       gui,
+                                 fd_snapshot_manifest_t const *    manifest );
+
+void
 fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
                                fd_stake_weight_msg_t const * leader_schedule,
                                long                          now );
@@ -908,8 +926,8 @@ fd_gui_handle_epoch_info( fd_gui_t *                  gui,
                           long                        now );
 
 void
-fd_gui_handle_notarization_update( fd_gui_t *                        gui,
-                                   fd_tower_slot_confirmed_t const * notar );
+fd_gui_handle_votes_update( fd_gui_t *                        gui,
+                                   fd_tower_slot_confirmed_t const * votes );
 
 void
 fd_gui_handle_tower_update( fd_gui_t *                   gui,

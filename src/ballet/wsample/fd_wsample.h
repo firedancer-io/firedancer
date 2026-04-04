@@ -138,12 +138,11 @@ void * fd_wsample_new_fini( void * shmem, ulong poisoned_weight );
 /* fd_wsample_get_rng returns the value provided for rng in new. */
 fd_chacha_rng_t * fd_wsample_get_rng( fd_wsample_t * sampler );
 
-/* fd_wsample_seed_rng seeds the ChaCha rng with the provided seed in
+/* fd_wsample_seed_rng seeds the ChaCha8 rng with the provided seed in
    preparation for sampling.  This function is compatible with Solana's
-   ChaChaRng::from_seed. */
+   ChaCha8Rng::from_seed. */
 void fd_wsample_seed_rng( fd_wsample_t * sampler,
-                          uchar          seed[ 32 ],
-                          int            use_chacha8 );
+                          uchar          seed[ 32 ] );
 
 /* fd_wsample_sample{_and_remove}{,_many} produces one or cnt (in the
    _many case) weighted random samples from the sampler.  If the

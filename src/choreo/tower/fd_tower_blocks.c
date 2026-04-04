@@ -153,10 +153,13 @@ fd_tower_blocks_insert( fd_tower_blocks_t * forks,
   if( FD_UNLIKELY( !fork ) ) return NULL;
 
   memset( fork, 0, sizeof(fd_tower_blk_t) );
-  fork->parent_slot = parent_slot;
-  fork->slot        = slot;
-  fork->confirmed   = 0;
-  fork->voted       = 0;
+  fork->parent_slot      = parent_slot;
+  fork->slot             = slot;
+  fork->confirmed        = 0;
+  fork->voted            = 0;
+  fork->prev_leader_slot = ULONG_MAX;
+  fork->leader           = 0;
+  fork->propagated       = 0;
   return fork;
 }
 

@@ -162,6 +162,14 @@
 #define POOL_IMPL_STYLE 0
 #endif
 
+/* POOL_LAZY enables lazy initialization for faster startup if defined
+   to non-zero.  Decreases pool_reset cost from O(ele_max) to O(1), at
+   the cost of more complex allocation logic (bump allocation). */
+
+#ifndef POOL_LAZY
+#define POOL_LAZY 0
+#endif
+
 /* POOL_MAGIC is the magic number that should be used to identify
    pools of this type in shared memory.  Should be non-zero. */
 
@@ -183,18 +191,15 @@
 
 struct POOL_(private) {
 
-  /* This point is POOL_ALIGN aligned */
-  ulong magic;    /* ==POOL_MAGIC */
-  ulong max;      /* Max elements in pool, in [POOL_SENTINEL,POOL_IDX_NULL] */
-  ulong free;     /* Num elements in pool available, in [0,max] */
-  ulong free_top; /* Free stack top, POOL_IDX_NULL no elements currently in pool */
-
-  /* Padding to POOL_ALIGN here */
+  ulong magic;     /* ==POOL_MAGIC */
+  ulong max;       /* Max elements in pool, in [POOL_SENTINEL,POOL_IDX_NULL] */
+  ulong free;      /* Num elements in pool available, in [0,max] */
+  ulong free_top;  /* Free stack top, POOL_IDX_NULL no elements currently in pool */
+  ulong free_lazy; /* Next free element (bump allocated) */
 
   /* max POOL_T elements here, join points to element 0 */
   /* element 0 will be the sentinel if POOL_SENTINEL is true */
 
-  /* Padding to POOL_ALIGN here */
 };
 
 typedef struct POOL_(private) POOL_(private_t);
@@ -291,6 +296,18 @@ POOL_(new)( void * shmem,
   meta->max  = max;
   meta->free = max;
 
+# if POOL_LAZY
+  meta->free_top = POOL_IDX_NULL;
+  if( FD_UNLIKELY( !max ) ) {
+    meta->free_lazy = POOL_IDX_NULL; /* Not reachable if POOL_SENTINEL set (footprint test above fails) */
+  } else {
+    meta->free_lazy = 0UL;
+#   if POOL_SENTINEL
+    meta->free_lazy = 1UL;
+    meta->free--;
+#   endif
+  }
+# else
   if( FD_UNLIKELY( !max ) ) meta->free_top = POOL_IDX_NULL; /* Not reachable if POOL_SENTINEL set (footprint test above fails) */
   else {
     meta->free_top = 0UL;
@@ -303,6 +320,7 @@ POOL_(new)( void * shmem,
     join[ 0 ].POOL_NEXT = (POOL_IDX_T)POOL_IDX_NULL;
 #   endif
   }
+# endif
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( meta->magic ) = (POOL_MAGIC);
@@ -317,6 +335,18 @@ POOL_(reset)( POOL_T * join ) {
 
   meta->free = meta->max;
 
+# if POOL_LAZY
+  meta->free_top = POOL_IDX_NULL;
+  if( FD_UNLIKELY( !meta->max ) ) {
+    meta->free_lazy = POOL_IDX_NULL; /* Not reachable if POOL_SENTINEL set (footprint test above fails) */
+  } else {
+    meta->free_lazy = 0UL;
+#   if POOL_SENTINEL
+    meta->free_lazy = 1UL;
+    meta->free--;
+#   endif
+  }
+# else
   if( FD_UNLIKELY( !meta->max ) ) meta->free_top = POOL_IDX_NULL; /* Not reachable if POOL_SENTINEL set (footprint test above fails) */
   else {
     meta->free_top = 0UL;
@@ -329,6 +359,7 @@ POOL_(reset)( POOL_T * join ) {
     join[ 0 ].POOL_NEXT = (POOL_IDX_T)POOL_IDX_NULL;
 #   endif
   }
+# endif
 }
 
 POOL_IMPL_STATIC POOL_T *
@@ -452,7 +483,17 @@ POOL_(idx_acquire)( POOL_T * join ) {
   if( FD_UNLIKELY( !meta->free ) ) FD_LOG_CRIT(( "pool is full" ));
 # endif
   ulong idx = meta->free_top;
+# if POOL_LAZY
+  if( FD_UNLIKELY( idx==POOL_IDX_NULL ) ) {
+    idx = meta->free_lazy;
+    ulong nxt = idx + 1UL;
+    meta->free_lazy = ( nxt<meta->max ) ? nxt : POOL_IDX_NULL;
+  } else {
+    meta->free_top = (ulong)join[ idx ].POOL_NEXT;
+  }
+# else
   meta->free_top = (ulong)join[ idx ].POOL_NEXT;
+# endif
   meta->free--;
   return idx;
 }
@@ -497,6 +538,7 @@ FD_PROTOTYPES_END
 #undef POOL_
 
 #undef POOL_MAGIC
+#undef POOL_LAZY
 #undef POOL_SENTINEL
 #undef POOL_IDX_T
 #undef POOL_NEXT

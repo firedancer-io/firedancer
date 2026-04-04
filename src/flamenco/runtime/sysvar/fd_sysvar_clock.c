@@ -1,10 +1,10 @@
-#include "fd_sysvar.h"
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_system_ids.h"
 #include "../program/fd_program_util.h"
 #include "../program/vote/fd_vote_state_versioned.h"
+#include "../program/vote/fd_vote_codec.h"
 #include "../../accdb/fd_accdb_sync.h"
 
 /* Syvar Clock Possible Values:
@@ -52,26 +52,8 @@ static inline long
 unix_timestamp_from_genesis( fd_bank_t * bank ) {
   /* TODO: genesis_creation_time needs to be a long in the bank. */
   return fd_long_sat_add(
-      (long)fd_bank_genesis_creation_time_get( bank ),
-      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ).ud ) / NS_IN_S ) );
-}
-
-void
-fd_sysvar_clock_write( fd_bank_t *               bank,
-                       fd_accdb_user_t *         accdb,
-                       fd_funk_txn_xid_t const * xid,
-                       fd_capture_ctx_t *        capture_ctx,
-                       fd_sol_sysvar_clock_t *   clock ) {
-  uchar enc[ sizeof(fd_sol_sysvar_clock_t) ];
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = enc,
-    .dataend = enc + sizeof(fd_sol_sysvar_clock_t),
-  };
-  if( FD_UNLIKELY( fd_sol_sysvar_clock_encode( clock, &ctx ) ) ) {
-    FD_LOG_ERR(( "fd_sol_sysvar_clock_encode failed" ));
-  }
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
+      (long)bank->f.genesis_creation_time,
+      (long)( fd_uint128_sat_mul( bank->f.slot, bank->f.ns_per_slot.ud ) / NS_IN_S ) );
 }
 
 fd_sol_sysvar_clock_t *
@@ -87,17 +69,15 @@ fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro ) == 0UL ||
+                   fd_accdb_ref_data_sz ( ro ) <  sizeof(fd_sol_sysvar_clock_t) ) ) {
     fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
-  fd_sol_sysvar_clock_t * res = fd_bincode_decode_static(
-      sol_sysvar_clock, clock,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
+  fd_memcpy( clock, fd_accdb_ref_data_const( ro ), sizeof(fd_sol_sysvar_clock_t) );
   fd_accdb_close_ro( accdb, ro );
-  return res;
+  return clock;
 }
 
 void
@@ -108,7 +88,7 @@ fd_sysvar_clock_init( fd_bank_t *               bank,
   long timestamp = unix_timestamp_from_genesis( bank );
 
   fd_sol_sysvar_clock_t clock = {
-    .slot                  = fd_bank_slot_get( bank ),
+    .slot                  = bank->f.slot,
     .epoch                 = 0,
     .epoch_start_timestamp = timestamp,
     .leader_schedule_epoch = 1,
@@ -135,15 +115,14 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
 
   uint128 total_stake = 0UL;
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
-  ulong                       current_slot   = fd_bank_slot_get( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
+  ulong                       current_slot   = bank->f.slot;
 
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes_locking_modify( bank );
-  ushort             fork_idx    = bank->data->vote_stakes_fork_id;
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ushort             fork_idx    = bank->vote_stakes_fork_id;
 
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
-  FD_TEST( top_votes );
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
 
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * iter = fd_vote_stakes_fork_iter_init( vote_stakes, fork_idx, iter_mem );
@@ -151,12 +130,12 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
         fd_vote_stakes_fork_iter_next( vote_stakes, fork_idx, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL );
+    fd_vote_stakes_fork_iter_ele( vote_stakes, fork_idx, iter, &pubkey, NULL, &stake_t_2, NULL, NULL, NULL, NULL );
     if( FD_UNLIKELY( !stake_t_2 ) ) continue;
 
     ulong last_vote_slot;
     long  last_vote_timestamp;
-    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp );
+    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL );
     if( FD_UNLIKELY( !found ) ) {
       fd_accdb_ro_t ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
@@ -166,7 +145,8 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
         fd_accdb_close_ro( accdb, ro );
         continue;
       }
-      fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
+      fd_vote_block_timestamp_t last_vote;
+      FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( ro->meta ), ro->meta->dlen, &last_vote ) );
       fd_accdb_close_ro( accdb, ro );
       last_vote_slot      = last_vote.slot;
       last_vote_timestamp = last_vote.timestamp;
@@ -208,8 +188,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
     /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L54 */
     total_stake += stake_t_2;
   }
-
-  fd_bank_vote_stakes_end_locking_modify( bank );
+  fd_vote_stakes_fork_iter_fini( vote_stakes );
 
   *total_stake_out = total_stake;
   *ts_ele_cnt_out  = ts_ele_cnt;
@@ -226,12 +205,11 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
 
   uint128 total_stake = 0UL;
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
-  ulong                       current_slot   = fd_bank_slot_get( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
+  ulong                       current_slot   = bank->f.slot;
 
-  fd_top_votes_t const * top_votes = fd_bank_top_votes_query( bank );
-  FD_TEST( top_votes );
+  fd_top_votes_t const * top_votes = fd_bank_top_votes_t_2_query( bank );
 
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
   for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
@@ -241,8 +219,8 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
     ulong       stake_t_2;
     ulong       last_vote_slot;
     long        last_vote_timestamp;
-    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, &last_vote_slot, &last_vote_timestamp );
-    if( FD_UNLIKELY( !stake_t_2 ) ) continue;
+    int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp );
+    if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
     ulong slot_delta;
@@ -299,9 +277,9 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
                         fd_bank_t *               bank,
                         fd_sol_sysvar_clock_t *   clock,
                         fd_runtime_stack_t *      runtime_stack ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       slot_duration  = fd_bank_ns_per_slot_get( bank ).ul[0];
-  ulong                       current_slot   = fd_bank_slot_get( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
+  ulong                       current_slot   = bank->f.slot;
 
   ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
 
@@ -390,8 +368,8 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb, xid, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       current_slot   = fd_bank_slot_get( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       current_slot   = bank->f.slot;
   ulong                       current_epoch  = fd_slot_to_epoch( epoch_schedule, current_slot, NULL );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2159 */

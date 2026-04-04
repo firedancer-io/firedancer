@@ -82,7 +82,7 @@ fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
                                fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_capture_ctx_t *        capture_ctx ) {
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   fd_sysvar_epoch_schedule_write( bank, accdb, xid, capture_ctx, epoch_schedule );
 }
 

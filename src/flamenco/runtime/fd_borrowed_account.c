@@ -159,7 +159,7 @@ fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
                                     int                     is_executable ) {
   /* To become executable an account must be rent exempt
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1003-L1006 */
-  fd_rent_t const * rent = fd_bank_rent_query( borrowed_acct->instr_ctx->bank );
+  fd_rent_t const * rent = &borrowed_acct->instr_ctx->bank->f.rent;
   if( FD_UNLIKELY( borrowed_acct->meta->lamports<fd_rent_exempt_minimum_balance( rent, borrowed_acct->meta->dlen ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
   }

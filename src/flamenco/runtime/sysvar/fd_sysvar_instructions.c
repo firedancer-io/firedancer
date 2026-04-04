@@ -33,25 +33,11 @@ instructions_serialized_size( fd_txn_t const * txn ) {
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/svm/src/account_loader.rs#L547-L576 */
 void
 fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
-                                          fd_bank_t *         bank,
                                           fd_txn_in_t const * txn_in,
                                           fd_txn_out_t *      txn_out,
                                           ulong               txn_idx ) {
   fd_txn_t const * txn           = TXN( txn_in->txn );
   ulong            serialized_sz = instructions_serialized_size( txn );
-
-  int index;
-  int err = fd_runtime_get_account_with_key( txn_in,
-                                             txn_out,
-                                             &fd_sysvar_instructions_id,
-                                             &index,
-                                             fd_runtime_account_check_exists );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && index==-1 ) ) {
-    /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
-       before this is called, and this is only called if the sysvar instructions account is in
-       the borrowed accounts list. */
-    FD_LOG_ERR(( "Failed to view sysvar instructions borrowed account. It may not be included in the txn account keys." ));
-  }
 
   fd_account_meta_t * meta = txn_out->accounts.account[ txn_idx ].meta;
   /* Agave sets up the borrowed account for the instructions sysvar to contain
@@ -80,7 +66,7 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
   // serialize instructions
   for( ushort i=0; i<instr_cnt; ++i ) {
     // set the instruction offset
-    FD_STORE( ushort, serialized_instruction_offsets, (ushort) offset );
+    FD_STORE( ushort, serialized_instruction_offsets, (ushort)offset );
     serialized_instruction_offsets += sizeof(ushort);
 
     fd_txn_instr_t const * instr = &txn->instr[i];
@@ -92,7 +78,7 @@ fd_sysvar_instructions_serialize_account( fd_runtime_t *      runtime,
     uchar const * instr_accts = fd_txn_get_instr_accts( instr, txn_in->txn->payload );
     for( ushort j=0; j<instr->acct_cnt; j++ ) {
       uchar idx_in_txn          = instr_accts[j];
-      uchar is_writable         = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, bank, idx_in_txn );
+      uchar is_writable         = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, idx_in_txn );
       uchar is_signer           = (uchar)fd_txn_is_signer( txn, idx_in_txn );
       uchar flags               = (uchar)( ((!!is_signer)*FD_INSTR_ACCT_FLAGS_IS_SIGNER) | ((!!is_writable)*FD_INSTR_ACCT_FLAGS_IS_WRITABLE) );
 

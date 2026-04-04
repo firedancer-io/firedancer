@@ -12,12 +12,6 @@ typedef struct fd_bank fd_bank_t;
 struct fd_banks;
 typedef struct fd_banks fd_banks_t;
 
-struct fd_bank_data;
-typedef struct fd_bank_data fd_bank_data_t;
-
-struct fd_banks_locks;
-typedef struct fd_banks_locks fd_banks_locks_t;
-
 struct fd_exec_instr_ctx;
 typedef struct fd_exec_instr_ctx fd_exec_instr_ctx_t;
 
@@ -68,6 +62,9 @@ typedef struct fd_genesis fd_genesis_t;
 
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;
+
+struct fd_top_votes;
+typedef struct fd_top_votes fd_top_votes_t;
 
 struct fd_account_meta {
   uchar owner[32];

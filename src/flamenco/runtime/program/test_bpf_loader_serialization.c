@@ -55,7 +55,7 @@ struct fixture_input {
   ulong                     num_instr_accounts;
   ulong                     instr_data_len;
   fd_pubkey_t               program_id;
-  uchar                     stricter_abi;
+  uchar                     virtual_address_space_adj;
   uchar                     direct_mapping;
   uchar                     is_deprecated;
 };
@@ -271,9 +271,9 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
     cJSON_Delete( root ); return -1;
   }
 
-  in->stricter_abi   = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "stricter_abi_and_runtime_constraints" ) ) ? 1U : 0U;
-  in->direct_mapping = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"          ) ) ? 1U : 0U;
-  in->is_deprecated  = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                 ) ) ? 1U : 0U;
+  in->virtual_address_space_adj = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "virtual_address_space_adjustments" ) ) ? 1U : 0U;
+  in->direct_mapping            = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"          ) ) ? 1U : 0U;
+  in->is_deprecated             = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                 ) ) ? 1U : 0U;
 
   cJSON * output = cJSON_GetObjectItemCaseSensitive( root, "output" );
   out->result = cJSON_GetObjectItemCaseSensitive( output, "result" )->valueint;
@@ -380,7 +380,7 @@ setup_instr_ctx( fixture_input_t const *      in,
     fd_memcpy( meta->owner, in->accounts[i].owner.key, 32 );
 
     if( in->accounts[i].data_len ) {
-      fd_memcpy( fd_account_meta_get_data( meta ), in->accounts[i].data, in->accounts[i].data_len );
+      fd_memcpy( fd_account_data( meta ), in->accounts[i].data, in->accounts[i].data_len );
     }
   }
 
@@ -396,20 +396,15 @@ setup_instr_ctx( fixture_input_t const *      in,
   }
 
   ulong banks_footprint = fd_banks_footprint( 1UL, 1UL, 2048UL, 2048UL );
-  void * banks_data = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, wksp_tag++ );
-  FD_TEST( banks_data );
-  fd_banks_locks_t * banks_locks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_locks_t), sizeof(fd_banks_locks_t), wksp_tag++ );
-  FD_TEST( banks_locks );
-  fd_banks_locks_init( banks_locks );
-  fd_banks_t * banks = fd_wksp_alloc_laddr( wksp, alignof(fd_banks_t), sizeof(fd_banks_t), wksp_tag++ );
+  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, wksp_tag++ );
+  FD_TEST( banks_mem );
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ) );
   FD_TEST( banks );
-  FD_TEST( fd_banks_join( banks, fd_banks_new( banks_data, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ), banks_locks ) );
 
-  fd_bank_t * bank = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag++ );
+  fd_bank_t * bank = fd_banks_init_bank( banks );
   FD_TEST( bank );
-  FD_TEST( fd_banks_init_bank( bank, banks ) );
 
-  fd_features_t * features = fd_bank_features_modify( bank );
+  fd_features_t * features = &bank->f.features;
   fd_features_disable_all( features );
   FD_FEATURE_SET_ACTIVE( features, remove_accounts_executable_flag_checks, 0UL );
 
@@ -471,8 +466,6 @@ cleanup_instr_ctx( fixture_input_t const * in,
     fd_alloc_free( alloc, storage[i] );
   }
   fd_wksp_free_laddr( runtime );
-  fd_wksp_free_laddr( banks->data );
-  fd_wksp_free_laddr( banks->locks );
   fd_wksp_free_laddr( banks );
   fd_wksp_free_laddr( txn_out );
   fd_alloc_free( alloc, storage );
@@ -489,8 +482,8 @@ run_fixture( fd_alloc_t * alloc,
   int program_idx = find_program_index( in );
   FD_TEST( program_idx>=0 );
 
-  FD_LOG_NOTICE(( "  %s: %lu accounts, stricter=%d, dm=%d, deprecated=%d",
-                  in->name, in->num_accounts, in->stricter_abi, in->direct_mapping, in->is_deprecated ));
+  FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, is_deprecated=%d",
+                  in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping, in->is_deprecated ));
 
   uchar **           storage = NULL;
   fd_txn_out_t *     txn_out = NULL;
@@ -514,7 +507,7 @@ run_fixture( fd_alloc_t * alloc,
 
   int result = fd_bpf_loader_input_serialize_parameters(
       ctx, pre_lens, regions, &region_cnt, acc_metas,
-      in->stricter_abi, in->direct_mapping,
+      in->virtual_address_space_adj, in->direct_mapping,
       in->is_deprecated,
       &idata_offset, &serialized_sz );
 

@@ -72,9 +72,9 @@ fd_feature_restore( fd_bank_t *               bank,
                     fd_feature_id_t const *   id,
                     fd_pubkey_t const *       addr ) {
 
-  fd_features_t *             features       = fd_bank_features_modify( bank );
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong                       slot           = fd_bank_slot_get( bank );
+  fd_features_t *             features       = &bank->f.features;
+  fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+  ulong                       slot           = bank->f.slot;
 
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;
@@ -86,7 +86,7 @@ fd_feature_restore( fd_bank_t *               bank,
 
   /* Skip accounts that are not owned by the feature program
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L42-L44 */
-  if( FD_UNLIKELY( memcmp( fd_accdb_ref_owner( ro ), fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_feature_program_id ) ) ) {
     fd_accdb_close_ro( accdb, ro );
     return;
   }

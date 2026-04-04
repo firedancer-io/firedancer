@@ -78,27 +78,29 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
 
     When pubkey2 is 0, also proof->y2, handle2 and handle2_hi should be 0.
 
-    Because of batched and pubkey2_not_zero, the length of the MSM varies
-    between 6 and 12.
-    Points/scalars from 7 to 12 are only computed when required.
+    Because of batched, the length of the MSM varies between 9 and 12.
+    Points/scalars 7-8 (if batched) and 11 (if batched) are only
+    included when required.
 
     We store points and scalars in the following arrays:
 
-         points  scalars
-     0   G       z_x
-     1   H       z_r
-     2   Y_1     -w
-     3   Y_2     -w^2
-     4   pub1    z_r w
-     5   C       -c
-     6   h1      -c w
-     7   C_hi    -c t      (if batched)
-     8   h1_hi   -c w t    (if batched)
-     9   pub2    z_r w^2   (if pubkey2_not_zero)
-    10   h2      -c w^2    (if pubkey2_not_zero)
-    11   h2_hi   -c w^2 t  (if batched && pubkey2_not_zero)
-    ----------------------- MSM
-         Y_0
+    non-batched (9 points):       batched (12 points):
+
+         points  scalars               points  scalars
+     0   G       z_x                0   G       z_x
+     1   H       z_r                1   H       z_r
+     2   Y_1     -w                 2   Y_1     -w
+     3   Y_2     -w^2               3   Y_2     -w^2
+     4   pub1    z_r w              4   pub1    z_r w
+     5   C       -c                 5   C       -c
+     6   h1      -c w               6   h1      -c w
+     7   pub2    z_r w^2            7   C_hi    -c t
+     8   h2      -c w^2             8   h1_hi   -c w t
+    ----------------------- MSM     9   pub2    z_r w^2
+         Y_0                       10   h2      -c w^2
+                                   11   h2_hi   -c w^2 t
+                                   ----------------------- MSM
+                                        Y_0
   */
 
   /* Validate all inputs */
@@ -145,17 +147,14 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
     }
   }
 
-  int pubkey2_not_zero = !fd_memeq( pubkey2, fd_ristretto255_compressed_zero, 32 );
-  if( pubkey2_not_zero ) {
-    if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], pubkey2 )==NULL ) ) {
-      return FD_ZKSDK_VERIFY_PROOF_ERROR;
-    }
-    if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], handle2 )==NULL ) ) {
-      return FD_ZKSDK_VERIFY_PROOF_ERROR;
-    }
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], pubkey2 )==NULL ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
+  }
+  if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], handle2 )==NULL ) ) {
+    return FD_ZKSDK_VERIFY_PROOF_ERROR;
   }
 
-  if( batched && pubkey2_not_zero ) {
+  if( batched ) {
     if( FD_UNLIKELY( fd_ristretto255_point_decompress( &points[idx++], handle2_hi )==NULL ) ) {
       return FD_ZKSDK_VERIFY_PROOF_ERROR;
     }
@@ -180,8 +179,8 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
   uchar w[ 32 ];
   fd_zksdk_transcript_challenge_scalar( c, transcript, FD_TRANSCRIPT_LITERAL("c") );
 
-  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_x"), proof->zx );
   fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_r"), proof->zr );
+  fd_zksdk_transcript_append_scalar( transcript, FD_TRANSCRIPT_LITERAL("z_x"), proof->zx );
 
   fd_zksdk_transcript_challenge_scalar( w, transcript, FD_TRANSCRIPT_LITERAL("w") );
 
@@ -201,11 +200,9 @@ fd_zksdk_verify_proof_direct_grouped_ciphertext_2_handles_validity(
     fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 5*32 ], challenge_t ); // -c t
     fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], challenge_t ); // -c w t
   }
-  if( pubkey2_not_zero ) {
-    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 4*32 ], w ); // z_r w^2
-    fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], w ); // -c w^2
-  }
-  if( batched && pubkey2_not_zero ) {
+  fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 4*32 ], w ); // z_r w^2
+  fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 6*32 ], w ); // -c w^2
+  if( batched ) {
     fd_curve25519_scalar_mul( &scalars[ (idx++)*32 ], &scalars[ 8*32 ], w ); // -c w^2 t
   }
 

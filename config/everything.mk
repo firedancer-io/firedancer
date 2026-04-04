@@ -483,7 +483,7 @@ endif
   -format=lcov                          \
   $(addprefix -instr-profile=,$<)       \
   $(OBJDIR)/cov/mappings.ar             \
-  --ignore-filename-regex="test_.*\\.c" \
+  --ignore-filename-regex="(test_|fuzz_).*\\.c" \
 > $@
 
 # llvm-cov step 2.1

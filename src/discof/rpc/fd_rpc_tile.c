@@ -248,7 +248,7 @@ struct fd_rpc_tile {
 
   long next_poll_deadline;
 
-  char version_string[ 16UL ];
+  char version_string[ 64UL ];
 
   fd_keyswitch_t * keyswitch;
   uchar identity_pubkey[ 32UL ];
@@ -1053,7 +1053,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   }
 # endif
 
-  FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro ), owner_b58 );
+  FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
   CSTR_JSON( id, id_cstr );
   fd_http_server_printf( ctx->http,
       "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":{"
@@ -1080,6 +1080,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
 
   uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );;
   if( FD_UNLIKELY( !encoded ) ) {
+    fd_http_server_unstage( ctx->http );
     fd_accdb_close_ro( ctx->accdb, ro );
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: large accounts unsupported\"},\"id\":%s}\n", id_cstr );

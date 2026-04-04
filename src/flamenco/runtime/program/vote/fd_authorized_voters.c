@@ -2,41 +2,6 @@
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
 
-fd_vote_authorized_voters_t *
-fd_authorized_voters_new( ulong               epoch,
-                          fd_pubkey_t const * pubkey,
-                          uchar *             mem ) {
-
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_vote_authorized_voters_t * authorized_voters = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_align(),       sizeof(fd_vote_authorized_voters_t) );
-  void *                        pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_pool_align(),  fd_vote_authorized_voters_pool_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-  void *                        treap_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_treap_align(), fd_vote_authorized_voters_treap_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-
-  authorized_voters->pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( pool_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-  authorized_voters->treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( treap_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-  if( FD_UNLIKELY( !fd_vote_authorized_voters_pool_free( authorized_voters->pool ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: max authorized voter count of vote account exceeded" ));
-  }
-  fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( authorized_voters->pool );
-  ele->epoch  = epoch;
-  ele->pubkey = *pubkey;
-  ele->prio   = (ulong)&ele->pubkey;
-  fd_vote_authorized_voters_treap_ele_insert( authorized_voters->treap, ele, authorized_voters->pool );
-  return authorized_voters;
-}
-
-fd_vote_authorized_voters_t *
-fd_authorized_voters_new_empty( uchar * mem ) {
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_vote_authorized_voters_t * authorized_voters = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_align(),       sizeof(fd_vote_authorized_voters_t) );
-  void *                        pool_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_pool_align(),  fd_vote_authorized_voters_pool_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-  void *                        treap_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_authorized_voters_treap_align(), fd_vote_authorized_voters_treap_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-
-  authorized_voters->pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( pool_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-  authorized_voters->treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( treap_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
-  return authorized_voters;
-}
-
 int
 fd_authorized_voters_is_empty( fd_vote_authorized_voters_t * self ) {
   return fd_vote_authorized_voters_treap_ele_cnt( self->treap ) == 0;
@@ -59,7 +24,7 @@ fd_authorized_voters_purge_authorized_voters( fd_vote_authorized_voters_t * self
                                               ulong                         current_epoch ) {
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L46
-  ulong expired_keys[ FD_VOTE_AUTHORIZED_VOTERS_MIN ];
+  ulong expired_keys[ MAX_AUTHORIZED_VOTERS_CAPACITY ];
   ulong key_cnt                                     = 0;
   for( fd_vote_authorized_voters_treap_fwd_iter_t iter =
            fd_vote_authorized_voters_treap_fwd_iter_init( self->treap, self->pool );
@@ -131,7 +96,7 @@ fd_authorized_voters_get_and_cache_authorized_voter_for_epoch( fd_vote_authorize
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     ele->epoch                       = epoch;
     ele->pubkey                      = res->pubkey;
-    ele->prio                        = (ulong)&res->pubkey;
+    ele->prio                        = ele->pubkey.uc[0];
     // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/authorized_voters.rs#L33
     fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool );
     return ele;
@@ -143,12 +108,12 @@ int
 fd_authorized_voters_get_and_update_authorized_voter( fd_vote_state_versioned_t * self,
                                                       ulong                       current_epoch,
                                                       fd_pubkey_t **              pubkey /* out */ ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      return fd_vote_state_v3_get_and_update_authorized_voter( &self->inner.v3, current_epoch, pubkey );
+      return fd_vote_state_v3_get_and_update_authorized_voter( &self->v3, current_epoch, pubkey );
     case fd_vote_state_versioned_enum_v4:
-      return fd_vote_state_v4_get_and_update_authorized_voter( &self->inner.v4, current_epoch, pubkey );
+      return fd_vote_state_v4_get_and_update_authorized_voter( &self->v4, current_epoch, pubkey );
     default:
-      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", self->kind ));
   }
 }

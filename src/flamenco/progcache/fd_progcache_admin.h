@@ -12,13 +12,6 @@ typedef union fd_features fd_features_t;
 struct fd_progcache_admin_metrics {
   ulong gc_root_cnt;
   ulong root_cnt;
-
-  struct {
-    ulong free_part_cnt;
-    ulong free_sz;
-    ulong free_part_max;
-    ulong total_sz;
-  } wksp;
 };
 
 typedef struct fd_progcache_admin_metrics fd_progcache_admin_metrics_t;
@@ -39,36 +32,36 @@ fd_progcache_est_rec_max( ulong wksp_footprint,
 
 /* Transaction-level operations ***************************************/
 
-/* fd_progcache_txn_attach_child creates a new program cache fork node
+/* fd_progcache_attach_child creates a new program cache fork node
    off some parent.
 
    It is assumed that less than txn_max non-root transactions exist when
    this is called. */
 
 void
-fd_progcache_txn_attach_child( fd_progcache_join_t *     cache,
-                               fd_funk_txn_xid_t const * xid_parent,
-                               fd_funk_txn_xid_t const * xid_new );
+fd_progcache_attach_child( fd_progcache_join_t * cache,
+                           fd_xid_t const *      xid_parent,
+                           fd_xid_t const *      xid_new );
 
-/* fd_progcache_txn_advance_root advances the fork graph root to the
+/* fd_progcache_advance_root advances the fork graph root to the
    given xid.  (In funk terminology, this is the "last publish")
 
    Assumes that the xid's parent is the fork graph root. */
 
 void
-fd_progcache_txn_advance_root( fd_progcache_join_t *     cache,
-                               fd_funk_txn_xid_t const * xid );
+fd_progcache_advance_root( fd_progcache_join_t * cache,
+                           fd_xid_t const *      xid );
 
-/* fd_progcache_txn_cancel removes a fork graph node by XID and its
+/* fd_progcache_cancel removes a fork graph node by XID and its
    children (recursively). */
 
 void
-fd_progcache_txn_cancel( fd_progcache_join_t *     cache,
-                         fd_funk_txn_xid_t const * xid );
+fd_progcache_cancel( fd_progcache_join_t * cache,
+                     fd_xid_t const *      xid );
 
 /* Reset operations ***************************************************/
 
-/* fd_progcache_flush removes all cache entries while leaving the txn
+/* fd_progcache_reset removes all cache entries while leaving the txn
    graph intact.  Does not support concurrent usage. */
 
 void
@@ -80,32 +73,14 @@ fd_progcache_reset( fd_progcache_join_t * cache );
 void
 fd_progcache_clear( fd_progcache_join_t * cache );
 
-/* fd_progcache_inject_rec is used to insert a synthetic program cache
-   entry into the program cache.  Assumes no concurrent users of
-   progcache.  It is typically used on startup in test code.  If the
-   injection fails (e.g. in the case the data is not a valid ELF), it
-   will fail silently.  The caller is responsible for ensuring that
-   fd_progcache_inject_rec is called only once for each prog_addr.
+/* fd_progcache_verify checks the structural integrity of the program
+   cache.  Returns 0 on success, -1 on failure.  Logs warnings
+   describing the first detected issue.  Assumes no concurrent
+   modifications. */
 
-   The entries will be inserted into the root transaction of the
-   progcache.  The data for the progcache entry for key prog_addr is
-   derived from the progdata_meta. */
-
-void
-fd_progcache_inject_rec( fd_progcache_join_t *     cache,
-                         void const *              prog_addr,
-                         fd_account_meta_t const * progdata_meta,
-                         fd_features_t const *     features,
-                         ulong                     slot,
-                         uchar *                   scratch,
-                         ulong                     scratch_sz );
-
-/* fd_progcache_wksp_metrics_update updates
-   fd_progcache_admin_metrics_g.wksp.  Holds a lock on the wksp and is
-   O(part cnt), therefore should be used infrequently. */
-
-void
-fd_progcache_wksp_metrics_update( fd_progcache_join_t * cache );
+__attribute__((warn_unused_result))
+int
+fd_progcache_verify( fd_progcache_join_t * join );
 
 FD_PROTOTYPES_END
 

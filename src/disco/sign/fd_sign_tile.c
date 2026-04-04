@@ -366,15 +366,10 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       FD_TEST( !strcmp( out_link->name, "sign_gossip" ) );
       FD_TEST( in_link->mtu==2048UL );
       FD_TEST( out_link->mtu==64UL );
-    } else if ( !strcmp( in_link->name, "repair_sign" )
-             || !strcmp( in_link->name, "ping_sign" ) ) {
+    } else if ( !strcmp( in_link->name, "repair_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_REPAIR;
-      if( !strcmp( in_link->name, "ping_sign" ) ) {
-        FD_TEST( !strcmp( out_link->name, "sign_ping" ) );
-      } else {
-        FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
-      }
-      FD_TEST( in_link->mtu==96 ); // FD_REPAIR_MAX_PREIMAGE_SZ
+      FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
+      FD_TEST( in_link->mtu==96UL ); // FD_REPAIR_MAX_PREIMAGE_SZ
       FD_TEST( out_link->mtu==64UL );
     } else if ( !strcmp(in_link->name, "txsend_sign" ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_TXSEND;

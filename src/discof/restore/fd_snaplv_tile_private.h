@@ -18,9 +18,10 @@
 #define FD_SNAPLV_DUP_BATCH_OUT_CNT_MAX (FD_SNAPLV_DUP_PENDING_CNT_MAX+FD_SNAPLV_DUP_BATCH_IN_CNT_MAX)
 #define FD_SNAPLV_DUP_META_SZ           (sizeof(ulong)+sizeof(fd_vinyl_bstream_phdr_t))
 
-/* Maximum burst may contain one control message and one malformed
-   message, in addition to FD_SNAPLV_DUP_BATCH_OUT_CNT_MAX requests to
-   be forwarded. */
-#define FD_SNAPLV_STEM_BURST (2UL+FD_SNAPLV_DUP_BATCH_OUT_CNT_MAX)
+/* Maximum burst is governed by FD_SNAPLV_DUP_BATCH_OUT_CNT_MAX on
+   snaplv_lh, where the worst case arises from after_credit pending
+   drain (8) plus returnable_frag data frag (8), in comparison to the
+   output control link snaplv_ct (worst case there is 3). */
+#define FD_SNAPLV_STEM_BURST (FD_SNAPLV_DUP_BATCH_OUT_CNT_MAX)
 
 #endif /* HEADER_fd_discof_restore_fd_snaplv_tile_private_h */

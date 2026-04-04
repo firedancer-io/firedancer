@@ -124,12 +124,12 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
    'account_size' argument because we do not update the funk record here. */
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
-                   fd_pubkey_t const *   program_key,
                    uchar const *         programdata,
                    ulong                 programdata_size ) {
-  int deploy_mode                          = 1;
-  int direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
-  int stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
+  int deploy_mode                            = 1;
+  int direct_mapping                         = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
+  int syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
+  int virtual_address_space_adjustments      = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
 
   uchar syscalls_mem[ FD_SBPF_SYSCALLS_FOOTPRINT ] __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)));
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( syscalls_mem ) );
@@ -144,16 +144,16 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
      epoch boundaries where features activate: a deployment at the last
      slot of an epoch should see features that activate at the boundary.
      https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank.rs#L3280-L3295 */
-  ulong deploy_slot = fd_bank_slot_get( instr_ctx->bank )+1UL;
+  ulong deploy_slot = instr_ctx->bank->f.slot+1UL;
 
   fd_vm_syscall_register_slot( syscalls,
                                deploy_slot,
-                               fd_bank_features_query( instr_ctx->bank ),
+                               &instr_ctx->bank->f.features,
                                1 );
 
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
-  fd_prog_versions_t versions = fd_prog_versions( fd_bank_features_query( instr_ctx->bank ), deploy_slot );
+  fd_prog_versions_t versions = fd_prog_versions( &instr_ctx->bank->f.features, deploy_slot );
 
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = deploy_mode;
@@ -190,30 +190,31 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
   vm = fd_vm_init(
-    /* vm                                   */ vm,
-    /* instr_ctx                            */ instr_ctx,
-    /* heap_max                             */ instr_ctx->txn_out->details.compute_budget.heap_size,
-    /* entry_cu                             */ instr_ctx->txn_out->details.compute_budget.compute_meter,
-    /* rodata                               */ prog->rodata,
-    /* rodata_sz                            */ prog->rodata_sz,
-    /* text                                 */ prog->text,
-    /* text_cnt                             */ prog->info.text_cnt,
-    /* text_off                             */ prog->info.text_off, /* FIXME: What if text_off is not multiple of 8 */
-    /* text_sz                              */ prog->info.text_sz,
-    /* entry_pc                             */ prog->entry_pc,
-    /* calldests                            */ prog->calldests,
-    /* sbpf_version                         */ elf_info->sbpf_version,
-    /* syscalls                             */ syscalls,
-    /* trace                                */ NULL,
-    /* sha                                  */ NULL,
-    /* mem_regions                          */ NULL,
-    /* mem_regions_cnt                      */ 0,
-    /* mem_region_accs                      */ NULL,
-    /* is_deprecated                        */ 0,
-    /* direct mapping                       */ direct_mapping,
-    /* stricter_abi_and_runtime_constraints */ stricter_abi_and_runtime_constraints,
-    /* dump_syscall_to_pb                   */ 0,
-    /* r2_initial_value                     */ 0UL );
+    /* vm                                     */ vm,
+    /* instr_ctx                              */ instr_ctx,
+    /* heap_max                               */ instr_ctx->txn_out->details.compute_budget.heap_size,
+    /* entry_cu                               */ instr_ctx->txn_out->details.compute_budget.compute_meter,
+    /* rodata                                 */ prog->rodata,
+    /* rodata_sz                              */ prog->rodata_sz,
+    /* text                                   */ prog->text,
+    /* text_cnt                               */ prog->info.text_cnt,
+    /* text_off                               */ prog->info.text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* text_sz                                */ prog->info.text_sz,
+    /* entry_pc                               */ prog->entry_pc,
+    /* calldests                              */ prog->calldests,
+    /* sbpf_version                           */ elf_info->sbpf_version,
+    /* syscalls                               */ syscalls,
+    /* trace                                  */ NULL,
+    /* sha                                    */ NULL,
+    /* mem_regions                            */ NULL,
+    /* mem_regions_cnt                        */ 0,
+    /* mem_region_accs                        */ NULL,
+    /* is_deprecated                          */ 0,
+    /* direct mapping                         */ direct_mapping,
+    /* syscall_parameter_address_restrictions */ syscall_parameter_address_restrictions,
+    /* virtual_address_space_adjustments      */ virtual_address_space_adjustments,
+    /* dump_syscall_to_pb                     */ 0,
+    /* r2_initial_value                       */ 0UL );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
@@ -223,9 +224,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   if( FD_UNLIKELY( validate_result!=FD_VM_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
-
-  /* Queue the program for reverification */
-  instr_ctx->txn_out->details.programs_to_reverify[instr_ctx->txn_out->details.programs_to_reverify_cnt++] = *program_key;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -394,8 +392,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* TODO do we really need to re-do this on every instruction? */
   fd_vm_syscall_register_slot( syscalls,
-                               fd_bank_slot_get( instr_ctx->bank ),
-                               fd_bank_features_query( instr_ctx->bank ),
+                               instr_ctx->bank->f.slot,
+                               &instr_ctx->bank->f.features,
                                0 );
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
@@ -405,7 +403,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                    = 0U;
   int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
-  int                     stricter_abi_and_runtime_constraints     = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, stricter_abi_and_runtime_constraints );
+  int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
+  int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
 
   ulong instruction_data_offset = 0UL;
@@ -414,7 +413,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated,
+                                                  acc_region_metas, virtual_address_space_adjustments, direct_mapping, is_deprecated,
                                                   &instruction_data_offset, &input_sz );
   if( FD_UNLIKELY( err ) ) {
     return err;
@@ -438,46 +437,46 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
 
   /* For dumping syscalls for seed corpora */
   int dump_syscall_to_pb = instr_ctx->runtime->log.dump_proto_ctx &&
-                           fd_bank_slot_get( instr_ctx->bank )>=instr_ctx->runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                           instr_ctx->bank->f.slot>=instr_ctx->runtime->log.dump_proto_ctx->dump_proto_start_slot &&
                            instr_ctx->runtime->log.dump_proto_ctx->dump_syscall_to_pb;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/bpf_loader/src/lib.rs#L1525-L1528 */
   ulong r2_initial_value = provide_instruction_data_offset_in_vm_r2 ? instruction_data_offset : 0UL;
 
   /* TODO: (topointon): correctly set check_size in vm setup */
-  fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->wksp;
+  fd_wksp_t * progcache_wksp = instr_ctx->runtime->progcache->join->data_base;
   void const * rodata = fd_progcache_rec_rodata( cache_entry, progcache_wksp );
   vm = fd_vm_init(
-    /* vm                                   */ vm,
-    /* instr_ctx                            */ instr_ctx,
-    /* heap_max                             */ heap_size,
-    /* entry_cu                             */ instr_ctx->txn_out->details.compute_budget.compute_meter,
-    /* rodata                               */ rodata,
-    /* rodata_sz                            */ cache_entry->rodata_sz,
-    /* text (note: text_off is byte offset) */ (ulong *)( (ulong)rodata + cache_entry->text_off ),
-    /* text_cnt                             */ cache_entry->text_cnt,
-    /* text_off                             */ cache_entry->text_off,
-    /* text_sz                              */ cache_entry->text_sz,
-    /* entry_pc                             */ cache_entry->entry_pc,
-    /* calldests                            */ fd_progcache_rec_calldests( cache_entry, progcache_wksp ),
-    /* sbpf_version                         */ cache_entry->sbpf_version,
-    /* syscalls                             */ syscalls,
-    /* trace                                */ NULL,
-    /* sha                                  */ sha,
-    /* input_mem_regions                    */ input_mem_regions,
-    /* input_mem_regions_cnt                */ input_mem_regions_cnt,
-    /* acc_region_metas                     */ acc_region_metas,
-    /* is_deprecated                        */ is_deprecated,
-    /* direct_mapping                       */ direct_mapping,
-    /* stricter_abi_and_runtime_constraints */ stricter_abi_and_runtime_constraints,
-    /* dump_syscall_to_pb                   */ dump_syscall_to_pb,
-    /* r2_initial_value                     */ r2_initial_value );
+    /* vm                                     */ vm,
+    /* instr_ctx                              */ instr_ctx,
+    /* heap_max                               */ heap_size,
+    /* entry_cu                               */ instr_ctx->txn_out->details.compute_budget.compute_meter,
+    /* rodata                                 */ rodata,
+    /* rodata_sz                              */ cache_entry->rodata_sz,
+    /* text (note: text_off is byte offset)   */ (ulong *)( (ulong)rodata + cache_entry->text_off ),
+    /* text_cnt                               */ cache_entry->text_cnt,
+    /* text_off                               */ cache_entry->text_off,
+    /* text_sz                                */ cache_entry->text_sz,
+    /* entry_pc                               */ cache_entry->entry_pc,
+    /* calldests                              */ fd_progcache_rec_calldests( cache_entry, progcache_wksp ),
+    /* sbpf_version                           */ cache_entry->sbpf_version,
+    /* syscalls                               */ syscalls,
+    /* trace                                  */ NULL,
+    /* sha                                    */ sha,
+    /* input_mem_regions                      */ input_mem_regions,
+    /* input_mem_regions_cnt                  */ input_mem_regions_cnt,
+    /* acc_region_metas                       */ acc_region_metas,
+    /* is_deprecated                          */ is_deprecated,
+    /* direct_mapping                         */ direct_mapping,
+    /* syscall_parameter_address_restrictions */ syscall_parameter_address_restrictions,
+    /* virtual_address_space_adjustments      */ virtual_address_space_adjustments,
+    /* dump_syscall_to_pb                     */ dump_syscall_to_pb,
+    /* r2_initial_value                       */ r2_initial_value );
   if( FD_UNLIKELY( !vm ) ) {
     /* We throw an error here because it could be the case that the given heap_size > HEAP_MAX.
        In this case, Agave fails the transaction but does not error out.
 
        https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1396 */
-    FD_LOG_WARNING(( "null vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
@@ -541,7 +540,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        and the access type was a store, a different error code is returned to give developers more insight
        as to what caused the error.
        https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1556-L1618 */
-    if( FD_UNLIKELY( stricter_abi_and_runtime_constraints &&
+    if( FD_UNLIKELY( virtual_address_space_adjustments &&
                      ( exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION || instr_ctx->txn_out->err.exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION ) &&
                      vm->segv_vaddr!=ULONG_MAX ) ) {
 
@@ -637,7 +636,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   err = fd_bpf_loader_input_deserialize_parameters(
-    instr_ctx, pre_lens, input, input_sz, stricter_abi_and_runtime_constraints, direct_mapping, is_deprecated );
+    instr_ctx, pre_lens, input, input_sz, virtual_address_space_adjustments, direct_mapping, is_deprecated );
 
   long const regime3 = fd_tickcount();
   if( instr_ctx->instr->stack_height==1 ) {
@@ -888,7 +887,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   ulong         programdata_size = new_len - PROGRAMDATA_METADATA_SIZE;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1512-L1522 */
-  err = fd_deploy_program( instr_ctx, program_account.pubkey, programdata_data, programdata_size );
+  err = fd_deploy_program( instr_ctx, programdata_data, programdata_size );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1303,7 +1302,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
 
-      err = fd_deploy_program( instr_ctx, program.pubkey, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1471,6 +1470,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L746 */
+      fd_pubkey_t new_program_id = *program.pubkey;
       fd_borrowed_account_drop( &program );
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L747-L773 */
@@ -1581,7 +1581,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
-      err = fd_deploy_program( instr_ctx, program.pubkey, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1670,8 +1670,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* programdata is dropped when it goes out of scope */
 
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
-      //TODO: this is likely the incorrect program_id, do we have new_program_id?
-      FD_BASE58_ENCODE_32_BYTES( program_id->uc, program_id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( new_program_id.uc, program_id_b58 );
       fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", program_id_b58 );
 
       break;
@@ -2512,6 +2511,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &program_account );
   uchar is_deprecated = !memcmp( metadata->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
+  fd_accdb_ro_t prog_ro[1];
+  fd_borrowed_account_ro( &program_account, prog_ro );
+  fd_accdb_ro_t * progdata_ro = prog_ro;
   if( !memcmp( metadata->owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
     fd_bpf_upgradeable_loader_state_t program_account_state[1];
     err = fd_bpf_loader_program_get_state( program_account.meta, program_account_state );
@@ -2535,25 +2537,21 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
-    fd_account_meta_t const * programdata_meta   = NULL;
-    fd_pubkey_t *             programdata_pubkey = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
-    err = fd_runtime_get_executable_account( ctx->runtime,
-                                             ctx->txn_in,
-                                             ctx->txn_out,
-                                             programdata_pubkey,
-                                             &programdata_meta );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    fd_pubkey_t * programdata_pubkey = &program_account_state->inner.program.programdata_address;
+    progdata_ro = fd_runtime_get_executable_account(
+        ctx->runtime, ctx->txn_in, ctx->txn_out, programdata_pubkey );
+    if( FD_UNLIKELY( !progdata_ro ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
-    if( FD_UNLIKELY( programdata_meta->dlen<PROGRAMDATA_METADATA_SIZE ) ) {
+    if( FD_UNLIKELY( fd_accdb_ref_data_sz( progdata_ro ) < PROGRAMDATA_METADATA_SIZE ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     fd_bpf_upgradeable_loader_state_t program_data_account_state[1];
-    err = fd_bpf_loader_program_get_state( programdata_meta, program_data_account_state );
+    err = fd_bpf_loader_program_get_state( progdata_ro->meta, program_data_account_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -2568,7 +2566,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     ulong program_data_slot = program_data_account_state->inner.program_data.slot;
-    if( FD_UNLIKELY( program_data_slot>=fd_bank_slot_get( ctx->bank ) ) ) {
+    if( FD_UNLIKELY( program_data_slot>=ctx->bank->f.slot ) ) {
       /* The account was likely just deployed or upgraded. Corresponds to
          'LoadedProgramType::DelayVisibility' */
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
@@ -2577,21 +2575,17 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), ctx->bank->data->idx } };
+  fd_funk_txn_xid_t xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
   fd_progcache_t * progcache = ctx->runtime->progcache;
   fd_progcache_rec_t * cache_entry =
-      fd_progcache_pull( progcache,
-                         ctx->runtime->accdb,
-                         &xid,
-                         program_id,
-                         load_env );
+      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro, fd_type_pun_const( metadata->owner ) );
   if( FD_UNLIKELY( !cache_entry ) ) {
     fd_log_collector_msg_literal( ctx, "Program is not cached" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
   /* The program may be in the cache but could have failed verification in the current epoch. */
-  if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
+  if( FD_UNLIKELY( !cache_entry->data_gaddr ) ) {
     fd_progcache_rec_close( progcache, cache_entry );
     fd_log_collector_msg_literal( ctx, "Program is not deployed" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

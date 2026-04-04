@@ -118,6 +118,7 @@ wb_ring_alloc( wb_ring_t * wb,
   if( r_sz>sz0 ) {
     /* destroy part0 if it would cause a gap in the middle, or
        completely overlap it */
+    sz1 += r_sz;
     off0 = sz1;
     seq0 = seq1;
     sz0  = 0UL;

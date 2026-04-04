@@ -1,6 +1,16 @@
 #include "fd_progcache.h"
 #include "../vm/fd_vm.h" /* fd_vm_syscall_register_slot, fd_vm_validate */
 #include "../../util/alloc/fd_alloc.h"
+#include <stdlib.h>
+
+/* Can be overridden by test executables */
+__attribute__((weak)) int const fd_progcache_use_malloc = 0;
+static inline _Bool
+use_malloc( void ) {
+  _Bool use_malloc = !!fd_progcache_use_malloc;
+  FD_COMPILER_FORGET( use_malloc ); /* prevent constant propagation */
+  return use_malloc;
+}
 
 void *
 fd_progcache_val_alloc( fd_progcache_rec_t *  rec,
@@ -8,30 +18,51 @@ fd_progcache_val_alloc( fd_progcache_rec_t *  rec,
                         ulong                 val_align,
                         ulong                 val_footprint ) {
   if( rec->data_gaddr ) fd_progcache_val_free( rec, join );
-  ulong val_max = 0UL;
-  void * mem = fd_alloc_malloc_at_least( join->alloc, val_align, val_footprint, &val_max );
-  if( FD_UNLIKELY( !mem ) ) return NULL;
-  FD_CRIT( val_max<=UINT_MAX, "massive" ); /* unreachable */
-  rec->data_gaddr = fd_wksp_gaddr_fast( join->wksp, mem );
+  ulong  val_max = 0UL;
+  void * mem;
+  ulong  gaddr;
+  if( FD_UNLIKELY( use_malloc() ) ) { /* test only */
+    mem = aligned_alloc( val_align, val_footprint );
+    if( FD_UNLIKELY( !mem ) ) return NULL;
+    val_max = val_footprint;
+    gaddr   = (ulong)mem;
+  } else {
+    mem = fd_alloc_malloc_at_least( join->alloc, val_align, val_footprint, &val_max );
+    if( FD_UNLIKELY( !mem ) ) return NULL;
+    FD_CRIT( val_max<=UINT_MAX, "massive" ); /* unreachable */
+    gaddr = fd_wksp_gaddr_fast( join->data_base, mem );
+  }
+  rec->data_gaddr = gaddr;
   rec->data_max   = (uint)val_max;
   return mem;
+}
+
+void
+fd_progcache_val_free1( fd_progcache_rec_t * rec,
+                        void *               val,
+                        fd_alloc_t *         alloc ) {
+  if( FD_UNLIKELY( use_malloc() ) ) { /* test only */
+    free( val );
+  } else {
+    fd_alloc_free( alloc, val );
+  }
+  rec->data_gaddr = 0UL;
+  rec->data_max   = 0U;
+  rec->rodata_off = 0U;
+  rec->rodata_sz  = 0U;
 }
 
 void
 fd_progcache_val_free( fd_progcache_rec_t *  rec,
                        fd_progcache_join_t * join ) {
   if( !rec->data_gaddr ) return;
-  void * mem = fd_wksp_laddr_fast( join->wksp, rec->data_gaddr );
+  void * mem = fd_wksp_laddr_fast( join->data_base, rec->data_gaddr );
 
   /* Illegal to call val_free on a spill-allocated buffer */
   FD_TEST( !( (ulong)mem >= (ulong)join->shmem->spill.spad &&
               (ulong)mem <  (ulong)join->shmem->spill.spad+FD_PROGCACHE_SPAD_MAX ) );
 
-  fd_alloc_free( join->alloc, mem );
-  rec->data_gaddr = 0UL;
-  rec->data_max   = 0U;
-  rec->rodata_off = 0U;
-  rec->rodata_sz  = 0U;
+  fd_progcache_val_free1( rec, mem, join->alloc );
 }
 
 FD_FN_PURE ulong
@@ -46,6 +77,8 @@ fd_progcache_val_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   l = FD_LAYOUT_APPEND( l, 8UL, elf_info->bin_sz );
   return FD_LAYOUT_FINI( l, fd_progcache_val_align() );
 }
+
+/* Program loader wrapper */
 
 fd_progcache_rec_t *
 fd_progcache_rec_load( fd_progcache_rec_t *            rec,
@@ -73,11 +106,10 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   FD_SCRATCH_ALLOC_FINI( l, fd_progcache_val_align() );
   FD_TEST( _l-(ulong)val == fd_progcache_val_footprint( elf_info ) );
 
-  rec->calldests_off = has_calldests ? (uint)( (ulong)calldests_mem - (ulong)val ) : 0U;
+  rec->calldests_off = has_calldests ? (uint)( (ulong)calldests_mem - (ulong)val ) : UINT_MAX;
   rec->rodata_off    = (uint)( (ulong)rodata_mem - (ulong)val );
   rec->entry_pc      = 0;
   rec->rodata_sz     = 0;
-  rec->executable    = 0;
 
   rec->text_cnt      = elf_info->text_cnt;
   rec->text_off      = elf_info->text_off;
@@ -139,14 +171,14 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
                    NULL,
                    0,
                    FD_FEATURE_ACTIVE( load_slot, features, account_data_direct_mapping ),
-                   FD_FEATURE_ACTIVE( load_slot, features, stricter_abi_and_runtime_constraints ),
+                   FD_FEATURE_ACTIVE( load_slot, features, syscall_parameter_address_restrictions ),
+                   FD_FEATURE_ACTIVE( load_slot, features, virtual_address_space_adjustments ),
                    0,
                    0UL );
   if( FD_UNLIKELY( !vm ) ) FD_LOG_CRIT(( "fd_vm_init failed" ));
 
   if( FD_UNLIKELY( fd_vm_validate( vm )!=FD_VM_SUCCESS ) ) return NULL;
 
-  rec->executable = 1;
   return rec;
 }
 
@@ -159,10 +191,8 @@ fd_progcache_rec_nx( fd_progcache_rec_t * rec ) {
   rec->text_off      = 0;
   rec->text_sz       = 0;
   rec->rodata_sz     = 0;
-  rec->calldests_off = 0;
+  rec->calldests_off = UINT_MAX;
   rec->rodata_off    = 0;
   rec->sbpf_version  = 0;
-  rec->executable    = 0;
-  rec->invalidate    = 0;
   return rec;
 }

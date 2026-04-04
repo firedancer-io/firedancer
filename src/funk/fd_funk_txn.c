@@ -22,11 +22,6 @@
 #include "../util/tmpl/fd_map_chain_para.c"
 
 #define fd_funk_txn_state_transition(txn, before, after) do {             \
-  FD_LOG_INFO(( "funk_txn laddr=%p xid=%lu:%lu state change (%u-%s) -> (%u-%s)", \
-                (void *)(txn),                                            \
-                (txn)->xid.ul[0], (txn)->xid.ul[1],                       \
-                (before), fd_funk_txn_state_str( (before) ),              \
-                (after),  fd_funk_txn_state_str( (after)  ) ));           \
   if( FD_HAS_ATOMIC ) {                                                   \
     if( FD_LIKELY( __sync_bool_compare_and_swap( &(txn)->state, before, after ) ) ) break; \
   } else {                                                                \

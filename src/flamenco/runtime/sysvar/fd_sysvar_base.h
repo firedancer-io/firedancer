@@ -2,13 +2,11 @@
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h
 
 #include "../../fd_flamenco_base.h"
-#include "../../../funk/fd_funk_base.h"
+#include "../../accdb/fd_accdb_base.h"
 
 #define FD_SYSVAR_ALIGN_MAX (16UL)
 
 #define FD_SYSVAR_CLOCK_BINCODE_SZ         (    40UL)
-#define FD_SYSVAR_CLOCK_ALIGN              (     8UL)
-#define FD_SYSVAR_CLOCK_FOOTPRINT          (    40UL)
 
 #define FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ (    81UL)
 /*      FD_SYSVAR_EPOCH_REWARDS_ALIGN provided by fd_types.h (16UL) */
@@ -41,5 +39,14 @@
 #define FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ( 16392UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/stake_history.rs#L66 */
 #define FD_SYSVAR_STAKE_HISTORY_ALIGN      (     8UL)
 #define FD_SYSVAR_STAKE_HISTORY_FOOTPRINT  ( 16408UL)
+
+struct fd_sol_sysvar_clock {
+  ulong slot;
+  long  epoch_start_timestamp;
+  ulong epoch;
+  ulong leader_schedule_epoch;
+  long  unix_timestamp;
+};
+typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h */

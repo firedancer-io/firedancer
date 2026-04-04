@@ -463,6 +463,10 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
   if( FD_UNLIKELY( !blst_p1_affine_in_g1( a1 ) ) ) {
     return -1;
   }
+  /* https://github.com/anza-xyz/solana-sdk/blob/b66abfddd564aef5b4b82cf4e76381e96f2459f0/bls-signatures/src/pubkey/verify.rs#L120 */
+  if( FD_UNLIKELY( blst_p1_affine_is_inf( a1 ) ) ) {
+    return -1;
+  }
 
   /* hash msg into b1. the check that it's a valid point in G2 is implicit/guaranteed */
   fd_bls12_381_g2_t _b1[1];
@@ -495,8 +499,8 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
 int
 fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
                                          ulong       msg_sz,
-                                         uchar const proof[ 96 ],
-                                         uchar const public_key[ 48 ] ) {
+                                         uchar const proof[ static 96 ],
+                                         uchar const public_key[ static 48 ] ) {
   /* Agave supports the case of empty msg, where the public key is used
      instead (i.e. the plain RFC proof of possession). But that's not really
      used anywhere, and probably shouldn't be used for security reasons.

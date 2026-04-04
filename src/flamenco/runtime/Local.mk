@@ -75,11 +75,15 @@ $(call add-hdrs,fd_runtime.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stac
 $(call add-objs,fd_runtime,fd_flamenco)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_deprecate_rent_exemption_threshold,)
-$(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_deprecate_rent_exemption_threshold)
+$(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_instr_acct_bounds,)
-$(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_accounts_resize_delta,)
+$(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_accounts_resize_delta)
+$(call make-unit-test,test_settle_fees,tests/test_settle_fees,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_settle_fees)
+$(call make-unit-test,test_feature_activation,tests/test_feature_activation,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_feature_activation)
 endif
 endif
 endif
@@ -87,7 +91,7 @@ endif
 $(call add-hdrs,fd_system_ids.h)
 $(call add-objs,fd_system_ids,fd_flamenco)
 $(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_ballet)
-$(call run-unit-test,test_system_ids,)
+$(call run-unit-test,test_system_ids)
 
 ifdef FD_HAS_ROCKSDB
 $(call add-hdrs,fd_rocksdb.h)
@@ -97,9 +101,8 @@ endif
 ifdef FD_HAS_ATOMIC
 
 ifdef FD_HAS_HOSTED
-#$(call make-unit-test,test_archive_block,test_archive_block, fd_flamenco fd_util fd_ballet,$(SECP256K1_LIBS))
 # TODO: Flakes
-# $(call run-unit-test,test_txncache,)
+# $(call run-unit-test,test_txncache)
 $(call make-fuzz-test,fuzz_genesis_parse,fuzz_genesis_parse,fd_flamenco fd_ballet fd_util)
 endif
 endif

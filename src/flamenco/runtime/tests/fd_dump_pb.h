@@ -303,7 +303,6 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
                                      ulong                        out_bufsz,
                                      fd_txn_in_t const *          txn_in,
                                      fd_txn_out_t *               txn_out,
-                                     fd_bank_t *                  bank,
                                      int                          exec_res );
 
 /* Transaction dumping (two-phase approach):
@@ -334,7 +333,6 @@ void
 fd_dump_txn_result_to_protobuf( fd_txn_dump_ctx_t * txn_dump_ctx,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out,
-                                fd_bank_t *         bank,
                                 int                 exec_res );
 
 void

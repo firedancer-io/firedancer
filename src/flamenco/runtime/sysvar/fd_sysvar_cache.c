@@ -106,7 +106,8 @@ fd_sysvar_cache_data_query(
     fd_sysvar_desc_t const * desc = &cache->desc[ idx ];               \
     fd_sysvar_pos_t const *  pos  = &fd_sysvar_pos_tbl[ idx ];         \
     if( FD_UNLIKELY( !( desc->flags & FD_SYSVAR_FLAG_VALID ) ) ) return NULL; \
-    memcpy( out, (uchar *)cache+pos->obj_off, pos->obj_max );          \
+    if( !pos->obj_max ) memcpy( out, (uchar *)cache+pos->data_off, pos->data_max ); \
+    else                memcpy( out, (uchar *)cache+pos->obj_off,  pos->obj_max  ); \
     return out;                                                        \
   }
 
@@ -115,6 +116,15 @@ fd_sysvar_cache_data_query(
 FD_SYSVAR_SIMPLE_ITER( SIMPLE_SYSVAR )
 #undef SIMPLE_SYSVAR
 #undef SIMPLE_SYSVAR_READ
+
+ulong
+fd_sysvar_cache_last_restart_slot_read( fd_sysvar_cache_t const * cache ) {
+  ulong const idx = FD_SYSVAR_last_restart_slot_IDX;
+  fd_sysvar_desc_t const * desc = &cache->desc[ idx ];
+  fd_sysvar_pos_t const *  pos  = &fd_sysvar_pos_tbl[ idx ];
+  if( FD_UNLIKELY( !( desc->flags & FD_SYSVAR_FLAG_VALID ) ) ) return ULONG_MAX;
+  return FD_LOAD( ulong, (uchar const *)cache + pos->data_off );
+}
 
 fd_block_block_hash_entry_t const * /* deque */
 fd_sysvar_cache_recent_hashes_join_const(
@@ -196,10 +206,14 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
   uchar const * data    = (uchar const *)cache + pos->data_off;
   ulong const   data_sz = desc->data_sz;
 
-  if( FD_UNLIKELY( !pos->obj_max ) ) {
+  if( FD_UNLIKELY( !pos->decode ) ) {
     /* Sysvar is directly stored - does not need to be deserialized */
+    if( FD_UNLIKELY( data_sz < pos->data_max ) ) {
+      FD_LOG_DEBUG(( "Failed to decode sysvar %s with data_sz=%lu: decode failed",
+                    pos->name, data_sz ));
+      return EINVAL;
+    }
     desc->flags |= FD_SYSVAR_FLAG_VALID;
-    FD_LOG_DEBUG(( "Restored sysvar %s (data_sz=%lu)", pos->name, data_sz ));
     return 0;
   }
 
@@ -218,7 +232,5 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
   pos->decode( (uchar *)cache+pos->obj_off, &ctx );
   desc->flags |= FD_SYSVAR_FLAG_VALID;
 
-  FD_LOG_DEBUG(( "Restored sysvar %s (data_sz=%lu obj_sz=%lu)",
-                 pos->name, data_sz, obj_sz ));
   return 0;
 }

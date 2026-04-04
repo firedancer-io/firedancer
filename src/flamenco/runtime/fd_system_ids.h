@@ -50,18 +50,17 @@ extern const fd_pubkey_t fd_solana_slashing_program_id;
 extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
 extern const fd_pubkey_t fd_solana_stake_program_vote_state_v4_buffer_address;
 extern const fd_pubkey_t fd_solana_slashing_program_buffer_address;
+extern const fd_pubkey_t fd_solana_ptoken_program_buffer_address;
 
 /* BPF migration authority
    https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L399-L401 */
 extern const fd_pubkey_t fd_solana_migration_authority;
 
-/* fd_pubkey_is_{pending, active}_reserved_key and fd_pubkey_is_secp256r1_key checks to see if the pubkey is
+/* fd_pubkey_is_{pending, active}_reserved_key checks to see if the pubkey is
    a reserved account. They return 1 if the pubkey is in the list, and 0 otherwise.
 
-   To verify that the pubkey is a reserved key, the caller will need to check that either:
-     1. The pubkey is in the set of active reserved keys
-     2. The pubkey is in the set of pending reserved keys.
-     3. The pubkey is the secp256r1 program id, AND the `enable_secp256r1_precompile` feature is active.
+   A pubkey is a reserved key if it is in the active or pending reserved key sets.
+   https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/src/reserved_account_keys.rs
 
    If a pubkey is a reserved key, it will not be added to Agave's message writable accounts cache and thus
    not be writable.
@@ -70,16 +69,12 @@ extern const fd_pubkey_t fd_solana_migration_authority;
    `fd_exec_txn_ctx_account_is_writable_idx()`, and additional functions will need to be added here.
 
    Instead of maintaining a map of sysvars and builtins, Agave recommends checking the sysvar owner account, or checking
-   the reserved keys below.
-   https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/src/reserved_account_keys.rs */
+   the reserved keys below. */
 int
 fd_pubkey_is_active_reserved_key( fd_pubkey_t const * acct );
 
 int
 fd_pubkey_is_pending_reserved_key( fd_pubkey_t const * acct );
-
-int
-fd_pubkey_is_secp256r1_key( fd_pubkey_t const * acct );
 
 FD_PROTOTYPES_END
 

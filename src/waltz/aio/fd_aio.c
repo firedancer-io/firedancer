@@ -1,18 +1,5 @@
 #include "fd_aio.h"
 
-/* These are currently stubs in anticipation of future AIO
-   functionality. */
-
-ulong
-fd_aio_align( void ) {
-  return FD_AIO_ALIGN;
-}
-
-ulong
-fd_aio_footprint( void ) {
-  return FD_AIO_FOOTPRINT;
-}
-
 void *
 fd_aio_new( void *             shmem,
             void *             ctx,

@@ -192,7 +192,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x65\xdc\x35\xc6\x6f\x58\x1e\x4b\x7f\x4e\xe4\x3c\x60\x48\x03\x3f\x33\x88\x72\x50\x61\x81\xf7\x08\x47\x16\x9a\x51\xb9\x72\xd2\xe9"},
                                  /* 7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri */
     .name                      = "curve25519_syscall_enabled",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, versioned_tx_message_enabled)>>3,
@@ -903,7 +903,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x85\xbf\xc5\xb6\xde\x1e\xef\xaa\xa4\x86\xcc\x6c\x6a\x80\xda\xed\x94\x7b\x18\xac\x7f\x7c\xc2\x5d\xf9\x58\x4a\x86\x98\xb3\xff\x7b"},
                                  /* A16q37opZdQMCbe5qJ6xpBB9usykfv8jZaMkxvZQi4GJ */
     .name                      = "enable_alt_bn128_syscall",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_program_redeployment_cooldown)>>3,
@@ -1131,7 +1131,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xd4\xeb\x2e\xcb\x2c\x82\xbf\x3c\xc6\xab\x6d\x6c\xbc\x2f\x29\x03\xab\xa5\x57\xd7\x2d\xc4\x4e\xfd\xbc\x5f\xf1\xc0\x6c\xde\xa2\xd7"},
                                  /* FL9RsQA6TVUoh5xJQ9d936RHSebA1NLQqe3Zv9sXZRpr */
     .name                      = "enable_poseidon_syscall",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, timely_vote_credits)>>3,
@@ -1172,7 +1172,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xc5\x96\xc3\xf1\x5d\x5b\xb5\x9b\x10\x5f\xf4\xd6\x41\x2c\x69\xe2\xdc\x8c\xa7\xdf\x6f\xba\x27\x60\xfb\x3e\x5b\x98\x46\xe4\xb4\xef"},
                                  /* EJJewYSddEEtSZHiqugnvhQHiWyZKjkFDQASd7oKSagn */
     .name                      = "enable_alt_bn128_compression_syscall",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, programify_feature_gate_program)>>3,
@@ -1372,7 +1372,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xdd\x72\x21\x65\xad\x48\xe1\xaf\xda\x46\x3f\x70\xf5\xe7\x27\xdf\x99\x16\x8f\xf9\xbb\xcb\x52\x76\xdb\x98\x53\x4e\x33\xf1\xf5\x86"},
                                  /* FuS3FPfJDKSNot99ECLXtp3rueq36hMNStJkPJwWodLh */
     .name                      = "abort_on_invalid_curve",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, ed25519_precompile_verify_strict)>>3,
@@ -1413,7 +1413,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0d\x07\x69\xb2\x4d\xf9\xa6\xa3\xbe\x46\x1c\xcd\x33\x4f\x22\xcd\x35\x49\x98\xc6\xf6\xaf\xb6\x8c\xe5\x39\xef\x19\x11\x48\x56\xa4"},
                                  /* srremy31J5Y25FrAApwVb9kZcfXbusYMMsvTK9aWv5q */
     .name                      = "enable_secp256r1_precompile",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, get_sysvar_syscall_enabled)>>3,
     .id                        = {"\xa8\x5b\xef\x52\xf2\x62\x90\x82\x3b\xd2\x06\xdd\x10\xe7\x2c\x5b\x9c\x22\x0e\x96\x8a\xa7\x2e\x98\x8c\x7b\x02\x39\x0e\xd5\x9a\xf4"},
@@ -1449,8 +1450,8 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_sbpf_v3_deployment_and_execution)>>3,
-    .id                        = {"\x9b\xbc\xe8\x7b\x1e\x38\xee\x66\x59\xb3\x0e\x4c\x46\xc7\xc0\xc8\xc2\xd4\xc4\x58\x7f\xcb\x89\x1a\xa1\x2a\x01\xd6\xe2\xf4\x69\xa1"},
-                                 /* BUwGLeF3Lxyfv1J1wY8biFHBB2hrk2QhbNftQf3VV3cC */
+    .id                        = {"\x44\x72\x90\xd7\xfd\xc5\x1f\x0f\x09\xfb\xd2\x3d\xab\x6b\xc2\xa5\x66\x47\x49\xe7\x6e\xe5\xff\xb6\x3b\xb9\xb6\x3c\x39\x78\x78\xcd"},
+                                 /* 5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC */
     .name                      = "enable_sbpf_v3_deployment_and_execution",
     .cleaned_up                = 0 },
 
@@ -1625,14 +1626,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0e\xcb\x71\x9e\x06\x4c\x3a\xec\xc3\xa9\x71\xb0\x61\x33\x9b\x7e\xdc\x71\xc0\x35\x81\x8f\xf0\x0a\xb0\x53\x46\xaa\x28\xd7\x0b\xe1"},
                                  /* zkdoVwnSFnSLtGJG7irJPEYUpmb4i7sGMGcnN6T9rnC */
     .name                      = "disable_zk_elgamal_proof_program",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, reenable_zk_elgamal_proof_program)>>3,
     .id                        = {"\x0e\xcb\x77\x6b\x04\xa2\x9f\x2e\x94\xf0\x15\xf1\xf4\x36\x93\xe8\xe5\x37\xb1\x87\xba\x4a\x89\xcd\x46\xcb\x0a\x41\xf7\x8f\x43\xd9"},
                                  /* zkexuyPRdyTVbZqEAREueqL2xvvoBhRgth9xGSc1tMN */
     .name                      = "reenable_zk_elgamal_proof_program",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, formalize_loaded_transaction_data_size)>>3,
     .id                        = {"\xbb\xe3\x22\x72\x50\x76\x2f\xe7\x43\x75\x35\x06\xc2\x69\x5a\x06\x5f\x21\xef\x12\xcf\x24\x33\x0e\x1a\xa7\x37\xbe\x4b\xb8\xee\xb3"},
@@ -1672,15 +1674,21 @@ fd_feature_id_t const ids[] = {
     .name                      = "raise_account_cu_limit",
     .cleaned_up                = 0 },
 
-  { .index                     = offsetof(fd_features_t, stricter_abi_and_runtime_constraints)>>3,
-    .id                        = {"\x0c\xdc\xaa\x60\x4d\xd8\x04\x50\x19\x27\xdb\xa5\x2d\x2a\x39\xcf\x51\xdb\xc9\xae\xd8\x06\xc9\xda\x36\x46\xb8\xf2\x41\x40\x59\xed"},
-                                 /* sD3uVpaavUXQRvDXrMFCQ2CqLqnbz5mK8ttWNXbtD3r */
-    .name                      = "stricter_abi_and_runtime_constraints",
+  { .index                     = offsetof(fd_features_t, syscall_parameter_address_restrictions)>>3,
+    .id                        = {"\xc4\x4c\x41\x01\x70\xb2\xbf\x14\xb6\xdf\xfe\x7b\x58\x42\x2c\xee\x13\x69\x3b\x78\x92\x2a\x58\x3e\xc1\x18\xee\xb8\x36\x70\x77\xb8"},
+                                 /* EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF */
+    .name                      = "syscall_parameter_address_restrictions",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, virtual_address_space_adjustments)>>3,
+    .id                        = {"\x01\xa9\xeb\x3a\x1c\x9f\x2f\xce\xe8\xc0\xcd\xb8\xed\x0e\x11\x05\xc7\x11\xe8\x8a\xf9\xbc\x53\x87\x31\xd1\x6f\x54\xa0\x7d\x7d\x2f"},
+                                 /* 7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz */
+    .name                      = "virtual_address_space_adjustments",
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, account_data_direct_mapping)>>3,
-    .id                        = {"\xb5\xfa\x43\x42\x67\x5e\x0c\x52\x3d\x10\xad\xbb\x78\x84\x1f\x16\x92\x1f\xf2\xb6\xe7\xcd\xe9\x60\x60\x84\x9a\xfd\x12\xb1\x01\x39"},
-                                 /* DFN8MyKpQqFW31qczcahgnnxcAHQc6P94wtTEX5EP1RA */
+    .id                        = {"\xa9\x99\x77\xe6\xb5\x9b\x63\x35\x90\xe7\x38\x63\x73\x13\x44\x73\xb6\x2c\x57\xe4\xcb\x61\x87\x3e\xae\xb4\xfd\xe3\xbc\x22\x14\x93"},
+                                 /* CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE */
     .name                      = "account_data_direct_mapping",
     .cleaned_up                = 0 },
 
@@ -1688,14 +1696,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x08\xe9\x40\xc0\xc3\x42\x8a\xf0\xbd\x9d\x09\x80\xa6\xce\x78\xcb\x1c\xc6\x57\x4e\x44\xfe\xf5\x52\xe7\x0c\x40\x70\xe9\x51\xec\x74"},
                                  /* bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm */
     .name                      = "fix_alt_bn128_pairing_length_check",
-    .cleaned_up                = 0,
+    .cleaned_up                = 1,
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, poseidon_enforce_padding)>>3,
     .id                        = {"\x0c\x3e\xd9\x52\x45\xee\x7b\x8c\x8a\xaf\x88\xa2\x5e\x37\x29\x76\x1d\xa5\xfb\xfa\x47\x48\xfd\xd4\x5a\xff\x2b\xb8\xfa\xd3\x1c\x98"},
                                  /* poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb */
     .name                      = "poseidon_enforce_padding",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, relax_intrabatch_account_locks)>>3,
     .id                        = {"\x34\x2b\x0f\xf3\x77\x8f\xe3\x99\x3b\x5a\xc5\xab\x87\xb5\x93\xeb\xbe\x0c\xcc\xdd\x77\x66\x11\x5d\x6c\xfc\xa1\x1e\x9b\x0e\x0f\xac"},
@@ -1745,25 +1754,29 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x08\xe8\xaa\x0c\xd9\xdd\x0d\x64\x43\xd8\xe2\x10\x78\x48\x9b\x29\x9a\xaa\x18\x6b\x5d\xbd\x70\xca\x27\xd8\x37\x59\x39\x2a\x03\x56"},
                                  /* bn2oPgpkzQPT3tohMaAsMVGjhDmmDa4jCaVPqCFmtxM */
     .name                      = "alt_bn128_little_endian",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_bls12_381_syscall)>>3,
     .id                        = {"\x08\xb6\xbc\x4b\x2f\xee\x11\x9e\x1b\x44\xd1\x6a\x49\x13\x1a\x27\xbc\xe5\x5e\xb4\xe3\xae\x15\x5b\x28\x0a\x77\x38\x47\xda\x4b\xdd"},
                                  /* b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ */
     .name                      = "enable_bls12_381_syscall",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_alt_bn128_g2_syscalls)>>3,
     .id                        = {"\x08\xe8\xa4\x89\x6d\x65\x0f\x01\xb3\xde\x0b\xfd\x81\xec\x55\x33\x87\x9d\x4f\x9f\xd5\x02\xb6\xa2\x50\xc6\xb9\xc5\x6e\x10\xc5\xe6"},
                                  /* bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH */
     .name                      = "enable_alt_bn128_g2_syscalls",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, switch_to_chacha8_turbine)>>3,
     .id                        = {"\xa7\xaf\x63\xf3\xce\xb1\x12\xfc\xc9\xd8\x71\xc1\x4e\x8f\x17\x9e\xd0\x6f\x9b\x70\xf8\x41\x1a\x92\x9e\x48\x46\xb5\x2a\x0e\x98\x0c"},
                                  /* CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB */
     .name                      = "switch_to_chacha8_turbine",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, bls_pubkey_management_in_vote_account)>>3,
     .id                        = {"\x1c\x6c\x8a\x1b\xb0\xb6\x27\x37\xd6\xc4\x05\x8b\x2f\x29\x96\x0b\x09\x31\xa0\xd5\xcd\x5f\x9d\x1a\xbb\x2a\xc0\x3a\xc6\x9f\xb6\x36"},
@@ -1796,8 +1809,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, discard_unexpected_data_complete_shreds)>>3,
-    .id                        = {"\x6d\x4f\x66\x60\x03\xae\x08\x49\xbd\xeb\xc0\x85\x5b\xa1\x4d\x71\x09\xb7\x24\x73\x65\xd1\xee\x41\x73\x7b\x8f\xb1\x5e\x5e\x9f\x89"},
-                                 /* 8MhfKhoZEoiySpVe248bDkisyEcBA7JQLyUS94xoTSqN */
+    .id                        = {"\x0c\xfd\x3c\x8a\xf9\xae\x9b\x6d\x53\x7c\x34\xf6\x80\x27\x5a\x20\x29\x32\x9c\x18\xfc\x21\x8d\xed\x15\x85\x1d\x7b\xce\x0d\xbb\x93"},
+                                 /* shredXP8xLjJWp1AWh3gAFsFn4GSH1vohhCMDHw5koU */
     .name                      = "discard_unexpected_data_complete_shreds",
     .cleaned_up                = 0 },
 
@@ -1805,6 +1818,24 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x57\x32\x9a\x9e\x7c\x9b\x2b\x63\xa6\xee\x98\xb8\x4a\x21\x4e\xb2\x16\xce\x9d\x43\x32\xb5\x8c\x1c\x9c\xa4\x56\x8b\xde\x3b\xa9\x14"},
                                  /* 6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331 */
     .name                      = "create_account_allow_prefund",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, replace_spl_token_with_p_token)>>3,
+    .id                        = {"\x0c\x44\xe0\x0e\x03\x6f\xc8\xa4\xc4\x7e\xdb\x02\xb0\x8d\xff\x3b\xc2\x2f\x04\x5a\x7d\x01\xa1\x00\x07\x1f\x85\x5f\x21\x09\x7a\x6a"},
+                                 /* ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP */
+    .name                      = "replace_spl_token_with_p_token",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, delay_commission_updates)>>3,
+    .id                        = {"\x5a\x97\x0f\x6d\x79\x4d\x43\xf5\x93\x88\x4b\xb9\xe2\xf1\x18\x5f\xa3\x02\x70\xbe\x4c\xce\x7e\x21\x52\xc1\xb0\xad\x2f\xf6\xcc\xd0"},
+                                 /* 76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B */
+    .name                      = "delay_commission_updates",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, validate_chained_block_id)>>3,
+    .id                        = {"\x0d\xbc\x3b\x61\x39\xea\x5b\x7f\xaf\xf2\x76\x43\x0d\x88\xc7\xa7\xb1\x87\x26\x38\x0f\xf1\x91\xe7\xf6\x4a\xdb\xbf\x52\xf2\x1b\x26"},
+                                 /* vcmrbYbiMVKaq1snKP6eCacNDcr6qZvpCNUjmk6gxvZ */
+    .name                      = "validate_chained_block_id",
     .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
@@ -2032,7 +2063,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_206 0xe5937c9dd5edd306UL, .val = &ids[206]
 #define MAP_PERFECT_207 0xefc2cb9c2b40f3ffUL, .val = &ids[207]
 #define MAP_PERFECT_208 0x408e6a8a269a6ad1UL, .val = &ids[208]
-#define MAP_PERFECT_209 0x66ee381e7be8bc9bUL, .val = &ids[209]
+#define MAP_PERFECT_209 0x0f1fc5fdd7907244UL, .val = &ids[209]
 #define MAP_PERFECT_210 0xf46b1f18665c4236UL, .val = &ids[210]
 #define MAP_PERFECT_211 0xa9a90df1904da912UL, .val = &ids[211]
 #define MAP_PERFECT_212 0x2434a84be5b684a5UL, .val = &ids[212]
@@ -2066,28 +2097,32 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_240 0x3711b30f40730240UL, .val = &ids[240]
 #define MAP_PERFECT_241 0xc1309d1b0ae3e80cUL, .val = &ids[241]
 #define MAP_PERFECT_242 0x5c64cc1a9be3790aUL, .val = &ids[242]
-#define MAP_PERFECT_243 0x5004d84d60aadc0cUL, .val = &ids[243]
-#define MAP_PERFECT_244 0x520c5e674243fab5UL, .val = &ids[244]
-#define MAP_PERFECT_245 0xf08a42c3c040e908UL, .val = &ids[245]
-#define MAP_PERFECT_246 0x8c7bee4552d93e0cUL, .val = &ids[246]
-#define MAP_PERFECT_247 0x99e38f77f30f2b34UL, .val = &ids[247]
-#define MAP_PERFECT_248 0x7c4802b8ba3fa849UL, .val = &ids[248]
-#define MAP_PERFECT_249 0xab2a2311ca83eb09UL, .val = &ids[249]
-#define MAP_PERFECT_250 0x55792888a8cf31efUL, .val = &ids[250]
-#define MAP_PERFECT_251 0xf4792febab30b80cUL, .val = &ids[251]
-#define MAP_PERFECT_252 0xdab5b6a991a03e4bUL, .val = &ids[252]
-#define MAP_PERFECT_253 0x8921a3abf23afaecUL, .val = &ids[253]
-#define MAP_PERFECT_254 0x640dddd90caae808UL, .val = &ids[254]
-#define MAP_PERFECT_255 0x9e11ee2f4bbcb608UL, .val = &ids[255]
-#define MAP_PERFECT_256 0x010f656d89a4e808UL, .val = &ids[256]
-#define MAP_PERFECT_257 0xfc12b1cef363afa7UL, .val = &ids[257]
-#define MAP_PERFECT_258 0x3727b6b01b8a6c1cUL, .val = &ids[258]
-#define MAP_PERFECT_259 0xa5ce8f931961b80cUL, .val = &ids[259]
-#define MAP_PERFECT_260 0xf55c421c9eccc012UL, .val = &ids[260]
-#define MAP_PERFECT_261 0x7428565ab3b6d152UL, .val = &ids[261]
-#define MAP_PERFECT_262 0x8b0786cd93f63607UL, .val = &ids[262]
-#define MAP_PERFECT_263 0x4908ae0360664f6dUL, .val = &ids[263]
-#define MAP_PERFECT_264 0x632b9b7c9e9a3257UL, .val = &ids[264]
+#define MAP_PERFECT_243 0x14bfb27001414cc4UL, .val = &ids[243]
+#define MAP_PERFECT_244 0xce2f9f1c3aeba901UL, .val = &ids[244]
+#define MAP_PERFECT_245 0x35639bb5e67799a9UL, .val = &ids[245]
+#define MAP_PERFECT_246 0xf08a42c3c040e908UL, .val = &ids[246]
+#define MAP_PERFECT_247 0x8c7bee4552d93e0cUL, .val = &ids[247]
+#define MAP_PERFECT_248 0x99e38f77f30f2b34UL, .val = &ids[248]
+#define MAP_PERFECT_249 0x7c4802b8ba3fa849UL, .val = &ids[249]
+#define MAP_PERFECT_250 0xab2a2311ca83eb09UL, .val = &ids[250]
+#define MAP_PERFECT_251 0x55792888a8cf31efUL, .val = &ids[251]
+#define MAP_PERFECT_252 0xf4792febab30b80cUL, .val = &ids[252]
+#define MAP_PERFECT_253 0xdab5b6a991a03e4bUL, .val = &ids[253]
+#define MAP_PERFECT_254 0x8921a3abf23afaecUL, .val = &ids[254]
+#define MAP_PERFECT_255 0x640dddd90caae808UL, .val = &ids[255]
+#define MAP_PERFECT_256 0x9e11ee2f4bbcb608UL, .val = &ids[256]
+#define MAP_PERFECT_257 0x010f656d89a4e808UL, .val = &ids[257]
+#define MAP_PERFECT_258 0xfc12b1cef363afa7UL, .val = &ids[258]
+#define MAP_PERFECT_259 0x3727b6b01b8a6c1cUL, .val = &ids[259]
+#define MAP_PERFECT_260 0xa5ce8f931961b80cUL, .val = &ids[260]
+#define MAP_PERFECT_261 0xf55c421c9eccc012UL, .val = &ids[261]
+#define MAP_PERFECT_262 0x7428565ab3b6d152UL, .val = &ids[262]
+#define MAP_PERFECT_263 0x8b0786cd93f63607UL, .val = &ids[263]
+#define MAP_PERFECT_264 0x6d9baef98a3cfd0cUL, .val = &ids[264]
+#define MAP_PERFECT_265 0x632b9b7c9e9a3257UL, .val = &ids[265]
+#define MAP_PERFECT_266 0xa4c86f030ee0440cUL, .val = &ids[266]
+#define MAP_PERFECT_267 0xf5434d796d0f975aUL, .val = &ids[267]
+#define MAP_PERFECT_268 0x7f5bea39613bbc0dUL, .val = &ids[268]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2341,26 +2376,30 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account         
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==240UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==241UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit                                  )>>3==242UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_abi_and_runtime_constraints                    )>>3==243UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==244UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==245UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==246UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==247UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, provide_instruction_data_offset_in_vm_r2                )>>3==248UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_fixed_fec_set                                   )>>3==249UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, increase_cpi_account_info_limit                         )>>3==250UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_rent_exemption_threshold                      )>>3==251UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, static_instruction_limit                                )>>3==252UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==253UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==254UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==255UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==256UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==257UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==258UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, relax_programdata_account_check_migration               )>>3==259UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model                      )>>3==260UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==261UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==262UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, discard_unexpected_data_complete_shreds                 )>>3==263UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, create_account_allow_prefund                            )>>3==264UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, syscall_parameter_address_restrictions                  )>>3==243UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, virtual_address_space_adjustments                       )>>3==244UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==245UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==246UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==247UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==248UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, provide_instruction_data_offset_in_vm_r2                )>>3==249UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_fixed_fec_set                                   )>>3==250UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, increase_cpi_account_info_limit                         )>>3==251UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_rent_exemption_threshold                      )>>3==252UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, static_instruction_limit                                )>>3==253UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==254UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==255UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==256UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==257UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==258UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==259UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_programdata_account_check_migration               )>>3==260UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model                      )>>3==261UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==262UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==263UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, discard_unexpected_data_complete_shreds                 )>>3==264UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, create_account_allow_prefund                            )>>3==265UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, replace_spl_token_with_p_token                          )>>3==266UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, delay_commission_updates                                )>>3==267UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id                               )>>3==268UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

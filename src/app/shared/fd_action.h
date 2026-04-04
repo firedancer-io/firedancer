@@ -46,7 +46,6 @@ union fdctl_args {
     int  no_configure;
     int  no_init_workspaces;
     int  no_agave;
-    char debug_tile[ 32 ];
   } dev;
 
   struct {
@@ -92,7 +91,6 @@ union fdctl_args {
 
     char         manifest_path[256UL];
     char         iptable_path[256UL];
-    ulong        end_slot;
     ulong        slot;
     int          sort_by_slot;
   } repair;

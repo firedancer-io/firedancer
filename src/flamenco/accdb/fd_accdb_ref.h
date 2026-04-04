@@ -14,6 +14,7 @@
 
 #include "fd_accdb_base.h"
 #include "../fd_flamenco_base.h"
+#include "../types/fd_types_custom.h"
 
 /* fd_accdb_ref_t is an opaque account database handle. */
 
@@ -56,6 +57,26 @@ fd_accdb_ro_init_nodb( fd_accdb_ro_t *           ro,
   return ro;
 }
 
+/* fd_accdb_ro_init_nodb_oob creates a read-only account reference to an
+   account that is not managed by an account database, where the account
+   data is stored out-of-band (i.e. not contiguous at meta+1).  The
+   data pointer is stored in user_data2 and returned by
+   fd_accdb_ref_data_const. */
+
+static inline fd_accdb_ro_t *
+fd_accdb_ro_init_nodb_oob( fd_accdb_ro_t *           ro,
+                           void const *              address,
+                           fd_account_meta_t const * meta,
+                           void const *              data ) {
+  ro->meta = meta;
+  ro->ref->user_data  = 0UL;
+  ro->ref->user_data2 = (ulong)data;
+  memcpy( ro->ref->address, address, 32UL );
+  ro->ref->accdb_type = FD_ACCDB_TYPE_NONE;
+  ro->ref->ref_type   = FD_ACCDB_REF_RO;
+  return ro;
+}
+
 /* fd_accdb_ro_init_empty creates a read-only account reference to a
    non-existent account. */
 
@@ -80,6 +101,8 @@ fd_accdb_ref_address( fd_accdb_ro_t const * ro ) {
 
 static inline void const *
 fd_accdb_ref_data_const( fd_accdb_ro_t const * ro ) {
+  if( FD_UNLIKELY( ro->ref->user_data2 && ro->ref->accdb_type==FD_ACCDB_TYPE_NONE ) )
+    return (void const *)ro->ref->user_data2;
   return (void *)( ro->meta+1 );
 }
 
@@ -93,9 +116,9 @@ fd_accdb_ref_lamports( fd_accdb_ro_t const * ro ) {
   return ro->meta->lamports;
 }
 
-static inline void const *
+static inline fd_pubkey_t const *
 fd_accdb_ref_owner( fd_accdb_ro_t const * ro ) {
-  return ro->meta->owner;
+  return fd_type_pun_const( ro->meta->owner );
 }
 
 static inline uint
@@ -140,7 +163,8 @@ fd_accdb_rw_init_nodb( fd_accdb_rw_t *           rw,
                        fd_account_meta_t const * meta,
                        ulong                     data_max ) {
   rw->meta = (fd_account_meta_t *)meta;
-  rw->ref->user_data = data_max;
+  rw->ref->user_data  = data_max;
+  rw->ref->user_data2 = 0UL;
   memcpy( rw->ref->address, address, 32UL );
   rw->ref->accdb_type = FD_ACCDB_TYPE_NONE;
   return rw;
@@ -151,6 +175,8 @@ fd_accdb_rw_init_nodb( fd_accdb_rw_t *           rw,
 
 static inline void *
 fd_accdb_ref_data( fd_accdb_rw_t * rw ) {
+  if( FD_UNLIKELY( rw->ref->user_data2 && rw->ref->accdb_type==FD_ACCDB_TYPE_NONE ) )
+    return (void *)rw->ref->user_data2;
   return (void *)( rw->meta+1 );
 }
 
@@ -176,6 +202,19 @@ static inline void
 fd_accdb_ref_slot_set( fd_accdb_rw_t * rw,
                        ulong           slot ) {
   rw->meta->slot = slot;
+}
+
+/* Upcast */
+
+static inline fd_accdb_ro_t *
+fd_accdb_ref_ro( fd_accdb_ref_t * ref ) {
+  return fd_type_pun( ref );
+}
+
+static inline fd_accdb_rw_t *
+fd_accdb_ref_rw( fd_accdb_ref_t * ref ) {
+  FD_TEST( ref->ref_type==FD_ACCDB_REF_RW );
+  return fd_type_pun( ref );
 }
 
 FD_PROTOTYPES_END

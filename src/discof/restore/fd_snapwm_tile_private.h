@@ -24,7 +24,6 @@
 #define FD_SNAPWM_DUP_META_BATCH_SZ       (FD_SNAPWM_DUP_META_BATCH_CNT_MAX*FD_SNAPWM_DUP_META_SZ)
 
 #define FD_SNAPWM_DUP_BATCH_CREDIT_MIN  (1UL)
-#define FD_SNAPWM_DUP_LTHASH_CREDIT_MIN ((sizeof(fd_ssctrl_hash_result_t)+(ctx->hash_out.mtu-1))/ctx->hash_out.mtu)
 
 struct fd_snapwm_out_link {
   ulong         idx;
@@ -152,7 +151,10 @@ fd_snapwm_vinyl_reset( fd_snapwm_tile_t * ctx );
 /* fd_snapwm_vinyl_txn_begin starts a transactional burst write.
    Assumes vinyl uses the io_mm backend.  The write can then either be
    committed or cancelled.  There is no practical limit on the size of
-   this burst. */
+   this burst.  Vinyl txn_{begin,commit,cancel} cannot be invoked when
+   lthash verification is enabled, since a recovery mechanism on failed
+   snapshots becomes computationally expensive at runtime.  Further
+   details can be found in the recovery code inside the snapwm tile. */
 
 void
 fd_snapwm_vinyl_txn_begin( fd_snapwm_tile_t * ctx );
@@ -162,7 +164,7 @@ fd_snapwm_vinyl_txn_begin( fd_snapwm_tile_t * ctx );
    written since txn_begin was called and updates the vinyl_meta index. */
 
 void
-fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx, fd_stem_context_t * stem );
+fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx );
 
 /* fd_snapwm_vinyl_txn_cancel abandons a transactional burst write.
    Assumes vinyl uses the io_mm backend.  Reverts the bstream state to
@@ -243,36 +245,6 @@ fd_snapwm_vinyl_duplicate_accounts_batch_append( fd_snapwm_tile_t *        ctx,
 int
 fd_snapwm_vinyl_duplicate_accounts_batch_fini( fd_snapwm_tile_t *  ctx,
                                                fd_stem_context_t * stem );
-
-/* fd_snapwm_vinyl_duplicate_accounts_lthash_{init,append,fini} handle
-   duplicate accounts lthash local calculation when lthash computation
-   is enabled.  This is typically only needed when the account is an
-   "old" duplicate (meaning that it corresponds to an older slot than
-   what is currently in the database).  _fini is responsible for
-   sending the message downstream.
-
-   Typical usage:
-     fd_snapwm_vinyl_duplicate_accounts_lthash_init( ctx, stem );
-     for(...) {
-       ...
-       fd_snapwm_vinyl_duplicate_accounts_lthash_append( ctx, pair );
-     }
-     fd_snapwm_vinyl_duplicate_accounts_lthash_fini( ctx, stem );
-
-   They all return 1 on success, and 0 otherwise.
-
-   IMPORTANT: the fseq check happens only inside fini, since append
-   only operates on internal variables.  Therefore, it is safe to have
-   fd_stem_publish in between init and fini. */
-int
-fd_snapwm_vinyl_duplicate_accounts_lthash_init( fd_snapwm_tile_t *  ctx,
-                                                fd_stem_context_t * stem );
-int
-fd_snapwm_vinyl_duplicate_accounts_lthash_append( fd_snapwm_tile_t * ctx,
-                                                  uchar *            pair );
-int
-fd_snapwm_vinyl_duplicate_accounts_lthash_fini( fd_snapwm_tile_t *  ctx,
-                                                fd_stem_context_t * stem );
 
 /* fd_snapwm_vinyl_{init,update}_admin provide init and update helper
    functions on the vinyl admin object.  do_rwlock is a flag indicating
