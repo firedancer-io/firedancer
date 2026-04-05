@@ -1,7 +1,6 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_genesis_parse_h
-#define HEADER_fd_src_flamenco_runtime_fd_genesis_parse_h
+#ifndef HEADER_fd_src_flamenco_genesis_fd_genesis_parse_h
+#define HEADER_fd_src_flamenco_genesis_fd_genesis_parse_h
 
-#include "../../util/fd_util_base.h"
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types_custom.h"
 
@@ -137,4 +136,4 @@ fd_genesis_builtin( fd_genesis_t const *   genesis,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_fd_genesis_parse_h */
+#endif /* HEADER_fd_src_flamenco_genesis_fd_genesis_parse_h */

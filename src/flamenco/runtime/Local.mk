@@ -45,9 +45,6 @@ $(call add-objs,fd_borrowed_account,fd_flamenco)
 $(call add-hdrs,fd_acc_pool.h)
 $(call add-objs,fd_acc_pool,fd_flamenco)
 
-$(call add-hdrs,fd_genesis_parse.h)
-$(call add-objs,fd_genesis_parse,fd_flamenco)
-
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco fd_funk fd_ballet fd_util)
@@ -107,6 +104,5 @@ ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_HOSTED
 # TODO: Flakes
 # $(call run-unit-test,test_txncache)
-$(call make-fuzz-test,fuzz_genesis_parse,fuzz_genesis_parse,fd_flamenco fd_ballet fd_util)
 endif
 endif

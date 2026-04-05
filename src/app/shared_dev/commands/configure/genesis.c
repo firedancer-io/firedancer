@@ -8,7 +8,7 @@
 #include "../../../../discof/genesis/genesis_hash.h"
 #include "../../../../flamenco/features/fd_features.h"
 #include "../../../../flamenco/genesis/fd_genesis_create.h"
-#include "../../../../flamenco/runtime/fd_genesis_parse.h"
+#include "../../../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_clock.h"
 #include <stdio.h>
 #include <unistd.h>
