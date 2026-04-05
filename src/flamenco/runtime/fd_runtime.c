@@ -9,7 +9,7 @@
 #include "fd_runtime_stack.h"
 #include "fd_acc_pool.h"
 #include "fd_accdb_svm.h"
-#include "fd_genesis_parse.h"
+#include "../genesis/fd_genesis_parse.h"
 #include "fd_executor.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"

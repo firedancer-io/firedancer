@@ -1,6 +1,6 @@
 #include "fd_genesis_create.h"
 #include "../types/fd_types.h"
-#include "../runtime/fd_genesis_parse.h"
+#include "fd_genesis_parse.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../stakes/fd_stake_types.h"
