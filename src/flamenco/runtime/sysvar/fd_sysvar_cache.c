@@ -229,6 +229,8 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
                      pos->name, obj_sz, pos->obj_max ));
     return ENOMEM;
   }
+
+  fd_memset( (uchar *)cache+pos->obj_off, 0, pos->obj_max );
   pos->decode( (uchar *)cache+pos->obj_off, &ctx );
   desc->flags |= FD_SYSVAR_FLAG_VALID;
 
