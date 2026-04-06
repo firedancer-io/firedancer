@@ -18,9 +18,6 @@ PB_BIND(FD_EXEC_TEST_EPOCH_CREDIT, fd_exec_test_epoch_credit_t, AUTO)
 PB_BIND(FD_EXEC_TEST_PREV_VOTE_ACCOUNT, fd_exec_test_prev_vote_account_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_STAKE_DELEGATION, fd_exec_test_stake_delegation_t, AUTO)
-
-
 PB_BIND(FD_EXEC_TEST_BLOCK_BANK, fd_exec_test_block_bank_t, 2)
 
 
