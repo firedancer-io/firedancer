@@ -412,10 +412,14 @@ test_update_voters( void ) {
 }
 
 int
-main( void ) {
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
   test_shred_insert();
   test_chunk_insert();
   test_proof_verified();
   test_update_voters();
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }
