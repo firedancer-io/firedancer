@@ -490,11 +490,6 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     };
     if( params->clock ) clock = *params->clock;
 
-    /* Epoch schedule */
-    // uchar esched_enc[ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ];
-    // fd_bincode_encode_ctx_t ctx = { .data = esched_enc, .dataend = esched_enc + sizeof(esched_enc) };
-    // FD_TEST( !fd_epoch_schedule_encode( &bank->f.epoch_schedule, &ctx ) );
-
     /* Rent */
     uchar rent_enc[ FD_SYSVAR_RENT_BINCODE_SZ ];
     fd_bincode_encode_ctx_t ctx = (fd_bincode_encode_ctx_t){ .data = rent_enc, .dataend = rent_enc + sizeof(rent_enc) };
