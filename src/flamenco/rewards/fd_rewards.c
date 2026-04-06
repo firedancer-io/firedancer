@@ -10,7 +10,8 @@
 #include "../runtime/sysvar/fd_sysvar_cache.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
-#include "../runtime/fd_runtime.h"
+#include "../runtime/fd_accdb_svm.h"
+#include "../runtime/fd_hashes.h"
 #include "../accdb/fd_accdb_sync.h"
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
@@ -758,20 +759,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     /* Credit rewards to vote account (creating a new system account if
        it does not exist) */
     fd_pubkey_t const * vote_pubkey = &ele->pubkey;
-    fd_accdb_rw_t rw[1];
-    fd_accdb_open_rw( accdb, rw, xid, vote_pubkey, 0UL, FD_ACCDB_FLAG_CREATE );
-    fd_lthash_value_t prev_hash[1];
-    fd_hashes_account_lthash( vote_pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
-    ulong acc_lamports = fd_accdb_ref_lamports( rw->ro );
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( acc_lamports, rewards, &acc_lamports ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( vote_pubkey->key, addr_b58 );
-      FD_LOG_EMERG(( "integer overflow while crediting %lu vote reward lamports to %s (previous balance %lu)",
-                     rewards, addr_b58, fd_accdb_ref_lamports( rw->ro ) ));
-    }
-    fd_accdb_ref_lamports_set( rw, acc_lamports );
-    fd_hashes_update_lthash( vote_pubkey, rw->meta, prev_hash,bank, capture_ctx );
-    fd_accdb_close_rw( accdb, rw );
-
+    fd_accdb_svm_credit( accdb, bank, xid, capture_ctx, vote_pubkey, rewards );
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
   }
 
@@ -783,8 +771,6 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   if( FD_UNLIKELY( rewards_calc_result->validator_rewards<total_rewards ) ) {
     FD_LOG_CRIT(( "Unexpected rewards calculation result" ));
   }
-
-  bank->f.capitalization = bank->f.capitalization + distributed_rewards;
 
   runtime_stack->stakes.distributed_rewards = distributed_rewards;
   runtime_stack->stakes.total_rewards       = rewards_calc_result->validator_rewards;
@@ -806,14 +792,15 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
     return 1;  /* account does not exist */
   }
 
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( stake_pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
   fd_stake_state_t const * stake_state_orig = fd_stakes_get_state( rw->meta );
   if( !stake_state_orig || stake_state_orig->stake_type != FD_STAKE_STATE_STAKE ) {
     fd_accdb_close_rw( accdb, rw );
     return 1;  /* not a valid stake account */
   }
   fd_stake_state_t stake_state[1] = { *stake_state_orig };
+
+  fd_lthash_value_t prev_hash[1];
+  fd_hashes_account_lthash( stake_pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
 
   /* Credit rewards to stake account */
   ulong acc_lamports = fd_accdb_ref_lamports( rw->ro );

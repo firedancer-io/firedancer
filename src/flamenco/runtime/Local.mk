@@ -1,4 +1,6 @@
 $(call add-hdrs,fd_acc_mgr.h)
+$(call add-hdrs,fd_accdb_svm.h)
+$(call add-objs,fd_accdb_svm,fd_flamenco)
 
 $(call add-hdrs,fd_blockhashes.h)
 $(call add-objs,fd_blockhashes,fd_flamenco)
@@ -82,6 +84,8 @@ $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delt
 $(call run-unit-test,test_accounts_resize_delta)
 $(call make-unit-test,test_settle_fees,tests/test_settle_fees,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_settle_fees)
+$(call make-unit-test,test_fee_calculator,tests/test_fee_calculator,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
+$(call run-unit-test,test_fee_calculator)
 $(call make-unit-test,test_feature_activation,tests/test_feature_activation,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_feature_activation)
 endif

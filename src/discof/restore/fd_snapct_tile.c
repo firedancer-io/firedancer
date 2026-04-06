@@ -357,9 +357,10 @@ static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
                  fd_topo_tile_t const * tile ) {
   ulong cnt = 1UL +                             /* stderr */
-              1UL;                              /* logfile */
+              1UL +                             /* logfile */
+              1UL;                              /* boot control pipe */
   if( download_enabled( tile ) ) {
-    cnt +=    1UL +                             /* ssping socket */
+    cnt +=    FD_SSPING_FD_CNT +                /* ssping sockets */
               2UL +                             /* dirfd + full snapshot download temp fd */
               tile->snapct.sources.servers_cnt; /* http resolver peer full sockets */
     if( tile->snapct.incremental_snapshots ) {
@@ -381,8 +382,15 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t), sizeof(fd_snapct_tile_t) );
 
-  int ping_fd = download_enabled( tile ) ? fd_ssping_get_sockfd( ctx->ssping ) : -1;
-  populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)ping_fd );
+  int min_ping_fd = INT_MAX;
+  int max_ping_fd = 0;
+  if( download_enabled( tile ) ) {
+    fd_ssping_sockfd_range_t fd_range = fd_ssping_get_sockfds( ctx->ssping );
+    min_ping_fd = fd_range.min_fd;
+    max_ping_fd = fd_range.max_fd;
+  }
+
+  populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)min_ping_fd, (uint)max_ping_fd );
   return sock_filter_policy_fd_snapct_tile_instr_cnt;
 }
 
@@ -391,7 +399,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu is too small", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
@@ -406,7 +414,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=ctx->local_out.dir_fd ) )                  out_fds[ out_cnt++ ] = ctx->local_out.dir_fd;
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) )        out_fds[ out_cnt++ ] = ctx->local_out.full_snapshot_fd;
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) out_fds[ out_cnt++ ] = ctx->local_out.incremental_snapshot_fd;
-  if( FD_LIKELY( download_enabled( tile ) ) )                   out_fds[ out_cnt++ ] = fd_ssping_get_sockfd( ctx->ssping );
+  if( FD_LIKELY( download_enabled( tile ) ) ) {
+    fd_ssping_sockfd_range_t fd_range = fd_ssping_get_sockfds( ctx->ssping );
+    ulong needed_fd_cnt = out_cnt+(ulong)(fd_range.max_fd - fd_range.min_fd + 1);
+    if( FD_UNLIKELY( needed_fd_cnt>out_fds_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu must be at least %lu", out_fds_cnt, needed_fd_cnt ));
+    for( int i=fd_range.min_fd; i<=fd_range.max_fd; i++ ) out_fds[ out_cnt++ ] = i;
+  }
 
   return out_cnt;
 }
@@ -443,6 +456,8 @@ init_load( fd_snapct_tile_t *  ctx,
       FD_TEST( fd_cstr_printf_check( ctx->http_incr_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", ctx->peer.full_slot, ctx->peer.incr_slot, encoded_hash ) );
     }
 
+    out->is_https = 0; /* if not found in the config list, it's not https */
+    out->hostname[0] = '\0'; /* .. and it doesn't have a hostname either. */
     for( ulong i=0UL; i<SERVER_PEERS_MAX; i++ ) {
       if( FD_UNLIKELY( ctx->peer.addr.l==ctx->config.sources.servers[ i ].addr.l ) ) {
         fd_cstr_ncpy( out->hostname, ctx->config.sources.servers[ i ].hostname, sizeof(out->hostname) );

@@ -41,6 +41,12 @@ fd_lthash_is_zero( fd_lthash_value_t const * r ) {
   return 1;
 }
 
+static inline int
+fd_lthash_eq( fd_lthash_value_t const * a,
+              fd_lthash_value_t const * b ) {
+  return fd_memeq( a->bytes, b->bytes, FD_LTHASH_LEN_BYTES );
+}
+
 static inline fd_lthash_value_t *
 fd_lthash_add( fd_lthash_value_t * restrict       r,
                fd_lthash_value_t const * restrict a ) {
