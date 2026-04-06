@@ -59,7 +59,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_epoch_schedule_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT ) );
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -69,7 +69,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE,
-    .sz       = sizeof(fd_epoch_schedule_t),
+    .sz       = FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT,
     .is_slice = 0,
   };
 
@@ -110,7 +110,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_rent_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_RENT_FOOTPRINT ) );
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -120,7 +120,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_RENT,
-    .sz       = sizeof(fd_rent_t),
+    .sz       = FD_SYSVAR_RENT_FOOTPRINT,
     .is_slice = 0,
   };
 
