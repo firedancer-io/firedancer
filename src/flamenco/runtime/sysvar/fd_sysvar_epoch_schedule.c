@@ -3,6 +3,17 @@
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_sync.h"
 
+int
+validate( fd_epoch_schedule_t const * schedule ) {
+  /* warmup is encoded as a bool and stored as a uchar.  The only
+     allowed values are 0 and 1. */
+  if( FD_UNLIKELY( schedule->warmup != !!schedule->warmup ) ) {
+    return 1;
+  }
+
+  return 0;
+}
+
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
                           ulong                 epoch_len,
@@ -60,6 +71,12 @@ fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
   }
 
   memcpy( out, fd_accdb_ref_data_const( ro ), sizeof(fd_epoch_schedule_t) );
+
+  if( FD_UNLIKELY( validate( out ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
+    return NULL;
+  }
+
   fd_accdb_close_ro( accdb, ro );
   return out;
 }
@@ -132,7 +149,6 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
     ulong epoch_len = 1UL<<( epoch + (ulong)fd_uint_find_lsb( FD_EPOCH_LEN_MIN ) );
           offset    = slot - ( epoch_len - FD_EPOCH_LEN_MIN );
   } else {
-    // FD_LOG_WARNING(("First %lu slots per epoch %lu", schedule->first_normal_slot, schedule->slots_per_epoch));
     if( FD_UNLIKELY( schedule->slots_per_epoch == 0UL ) ) {
       FD_LOG_WARNING(( "zero slots_per_epoch returning first_normal_epoch %lu", schedule->first_normal_epoch ));
       if( out_offset_opt ) *out_offset_opt = 0UL;

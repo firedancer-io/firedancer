@@ -86,7 +86,7 @@ typedef struct fd_rent fd_rent_t;
 struct __attribute__((packed)) fd_epoch_schedule {
   ulong slots_per_epoch;
   ulong leader_schedule_slot_offset;
-  uchar warmup;
+  uchar warmup; /* encoded as a bool*/
   ulong first_normal_epoch;
   ulong first_normal_slot;
 };
