@@ -318,20 +318,6 @@ calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   
   FD_LOG_DEBUG(( "Rewards %lu, Rate %.16f, Duration %.18f Capitalization %lu Slot in year %.16f", rewards->validator_rewards, rewards->validator_rate, rewards->prev_epoch_duration_in_years, prev_epoch_capitalization, slot_in_year ));
 }
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/lib.rs#L29 */
-static ulong
-get_minimum_stake_delegation( fd_bank_t * bank ) {
-  if( !FD_FEATURE_ACTIVE_BANK( bank, stake_minimum_delegation_for_rewards ) ) {
-    return 0UL;
-  }
-
-  if( FD_FEATURE_ACTIVE_BANK( bank, stake_raise_minimum_delegation_to_1_sol ) ) {
-    return LAMPORTS_PER_SOL;
-  }
-
-  return 1;
-}
-
 /* Calculate the number of blocks required to distribute rewards to all stake accounts.
 
     https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L214
@@ -360,8 +346,6 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                      fd_stake_delegations_t const * stake_delegations,
                                      fd_stake_history_t const *     stake_history,
                                      fd_runtime_stack_t *           runtime_stack ) {
-  ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
-
   /* Calculate the points for each stake delegation */
   uint128 total_points = 0;
 
@@ -375,9 +359,11 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
 
-    if( FD_UNLIKELY( stake_delegation->stake<minimum_stake_delegation ) ) {
-      continue;
-    }
+    /* Note that we don't check minimum delegation here, as there are
+       no plans to activate stake_minimum_delegation_for_rewards.
+       If this changes we need to skip stake accounts that are
+       below the minimum delegation here. However we don't do this yet,
+       to ensure that we audit the feature properly if this happens. */
 
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
@@ -433,8 +419,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
 
   int delay_commission_updates = FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates );
 
-  ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
-
   runtime_stack->stakes.stake_rewards_cnt = 0UL;
 
   fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
@@ -446,11 +430,11 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
     ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
 
-    if( FD_FEATURE_ACTIVE_BANK( bank, stake_minimum_delegation_for_rewards ) ) {
-      if( stake_delegation->stake<minimum_stake_delegation ) {
-        continue;
-      }
-    }
+    /* Note that we don't check minimum delegation here, as there are
+       no plans to activate stake_minimum_delegation_for_rewards.
+       If this changes we need to skip stake accounts that are
+       below the minimum delegation here. However we don't do this yet,
+       to ensure that we audit the feature properly if this happens. */
 
     fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
     if( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) {
