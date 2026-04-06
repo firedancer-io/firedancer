@@ -1,5 +1,7 @@
+ifdef FD_HAS_DOUBLE
 $(call add-hdrs,fd_genesis_create.h)
 $(call add-objs,fd_genesis_create,fd_flamenco)
+endif
 
 $(call add-hdrs,fd_genesis_parse.h)
 $(call add-objs,fd_genesis_parse,fd_flamenco)

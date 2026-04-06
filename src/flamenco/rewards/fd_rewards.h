@@ -87,6 +87,28 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
                                          fd_funk_txn_xid_t const * xid,
                                          fd_capture_ctx_t *        capture_ctx );
 
+/* fd_rewards_get_reward_distribution_num_blocks returns the number of
+   blocks required to distribute rewards for a given epoch schedule and
+   stake account count. Useful for testing partition sizing logic. */
+
+uint
+fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
+                                               ulong                       slot,
+                                               ulong                       total_stake_accounts );
+
+struct fd_commission_split {
+  ulong voter_portion;
+  ulong staker_portion;
+  uint  is_split;
+};
+
+typedef struct fd_commission_split fd_commission_split_t;
+
+void
+fd_vote_commission_split( uchar                   commission,
+                          ulong                   on,
+                          fd_commission_split_t * result );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_rewards_fd_rewards_h */
