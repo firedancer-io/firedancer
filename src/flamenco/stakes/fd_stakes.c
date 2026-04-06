@@ -421,12 +421,43 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
 
+  ushort parent_idx = bank->vote_stakes_fork_id;
+
   fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
   ulong epoch              = bank->f.epoch;
   ulong total_stake        = 0UL;
   ulong total_activating   = 0UL;
   ulong total_deactivating = 0UL;
   ulong staked_accounts    = 0UL;
+
+  /* Seed stake_accum_map with all vote accounts from the parent fork
+     with zero stake. The delegation loop below will update the stake
+     for any account that has active delegations.
+
+     In Agave, refresh_vote_accounts() builds delegated_stakes from
+     stake_delegations, but then iterates vote_accounts.iter(), instead
+     of the delegated_stakes map, so they never actually remove any
+     entries from the vote_accounts while refreshing. */
+  {
+    fd_vote_stakes_t * vs   = fd_bank_vote_stakes( bank );
+    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem_vs[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+    for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vs, parent_idx, iter_mem_vs );
+         !fd_vote_stakes_fork_iter_done( vs, parent_idx, vs_iter );
+         fd_vote_stakes_fork_iter_next( vs, parent_idx, vs_iter ) ) {
+      fd_pubkey_t vs_pubkey;
+      fd_vote_stakes_fork_iter_ele( vs, parent_idx, vs_iter, &vs_pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
+      if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
+        FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
+      }
+      fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+      sa->pubkey = vs_pubkey;
+      sa->stake  = 0UL;
+      fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
+      staked_accounts++;
+    }
+    fd_vote_stakes_fork_iter_fini( vs );
+  }
+
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
       !fd_stake_delegations_iter_done( iter );
@@ -522,7 +553,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      previous epoch and in the current one. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ushort parent_idx = bank->vote_stakes_fork_id;
   ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
   bank->vote_stakes_fork_id = child_idx;
 
