@@ -3,7 +3,7 @@
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_sync.h"
 
-int
+static int
 validate( fd_epoch_schedule_t const * schedule ) {
   /* warmup is encoded as a bool and stored as a uchar.  The only
      allowed values are 0 and 1. */

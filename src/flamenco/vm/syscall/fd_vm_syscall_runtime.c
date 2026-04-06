@@ -624,8 +624,16 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
     FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
-  memcpy( out, &epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );
-  memset( out+81, 0, 15 ); /* padding */
+
+  /* zero out padding at the end of the struct. */
+  memcpy( out,      &epoch_rewards.distribution_starting_block_height, 8UL  );
+  memcpy( out+8UL,  &epoch_rewards.num_partitions,                     8UL  );
+  memcpy( out+16UL, &epoch_rewards.parent_blockhash,                   32UL );
+  memcpy( out+48UL, &epoch_rewards.total_points,                       16UL );
+  memcpy( out+64UL, &epoch_rewards.total_rewards,                      8UL  );
+  memcpy( out+72UL, &epoch_rewards.distributed_rewards,                8UL  );
+  memcpy( out+80UL, &epoch_rewards.active,                             1UL  );
+  memset( out+81UL, 0,                                                 15UL );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;

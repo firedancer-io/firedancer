@@ -3,6 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../accdb/fd_accdb_base.h"
+#include "../../types/fd_types_custom.h"
 
 #define FD_SYSVAR_ALIGN_MAX (16UL)
 
@@ -48,5 +49,32 @@ struct fd_sol_sysvar_clock {
   long  unix_timestamp;
 };
 typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
+
+struct __attribute__((packed)) fd_sysvar_epoch_rewards {
+  ulong distribution_starting_block_height;
+  ulong num_partitions;
+  fd_hash_t parent_blockhash;
+  fd_w_u128_t total_points;
+  ulong total_rewards;
+  ulong distributed_rewards;
+  uchar active;
+};
+typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
+
+struct __attribute__((packed)) fd_rent {
+  ulong  lamports_per_uint8_year;
+  double exemption_threshold;
+  uchar  burn_percent;
+};
+typedef struct fd_rent fd_rent_t;
+
+struct __attribute__((packed)) fd_epoch_schedule {
+  ulong slots_per_epoch;
+  ulong leader_schedule_slot_offset;
+  uchar warmup; /* encoded as a bool*/
+  ulong first_normal_epoch;
+  ulong first_normal_slot;
+};
+typedef struct fd_epoch_schedule fd_epoch_schedule_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h */

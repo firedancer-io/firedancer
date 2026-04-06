@@ -3,24 +3,22 @@
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_sync.h"
 
+static int
+validate( fd_sysvar_epoch_rewards_t const * epoch_rewards ) {
+  if( FD_UNLIKELY( epoch_rewards->active != !!epoch_rewards->active ) ) {
+    return 1;
+  }
+
+  return 0;
+}
+
 static void
 write_epoch_rewards( fd_bank_t *                 bank,
                      fd_accdb_user_t *           accdb,
                      fd_funk_txn_xid_t const *   xid,
                      fd_capture_ctx_t *          capture_ctx,
                      fd_sysvar_epoch_rewards_t * epoch_rewards ) {
-  ulong sz = fd_sysvar_epoch_rewards_size( epoch_rewards );
-  uchar enc[sz];
-  fd_memset( enc, 0, sz );
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = enc,
-    .dataend = enc + sz
-  };
-  if( FD_UNLIKELY( fd_sysvar_epoch_rewards_encode( epoch_rewards, &ctx ) ) ) {
-    FD_LOG_ERR(( "fd_sysvar_epoch_rewards_encode failed" ));
-  }
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_rewards_id, enc, sz );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_rewards_id, epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );
 }
 
 fd_sysvar_epoch_rewards_t *
@@ -41,10 +39,12 @@ fd_sysvar_epoch_rewards_read( fd_accdb_user_t *           accdb,
     return NULL;
   }
 
-  out = fd_bincode_decode_static(
-      sysvar_epoch_rewards, out,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
+  if( FD_UNLIKELY( validate( out ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
+    return NULL;
+  }
+
+  memcpy( out, fd_accdb_ref_data_const( ro ), sizeof(fd_sysvar_epoch_rewards_t) );
   fd_accdb_close_ro( accdb, ro );
   return out;
 }

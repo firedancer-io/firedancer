@@ -18,11 +18,6 @@ test_sysvar_epoch_rewards_bounds( void ) {
     0x00
   };
   FD_TEST( sizeof(data)==FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
-  fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+sizeof(data) };
-  ulong obj_sz = 0UL;
-  FD_TEST( fd_sysvar_epoch_rewards_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
-  FD_TEST( obj_sz==FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT );
-  FD_TEST( fd_sysvar_epoch_rewards_align()==FD_SYSVAR_EPOCH_REWARDS_ALIGN );
 }
 
 static void

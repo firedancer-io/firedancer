@@ -197,20 +197,6 @@ struct fd_sysvar_fees {
 typedef struct fd_sysvar_fees fd_sysvar_fees_t;
 #define FD_SYSVAR_FEES_ALIGN alignof(fd_sysvar_fees_t)
 
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14 */
-/* Encoded Size: Fixed (81 bytes) */
-struct fd_sysvar_epoch_rewards {
-  ulong distribution_starting_block_height;
-  ulong num_partitions;
-  fd_hash_t parent_blockhash;
-  fd_w_u128_t total_points;
-  ulong total_rewards;
-  ulong distributed_rewards;
-  uchar active;
-};
-typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
-#define FD_SYSVAR_EPOCH_REWARDS_ALIGN alignof(fd_sysvar_epoch_rewards_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L158 */
 /* Encoded Size: Fixed (48 bytes) */
 struct fd_system_program_instruction_create_account {
@@ -676,13 +662,6 @@ static inline int fd_sysvar_fees_decode_footprint( fd_bincode_decode_ctx_t * ctx
   return 0;
 }
 void * fd_sysvar_fees_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_sysvar_epoch_rewards_new( fd_sysvar_epoch_rewards_t * self );
-int fd_sysvar_epoch_rewards_encode( fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_sysvar_epoch_rewards_size( fd_sysvar_epoch_rewards_t const * self ) { (void)self; return 81UL; }
-static inline ulong fd_sysvar_epoch_rewards_align( void ) { return FD_SYSVAR_EPOCH_REWARDS_ALIGN; }
-int fd_sysvar_epoch_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_sysvar_epoch_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_system_program_instruction_create_account_new( fd_system_program_instruction_create_account_t * self ) { fd_memset( self, 0, sizeof(fd_system_program_instruction_create_account_t) ); }
 int fd_system_program_instruction_create_account_encode( fd_system_program_instruction_create_account_t const * self, fd_bincode_encode_ctx_t * ctx );
