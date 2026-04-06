@@ -1183,6 +1183,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) return 0;
+  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
   if( !ctx->supports_leader ) return 0;
 
