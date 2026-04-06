@@ -1803,8 +1803,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, validator_admission_ticket)>>3,
-    .id                        = {"\x07\x36\xf6\x93\xcd\x86\x07\x8b\x03\x1c\xc1\x6f\xe8\x9a\x9e\xaf\x04\xa6\x5e\x21\xdd\xe6\xe6\x42\xfc\x5a\x4d\x39\xa9\xc6\xde\xb7"},
-                                 /* VATtb1DepUwdPh5bFVasdtkbeDNsftZSRzr2aKpKWJA */
+    .id                        = {"\x07\x36\xf2\xe3\x3a\x52\xff\xd2\x69\xb9\x98\xdc\x58\xcf\x07\xc0\x35\xc3\x8a\x0e\xab\x82\xa0\x89\xb8\xb7\x5e\xc2\x0f\xcb\x39\x97"},
+                                 /* VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ */
     .name                      = "validator_admission_ticket",
     .cleaned_up                = 0 },
 
@@ -2117,7 +2117,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_260 0xa5ce8f931961b80cUL, .val = &ids[260]
 #define MAP_PERFECT_261 0xf55c421c9eccc012UL, .val = &ids[261]
 #define MAP_PERFECT_262 0x7428565ab3b6d152UL, .val = &ids[262]
-#define MAP_PERFECT_263 0x8b0786cd93f63607UL, .val = &ids[263]
+#define MAP_PERFECT_263 0xd2ff523ae3f23607UL, .val = &ids[263]
 #define MAP_PERFECT_264 0x6d9baef98a3cfd0cUL, .val = &ids[264]
 #define MAP_PERFECT_265 0x632b9b7c9e9a3257UL, .val = &ids[265]
 #define MAP_PERFECT_266 0xa4c86f030ee0440cUL, .val = &ids[266]
