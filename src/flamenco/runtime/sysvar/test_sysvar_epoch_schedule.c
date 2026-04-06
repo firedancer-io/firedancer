@@ -2,13 +2,13 @@
 
 #include <stddef.h>
 
-FD_STATIC_ASSERT( alignof ( fd_epoch_schedule_t                              )==0x08UL, layout );
+FD_STATIC_ASSERT( alignof ( fd_epoch_schedule_t                              )==0x01UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, slots_per_epoch             )==0x00UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, leader_schedule_slot_offset )==0x08UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, warmup                      )==0x10UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_epoch          )==0x18UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_slot           )==0x20UL, layout );
-FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==0x28UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_epoch          )==0x11UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_slot           )==0x19UL, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==0x21UL, layout );
 
 static void
 test_sysvar_epoch_schedule_bounds( void ) {
@@ -21,11 +21,6 @@ test_sysvar_epoch_schedule_bounds( void ) {
     0x00
   };
   FD_TEST( sizeof(data)==FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ );
-  fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+sizeof(data) };
-  ulong obj_sz = 0UL;
-  FD_TEST( fd_epoch_schedule_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
-  FD_TEST( obj_sz==FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT );
-  FD_TEST( fd_epoch_schedule_align()==FD_SYSVAR_EPOCH_SCHEDULE_ALIGN );
 }
 
 static void

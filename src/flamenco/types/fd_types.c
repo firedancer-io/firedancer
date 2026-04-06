@@ -205,62 +205,6 @@ void * fd_rent_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_rent_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
-int fd_epoch_schedule_encode( fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->slots_per_epoch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->leader_schedule_slot_offset, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_bool_encode( (uchar)(self->warmup), ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->first_normal_epoch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->first_normal_slot, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static int fd_epoch_schedule_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  int err = 0;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_bool_decode_footprint( ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  return 0;
-}
-int fd_epoch_schedule_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_epoch_schedule_t);
-  void const * start_data = ctx->data;
-  int err = fd_epoch_schedule_decode_footprint_inner( ctx, total_sz );
-  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = start_data;
-  return err;
-}
-static void fd_epoch_schedule_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_epoch_schedule_t * self = (fd_epoch_schedule_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->slots_per_epoch, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->leader_schedule_slot_offset, ctx );
-  fd_bincode_bool_decode_unsafe( &self->warmup, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->first_normal_epoch, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->first_normal_slot, ctx );
-}
-void * fd_epoch_schedule_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_epoch_schedule_t * self = (fd_epoch_schedule_t *)mem;
-  fd_epoch_schedule_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_epoch_schedule_t);
-  void * * alloc_mem = &alloc_region;
-  fd_epoch_schedule_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_epoch_schedule_new(fd_epoch_schedule_t * self) {
-  fd_memset( self, 0, sizeof(fd_epoch_schedule_t) );
-}
 int fd_stake_history_entry_encode( fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint64_encode( self->effective, ctx );

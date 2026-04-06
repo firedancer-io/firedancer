@@ -80,14 +80,10 @@ static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
       TYPES_CALLBACKS( sysvar_epoch_rewards, ) },
   [FD_SYSVAR_epoch_schedule_IDX] =
     { .name="epoch schedule",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_schedule   ), .data_max=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_epoch_schedule   ), .obj_max =FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT,
-      TYPES_CALLBACKS( epoch_schedule, ) },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_schedule   ), .data_max=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ },
   [FD_SYSVAR_last_restart_slot_IDX] =
     { .name="last restart slot",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_last_restart_slot), .data_max=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_last_restart_slot), .obj_max =FD_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT,
-    },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_last_restart_slot), .data_max=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ },
   [FD_SYSVAR_recent_hashes_IDX] =
     { .name="recent blockhashes",
       .data_off=offsetof(fd_sysvar_cache_t, bin_recent_hashes    ), .data_max=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ,
