@@ -47,18 +47,6 @@
       ]
     },
     {
-      "name": "inflation",
-      "type": "struct",
-      "fields": [
-        { "name": "initial", "type": "double" },
-        { "name": "terminal", "type": "double" },
-        { "name": "taper", "type": "double" },
-        { "name": "foundation", "type": "double" },
-        { "name": "foundation_term", "type": "double" },
-        { "name": "unused", "type": "double" }
-      ]
-    },
-    {
       "name": "rent",
       "type": "struct",
       "fields": [
@@ -109,22 +97,11 @@
     },
     {
       "name": "rust_duration",
-      "type": "struct",
-      "normalizer": "fd_rust_duration_normalize",
-      "validator": "fd_rust_duration_footprint_validator",
-      "fields": [
-        { "name": "seconds", "type": "ulong" },
-        { "name": "nanoseconds", "type": "uint" }
-      ]
+      "type": "opaque"
     },
     {
       "name": "poh_config",
-      "type": "struct",
-      "fields": [
-        { "name": "target_tick_duration", "type": "rust_duration" },
-        { "name": "target_tick_count", "type": "option", "element": "ulong", "flat": true },
-        { "name": "hashes_per_tick", "type": "option", "element": "ulong", "flat": true }
-      ]
+      "type": "opaque"
     },
     {
       "name": "slot_history",

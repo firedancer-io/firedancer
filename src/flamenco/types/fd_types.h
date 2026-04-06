@@ -43,18 +43,6 @@ FD_FN_UNUSED static fd_slot_pair_t * fd_hard_forks_hard_forks_join( fd_hard_fork
 FD_FN_UNUSED static void fd_hard_forks_hard_forks_update( fd_hard_forks_global_t * struct_mem, fd_slot_pair_t * vec ) {
   struct_mem->hard_forks_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
-/* Encoded Size: Fixed (48 bytes) */
-struct fd_inflation {
-  double initial;
-  double terminal;
-  double taper;
-  double foundation;
-  double foundation_term;
-  double unused;
-};
-typedef struct fd_inflation fd_inflation_t;
-#define FD_INFLATION_ALIGN alignof(fd_inflation_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11 */
 /* Encoded Size: Fixed (17 bytes) */
 struct fd_rent {
@@ -106,25 +94,6 @@ struct fd_stake_history {
 };
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_ALIGN alignof(fd_stake_history_t)
-
-/* Encoded Size: Fixed (12 bytes) */
-struct fd_rust_duration {
-  ulong seconds;
-  uint nanoseconds;
-};
-typedef struct fd_rust_duration fd_rust_duration_t;
-#define FD_RUST_DURATION_ALIGN alignof(fd_rust_duration_t)
-
-/* Encoded Size: Dynamic */
-struct fd_poh_config {
-  fd_rust_duration_t target_tick_duration;
-  ulong target_tick_count;
-  uchar has_target_tick_count;
-  ulong hashes_per_tick;
-  uchar has_hashes_per_tick;
-};
-typedef struct fd_poh_config fd_poh_config_t;
-#define FD_POH_CONFIG_ALIGN alignof(fd_poh_config_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
 /* Encoded Size: Dynamic */
@@ -631,17 +600,6 @@ void * fd_hard_forks_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_hard_forks_encode_global( fd_hard_forks_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_hard_forks_size_global( fd_hard_forks_global_t const * self );
 
-static inline void fd_inflation_new( fd_inflation_t * self ) { fd_memset( self, 0, sizeof(fd_inflation_t) ); }
-int fd_inflation_encode( fd_inflation_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_inflation_size( fd_inflation_t const * self ) { (void)self; return 48UL; }
-static inline ulong fd_inflation_align( void ) { return FD_INFLATION_ALIGN; }
-static inline int fd_inflation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_inflation_t);
-  if( (ulong)ctx->data + 48UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_inflation_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 static inline void fd_rent_new( fd_rent_t * self ) { fd_memset( self, 0, sizeof(fd_rent_t) ); }
 int fd_rent_encode( fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx );
 static inline ulong fd_rent_size( fd_rent_t const * self ) { (void)self; return 17UL; }
@@ -688,24 +646,6 @@ static inline ulong fd_stake_history_size( fd_stake_history_t const * self ) { (
 static inline ulong fd_stake_history_align( void ) { return FD_STAKE_HISTORY_ALIGN; }
 int fd_stake_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_stake_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_rust_duration_new( fd_rust_duration_t * self ) { fd_memset( self, 0, sizeof(fd_rust_duration_t) ); }
-int fd_rust_duration_encode( fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_rust_duration_size( fd_rust_duration_t const * self ) { (void)self; return 12UL; }
-static inline ulong fd_rust_duration_align( void ) { return FD_RUST_DURATION_ALIGN; }
-static inline int fd_rust_duration_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_rust_duration_t);
-  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_rust_duration_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_poh_config_new( fd_poh_config_t * self );
-int fd_poh_config_encode( fd_poh_config_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_poh_config_size( fd_poh_config_t const * self );
-static inline ulong fd_poh_config_align( void ) { return FD_POH_CONFIG_ALIGN; }
-int fd_poh_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_poh_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_slot_history_new( fd_slot_history_t * self );
 int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx );

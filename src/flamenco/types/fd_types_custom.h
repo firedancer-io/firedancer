@@ -74,13 +74,22 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode                  fd_hash_decode
 #define fd_pubkey_eq                      fd_hash_eq
 
+struct fd_rust_duration {
+  ulong seconds;
+  uint nanoseconds;
+};
 typedef struct fd_rust_duration fd_rust_duration_t;
+#define FD_RUST_DURATION_ALIGN alignof(fd_rust_duration_t)
 
-void
-fd_rust_duration_normalize ( fd_rust_duration_t * );
-
-int
-fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx );
+struct fd_poh_config {
+  fd_rust_duration_t target_tick_duration;
+  ulong target_tick_count;
+  uchar has_target_tick_count;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
+};
+typedef struct fd_poh_config fd_poh_config_t;
+#define FD_POH_CONFIG_ALIGN alignof(fd_poh_config_t)
 
 FD_PROTOTYPES_END
 
@@ -118,6 +127,16 @@ struct fd_fee_rate_governor {
   uchar burn_percent;
 };
 typedef struct fd_fee_rate_governor fd_fee_rate_governor_t;
+
+struct fd_inflation {
+  double initial;
+  double terminal;
+  double taper;
+  double foundation;
+  double foundation_term;
+  double unused;
+};
+typedef struct fd_inflation fd_inflation_t;
 
 static inline void fd_hash_new( fd_hash_t * self ) { (void)self; }
 static inline int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {
