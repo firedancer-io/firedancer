@@ -104,6 +104,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   accounts.io_uring.queue_depth                       );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
+  CFG_POP      ( bool,   runtime.fixed_fec_sets                              );
   CFG_POP      ( ulong,  runtime.concurrent_account_limit                    );
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
 

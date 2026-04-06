@@ -1974,8 +1974,9 @@ insert_fec_set( fd_replay_tile_t *  ctx,
       FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
       return 0;
     }
-    sched_fec->fec = store_fec;
-    if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and block_offs. */
+    sched_fec->fec  = store_fec;
+    sched_fec->data = fd_store_fec_data( ctx->store, store_fec );
+    if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and shred_offs. */
       mark_bank_dead( ctx, stem, sched_fec->bank_idx );
       return 1;
     }

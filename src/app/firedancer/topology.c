@@ -144,10 +144,12 @@ fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
-                  uint         part_cnt ) {
+                  uint         part_cnt,
+                  ulong        fec_data_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "store", wksp_name );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,  "obj.%lu.fec_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, part_cnt, "obj.%lu.part_cnt", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,      "obj.%lu.fec_max",      obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, part_cnt,     "obj.%lu.part_cnt",     obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_data_max, "obj.%lu.fec_data_max", obj->id ) );
   return obj;
 }
 
@@ -1313,33 +1315,43 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ], fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
-   /* The Store fec_max parameter is the max number of FEC sets that can
-      be retained by store.
+   /* store_fec_max is the maximum number of FEC sets Store retains.
 
-      The base value is from multiplying max_live_slots by the maximum
-      number of FEC sets in a block (which is 1024, given the current
-      consensus limit of 32768 shreds per block).  This is notably, the
-      total capacity of reasm.
+      This value is derived by first multiplying max_live_slots by the
+      max_fec_sets_per_slot (which is 1024, given the current consensus
+      limit of 32768 shreds per block).
 
-      Store needs to hold _at least_ depth(shred_out) +
-      depth(repair_out) + 1 more FEC sets than reasm.  Shred inserts
-      FECs into store (before publishing to shred_out) and Replay
-      inserts FECs into reasm (after consuming from repair_out), so
-      store can be up to depth(shred_out) + depth(repair_out) ahead of
-      reasm.  We + 1 because replay tile can be mid-process of ingesting
-      a FEC set.
+      However, the downstream structure reasm also has the same bound.
+      Replay relies on the guarantee that if a FEC set is present in
+      reasm, then it is present in store.  Therefore, store needs
+      additional room for FEC sets that have been inserted into the
+      store but not yet consumed by reasm.
 
-      store is exactly this total depth ahead of reasm, then this means
-      the links must be full and shred is backpressured via repair_out
-      -> shred_out.  Thus, no more FEC sets will be inserted to store
-      until reasm inserts the next FEC, at which point it must be at
-      capacity (given store is _at least_ total depth larger) and will
-      evict a FEC which is together evicted from store. */
+      This exactly equals the sum of link depths between shred (producer
+      into store), repair (intermediate tile) and replay (consumer into
+      reasm).  This is depth(shred_out) + depth(repair_out).
+
+      Shred inserts FECs into store (before publishing to shred_out) and
+      Replay inserts FECs into reasm (after consuming from repair_out),
+      so store can be up to depth(shred_out) + depth(repair_out) ahead
+      of reasm.  We also add one to avoid a race when replay tile has
+      consumed from the link but not yet read from store.
+
+      If store contains this sum of depths more FEC sets than reasm,
+      then the links must be full and shred is backpressured via
+      repair_out -> shred_out.  This guarantees both 1. no more FEC sets
+      will be inserted into the store, which at this point is full and
+      2. no more FEC sets (transitively) will be inserted into reasm,
+      which is also full. */
 
   fd_topo_link_t * repair_out_link = &topo->links[ fd_topo_find_link( topo, "repair_out", 0UL ) ];
-  ulong store_fec_max = fd_ulong_pow2_up( config->firedancer.runtime.max_live_slots * FD_FEC_BLK_MAX + (shred_depth * shred_tile_cnt) + repair_out_link->depth + 1 );
+  ulong store_fec_max = config->firedancer.runtime.max_live_slots * FD_FEC_BLK_MAX + (shred_depth * shred_tile_cnt) + repair_out_link->depth + 1;
 
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt );
+  /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true
+     67 shreds * 955 payload bytes = 63985 bytes with fixed_fec_sets = false */
+
+  ulong store_fec_data_max = fd_ulong_if( config->firedancer.runtime.fixed_fec_sets, 31840UL, 63985UL );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt, store_fec_data_max );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );

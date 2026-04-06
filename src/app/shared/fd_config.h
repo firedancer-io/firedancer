@@ -127,6 +127,7 @@ struct fd_configf {
 
   struct {
     ulong max_live_slots;
+    int   fixed_fec_sets;
     ulong max_fork_width;
     ulong concurrent_account_limit;
 

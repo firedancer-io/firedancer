@@ -72,7 +72,8 @@ struct fd_sched_fec {
                                            bounds and unique across equivocated blocks. */
   ulong            slot;                /* Slot number of the block. */
   ulong            parent_slot;         /* Slot number of the parent block. */
-  fd_store_fec_t * fec;                 /* FEC set data. */
+  fd_store_fec_t * fec;                 /* FEC set metadata. */
+  uchar          * data;                /* Resolved laddr of the FEC set data buffer. */
   uint             shred_cnt;           /* Number of shreds in the FEC set. */
   uint             is_last_in_batch:1;  /* Set if this is the last FEC set in the batch; relevant because the
                                            parser should ignore trailing bytes at the end of a batch. */

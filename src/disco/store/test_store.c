@@ -19,8 +19,8 @@
 void
 test_api( fd_wksp_t * wksp ) {
   ulong  fec_max     = 8;
-  void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max ), 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 1UL ) );
+  void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL ), 1UL );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 1UL, fec_max, 31840UL ) );
   FD_TEST( store );
 
 
@@ -70,8 +70,8 @@ test_api( fd_wksp_t * wksp ) {
 void
 test_api2( fd_wksp_t * wksp ) {
   ulong  fec_max     = 16;
-  void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max ), 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 2UL ) );
+  void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL ), 1UL );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 2UL, fec_max, 31840UL ) );
   FD_TEST( store );
 
 
@@ -144,15 +144,16 @@ test_api2( fd_wksp_t * wksp ) {
 void
 test_hash( fd_wksp_t * wksp ) {
   ulong  fec_max     = 16;
-  void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max ), 1UL );
-  fd_store_t * store = fd_store_join( fd_store_new( mem, fec_max, 2UL ) );
+  void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL ), 1UL );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 2UL, fec_max, 31840UL ) );
 
 
   fd_store_pool_t  pool = pool_ljoin( store );
   fd_store_fec_t * fec0 = pool_laddr( store );
   fd_store_map_t * map  = map_laddr( store );
   FD_TEST( store );
-  ulong part_sz = fec_max / store->part_cnt;
+  ulong chain_cnt = map->chain_cnt;
+  ulong part_sz   = chain_cnt / store->part_cnt;
 
   fd_store_key_t key1 = { .merkle_root = { { 0 } }, .part_idx = 0 };
   fd_store_key_t key2 = { .merkle_root = { { 0 } }, .part_idx = 1 };
@@ -182,10 +183,10 @@ test_hash( fd_wksp_t * wksp ) {
 
   /* verify they all belong on the same private_chain_idx */
   ulong seed = map->seed;
-  FD_TEST( seed == fec_max / store->part_cnt );
-  ulong private_chain_idx = fd_store_map_private_chain_idx( &key1, seed, fec_max );
-  FD_TEST( fd_store_map_private_chain_idx( &collide1, seed, fec_max ) == private_chain_idx );
-  FD_TEST( fd_store_map_private_chain_idx( &collide2, seed, fec_max ) == private_chain_idx );
+  FD_TEST( seed == chain_cnt / store->part_cnt );
+  ulong private_chain_idx = fd_store_map_private_chain_idx( &key1, seed, chain_cnt );
+  FD_TEST( fd_store_map_private_chain_idx( &collide1, seed, chain_cnt ) == private_chain_idx );
+  FD_TEST( fd_store_map_private_chain_idx( &collide2, seed, chain_cnt ) == private_chain_idx );
 
   /* not only that, the next pointer should be chaining them together */
   fd_store_fec_t const * fec1 = fd_store_map_ele_query_const( map, &key1,     NULL, fec0 );
@@ -237,9 +238,9 @@ shred_tile_insert( int argc, char ** argv ) {
 void
 test_part( fd_wksp_t * wksp ) {
   ulong  fec_max  = 64;
-  void * mem      = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max ), 1UL );
+  void * mem      = fd_wksp_alloc_laddr( wksp, fd_store_align(), fd_store_footprint( fec_max, 31840UL ), 1UL );
   ulong  tile_cnt = fd_tile_cnt(); /* use actual available tile count, capped at our desired max */
-  store           = fd_store_join( fd_store_new( mem, fec_max, tile_cnt ) );
+  store           = fd_store_join( fd_store_new( mem, tile_cnt, fec_max, 31840UL ) );
   FD_TEST( store );
 
 
@@ -274,6 +275,71 @@ test_part( fd_wksp_t * wksp ) {
 
 }
 
+void
+test_fec_data_max( fd_wksp_t * wksp ) {
+  ulong fec_max = 8;
+
+  /* Verify footprint scales with fec_data_max */
+  ulong fp_fixed = fd_store_footprint( fec_max, 31840UL );
+  ulong fp_var   = fd_store_footprint( fec_max, 63985UL );
+  FD_TEST( fp_fixed );
+  FD_TEST( fp_var );
+  FD_TEST( fp_var > fp_fixed );
+  FD_TEST( fp_var - fp_fixed == (63985UL - 31840UL) * fec_max );
+
+  /* Exercise fec_data_max = 63985 (variable-length FEC sets) */
+  void * mem         = fd_wksp_alloc_laddr( wksp, fd_store_align(), fp_var, 1UL );
+  fd_store_t * store = fd_store_join( fd_store_new( mem, 1UL, fec_max, 63985UL ) );
+  FD_TEST( store );
+  FD_TEST( store->fec_data_max == 63985UL );
+
+  fd_hash_t mr0 = { { 0 } };
+  fd_hash_t mr1 = { { 1 } };
+  fd_store_fec_t * fec0 = fd_store_insert( store, 0, &mr0 );
+  fd_store_fec_t * fec1 = fd_store_insert( store, 0, &mr1 );
+  FD_TEST( fec0 );
+  FD_TEST( fec1 );
+
+  /* Verify data buffers are non-overlapping and spaced by fec_data_max */
+  uchar * data0 = fd_store_fec_data( store, fec0 );
+  uchar * data1 = fd_store_fec_data( store, fec1 );
+  FD_TEST( data0 );
+  FD_TEST( data1 );
+  FD_TEST( data0 != data1 );
+  ulong span = (ulong)( data1 > data0 ? data1 - data0 : data0 - data1 );
+  FD_TEST( span >= 63985UL );
+
+  /* Write to the full extent of the data buffer */
+  fd_memset( data0, 0xAA, 63985UL );
+  fd_memset( data1, 0xBB, 63985UL );
+  FD_TEST( data0[ 63984UL ] == 0xAA );
+  FD_TEST( data1[ 63984UL ] == 0xBB );
+
+  FD_TEST( fd_store_verify( store ) == 0 );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
+
+  /* Exercise fec_data_max = 31840 (fixed FEC sets) */
+  mem   = fd_wksp_alloc_laddr( wksp, fd_store_align(), fp_fixed, 1UL );
+  store = fd_store_join( fd_store_new( mem, 1UL, fec_max, 31840UL ) );
+  FD_TEST( store );
+  FD_TEST( store->fec_data_max == 31840UL );
+
+  fec0 = fd_store_insert( store, 0, &mr0 );
+  fec1 = fd_store_insert( store, 0, &mr1 );
+  data0 = fd_store_fec_data( store, fec0 );
+  data1 = fd_store_fec_data( store, fec1 );
+  span  = (ulong)( data1 > data0 ? data1 - data0 : data0 - data1 );
+  FD_TEST( span >= 31840UL );
+
+  fd_memset( data0, 0xCC, 31840UL );
+  fd_memset( data1, 0xDD, 31840UL );
+  FD_TEST( data0[ 31839UL ] == 0xCC );
+  FD_TEST( data1[ 31839UL ] == 0xDD );
+
+  FD_TEST( fd_store_verify( store ) == 0 );
+  fd_wksp_free_laddr( fd_store_delete( fd_store_leave( store ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -284,10 +350,11 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_api ( wksp );
-  test_api2( wksp );
-  test_hash( wksp );
-  test_part( wksp );
+  test_api         ( wksp );
+  test_api2        ( wksp );
+  test_hash        ( wksp );
+  test_fec_data_max( wksp );
+  test_part        ( wksp );
 
   fd_halt();
   return 0;
