@@ -214,6 +214,7 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
   fd_lthash_zero( &ctx->vinyl.running_lthash );
 
   ulong wr_cnt      = fd_topo_tile_name_cnt( topo, "snapwr" );
+  FD_TEST( wr_cnt<=FD_VINYL_ADMIN_WR_SEQ_CNT_MAX );
   ctx->vinyl.wr_cnt = wr_cnt;
 
   ctx->vinyl.admin = NULL;
@@ -734,7 +735,7 @@ fd_snapwm_vinyl_init_admin( fd_snapwm_tile_t * ctx,
     goto init_admin_error;
   }
 
-  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt ) ) {
+  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt || ctx->vinyl.wr_cnt>FD_VINYL_ADMIN_WR_SEQ_CNT_MAX ) ) {
     FD_LOG_WARNING(( "vinyl admin sees unexpected write tile count %lu", ctx->vinyl.wr_cnt ));
     goto init_admin_error;
   }
