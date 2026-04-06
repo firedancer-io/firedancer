@@ -1,8 +1,6 @@
 #include "../fd_tango.h"
 #include "../../util/math/fd_stat.h"
 
-#if FD_HAS_DOUBLE
-
 double
 fd_tempo_wallclock_model( double * opt_tau ) {
   static double t0;
@@ -163,8 +161,6 @@ fd_tempo_tick_per_ns( double * opt_sigma ) {
   if( opt_sigma ) opt_sigma[0] = sigma;
   return mu;
 }
-
-#endif
 
 long
 fd_tempo_observe_pair( long * opt_now,

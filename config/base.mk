@@ -39,6 +39,9 @@ LLVM_PROFDATA?=llvm-profdata
 # C++ support (libstdc++ and default exception handler)
 #FD_HAS_CXX:=1
 
+# Double precision support is assumed and required for Firedancer.
+FD_HAS_DOUBLE:=1
+
 # Rust
 RUST_PROFILE=debug
 

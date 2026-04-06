@@ -280,8 +280,6 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
   root_pool_idx_release( pool, delegation_idx );
 }
 
-#if FD_HAS_DOUBLE
-
 void
 fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               ulong                      epoch,
@@ -342,8 +340,6 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
   }
   fd_accdb_ro_pipe_fini( ro_pipe );
 }
-
-#endif
 
 ulong
 fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations ) {

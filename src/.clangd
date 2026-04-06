@@ -4,7 +4,6 @@ CompileFlags:
   - -DFD_HAS_ALLOCA=1
   - -DFD_HAS_HOSTED=1
   - -DFD_HAS_ATOMIC=1
-  - -DFD_HAS_DOUBLE=1
   - -DFD_HAS_INT128=1
   - -DFD_HAS_ZSTD=1
   - -DFD_HAS_SSE=1

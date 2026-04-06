@@ -362,7 +362,6 @@ fd_pb_push_float( fd_pb_encoder_t * encoder,
   return fd_pb_push_fixed32( encoder, field_id, cast.u );
 }
 
-#if FD_HAS_DOUBLE
 static inline fd_pb_encoder_t *
 fd_pb_push_double( fd_pb_encoder_t * encoder,
                    uint              field_id,
@@ -371,7 +370,6 @@ fd_pb_push_double( fd_pb_encoder_t * encoder,
   cast.d = value;
   return fd_pb_push_fixed64( encoder, field_id, cast.v );
 }
-#endif
 
 static inline fd_pb_encoder_t *
 fd_pb_push_bytes( fd_pb_encoder_t * encoder,
@@ -495,7 +493,6 @@ fd_pb_push_packed_float( fd_pb_encoder_t * encoder,
   return fd_pb_push_packed_fixed32( encoder, field_id, fd_type_pun_const( value ), cnt );
 }
 
-#if FD_HAS_DOUBLE
 static inline fd_pb_encoder_t *
 fd_pb_push_packed_double( fd_pb_encoder_t * encoder,
                           uint              field_id,
@@ -503,7 +500,6 @@ fd_pb_push_packed_double( fd_pb_encoder_t * encoder,
                           ulong             cnt ) {
   return fd_pb_push_packed_fixed64( encoder, field_id, fd_type_pun_const( value ), cnt );
 }
-#endif
 
 FD_PROTOTYPES_END
 

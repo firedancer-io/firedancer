@@ -19,7 +19,6 @@ $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 include src/app/fdctl/version.h
 
 ifdef FD_HAS_ALLOCA
-ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 ifdef FD_HAS_HOSTED
 
@@ -139,7 +138,6 @@ $(OBJDIR)/bin/agave-ledger-tool: agave/target/$(RUST_PROFILE)/agave-ledger-tool
 
 agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
 
-endif
 endif
 endif
 endif

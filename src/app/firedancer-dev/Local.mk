@@ -1,7 +1,6 @@
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_LINUX
 ifdef FD_HAS_ALLOCA
-ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 ifdef FD_HAS_ZSTD
 
@@ -31,7 +30,6 @@ $(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_fi
 $(call run-integration-test,test_firedancer_dev)
 else
 $(warning firedancer-dev build disabled due to lack of zstd)
-endif
 endif
 endif
 endif

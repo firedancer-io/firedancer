@@ -14,7 +14,6 @@ CPPFLAGS+=--target=x86_64-unknown-elf
 CPPFLAGS+=-march=x86-64-v2 -mtune=generic
 CPPFLAGS+=\
   -DFD_HAS_INT128=1 \
-  -DFD_HAS_DOUBLE=1 \
   -DFD_HAS_ALLOCA=1 \
   -DFD_HAS_X86=1
 
@@ -37,6 +36,5 @@ CFLAGS+=\
   -mno-red-zone
 
 FD_HAS_INT128:=1
-FD_HAS_DOUBLE:=1
 FD_HAS_ALLOCA:=1
 FD_HAS_X86:=1

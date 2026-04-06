@@ -11,7 +11,7 @@ include config/extra/with-optimization.mk
 # CXX:=/opt/homebrew/opt/llvm/bin/clang++
 # LD:=/opt/homebrew/opt/llvm/bin/clang++
 
-CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1
+CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_ALLOCA=1
 
 # Remove this when we support FD_HAS_HOSTED for macOS
 CPPFLAGS+=-DFD_ENV_STYLE=0 -DFD_IO_STYLE=0 -DFD_LOG_STYLE=0
@@ -22,7 +22,6 @@ CPPFLAGS+=-DFD_HAS_ATOMIC=1
 CPPFLAGS+=-mcpu=apple-m1  # Requires AppleClang 14
 
 FD_HAS_INT128:=1
-FD_HAS_DOUBLE:=1
 FD_HAS_ALLOCA:=1
 FD_HAS_ATOMIC:=1
 
