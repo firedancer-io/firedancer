@@ -96,14 +96,6 @@
       "comment": "https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L66"
     },
     {
-      "name": "rust_duration",
-      "type": "opaque"
-    },
-    {
-      "name": "poh_config",
-      "type": "opaque"
-    },
-    {
       "name": "slot_history",
       "type": "struct",
       "global": true,
