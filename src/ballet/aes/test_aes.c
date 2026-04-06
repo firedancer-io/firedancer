@@ -44,6 +44,65 @@ test_key_expansion_zeros( ulong         bit_cnt,
   FD_TEST( expanded->rounds == expected_round_cnt );
   FD_LOG_INFO(( "OK: AES-%lu encrypt key expansion (ref)", bit_cnt ));
 
+  fd_memset( expanded, 0, sizeof(fd_aes_key_t) );
+  fd_aes_ref_set_decrypt_key( key, bit_cnt, expanded );
+  FD_TEST( 0==memcmp( expanded, expected, expanded_key_sz ) );
+  FD_TEST( expanded->rounds == expected_round_cnt );
+  FD_LOG_INFO(( "OK: AES-%lu decrypt key expansion (ref)", bit_cnt ));
+
+}
+
+/* Error-path coverage for fd_aes_ref_set_encrypt_key ****************/
+
+void
+test_key_expansion_errors( void ) {
+  static uchar const key[ 32 ] = {0};
+  fd_aes_key_t expanded[1];
+
+  FD_TEST( -1 == fd_aes_ref_set_encrypt_key( NULL, 128, expanded ) );
+  FD_TEST( -1 == fd_aes_ref_set_encrypt_key( key,  128, NULL      ) );
+  FD_TEST( -2 == fd_aes_ref_set_encrypt_key( key,   64, expanded  ) );
+  FD_LOG_INFO(( "OK: fd_aes_ref_set_encrypt_key error paths" ));
+}
+
+/* AES-192-ECB test ***************************************************/
+
+/* Source: FIPS 197 Appendix C.2
+   Key:       000102030405060708090a0b0c0d0e0f1011121314151617
+   Plaintext: 00112233445566778899aabbccddeeff
+   Cipher:    dda97ca4864cdfe06eaf70a0ec0d7191 */
+
+void
+test_aes_192_ecb( void ) {
+  static uchar const k[24] = {
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+    0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+    0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17
+  };
+  static uchar const p[16] = {
+    0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,
+    0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff
+  };
+  static uchar const expected_c[16] = {
+    0xdd,0xa9,0x7c,0xa4,0x86,0x4c,0xdf,0xe0,
+    0x6e,0xaf,0x70,0xa0,0xec,0x0d,0x71,0x91
+  };
+
+  fd_aes_key_t key[1];
+  uchar c[16];
+  uchar dec[16];
+
+  fd_aes_ref_set_encrypt_key( k, 192, key );
+  FD_TEST( key->rounds == 12 );
+  fd_aes_ref_encrypt_core( p, c, key );
+  FD_TEST( 0==memcmp( c, expected_c, 16 ) );
+
+  fd_aes_ref_set_decrypt_key( k, 192, key );
+  FD_TEST( key->rounds == 12 );
+  fd_aes_ref_decrypt_core( c, dec, key );
+  FD_TEST( 0==memcmp( dec, p, 16 ) );
+
+  FD_LOG_INFO(( "OK: AES-192-ECB encrypt+decrypt (ref)" ));
 }
 
 /* AES-ECB tests ******************************************************/
@@ -236,6 +295,47 @@ test_aes_128_ecb( void ) {
   }
 
   FD_LOG_INFO(( "OK: AES-128-ECB encrypt+decrypt (ref)" ));
+}
+
+/* AES-256-ECB tests **************************************************/
+
+/* Source: FIPS 197 Appendix C.3
+   Key:       000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+   Plaintext: 00112233445566778899aabbccddeeff
+   Cipher:    8ea2b7ca516745bfeafc49904b496089 */
+
+void
+test_aes_256_ecb( void ) {
+  static uchar const k[32] = {
+    0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+    0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f,
+    0x10,0x11,0x12,0x13,0x14,0x15,0x16,0x17,
+    0x18,0x19,0x1a,0x1b,0x1c,0x1d,0x1e,0x1f
+  };
+  static uchar const p[16] = {
+    0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,
+    0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff
+  };
+  static uchar const expected_c[16] = {
+    0x8e,0xa2,0xb7,0xca,0x51,0x67,0x45,0xbf,
+    0xea,0xfc,0x49,0x90,0x4b,0x49,0x60,0x89
+  };
+
+  fd_aes_key_t key[1];
+  uchar c[16];
+  uchar dec[16];
+
+  fd_aes_ref_set_encrypt_key( k, 256, key );
+  FD_TEST( key->rounds == 14 );
+  fd_aes_ref_encrypt_core( p, c, key );
+  FD_TEST( 0==memcmp( c, expected_c, 16 ) );
+
+  fd_aes_ref_set_decrypt_key( k, 256, key );
+  FD_TEST( key->rounds == 14 );
+  fd_aes_ref_decrypt_core( c, dec, key );
+  FD_TEST( 0==memcmp( dec, p, 16 ) );
+
+  FD_LOG_INFO(( "OK: AES-256-ECB encrypt+decrypt (ref)" ));
 }
 
 /* AEAD Decrypt *******************************************************/
@@ -553,8 +653,11 @@ main( int     argc,
 # endif
 
   test_key_expansion_zeros( 128, fixture_key_expansion_128_zeros, 10 );
+  test_key_expansion_errors();
 
   test_aes_128_ecb();
+  test_aes_192_ecb();
+  test_aes_256_ecb();
   test_aes_128_gcm_bounds( rng );
   test_aes_128_gcm();
   test_aes_128_gcm_unroll();
