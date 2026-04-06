@@ -74,23 +74,6 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode                  fd_hash_decode
 #define fd_pubkey_eq                      fd_hash_eq
 
-struct fd_rust_duration {
-  ulong seconds;
-  uint nanoseconds;
-};
-typedef struct fd_rust_duration fd_rust_duration_t;
-#define FD_RUST_DURATION_ALIGN alignof(fd_rust_duration_t)
-
-struct fd_poh_config {
-  fd_rust_duration_t target_tick_duration;
-  ulong target_tick_count;
-  uchar has_target_tick_count;
-  ulong hashes_per_tick;
-  uchar has_hashes_per_tick;
-};
-typedef struct fd_poh_config fd_poh_config_t;
-#define FD_POH_CONFIG_ALIGN alignof(fd_poh_config_t)
-
 FD_PROTOTYPES_END
 
 #define FD_DUMMY_ACCOUNT { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF }

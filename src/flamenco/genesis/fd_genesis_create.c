@@ -8,6 +8,23 @@
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../types/fd_types.h"
 
+/* TODO: Unify type with the one in fd_genesis_parse.c */
+
+struct fd_rust_duration {
+  ulong seconds;
+  uint nanoseconds;
+};
+typedef struct fd_rust_duration fd_rust_duration_t;
+
+struct fd_poh_config {
+  fd_rust_duration_t target_tick_duration;
+  ulong target_tick_count;
+  uchar has_target_tick_count;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
+};
+typedef struct fd_poh_config fd_poh_config_t;
+
 struct fd_genesis_account {
   ulong       lamports;
   ulong       data_len;
@@ -114,16 +131,19 @@ genesis_encode( genesis_solana_t const * g,
     EMIT( emit_u64(   p, end, a->account.rent_epoch ) );
   }
 
-  /* native_instruction_processors vector (always empty) */
+  /* native_instruction_processors vector
+     TODO: currently always empty */
   EMIT( emit_u64( p, end, g->native_instruction_processors_len ) );
 
-  /* rewards_pools vector (always empty) */
+  /* rewards_pools vector
+     TODO: currently always empty */
   EMIT( emit_u64( p, end, g->rewards_pools_len ) );
 
   EMIT( emit_u64( p, end, g->ticks_per_slot ) );
   EMIT( emit_u64( p, end, g->unused ) );
 
-  /* poh_config */
+  /* poh_config
+     TODO: has target tick count always == 0 */
   EMIT( emit_u64( p, end, g->poh_config.target_tick_duration.seconds ) );
   EMIT( emit_u32( p, end, g->poh_config.target_tick_duration.nanoseconds ) );
   EMIT( emit_u8(  p, end, !!g->poh_config.has_target_tick_count ) );
@@ -133,6 +153,7 @@ genesis_encode( genesis_solana_t const * g,
   if( g->poh_config.has_hashes_per_tick )
     EMIT( emit_u64( p, end, g->poh_config.hashes_per_tick ) );
 
+  /* TODO: always set to 0 */
   EMIT( emit_u64( p, end, g->__backwards_compat_with_v0_23 ) );
 
   /* fee_rate_governor */
