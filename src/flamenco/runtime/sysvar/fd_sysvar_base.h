@@ -10,7 +10,7 @@
 #define FD_SYSVAR_CLOCK_BINCODE_SZ         (    40UL)
 
 #define FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ (    81UL)
-/*      FD_SYSVAR_EPOCH_REWARDS_ALIGN provided by fd_types.h (16UL) */
+#define FD_SYSVAR_EPOCH_REWARDS_ALIGN      (    16UL)
 #define FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT  (    96UL)
 
 #define FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ (   33UL)
@@ -50,7 +50,7 @@ struct fd_sol_sysvar_clock {
 };
 typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
 
-struct __attribute__((packed)) fd_sysvar_epoch_rewards {
+struct __attribute__((packed, aligned(16))) fd_sysvar_epoch_rewards {
   ulong distribution_starting_block_height;
   ulong num_partitions;
   fd_hash_t parent_blockhash;

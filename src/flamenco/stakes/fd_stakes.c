@@ -563,7 +563,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         vote_reward_cnt++;
       }
 
-
       if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
         if( FD_UNLIKELY( !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
           fd_accdb_close_ro( accdb, vote_ro );
