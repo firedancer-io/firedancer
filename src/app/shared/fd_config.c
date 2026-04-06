@@ -536,6 +536,9 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
   CFG_HAS_NON_ZERO( net.ingress_buffer_size );
+  if( config->net.rp_filter > FD_NET_RP_FILTER_STRICT ) {
+    FD_LOG_ERR(( "invalid `net.rp_filter`: only mode 0 or 1 are supported" ));
+  }
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );

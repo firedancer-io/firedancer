@@ -98,9 +98,17 @@ typedef struct {
   ushort port; /* in host byte order */
 } fd_topo_ip_port_t;
 
+/* FD_NET_RP_FILTER_{...} enumerate reverse path filter modes.
+   Semantics match Linux net.ipv4.conf.*.rp_filter sysctl. */
+
+#define FD_NET_RP_FILTER_NONE   (0U) /* disabled */
+#define FD_NET_RP_FILTER_STRICT (1U) /* source must be reachable via arrival interface */
+#define FD_NET_RP_FILTER_LOOSE  (2U) /* source must be reachable via any interface */
+
 struct fd_topo_net_tile {
   ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
   uint  bind_address;
+  uint  rp_filter; /* FD_NET_RP_FILTER_* */
 
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
