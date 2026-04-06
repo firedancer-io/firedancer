@@ -754,10 +754,15 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
              source->data + BUFFER_METADATA_SIZE,
              program_data_len );
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L338-L342 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L339-L346 */
   ulong old_data_sz;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_data_account->data_sz, source->data_sz, &old_data_sz ) ) ) return;
   ulong new_data_sz = new_target_program_data->data_sz;
+
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L349-L355 */
+  uchar const * elf    = new_target_program_data->data + PROGRAMDATA_METADATA_SIZE;
+  ulong         elf_sz = program_data_len;
+  if( FD_UNLIKELY( fd_directly_invoke_loader_v3_deploy_checks( bank, runtime_stack, elf, elf_sz ) ) ) return;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L359-L364 */
   ulong lamports_to_burn;

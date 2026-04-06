@@ -46,7 +46,6 @@ default_enable_features( fd_features_t * features ) {
   features->enable_bpf_loader_extend_program_ix = 0UL;
   features->enable_loader_v4 = 0UL;
   features->increase_tx_account_lock_limit = 0UL;
-  features->stake_raise_minimum_delegation_to_1_sol = 0UL;
   features->revise_turbine_epoch_stakes = 0UL;
   features->clean_up_delegation_errors = 0UL;
   features->update_hashes_per_tick5 = 0UL;
@@ -64,7 +63,6 @@ default_enable_features( fd_features_t * features ) {
   features->relax_authority_signer_check_for_lookup_table_creation = 0UL;
   features->update_hashes_per_tick6 = 0UL;
   features->better_error_codes_for_tx_lamport_check = 0UL;
-  features->stake_minimum_delegation_for_rewards = 0UL;
   features->loosen_cpi_size_restriction = 0UL;
   features->drop_legacy_shreds = 0UL;
   features->deprecate_rewards_sysvar = 0UL;
