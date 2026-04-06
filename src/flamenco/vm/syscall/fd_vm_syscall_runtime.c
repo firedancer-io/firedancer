@@ -104,6 +104,9 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
                                    /**/            ulong * _ret ) {
   fd_vm_t * vm = _vm;
 
+  #define RENT_PADDING_OFFSET (offsetof(fd_rent_t, burn_percent) + 1UL)
+  #define RENT_PADDING_SIZE   (sizeof(fd_rent_t) - RENT_PADDING_OFFSET)
+
   /* Unreachable in a real SVM, used for testing */
 
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
@@ -127,6 +130,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   FD_VM_TRANSLATE_MUT( vm, queries );
 
   fd_rent_t rent = fd_sysvar_cache_rent_read_nofail( instr_ctx->sysvar_cache );
+  memset( (uchar *)&rent + RENT_PADDING_OFFSET, 0UL, RENT_PADDING_SIZE );
   memcpy( var_query.haddr, &rent, sizeof(fd_rent_t) );
 
   *_ret = 0UL;
