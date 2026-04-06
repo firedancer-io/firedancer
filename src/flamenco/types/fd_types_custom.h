@@ -74,14 +74,6 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode                  fd_hash_decode
 #define fd_pubkey_eq                      fd_hash_eq
 
-typedef struct fd_rust_duration fd_rust_duration_t;
-
-void
-fd_rust_duration_normalize ( fd_rust_duration_t * );
-
-int
-fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx );
-
 FD_PROTOTYPES_END
 
 #define FD_DUMMY_ACCOUNT { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF }
@@ -109,6 +101,25 @@ typedef struct fd_stake_weight fd_stake_weight_t;
 #define SORT_KEY_T fd_stake_weight_t
 #define SORT_BEFORE(a,b) (memcmp( (a).key.uc, (b).key.uc, 32UL )<0)
 #include "../../util/tmpl/fd_sort.c"
+
+struct fd_fee_rate_governor {
+  ulong target_lamports_per_signature;
+  ulong target_signatures_per_slot;
+  ulong min_lamports_per_signature;
+  ulong max_lamports_per_signature;
+  uchar burn_percent;
+};
+typedef struct fd_fee_rate_governor fd_fee_rate_governor_t;
+
+struct fd_inflation {
+  double initial;
+  double terminal;
+  double taper;
+  double foundation;
+  double foundation_term;
+  double unused;
+};
+typedef struct fd_inflation fd_inflation_t;
 
 static inline void fd_hash_new( fd_hash_t * self ) { (void)self; }
 static inline int fd_hash_encode( fd_hash_t const * self, fd_bincode_encode_ctx_t * ctx ) {

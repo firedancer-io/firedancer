@@ -8,10 +8,186 @@
 #include "../runtime/sysvar/fd_sysvar_rent.h"
 #include "../types/fd_types.h"
 
+/* TODO: Unify type with the one in fd_genesis_parse.c */
+
+struct fd_rust_duration {
+  ulong seconds;
+  uint nanoseconds;
+};
+typedef struct fd_rust_duration fd_rust_duration_t;
+
+struct fd_poh_config {
+  fd_rust_duration_t target_tick_duration;
+  ulong target_tick_count;
+  uchar has_target_tick_count;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
+};
+typedef struct fd_poh_config fd_poh_config_t;
+
+struct fd_genesis_account {
+  ulong       lamports;
+  ulong       data_len;
+  uchar *     data;
+  fd_pubkey_t owner;
+  uchar       executable;
+  ulong       rent_epoch;
+};
+typedef struct fd_genesis_account fd_genesis_account_t;
+
+struct fd_genesis_account_pair {
+  fd_pubkey_t          key;
+  fd_genesis_account_t account;
+};
+typedef struct fd_genesis_account_pair fd_genesis_account_pair_t;
+
 #define SORT_NAME sort_acct
-#define SORT_KEY_T fd_pubkey_account_pair_t
+#define SORT_KEY_T fd_genesis_account_pair_t
 #define SORT_BEFORE(a,b) (0>memcmp( (a).key.ul, (b).key.ul, sizeof(fd_pubkey_t) ))
 #include "../../util/tmpl/fd_sort.c"
+
+static inline uchar *
+emit_u8( uchar * p, uchar * end, uchar v ) {
+  if( FD_UNLIKELY( p+1>end ) ) return NULL;
+  *p = v;
+  return p+1;
+}
+
+static inline uchar *
+emit_u32( uchar * p, uchar * end, uint v ) {
+  if( FD_UNLIKELY( p+4>end ) ) return NULL;
+  FD_STORE( uint, p, v );
+  return p+4;
+}
+
+static inline uchar *
+emit_u64( uchar * p, uchar * end, ulong v ) {
+  if( FD_UNLIKELY( p+8>end ) ) return NULL;
+  FD_STORE( ulong, p, v );
+  return p+8;
+}
+
+static inline uchar *
+emit_f64( uchar * p, uchar * end, double v ) {
+  if( FD_UNLIKELY( p+8>end ) ) return NULL;
+  FD_STORE( double, p, v );
+  return p+8;
+}
+
+static inline uchar *
+emit_bytes( uchar * p, uchar * end, void const * src, ulong n ) {
+  if( FD_UNLIKELY( p+n>end ) ) return NULL;
+  fd_memcpy( p, src, n );
+  return p+n;
+}
+
+/* Private struct mirroring the Solana GenesisConfig bincode layout.
+   Only used locally for building up state before serialization. */
+
+struct genesis_solana {
+  ulong                      creation_time;
+  ulong                      accounts_len;
+  fd_genesis_account_pair_t * accounts;
+  ulong                      native_instruction_processors_len;
+  ulong                      rewards_pools_len;
+  ulong                      ticks_per_slot;
+  ulong                      unused;
+  fd_poh_config_t            poh_config;
+  ulong                      __backwards_compat_with_v0_23;
+  fd_fee_rate_governor_t     fee_rate_governor;
+  fd_rent_t                  rent;
+  fd_inflation_t             inflation;
+  fd_epoch_schedule_t        epoch_schedule;
+  uint                       cluster_type;
+};
+typedef struct genesis_solana genesis_solana_t;
+
+/* genesis_encode serializes a genesis_solana_t into a bincode blob
+   byte-for-byte compatible with Anza's genesis.bin format.  Returns the
+   number of bytes written, or 0 on failure (buffer too small). */
+
+static ulong
+genesis_encode( genesis_solana_t const * g,
+                uchar *                  buf,
+                ulong                    bufsz ) {
+  uchar * p   = buf;
+  uchar * end = buf + bufsz;
+
+# define EMIT(expr) do { p = (expr); if( FD_UNLIKELY( !p ) ) return 0UL; } while(0)
+
+  EMIT( emit_u64( p, end, g->creation_time ) );
+
+  /* accounts vector */
+  EMIT( emit_u64( p, end, g->accounts_len ) );
+  for( ulong i=0; i<g->accounts_len; i++ ) {
+    fd_genesis_account_pair_t const * a = &g->accounts[i];
+    EMIT( emit_bytes( p, end, a->key.key, 32 ) );
+    EMIT( emit_u64(   p, end, a->account.lamports ) );
+    EMIT( emit_u64(   p, end, a->account.data_len ) );
+    if( a->account.data_len )
+      EMIT( emit_bytes( p, end, a->account.data, a->account.data_len ) );
+    EMIT( emit_bytes( p, end, a->account.owner.key, 32 ) );
+    EMIT( emit_u8(    p, end, !!a->account.executable ) );
+    EMIT( emit_u64(   p, end, a->account.rent_epoch ) );
+  }
+
+  /* native_instruction_processors vector
+     TODO: currently always empty */
+  EMIT( emit_u64( p, end, g->native_instruction_processors_len ) );
+
+  /* rewards_pools vector
+     TODO: currently always empty */
+  EMIT( emit_u64( p, end, g->rewards_pools_len ) );
+
+  EMIT( emit_u64( p, end, g->ticks_per_slot ) );
+  EMIT( emit_u64( p, end, g->unused ) );
+
+  /* poh_config
+     TODO: has target tick count always == 0 */
+  EMIT( emit_u64( p, end, g->poh_config.target_tick_duration.seconds ) );
+  EMIT( emit_u32( p, end, g->poh_config.target_tick_duration.nanoseconds ) );
+  EMIT( emit_u8(  p, end, !!g->poh_config.has_target_tick_count ) );
+  if( g->poh_config.has_target_tick_count )
+    EMIT( emit_u64( p, end, g->poh_config.target_tick_count ) );
+  EMIT( emit_u8(  p, end, !!g->poh_config.has_hashes_per_tick ) );
+  if( g->poh_config.has_hashes_per_tick )
+    EMIT( emit_u64( p, end, g->poh_config.hashes_per_tick ) );
+
+  /* TODO: always set to 0 */
+  EMIT( emit_u64( p, end, g->__backwards_compat_with_v0_23 ) );
+
+  /* fee_rate_governor */
+  EMIT( emit_u64( p, end, g->fee_rate_governor.target_lamports_per_signature ) );
+  EMIT( emit_u64( p, end, g->fee_rate_governor.target_signatures_per_slot ) );
+  EMIT( emit_u64( p, end, g->fee_rate_governor.min_lamports_per_signature ) );
+  EMIT( emit_u64( p, end, g->fee_rate_governor.max_lamports_per_signature ) );
+  EMIT( emit_u8(  p, end, g->fee_rate_governor.burn_percent ) );
+
+  /* rent */
+  EMIT( emit_u64( p, end, g->rent.lamports_per_uint8_year ) );
+  EMIT( emit_f64( p, end, g->rent.exemption_threshold ) );
+  EMIT( emit_u8(  p, end, g->rent.burn_percent ) );
+
+  /* inflation */
+  EMIT( emit_f64( p, end, g->inflation.initial ) );
+  EMIT( emit_f64( p, end, g->inflation.terminal ) );
+  EMIT( emit_f64( p, end, g->inflation.taper ) );
+  EMIT( emit_f64( p, end, g->inflation.foundation ) );
+  EMIT( emit_f64( p, end, g->inflation.foundation_term ) );
+  EMIT( emit_f64( p, end, g->inflation.unused ) );
+
+  /* epoch_schedule */
+  EMIT( emit_u64( p, end, g->epoch_schedule.slots_per_epoch ) );
+  EMIT( emit_u64( p, end, g->epoch_schedule.leader_schedule_slot_offset ) );
+  EMIT( emit_u8(  p, end, !!g->epoch_schedule.warmup ) );
+  EMIT( emit_u64( p, end, g->epoch_schedule.first_normal_epoch ) );
+  EMIT( emit_u64( p, end, g->epoch_schedule.first_normal_slot ) );
+
+  EMIT( emit_u32( p, end, g->cluster_type ) );
+
+# undef EMIT
+  return (ulong)(p - buf);
+}
 
 static ulong
 genesis_create( void *                       buf,
@@ -26,8 +202,7 @@ genesis_create( void *                       buf,
     }                                       \
   } while(0);
 
-  fd_genesis_solana_t genesis[1];
-  fd_genesis_solana_new( genesis );
+  genesis_solana_t genesis[1] = {0};
 
   genesis->cluster_type = 3;  /* development */
 
@@ -94,7 +269,7 @@ genesis_create( void *                       buf,
 
   /* Create faucet account */
 
-  fd_pubkey_account_pair_t const faucet_account = {
+  fd_genesis_account_pair_t const faucet_account = {
     .key = options->faucet_pubkey,
     .account = {
       .lamports   = options->faucet_balance,
@@ -105,7 +280,7 @@ genesis_create( void *                       buf,
 
   /* Create identity account (vote authority, withdraw authority) */
 
-  fd_pubkey_account_pair_t const identity_account = {
+  fd_genesis_account_pair_t const identity_account = {
     .key = options->identity_pubkey,
     .account = {
       .lamports   = 500000000000UL /* 500 SOL */,
@@ -195,24 +370,24 @@ genesis_create( void *                       buf,
   ulong default_funded_idx = genesis->accounts_len;      genesis->accounts_len += default_funded_cnt;
   ulong feature_gate_idx   = genesis->accounts_len;      genesis->accounts_len += feature_cnt;
 
-  genesis->accounts = fd_scratch_alloc( alignof(fd_pubkey_account_pair_t),
-                                        genesis->accounts_len * sizeof(fd_pubkey_account_pair_t) );
-  fd_memset( genesis->accounts, 0,      genesis->accounts_len * sizeof(fd_pubkey_account_pair_t) );
+  genesis->accounts = fd_scratch_alloc( alignof(fd_genesis_account_pair_t),
+                                        genesis->accounts_len * sizeof(fd_genesis_account_pair_t) );
+  fd_memset( genesis->accounts, 0,      genesis->accounts_len * sizeof(fd_genesis_account_pair_t) );
 
   genesis->accounts[ faucet_account_index ] = faucet_account;
   genesis->accounts[ identity_account_index ] = identity_account;
-  genesis->accounts[ stake_account_index ] = (fd_pubkey_account_pair_t) {
+  genesis->accounts[ stake_account_index ] = (fd_genesis_account_pair_t) {
     .key     = options->stake_pubkey,
-    .account = (fd_solana_account_t) {
+    .account = (fd_genesis_account_t) {
       .lamports   = fd_ulong_max( stake_state_min_bal, options->vote_account_stake ),
       .data_len   = FD_STAKE_STATE_SZ,
       .data       = stake_data,
       .owner      = fd_solana_stake_program_id
     }
   };
-  genesis->accounts[ vote_account_index ] = (fd_pubkey_account_pair_t) {
+  genesis->accounts[ vote_account_index ] = (fd_genesis_account_pair_t) {
     .key     = options->vote_pubkey,
-    .account = (fd_solana_account_t) {
+    .account = (fd_genesis_account_t) {
       .lamports   = vote_min_bal,
       .data_len   = FD_VOTE_STATE_V3_SZ,
       .data       = vote_state_data,
@@ -224,14 +399,14 @@ genesis_create( void *                       buf,
 
   ulong default_funded_balance = options->fund_initial_amount_lamports;
   for( ulong j=0UL; j<default_funded_cnt; j++ ) {
-    fd_pubkey_account_pair_t * pair = &genesis->accounts[ default_funded_idx+j ];
+    fd_genesis_account_pair_t * pair = &genesis->accounts[ default_funded_idx+j ];
 
     uchar privkey[ 32 ] = {0};
     FD_STORE( ulong, privkey, j );
     fd_sha512_t sha[1];
     fd_ed25519_public_from_private( pair->key.key, privkey, sha );
 
-    pair->account = (fd_solana_account_t) {
+    pair->account = (fd_genesis_account_t) {
       .lamports   = default_funded_balance,
       .data_len   = 0UL,
       .owner      = fd_solana_system_program_id
@@ -244,10 +419,10 @@ genesis_create( void *                       buf,
 
   /* Set up feature gate accounts */
   for( ulong j=0UL; j<feature_cnt; j++ ) {
-    fd_pubkey_account_pair_t * pair = &genesis->accounts[ feature_gate_idx+j ];
+    fd_genesis_account_pair_t * pair = &genesis->accounts[ feature_gate_idx+j ];
 
     pair->key     = features[ j ];
-    pair->account = (fd_solana_account_t) {
+    pair->account = (fd_genesis_account_t) {
       .lamports   = default_feature_enabled_balance,
       .data_len   = FEATURE_ENABLED_SZ,
       .data       = (uchar *)feature_enabled_data,
@@ -271,15 +446,12 @@ genesis_create( void *                       buf,
 
   /* Serialize bincode blob */
 
-  fd_bincode_encode_ctx_t encode =
-    { .data    = buf,
-      .dataend = (uchar *)buf + bufsz };
-  int encode_err = fd_genesis_solana_encode( genesis, &encode );
-  if( FD_UNLIKELY( encode_err ) ) {
+  ulong encoded_sz = genesis_encode( genesis, (uchar *)buf, bufsz );
+  if( FD_UNLIKELY( !encoded_sz ) ) {
     FD_LOG_WARNING(( "Failed to encode genesis blob (bufsz=%lu)", bufsz ));
     return 0UL;
   }
-  return (ulong)encode.data - (ulong)buf;
+  return encoded_sz;
 
 # undef REQUIRE
 }

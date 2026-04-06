@@ -30,17 +30,6 @@
       "agave": "solana_fee_calculator::FeeCalculator"
     },
     {
-      "name": "fee_rate_governor",
-      "type": "struct",
-      "fields": [
-        { "name": "target_lamports_per_signature", "type": "ulong" },
-        { "name": "target_signatures_per_slot", "type": "ulong" },
-        { "name": "min_lamports_per_signature", "type": "ulong" },
-        { "name": "max_lamports_per_signature", "type": "ulong" },
-        { "name": "burn_percent", "type": "uchar" }
-      ]
-    },
-    {
       "name": "slot_pair",
       "type": "struct",
       "archival": "true",
@@ -55,18 +44,6 @@
       "global": true,
       "fields": [
         { "name": "hard_forks", "type": "vector", "element": "slot_pair" }
-      ]
-    },
-    {
-      "name": "inflation",
-      "type": "struct",
-      "fields": [
-        { "name": "initial", "type": "double" },
-        { "name": "terminal", "type": "double" },
-        { "name": "taper", "type": "double" },
-        { "name": "foundation", "type": "double" },
-        { "name": "foundation_term", "type": "double" },
-        { "name": "unused", "type": "double" }
       ]
     },
     {
@@ -117,73 +94,6 @@
         { "name": "fd_stake_history", "type": "static_vector", "element": "epoch_stake_history_entry_pair", "size": 512 }
       ],
       "comment": "https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L66"
-    },
-    {
-      "name": "solana_account",
-      "type": "struct",
-      "fields": [
-        { "name": "lamports", "type": "ulong" },
-        { "name": "data", "type": "vector", "element": "uchar" },
-        { "name": "owner", "type": "pubkey" },
-        { "name": "executable", "type": "bool" },
-        { "name": "rent_epoch", "type": "ulong" }
-      ],
-      "comment": "https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37"
-    },
-    {
-      "name": "rust_duration",
-      "type": "struct",
-      "normalizer": "fd_rust_duration_normalize",
-      "validator": "fd_rust_duration_footprint_validator",
-      "fields": [
-        { "name": "seconds", "type": "ulong" },
-        { "name": "nanoseconds", "type": "uint" }
-      ]
-    },
-    {
-      "name": "poh_config",
-      "type": "struct",
-      "fields": [
-        { "name": "target_tick_duration", "type": "rust_duration" },
-        { "name": "target_tick_count", "type": "option", "element": "ulong", "flat": true },
-        { "name": "hashes_per_tick", "type": "option", "element": "ulong", "flat": true }
-      ]
-    },
-    {
-      "name": "string_pubkey_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "string", "type": "string" },
-        { "name": "pubkey", "type": "pubkey" }
-      ]
-    },
-    {
-      "name": "pubkey_account_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "key", "type": "pubkey" },
-        { "name": "account", "type": "solana_account" }
-      ]
-    },
-    {
-      "name": "genesis_solana",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "creation_time", "type": "ulong" },
-        { "name": "accounts", "type": "vector", "element": "pubkey_account_pair" },
-        { "name": "native_instruction_processors", "type": "vector", "element": "string_pubkey_pair" },
-        { "name": "rewards_pools", "type": "vector", "element": "pubkey_account_pair" },
-        { "name": "ticks_per_slot", "type": "ulong" },
-        { "name": "unused", "type": "ulong" },
-        { "name": "poh_config", "type": "poh_config" },
-        { "name": "__backwards_compat_with_v0_23", "type": "ulong" },
-        { "name": "fee_rate_governor", "type": "fee_rate_governor" },
-        { "name": "rent", "type": "rent" },
-        { "name": "inflation", "type": "inflation" },
-        { "name": "epoch_schedule", "type": "epoch_schedule" },
-        { "name": "cluster_type", "type": "uint" }
-      ]
     },
     {
       "name": "slot_history",
@@ -263,26 +173,6 @@
         { "name": "active", "type": "bool" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14"
-    },
-    {
-      "name": "cluster_type",
-      "type": "enum",
-      "variants": [
-        { "name": "Testnet" },
-        { "name": "MainnetBeta" },
-        { "name": "Devnet" },
-        { "name": "Development" }
-      ]
-    },
-    {
-      "name": "cluster_version",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "major", "type": "uint" },
-        { "name": "minor", "type": "uint" },
-        { "name": "patch", "type": "uint" }
-      ]
     },
     {
       "name": "system_program_instruction_create_account",
