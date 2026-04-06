@@ -177,8 +177,10 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
                                on confirmation, and don't know the index of the last fec set until we repair the slot.
                                hash_null if unknown.  Otherwise populated by the child slot's CMR on confirmation,
                                or by a confirmation msg from tower.  Has no bearing on if the full slot is correct or not. */
-  uint lowest_verified_fec; /* lowest fec index that has been verified so far, inclusive. complete_idx / 32UL,
-                               if the last merkle root is verified, 5 if every merkle root after fec set 5*32 is verified */
+  uint lowest_verified_fec; /* lowest fec index that has been verified so far, inclusive.  Equivalent to complete_idx / 32UL
+                               if the last merkle root is verified, n if every merkle root after fec set n*32 is verified.
+                               Otherwise, it is UINT_MAX.  If non-UINT_MAX, then confirmed_bid must be populated (but not
+                               the vice versa). */
 
   uchar chain_confirmed; /* 1 if all the FECs the slot have been confirmed via fec_chain_verify, 0 otherwise.  Note confirmed_bid
                             can be populated before this is set to 1. */
