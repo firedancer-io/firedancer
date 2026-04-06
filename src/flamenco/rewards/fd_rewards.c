@@ -172,13 +172,6 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
   result->force_credits_update_with_skipped_reward = 0;
 }
 
-struct fd_commission_split {
-  ulong voter_portion;
-  ulong staker_portion;
-  uint  is_split;
-};
-typedef struct fd_commission_split fd_commission_split_t;
-
 /// returns commission split as (voter_portion, staker_portion, was_split) tuple
 ///
 /// if commission calculation is 100% one way or other, indicate with false for was_split
@@ -322,22 +315,29 @@ calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   
 
     https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L214
  */
- static uint
- get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
-                                     ulong                       slot,
-                                     ulong                       total_stake_accounts ) {
-   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1250-L1267 */
-   if( epoch_schedule->warmup &&
-       fd_slot_to_epoch( epoch_schedule, slot, NULL ) < epoch_schedule->first_normal_epoch ) {
-     return 1UL;
-   }
+static uint
+get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
+                                    ulong                       slot,
+                                    ulong                       total_stake_accounts ) {
+  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1250-L1267 */
+  if( epoch_schedule->warmup &&
+      fd_slot_to_epoch( epoch_schedule, slot, NULL ) < epoch_schedule->first_normal_epoch ) {
+    return 1UL;
+  }
 
-   ulong num_chunks = total_stake_accounts / (ulong)STAKE_ACCOUNT_STORES_PER_BLOCK + (total_stake_accounts % STAKE_ACCOUNT_STORES_PER_BLOCK != 0);
-   num_chunks       = fd_ulong_max( num_chunks, 1UL );
-   num_chunks       = fd_ulong_min( num_chunks,
-                                    fd_ulong_max( epoch_schedule->slots_per_epoch / (ulong)MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH, 1UL ) );
-   return (uint)num_chunks;
- }
+  ulong num_chunks = total_stake_accounts / (ulong)STAKE_ACCOUNT_STORES_PER_BLOCK + (total_stake_accounts % STAKE_ACCOUNT_STORES_PER_BLOCK != 0);
+  num_chunks       = fd_ulong_max( num_chunks, 1UL );
+  num_chunks       = fd_ulong_min( num_chunks,
+                                   fd_ulong_max( epoch_schedule->slots_per_epoch / (ulong)MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH, 1UL ) );
+  return (uint)num_chunks;
+}
+
+uint
+fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch_schedule,
+                                               ulong                       slot,
+                                               ulong                       total_stake_accounts ) {
+  return get_reward_distribution_num_blocks( epoch_schedule, slot, total_stake_accounts );
+}
 
 /* Calculates epoch reward points from stake/vote accounts.
    https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L445 */
