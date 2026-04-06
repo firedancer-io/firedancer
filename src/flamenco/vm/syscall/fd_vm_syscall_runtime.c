@@ -81,7 +81,14 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
     FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
-  memcpy( var_query.haddr, &schedule, sizeof(fd_epoch_schedule_t) );
+
+  uchar * dst = var_query.haddr;
+  memcpy( dst,      &schedule.slots_per_epoch,             8UL );
+  memcpy( dst+8UL,  &schedule.leader_schedule_slot_offset, 8UL );
+  memcpy( dst+16UL, &schedule.warmup,                      1UL );
+  memset( dst+17UL, 0UL,                                   7UL );
+  memcpy( dst+24UL, &schedule.first_normal_epoch,          8UL );
+  memcpy( dst+32UL, &schedule.first_normal_slot,           8UL );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
