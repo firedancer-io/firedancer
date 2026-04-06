@@ -490,11 +490,6 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     };
     if( params->clock ) clock = *params->clock;
 
-    /* Rent */
-    uchar rent_enc[ FD_SYSVAR_RENT_BINCODE_SZ ];
-    fd_bincode_encode_ctx_t ctx = (fd_bincode_encode_ctx_t){ .data = rent_enc, .dataend = rent_enc + sizeof(rent_enc) };
-    FD_TEST( !fd_rent_encode( &bank->f.rent, &ctx ) );
-
     /* Last restart slot */
     uchar last_restart_enc[ FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ ] = {0};
 
@@ -518,7 +513,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     struct { fd_pubkey_t const * addr; void const * data; ulong sz; } sysvars[] = {
       { &fd_sysvar_clock_id,               &clock,                  sizeof(clock)                     },
       { &fd_sysvar_epoch_schedule_id,      &bank->f.epoch_schedule, sizeof(bank->f.epoch_schedule)    },
-      { &fd_sysvar_rent_id,                rent_enc,                sizeof(rent_enc)                  },
+      { &fd_sysvar_rent_id,                &bank->f.rent,           sizeof(bank->f.rent)              },
       { &fd_sysvar_last_restart_slot_id,   last_restart_enc,        sizeof(last_restart_enc)          },
       { &fd_sysvar_recent_block_hashes_id, recent_hashes_enc,       sizeof(recent_hashes_enc)         },
       { &fd_sysvar_slot_hashes_id,         slot_hashes_enc,         sizeof(slot_hashes_enc)           },

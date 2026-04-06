@@ -91,9 +91,7 @@ static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
       TYPES_CALLBACKS( recent_block_hashes, _global ) },
   [FD_SYSVAR_rent_IDX] =
     { .name="rent",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_rent             ), .data_max=FD_SYSVAR_RENT_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_rent             ), .obj_max =FD_SYSVAR_RENT_FOOTPRINT,
-      TYPES_CALLBACKS( rent, ) },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_rent             ), .data_max=FD_SYSVAR_RENT_BINCODE_SZ },
   [FD_SYSVAR_slot_hashes_IDX] =
     { .name="slot hashes",
       .data_off=offsetof(fd_sysvar_cache_t, bin_slot_hashes      ), .data_max=FD_SYSVAR_SLOT_HASHES_BINCODE_SZ,

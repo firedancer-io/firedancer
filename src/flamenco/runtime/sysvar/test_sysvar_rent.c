@@ -9,11 +9,6 @@ test_sysvar_rent_bounds( void ) {
     0x64
   };
   FD_TEST( sizeof(data)==FD_SYSVAR_RENT_BINCODE_SZ );
-  fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+sizeof(data) };
-  ulong obj_sz = 0UL;
-  FD_TEST( fd_rent_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
-  FD_TEST( obj_sz==FD_SYSVAR_RENT_FOOTPRINT );
-  FD_TEST( fd_rent_align()==FD_SYSVAR_RENT_ALIGN );
 }
 
 struct fd_rent_exempt_fixture {

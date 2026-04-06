@@ -43,16 +43,6 @@ FD_FN_UNUSED static fd_slot_pair_t * fd_hard_forks_hard_forks_join( fd_hard_fork
 FD_FN_UNUSED static void fd_hard_forks_hard_forks_update( fd_hard_forks_global_t * struct_mem, fd_slot_pair_t * vec ) {
   struct_mem->hard_forks_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11 */
-/* Encoded Size: Fixed (17 bytes) */
-struct fd_rent {
-  ulong lamports_per_uint8_year;
-  double exemption_threshold;
-  uchar burn_percent;
-};
-typedef struct fd_rent fd_rent_t;
-#define FD_RENT_ALIGN alignof(fd_rent_t)
-
 /* https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L17 */
 /* Encoded Size: Fixed (24 bytes) */
 struct fd_stake_history_entry {
@@ -587,17 +577,6 @@ void * fd_hard_forks_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_hard_forks_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_hard_forks_encode_global( fd_hard_forks_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_hard_forks_size_global( fd_hard_forks_global_t const * self );
-
-static inline void fd_rent_new( fd_rent_t * self ) { fd_memset( self, 0, sizeof(fd_rent_t) ); }
-int fd_rent_encode( fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_rent_size( fd_rent_t const * self ) { (void)self; return 17UL; }
-static inline ulong fd_rent_align( void ) { return FD_RENT_ALIGN; }
-static inline int fd_rent_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_rent_t);
-  if( (ulong)ctx->data + 17UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_rent_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_stake_history_entry_new( fd_stake_history_entry_t * self ) { fd_memset( self, 0, sizeof(fd_stake_history_entry_t) ); }
 int fd_stake_history_entry_encode( fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx );

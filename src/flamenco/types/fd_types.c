@@ -176,35 +176,6 @@ ulong fd_hard_forks_size_global( fd_hard_forks_global_t const * self ) {
   return size;
 }
 
-int fd_rent_encode( fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint64_encode( self->lamports_per_uint8_year, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_double_encode( self->exemption_threshold, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint8_encode( (uchar)(self->burn_percent), ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_rent_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 17UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 17UL );
-  return 0;
-}
-static void fd_rent_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_rent_t * self = (fd_rent_t *)struct_mem;
-  fd_bincode_uint64_decode_unsafe( &self->lamports_per_uint8_year, ctx );
-  fd_bincode_double_decode_unsafe( &self->exemption_threshold, ctx );
-  fd_bincode_uint8_decode_unsafe( &self->burn_percent, ctx );
-}
-void * fd_rent_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_rent_t * self = (fd_rent_t *)mem;
-  fd_rent_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_rent_t);
-  void * * alloc_mem = &alloc_region;
-  fd_rent_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
 int fd_stake_history_entry_encode( fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint64_encode( self->effective, ctx );
