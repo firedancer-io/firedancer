@@ -2242,6 +2242,18 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* Try to dispatch some work before we try to ingest more FEC sets.
+     If FEC ingestion takes precedence, exec tiles can be left idle for
+     an extended period of time during catchup due to the burstiness of
+     reassembled FEC delivery.  It's better to keep the exec tiles busy
+     with potentially suboptimal scheduling than to leave them idle
+     while a burst of FEC sets gets ingested. */
+  if( FD_LIKELY( replay( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
   int evict_banks = 0;
@@ -2260,9 +2272,6 @@ after_credit( fd_replay_tile_t *  ctx,
     *opt_poll_in = 0;
     return;
   }
-
-  *charge_busy = replay( ctx, stem );
-  *opt_poll_in = !*charge_busy;
 }
 
 static int
