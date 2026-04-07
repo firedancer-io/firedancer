@@ -62,6 +62,9 @@ struct fd_sysvar_pos {
 
   int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
   void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+  /* Optional validation for directly-stored sysvars (no decode). */
+  int    (* validate)( void const * data, ulong data_sz );
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
 
@@ -69,16 +72,34 @@ typedef struct fd_sysvar_pos fd_sysvar_pos_t;
   .decode_footprint = fd_##name##_decode_footprint,                    \
   .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf
 
+static inline int
+fd_sysvar_validate_epoch_rewards( void const * data, ulong data_sz ) {
+  if( FD_UNLIKELY( data_sz!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) return 1;
+  uchar active = ((fd_sysvar_epoch_rewards_t *)data)->active;
+  if( FD_UNLIKELY( active!=0 && active!=1 ) ) return 1;
+  return 0;
+}
+
+static inline int
+fd_sysvar_validate_epoch_schedule( void const * data, ulong data_sz ) {
+  if( FD_UNLIKELY( data_sz!=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ) ) return 1;
+  uchar warmup = ((fd_epoch_schedule_t *)data)->warmup;
+  if( FD_UNLIKELY( warmup!=0 && warmup!=1 ) ) return 1;
+  return 0;
+}
+
 static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [FD_SYSVAR_clock_IDX] =
     { .name="clock",
       .data_off=offsetof(fd_sysvar_cache_t, bin_clock            ), .data_max=FD_SYSVAR_CLOCK_BINCODE_SZ },
   [FD_SYSVAR_epoch_rewards_IDX] =
     { .name="epoch rewards",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_rewards    ), .data_max=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_rewards    ), .data_max=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ,
+      .validate=fd_sysvar_validate_epoch_rewards },
   [FD_SYSVAR_epoch_schedule_IDX] =
     { .name="epoch schedule",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_schedule   ), .data_max=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_schedule   ), .data_max=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ,
+      .validate=fd_sysvar_validate_epoch_schedule },
   [FD_SYSVAR_last_restart_slot_IDX] =
     { .name="last restart slot",
       .data_off=offsetof(fd_sysvar_cache_t, bin_last_restart_slot), .data_max=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ },
