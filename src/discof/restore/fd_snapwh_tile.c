@@ -217,12 +217,12 @@ handle_data_frag( fd_snapwh_t * ctx,
 
     if( FD_UNLIKELY( ( pair_cnt==PAIR_HASH_N ) || ( !rem_sz ) ) ) {
 #     if FD_HAS_AVX512 && defined(__AVX512DQ__)
-      ulong        h_seed[PAIR_HASH_N];
-      ulong        h_trail[PAIR_HASH_N];
-      ulong        h_block[PAIR_HASH_N];
-      void const * h_tin  [PAIR_HASH_N];
+      ulong        h_seed [PAIR_HASH_N] = {0};
+      ulong        h_trail[PAIR_HASH_N]; /* no initialization needed */
+      ulong        h_block[PAIR_HASH_N]; /* no initialization needed */
+      void const * h_tin  [PAIR_HASH_N] = {0};
       ulong        h_tinsz[PAIR_HASH_N] = {0};
-      void const * h_bin  [PAIR_HASH_N];
+      void const * h_bin  [PAIR_HASH_N] = {0};
       ulong        h_binsz[PAIR_HASH_N] = {0};
       for( ulong i=0UL; i<pair_cnt; i++ ) {
         h_seed[ i ] = io_seed;

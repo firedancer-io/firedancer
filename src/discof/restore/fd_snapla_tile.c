@@ -391,6 +391,8 @@ unprivileged_init( fd_topo_t *      topo,
   void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),           fd_ssparse_footprint( 1UL<<24UL ));
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
 
+  FD_TEST( fd_topo_tile_name_cnt( topo, "snapla" )<=FD_SNAPSHOT_MAX_SNAPLA_TILES );
+
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt  ));
 

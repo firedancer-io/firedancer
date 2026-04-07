@@ -214,6 +214,7 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
   fd_lthash_zero( &ctx->vinyl.running_lthash );
 
   ulong wr_cnt      = fd_topo_tile_name_cnt( topo, "snapwr" );
+  FD_TEST( wr_cnt<=FD_VINYL_ADMIN_WR_SEQ_CNT_MAX );
   ctx->vinyl.wr_cnt = wr_cnt;
 
   ctx->vinyl.admin = NULL;
@@ -734,7 +735,7 @@ fd_snapwm_vinyl_init_admin( fd_snapwm_tile_t * ctx,
     goto init_admin_error;
   }
 
-  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt ) ) {
+  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt || ctx->vinyl.wr_cnt>FD_VINYL_ADMIN_WR_SEQ_CNT_MAX ) ) {
     FD_LOG_WARNING(( "vinyl admin sees unexpected write tile count %lu", ctx->vinyl.wr_cnt ));
     goto init_admin_error;
   }
@@ -816,7 +817,7 @@ fd_snapwm_vinyl_revert_full( fd_snapwm_tile_t * ctx  ) {
 
 void
 fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx ) {
-  FD_CRIT( ctx->vinyl.txn_active, "txn_commit called while not in txn" );
+  FD_CRIT( !ctx->vinyl.txn_active, "revert_incr called while txn_active" );
   FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
   fd_vinyl_io_t * io = ctx->vinyl.io_mm;
 

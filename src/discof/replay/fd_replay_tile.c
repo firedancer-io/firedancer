@@ -37,7 +37,7 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
-#include "../../flamenco/runtime/fd_genesis_parse.h"
+#include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
@@ -1183,6 +1183,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) return 0;
+  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
   if( !ctx->supports_leader ) return 0;
 
@@ -2241,6 +2242,18 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* Try to dispatch some work before we try to ingest more FEC sets.
+     If FEC ingestion takes precedence, exec tiles can be left idle for
+     an extended period of time during catchup due to the burstiness of
+     reassembled FEC delivery.  It's better to keep the exec tiles busy
+     with potentially suboptimal scheduling than to leave them idle
+     while a burst of FEC sets gets ingested. */
+  if( FD_LIKELY( replay( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
   int evict_banks = 0;
@@ -2259,9 +2272,6 @@ after_credit( fd_replay_tile_t *  ctx,
     *opt_poll_in = 0;
     return;
   }
-
-  *charge_busy = replay( ctx, stem );
-  *opt_poll_in = !*charge_busy;
 }
 
 static int

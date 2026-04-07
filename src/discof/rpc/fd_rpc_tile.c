@@ -13,7 +13,7 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/runtime/fd_genesis_parse.h"
+#include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"

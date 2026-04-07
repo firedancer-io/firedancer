@@ -40,6 +40,7 @@ const fd_pubkey_t fd_solana_slashing_program_id               = { .uc = { SLASHI
 
 const fd_pubkey_t fd_solana_feature_program_buffer_address             = { .uc = { FEATURE_PROG_BUFFER_ID } };
 const fd_pubkey_t fd_solana_stake_program_vote_state_v4_buffer_address = { .uc = { STAKE_PROG_VOTE_STATE_V4_BUFFER_ID } };
+const fd_pubkey_t fd_solana_stake_program_v5_buffer_address            = { .uc = { STAKE_PROG_V5_BUFFER_ID } };
 const fd_pubkey_t fd_solana_slashing_program_buffer_address            = { .uc = { SLASHING_PROG_BUFFER_ID } };
 const fd_pubkey_t fd_solana_ptoken_program_buffer_address              = { .uc = { PTOKEN_PROG_BUFFER_ID } };
 const fd_pubkey_t fd_solana_migration_authority                        = { .uc = { MIGRATION_AUTHORITY_ID } };
