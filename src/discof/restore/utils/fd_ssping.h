@@ -5,10 +5,9 @@
    peers that are reachable for snapshot download, and returning the
    "best" such peer at any time.
 
-   The "best" peer is defined as the one with the lowest latency for
-   now, in response to an ICMP ping request, although this should likely
-   be changed to include snapshot age, or actual observed download speed
-   for a small sample, or other factors.
+   The "best" peer is defined as the one with the lowest combined score
+   of TCP connection latency and snapshot age (slots behind the
+   cluster), as computed by the peer selector.
 
    The snapshot pinger works on the assumption that there is a maximum
    size of peers that will ever be added, as we expect from the gossip
