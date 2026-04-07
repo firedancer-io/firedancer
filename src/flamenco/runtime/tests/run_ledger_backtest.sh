@@ -261,6 +261,7 @@ cat <<EOF > ${CONFIG_FILE}
 [runtime]
     max_live_slots = $MAX_LIVE_SLOTS
     max_fork_width = 4
+    fixed_fec_sets = false
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
     path = "$LOG"
