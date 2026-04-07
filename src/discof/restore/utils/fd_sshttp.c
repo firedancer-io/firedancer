@@ -314,8 +314,10 @@ http_send_ssl( fd_sshttp_t * http,
 static int
 setup_redirect( fd_sshttp_t * http,
               long          now ) {
+  ulong hops = http->hops;
   fd_sshttp_cancel( http );
   fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, now );
+  http->hops = hops;
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
 
@@ -513,8 +515,10 @@ follow_redirect( fd_sshttp_t *        http,
     http->location[ location_len ] = '\0';
   } else {
     if( FD_LIKELY( !fd_sshttp_fuzz ) ) {
+      ulong hops = http->hops;
       fd_sshttp_cancel( http );
       fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, now );
+      http->hops = hops;
     } else {
       http->state = FD_SSHTTP_STATE_RESP;
       http->response_len = 0UL;
