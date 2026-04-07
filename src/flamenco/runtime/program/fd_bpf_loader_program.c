@@ -161,8 +161,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   config.sbpf_max_version = versions.max_sbpf_version;
 
   if( FD_UNLIKELY( fd_sbpf_elf_peek( elf_info, programdata, programdata_size, &config )<0 ) ) {
-    //TODO: actual log, this is a custom Firedancer msg
-    fd_log_collector_msg_literal( instr_ctx, "Failed to load or verify Elf" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
