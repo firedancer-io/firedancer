@@ -129,7 +129,7 @@ http_init_ssl( fd_sshttp_t * http ) {
 }
 #endif
 
-void
+int
 fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
                 char const *  hostname,
@@ -196,7 +196,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 #if FD_HAS_OPENSSL
       if( FD_LIKELY( http->ssl ) ) { SSL_free( http->ssl ); http->ssl = NULL; }
 #endif
-      return;
+      return -1;
     }
   }
 
@@ -210,6 +210,8 @@ fd_sshttp_init( fd_sshttp_t * http,
     http->state    = FD_SSHTTP_STATE_REQ;
     http->deadline = now + FD_SSHTTP_DEADLINE_NANOS;
   }
+
+  return 0;
 }
 
 #if FD_HAS_OPENSSL
@@ -315,7 +317,9 @@ static int
 setup_redirect( fd_sshttp_t * http,
               long          now ) {
   fd_sshttp_cancel( http );
-  fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, now );
+  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, now ) ) ) {
+    return FD_SSHTTP_ADVANCE_ERROR;
+  }
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
 
@@ -514,7 +518,9 @@ follow_redirect( fd_sshttp_t *        http,
   } else {
     if( FD_LIKELY( !fd_sshttp_fuzz ) ) {
       fd_sshttp_cancel( http );
-      fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, now );
+      if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, now ) ) ) {
+        return FD_SSHTTP_ADVANCE_ERROR;
+      }
     } else {
       http->state = FD_SSHTTP_STATE_RESP;
       http->response_len = 0UL;

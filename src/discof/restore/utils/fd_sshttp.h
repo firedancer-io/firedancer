@@ -26,7 +26,7 @@ fd_sshttp_snapshot_name( fd_sshttp_t const * http );
 ulong
 fd_sshttp_content_len( fd_sshttp_t const * http );
 
-void
+int
 fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
                 char const *  hostname,
