@@ -62,13 +62,13 @@
       only process Replay vote txns that have been successfully executed
       when counting them towards confirmations.
 
-      This provides an "eventually-consistent" model, specifically that
-      even though individual Gossip or TPU vote txns may be lost, we are
-      guaranteed to "eventually" confirm a block and converge with Agave
-      as long as we replay the block and its descendants, because our
-      vote programs match 1-1.  Gossip / TPU provide an optimization for
+      The guarantee is "eventual consistency": even though individual
+      Gossip or TPU vote txns may be lost, we are guaranteed to
+      "eventually" confirm a block and converge with Agave as long as we
+      receive the block and replay its contained vote txns, because our
+      vote programs match 1-1.  Gossip / TPU can provide a fast-path for
       earlier confirmations as well as a source of security via
-      redundancy, in case we are not receiving block data from the rest
+      redundancy in case we are not receiving the blocks from the rest
       of the network.
 
       The processing of vote txns is important to (as already alluded)
@@ -204,16 +204,6 @@ struct in_ctx {
 };
 typedef struct in_ctx in_ctx_t;
 
-struct vtr {
-  fd_pubkey_t id_key;   /* validator identity */
-  fd_pubkey_t vote_acc; /* vote account address */
-  ulong       stake;    /* vote account stake */
-};
-typedef struct vtr vtr_t;
-
-struct fd_tower_tile;
-typedef struct fd_tower_tile fd_tower_tile_t;
-
 struct fd_tower_tile {
   ulong            seed; /* map seed */
   int              checkpt_fd;
@@ -253,7 +243,7 @@ struct fd_tower_tile {
   fd_pubkey_t                   vote_accs[VTR_MAX]; /* vote account addresses */
   ulong                         stakes   [VTR_MAX]; /* stake[i] for vote_accs[i] */
   ulong                         vtr_cnt;            /* actual cnt of elements in above arrays */
-  fd_tower_slot_duplicate_t     duplicate_chunks[1];
+  fd_gossip_duplicate_shred_t   duplicate_chunks[FD_EQVOC_CHUNK_CNT];
   fd_compact_tower_sync_serde_t compact_tower_sync_serde;
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
 
@@ -350,6 +340,7 @@ struct fd_tower_tile {
     ulong hfork_mismatched_slot;
   } metrics;
 };
+typedef struct fd_tower_tile fd_tower_tile_t;
 
 /* Compile-time dependency injection.  This macro defaults to the
    production implementation defined below.  Tests can #define it
@@ -526,7 +517,7 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
     double ratio = (double)votes_blk->stake / (double)total_stake;
     if( FD_LIKELY( ratio < ratios[i] ) ) break; /* threshold not met */
 
-    /* If ghost is missing, then we know this is a forward
+    /* If the ghost_blk is missing, then we know this is a forward
        confirmation (ie. we haven't replayed the block yet). */
 
     if( FD_UNLIKELY( !ghost_blk ) ) {
@@ -534,23 +525,25 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
       votes_blk->flags = fd_uchar_set_bit( votes_blk->flags, i+4 );
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 1, .slot = votes_blk->key.slot, .block_id = votes_blk->key.block_id } } } );
 
-      /* If we have a tower_blk for the slot, but not a ghost blk, this
-         implies we replayed one version of the slot that is not the
-         same as the one getting confirmed. */
+      /* If we have a tower_blk for the slot when the ghost_blk is
+         missing, this implies we replayed an equivocating block_id that
+         is not the confirmed_block_id.  This is only relevant for the
+         duplicate confirmed level.  */
 
-      if( FD_LIKELY( tower_blk ) ) {
+      if( FD_UNLIKELY( levels[i]==FD_TOWER_SLOT_CONFIRMED_DUPLICATE && tower_blk ) ) {
         FD_TEST( 0!=memcmp( &tower_blk->replayed_block_id, &votes_blk->key.block_id, sizeof(fd_hash_t) ) );
         tower_blk->confirmed          = 1;
         tower_blk->confirmed_block_id = votes_blk->key.block_id;
+        fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
       }
       continue;
     }
 
     /* Otherwise if they are present, then we know this is not a forward
        confirmation and thus we have replayed and confirmed the block,
-       which also implies we have replayed and confirmed its ancestry.
-       So publish confirmations for all ancestors (short-circuit at the
-       first ancestor that was already confirmed).
+       which also implies we have replayed and confirmed all its
+       ancestors.  So we publish confirmations for all its ancestors
+       (short-circuiting at the first ancestor already confirmed).
 
        We use ghost to walk up the ancestry and also mark ghost and
        tower blocks as confirmed as we walk if this is the duplicate
@@ -582,6 +575,8 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
       if( FD_UNLIKELY( levels[i]==FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
         tower_anc->confirmed          = 1;
         tower_anc->confirmed_block_id = ghost_anc->id;
+        fd_ghost_confirm( ctx->ghost, &ghost_anc->id );
+        if( FD_UNLIKELY( memcmp( &tower_anc->replayed_block_id, &ghost_anc->id, sizeof(fd_hash_t) ) ) ) fd_ghost_eqvoc( ctx->ghost, &tower_anc->replayed_block_id );
       }
 
       /* Walk up to next ancestor. */
@@ -656,11 +651,26 @@ publish_slot_rooted( fd_tower_tile_t * ctx,
 }
 
 static void
-publish_slot_duplicate( fd_tower_tile_t *               ctx,
-                        fd_tower_slot_duplicate_t const * dup ) {
+publish_slot_duplicate( fd_tower_tile_t *                ctx,
+                        fd_gossip_duplicate_shred_t const chunks[static FD_EQVOC_CHUNK_CNT],
+                        ulong                            slot ) {
   publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
-  pub->sig = FD_TOWER_SIG_SLOT_DUPLICATE;
-  pub->msg.slot_duplicate = *dup;
+  pub->sig        = FD_TOWER_SIG_SLOT_DUPLICATE;
+  memcpy( pub->msg.slot_duplicate.chunks, chunks, sizeof(pub->msg.slot_duplicate.chunks) );
+
+  /* If we already have a tower blk for this just-proved duplicate
+     slot, then we know we have replayed one of the equivocating
+     blocks.  So determine:
+
+     1. whether we already know what is the confirmed block_id
+     2. if our replayed_block_id is the confirmed_block_id
+
+     If either 1. or 2. are false (with 2. contingent on 1.), then
+     mark the replayed block as eqvoc in ghost. */
+
+  fd_tower_blk_t * tower_blk = fd_tower_blocks_query( ctx->tower, slot );
+  int eqvoc = tower_blk && (!tower_blk->confirmed || memcmp( &tower_blk->replayed_block_id, &tower_blk->confirmed_block_id, sizeof(fd_hash_t) ) );
+  if( FD_LIKELY( eqvoc ) ) fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
 }
 
 static void
@@ -970,28 +980,57 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* Insert into ghost. */
 
   fd_ghost_blk_t * ghost_blk;
-  if( FD_UNLIKELY( !ctx->init ) ) ghost_blk = fd_ghost_init  ( ctx->ghost, slot_completed->slot, &slot_completed->block_id );
-  else                            ghost_blk = fd_ghost_insert( ctx->ghost, slot_completed->slot, &slot_completed->block_id, &slot_completed->parent_block_id );
+  if( FD_UNLIKELY( !ctx->init ) ) {
+
+    /* This is the first replay_slot_completed (ie. the snapshot or
+       genesis slot), so initialize the ghost root. */
+
+    ghost_blk = fd_ghost_init( ctx->ghost, slot_completed->slot, &slot_completed->block_id );
+
+  } else if ( FD_UNLIKELY( !fd_ghost_query( ctx->ghost, &slot_completed->parent_block_id ) )) {
+
+  /* Due to asynchronous frag processing, it's possible this block from
+     replay_slot_completed is on a minority fork Tower already pruned
+     after publishing a new root. */
+
+    ctx->metrics.ignored_cnt++;
+    ctx->metrics.ignored_slot = slot_completed->slot;
+    publish_slot_ignored( ctx, slot_completed, tsorig, stem );
+    return; /* short-circuit processing this slot */
+
+  } else {
+
+    /* Common case. */
+
+    ghost_blk = fd_ghost_insert( ctx->ghost, slot_completed->slot, &slot_completed->block_id, &slot_completed->parent_block_id );
+  }
+  FD_TEST( ghost_blk );
 
   /* Insert into tower. */
 
   fd_tower_blk_t * eqvoc_tower_blk = NULL;
   if( FD_UNLIKELY( eqvoc_tower_blk = fd_tower_blocks_query( ctx->tower, slot_completed->slot ) ) ) {
 
-    /* If there already exists an eqvoc_tower_blk, then we know this
-       slot equivocates (there are multiple blocks in the slot).
-       replay_slot_completed processes at most 2 equivocating blocks for
-       a given slot, and the second block is the confirmed version ie.
-       the current slot_completed, so we overwrite relevant fields. */
+    /* If eqvoc_tower_blk is not NULL, then we know this slot
+       equivocates (there are multiple blocks in the slot).
 
-    FD_TEST( eqvoc_tower_blk->confirmed ); /* check the confirmed bit is set (second replay_slot_completed version must be confirmed) */
+       Replay processes at most 2 equivocating blocks for a given slot,
+       and the latter block is guaranteed to be confirmed.
+
+       At this point, we know we are processing the latter block, so
+       we record that in the tower_blk. */
+
+    FD_TEST( eqvoc_tower_blk->confirmed ); /* check the confirmed bit is set (the confirmation must have already happened before replay_slot_completed) */
     fd_tower_lockos_remove( ctx->tower, slot_completed->slot );
-    eqvoc_tower_blk->parent_slot       = slot_completed->parent_slot;
-    eqvoc_tower_blk->replayed_block_id = slot_completed->block_id;
 
     ctx->metrics.eqvoc_cnt++;
     ctx->metrics.eqvoc_slot = fd_ulong_max( ctx->metrics.eqvoc_slot, slot_completed->slot );
 
+    fd_ghost_confirm( ctx->ghost, &slot_completed->block_id );
+    fd_ghost_eqvoc( ctx->ghost, &eqvoc_tower_blk->replayed_block_id );
+
+    eqvoc_tower_blk->parent_slot       = slot_completed->parent_slot;
+    eqvoc_tower_blk->replayed_block_id = slot_completed->block_id;
   } else {
 
     /* Otherwise this is the first replay of this block, so insert a new
@@ -1018,6 +1057,37 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
       FD_TEST( parent_tower_blk );
       tower_blk->prev_leader_slot = parent_tower_blk->prev_leader_slot;
     }
+
+    fd_votes_blk_t * fwd_votes_blk = fd_votes_query( ctx->votes, slot_completed->slot, NULL );
+    if( FD_UNLIKELY( fwd_votes_blk && fd_uchar_extract_bit( fwd_votes_blk->flags, FD_TOWER_SLOT_CONFIRMED_DUPLICATE+4 ) ) ) {
+
+      /* A block_id for this slot was forward-confirmed at the duplicate
+         level before replay (publish_slot_confirmed ran when no
+         ghost_blk existed).  Resolve the pending confirmation now. */
+
+      tower_blk->confirmed          = 1;
+      tower_blk->confirmed_block_id = fwd_votes_blk->key.block_id;
+
+      if( FD_LIKELY( 0==memcmp( &tower_blk->replayed_block_id, &fwd_votes_blk->key.block_id, sizeof(fd_hash_t) ) ) ) {
+
+        /* The forward-confirmed block_id matches what we replayed. */
+
+        fd_ghost_confirm( ctx->ghost, &slot_completed->block_id );
+      } else {
+
+        /* The forward-confirmed block_id differs from what we replayed,
+           so our replayed block is an equivocating sibling. */
+
+        fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
+      }
+
+    } else if( FD_UNLIKELY( fd_eqvoc_query( ctx->eqvoc, slot_completed->slot ) ) ) {
+
+      /* Eqvoc already detected equivocation for this slot (via shreds
+         or gossip before replay).  Mark the ghost block invalid. */
+
+      fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
+    }
   }
 
   /* Count the vote accounts and reconcile our own vote account. */
@@ -1039,18 +1109,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     ctx->init = 1;
   }
   ghost_blk->total_stake = total_stake; /* FIXME */
-
-  /* Due to asynchronous frag processing, it's possible this block from
-     replay_slot_completed is on a minority fork Tower already pruned
-     after publishing a new root. */
-
-  if( FD_UNLIKELY( ghost_blk!=fd_ghost_root( ctx->ghost ) && !fd_ghost_query( ctx->ghost, &slot_completed->parent_block_id ) ) ) {
-    ctx->metrics.ignored_cnt++;
-    ctx->metrics.ignored_slot = slot_completed->slot;
-
-    publish_slot_ignored( ctx, slot_completed, tsorig, stem );
-    return;
-  }
 
   /* Insert into hard fork detector. */
 
@@ -1415,11 +1473,11 @@ returnable_frag( fd_tower_tile_t *   ctx,
       fd_gossip_duplicate_shred_t const * duplicate_shred = msg->duplicate_shred;
       fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin );
       fd_epoch_leaders_t const *          lsched          = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, duplicate_shred->slot );
-      int eqvoc_err = fd_eqvoc_chunk_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, lsched, from, duplicate_shred, ctx->duplicate_chunks->chunks );
+      int eqvoc_err = fd_eqvoc_chunk_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, lsched, from, duplicate_shred, ctx->duplicate_chunks );
       update_metrics_eqvoc( ctx, eqvoc_err );
       if( FD_UNLIKELY( eqvoc_err>0 ) ) {
         ctx->metrics.eqvoc_proof_verified++;
-        publish_slot_duplicate( ctx, ctx->duplicate_chunks );
+        publish_slot_duplicate( ctx, ctx->duplicate_chunks, duplicate_shred->slot );
       }
     }
     return 0;
@@ -1457,11 +1515,11 @@ returnable_frag( fd_tower_tile_t *   ctx,
     if( FD_LIKELY( sz==FD_SHRED_MIN_SZ || sz==FD_SHRED_MAX_SZ ) ) { /* TODO depends on pending shred_out changes */
       fd_shred_t                * shred = (fd_shred_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, shred->slot );
-      int eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, lsched, shred, ctx->duplicate_chunks->chunks );
+      int eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, lsched, shred, ctx->duplicate_chunks );
       update_metrics_eqvoc( ctx, eqvoc_err );
       if( FD_UNLIKELY( eqvoc_err>0 ) ) {
         ctx->metrics.eqvoc_proof_constructed++;
-        publish_slot_duplicate( ctx, ctx->duplicate_chunks );
+        publish_slot_duplicate( ctx, ctx->duplicate_chunks, shred->slot );
       }
     }
     return 0;

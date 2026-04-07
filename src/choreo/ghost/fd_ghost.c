@@ -534,6 +534,78 @@ fd_ghost_publish( fd_ghost_t     * ghost,
   ghost->root  = blk_pool_idx( blk_pool( ghost ), newr ); /* replace with new root */
 }
 
+/* mark_invalid marks the entire subtree beginning from root as invalid.
+   Implementation is iterative pre-order traversal using O(1) space. */
+
+static void
+mark_invalid( fd_ghost_t     * ghost,
+              fd_ghost_blk_t * root ) {
+  fd_ghost_blk_t * pool = blk_pool( ghost );
+  fd_ghost_blk_t * curr = root;
+
+  /* Loop invariant: curr has not been visited.
+
+     Before: curr = root, which has not been visited.  Trivially true.
+
+     After: curr is set to either a child (step 2) or a right sibling of
+     an ancestor found during backtracking (step 3).  Preorder visits
+     parents before children and left before right, so neither has been
+     visited yet.  If backtracking reaches root (step 4), loop exits. */
+
+  for(;;) {
+
+    /* 1. Visit: mark the current curr invalid. */
+
+    curr->valid = 0;
+
+    /* 2. Descend: if the curr has a child, pivot to it. */
+
+    fd_ghost_blk_t * child = blk_pool_ele( pool, curr->child );
+    if( FD_LIKELY( child ) ) { curr = child; continue; }
+
+    /* 3. Backtrack: if the curr is a leaf, traverse up until we find an
+          ancestor with a right sibling, then pivot to that sibling. */
+
+    while( FD_LIKELY( curr!=root ) ) {
+      fd_ghost_blk_t * sibling = blk_pool_ele( pool, curr->sibling );
+      if( FD_LIKELY( sibling ) ) { curr = sibling; break; }
+      curr = blk_pool_ele( pool, curr->parent );
+    }
+
+    /* 4. Terminate: if we backtrack all the way to root, the traversal
+          is complete. */
+
+    if( FD_UNLIKELY( curr==root ) ) break;
+  }
+}
+
+void
+fd_ghost_confirm( fd_ghost_t      * ghost,
+                  fd_hash_t const * confirmed_block_id ) {
+  fd_ghost_blk_t * pool = blk_pool( ghost );
+  fd_ghost_blk_t * blk  = blk_map_ele_query( blk_map( ghost ), confirmed_block_id, NULL, pool );
+  if( FD_UNLIKELY( !blk ) ) return;
+
+  /* Mark the confirmed block and its ancestors as valid, short-
+     circuiting at the first ancestor that is already valid. */
+
+  fd_ghost_blk_t * anc = blk;
+  while( FD_LIKELY( anc ) ) {
+    if( FD_LIKELY( anc->valid ) ) break;
+    anc->valid = 1;
+    anc = blk_pool_ele( pool, anc->parent );
+  }
+}
+
+void
+fd_ghost_eqvoc( fd_ghost_t      * ghost,
+                fd_hash_t const * block_id ) {
+  fd_ghost_blk_t * pool = blk_pool( ghost );
+  fd_ghost_blk_t * blk  = blk_map_ele_query( blk_map( ghost ), block_id, NULL, pool );
+  if( FD_UNLIKELY( !blk ) ) return;
+  mark_invalid( ghost, blk );
+}
+
 ulong
 fd_ghost_width( fd_ghost_t * ghost ) {
   return ghost->width;

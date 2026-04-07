@@ -196,6 +196,13 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
                        fd_gossip_duplicate_shred_t const * chunk,
                        fd_gossip_duplicate_shred_t         chunks_out[static FD_EQVOC_CHUNK_CNT] );
 
+/* fd_eqvoc_query returns 1 if equivocation has been detected for the
+   given slot (ie. a verified duplicate proof exists), 0 otherwise. */
+
+int
+fd_eqvoc_query( fd_eqvoc_t * eqvoc,
+                ulong        slot );
+
 /* fd_eqvoc_update_voters updates the vtr_map to match the given voter
    set.  Removes entries not in id_keys[0..cnt) (and evicts their proofs),
    adds entries in id_keys not yet in vtr_map.  Preserves existing

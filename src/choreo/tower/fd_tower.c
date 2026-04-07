@@ -54,7 +54,12 @@ struct lockout_interval {
   ulong     key;   /* vote_slot (32 bits) | expiration_slot (32 bits) ie. vote_slot + (1 << confirmation count) */
   ulong     next;  /* reserved for fd_map_chain and fd_pool */
   fd_hash_t addr;  /* vote account address */
-  ulong     start; /* start of interval, also vote slot */
+  ulong     start; /* For normal entries: start of interval (vote slot).
+                      For sentinel entries (key has expiration_slot==0):
+                      the interval_end value this sentinel indexes.
+                      Multiple sentinels can exist per slot (one per
+                      unique interval_end), all sharing key (slot, 0)
+                      via MAP_MULTI. */
 };
 typedef struct lockout_interval lockout_interval_t;
 
@@ -521,8 +526,8 @@ switch_check( fd_tower_t * tower,
 
       ulong sentinel_key = lockout_interval_key( candidate_slot, 0 );
       for( lockout_interval_t const * sentinel = lockout_interval_map_ele_query_const( lck_map, &sentinel_key, NULL, lck_pool );
-                                                  sentinel;
-                                                  sentinel = lockout_interval_map_ele_next_const( sentinel, NULL, lck_pool ) ) {
+                                      sentinel;
+                                      sentinel = lockout_interval_map_ele_next_const( sentinel, NULL, lck_pool ) ) {
         ulong interval_end = sentinel->start;
         ulong key = lockout_interval_key( candidate_slot, interval_end );
 
@@ -1458,8 +1463,8 @@ fd_tower_lockos_remove( fd_tower_t * tower,
 
   ulong sentinel_key = lockout_interval_key( slot, 0 );
   for( lockout_interval_t * sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool );
-                                        sentinel;
-                                        sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool ) ) {
+                            sentinel;
+                            sentinel = lockout_interval_map_ele_remove( lck_map, &sentinel_key, NULL, lck_pool ) ) {
     ulong interval_end = sentinel->start;
     lockout_interval_pool_ele_release( lck_pool, sentinel );
 

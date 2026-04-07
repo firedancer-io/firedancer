@@ -1,3 +1,4 @@
+#define fd_eqvoc_query       mock_eqvoc_query_fn
 #define QUERY_VOTE_ACCS      mock_query_vote_accs
 
 #include "fd_tower_tile.c"
@@ -316,6 +317,292 @@ test_fixture_replay( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_fixture_replay" ));
 }
 
+/* ---- eqvoc ordering tests ----
+
+   Three events for a slot with equivocation:
+     R = first replay_slot_completed (we replay block A)
+     E = equivocation detected (publish_slot_duplicate)
+     C = CONFIRMED_DUPLICATE reached (publish_slot_confirmed)
+
+   There are 3! = 6 orderings of {R, E, C} and 2 sub-cases for C
+   (C=A: confirmed block matches replayed, C=B: differs), giving 12
+   total cases.  Six are reducible:
+
+     same (C=A):
+       ECR ≡ ERC: E before R makes ghost invalid on replay.  C=A then
+                  re-validates.  C and R commute after E, same end state.
+       ERC ≡ REC: whether E arrives before or after R, the ghost block
+                  is invalidated either way.  C=A then re-validates.
+                  Same end state, so ERC is covered by REC.
+       → 3 minimal: RCE, REC, CRE
+
+     diff (C=B):
+       RCE ≡ REC: after R, ghost A is valid.  C=B sets tower confirmed
+                  and invalidates A.  E is then a no-op (already
+                  confirmed).  Swapping C and E doesn't change the end
+                  state because C=B always invalidates A.
+       ECR ≡ CRE: C before R is a forward confirmation.  E before R
+                  makes ghost invalid on replay.  Whether E or C comes
+                  first doesn't matter — R reconciles both.
+       CER ≡ CRE: C then E before R — same as CRE, E is redundant
+                  once C has forward-confirmed.
+       → 3 minimal: RCE, ERC, CRE
+
+   We test the 6 minimal orderings below. */
+
+static ulong mock_eqvoc_slot = ULONG_MAX;
+
+int
+mock_eqvoc_query_fn( fd_eqvoc_t * eqvoc FD_PARAM_UNUSED, ulong slot ) {
+  return slot==mock_eqvoc_slot;
+}
+
+#define EQVOC_START_SLOT  398915634UL
+#define EQVOC_BOOT_CNT   10UL
+
+/* eqvoc_setup bootstraps a fresh choreo context by replaying
+   EQVOC_BOOT_CNT slots.  Returns the initialized context. */
+
+static fd_tower_tile_t *
+eqvoc_setup( fd_wksp_t * wksp ) {
+  fd_topo_tile_t tile[1];
+  memset( tile, 0, sizeof(*tile) );
+  tile->tower.max_live_slots = MOCK_SLOT_MAX;
+
+  void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
+  FD_TEST( scratch );
+
+  ((fd_tower_tile_t *)scratch)->seed = 42UL;
+  fd_tower_tile_t * ctx = init_choreo( scratch, tile );
+  FD_TEST( ctx );
+
+  ctx->checkpt_fd = -1;
+  ctx->restore_fd = -1;
+  memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
+  memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
+
+  for( ulong slot = EQVOC_START_SLOT; slot < EQVOC_START_SLOT + EQVOC_BOOT_CNT; slot++ ) {
+    fd_replay_slot_completed_t sc;
+    memset( &sc, 0, sizeof(sc) );
+    sc.slot            = slot;
+    sc.parent_slot     = slot - 1;
+    sc.block_id        = (fd_hash_t){ .ul = { slot } };
+    sc.parent_block_id = (fd_hash_t){ .ul = { slot - 1 } };
+    sc.bank_hash       = (fd_hash_t){ .ul = { slot } };
+    sc.block_hash      = (fd_hash_t){ .ul = { slot } };
+    sc.bank_idx        = slot;
+    replay_slot_completed( ctx, &sc, 0UL, NULL );
+  }
+  FD_TEST( ctx->init==1 );
+  mock_eqvoc_slot = ULONG_MAX;
+  return ctx;
+}
+
+/* Helpers for simulating R, E, C events. */
+
+static void
+mock_replay( fd_tower_tile_t * ctx,
+           ulong             slot,
+           fd_hash_t const * block_id ) {
+  fd_replay_slot_completed_t sc;
+  memset( &sc, 0, sizeof(sc) );
+  sc.slot            = slot;
+  sc.parent_slot     = slot - 1;
+  sc.block_id        = *block_id;
+  sc.parent_block_id = (fd_hash_t){ .ul = { slot - 1 } };
+  sc.bank_hash       = (fd_hash_t){ .ul = { slot } };
+  sc.block_hash      = (fd_hash_t){ .ul = { slot } };
+  sc.bank_idx        = slot;
+  replay_slot_completed( ctx, &sc, 0UL, NULL );
+}
+
+static void
+mock_confirmed( fd_tower_tile_t * ctx,
+              ulong             slot,
+              fd_hash_t const * block_id ) {
+  /* Create a votes_blk entry for (slot, block_id) if it doesn't
+     already exist, then set stake high enough for DUPLICATE (52%). */
+
+  if( !fd_votes_query( ctx->votes, slot, block_id ) ) {
+    int err = fd_votes_count_vote( ctx->votes, &ctx->vote_accs[0], slot, block_id );
+    FD_TEST( err==FD_VOTES_SUCCESS );
+  }
+  fd_votes_blk_t * vblk = fd_votes_query( ctx->votes, slot, block_id );
+  FD_TEST( vblk );
+  vblk->stake = 52;
+  publish_slot_confirmed( ctx, slot, block_id, 100 );
+}
+
+static void
+mock_eqvoc( fd_tower_tile_t * ctx,
+          ulong             slot ) {
+  static fd_gossip_duplicate_shred_t dummy_chunks[FD_EQVOC_CHUNK_CNT];
+  publish_slot_duplicate( ctx, dummy_chunks, slot );
+}
+
+/* ---- C=A tests (confirmed block = replayed block) ---- */
+
+static void
+test_eqvoc_rce_same( fd_wksp_t * wksp ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+  ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
+  fd_hash_t         A    = { .ul = { slot } };
+
+  mock_replay    ( ctx, slot, &A );
+  mock_confirmed ( ctx, slot, &A );
+  mock_eqvoc     ( ctx, slot );
+
+  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  FD_TEST( tb && tb->confirmed==1 );
+  FD_TEST( 0==memcmp( &tb->confirmed_block_id, &A, sizeof(fd_hash_t) ) );
+
+  fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
+  FD_TEST( gb && gb->valid==1 );
+
+  FD_LOG_NOTICE(( "pass: test_eqvoc_rce_same" ));
+}
+
+static void
+test_eqvoc_rec_same( fd_wksp_t * wksp ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+  ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
+  fd_hash_t         A    = { .ul = { slot } };
+
+  mock_replay ( ctx, slot, &A );
+  mock_eqvoc  ( ctx, slot );
+
+  /* After eqvoc, ghost A should be invalid. */
+
+  FD_TEST( fd_ghost_query( ctx->ghost, &A )->valid==0 );
+
+  mock_confirmed( ctx, slot, &A );
+
+  /* Bug 1 fix: fd_ghost_confirm re-validates A. */
+
+  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  FD_TEST( tb && tb->confirmed==1 );
+
+  fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
+  FD_TEST( gb && gb->valid==1 );
+
+  FD_LOG_NOTICE(( "pass: test_eqvoc_rec_same" ));
+}
+
+static void
+test_eqvoc_cre_same( fd_wksp_t * wksp ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+  ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
+  fd_hash_t         A    = { .ul = { slot } };
+
+  mock_confirmed ( ctx, slot, &A );
+
+  /* Forward confirmation: no ghost or tower yet. */
+
+  FD_TEST( !fd_tower_blocks_query( ctx->tower, slot ) );
+  FD_TEST( !fd_ghost_query( ctx->ghost, &A ) );
+
+  mock_replay ( ctx, slot, &A );
+  mock_eqvoc  ( ctx, slot );
+
+  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  FD_TEST( tb && tb->confirmed==1 );
+  FD_TEST( 0==memcmp( &tb->confirmed_block_id, &A, sizeof(fd_hash_t) ) );
+
+  fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
+  FD_TEST( gb && gb->valid==1 );
+
+  FD_LOG_NOTICE(( "pass: test_eqvoc_cre_same" ));
+}
+
+/* ---- C=B tests (confirmed block differs from replayed block) ---- */
+
+static void
+test_eqvoc_rce_diff( fd_wksp_t * wksp ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+  ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
+  fd_hash_t         A    = { .ul = { slot } };
+  fd_hash_t         B    = { .ul = { slot, 0xBB } };
+
+  mock_replay    ( ctx, slot, &A );
+  mock_confirmed ( ctx, slot, &B );
+  mock_eqvoc     ( ctx, slot );
+
+  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  FD_TEST( tb && tb->confirmed==1 );
+  FD_TEST( 0==memcmp( &tb->confirmed_block_id, &B, sizeof(fd_hash_t) ) );
+
+  fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
+  FD_TEST( gb && gb->valid==0 );
+
+  FD_LOG_NOTICE(( "pass: test_eqvoc_rce_diff" ));
+}
+
+static void
+test_eqvoc_erc_diff( fd_wksp_t * wksp ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+  ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
+  fd_hash_t         A    = { .ul = { slot } };
+  fd_hash_t         B    = { .ul = { slot, 0xBB } };
+
+  /* E before R: mock fd_eqvoc_query to return true for this slot. */
+
+  mock_eqvoc_slot = slot;
+
+  mock_replay    ( ctx, slot, &A );
+
+  mock_eqvoc_slot = ULONG_MAX;
+
+  /* Replay detected eqvoc → ghost A invalid. */
+
+  FD_TEST( fd_ghost_query( ctx->ghost, &A )->valid==0 );
+
+  mock_confirmed ( ctx, slot, &B );
+
+  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  FD_TEST( tb && tb->confirmed==1 );
+  FD_TEST( 0==memcmp( &tb->confirmed_block_id, &B, sizeof(fd_hash_t) ) );
+
+  fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
+  FD_TEST( gb && gb->valid==0 );
+
+  FD_LOG_NOTICE(( "pass: test_eqvoc_erc_diff" ));
+}
+
+static void
+test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+  ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
+  fd_hash_t         A    = { .ul = { slot } };
+  fd_hash_t         B    = { .ul = { slot, 0xBB } };
+
+  mock_confirmed ( ctx, slot, &B );
+
+  /* Forward confirmation for B: no ghost or tower yet. */
+
+  FD_TEST( !fd_tower_blocks_query( ctx->tower, slot ) );
+
+  mock_replay ( ctx, slot, &A );
+
+  /* Bug 2 fix: fd_votes_query(NULL) finds B's fwd entry, sets
+     tower confirmed and ghost_eqvoc(A). */
+
+  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  FD_TEST( tb && tb->confirmed==1 );
+  FD_TEST( 0==memcmp( &tb->confirmed_block_id, &B, sizeof(fd_hash_t) ) );
+
+  fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
+  FD_TEST( gb && gb->valid==0 );
+
+  mock_eqvoc ( ctx, slot );
+
+  /* Eqvoc after confirmed is idempotent. */
+
+  FD_TEST( tb->confirmed==1 );
+  FD_TEST( gb->valid==0 );
+
+  FD_LOG_NOTICE(( "pass: test_eqvoc_cre_diff" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -330,6 +617,13 @@ main( int     argc,
   FD_TEST( wksp );
 
   test_fixture_replay( wksp );
+
+  fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_same( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_eqvoc_rec_same( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_eqvoc_cre_same( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_diff( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_eqvoc_erc_diff( wksp );
+  fd_wksp_reset( wksp, 1UL ); test_eqvoc_cre_diff( wksp );
 
   fd_halt();
 }

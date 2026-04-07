@@ -181,7 +181,11 @@ void *
 fd_votes_delete( void * votes );
 
 /* fd_votes_query returns a pointer to the votes block entry for the
-   given (slot, block_id), or NULL if not found. */
+   given (slot, block_id), or NULL if not found.
+
+   If block_id is NULL, searches all block_ids for the slot and returns
+   the one with the highest forward confirmation level (upper nibble of
+   flags), or NULL if no forward-confirmed entry exists. */
 
 fd_votes_blk_t *
 fd_votes_query( fd_votes_t *      votes,

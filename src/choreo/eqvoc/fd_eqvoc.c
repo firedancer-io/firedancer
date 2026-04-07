@@ -917,6 +917,12 @@ cleanup:;
   return err;
 }
 
+int
+fd_eqvoc_query( fd_eqvoc_t * eqvoc,
+                ulong        slot ) {
+  return !!dup_query( eqvoc, slot );
+}
+
 void
 fd_eqvoc_update_voters( fd_eqvoc_t *        eqvoc,
                         fd_pubkey_t const * id_keys,
