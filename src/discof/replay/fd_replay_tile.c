@@ -193,6 +193,8 @@ struct fd_replay_tile {
   fd_reasm_fec_t * reasm_evicted;       /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
 
   fd_sched_t * sched;
+  ulong        in_cnt;
+  ulong        execrp_idle_cnt;
 
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
@@ -2256,13 +2258,29 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   /* If the reassembler has a fec that is ready, we should process it
-     and pass it to the scheduler. */
+     and pass it to the scheduler.
+
+     We would also like to pace FEC ingestion such that we keep the exec
+     tiles busy.  If there's a pending frag from one of the exec tiles,
+     we would like to know about that asap, because that could unblock
+     dispatching.  So we ingest FEC sets only if we are sure that there
+     are no more exec tile notifications to process.  This delays FEC
+     ingestion just enough so as to keep the exec tiles as busy as we
+     can, and prevents us from being stuck ingesting a backlog of FEC
+     sets, especially when there is a pending completion notification
+     about a single-transaction chokepoint in the replay dispatcher DAG.
+     Except that when we are leader or the reasm buffer is getting full,
+     we prioritize FEC processing.  In the leader case, this is so we
+     can get to the leader FEC sets asap and freeze the leader bank on
+     time.  In the reasm full case, this is so we don't prematurely
+     trigger eviction. */
   int evict_banks = 0;
-  if( FD_LIKELY( can_process_fec( ctx, &evict_banks ) ) ) {
+  if( FD_LIKELY( (ctx->execrp_idle_cnt>=2UL*ctx->in_cnt||ctx->is_leader||fd_reasm_free( ctx->reasm )<=1UL) && can_process_fec( ctx, &evict_banks ) ) ) {
     fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
     process_fec_set( ctx, stem, fec );
     *charge_busy = 1;
     *opt_poll_in = 0;
+    ctx->execrp_idle_cnt = 0UL;
     return;
   }
 
@@ -2273,6 +2291,8 @@ after_credit( fd_replay_tile_t *  ctx,
     *opt_poll_in = 0;
     return;
   }
+
+  ctx->execrp_idle_cnt++;
 }
 
 static int
@@ -2661,6 +2681,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_EXECRP: {
       process_exec_task_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sig );
+      ctx->execrp_idle_cnt = 0UL;
       break;
     }
     case IN_KIND_POH: {
@@ -2956,6 +2977,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
   FD_TEST( ctx->sched );
+
+  ctx->in_cnt          = tile->in_cnt;
+  ctx->execrp_idle_cnt = 0UL;
 
   FD_TEST( fd_vinyl_req_pool_new( vinyl_req_pool_mem, 1UL, 1UL ) );
 
