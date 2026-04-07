@@ -762,8 +762,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->vote_accounts_t_1_count = va_t1_cnt;
   block_bank->vote_accounts_t_2       = va_t2;
   block_bank->vote_accounts_t_2_count = va_t2_cnt;
-
-  /* TODO: dump stake_delegations_t_1 */
 }
 
 static void
