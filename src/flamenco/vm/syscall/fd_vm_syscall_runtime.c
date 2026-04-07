@@ -291,12 +291,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   ulong stake = 0UL;
 
-  fd_bank_t * bank = vm->instr_ctx->bank;
-
-  ulong curr_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
-  ulong vat_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
-
-  if( curr_epoch>=vat_epoch+1UL ) {
+  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket ) ) {
     fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
     fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL );
   } else {
