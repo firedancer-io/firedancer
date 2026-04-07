@@ -1358,41 +1358,6 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     default: break;
   }
 
-  switch( parser->state ) {
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:
-      if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission>10000 ) ) {
-        FD_LOG_WARNING(( "invalid commission %u", manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission ));
-        return -1;
-      }
-      break;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:
-      if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && (manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission & 0xFF) >100 ) ) {
-        FD_LOG_WARNING(( "invalid commission %u", manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission ));
-        return -1;
-      }
-      break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:
-      if( FD_UNLIKELY( manifest->vote_accounts[ parser->idx1 ].commission>10000 ) ) {
-        FD_LOG_WARNING(( "invalid commission %u", manifest->vote_accounts[ parser->idx1 ].commission ));
-        return -1;
-      }
-      break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:
-    // TODO: mainnet-308392063-v2.3.0_backtest.toml has a commission of 254 in it
-    // case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:
-      if( FD_UNLIKELY( (manifest->vote_accounts[ parser->idx1 ].commission & 0xFF) >100 ) ) {
-        FD_LOG_WARNING(( "invalid commission %u", manifest->vote_accounts[ parser->idx1 ].commission ));
-        return -1;
-      }
-      break;
-    default:
-      break;
-  }
-
-
   /* Lengths must be valid */
   switch( parser->state ) {
     case STATE_BLOCKHASH_QUEUE_AGES_LENGTH: {
