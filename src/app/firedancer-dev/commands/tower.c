@@ -5,7 +5,6 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h"
 #include "../../../discof/tower/fd_tower_tile.c"
-#include "../../../choreo/tower/fd_tower_blocks.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -48,31 +47,27 @@ tower_ctx_wksp( args_t *           args,
 }
 
 static void
-print_all_forks( fd_wksp_t * wksp, fd_tower_tile_t * tower_ctx, fd_tower_blocks_t * forks ) {
+print_all_forks( fd_tower_t * tower ) {
   printf( "\n[Tower Forks]\n" );
   printf( "=============\n" );
   printf( "%-15s | %-15s | %-10s | %-10s\n", "Slot", "Parent Slot", "Voted", "Confirmed" );
   printf( "%-15s-+-%-15s-+-%-10s-+-%-10s\n", "---------------", "---------------", "----------", "----------" );
 
-  /* Iterate through all map slots */
-  ulong tower_forks_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, forks->blk_map );
-  fd_tower_blk_t * map = (fd_tower_blk_t *)fd_wksp_laddr_fast( wksp, tower_forks_gaddr );
   ulong slot_count = 0;
-
-  for( ulong slot_idx = 0UL; slot_idx < fd_tower_blk_slot_cnt( map ); slot_idx++ ) {
-    fd_tower_blk_t * fork = &map[ slot_idx ];
-    /* Check if key is valid (not MAP_KEY_NULL which is ULONG_MAX) */
-    if( !fd_tower_blk_key_inval( fork->slot ) ) {
-      printf( "%-15lu | ", fork->slot );
-      if( fork->parent_slot == ULONG_MAX ) {
-        printf( "%-15s | ", "NULL" );
-      } else {
-        printf( "%-15lu | ", fork->parent_slot );
-      }
-      printf( "%-10s | ", fork->voted ? "Yes" : "No" );
-      printf( "%-10s\n", fork->confirmed ? "Yes" : "No" );
-      slot_count++;
+  for( ulong i = 0; i < tower->blk_max; i++ ) {
+    fd_tower_blk_t * blk = tower->blk_pool + i;
+    if( !blk->slot ) continue; /* unused pool element */
+    fd_tower_blk_t * found = fd_tower_blocks_query( tower, blk->slot );
+    if( !found ) continue;
+    printf( "%-15lu | ", found->slot );
+    if( found->parent_slot == ULONG_MAX ) {
+      printf( "%-15s | ", "NULL" );
+    } else {
+      printf( "%-15lu | ", found->parent_slot );
     }
+    printf( "%-10s | ", found->voted ? "Yes" : "No" );
+    printf( "%-10s\n", found->confirmed ? "Yes" : "No" );
+    slot_count++;
   }
 
   printf( "Total slots: %lu\n", slot_count );
@@ -129,11 +124,8 @@ tower_cmd_fn_forks( args_t *   args,
   fd_topo_wksp_t * tower_wksp;
   tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );
 
-  ulong forks_gaddr = fd_wksp_gaddr_fast( tower_ctx->wksp, tower_ctx->tower_blocks );
-  fd_tower_blocks_t * forks = (fd_tower_blocks_t *)fd_wksp_laddr( tower_wksp->wksp, forks_gaddr );
-
   for( ;; ) {
-    print_all_forks( tower_wksp->wksp, tower_ctx, forks );
+    print_all_forks( tower_ctx->tower );
     sleep( 1 );
   }
 }
@@ -169,7 +161,7 @@ tower_cmd_fn_tower( args_t    * args,
 
   for( ;; ) {
     char cstr[4096]; cstr[4095] = '\0';
-    FD_LOG_DEBUG(( "\n\n%s", fd_tower_to_cstr( tower, tower_ctx->root_slot, cstr ) ));
+    FD_LOG_DEBUG(( "\n\n%s", fd_tower_to_cstr( tower, cstr ) ));
     sleep( 1 );
   }
 }

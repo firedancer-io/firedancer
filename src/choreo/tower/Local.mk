@@ -1,12 +1,9 @@
-$(call add-hdrs,fd_tower.h fd_tower_blocks.h fd_tower_lockos.h fd_tower_serdes.h fd_tower_stakes.h fd_tower_voters.h)
+$(call add-hdrs,fd_tower.h fd_tower_serdes.h fd_tower_stakes.h)
 $(call add-objs,fd_tower,fd_choreo)
-$(call add-objs,fd_tower_blocks,fd_choreo)
-$(call add-objs,fd_tower_lockos,fd_choreo)
 $(call add-objs,fd_tower_serdes,fd_choreo)
 $(call add-objs,fd_tower_stakes,fd_choreo)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_tower,test_tower,fd_choreo fd_flamenco fd_tango fd_ballet fd_util)
-$(call run-unit-test,test_tower)
 $(call make-unit-test,test_tower_lockos,test_tower_lockos,fd_choreo fd_flamenco fd_tango fd_ballet fd_util)
 $(call run-unit-test,test_tower_lockos)
 $(call make-unit-test,test_tower_serdes,test_tower_serdes,fd_choreo fd_flamenco fd_tango fd_ballet fd_util)

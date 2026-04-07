@@ -47,6 +47,8 @@ deps-bundle.tar.zst
 # VSCode
 .vscode
 
+.claude
+
 # JetBrains
 .fleet
 .idea
