@@ -87,3 +87,6 @@ venv
 
 # Fuchsia trace format
 *.fxt
+
+# Claude
+.claude

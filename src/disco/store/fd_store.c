@@ -22,7 +22,10 @@ pool_laddr( fd_store_t * store ) {
 }
 
 void *
-fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
+fd_store_new( void * shmem,
+              ulong  part_cnt,
+              ulong  fec_max,
+              ulong  fec_data_max ) {
 
   if( FD_UNLIKELY( part_cnt==0UL ) ) {
     FD_LOG_WARNING(( "part_cnt must be non-zero" ));
@@ -39,11 +42,7 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
     return NULL;
   }
 
-  ulong footprint = fd_store_footprint( fec_max );
-  if( FD_UNLIKELY( !footprint ) ) {
-    FD_LOG_WARNING(( "bad fec_max (%lu)", fec_max ));
-    return NULL;
-  }
+  ulong footprint = fd_store_footprint( fec_max, fec_data_max );
 
   fd_wksp_t * wksp = fd_wksp_containing( shmem );
   if( FD_UNLIKELY( !wksp ) ) {
@@ -51,38 +50,49 @@ fd_store_new( void * shmem, ulong fec_max, ulong part_cnt ) {
     return NULL;
   }
 
-  /* This seed value is very important. We have fec_max chains in the
-     map, which means the size of each partition of buckets should be
-     fec_max / part_cnt. When inserting into the map, we use the
-     partition_slot_cnt as the seed, so that the modified hash function
-     can use the seed/partition_slot_cnt to hash the key into the
-     correct partition. */
+  /* The seed is derived from the number of chains in the map.  The
+     number of chains is estimated from fec_max (via chain_cnt_est) and
+     is always a power of two.  The size of each partition is chain_cnt
+     / part_cnt.  We use the per partition slot count as the seed so
+     that the modified hash function can hash the key into the correct
+     partition. */
 
-  ulong part_slot_cnt = fec_max / part_cnt;
+  ulong chain_cnt     = fd_store_map_chain_cnt_est( fec_max );
+  ulong part_slot_cnt = chain_cnt / part_cnt;
   ulong seed          = part_slot_cnt;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_store_t * store  = FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(),        sizeof(fd_store_t)                 );
-  void *       map    = FD_SCRATCH_ALLOC_APPEND( l, fd_store_map_align(),    fd_store_map_footprint ( fec_max ) );
-  void *       shpool = FD_SCRATCH_ALLOC_APPEND( l, fd_store_pool_align(),   fd_store_pool_footprint()          );
-  void *       shele  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_fec_t), sizeof(fd_store_fec_t)*fec_max     );
+  fd_store_t * store    = FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(),        sizeof(fd_store_t)                   );
+  void *       map      = FD_SCRATCH_ALLOC_APPEND( l, fd_store_map_align(),    fd_store_map_footprint( chain_cnt ) );
+  void *       shpool   = FD_SCRATCH_ALLOC_APPEND( l, fd_store_pool_align(),   fd_store_pool_footprint()            );
+  void *       shele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_fec_t), sizeof(fd_store_fec_t)*fec_max       );
+  uchar *      data     = FD_SCRATCH_ALLOC_APPEND( l, FD_STORE_ALIGN,          fec_data_max*fec_max                 );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_store_align() )==(ulong)shmem + footprint );
 
   fd_memset( store, 0, sizeof(fd_store_t) );
-  store->store_gaddr    = fd_wksp_gaddr_fast( wksp, store  );
-  store->pool_mem_gaddr = fd_wksp_gaddr_fast( wksp, shpool );
-  store->pool_ele_gaddr = fd_wksp_gaddr_fast( wksp, shele  );
-  store->map_gaddr      = fd_wksp_gaddr_fast( wksp, fd_store_map_join( fd_store_map_new ( map, fec_max, seed ) ) );
+  store->part_cnt       = part_cnt;
+  store->fec_max        = fec_max;
+  store->fec_data_max   = fec_data_max;
+  store->store_gaddr    = fd_wksp_gaddr_fast( wksp, store );
+  store->map_gaddr      = fd_wksp_gaddr_fast( wksp, fd_store_map_join( fd_store_map_new( map, chain_cnt, seed ) ) );
+  store->pool_mem_gaddr = fd_wksp_gaddr_fast( wksp, shpool   );
+  store->pool_ele_gaddr = fd_wksp_gaddr_fast( wksp, shele    );
+  store->data_gaddr     = fd_wksp_gaddr_fast( wksp, data );
 
-  store->part_cnt = part_cnt;
-  store->fec_max  = fec_max;
-
-  fd_store_pool_t pool = pool_ljoin( store );
   if( FD_UNLIKELY( !fd_store_pool_new( shpool ) ) ) {
     FD_LOG_WARNING(( "fd_store_pool_new failed" ));
     return NULL;
   }
-  fd_store_pool_reset( &pool, 0 );
+  fd_store_pool_t pool_ljoin;
+  fd_store_pool_reset( fd_store_pool_join( &pool_ljoin, shpool, shele, fec_max ), 0 );
+
+  /* Set each element's data_gaddr to point to its slice of the
+     contiguous data buffer region. */
+
+  fd_store_fec_t * fec0 = (fd_store_fec_t *)shele;
+  for( ulong i=0UL; i<fec_max; i++ ) {
+    fec0[ i ].data_gaddr = fd_wksp_gaddr_fast( wksp, data + i*fec_data_max );
+  }
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( store->magic ) = FD_STORE_MAGIC;
@@ -235,7 +245,7 @@ fd_store_verify( fd_store_t * store ) {
   fd_store_map_t * map  = map_laddr( store );
   fd_store_fec_t * fec0 = pool_laddr( store );
 
-  ulong part_sz = store->fec_max / store->part_cnt;
+  ulong part_sz = map->chain_cnt / store->part_cnt;
   if( part_sz != map->seed ) {
     FD_LOG_WARNING(( "part_sz (%lu) != map->seed (%lu)", part_sz, map->seed ));
     return -1;

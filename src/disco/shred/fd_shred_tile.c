@@ -1064,7 +1064,7 @@ after_frag( fd_shred_ctx_t *    ctx,
         for( ulong i=0UL; i<FD_FEC_SHRED_CNT; i++ ) {
           fd_shred_t * data_shred = set->data_shreds[i].s;
           ulong        payload_sz = fd_shred_payload_sz( data_shred );
-          if( FD_UNLIKELY( fec->data_sz + payload_sz > FD_STORE_DATA_MAX ) ) {
+          if( FD_UNLIKELY( fec->data_sz + payload_sz > ctx->store->fec_data_max ) ) {
 
             /* This code is only reachable if shred tile has completed the
                FEC set, which implies it was able to validate it, yet
@@ -1072,11 +1072,11 @@ after_frag( fd_shred_ctx_t *    ctx,
                maximum payload sz.  This indicates either a serious bug or
                shred tile is compromised so FD_LOG_CRIT. */
 
-            FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds FD_STORE_DATA_MAX: %lu. Ignoring FEC set.", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, FD_STORE_DATA_MAX ));
+            FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds data_max: %lu. Ignoring FEC set.", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, ctx->store->fec_data_max ));
           }
-          fd_memcpy( fec->data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
+          fd_memcpy( fd_store_fec_data( ctx->store, fec ) + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
           fec->data_sz += payload_sz;
-          if( FD_LIKELY( i<32UL ) ) fec->block_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->block_offs[ i-1UL ]);
+          if( FD_LIKELY( i<32UL ) ) fec->shred_offs[ i ] = (uint)payload_sz +  (i==0UL ? 0U : fec->shred_offs[ i-1UL ]);
         }
       }
     }

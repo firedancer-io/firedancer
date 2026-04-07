@@ -282,7 +282,7 @@ after_credit( fd_backt_tile_t *   ctx,
 
   fd_store_slock_acquire( ctx->store );
   fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
-  fd_memcpy( fec->data+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
+  fd_memcpy( fd_store_fec_data( ctx->store, fec )+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
   fd_store_slock_release( ctx->store ); /* drop(fec) */
 

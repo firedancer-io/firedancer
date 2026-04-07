@@ -186,7 +186,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_fec_sets = {
 static ulong
 store_footprint( fd_topo_t const * topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_store_footprint( VAL("fec_max") );
+  return fd_store_footprint( VAL("fec_max"), VAL("fec_data_max") );
 }
 
 static ulong
@@ -198,7 +198,7 @@ store_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 store_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_store_new( fd_topo_obj_laddr( topo, obj->id ), VAL("fec_max"), VAL("part_cnt") ) );
+  FD_TEST( fd_store_new( fd_topo_obj_laddr( topo, obj->id ), VAL("part_cnt"), VAL("fec_max"), VAL("fec_data_max") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_store = {

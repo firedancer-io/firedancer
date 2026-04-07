@@ -21,10 +21,11 @@
    set into a merkle tree.  This uniquely identifies a FEC set, because
    if any of the shreds change, the merkle root changes.
 
-   Shreds are coalesced and inserted into the store as bytes.  The max
-   bytes per FEC set is currently variable-length but capped at 63985.
-   In the future this will be fixed to 31840 bytes, when FEC sets are
-   enforced to always be 32 shreds.
+   Shreds are coalesced and inserted into the store as bytes.  The data
+   buffer for each FEC set element is allocated separately in a
+   contiguous region and referenced by gaddr.  The max bytes per FEC set
+   is configurable via the fixed_fec_sets runtime config parameter (see
+   default.toml for details).
 
    The shared memory used by a store instance is within a workspace such
    that it is also persistent and remotely inspectable.  Store is
@@ -141,6 +142,7 @@
    relatively infrequent Store access compared to FEC queries and
    inserts (which is good because it is also the most expensive). */
 
+#include "../../disco/shred/fd_fec_set.h"
 #include "../../flamenco/fd_rwlock.h"
 #include "../../flamenco/types/fd_types_custom.h"
 #include "../../util/hist/fd_histf.h"
@@ -162,14 +164,6 @@
 
 #define FD_STORE_MAGIC (0xf17eda2ce75702e0UL) /* firedancer store version 0 */
 
-/* FD_STORE_DATA_MAX defines a constant for the maximum size of a FEC
-   set payload.  The value is computed from the maximum number
-   of shreds in a FEC set * the payload bytes per shred.
-
-   67 shreds per FEC set * 955 payloads per shred = 63985 bytes max. */
-
-#define FD_STORE_DATA_MAX (63985UL) /* TODO fixed-32 */
-
 /* fd_store_fec describes a store element (FEC set).  The pointer fields
    implement a left-child, right-sibling n-ary tree. */
 
@@ -180,12 +174,12 @@ struct __attribute__((packed)) fd_store_key {
 typedef struct fd_store_key fd_store_key_t;
 
 struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
-  fd_store_key_t key;            /* map key, merkle root of the FEC set + a partition index */
-  ulong          next;           /* reserved for internal use by fd_pool, fd_map_chain */
-  fd_hash_t      cmr;            /* parent's map key, chained merkle root of the FEC set */
-  uint           block_offs[32]; /* TODO fixed-32. block_offs[ i ] is the total size of data shreds [0, i] */
-  ulong          data_sz;        /* TODO fixed-32. sz of the FEC set payload, guaranteed < FD_STORE_DATA_MAX */
-  uchar          data[FD_STORE_DATA_MAX];
+  fd_store_key_t key;                          /* map key, merkle root of the FEC set + a partition index */
+  ulong          next;                         /* reserved for internal use by fd_pool, fd_map_chain */
+  fd_hash_t      cmr;                          /* parent's map key, chained merkle root of the FEC set */
+  uint           shred_offs[FD_FEC_SHRED_CNT]; /* shred_offs[ i ] is the total size of data shreds [0, i], up to FD_FEC_SHRED_CNT */
+  ulong          data_sz;                      /* sz of the FEC set payload, guaranteed <= store->fec_data_max */
+  ulong          data_gaddr;                   /* wksp gaddr of this element's data buffer */
 };
 typedef struct fd_store_fec fd_store_fec_t;
 
@@ -204,12 +198,14 @@ typedef struct fd_store_fec fd_store_fec_t;
 
 struct fd_store {
   ulong magic;          /* ==FD_STORE_MAGIC */
-  ulong fec_max;        /* max number of FEC sets that can be stored */
   ulong part_cnt;       /* number of partitions, also the number of writers */
+  ulong fec_max;        /* max number of FEC sets that can be stored */
+  ulong fec_data_max;   /* max data payload bytes per FEC set */
   ulong store_gaddr;    /* wksp gaddr of store in the backing wksp, non-zero gaddr */
   ulong map_gaddr;      /* wksp gaddr of map of fd_store_key->fd_store_fec */
   ulong pool_mem_gaddr; /* wksp gaddr of shmem_t object in pool_para */
   ulong pool_ele_gaddr; /* wksp gaddr of first ele_t object in pool_para */
+  ulong data_gaddr;     /* wksp gaddr of the base of contiguous data region (fec_max * fec_data_max bytes) */
 
   fd_rwlock_t lock; /* shared-exclusive lock */
 };
@@ -221,7 +217,9 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_store_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as store with up to
-   fec_max elements.  fec_max is an integer power-of-two. */
+   fec_max elements.  fec_max is a positive integer (does not need to
+   be a power of two).  fec_data_max is the max data payload size per
+   FEC set. */
 
 FD_FN_CONST static inline ulong
 fd_store_align( void ) {
@@ -229,30 +227,34 @@ fd_store_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_store_footprint( ulong fec_max ) {
-  if( FD_UNLIKELY( !fd_ulong_is_pow2( fec_max ) ) ) return 0UL;
+fd_store_footprint( ulong fec_max,
+                    ulong fec_data_max ) {
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_store_t),     sizeof(fd_store_t)                ),
-      fd_store_map_align(),    fd_store_map_footprint( fec_max ) ),
-      fd_store_pool_align(),   fd_store_pool_footprint()         ),
-      alignof(fd_store_fec_t), sizeof(fd_store_fec_t)*fec_max    ),
+      alignof(fd_store_t),     sizeof(fd_store_t)                    ),
+      fd_store_map_align(),    fd_store_map_footprint( fd_store_map_chain_cnt_est( fec_max ) ) ),
+      fd_store_pool_align(),   fd_store_pool_footprint()             ),
+      alignof(fd_store_fec_t), sizeof(fd_store_fec_t)*fec_max        ),
+      FD_STORE_ALIGN,          fec_data_max*fec_max                  ),
     fd_store_align() );
 }
 
 /* fd_store_new formats an unused memory region for use as a store.
    mem is a non-NULL pointer to this region in the local address space
-   with the required footprint and alignment.  fec_max is an integer
-   power-of-two. */
+   with the required footprint and alignment.  fec_max is a positive
+   integer (does not need to be a power of two).  fec_data_max is the
+   max data bytes per FEC set. */
 
 void *
 fd_store_new( void * shmem,
+              ulong  part_cnt,
               ulong  fec_max,
-              ulong  part_cnt );
+              ulong  fec_data_max );
 
 /* fd_store_join joins the caller to the store.  store points to the
    first byte of the memory region backing the store in the caller's
@@ -290,6 +292,16 @@ fd_store_delete( void * shstore );
 FD_FN_PURE static inline fd_wksp_t *
 fd_store_wksp( fd_store_t const * store ) {
   return (fd_wksp_t *)( ( (ulong)store ) - store->store_gaddr );
+}
+
+/* fd_store_fec_data returns a pointer in the local address space to the
+   data buffer of the given FEC set element.  Assumes store is a current
+   local join and fec is in the store's pool. */
+
+FD_FN_PURE static inline uchar *
+fd_store_fec_data( fd_store_t const *     store,
+                   fd_store_fec_t const * fec ) {
+  return (uchar *)( (ulong)store - store->store_gaddr + fec->data_gaddr );
 }
 
 /* fd_store_{s}lock_{acquire,release} interface store's shared-exclusive
@@ -346,8 +358,9 @@ fd_store_query( fd_store_t      * store,
    a pointer to the previous element with that key.  Returns NULL if the
    store is full (see fd_store_evict).
 
-   Each fd_store_fec_t can hold at most FD_STORE_DATA_MAX bytes of data,
-   and caller is responsible for copying into the region.
+   Each fd_store_fec_t can hold at most store->fec_data_max bytes of data.
+   Caller is responsible for copying into the data buffer region
+   (accessed via fd_store_fec_data).
 
    This is a blocking operation that acquires a shared lock as part of
    its implementation.  Assumes caller has safely partitioned insertions
