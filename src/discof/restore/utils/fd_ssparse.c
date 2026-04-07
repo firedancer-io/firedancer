@@ -504,14 +504,20 @@ advance_account_batch( fd_ssparse_t *                ssparse,
     }
 
     ulong         acc_data_sz = fd_ulong_load_8_fast( acc_hdr+8 );
+    if( FD_UNLIKELY( acc_data_sz>FD_RUNTIME_ACC_SZ_MAX ) ) {
+      FD_LOG_WARNING(( "invalid account data size %lu", acc_data_sz ));
+      return FD_SSPARSE_ADVANCE_ERROR;
+    }
+    /* acc_hdr[96] is the executable flag (uchar), must be 0 or 1 */
+    if( FD_UNLIKELY( acc_hdr[ 96UL ]>1 ) ) {
+      FD_LOG_WARNING(( "invalid account header executable %u", acc_hdr[ 96UL ] ));
+      return FD_SSPARSE_ADVANCE_ERROR;
+    }
     ulong         next_off    = off+136UL+acc_data_sz;
     ulong         pad_sz      = fd_ulong_align_up( ssparse->tar.file_bytes_consumed+next_off, 8UL ) -
                                                  ( ssparse->tar.file_bytes_consumed+next_off );
     next_off += pad_sz;
     if( FD_UNLIKELY( next_off>avail ) ) break; /* account is fragmented */
-    if( FD_UNLIKELY( acc_data_sz > (24UL<<20) ) ) {
-      FD_LOG_ERR(( "invalid account data size %lu", acc_data_sz ));
-    }
     result->account_batch.batch_cnt        = idx+1UL;
     result->account_batch.batch[ idx ]     = acc_hdr;
     ssparse->account.header_bytes_consumed = 136UL;
