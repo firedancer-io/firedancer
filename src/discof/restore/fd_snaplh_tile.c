@@ -446,6 +446,7 @@ static void
 before_credit( fd_snaplh_t *       ctx,
                fd_stem_context_t * stem FD_PARAM_UNUSED,
                int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) return;
   *charge_busy = !!consume_available_cqe( ctx );
 }
 
@@ -468,6 +469,10 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
        been received and processed.  Once the fail control message
        is received, the state transitions into idle. */
     handle_fail_completion( ctx, stem );
+    return;
+  }
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_IDLE ) ) {
+    /* skip all wh data frags when in idle state. */
     return;
   }
 
