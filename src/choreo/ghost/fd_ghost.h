@@ -300,6 +300,25 @@ void
 fd_ghost_publish( fd_ghost_t     * ghost,
                   fd_ghost_blk_t * newr );
 
+/* fd_ghost_confirm marks the block keyed by confirmed_block_id and its
+   entire ancestry (up to root) as valid for fork choice, short-
+   circuiting at the first ancestor that is already valid.  No-op if
+   confirmed_block_id is not in ghost.  Does not invalidate equivocating
+   blocks — the caller is responsible for calling fd_ghost_eqvoc on any
+   known equivocating block_ids. */
+
+void
+fd_ghost_confirm( fd_ghost_t      * ghost,
+                  fd_hash_t const * confirmed_block_id );
+
+/* fd_ghost_eqvoc marks the block keyed by block_id and all of its
+   descendants as invalid for fork choice.  No-op if block_id is not
+   in ghost. */
+
+void
+fd_ghost_eqvoc( fd_ghost_t      * ghost,
+                fd_hash_t const * block_id );
+
 /* Misc */
 
 /* fd_ghost_verify checks the ghost is not obviously corrupt.  Returns 0

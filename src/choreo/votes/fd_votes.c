@@ -372,8 +372,26 @@ fd_votes_blk_t *
 fd_votes_query( fd_votes_t *      votes,
                 ulong             slot,
                 fd_hash_t const * block_id ) {
-  fd_votes_blk_key_t key = { .slot = slot, .block_id = *block_id };
-  return blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
+
+  if( FD_LIKELY( block_id ) ) {
+    fd_votes_blk_key_t key = { .slot = slot, .block_id = *block_id };
+    return blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
+  }
+
+  /* NULL block_id: search all block_ids for this slot, return the one
+     with the highest forward confirmation level. */
+
+  slot_t * votes_slot = slot_map_ele_query( votes->slot_map, &slot, NULL, votes->slot_pool );
+  if( FD_UNLIKELY( !votes_slot ) ) return NULL;
+
+  blk_t * best = NULL;
+  for( blk_dlist_iter_t iter = blk_dlist_iter_fwd_init( votes_slot->blks, votes->blk_pool );
+       !blk_dlist_iter_done( iter, votes_slot->blks, votes->blk_pool );
+       iter = blk_dlist_iter_fwd_next( iter, votes_slot->blks, votes->blk_pool ) ) {
+    blk_t * blk = blk_dlist_iter_ele( iter, votes_slot->blks, votes->blk_pool );
+    if( FD_UNLIKELY( ( blk->flags >> 4 ) > ( best ? best->flags >> 4 : 0 ) ) ) best = blk;
+  }
+  return best;
 }
 
 void
