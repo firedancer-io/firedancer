@@ -269,7 +269,6 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_estimated_slot,
     fd_gui_printf_live_tile_timers,
     fd_gui_printf_live_tile_metrics,
-    fd_gui_printf_live_program_cache,
     fd_gui_printf_catch_up_history,
     fd_gui_printf_vote_latency_history,
     fd_gui_printf_late_votes_history
@@ -278,6 +277,11 @@ fd_gui_ws_open( fd_gui_t * gui,
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
     printers[ i ]( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
+  if( FD_LIKELY( gui->summary.is_full_client ) ) {
+    fd_gui_printf_live_program_cache( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
@@ -1032,8 +1036,10 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_gui_printf_live_tile_stats( gui, gui->summary.tile_stats_reference, gui->summary.tile_stats_current );
     fd_http_server_ws_broadcast( gui->http );
 
-    fd_gui_printf_live_program_cache( gui );
-    fd_http_server_ws_broadcast( gui->http );
+    if( FD_LIKELY( gui->summary.is_full_client ) ) {
+      fd_gui_printf_live_program_cache( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
 
     if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {
       fd_gui_run_boot_progress( gui, now );
