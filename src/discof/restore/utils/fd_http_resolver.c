@@ -323,7 +323,14 @@ peer_connect( fd_http_resolver_t *  resolver,
 
   if( FD_LIKELY( resolver->incremental_snapshot_fetch ) ) {
     err = create_socket( resolver, peer ); /* incremental */
-    if( FD_UNLIKELY( err ) ) return err;
+    if( FD_UNLIKELY( err ) ) {
+      /* Undo the full socket setup to avoid leaking the fd and
+         corrupting the fds array (entries must always come in pairs). */
+      fd_ssresolve_cancel( peer->full_ssresolve );
+      resolver->fds_len--;
+      peer->fd.idx = ULONG_MAX;
+      return err;
+    }
     resolver->fds_idx[ resolver->fds_len ] = peer_pool_idx( resolver->pool, peer );
     resolver->fds_len++;
     if( FD_UNLIKELY( peer->is_https ) ) {
