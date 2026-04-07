@@ -35,6 +35,18 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               acc_vec_map_t *          acc_vec_map,
                               acc_vec_t *              acc_vec_pool );
 
+void
+fd_ssmanifest_parser_set_stake_delegation_cb(
+    fd_ssmanifest_parser_t * parser,
+    void (* cb)( void * ctx, fd_snapshot_manifest_stake_delegation_t const * delegation ),
+    void * cb_ctx );
+
+void
+fd_ssmanifest_parser_set_vote_stakes_cb(
+    fd_ssmanifest_parser_t * parser,
+    void (* cb)( void * ctx, ulong epoch_idx, fd_snapshot_manifest_vote_stakes_t const * vs ),
+    void * cb_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmanifest_parser_h */

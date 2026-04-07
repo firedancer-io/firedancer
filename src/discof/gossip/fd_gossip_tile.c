@@ -11,6 +11,7 @@
 #include "../../disco/fd_txn_m.h"
 #include "../tower/fd_tower_tile.h"
 #include "../restore/utils/fd_ssmsg.h"
+#include "../../util/pod/fd_pod.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
@@ -367,9 +368,9 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
         break;
       }
 
-      /* FIXME: Replace handling for this when manifest supports larger
-         vote and stake account bounds. */
-      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      ulong manif_idx = fd_ssmsg_manif_idx_from_sig( sig );
+      FD_TEST( manif_idx!=ULONG_MAX );
+      fd_snapshot_manifest_t const * manifest = &ctx->snapshot_manif[ manif_idx ];
 
       ulong wfs_stakes_unconverted_cnt = 0UL;
       ctx->wfs_stake.online = 0UL;
@@ -378,7 +379,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
       ctx->wfs_peers.total  = 0UL;
       memset( ctx->wfs_active, 0, sizeof(ctx->wfs_active) );
 
-      FD_TEST( manifest->vote_accounts_len<=40200UL );
+      FD_TEST( manifest->vote_accounts_len<=FD_RUNTIME_MAX_VOTE_ACCOUNTS );
       for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
           if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
           ctx->wfs_stake.total += manifest->vote_accounts[ i ].stake;
@@ -503,6 +504,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( sign_in_tile_idx==ULONG_MAX ) )
     FD_LOG_ERR(( "tile %s:%lu had no input link named sign_gossip", tile->name, tile->kind_id ));
+
+  ulong snapshot_manif_obj_id = fd_pod_query_ulong( topo->props, "snap_manif", ULONG_MAX );
+  if( FD_LIKELY( snapshot_manif_obj_id!=ULONG_MAX ) ) {
+    ctx->snapshot_manif = (fd_snapshot_manifest_t const *)fd_topo_obj_laddr( topo, snapshot_manif_obj_id );
+  }
 
   *ctx->net_out    = out1( topo, tile, "gossip_net"    );
   *ctx->sign_out   = out1( topo, tile, "gossip_sign"   );

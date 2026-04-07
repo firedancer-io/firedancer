@@ -33,6 +33,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../util/clock/fd_clock.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../util/pod/fd_pod.h"
 
 #define IN_KIND_PLUGIN        ( 0UL)
 #define IN_KIND_POH_PACK      ( 1UL)
@@ -138,6 +139,8 @@ typedef struct {
 
   int               has_vote_key;
   fd_pubkey_t const vote_key[ 1UL ];
+
+  fd_snapshot_manifest_t const * snapshot_manif;
 
   ulong           in_kind[ 64UL ];
   ulong           in_bank_idx[ 64UL ];
@@ -246,6 +249,8 @@ during_frag( fd_gui_ctx_t * ctx,
              ulong          sz,
              ulong          ctl ) {
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPIN_MANIF ) ) return;
+
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
@@ -328,6 +333,20 @@ after_frag( fd_gui_ctx_t *      ctx,
             fd_stem_context_t * stem ) {
   (void)seq; (void)stem;
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPIN_MANIF ) ) {
+    FD_TEST( ctx->is_full_client );
+    if( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) {
+      fd_gui_peers_commit_snapshot_manifest( ctx->peers );
+    } else {
+      ulong manif_idx = fd_ssmsg_manif_idx_from_sig( sig );
+      FD_TEST( manif_idx!=ULONG_MAX );
+      fd_snapshot_manifest_t const * manifest = &ctx->snapshot_manif[ manif_idx ];
+      fd_gui_stage_snapshot_manifest( ctx->gui, manifest );
+      fd_gui_peers_stage_snapshot_manifest( ctx->peers, manifest, fd_clock_now( ctx->clock ) );
+    }
+    return;
+  }
+
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
 
   switch ( ctx->in_kind[ in_idx ] ) {
@@ -384,17 +403,6 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_SNAPIN: {
       FD_TEST( ctx->is_full_client );
       fd_gui_peers_handle_config_account( ctx->peers, src, sz );
-      break;
-    }
-    case IN_KIND_SNAPIN_MANIF: {
-      FD_TEST( ctx->is_full_client );
-
-      if( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) {
-        fd_gui_peers_commit_snapshot_manifest( ctx->peers );
-      } else {
-        fd_gui_stage_snapshot_manifest( ctx->gui, (fd_snapshot_manifest_t const *)src );
-        fd_gui_peers_stage_snapshot_manifest( ctx->peers, (fd_snapshot_manifest_t const *)src, fd_clock_now( ctx->clock ) );
-      }
       break;
     }
     case IN_KIND_GENESI_OUT: {
@@ -791,10 +799,17 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_bank_idx[ i ] = topo->tiles[ producer ].kind_id;
     }
 
+    if( FD_UNLIKELY( !link->mtu ) ) continue;
+
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].mtu    = link->mtu;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+  }
+
+  ulong snapshot_manif_obj_id = fd_pod_query_ulong( topo->props, "snap_manif", ULONG_MAX );
+  if( FD_LIKELY( snapshot_manif_obj_id!=ULONG_MAX ) ) {
+    ctx->snapshot_manif = (fd_snapshot_manifest_t const *)fd_topo_obj_laddr( topo, snapshot_manif_obj_id );
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );

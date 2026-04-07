@@ -421,6 +421,8 @@ struct fd_replay_tile {
 
   ulong  resolv_tile_cnt;
 
+  fd_snapshot_manifest_t const * snapshot_manif;
+
   int in_kind[ 128 ];
   fd_replay_in_link_t in[ 128 ];
 
@@ -476,7 +478,6 @@ struct fd_replay_tile {
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
-  ulong                runtime_stack_seed;
   fd_runtime_stack_t * runtime_stack;
 };
 
@@ -492,7 +493,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),    sizeof(fd_replay_tile_t) );
-  l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),     fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
@@ -1515,8 +1515,6 @@ maybe_verify_cluster_type( fd_replay_tile_t * ctx ) {
 static void
 on_snapshot_message( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem,
-                     ulong               in_idx,
-                     ulong               chunk,
                      ulong               sig ) {
   ulong msg = fd_ssmsg_sig_message( sig );
   if( FD_LIKELY( msg==FD_SSMSG_DONE ) ) {
@@ -1618,20 +1616,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
   switch( msg ) {
     case FD_SSMSG_MANIFEST_FULL:
     case FD_SSMSG_MANIFEST_INCREMENTAL: {
-      /* We may either receive a full snapshot manifest or an
-         incremental snapshot manifest.  Note that this external message
-         id is only used temporarily because replay cannot yet receive
-         the firedancer-internal snapshot manifest message. */
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-        FD_LOG_ERR(( "chunk %lu from in %d corrupt, not in range [%lu,%lu]", chunk, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-      fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
-                         ctx->banks,
-                         fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
-                         ctx->runtime_stack,
-                         msg==FD_SSMSG_MANIFEST_INCREMENTAL );
-
-      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      ulong manif_idx = fd_ssmsg_manif_idx_from_sig( sig );
+      FD_TEST( manif_idx!=ULONG_MAX );
+      fd_snapshot_manifest_t const * manifest = &ctx->snapshot_manif[ manif_idx ];
       ctx->hard_forks_cnt = manifest->hard_forks_len;
       for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
         ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
@@ -2653,7 +2640,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_SNAP: {
-      on_snapshot_message( ctx, stem, in_idx, chunk, sig );
+      on_snapshot_message( ctx, stem, sig );
       maybe_verify_shred_version( ctx );
       maybe_verify_genesis_timestamp( ctx );
       break;
@@ -2789,9 +2776,6 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
 
-  if( FD_UNLIKELY( !fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) ) ) ) {
-    FD_LOG_CRIT(( "fd_rng_secure failed" ));
-  }
 }
 
 static void
@@ -2803,7 +2787,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
-  void * runtime_stack_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),    fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) );
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
@@ -2820,7 +2803,9 @@ unprivileged_init( fd_topo_t *      topo,
   }
 # endif
 
-  ctx->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( runtime_stack_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS, ctx->runtime_stack_seed ) );
+  ulong rtstack_obj_id = fd_pod_query_ulong( topo->props, "rtstack", ULONG_MAX );
+  FD_TEST( rtstack_obj_id!=ULONG_MAX );
+  ctx->runtime_stack = fd_runtime_stack_join( fd_topo_obj_laddr( topo, rtstack_obj_id ) );
   FD_TEST( ctx->runtime_stack );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
@@ -3021,6 +3006,11 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+  }
+
+  ulong snapshot_manif_obj_id = fd_pod_query_ulong( topo->props, "snap_manif", ULONG_MAX );
+  if( FD_LIKELY( snapshot_manif_obj_id!=ULONG_MAX ) ) {
+    ctx->snapshot_manif = (fd_snapshot_manifest_t const *)fd_topo_obj_laddr( topo, snapshot_manif_obj_id );
   }
 
   *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );

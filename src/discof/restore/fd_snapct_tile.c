@@ -1118,7 +1118,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       break;
 
     /* ============================================================== */
-    default: FD_LOG_ERR(( "unexpected state %d", ctx->state ));
+    default: FD_LOG_ERR(( "unexpected state %s", fd_snapct_state_str( (ulong)ctx->state ) ));
   }
 }
 
@@ -1277,8 +1277,12 @@ snapld_frag( fd_snapct_tile_t *  ctx,
 
       case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
       case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
-        return; /* Ignore */
-      default: FD_LOG_ERR(( "invalid meta frag in state %d", ctx->state ));
+      case FD_SNAPCT_STATE_WAITING_FOR_PEERS:
+      case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL:
+      case FD_SNAPCT_STATE_COLLECTING_PEERS:
+      case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL:
+        return; /* Ignore: stale meta from a cancelled download */
+      default: FD_LOG_ERR(( "invalid meta frag in state %s", fd_snapct_state_str( (ulong)ctx->state ) ));
     }
 
     FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
@@ -1329,9 +1333,15 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL:
     case FD_SNAPCT_STATE_COLLECTING_PEERS:
     case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL:
+      /* After a failed download, snapld may still have in-flight data
+         frags from the cancelled HTTP connection.  These arrive after
+         the FLUSHING_*_RESET -> COLLECTING_PEERS_* transition because
+         the CTRL_FAIL ack only confirms the downstream pipeline reset,
+         not that snapld has stopped producing data.  Drop silently. */
+      return;
     case FD_SNAPCT_STATE_SHUTDOWN:
     default:
-      FD_LOG_ERR(( "invalid data frag in state %d", ctx->state ));
+      FD_LOG_ERR(( "invalid data frag in state %s", fd_snapct_state_str( (ulong)ctx->state ) ));
       return;
   }
 
@@ -1381,7 +1391,7 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
-      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( (ulong)ctx->state ) ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
@@ -1389,7 +1399,7 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
-      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( (ulong)ctx->state ) ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
@@ -1397,7 +1407,7 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
-      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( (ulong)ctx->state ) ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_DONE:
@@ -1407,7 +1417,7 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
-      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( (ulong)ctx->state ) ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FINI:
@@ -1417,7 +1427,7 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
-      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( (ulong)ctx->state ) ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -1427,7 +1437,7 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
         FD_TEST( !ctx->flush_ack );
         ctx->flush_ack = 1;
-      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( (ulong)ctx->state ) ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:

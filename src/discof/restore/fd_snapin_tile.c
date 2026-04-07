@@ -1,5 +1,6 @@
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_ssload.h"
 #include "utils/fd_ssmsg.h"
 #include "utils/fd_vinyl_io_wd.h"
 
@@ -51,6 +52,120 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
+static void
+on_vote_stakes( void *                                     ctx_,
+                ulong                                      epoch_idx,
+                fd_snapshot_manifest_vote_stakes_t const * vs ) {
+  fd_snapin_tile_t * ctx = (fd_snapin_tile_t *)ctx_;
+
+  if( FD_UNLIKELY( ctx->callback_error ) ) return;
+
+  fd_snapshot_manifest_t * manifest = &ctx->snapshot_manif[ fd_ssmsg_manif_idx_from_full( ctx->full ) ];
+
+  /* Discard entries for epochs we're not tracking */
+  if( FD_UNLIKELY( epoch_idx==ULONG_MAX ) ) return;
+  FD_TEST( epoch_idx<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+
+  /* Compact: skip entries with no stake and no epoch credit history */
+  if( vs->stake==0UL && vs->epoch_credits_history_len==0UL ) return;
+
+  /* Increment the manifest counter (used by verify_epoch_stakes and
+     other scalar checks). */
+  manifest->epoch_stakes[ epoch_idx ].vote_stakes_len++;
+
+  if( epoch_idx==2UL ) {
+    /* E+1 (T-1): process on-the-fly (writes directly to runtime_stack
+       arrays and vote_stakes tree).  Skip if banks/runtime_stack are
+       not available (e.g. shredcap or profiler mode). */
+    if( FD_UNLIKELY( ctx->vote_stakes_t_1_len>=FD_RUNTIME_MAX_VOTE_ACCOUNTS ) ) {
+      FD_LOG_WARNING(( "vote_stakes E+1 overflow: len=%lu max=%lu", ctx->vote_stakes_t_1_len, (ulong)FD_RUNTIME_MAX_VOTE_ACCOUNTS ));
+      ctx->callback_error = 1;
+      return;
+    }
+    if( FD_LIKELY( ctx->banks && ctx->runtime_stack ) ) {
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, 0UL );
+      FD_TEST( bank );
+
+      /* On the first E+1 entry, compute epoch from manifest fields.
+         bank->f.epoch is not yet set during parsing, but slot and
+         epoch_schedule_params are guaranteed to be parsed before
+         versioned_epoch_stakes in the binary format. */
+      if( FD_UNLIKELY( ctx->vote_stakes_t_1_len==0UL ) ) {
+        FD_TEST( manifest->epoch_schedule_params.slots_per_epoch!=0UL );
+        fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+          .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+          .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+          .warmup                      = manifest->epoch_schedule_params.warmup,
+          .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+          .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+        };
+        ctx->epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+      }
+
+      fd_ssload_recover_epoch_stakes_t_1_entry( vs, ctx->vote_stakes_t_1_len, ctx->epoch,
+                                                bank, ctx->runtime_stack );
+    }
+    ctx->vote_stakes_t_1_len++;
+  } else if( epoch_idx==1UL ) {
+    /* E (T-2): slim struct (only needs vote/identity/has_identity_bls/stake/commission) */
+    if( FD_UNLIKELY( ctx->vote_stakes_t_2_len>=FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED ) ) {
+      FD_LOG_WARNING(( "vote_stakes E buffer overflow: len=%lu max=%lu", ctx->vote_stakes_t_2_len, (ulong)FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED ));
+      ctx->callback_error = 1;
+      return;
+    }
+    fd_snapshot_epoch_stakes_slim_t * dst = &ctx->vote_stakes_t_2[ ctx->vote_stakes_t_2_len++ ];
+    fd_memcpy( dst->vote,     vs->vote,     32UL );
+    fd_memcpy( dst->identity, vs->identity, 32UL );
+    dst->has_identity_bls = vs->has_identity_bls;
+    dst->stake            = vs->stake;
+    dst->commission       = vs->commission;
+  } else {
+    /* E-1 (T-3): slim struct for delayed commission */
+    FD_TEST( epoch_idx==0UL );
+    if( FD_UNLIKELY( ctx->vote_stakes_t_3_len>=FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED ) ) {
+      FD_LOG_WARNING(( "vote_stakes E-1 buffer overflow: len=%lu max=%lu", ctx->vote_stakes_t_3_len, (ulong)FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED ));
+      ctx->callback_error = 1;
+      return;
+    }
+    fd_snapshot_epoch_stakes_slim_t * dst = &ctx->vote_stakes_t_3[ ctx->vote_stakes_t_3_len++ ];
+    fd_memcpy( dst->vote,     vs->vote,     32UL );
+    fd_memcpy( dst->identity, vs->identity, 32UL );
+    dst->has_identity_bls = vs->has_identity_bls;
+    dst->stake            = vs->stake;
+    dst->commission       = vs->commission;
+  }
+}
+
+static void
+on_stake_delegation( void *                                          ctx_,
+                     fd_snapshot_manifest_stake_delegation_t const * delegation ) {
+  fd_snapin_tile_t * ctx = (fd_snapin_tile_t *)ctx_;
+
+  if( FD_UNLIKELY( ctx->callback_error ) ) return;
+
+  if( FD_UNLIKELY( delegation->stake_delegation==0UL ) ) return;
+  FD_TEST( ctx->banks );
+
+  if( FD_UNLIKELY( ctx->stake_delegations_inserted>=FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) {
+    FD_LOG_WARNING(( "stake_delegations overflow: inserted=%lu max=%lu", ctx->stake_delegations_inserted, (ulong)FD_RUNTIME_MAX_STAKE_ACCOUNTS ));
+    ctx->callback_error = 1;
+    return;
+  }
+
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
+  fd_stake_delegations_root_update(
+      stake_delegations,
+      (fd_pubkey_t const *)delegation->stake_pubkey,
+      (fd_pubkey_t const *)delegation->vote_pubkey,
+      delegation->stake_delegation,
+      delegation->activation_epoch,
+      delegation->deactivation_epoch,
+      0UL, /* credits_observed — not in wire format, the correct value
+             is populated later by fd_stake_delegations_refresh(). */
+      delegation->warmup_cooldown_rate );
+  ctx->stake_delegations_inserted++;
+}
+
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && !ctx->use_vinyl ) ) {
@@ -76,14 +191,16 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),      sizeof(fd_snapin_tile_t)                             );
-  l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),             fd_ssparse_footprint( 1UL<<24UL )                    );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                     );
-  l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                     );
-  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),                   sizeof(fd_snapin_tile_t)                                                      );
+  l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),                          fd_ssparse_footprint( 1UL<<24UL )                                             );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),                         fd_txncache_footprint( tile->snapin.max_live_slots )                          );
+  l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),                fd_ssmanifest_parser_footprint()                                              );
+  l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),                fd_slot_delta_parser_footprint()                                              );
+  l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),                  sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS                     );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_epoch_stakes_slim_t),    sizeof(fd_snapshot_epoch_stakes_slim_t)*FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED    ); /* E */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_epoch_stakes_slim_t),    sizeof(fd_snapshot_epoch_stakes_slim_t)*FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED    ); /* E-1 */
   if( !tile->snapin.use_vinyl ) {
-    l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
+    l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t),            sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES                  );
   }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -206,7 +323,8 @@ verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
     .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
   };
 
-  ulong min_required_epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong min_required_epoch = epoch > 0UL ? epoch - 1UL : 0UL;
   ulong max_required_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
 
   /* ensure all required epochs are present in epoch stakes */
@@ -532,8 +650,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 }
 
 static void
-process_manifest( fd_snapin_tile_t * ctx ) {
-  fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk );
+process_snapshot_manifest( fd_snapin_tile_t * ctx ) {
+  fd_snapshot_manifest_t * manifest = &ctx->snapshot_manif[ fd_ssmsg_manif_idx_from_full( ctx->full ) ];
 
   if( FD_UNLIKELY( ctx->advertised_slot!=manifest->slot ) ) {
     /* SnapshotError::MismatchedSlot
@@ -625,6 +743,21 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
+  if( FD_LIKELY( ctx->banks ) ) {
+    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, 0UL );
+    FD_TEST( bank );
+    fd_ssload_recover_bank( manifest, bank );
+    if( FD_LIKELY( ctx->runtime_stack ) ) {
+      /* E+1 entries were already processed on-the-fly in on_vote_stakes.
+         E and E-1 entries remain to be bulk-processed here.  Order
+         matters: T-2 overwrites commission, then T-3 overwrites again. */
+      fd_ssload_recover_epoch_stakes_t_2( ctx->vote_stakes_t_2, ctx->vote_stakes_t_2_len,
+                                          bank, ctx->runtime_stack );
+      fd_ssload_recover_epoch_stakes_t_3( ctx->vote_stakes_t_3, ctx->vote_stakes_t_3_len,
+                                          bank, ctx->runtime_stack );
+    }
+  }
+
   if( FD_LIKELY( !ctx->lthash_disabled ) ) {
     if( FD_LIKELY( ctx->use_vinyl ) ) {
       fd_ssctrl_hash_result_t * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
@@ -646,8 +779,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
-  fd_stem_publish( ctx->stem, ctx->manifest_out.idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
-  ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
+  fd_stem_publish( ctx->stem, ctx->manifest_out.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 
@@ -704,7 +836,15 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
           FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
-        } else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
+        }
+        /* A parser callback (on_vote_stakes, on_stake_delegation) may
+           have detected an overflow.  The parser itself is unaware,
+           so check the flag here. */
+        if( FD_UNLIKELY( ctx->callback_error ) ) {
+          transition_malformed( ctx, stem );
+          return 0;
+        }
+        if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
           ctx->flags.manifest_done = 1;
         }
         break;
@@ -723,13 +863,21 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
             transition_malformed( ctx, stem );
             return 0;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
-            if( FD_UNLIKELY( ctx->blockhash_offsets_len>=FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ) ) FD_LOG_ERR(( "blockhash offsets overflow, max is %lu", FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ));
+            if( FD_UNLIKELY( ctx->blockhash_offsets_len>=FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ) ) {
+              FD_LOG_WARNING(( "blockhash offsets overflow: len=%lu max=%lu", ctx->blockhash_offsets_len, (ulong)FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ));
+              transition_malformed( ctx, stem );
+              return 0;
+            }
 
             memcpy( ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].blockhash, sd_result->group.blockhash, 32UL );
             ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].txnhash_offset = sd_result->group.txnhash_offset;
             ctx->blockhash_offsets_len++;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) ) {
-            if( FD_UNLIKELY( ctx->txncache_entries_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) FD_LOG_ERR(( "txncache entries overflow, max is %lu", FD_SNAPIN_TXNCACHE_MAX_ENTRIES ));
+            if( FD_UNLIKELY( ctx->txncache_entries_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) {
+              FD_LOG_WARNING(( "txncache entries overflow: len=%lu max=%lu", ctx->txncache_entries_len, (ulong)FD_SNAPIN_TXNCACHE_MAX_ENTRIES ));
+              transition_malformed( ctx, stem );
+              return 0;
+            }
             ctx->txncache_entries[ ctx->txncache_entries_len++ ] = *sd_result->entry;
           }
 
@@ -796,7 +944,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     }
 
     if( FD_UNLIKELY( !ctx->flags.manifest_processed && ctx->flags.manifest_done && ctx->flags.status_cache_done ) ) {
-      process_manifest( ctx );
+      process_snapshot_manifest( ctx );
       if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) break;
       ctx->flags.manifest_processed = 1;
     }
@@ -841,7 +989,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
        it is possible to be in error state and still receive otherwise
        valid messages.  Only a fail message can revert this. */
     return;
-  };
+  }
 
   int forward_msg = 1;
 
@@ -850,6 +998,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->in.pos = 0UL;
       fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->txncache_entries_len    = 0UL;
@@ -857,10 +1006,37 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->manifest_capitalization = 0UL;
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
+      fd_ssmanifest_parser_init( ctx->manifest_parser, &ctx->snapshot_manif[ fd_ssmsg_manif_idx_from_full( ctx->full ) ] );
+      fd_ssmanifest_parser_set_vote_stakes_cb( ctx->manifest_parser, on_vote_stakes, ctx );
+      if( FD_LIKELY( ctx->banks ) ) {
+        fd_ssmanifest_parser_set_stake_delegation_cb( ctx->manifest_parser, on_stake_delegation, ctx );
+      }
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
       fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
+
+      /* Reset vote_stakes buffers, manifest counters, and stake
+         delegation counter. */
+      ctx->callback_error             = 0;
+      ctx->vote_stakes_t_1_len        = 0UL;
+      ctx->vote_stakes_t_2_len        = 0UL;
+      ctx->vote_stakes_t_3_len        = 0UL;
+      ctx->stake_delegations_inserted = 0UL;
+      fd_snapshot_manifest_t * manif  = &ctx->snapshot_manif[ fd_ssmsg_manif_idx_from_full( ctx->full ) ];
+      for( ulong i=0UL; i<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+        manif->epoch_stakes[ i ].vote_stakes_len = 0UL;
+      }
+
+      /* Unconditionally reset vote_stakes tree, vote_rewards map,
+         top_votes_t_1, and top_votes_t_2.  This is safe for both full and incremental
+         snapshots and fixes the retry crash where a full snapshot's
+         vote_stakes tree is already populated when retried. */
+      if( FD_LIKELY( ctx->banks && ctx->runtime_stack ) ) {
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, 0UL );
+        if( FD_LIKELY( bank ) ) {
+          fd_ssload_recover_epoch_stakes_init( bank, ctx->runtime_stack );
+        }
+      }
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
@@ -885,6 +1061,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
         ctx->capitalization     = ctx->recovery.capitalization;
         ctx->dup_capitalization = 0UL;
+      }
+
+      /* Always reset stake delegations during INIT.  This helps in
+         recovering cleanly from FAIL. */
+      if( FD_LIKELY( ctx->banks ) ) {
+        fd_stake_delegations_reset( fd_banks_stake_delegations_root_query( ctx->banks ) );
       }
 
       /* Save the slot advertised by the snapshot peer and verify it
@@ -933,6 +1115,20 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
       ctx->metrics.full_accounts_ignored  = ctx->metrics.accounts_ignored;
+
+      /* Backup bank state for incremental snapshot rollback.  If an
+         incremental snapshot fails after its manifest has been
+         processed, these backups allow restoring the bank to the full
+         snapshot's state. */
+      if( FD_LIKELY( ctx->banks ) ) {
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, 0UL );
+        if( FD_LIKELY( bank ) ) {
+          fd_memcpy( ctx->recovery.bank_f, &bank->f, sizeof(bank->f) );
+          ctx->recovery.txncache_fork_id = bank->txncache_fork_id;
+          fd_memcpy( ctx->recovery.top_votes_t_1, bank->top_votes_t_1_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
+          fd_memcpy( ctx->recovery.top_votes_t_2, bank->top_votes_t_2_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
+        }
+      }
       break;
     }
 
@@ -999,6 +1195,39 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       if( !ctx->full ) {
         fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
         fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
+
+        /* Restore bank state to the full snapshot's values.  The
+           incremental snapshot's process_snapshot_manifest() may have
+           already overwritten bank fields via fd_ssload_recover_bank
+           and fd_ssload_recover_epoch_stakes.  Restoring here ensures
+           the bank is consistent with the rolled-back accdb state.
+
+           bank->f covers every field written by fd_ssload_recover_bank
+           (slot, bank_hash, lthash, blockhashes, inflation,
+           epoch_schedule, rent, total_epoch_stake, etc.) except
+           txncache_fork_id and top_votes, which are restored below.
+
+           Note: stake delegations are intentionally not restored here.
+           The fd_stake_delegations_t structure is backed by
+           FD_RUNTIME_MAX_STAKE_ACCOUNTS entries and is far too large
+           to back up and restore.  Safe, because no consumer reads
+           stake delegations between CTRL_FAIL and the next
+           CTRL_INIT_*, and the next CTRL_INIT_FULL or CTRL_INIT_INCR
+           unconditionally resets and repopulates them from scratch.
+
+           Vote stakes, vote rewards, top_votes_t_1, and top_votes_t_2
+           (written by fd_ssload_recover_epoch_stakes_t_1_entry) are
+           unconditionally reset by fd_ssload_recover_epoch_stakes_t_1_init
+           at the next CTRL_INIT_*. */
+        if( FD_LIKELY( ctx->banks ) ) {
+          fd_bank_t * bank = fd_banks_bank_query( ctx->banks, 0UL );
+          if( FD_LIKELY( bank ) ) {
+            fd_memcpy( &bank->f, ctx->recovery.bank_f, sizeof(bank->f) );
+            bank->txncache_fork_id = ctx->recovery.txncache_fork_id;
+            fd_memcpy( bank->top_votes_t_1_mem, ctx->recovery.top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
+            fd_memcpy( bank->top_votes_t_2_mem, ctx->recovery.top_votes_t_2, FD_TOP_VOTES_MAX_FOOTPRINT );
+          }
+        }
       }
       break;
     }
@@ -1105,12 +1334,14 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),     sizeof(fd_snapin_tile_t)                             );
-  void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),            fd_ssparse_footprint( 1UL<<24UL )                    );
-  void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots ) );
-  void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                              );
-  void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                              );
-  ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
+  fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),                   sizeof(fd_snapin_tile_t)                                                      );
+  void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),                          fd_ssparse_footprint( 1UL<<24UL )                                             );
+  void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),                         fd_txncache_footprint( tile->snapin.max_live_slots )                          );
+  void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),                fd_ssmanifest_parser_footprint()                                              );
+  void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),                fd_slot_delta_parser_footprint()                                              );
+  ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),                  sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS                     );
+  void * _vote_stakes_t_2 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_epoch_stakes_slim_t),    sizeof(fd_snapshot_epoch_stakes_slim_t)*FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED    ); /* E */
+  void * _vote_stakes_t_3 = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_epoch_stakes_slim_t),    sizeof(fd_snapshot_epoch_stakes_slim_t)*FD_SNAPIN_MAX_VOTE_STAKES_BUFFERED    ); /* E-1 */
 
   if( tile->snapin.use_vinyl ) {
     /* snapwm needs all txn_cache data in order to verify the slot
@@ -1131,6 +1362,14 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->txncache_entries_len_vinyl_ptr = NULL;
   }
 
+  ctx->callback_error             = 0;
+  ctx->vote_stakes_t_1_len         = 0UL;
+  ctx->vote_stakes_t_2            = _vote_stakes_t_2;
+  ctx->vote_stakes_t_2_len        = 0UL;
+  ctx->vote_stakes_t_3            = _vote_stakes_t_3;
+  ctx->vote_stakes_t_3_len        = 0UL;
+  ctx->stake_delegations_inserted = 0UL;
+
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
   ctx->lthash_disabled = tile->snapin.lthash_disabled;
@@ -1145,6 +1384,22 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_accdb_user_v1_init ( ctx->accdb,       shfunk, shfunk_locks, tile->snapin.accdb_max_depth ) );
   ctx->funk = fd_accdb_user_v1_funk( ctx->accdb );
   fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->funk ) );
+
+  ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
+  if( FD_LIKELY( banks_obj_id!=ULONG_MAX ) ) {
+    ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+    FD_TEST( ctx->banks );
+  } else {
+    ctx->banks = NULL;
+  }
+
+  ulong rtstack_obj_id = fd_pod_query_ulong( topo->props, "rtstack", ULONG_MAX );
+  if( FD_LIKELY( rtstack_obj_id!=ULONG_MAX ) ) {
+    ctx->runtime_stack = fd_runtime_stack_join( fd_topo_obj_laddr( topo, rtstack_obj_id ) );
+    FD_TEST( ctx->runtime_stack );
+  } else {
+    ctx->runtime_stack = NULL;
+  }
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -1169,6 +1424,10 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
 
+  ulong snapshot_manif_obj_id = fd_pod_query_ulong( topo->props, "snap_manif", ULONG_MAX );
+  FD_TEST( snapshot_manif_obj_id!=ULONG_MAX );
+  ctx->snapshot_manif = (fd_snapshot_manifest_t *)fd_topo_obj_laddr( topo, snapshot_manif_obj_id );
+
   ctx->manifest_out = out1( topo, tile, "snapin_manif" );
   ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
   ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
@@ -1188,7 +1447,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   fd_ssparse_reset( ctx->ssparse );
-  fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
+  fd_ssmanifest_parser_init( ctx->manifest_parser, &ctx->snapshot_manif[ fd_ssmsg_manif_idx_from_full( 1 ) ] );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );
 
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
@@ -1228,7 +1487,7 @@ unprivileged_init( fd_topo_t *      topo,
     | 1a. snapin_ct (no lthash verification)
     | 1b. snapin_ls (with lthash verification, funk)
     | 1c. snapin_wm (with lthash verification, vinyl)
-    | - worst case: 2 messages, e.g. process_manifest (lthash) +
+    | - worst case: 2 messages, e.g. process_snapshot_manifest (lthash) +
     |            FD_SSPARSE_ADVANCE_ACCOUNT_{HEADER,DATA,BATCH,ERROR}
     2. snapin_manif - worst case: 1 message
     3. snapin_gui   - worst case: 1 message (config program account)

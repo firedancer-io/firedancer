@@ -117,7 +117,11 @@ http_init_ssl( fd_sshttp_t * http ) {
     FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d) for %s", alpn_res, http->hostname ));
   }
 
-  /* set SNI */
+  /* set SNI and hostname verification */
+  long sni_res = SSL_set_tlsext_host_name( http->ssl, http->hostname );
+  if( FD_UNLIKELY( !sni_res ) ) {
+    FD_LOG_ERR(( "SSL_set_tlsext_host_name failed (%ld) for %s", sni_res, http->hostname ));
+  }
   int set1_host_res = SSL_set1_host( http->ssl, http->hostname );
   if( FD_UNLIKELY( !set1_host_res ) ) {
     FD_LOG_ERR(( "SSL_set1_host failed (%d) for %s", set1_host_res, http->hostname ));

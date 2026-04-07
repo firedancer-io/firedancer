@@ -370,7 +370,8 @@ struct ctx {
 
   /* Store chunk for incoming reliable frags */
   ulong chunk;
-  ulong snap_out_chunk; /* store second to last chunk for snap_out */
+  fd_snapshot_manifest_t const * snapshot_manif;
+  ulong snap_manif_idx;
 
   fd_ip4_udp_hdrs_t intake_hdr[1];
   fd_ip4_udp_hdrs_t serve_hdr [1];
@@ -593,7 +594,10 @@ during_frag( ctx_t * ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] in kind %u", chunk, sz, in_ctx->chunk0, in_ctx->wmark, in_kind ));
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
-    if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) ctx->snap_out_chunk = chunk;
+    if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) {
+      ctx->snap_manif_idx = fd_ssmsg_manif_idx_from_sig( sig );
+      FD_TEST( ctx->snap_manif_idx!=ULONG_MAX );
+    }
     return;
   }
 
@@ -608,10 +612,9 @@ during_frag( ctx_t * ctx,
 
 static inline void
 after_snap( ctx_t * ctx,
-                 ulong                  sig,
-                 uchar const          * chunk ) {
+            ulong   sig ) {
   if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) return;
-  fd_snapshot_manifest_t * manifest = (fd_snapshot_manifest_t *)chunk;
+  fd_snapshot_manifest_t const * manifest = &ctx->snapshot_manif[ ctx->snap_manif_idx ];
 
   fd_forest_init( ctx->forest, manifest->slot );
 }
@@ -920,7 +923,7 @@ after_frag( ctx_t *             ctx,
     }
     /* Reliable frags read directly from dcache */
     case IN_KIND_SNAP: {
-      after_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
+      after_snap( ctx, sig );
       break;
     }
     case IN_KIND_GENESIS: {
@@ -1232,7 +1235,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( 0==strcmp( link->name, "gossip_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
     else if( 0==strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
     else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
-    else if( 0==strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
+    else if( 0==strcmp( link->name, "snapin_manif" ) ) { ctx->in_kind[ in_idx ] = IN_KIND_SNAP; continue; }
     else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
     else if( 0==strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
@@ -1243,6 +1246,12 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in_links[ in_idx ].mtu    = link->mtu;
 
     FD_TEST( fd_dcache_compact_is_safe( ctx->in_links[in_idx].mem, link->dcache, link->mtu, link->depth ) );
+  }
+
+  ctx->snap_manif_idx = 0UL;
+  ulong snapshot_manif_obj_id = fd_pod_query_ulong( topo->props, "snap_manif", ULONG_MAX );
+  if( FD_LIKELY( snapshot_manif_obj_id!=ULONG_MAX ) ) {
+    ctx->snapshot_manif = (fd_snapshot_manifest_t const *)fd_topo_obj_laddr( topo, snapshot_manif_obj_id );
   }
 
   ctx->net_out_ctx->idx    = UINT_MAX;

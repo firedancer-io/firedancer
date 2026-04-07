@@ -410,7 +410,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
 
-  fd_vote_rewards_map_t * vote_reward_map = runtime_stack->stakes.vote_map;
+  fd_vote_rewards_map_t * vote_reward_map = fd_runtime_stack_vote_map(runtime_stack);
   fd_vote_rewards_map_reset( vote_reward_map );
   ulong vote_reward_cnt = 0UL;
 
@@ -418,12 +418,12 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      accounts.  At this point, don't care if they are valid accounts or
      if they will be inserted into the top votes set. */
 
-  fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
-  fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
+  fd_stake_accum_t *     stake_accum_pool = fd_runtime_stack_stake_accum(runtime_stack);
+  fd_stake_accum_map_t * stake_accum_map  = fd_runtime_stack_stake_accum_map(runtime_stack);
 
   ushort parent_idx = bank->vote_stakes_fork_id;
 
-  fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
+  fd_stake_accum_map_reset( fd_runtime_stack_stake_accum_map(runtime_stack) );
   ulong epoch              = bank->f.epoch;
   ulong total_stake        = 0UL;
   ulong total_activating   = 0UL;
@@ -448,7 +448,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
       FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
     }
-    fd_stake_accum_t * stake_accum = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+    fd_stake_accum_t * stake_accum = &fd_runtime_stack_stake_accum(runtime_stack)[ staked_accounts ];
     stake_accum->pubkey = vs_pubkey;
     stake_accum->stake  = 0UL;
     fd_stake_accum_map_ele_insert( stake_accum_map, stake_accum, stake_accum_pool );
@@ -478,7 +478,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
         FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
       }
-      stake_accum = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+      stake_accum = &fd_runtime_stack_stake_accum(runtime_stack)[ staked_accounts ];
       stake_accum->pubkey = stake_delegation->vote_account;
       stake_accum->stake  = new_entry.effective;
       fd_stake_accum_map_ele_insert( stake_accum_map, stake_accum, stake_accum_pool );
@@ -531,13 +531,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
       uchar                commission_t_1   = 0;
       fd_pubkey_t          node_account_t_1 = {0};
-      fd_epoch_credits_t * epoch_credits    = &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ];
+      fd_epoch_credits_t * epoch_credits    = &fd_runtime_stack_epoch_credits(runtime_stack)[ vote_reward_cnt ];
       get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1, &node_account_t_1, epoch_credits );
 
       uchar commission_t_3 = 0;
       int   exists_t_3     = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3 );
 
-      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
+      fd_vote_rewards_t * vote_ele = &fd_runtime_stack_vote_ele(runtime_stack)[ vote_reward_cnt ];
       vote_ele->pubkey             = pubkey;
       vote_ele->vote_rewards       = 0UL;
       if( delay_commission ) {
@@ -545,7 +545,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       } else {
         vote_ele->commission = exists_t_3 ? commission_t_3 : commission_t_2;
       }
-      fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
+      fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, fd_runtime_stack_vote_ele(runtime_stack) );
       vote_reward_cnt++;
     }
     fd_accdb_close_ro( accdb, vote_ro );
@@ -593,13 +593,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       exists_t_1 = 0;
       fd_accdb_close_ro( accdb, vote_ro );
     } else {
-      fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ];
+      fd_epoch_credits_t * epoch_credits = &fd_runtime_stack_epoch_credits(runtime_stack)[ vote_reward_cnt ];
       get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1, &node_account_t_1, epoch_credits );
 
       stake_t_1 = stake_accum->stake;
 
       if( !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-        fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
+        fd_vote_rewards_t * vote_ele = &fd_runtime_stack_vote_ele(runtime_stack)[ vote_reward_cnt ];
         vote_ele->pubkey             = stake_accum->pubkey;
         vote_ele->vote_rewards       = 0UL;
         if( delay_commission ) {
@@ -607,7 +607,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         } else {
           vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : commission_t_1);
         }
-        fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
+        fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, fd_runtime_stack_vote_ele(runtime_stack) );
         vote_reward_cnt++;
       }
 

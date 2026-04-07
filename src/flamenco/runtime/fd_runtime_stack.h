@@ -43,6 +43,7 @@ struct fd_vote_rewards {
   ulong       vote_rewards;
   uint        next;
   uchar       commission;
+  uchar       commission_delayed;
 };
 typedef struct fd_vote_rewards fd_vote_rewards_t;
 
@@ -74,8 +75,9 @@ typedef struct fd_stake_accum fd_stake_accum_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_runtime_stack_t serves as stack memory to store temporary data
-   for the runtime.  This object should only be used and owned by the
-   replay tile and is used for short-lived allocations for the runtime,
+   for the runtime.  This object lives in shared topology memory and
+   is used by both the snapin tile (during snapshot loading) and the
+   replay tile (during block execution) for short-lived allocations,
    more specifically, for slot level calculations. */
 struct fd_runtime_stack {
 
@@ -86,7 +88,7 @@ struct fd_runtime_stack {
   struct {
     /* Staging memory to sort vote accounts by last vote timestamp for
        clock sysvar calculation. */
-    ts_est_ele_t * staked_ts;
+    ulong staked_ts_off;
   } clock_ts;
 
   struct {
@@ -109,15 +111,14 @@ struct fd_runtime_stack {
   } bpf_migration;
 
   struct {
-    fd_calculated_stake_points_t *  stake_points_result;
+    ulong stake_points_result_off;
+    ulong stake_rewards_result_off;
 
-    fd_calculated_stake_rewards_t * stake_rewards_result;
+    ulong stake_accum_off;
+    ulong stake_accum_map_off;
 
-    fd_stake_accum_t *     stake_accum;
-    fd_stake_accum_map_t * stake_accum_map;
-
-    fd_vote_rewards_t *     vote_ele;
-    fd_vote_rewards_map_t * vote_map;
+    ulong vote_ele_off;
+    ulong vote_map_off;
 
     ulong       total_rewards;
     ulong       distributed_rewards;
@@ -127,10 +128,10 @@ struct fd_runtime_stack {
 
     /* Staging memory used for calculating and sorting vote account
        stake weights for the leader schedule calculation. */
-    fd_vote_stake_weight_t * stake_weights;
-    fd_stake_weight_t *      id_weights;
+    ulong stake_weights_off;
+    ulong id_weights_off;
 
-    fd_epoch_credits_t * epoch_credits;
+    ulong epoch_credits_off;
 
   } stakes;
 
@@ -151,6 +152,60 @@ struct fd_runtime_stack {
   } epoch_weights;
 };
 typedef struct fd_runtime_stack fd_runtime_stack_t;
+
+/* Accessor functions to resolve offsets to pointers.  These are
+   position-independent: each tile computes absolute pointers from
+   its own mapping of the shared workspace. */
+
+static inline ts_est_ele_t *
+fd_runtime_stack_staked_ts( fd_runtime_stack_t * rs ) {
+  return (ts_est_ele_t *)((uchar *)rs + rs->clock_ts.staked_ts_off);
+}
+
+static inline fd_calculated_stake_points_t *
+fd_runtime_stack_stake_points_result( fd_runtime_stack_t * rs ) {
+  return (fd_calculated_stake_points_t *)((uchar *)rs + rs->stakes.stake_points_result_off);
+}
+
+static inline fd_calculated_stake_rewards_t *
+fd_runtime_stack_stake_rewards_result( fd_runtime_stack_t * rs ) {
+  return (fd_calculated_stake_rewards_t *)((uchar *)rs + rs->stakes.stake_rewards_result_off);
+}
+
+static inline fd_stake_accum_t *
+fd_runtime_stack_stake_accum( fd_runtime_stack_t * rs ) {
+  return (fd_stake_accum_t *)((uchar *)rs + rs->stakes.stake_accum_off);
+}
+
+static inline fd_stake_accum_map_t *
+fd_runtime_stack_stake_accum_map( fd_runtime_stack_t * rs ) {
+  return (fd_stake_accum_map_t *)((uchar *)rs + rs->stakes.stake_accum_map_off);
+}
+
+static inline fd_vote_rewards_t *
+fd_runtime_stack_vote_ele( fd_runtime_stack_t * rs ) {
+  return (fd_vote_rewards_t *)((uchar *)rs + rs->stakes.vote_ele_off);
+}
+
+static inline fd_vote_rewards_map_t *
+fd_runtime_stack_vote_map( fd_runtime_stack_t * rs ) {
+  return (fd_vote_rewards_map_t *)((uchar *)rs + rs->stakes.vote_map_off);
+}
+
+static inline fd_vote_stake_weight_t *
+fd_runtime_stack_stake_weights( fd_runtime_stack_t * rs ) {
+  return (fd_vote_stake_weight_t *)((uchar *)rs + rs->stakes.stake_weights_off);
+}
+
+static inline fd_stake_weight_t *
+fd_runtime_stack_id_weights( fd_runtime_stack_t * rs ) {
+  return (fd_stake_weight_t *)((uchar *)rs + rs->stakes.id_weights_off);
+}
+
+static inline fd_epoch_credits_t *
+fd_runtime_stack_epoch_credits( fd_runtime_stack_t * rs ) {
+  return (fd_epoch_credits_t *)((uchar *)rs + rs->stakes.epoch_credits_off);
+}
 
 FD_FN_CONST static inline ulong
 fd_runtime_stack_align( void ) {
@@ -205,23 +260,30 @@ fd_runtime_stack_new( void * shmem,
   runtime_stack->max_vote_accounts           = max_vote_accounts;
   runtime_stack->expected_vote_accounts      = expected_vote_accounts;
   runtime_stack->expected_stake_accounts     = expected_stake_accounts;
-  runtime_stack->clock_ts.staked_ts          = staked_ts;
-  runtime_stack->stakes.stake_weights        = stake_weights;
-  runtime_stack->stakes.id_weights           = id_weights;
-  runtime_stack->stakes.vote_ele             = vote_ele;
-  runtime_stack->stakes.epoch_credits        = epoch_credits;
-  runtime_stack->stakes.stake_points_result  = stake_points_result;
-  runtime_stack->stakes.stake_rewards_result = stake_rewards_result;
-  runtime_stack->stakes.stake_accum          = stake_accum;
 
-  runtime_stack->stakes.stake_accum_map = fd_stake_accum_map_join( fd_stake_accum_map_new( stake_accum_map_mem, chain_cnt, seed ) );
-  if( FD_UNLIKELY( !runtime_stack->stakes.stake_accum_map ) ) {
+  /* Store position-independent offsets from the struct base.  These
+     remain valid regardless of the virtual address at which the
+     workspace is mapped. */
+
+  runtime_stack->clock_ts.staked_ts_off          = (ulong)((uchar *)staked_ts            - (uchar *)runtime_stack);
+  runtime_stack->stakes.stake_weights_off        = (ulong)((uchar *)stake_weights        - (uchar *)runtime_stack);
+  runtime_stack->stakes.id_weights_off           = (ulong)((uchar *)id_weights           - (uchar *)runtime_stack);
+  runtime_stack->stakes.vote_ele_off             = (ulong)((uchar *)vote_ele             - (uchar *)runtime_stack);
+  runtime_stack->stakes.epoch_credits_off        = (ulong)((uchar *)epoch_credits        - (uchar *)runtime_stack);
+  runtime_stack->stakes.stake_points_result_off  = (ulong)((uchar *)stake_points_result  - (uchar *)runtime_stack);
+  runtime_stack->stakes.stake_rewards_result_off = (ulong)((uchar *)stake_rewards_result - (uchar *)runtime_stack);
+  runtime_stack->stakes.stake_accum_off          = (ulong)((uchar *)stake_accum          - (uchar *)runtime_stack);
+  runtime_stack->stakes.stake_accum_map_off      = (ulong)((uchar *)stake_accum_map_mem  - (uchar *)runtime_stack);
+  runtime_stack->stakes.vote_map_off             = (ulong)((uchar *)vote_map_mem         - (uchar *)runtime_stack);
+
+  /* Initialize the map data structures in-place. */
+
+  if( FD_UNLIKELY( !fd_stake_accum_map_new( stake_accum_map_mem, chain_cnt, seed ) ) ) {
     FD_LOG_WARNING(( "fd_runtime_stack_new: bad map" ));
     return NULL;
   }
 
-  runtime_stack->stakes.vote_map = fd_vote_rewards_map_join( fd_vote_rewards_map_new( vote_map_mem, chain_cnt, seed ) );
-  if( FD_UNLIKELY( !runtime_stack->stakes.vote_map ) ) {
+  if( FD_UNLIKELY( !fd_vote_rewards_map_new( vote_map_mem, chain_cnt, seed ) ) ) {
     FD_LOG_WARNING(( "fd_runtime_stack_new: bad map" ));
     return NULL;
   }
@@ -230,8 +292,8 @@ fd_runtime_stack_new( void * shmem,
 }
 
 FD_FN_CONST static inline fd_runtime_stack_t *
-fd_runtime_stack_join( void * shruntime_stack ) {
-  return (fd_runtime_stack_t *)shruntime_stack;
+fd_runtime_stack_join( void * shmem ) {
+  return (fd_runtime_stack_t *)shmem;
 }
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h */

@@ -149,7 +149,7 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_link( topo, "snapct_ld",   "snapct_ld",     128UL,   sizeof(fd_ssctrl_init_t),       1UL );
   fd_topob_link( topo, "snapld_dc",   "snapld_dc",     16384UL, USHORT_MAX,                     1UL );
   fd_topob_link( topo, "snapdc_in",   "snapdc_in",     16384UL, USHORT_MAX,                     1UL );
-  fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,     sizeof(fd_snapshot_manifest_t), 1UL )->permit_no_consumers = 1;
+  fd_topob_link( topo, "snapin_manif", "snapin_manif", 16UL,    0UL,                            1UL )->permit_no_consumers = 1; /* depth=16UL to avoid any stem bust backpressure due to this link */
   fd_topob_link( topo, "snapct_repr", "snapct_repr",   128UL,   0UL,                            1UL )->permit_no_consumers = 1;
 
   if( vinyl_enabled ) {
@@ -285,6 +285,10 @@ snapshot_load_topo( config_t * config ) {
   }
 
   snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
+
+  fd_topo_obj_t * snapshot_manif_obj = fd_topob_obj( topo, "snap_manif", "snapin_manif" );
+  fd_topob_tile_uses( topo, snapin_tile, snapshot_manif_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, snapshot_manif_obj->id, "snap_manif" ) );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];

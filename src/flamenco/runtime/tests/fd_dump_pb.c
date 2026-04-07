@@ -655,12 +655,12 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      vote_ele_map has been populated (happens after epoch boundary
      reward calculation).  Needed for the harness to correctly
      recalculate partitioned epoch rewards. */
-  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_vote_rewards_map_t * vote_ele_map = fd_runtime_stack_vote_map( runtime_stack );
   for( pb_size_t i=0U; i<va_t1_cnt; i++ ) {
     fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
-    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
+    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, fd_runtime_stack_vote_ele( runtime_stack ) );
     if( idx==UINT_MAX ) continue;
-    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[idx];
+    fd_epoch_credits_t * ec = &fd_runtime_stack_epoch_credits( runtime_stack )[idx];
     ulong cnt  = ec->cnt;
     ulong base = ec->base_credits;
     va_t1[i].epoch_credits_count = (pb_size_t)cnt;
@@ -762,8 +762,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->vote_accounts_t_1_count = va_t1_cnt;
   block_bank->vote_accounts_t_2       = va_t2;
   block_bank->vote_accounts_t_2_count = va_t2_cnt;
-
-  /* TODO: dump stake_delegations_t_1 */
 }
 
 static void
