@@ -40,17 +40,18 @@ fd_numa_private_parse_node_idx( char const * s ) {
 }
 
 ulong
-fd_numa_node_cnt( void ) {
+fd_numa_node_cnt( int numa_enabled ) {
 
-  /* Open sysfs dir containing NUMA config.  Abort if this fails. */
+  /* Open sysfs dir containing NUMA config.  On systems confirmed to
+     lack NUMA support (numa_enabled==0, detected via ENOSYS from NUMA
+     policy syscalls), a missing directory is expected; treat it as a
+     single NUMA node.  When NUMA syscalls are available, ENOENT is
+     ambiguous and is treated as an error. */
 
   char const * path = "/sys/devices/system/node";
   DIR *        dir  = opendir( path );
   if( FD_UNLIKELY( !dir ) ) {
-    // On some systems (such as a Linux container running in Docker on a Mac), parts of the file system
-    // are not set up the way we expect it to be on Linux. E.g., `/sys/devices/system/node` does not
-    // exist - if we are in such a system, assume that we only have a single NUMA node and continue
-    if ( errno == ENOENT ) return 1UL;
+    if( errno==ENOENT && !numa_enabled ) return 1UL;
     FD_LOG_WARNING(( "opendir( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return 0UL;
   }
@@ -95,7 +96,8 @@ fd_numa_cpu_cnt( void ) {
 }
 
 ulong
-fd_numa_node_idx( ulong cpu_idx ) {
+fd_numa_node_idx( ulong cpu_idx,
+                  int   numa_enabled ) {
 
   /* Open sysfs dir containing CPU config.  Abort if this fails. */
 
@@ -122,7 +124,10 @@ fd_numa_node_idx( ulong cpu_idx ) {
     FD_LOG_WARNING(( "closedir( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( node_idx<0 ) ) {
-    FD_LOG_WARNING(( "No numa node found in \"%s\" - assuming NUMA node 0", path ));
+    if( numa_enabled ) {
+      FD_LOG_WARNING(( "No numa node found in \"%s\"", path ));
+      return ULONG_MAX;
+    }
     return 0UL;
   }
 
@@ -180,9 +185,10 @@ fd_numa_get_mempolicy( int *   mode,
                        ulong * nodemask,
                        ulong   maxnode,
                        void *  addr,
-                       uint    flags ) {
+                       uint    flags,
+                       int     numa_enabled ) {
   long rc = syscall( SYS_get_mempolicy, mode, nodemask, maxnode, addr, flags );
-  if ( rc && errno == ENOSYS ) {
+  if( rc && errno==ENOSYS && !numa_enabled ) {
     FD_LOG_WARNING(( "System appears to not support NUMA - unable to get mempolicy. Attempting to continue..." ));
     return 0L;
   }
@@ -196,9 +202,10 @@ fd_numa_get_mempolicy( int *   mode,
 long
 fd_numa_set_mempolicy( int           mode,
                        ulong const * nodemask,
-                       ulong         maxnode ) {
+                       ulong         maxnode,
+                       int           numa_enabled ) {
   long rc = syscall( SYS_set_mempolicy, mode, nodemask, maxnode );
-  if ( rc && errno == ENOSYS ) {
+  if( rc && errno==ENOSYS && !numa_enabled ) {
     FD_LOG_WARNING(( "System appears to not support NUMA - unable to set mempolicy. Attempting to continue..." ));
     return 0L;
   }
@@ -211,9 +218,10 @@ fd_numa_mbind( void *        addr,
                int           mode,
                ulong const * nodemask,
                ulong         maxnode,
-               uint          flags ) {
+               uint          flags,
+               int           numa_enabled ) {
   long rc = syscall( SYS_mbind, addr, len, mode, nodemask, maxnode, flags );
-  if ( rc && errno == ENOSYS ) {
+  if( rc && errno==ENOSYS && !numa_enabled ) {
     FD_LOG_WARNING(( "System appears to not support NUMA - unable to bind memory. Attempting to continue..." ));
     return 0L;
   }
