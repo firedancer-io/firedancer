@@ -18,7 +18,7 @@ write_epoch_rewards( fd_bank_t *                 bank,
                      fd_funk_txn_xid_t const *   xid,
                      fd_capture_ctx_t *          capture_ctx,
                      fd_sysvar_epoch_rewards_t * epoch_rewards ) {
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_rewards_id, epoch_rewards, sizeof(fd_sysvar_epoch_rewards_t) );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_rewards_id, epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
 }
 
 fd_sysvar_epoch_rewards_t *
@@ -39,12 +39,12 @@ fd_sysvar_epoch_rewards_read( fd_accdb_user_t *           accdb,
     return NULL;
   }
 
+  memcpy( out, fd_accdb_ref_data_const( ro ), FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
+
   if( FD_UNLIKELY( validate( out ) ) ) {
     fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
-
-  memcpy( out, fd_accdb_ref_data_const( ro ), sizeof(fd_sysvar_epoch_rewards_t) );
   fd_accdb_close_ro( accdb, ro );
   return out;
 }
