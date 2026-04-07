@@ -200,6 +200,7 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
   heap_t *     heap = get_heap( top_votes );
   map_t *      map  = get_map( top_votes );
 
+  if( FD_UNLIKELY( stake==0UL ) ) return;
   if( FD_UNLIKELY( stake<=top_votes->min_stake_wmark ) ) return;
 
   if( FD_UNLIKELY( heap_ele_cnt( heap )==heap_ele_max( heap ) ) ) {
