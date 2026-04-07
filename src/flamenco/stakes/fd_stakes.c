@@ -528,22 +528,14 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_vote_block_timestamp_t last_vote;
     FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen, &last_vote ) );
     fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
-
-    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-      uchar                commission_t_1   = 0;
-      fd_pubkey_t          node_account_t_1 = {0};
-      fd_epoch_credits_t * epoch_credits    = &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ];
-      get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1, &node_account_t_1, epoch_credits );
-      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
-      vote_ele->pubkey             = pubkey;
-      vote_ele->vote_rewards       = 0UL;
-      vote_ele->commission_t_1     = commission_t_1;
-      vote_ele->commission_t_2     = commission_t_2;
-      fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
-      vote_reward_cnt++;
-    }
     fd_accdb_close_ro( accdb, vote_ro );
   }
+
+  ulong curr_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
+  ulong vat_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+
+  int vat_in_prev = curr_epoch>=vat_epoch+1UL ? 1 : 0;
+  int vat_in_curr = curr_epoch>=vat_epoch     ? 1 : 0;
 
   /* Now for each staked vote account, figure out if it is a valid
      account and insert into the vote stakes (an account can not exist
@@ -583,18 +575,23 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
       stake_t_1 = stake_accum->stake;
 
-      if( !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-        fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
-        vote_ele->pubkey             = stake_accum->pubkey;
-        vote_ele->vote_rewards       = 0UL;
-        vote_ele->commission_t_1     = commission_t_1;
-        vote_ele->commission_t_2     = exists_prev ? commission_t_2 : commission_t_1;
+      /* If validator_admission_ticket was active at the end of the
+         previous epoch or after, then will only insert vote accounts
+         into the vote rewards map if it was in the set of t-2 top
+         votes.  Otherwise, we will always insert into the vote rewards
+         map. */
+      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
+      vote_ele->pubkey             = stake_accum->pubkey;
+      vote_ele->vote_rewards       = 0UL;
+      vote_ele->commission_t_1     = commission_t_1;
+      vote_ele->commission_t_2     = exists_prev ? commission_t_2 : commission_t_1;
+
+      if( !vat_in_prev && fd_top_votes_query( top_votes_t_2, &stake_accum->pubkey, NULL, NULL, NULL, NULL, NULL ) ) {
         fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
         vote_reward_cnt++;
       }
 
-
-      if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+      if( vat_in_curr ) {
         if( FD_UNLIKELY( !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
           fd_accdb_close_ro( accdb, vote_ro );
           continue;

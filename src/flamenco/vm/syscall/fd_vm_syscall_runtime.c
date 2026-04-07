@@ -1,5 +1,6 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/program/fd_vote_program.h"
+#include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/fd_system_ids.h"
 #include "fd_vm_syscall_macros.h"
@@ -289,7 +290,13 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
 
   ulong stake = 0UL;
-  if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket ) ) {
+
+  fd_bank_t * bank = vm->instr_ctx->bank;
+
+  ulong curr_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
+  ulong vat_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+
+  if( curr_epoch>=vat_epoch+1UL ) {
     fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
     fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL );
   } else {
