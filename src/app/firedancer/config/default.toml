@@ -616,7 +616,7 @@ telemetry = true
     # * 955 payload bytes per shred) to accommodate the old
     # variable-length FEC sets.  This should be left as its default
     # value of true unless attempting to replay old ledgers.
-    fixed_fec_sets = false # FIXME default this to true after updating whatever shell script to write out backtest configs
+    fixed_fec_sets = true
 
     # max_fork_width specifies the maximum number of forks that will
     # play through the same slot. Specifically, the maximum number
