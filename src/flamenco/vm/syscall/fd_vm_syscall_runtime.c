@@ -1,6 +1,5 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/program/fd_vote_program.h"
-#include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../runtime/fd_system_ids.h"
 #include "fd_vm_syscall_macros.h"
