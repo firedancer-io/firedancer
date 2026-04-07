@@ -373,6 +373,11 @@ after_credit( fd_snapld_tile_t *  ctx,
         break;
       }
       case FD_SSHTTP_ADVANCE_DONE:
+        if( FD_UNLIKELY( !ctx->sent_meta ) ) {
+          FD_LOG_WARNING(( "zero-length HTTP response for %s snapshot", ctx->load_full ? "full" : "incremental" ));
+          transition_malformed( ctx, stem );
+          break;
+        }
         FD_LOG_NOTICE(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
