@@ -586,16 +586,14 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       vote_ele->commission_t_1     = commission_t_1;
       vote_ele->commission_t_2     = exists_prev ? commission_t_2 : commission_t_1;
 
-      if( !vat_in_prev && fd_top_votes_query( top_votes_t_2, &stake_accum->pubkey, NULL, NULL, NULL, NULL, NULL ) ) {
+      if( FD_LIKELY( !vat_in_prev || fd_top_votes_query( top_votes_t_2, &stake_accum->pubkey, NULL, NULL, NULL, NULL, NULL ) ) ) {
         fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
         vote_reward_cnt++;
       }
 
-      if( vat_in_curr ) {
-        if( FD_UNLIKELY( !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
-          fd_accdb_close_ro( accdb, vote_ro );
-          continue;
-        }
+      if( FD_UNLIKELY( vat_in_curr && !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
+        fd_accdb_close_ro( accdb, vote_ro );
+        continue;
       }
       fd_accdb_close_ro( accdb, vote_ro );
       fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
