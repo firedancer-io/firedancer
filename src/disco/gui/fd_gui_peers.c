@@ -1134,9 +1134,9 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
   fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
   ulong vote_scratch_cnt = 0UL;
   ulong vote_accounts_sz = manifest->vote_accounts_len;
-  if( FD_UNLIKELY( vote_accounts_sz>40200UL ) ) {
-    FD_LOG_WARNING(( "exceeded 40200UL vote accounts" ));
-    vote_accounts_sz = 40200UL;
+  if( FD_UNLIKELY( vote_accounts_sz>FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ) ) {
+    FD_LOG_WARNING(( "exceeded FD_SNAPSHOT_MAX_VOTE_ACCOUNTS vote accounts" ));
+    vote_accounts_sz = FD_SNAPSHOT_MAX_VOTE_ACCOUNTS;
   }
   for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
     if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;

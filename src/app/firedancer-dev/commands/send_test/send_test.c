@@ -26,6 +26,7 @@ up the entire gossip subtopo.
 #include "../../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
 #include "../../../../discof/tower/fd_tower_tile.h"
 #include "../../../../flamenco/leaders/fd_leaders_base.h" /* FD_STAKE_OUT_MTU */
+#include "../../../../discof/restore/utils/fd_ssmsg.h" /* FD_SNAPSHOT_MAX_VOTE_ACCOUNTS */
 #include "../../../../app/firedancer/topology.h" /* fd_topo_configure_tile */
 #include "../../../../disco/keyguard/fd_keyload.h"
 
@@ -106,7 +107,7 @@ send_test_topo( config_t * config ) {
   if( !use_live_gossip ) {fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL ); }
   /**/                    fd_topob_link( topo, "replay_epoch", "replay_epoch", 128UL,       FD_STAKE_OUT_MTU,                   1UL );
   /**/                    fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,      sizeof(fd_tower_slot_done_t),       1UL );
-  /**/                    fd_topob_link( topo, "txsend_out",   "txsend_out",   128UL,       40200UL * 38UL,                     1UL );
+  /**/                    fd_topob_link( topo, "txsend_out",   "txsend_out",   128UL,       FD_SNAPSHOT_MAX_VOTE_ACCOUNTS * 38UL, 1UL );
 
   if( !use_live_gossip ) {fd_link_permit_no_producers( topo, "gossip_out" ); }
   if( !use_live_gossip ) {fd_link_permit_no_consumers( topo, "txsend_out" ); }

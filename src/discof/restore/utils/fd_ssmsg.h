@@ -9,6 +9,12 @@
 #define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
 #define FD_SSMSG_EXPECTED_SLOT        (3) /* Expected rooted slot from incremental snapshot */
 
+/* Maximum number of vote accounts in snapshot manifest arrays.
+   This is a practical upper bound (not the protocol maximum which is
+   FD_RUNTIME_MAX_VOTE_ACCOUNTS = 19M).  The value 40200 comes from
+   the gossip protocol's weighted-for-stake (WFS) peers limit. */
+#define FD_SNAPSHOT_MAX_VOTE_ACCOUNTS (40200UL)
+
 FD_FN_CONST static inline ulong
 fd_ssmsg_sig( ulong message ) {
   return (message & 0x3UL);
@@ -127,7 +133,7 @@ struct fd_snapshot_manifest_epoch_stakes {
   /* The vote accounts and their stakes for a given epoch.
      FIXME: Snapshot manifest has to support a much larger bound. */
   ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ 40200UL ];
+  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -435,7 +441,7 @@ struct fd_snapshot_manifest {
      uptime, which is measured by vote account vote credits.
      FIXME: Make this unbounded or support a much larger bound. */
   ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ 40200UL ];
+  fd_snapshot_manifest_vote_account_t vote_accounts[ FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ];
 
   /* FIXME: Make this unbounded or support a much larger bound. */
   ulong stake_delegations_len;
