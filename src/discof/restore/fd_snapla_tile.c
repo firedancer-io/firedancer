@@ -180,7 +180,8 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
           result->manifest.data,
           result->manifest.data_sz,
           result->manifest.acc_vec_map,
-          result->manifest.acc_vec_pool );
+          result->manifest.acc_vec_pool,
+          NULL );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
           FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );

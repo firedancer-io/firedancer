@@ -62,6 +62,8 @@ void
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_bank_t *              bank,
                    int                      is_incremental ) {
+  (void)is_incremental;
+
   /* Slot */
 
   bank->f.slot = manifest->slot;
@@ -179,103 +181,11 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     }
   }
 
-  /* Stake delegations for the current epoch are processed on-the-fly
-     by the snapin tile during manifest parsing.  See the
-     fd_ssmanifest_parser_delegation_ready() polling interface. */
-
-  /* We also want to set the total stake to be the total amount of stake
-     at the end of the previous epoch. This value is used for the
-     get_epoch_stake syscall.
-
-     A note on Agave's indexing scheme for their epoch_stakes
-     structure:
-
-     https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6175
-
-     If we are loading a snapshot and replaying in the middle of
-     epoch 7, the syscall is supposed to return the total stake at
-     the end of epoch 6.  The epoch_stakes structure is indexed in
-     Agave by the epoch number of the leader schedule that the
-     stakes are meant to determine.  For instance, to get the
-     stakes at the end of epoch 6, we should query by 8, because
-     the leader schedule for epoch 8 is determined based on the
-     stakes at the end of epoch 6.  Therefore, we save the total
-     epoch stake by querying for epoch+1.  This logic is encapsulated
-     in fd_ssmanifest_parser.c. */
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
-
-  fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
-  fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
-  fd_top_votes_init( top_votes_t_1 );
-  fd_top_votes_init( top_votes_t_2 );
-
-  ulong t_1_idx = manifest->epoch_stakes[2].vote_stakes_len==0UL ? 1UL : 2UL;
-  ulong t_2_idx = manifest->epoch_stakes[2].vote_stakes_len==0UL ? 0UL : 1UL;
-
-  bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
-
-  ulong epoch_credits_len = 0UL;
-
-  /* Populate the vote stakes for the end of the T-1 epoch if the
-     snapshot is in epoch T. */
-  for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
-    fd_vote_stakes_root_insert_key(
-        vote_stakes,
-        (fd_pubkey_t *)elem->vote,
-        (fd_pubkey_t *)elem->identity,
-        elem->stake,
-        (uchar)elem->commission,
-        bank->f.epoch );
-
-    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
-    }
-
-    fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
-
-    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
-    fd_memcpy( ec->pubkey, elem->vote, 32UL );
-    ec->cnt          = elem->epoch_credits_history_len;
-    ec->base_credits = ec->cnt > 0UL ? elem->epoch_credits[0].prev_credits : 0UL;
-    for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
-      ec->epoch[ j ]              = (ushort)elem->epoch_credits[ j ].epoch;
-      ec->credits_delta[ j ]      = (uint)( elem->epoch_credits[ j ].credits      - ec->base_credits );
-      ec->prev_credits_delta[ j ] = (uint)( elem->epoch_credits[ j ].prev_credits - ec->base_credits );
-    }
-    epoch_credits_len++;
-  }
-  *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;
-
-  /* Populate the vote stakes for the end of the T-2 epoch if the
-     snapshot is in epoch T. */
-  for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
-
-    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
-    }
-    fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
-    fd_vote_stakes_root_update_meta(
-        vote_stakes,
-        (fd_pubkey_t *)elem->vote,
-        (fd_pubkey_t *)elem->identity,
-        elem->stake,
-        (uchar)elem->commission,
-        bank->f.epoch );
-  }
-
-  /* Store commissions in the banks for the end of the T-3 epoch if the
-     snapshot is in epoch T. */
-  *fd_bank_snapshot_commission_t_3_len( bank ) = manifest->epoch_stakes[0].vote_stakes_len;
-  fd_stashed_commission_t * snapshot_commission = fd_bank_snapshot_commission_t_3( bank );
-  for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
-    fd_memcpy( snapshot_commission[i].pubkey, elem->vote, 32UL );
-    snapshot_commission[i].commission = (uchar)elem->commission;
-  }
+  /* Stake delegations and epoch stakes (vote_stakes, top_votes,
+     epoch_credits, commissions) are processed on-the-fly by the
+     snapin tile during manifest parsing.  See the polling interfaces
+     in fd_ssmanifest_parser.h.  total_epoch_stake is set by the
+     snapin tile after all epoch stakes entries have been drained. */
 
   bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 }

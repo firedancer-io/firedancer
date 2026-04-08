@@ -213,68 +213,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-static inline ulong
-generate_epoch_info_msg_manifest( ulong                                       epoch,
-                                  fd_epoch_schedule_t const *                 epoch_schedule,
-                                  fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
-                                  ulong *                                     epoch_info_msg_out ) {
-  fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
-  fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
-
-  epoch_info_msg->epoch             = epoch;
-  epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
-  epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
-  epoch_info_msg->excluded_id_stake = 0UL;
-
-  /* Set all features as deactivated as we don't have available feature info from manifest. */
-  fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
-
-  /* Filter zero-stake entries (match replay: wsample and leader schedule reject zero weight). */
-  ulong idx = 0UL;
-  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
-    ulong stake = epoch_stakes->vote_stakes[ i ].stake;
-    if( FD_UNLIKELY( !stake ) ) continue;
-    stake_weights[ idx ].stake = stake;
-    memcpy( stake_weights[ idx ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
-    memcpy( stake_weights[ idx ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
-    idx++;
-  }
-  epoch_info_msg->staked_vote_cnt = idx;
-  sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
-
-  fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
-
-  epoch_info_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_weights, stake_weights, epoch_info_msg->staked_vote_cnt );
-
-  FD_TEST( idx<=MAX_SHRED_DESTS );
-
-  epoch_info_msg->epoch_schedule = *epoch_schedule;
-
-  return fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt, epoch_info_msg->staked_id_cnt );
-}
-
 static void
-publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
-                                fd_stem_context_t *    stem,
-                                fd_snapshot_manifest_t const * manifest ) {
-  fd_epoch_schedule_t const * schedule = fd_type_pun_const( &manifest->epoch_schedule_params );
-  ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
-
-  /* current epoch */
-  ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
-  ulong stake_weights_sig = 4UL;
-  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-  FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
-
-  /* next current epoch */
-  stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
-  stake_weights_sig = 4UL;
-  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-  FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx FD_PARAM_UNUSED,
+                                fd_stem_context_t *    stem FD_PARAM_UNUSED,
+                                fd_snapshot_manifest_t const * manifest FD_PARAM_UNUSED ) {
+  /* Vote stakes data is now processed on-the-fly during parsing and
+     is no longer stored in the manifest struct.  Stake weight
+     publishing from the manifest is not supported.  This is a no-op
+     until shredcap is updated to read stake weights from the bank. */
+  FD_LOG_WARNING(( "stake weight publishing from manifest is not supported; vote_stakes are processed on-the-fly" ));
 }
 
 static inline int
@@ -464,7 +411,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
                 fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
         FD_TEST( parser );
         fd_ssmanifest_parser_init( parser, manifest );
-        int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
+        int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL, NULL );
         FD_TEST( parser_err==1 );
         // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
       } FD_SPAD_FRAME_END;

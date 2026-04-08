@@ -85,6 +85,16 @@ struct fd_snapin_tile {
   ulong bank_slot;
   ulong epoch;
 
+  /* Epoch stakes index mapping for on-the-fly processing.
+     T-1, T-2, T-3 refer to which epoch's stakes are being processed,
+     mapped to the parser's epoch_idx (0, 1, or 2).  ULONG_MAX means
+     that epoch index is not present. */
+  ulong t_1_epoch_idx;
+  ulong t_2_epoch_idx;
+  ulong t_3_epoch_idx;
+  int   epoch_stakes_initialized;
+  ulong epoch_stakes_vote_cnt[3]; /* count of drained vote_stakes per epoch_idx */
+
   ulong full_genesis_creation_time_seconds;
   uchar advertised_hash[ FD_HASH_FOOTPRINT ];
 

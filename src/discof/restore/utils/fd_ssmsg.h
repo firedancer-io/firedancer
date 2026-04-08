@@ -130,10 +130,10 @@ struct fd_snapshot_manifest_epoch_stakes {
   /* The total amount of active stake at the end of the given epoch.*/
   ulong                              total_stake;
 
-  /* The vote accounts and their stakes for a given epoch.
-     FIXME: Snapshot manifest has to support a much larger bound. */
+  /* The number of vote_stakes entries for this epoch.  The actual
+     entries are processed on-the-fly during parsing and are not stored
+     in this struct. */
   ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
