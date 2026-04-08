@@ -1838,7 +1838,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
     duration_nanos = slot->completed_time - parent_slot->completed_time;
   }
 
-  jsonp_open_envelope( gui->http, "slot", "query" );
+  jsonp_open_envelope( gui->http, "slot", "query_transactions" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
       fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
@@ -2115,7 +2115,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
     duration_nanos = slot->completed_time - parent_slot->completed_time;
   }
 
-  jsonp_open_envelope( gui->http, "slot", "query" );
+  jsonp_open_envelope( gui->http, "slot", "query_detailed" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
       fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );

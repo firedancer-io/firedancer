@@ -1437,7 +1437,7 @@ fd_gui_request_slot_transactions( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) {
-    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_transactions", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
@@ -1458,7 +1458,7 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) {
-    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_detailed", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
