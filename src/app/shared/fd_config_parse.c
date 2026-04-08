@@ -191,6 +191,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   net.xdp.native_bond                              );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
+  CFG_POP      ( uint,   net.rp_filter                                    );
 
   CFG_POP      ( ulong,  tiles.netlink.max_routes                         );
   CFG_POP      ( ulong,  tiles.netlink.max_peer_routes                    );

@@ -95,6 +95,8 @@ metric introduced.
     <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
     <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />
     <counter name="RxSrcAddrInvalidCnt" summary="Number of incoming packets dropped due to invalid source IP address" />
+    <counter name="RxDstAddrInvalidCnt" summary="Number of incoming packets dropped because destination IP is not a local address" />
+    <counter name="RxRpFilterCnt" summary="Number of incoming packets dropped by reverse path filter" />
 </tile>
 
 <enum name="SockErr">

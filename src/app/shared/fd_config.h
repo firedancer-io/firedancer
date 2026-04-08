@@ -214,6 +214,8 @@ struct fd_config_net {
     uint receive_buffer_size;
     uint send_buffer_size;
   } socket;
+
+  uint rp_filter; /* FD_NET_RP_FILTER_* */
 };
 typedef struct fd_config_net fd_config_net_t;
 

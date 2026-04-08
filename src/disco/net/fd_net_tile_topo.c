@@ -33,6 +33,7 @@ setup_xdp_tile( fd_topo_t *             topo,
   FD_STATIC_ASSERT( sizeof(tile->xdp.if_virt)==IF_NAMESIZE, str_bounds );
   fd_cstr_ncpy( tile->xdp.if_virt, net_cfg->interface, IF_NAMESIZE );
   tile->net.bind_address = net_cfg->bind_address_parsed;
+  tile->net.rp_filter    = net_cfg->rp_filter;
 
   FD_STATIC_ASSERT( sizeof(tile->xdp.if_phys)==IF_NAMESIZE, str_bounds );
   fd_cstr_ncpy( tile->xdp.if_phys, if_phys, IF_NAMESIZE );

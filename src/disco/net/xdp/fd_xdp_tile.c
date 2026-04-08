@@ -205,6 +205,7 @@ typedef struct {
   uint   default_address;
 
   uint   bind_address;
+  uint   rp_filter; /* FD_NET_RP_FILTER_* */
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
   ushort legacy_transaction_listen_port;
@@ -270,6 +271,9 @@ typedef struct {
     ulong rx_gre_inv_pkt_cnt;
     ulong tx_gre_cnt;
     ulong tx_gre_route_fail_cnt;
+
+    ulong rx_dst_addr_invalid_cnt;
+    ulong rx_rp_filter_cnt;
   } metrics;
 } fd_net_ctx_t;
 
@@ -315,6 +319,8 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, TX_GRE_CNT,            ctx->metrics.tx_gre_cnt            );
   FD_MCNT_SET( NET, TX_GRE_ROUTE_FAIL_CNT, ctx->metrics.tx_gre_route_fail_cnt );
   FD_MCNT_SET( NET, RX_SRC_ADDR_INVALID_CNT, ctx->metrics.rx_src_addr_invalid_cnt );
+  FD_MCNT_SET( NET, RX_DST_ADDR_INVALID_CNT, ctx->metrics.rx_dst_addr_invalid_cnt );
+  FD_MCNT_SET( NET, RX_RP_FILTER_CNT,        ctx->metrics.rx_rp_filter_cnt        );
 }
 
 struct xdp_statistics_v0 {
@@ -962,14 +968,29 @@ net_rx_packet( fd_net_ctx_t * ctx,
     return;
   }
 
-  /* Extract IP dest addr and UDP src/dest port */
-  uint   ip_srcaddr   =  iphdr->saddr;
-  ushort udp_srcport  =  fd_ushort_bswap( udp_hdr->net_sport );
-  ushort udp_dstport  =  fd_ushort_bswap( udp_hdr->net_dport );
+  uint   ip_srcaddr  = iphdr->saddr;
+  uint   ip_dstaddr  = iphdr->daddr;
+  ushort udp_srcport = fd_ushort_bswap( udp_hdr->net_sport );
+  ushort udp_dstport = fd_ushort_bswap( udp_hdr->net_dport );
 
   if( FD_UNLIKELY( fd_ip4_addr_is_mcast( ip_srcaddr ) ) ) {
     ctx->metrics.rx_src_addr_invalid_cnt++;
     return;
+  }
+
+  if( FD_LIKELY( !fd_ip4_addr_is_mcast( ip_dstaddr ) &&
+                 ctx->rp_filter!=FD_NET_RP_FILTER_NONE ) ) {
+    fd_fib4_hop_t dst_hop = fd_fib4_lookup( ctx->fib_local, ip_dstaddr, 0UL );
+    if( FD_UNLIKELY( dst_hop.rtype!=FD_FIB4_RTYPE_LOCAL ) ) {
+      ctx->metrics.rx_dst_addr_invalid_cnt++;
+      return;
+    }
+
+    fd_fib4_hop_t src_hop = fd_fib4_lookup( ctx->fib_main, ip_srcaddr, 0UL );
+    if( FD_UNLIKELY( src_hop.rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
+      ctx->metrics.rx_rp_filter_cnt++;
+      return;
+    }
   }
 
   FD_DTRACE_PROBE_4( net_tile_pkt_rx, ip_srcaddr, udp_srcport, udp_dstport, sz );
@@ -1414,6 +1435,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
 
   ctx->bind_address                   = tile->net.bind_address;
+  ctx->rp_filter                      = tile->net.rp_filter;
   ctx->shred_listen_port              = tile->net.shred_listen_port;
   ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
   ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;
