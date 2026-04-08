@@ -623,7 +623,11 @@ after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
   fd_ip4_port_t repair_peer;
   repair_peer.addr = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].is_ipv6 ? 0U : contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].ip4;
   repair_peer.port = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].port;
-  if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
+  if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) {
+    /* A zeroed socket means the peer is unreachable. */
+    fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
+    return;
+  }
   fd_policy_peer_t const * peer = fd_policy_peer_upsert( ctx->policy, fd_type_pun_const( msg->origin ), &repair_peer );
   if( FD_LIKELY( peer && !fd_signs_queue_full( ctx->pong_queue ) ) ) {
     /* The repair process uses a Ping-Pong protocol that incurs one
