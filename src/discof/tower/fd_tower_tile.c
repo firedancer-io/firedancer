@@ -160,7 +160,7 @@ FD_STATIC_ASSERT( 1<<AUTH_VTR_LG_MAX==32, AUTH_VTR_LG_MAX );
    occupy in various vote-tracking structures.  This is set somewhat
    arbitrarily based on expected worst-case usage by an honest validator
    and is set to guard against a malicious spamming validator attempting
-   to fill up Firedancer structures. */
+   to oom Firedancer structures. */
 
 #define PER_VTR_MAX (512) /* the maximum amount of slot history the sysvar retains */
 

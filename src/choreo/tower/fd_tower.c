@@ -424,7 +424,7 @@ lockout_check( fd_tower_t * tower,
    the fork we want to switch to ("switch fork").  The switch fork is on
    the fork of `slot`.
 
-   In order to switch, FD_TOWER_SWITCH_PCT of stake must have voted for
+   In order to switch, SWITCH_RATIO of stake must have voted for
    a slot that satisfies the following conditions: the
    GCA(slot, last_vote) is an ancestor of the switch_slot
 
@@ -447,11 +447,11 @@ lockout_check( fd_tower_t * tower,
           if v's  locked out[1] from voting for our latest vote slot
              add v's stake to switch stake
 
-   return switch stake >= FD_TOWER_SWITCH_PCT
+   return switch stake >= total_stake * SWITCH_RATIO
    ```
 
    The switch check is used to safeguard optimistic confirmation.
-   Specifically: FD_TOWER_OPT_CONF_PCT + FD_TOWER_SWITCH_PCT >= 1. */
+   Specifically: optimistic confirmation pct + SWITCH_RATIO >= 1. */
 
 static int
 is_purged( fd_tower_t * tower,
@@ -469,9 +469,9 @@ switch_check( fd_tower_t * tower,
   lockout_interval_map_t * lck_map  = tower->lck_map;
   lockout_interval_t *     lck_pool = tower->lck_pool;
 
-  ulong switch_stake   = 0;
-  ulong vote_slot = fd_tower_vote_peek_tail_const( tower->votes )->slot;
-  ulong root_slot      = fd_tower_vote_peek_head_const( tower->votes )->slot;
+  ulong switch_stake = 0;
+  ulong vote_slot    = fd_tower_vote_peek_tail_const( tower->votes )->slot;
+  ulong root_slot    = fd_tower_vote_peek_head_const( tower->votes )->slot;
 
   ulong            null = fd_ghost_blk_idx_null( ghost );
   fd_ghost_blk_t * head = fd_ghost_blk_map_remove( ghost, fd_ghost_root( ghost ) );
@@ -543,8 +543,8 @@ switch_check( fd_tower_t * tower,
            end interval to get the vote accounts. */
 
         for( lockout_interval_t const * interval = lockout_interval_map_ele_query_const( lck_map, &key, NULL, lck_pool );
-                                                interval;
-                                                interval = lockout_interval_map_ele_next_const( interval, NULL, lck_pool ) ) {
+                                        interval;
+                                        interval = lockout_interval_map_ele_next_const( interval, NULL, lck_pool ) ) {
           ulong interval_slot        =  interval->start;
           fd_hash_t const * vote_acc = &interval->addr;
 
@@ -559,7 +559,7 @@ switch_check( fd_tower_t * tower,
             if( FD_UNLIKELY( fd_used_acc_scratch_test( tower->stk_used_acc, voter_idx ) ) ) continue; /* exclude already counted voters */
             fd_used_acc_scratch_insert( tower->stk_used_acc, voter_idx );
             switch_stake += voter_stake->stake;
-            if( FD_LIKELY( (double)switch_stake >= (double)total_stake * SWITCH_RATIO ) ) {
+            if( FD_LIKELY( (double)switch_stake / (double)total_stake > SWITCH_RATIO ) ) {
               fd_used_acc_scratch_null( tower->stk_used_acc );
               FD_LOG_INFO(( "[%s] switch? 1. vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
               while( FD_LIKELY( head ) ) { /* cleanup: re-insert remaining BFS queue into map */
@@ -910,92 +910,84 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   return out;
 }
 
-/* fd_tower_reconcile reconciles our local tower with the on-chain
-   tower inside our vote account.  Mirrors what Agave does.  Also
-   updates tower_blocks vote metadata to match the updated tower.
+/* fd_tower_reconcile reconciles our local tower with our on-chain tower
+   (stored inside our vote account).  This function is important in two
+   contexts:
 
-   It's possible prev_vote_fork->voted is not set even though we popped
-   it from the top of our tower.  This can happen when there are
-   multiple nodes operating with the same vote account.
+   ON BOOT
 
-   In a typical setup involving a primary staked node and backup
-   unstaked node, the two nodes' towers will usually be identical
-   but occassionally diverge when one node observes a minority fork
-   the other doesn't.  As a result, one node might be locked out
-   from voting for a fork that the other node is not.
+   When Firedancer boots up, it needs its "latest" tower state as of its
+   previous run.  This information is stored on-chain itself, in a vote
+   account, and Firedancer updates vote account states during catchup by
+   replaying blocks since the snapshot.  Firedancer will continually
+   reconcile its local tower with the on-chain one, and eventually by
+   definition have the "latest" state once it has caught up.
 
-   This becomes a problem in our primary-backup setup when the
-   unstaked node is locked out but the staked node is not.  The
-   staked node ultimately lands the vote into the on-chain vote
-   account, so it's possible when the unstaked node reads back their
-   on-chain vote account to diff against their local tower, there
-   are votes in there they themselves did not vote for due to
-   lockout (fd_tower_reconcile).
+   HIGH-AVAILABILITY SETUP
 
-   As a result, `voted_block_id` will not be set for slots in their
-   tower, which normally would be an invariant violation because the
-   node must have set this value when they voted for the slot (and
-   pushed it to their tower).
+   A typical validator setup involves two nodes, a primary and a backup.
+   The primary is a valid fee payer, and the one landing votes recording
+   the latest state of its tower on-chain.  The two nodes' towers will
+   usually be identical but occassionally diverge when one node observes
+   a minority fork the other doesn't.  As a result, one node might vote
+   for a minority fork that the other node doesn't observe, and this
+   same node will then be locked out from voting from certain slots on
+   the consensus fork (per the Tower rules) that the other node does
+   vote for.
 
-   So here we manually set the voted_block_id to most recent
-   replayed_block_id if not already set. We know we must have replayed
-   it, because to observe the on-chain tower you must have replayed all
-   the slots in the tower.
+   The problem arises when the primary node lands its tower on-chain
+   with votes that the backup node was locked out of voting for or vice
+   versa.  When the backup node reads back the on-chain tower as part of
+   fd_tower_reconcile, the on-chain tower will be different from their
+   local tower.
+
+   fd_tower_reconcile assumes that if a tower has been recorded on-chain
+   then it is safe to assume the vote account registered with the
+   currently running Firedancer has in fact at some point voted for the
+   slots in that tower.
+
+   In case the instance is the backup, it updates the local tower vote
+   deque and auxiliary structures accordingly with this assumption
+   (namely by inserting voted_block_id for votes that the backup maybe
+   didn't actually vote for but can safely assume the primary did).
+
+   There are some corner cases to consider with equivocation:
 
    When there is equivocation, the backup may have replayed a different
-   version of a block than what the main validator voted for. In a
-   regular equivocation scenario, this is a non-issue: two equivocating
-   blocks will cause different bank hashes, so the vote program will
-   ensure that we will only see a vote for a certain version of a block
-   if we have also replayed that version.  Thus even though the vote
-   account only stores slot numbers (not block_ids), reconcile can
-   assume the version the main validator voted for was the last replayed
-   version.
+   block than the primary for the same slot.  In a regular equivocation
+   scenario, this is a non-issue because different blocks for the same
+   slot generate different bank hashes, and the vote program validates
+   bank hashes when executing vote transactions.  So if the same vote
+   txn executed successfully on both the primary and backup during
+   replay, then we know they are referencing the same block.
 
-   This degenerates in the case where two equivocating blocks have the
-   same bank hash (rare but possible, see fd_txncache.h for more
-   details).  In this case, the vote program does not distinguish the
-   difference between votes for the two blocks for absolutely no good
-   reason.
-
-   Example:
+   There is a degenerate case if there happens to be a bank hash
+   collision for two (or more) equivocating blocks for the same slot:
 
       2
      / \
     3   3' (confirmed)
-    |   |
-    5   4
 
-   Assume 3 and 3' have the same bank hash. Both slots 4 and 5 can
-   contain votes for 3 and 3'.  There are two cases depending on whether
-   the backup is on the duplicate confirmed (DC) fork:
+   Assume 3 and 3' have the same bank hash.  The primary either observes
+   3 (unconfirmed) or 3' (confirmed) and the backup misses the vote for
+   3 (because it got locked out). fd_tower_reconcile has to now backfill
+   3 on the backup.
 
-   Case 1: the backup is on the DC fork (replayed 3' first), the main
-   validator replayed 3 first and voted on it.
+   However, it turns out fd_tower_reconcile does the correct thing
+   either way:
 
-     After replaying 4, reconcile sets voted_block_id for slot 3 to
-     block_id(3'), which is the DC version.  This is correct because the
-     main validator will eventually switch to the DC fork as well.
+   If the primary observes 3 and backup 3', then the primary will record
+   block_id(3) but eventually switch to the DC block via repair, when it
+   observes a different block id from the one it has voted for is
+   confirmed ie. block_id(3').  The backup backfills block_id(3'), since
+   it replayed 3' to begin with.  Thus, primary and backup converge.
 
-   Case 2: the backup is on the non DC fork (replayed 3 first), the main
-   validator replayed 3' first and voted on it.
-
-     Reconcile initially sets voted_block_id for slot 3 to block_id(3), the
-     non-DC version.  After the backup later replays the DC version
-     (3') and its descendants, voted_block_id will still point to the
-     non-DC version because no new reconcile is triggered.  This is
-     handled by case 1b in fd_tower_vote_and_reset (sibling confirmed):
-     voted_block_id != confirmed_block_id triggers a free switch to
-     the DC fork without needing a switch proof.  This is the same
-     codepath a staked validator uses when it votes for a non-DC
-     version and later observes duplicate confirmation of the sibling.
-
-  Unsupported case: the main validator votes down a minority fork
-  that the backup never observes.  The backup could cast conflicting
-  votes that violate lockout.  Handling this would require additional
-  codepaths (tower file, communication channel between backup and
-  main, or gossip vote tracking) that are fully removed with
-  Alpenglow, so we do not handle this case. */
+   If the primary observes 3' and backup 3, then the primary will record
+   block_id(3').  The backup backfills block_id(3), which is wrong since
+   that is not the confirmed block_id. However, this is ok because the
+   tower rules explicitly allow for a "freebie" switch: see case 1b in
+   fd_tower_vote_and_reset ie. "sibling confirmed".  Thus, primary and
+   backup converge. */
 
 void
 fd_tower_reconcile( fd_tower_t  * tower,
