@@ -136,8 +136,10 @@ fini( config_t const * config,
   }
 
   struct dirent * entry;
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     /* genesis.bin managed by genesis stage*/
@@ -160,7 +162,7 @@ fini( config_t const * config,
     }
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
 
   return 1;
@@ -178,8 +180,10 @@ check( config_t const * config,
   }
 
   struct dirent * entry;
-  errno = 0;
-  while(( entry = readdir( dir ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_LIKELY( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     /* genesis.bin managed by genesis stage*/
@@ -196,10 +200,11 @@ check( config_t const * config,
     }
 
     has_non_genesis = 1;
+    errno = 0;
     break;
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", config->frankendancer.paths.ledger, errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( has_non_genesis ) ) {
