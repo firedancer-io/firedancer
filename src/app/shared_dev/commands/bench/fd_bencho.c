@@ -29,7 +29,9 @@ typedef struct {
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return alignof( fd_bencho_ctx_t );
+  ulong a = alignof( fd_bencho_ctx_t );
+  a = fd_ulong_max( a, fd_alloc_align() );
+  return a;
 }
 
 FD_FN_PURE static inline ulong

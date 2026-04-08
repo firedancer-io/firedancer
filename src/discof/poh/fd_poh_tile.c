@@ -271,7 +271,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->poh->recal_next = fd_clock_recal_next( ctx->poh->clock );
   fd_clock_epoch_init( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 

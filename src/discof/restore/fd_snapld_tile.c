@@ -73,7 +73,10 @@ typedef struct fd_snapld_tile {
 
 static ulong
 scratch_align( void ) {
-  return fd_ulong_max( alignof(fd_snapld_tile_t), fd_sshttp_align() );
+  ulong a = alignof(fd_snapld_tile_t);
+  a = fd_ulong_max( a, fd_sshttp_align() );
+  a = fd_ulong_max( a, fd_alloc_align() );
+  return a;
 }
 
 static ulong
@@ -188,6 +191,8 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()     );
 
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
   ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
@@ -221,6 +226,10 @@ unprivileged_init( fd_topo_t *      topo,
      entering the sandbox because the sandbox checks all file
      descriptors are existent. */
   if( -1==close( ctx->sockfd ) ) FD_LOG_ERR((" close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 static int

@@ -747,6 +747,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->fail.exp_sig = 0UL;
   ctx->fail.ack_cnt = 0UL;
   ctx->fail.wait    = 0;
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 #define STEM_BURST (FD_SNAPLV_STEM_BURST)

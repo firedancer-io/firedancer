@@ -1226,6 +1226,27 @@ scratch_align( void ) {
   return 128UL;
 }
 
+FD_FN_PURE static inline ulong
+scratch_footprint( fd_topo_tile_t const * tile ) {
+  ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
+  ulong blk_max     = slot_max * EQVOC_MAX;
+  ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
+  ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
+
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t)                                       );
+  l = FD_LAYOUT_APPEND( l, auth_vtr_align(),         auth_vtr_footprint()                                          );
+  /* auth_vtr_keyswitch */
+  l = FD_LAYOUT_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, PER_VTR_MAX, VTR_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
+  l = FD_LAYOUT_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( PER_VTR_MAX, VTR_MAX )                    );
+  l = FD_LAYOUT_APPEND( l, fd_votes_align(),         fd_votes_footprint( slot_max, VTR_MAX )                       );
+  l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
+  l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
+  l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
+  return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
 /* init_choreo allocates and initializes all choreo consensus structures
    from scratch memory.  scratch must be at least scratch_footprint
    bytes aligned to scratch_align().  The seed field at the start of
@@ -1250,7 +1271,9 @@ init_choreo( void                 * scratch,
   void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   void  * scratch_tower = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
-  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   (void)auth_vtr; /* privileged_init */
   ctx->eqvoc              = fd_eqvoc_join              ( fd_eqvoc_new              ( eqvoc, slot_max, fec_max, PER_VTR_MAX, VTR_MAX, ctx->seed ) );
   ctx->ghost              = fd_ghost_join              ( fd_ghost_new              ( ghost, blk_max, VTR_MAX, ctx->seed )                        );
@@ -1284,28 +1307,6 @@ init_choreo( void                 * scratch,
   ctx->metrics.last_vote_slot = ULONG_MAX;
 
   return ctx;
-}
-
-
-FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
-  ulong blk_max     = slot_max * EQVOC_MAX;
-  ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
-  ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
-
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t)                                       );
-  l = FD_LAYOUT_APPEND( l, auth_vtr_align(),         auth_vtr_footprint()                                          );
-  /* auth_vtr_keyswitch */
-  l = FD_LAYOUT_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, PER_VTR_MAX, VTR_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
-  l = FD_LAYOUT_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( PER_VTR_MAX, VTR_MAX )                    );
-  l = FD_LAYOUT_APPEND( l, fd_votes_align(),         fd_votes_footprint( slot_max, VTR_MAX )                       );
-  l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
-  l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
-  l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
-  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static void
@@ -1537,7 +1538,9 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t),   sizeof(fd_tower_tile_t)        );
   void            * auth_vtr = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(), auth_vtr_footprint() );
-  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
 

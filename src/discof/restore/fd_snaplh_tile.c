@@ -959,6 +959,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->lthash_completion_pending = 0;
   ctx->fail_completion_pending   = 0;
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 #define STEM_BURST 1UL
