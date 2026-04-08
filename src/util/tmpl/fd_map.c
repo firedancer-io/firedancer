@@ -383,6 +383,19 @@ MAP_(insert)( MAP_T *   map,
 static inline void
 MAP_(remove)( MAP_T * map,
               MAP_T * entry ) {
+# if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(key_inval)( entry->MAP_KEY ) ) ) FD_LOG_CRIT(( "entry is not valid" ));
+  {
+    MAP_KEY_T  _key  = entry->MAP_KEY;
+    MAP_HASH_T _hash = MAP_(key_hash)( _key );
+    ulong      _slot = MAP_(private_start)( _hash );
+    for(;;) {
+      if( FD_UNLIKELY( MAP_(key_inval)( map[_slot].MAP_KEY ) ) ) FD_LOG_CRIT(( "entry is not in the map" ));
+      if( FD_LIKELY( &map[_slot]==entry ) ) break;
+      _slot = MAP_(private_next)( _slot );
+    }
+  }
+# endif
   ulong slot = MAP_(slot_idx)( map, entry );
 
   for(;;) {
@@ -505,4 +518,3 @@ FD_PROTOTYPES_END
 #undef MAP_HASH_T
 #undef MAP_T
 #undef MAP_NAME
-

@@ -438,7 +438,21 @@ MAP_(remove)( MAP_T * map,
               MAP_T * entry ) {
   MAP_(private_t) * hdr = MAP_(private_from_slot)( map );
 
-  /* FIXME: CONSIDER VALIDATING KEY_CNT AND/OR ENTRY ISN'T VALID */
+# if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !hdr->key_cnt                     ) ) FD_LOG_CRIT(( "map is empty" ));
+  if( FD_UNLIKELY( MAP_(key_inval)( entry->MAP_KEY ) ) ) FD_LOG_CRIT(( "entry is not valid" ));
+  {
+    ulong      _slot_mask = hdr->slot_mask;
+    MAP_KEY_T  _key       = entry->MAP_KEY;
+    MAP_HASH_T _hash      = MAP_(key_hash)( _key, hdr->seed );
+    ulong      _slot      = MAP_(private_start)( _hash, _slot_mask );
+    for(;;) {
+      if( FD_UNLIKELY( MAP_(key_inval)( map[_slot].MAP_KEY ) ) ) FD_LOG_CRIT(( "entry is not in the map" ));
+      if( FD_LIKELY( &map[_slot]==entry ) ) break;
+      _slot = MAP_(private_next)( _slot, _slot_mask );
+    }
+  }
+# endif
   hdr->key_cnt--;
 
   ulong slot_mask = hdr->slot_mask;
@@ -562,4 +576,3 @@ FD_PROTOTYPES_END
 #undef MAP_HASH_T
 #undef MAP_T
 #undef MAP_NAME
-
