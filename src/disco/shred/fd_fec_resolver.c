@@ -703,7 +703,10 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
     /* Check to make sure this is not a duplicate */
     int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
-    if( FD_UNLIKELY( shred_dup ) ) return FD_FEC_RESOLVER_SHRED_DUPLICATE;
+    if( FD_UNLIKELY( shred_dup ) ) {
+      *out_shred = is_data_shred ? ctx->set->data_shreds[ in_type_idx ].s : ctx->set->parity_shreds[ in_type_idx ].s;
+      return FD_FEC_RESOLVER_SHRED_DUPLICATE;
+    }
   }
 
   /* At this point, the shred has passed Merkle validation and is new.

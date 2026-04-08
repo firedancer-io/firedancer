@@ -33,7 +33,7 @@
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/metrics/fd_metrics.h"
-
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
@@ -2493,14 +2493,15 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
-process_fec_complete( fd_replay_tile_t *  ctx,
-                      fd_stem_context_t * stem,
-                      uchar const *       shred_buf ) {
-  fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
+process_fec_complete( fd_replay_tile_t *    ctx,
+                      fd_stem_context_t *   stem,
+                      ulong                 sig,
+                      fd_fec_complete_t * complete_msg ) {
+  fd_shred_t const * shred = &complete_msg->last_shred_hdr;
 
-  fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
-  fd_hash_t const * chained_merkle_root = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) );
-  int               is_leader_fec       = *(int const *)     fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) );
+  fd_hash_t const * merkle_root         = &complete_msg->merkle_root;
+  fd_hash_t const * chained_merkle_root = &complete_msg->chained_merkle_root;
+  int               is_leader_fec       = sig == SHRED_SIG_FEC_COMPLETE_LEADER;
 
   int data_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
   int slot_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
@@ -2715,10 +2716,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_REPAIR: {
-      /* TODO: This message/sz should be defined. */
-      if( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC ) {
+      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         /* If receive a FEC complete message. */
-        process_fec_complete( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        process_fec_complete( ctx, stem, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }

@@ -14,6 +14,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../discof/fd_accdb_topo.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
@@ -1512,8 +1513,9 @@ returnable_frag( fd_tower_tile_t *   ctx,
   }
   case IN_KIND_SHRED: {
     if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 0; }
-    if( FD_LIKELY( sz==FD_SHRED_MIN_SZ || sz==FD_SHRED_MAX_SZ ) ) { /* TODO depends on pending shred_out changes */
-      fd_shred_t                * shred = (fd_shred_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+    if( FD_LIKELY( fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE || fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR ) ) {
+      fd_shred_base_t           * msg   = (fd_shred_base_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      fd_shred_t                * shred = &msg->shred;
       fd_epoch_leaders_t const * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, shred->slot );
       int eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, lsched, shred, ctx->duplicate_chunks );
       update_metrics_eqvoc( ctx, eqvoc_err );

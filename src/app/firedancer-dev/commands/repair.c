@@ -154,11 +154,11 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    pending_fec_shreds_depth,                 FD_SHRED_OUT_MTU,              2UL /* at most 2 msgs per after_frag */ );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_shred_message_t),    2UL /* at most 2 msgs per after_frag */ );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
-  /**/                 fd_topob_link( topo, "repair_out",   "repair_out",   128UL,                                    FD_SHRED_OUT_MTU,              1UL );
+  /**/                 fd_topob_link( topo, "repair_out",   "repair_out",   128UL,                                    sizeof(fd_fec_complete_t),   1UL );
 
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
 
@@ -746,6 +746,7 @@ repair_cmd_fn_catchup( args_t *   args,
   FD_TEST( shred_out_link_idx!=ULONG_MAX );
   fd_topo_link_t * shred_out_link   = &config->topo.links[ shred_out_link_idx  ];
   fd_frag_meta_t * shred_out_mcache = shred_out_link->mcache;
+  void * shred_out_dcache = config->topo.workspaces[ config->topo.objs[ shred_out_link->dcache_obj_id ].wksp_id ].wksp;
 
   ulong turbine_slot0 = 0;
   long  last_print    = fd_log_wallclock();
@@ -757,7 +758,9 @@ repair_cmd_fn_catchup( args_t *   args,
     if( FD_UNLIKELY( !turbine_slot0 ) ) {
       fd_frag_meta_t * frag = &shred_out_mcache[0]; /* hack to get first frag */
       if ( frag->sz > 0 ) {
-        turbine_slot0 = fd_disco_shred_out_shred_sig_slot( frag->sig );
+        uchar      * shred_out_chunk = fd_chunk_to_laddr( shred_out_dcache, frag->chunk );
+        fd_shred_base_t * shred_out_shred = (fd_shred_base_t *)fd_type_pun( shred_out_chunk );
+        turbine_slot0 = shred_out_shred->shred.slot;
         FD_LOG_NOTICE(("turbine_slot0: %lu", turbine_slot0));
       }
     }
