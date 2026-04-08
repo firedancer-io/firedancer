@@ -12,6 +12,7 @@
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_user.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 
@@ -54,6 +55,8 @@ struct fd_snapin_tile {
 
   ulong seed;
   long boot_timestamp;
+
+  fd_banks_t *     banks;
 
   fd_accdb_admin_t accdb_admin[1];
   fd_accdb_user_t  accdb[1];

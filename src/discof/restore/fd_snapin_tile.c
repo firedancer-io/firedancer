@@ -1,5 +1,6 @@
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_ssload.h"
 #include "utils/fd_ssmsg.h"
 #include "utils/fd_vinyl_io_wd.h"
 
@@ -625,6 +626,17 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
+  /* Recover bank state from the manifest.  This must happen before the
+     manifest is published to consumer tiles.  Concurrent access is safe
+     because snapin completes bank recovery before replay begins
+     execution. */
+  if( FD_LIKELY( ctx->banks ) ) {
+    fd_ssload_recover( manifest,
+                       ctx->banks,
+                       fd_banks_bank_query( ctx->banks, 0UL ),
+                       !ctx->full );
+  }
+
   if( FD_LIKELY( !ctx->lthash_disabled ) ) {
     if( FD_LIKELY( ctx->use_vinyl ) ) {
       fd_ssctrl_hash_result_t * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
@@ -1153,6 +1165,14 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( txncache_shmem );
   ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( ctx->txncache );
+
+  ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
+  if( FD_LIKELY( banks_obj_id!=ULONG_MAX ) ) {
+    ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+    FD_TEST( ctx->banks );
+  } else {
+    ctx->banks = NULL;
+  }
 
   ctx->txncache_entries_len = 0UL;
   ctx->blockhash_offsets_len = 0UL;
