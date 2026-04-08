@@ -92,7 +92,10 @@ typedef struct fd_genesi_tile fd_genesi_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return alignof( fd_genesi_tile_t );
+  ulong a = alignof( fd_genesi_tile_t );
+  a = fd_ulong_max( a, fd_genesis_client_align() );
+  a = fd_ulong_max( a, fd_alloc_align() );
+  return a;
 }
 
 FD_FN_PURE static inline ulong
@@ -520,7 +523,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

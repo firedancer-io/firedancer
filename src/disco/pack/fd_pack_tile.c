@@ -1491,7 +1491,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu execle tiles using strategy %i", EFFECTIVE_TXN_PER_MICROBLOCK, tile->pack.execle_tile_count, ctx->strategy ));
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

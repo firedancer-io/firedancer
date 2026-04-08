@@ -690,9 +690,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( TXSEND, RECEIVE_DURATION_SECONDS ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  if( FD_UNLIKELY( scratch_top != (ulong)scratch + scratch_footprint( tile ) ) ) {
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-  }
 
   fd_sleep_until_replay_started( topo );
 }

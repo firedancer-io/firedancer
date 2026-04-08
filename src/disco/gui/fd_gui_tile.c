@@ -149,7 +149,12 @@ typedef struct {
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 128UL;
+  ulong a = alignof( fd_gui_ctx_t );
+  a = fd_ulong_max( a, fd_http_server_align() );
+  a = fd_ulong_max( a, fd_gui_peers_align() );
+  a = fd_ulong_max( a, fd_gui_align() );
+  a = fd_ulong_max( a, fd_alloc_align() );
+  return a;
 }
 
 static inline ulong
@@ -803,7 +808,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
