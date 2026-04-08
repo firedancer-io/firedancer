@@ -42,10 +42,15 @@ struct fd_vote_rewards {
   fd_pubkey_t pubkey;
   ulong       vote_rewards;
   uint        next;
-  uchar       commission_t_1;
-  uchar       commission_t_2;
+  uchar       commission;
 };
 typedef struct fd_vote_rewards fd_vote_rewards_t;
+
+struct fd_stashed_commission {
+  fd_pubkey_t pubkey;
+  uchar       commission;
+};
+typedef struct fd_stashed_commission fd_stashed_commission_t;
 
 #define MAP_NAME               fd_vote_rewards_map
 #define MAP_KEY_T              fd_pubkey_t
@@ -133,6 +138,16 @@ struct fd_runtime_stack {
 
     fd_epoch_credits_t * epoch_credits;
 
+    /* Stashed commission from snapshot epoch_stakes, used by
+       init_after_snapshot to apply delay_commission_updates after
+       features are fully loaded.  snapshot_commission_t_3 holds
+       epoch_stakes(E-1) (start of E-2) and snapshot_commission_t_1
+       holds epoch_stakes(E+1) (start of E). */
+    fd_stashed_commission_t * snapshot_commission_t_3;
+    ulong                     snapshot_commission_t_3_cnt;
+    fd_stashed_commission_t * snapshot_commission_t_1;
+    ulong                     snapshot_commission_t_1_cnt;
+
   } stakes;
 
   struct {
@@ -175,6 +190,8 @@ fd_runtime_stack_footprint( ulong max_vote_accounts,
   l = FD_LAYOUT_APPEND( l, alignof(fd_epoch_credits_t),           sizeof(fd_epoch_credits_t) * max_vote_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_calculated_stake_points_t), sizeof(fd_calculated_stake_points_t) * expected_stake_accounts );
   l = FD_LAYOUT_APPEND( l, alignof(fd_calculated_stake_rewards_t),sizeof(fd_calculated_stake_rewards_t) * expected_stake_accounts );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stashed_commission_t),      sizeof(fd_stashed_commission_t) * max_vote_accounts );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_stashed_commission_t),      sizeof(fd_stashed_commission_t) * max_vote_accounts );
   return FD_LAYOUT_FINI( l, fd_runtime_stack_align() );
 }
 
@@ -198,6 +215,8 @@ fd_runtime_stack_new( void * shmem,
   fd_epoch_credits_t *            epoch_credits        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_epoch_credits_t),            sizeof(fd_epoch_credits_t) * max_vote_accounts );
   fd_calculated_stake_points_t *  stake_points_result  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_calculated_stake_points_t),  sizeof(fd_calculated_stake_points_t) * expected_stake_accounts );
   fd_calculated_stake_rewards_t * stake_rewards_result = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_calculated_stake_rewards_t), sizeof(fd_calculated_stake_rewards_t) * expected_stake_accounts );
+  fd_stashed_commission_t *       snap_comm_t_3        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stashed_commission_t),       sizeof(fd_stashed_commission_t) * max_vote_accounts );
+  fd_stashed_commission_t *       snap_comm_t_1        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_stashed_commission_t),       sizeof(fd_stashed_commission_t) * max_vote_accounts );
   if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_runtime_stack_align() )!=(ulong)shmem + fd_runtime_stack_footprint( max_vote_accounts, expected_vote_accounts, expected_stake_accounts ) ) ) {
     FD_LOG_WARNING(( "fd_runtime_stack_new: bad layout" ));
     return NULL;
@@ -214,6 +233,10 @@ fd_runtime_stack_new( void * shmem,
   runtime_stack->stakes.stake_points_result  = stake_points_result;
   runtime_stack->stakes.stake_rewards_result = stake_rewards_result;
   runtime_stack->stakes.stake_accum          = stake_accum;
+  runtime_stack->stakes.snapshot_commission_t_3     = snap_comm_t_3;
+  runtime_stack->stakes.snapshot_commission_t_3_cnt = 0UL;
+  runtime_stack->stakes.snapshot_commission_t_1     = snap_comm_t_1;
+  runtime_stack->stakes.snapshot_commission_t_1_cnt = 0UL;
 
   runtime_stack->stakes.stake_accum_map = fd_stake_accum_map_join( fd_stake_accum_map_new( stake_accum_map_mem, chain_cnt, seed ) );
   if( FD_UNLIKELY( !runtime_stack->stakes.stake_accum_map ) ) {

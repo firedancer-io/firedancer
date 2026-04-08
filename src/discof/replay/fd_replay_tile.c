@@ -1152,6 +1152,38 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_refresh( top_votes_t_2, ctx->accdb, &xid );
 
+  /* Apply deferred commission selection for partitioned epoch rewards
+     recalculation.  Feature flags are now fully restored, so we can
+     check delay_commission_updates (SIMD-0249).
+
+     At this point vote_ele->commission holds the epoch_stakes[1] (E,
+     start of E-1) value from fd_ssload_recover.  The stashed arrays
+     contain commission from epoch_stakes[0] (E-1, start of E-2) and
+     epoch_stakes[2] (E+1, start of E).
+
+     When active:  prefer epoch_stakes[0] commission (start of E-2).
+                   If empty, the epoch_stakes[1] value already set is
+                   the correct second-choice fallback.
+     When inactive: use epoch_stakes[2] commission (start of E). */
+  fd_runtime_stack_t *      runtime_stack = ctx->runtime_stack;
+  fd_vote_rewards_map_t *   vote_ele_map  = runtime_stack->stakes.vote_map;
+
+  if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+    for( ulong i=0UL; i<runtime_stack->stakes.snapshot_commission_t_3_cnt; i++ ) {
+      fd_stashed_commission_t const * sc = &runtime_stack->stakes.snapshot_commission_t_3[i];
+      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query(
+          vote_ele_map, &sc->pubkey, NULL, runtime_stack->stakes.vote_ele );
+      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = sc->commission;
+    }
+  } else {
+    for( ulong i=0UL; i<runtime_stack->stakes.snapshot_commission_t_1_cnt; i++ ) {
+      fd_stashed_commission_t const * sc = &runtime_stack->stakes.snapshot_commission_t_1[i];
+      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query(
+          vote_ele_map, &sc->pubkey, NULL, runtime_stack->stakes.vote_ele );
+      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = sc->commission;
+    }
+  }
+
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
