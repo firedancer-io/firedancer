@@ -852,6 +852,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->in.pos                  = 0UL;
       ctx->txncache_entries_len    = 0UL;
       ctx->blockhash_offsets_len   = 0UL;
       ctx->manifest_capitalization = 0UL;
