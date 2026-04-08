@@ -437,7 +437,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
           FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
                        ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
       } else {
-        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, now ) ) ) {
+        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, 4UL, now ) ) ) {
           transition_malformed( ctx, stem );
           forward_msg = 0;
           break;
