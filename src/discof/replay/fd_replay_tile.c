@@ -1168,33 +1168,31 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   fd_runtime_stack_t *    runtime_stack = ctx->runtime_stack;
   fd_vote_rewards_map_t * vote_ele_map  = runtime_stack->stakes.vote_map;
 
-  ulong vote_ele_cnt = 0UL;
-
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             vs_fork_idx = bank->vote_stakes_fork_id;
-  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem_vs[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-  for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vote_stakes, vs_fork_idx, iter_mem_vs );
-        !fd_vote_stakes_fork_iter_done( vote_stakes, vs_fork_idx, vs_iter );
-        fd_vote_stakes_fork_iter_next( vote_stakes, vs_fork_idx, vs_iter ) ) {
-    fd_pubkey_t vs_pubkey;
-    ulong       stake_t_1;
-    uchar       commission_t_1;
-    ulong       stake_t_2;
-    uchar       commission_t_2;
-    fd_vote_stakes_fork_iter_ele( vote_stakes, vs_fork_idx, vs_iter, &vs_pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2 );
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[vote_ele_cnt];
-    vote_ele->pubkey       = vs_pubkey;
-    vote_ele->vote_rewards = 0UL;
 
+  for( ulong i=0UL; i<runtime_stack->stakes.epoch_credits_len; i++ ) {
+    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[i];
+    ulong       stake_t_1;
+    fd_pubkey_t node_account_t_1;
+    uchar       commission_t_1;
+    fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, &ec->pubkey, &stake_t_1, &node_account_t_1, &commission_t_1 );
+
+    ulong       stake_t_2;
+    fd_pubkey_t node_account_t_2;
+    uchar       commission_t_2;
+    fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, &ec->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 );
+
+    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+    vote_ele->pubkey       = ec->pubkey;
+    vote_ele->vote_rewards = 0UL;
     if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-      vote_ele->commission = commission_t_2;
+      vote_ele->commission = stake_t_2>0UL ? commission_t_2 : commission_t_1;
     } else {
       vote_ele->commission = commission_t_1;
     }
-    fd_vote_rewards_map_idx_insert( vote_ele_map, vote_ele_cnt, runtime_stack->stakes.vote_ele );
-    vote_ele_cnt++;
+    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
   }
-  fd_vote_stakes_fork_iter_fini( vote_stakes );
 
   if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
     for( ulong i=0UL; i<runtime_stack->stakes.snapshot_commission_t_3_cnt; i++ ) {

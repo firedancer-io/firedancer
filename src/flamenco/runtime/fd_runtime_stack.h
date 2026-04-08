@@ -30,11 +30,12 @@ typedef struct fd_calculated_stake_rewards fd_calculated_stake_rewards_t;
    and rewards calculations. */
 
 struct fd_epoch_credits {
-  ulong  cnt;
-  ulong  base_credits;
-  ushort epoch             [ FD_EPOCH_CREDITS_MAX ];
-  uint   credits_delta     [ FD_EPOCH_CREDITS_MAX ];
-  uint   prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
+  fd_pubkey_t pubkey;
+  ulong       cnt;
+  ulong       base_credits;
+  ushort      epoch             [ FD_EPOCH_CREDITS_MAX ];
+  uint        credits_delta     [ FD_EPOCH_CREDITS_MAX ];
+  uint        prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
 };
 typedef struct fd_epoch_credits fd_epoch_credits_t;
 
@@ -136,6 +137,7 @@ struct fd_runtime_stack {
     fd_vote_stake_weight_t * stake_weights;
     fd_stake_weight_t *      id_weights;
 
+    ulong epoch_credits_len;
     fd_epoch_credits_t * epoch_credits;
 
     /* Stashed commission from snapshot epoch_stakes, used by
@@ -233,6 +235,7 @@ fd_runtime_stack_new( void * shmem,
   runtime_stack->stakes.stake_points_result  = stake_points_result;
   runtime_stack->stakes.stake_rewards_result = stake_rewards_result;
   runtime_stack->stakes.stake_accum          = stake_accum;
+  runtime_stack->stakes.epoch_credits_len           = 0UL;
   runtime_stack->stakes.snapshot_commission_t_3     = snap_comm_t_3;
   runtime_stack->stakes.snapshot_commission_t_3_cnt = 0UL;
   runtime_stack->stakes.snapshot_commission_t_1     = snap_comm_t_1;
