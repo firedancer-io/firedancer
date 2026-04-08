@@ -6,9 +6,6 @@
 #include "fd_progcache_reclaim.h"
 #include "../../util/racesan/fd_racesan_target.h"
 
-/* FIXME get rid of this thread-local */
-FD_TL fd_progcache_admin_metrics_t fd_progcache_admin_metrics_g;
-
 /* Algorithm to estimate size of cache metadata structures (rec_pool
    object pool and rec_map hashchain table).
 
@@ -219,71 +216,18 @@ fd_progcache_cancel_next_list( fd_progcache_join_t * cache,
   }
 }
 
-/* Move list of records to root txn (advance_root)
-
-   For each record to be rooted:
-   - gc_root to remove any shadowed rooted revision
-   - drain readers
-   - release if invalidation (which are now a no-op) */
-
-static void
-fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
-                                  uint                  head ) {
-  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
-  while( head!=UINT_MAX ) {
-    if( FD_UNLIKELY( (ulong)head >= rec_max ) )
-      FD_LOG_CRIT(( "progcache: corruption detected (publish_release rec_idx=%u rec_max=%lu)", head, rec_max ));
-    fd_progcache_rec_t * rec = &cache->rec.pool->ele[ head ];
-    uint next = rec->next_idx;
-
-    /* Lock rec_map chain */
-    struct {
-      fd_prog_recm_txn_t txn[1];
-      fd_prog_recm_txn_private_info_t info[1];
-    } _map_txn;
-    fd_prog_recm_txn_t * map_txn = fd_prog_recm_txn_init( _map_txn.txn, cache->rec.map, 1UL );
-    fd_prog_recm_txn_add( map_txn, &rec->pair, 1 );
-    int txn_err = fd_prog_recm_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
-    if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) ) {
-      FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock funk rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
-    }
-
-    /* Evict previous root value */
-    fd_funk_xid_key_pair_t pair[1];
-    fd_funk_rec_key_copy( pair->key, rec->pair.key );
-    fd_funk_txn_xid_set_root( pair->xid );
-    if( fd_prog_delete_rec_by_key( cache, pair, 0 )>=0 ) {
-      fd_progcache_admin_metrics_g.gc_root_cnt++;
-    }
-
-    /* Migrate record to root */
-    fd_rwlock_write( &rec->lock );
-    fd_racesan_hook( "prog_publish_release:pre_retag" );
-    rec->prev_idx = UINT_MAX;
-    rec->next_idx = UINT_MAX;
-    atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
-    fd_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
-    fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
-    fd_rwlock_unwrite( &rec->lock );
-    fd_progcache_admin_metrics_g.root_cnt++;
-
-    /* Unlock rec_map chain */
-    int test_err = fd_prog_recm_txn_test( map_txn );
-    if( FD_UNLIKELY( test_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_txn_test failed: %i-%s", test_err, fd_map_strerror( test_err ) ));
-    fd_prog_recm_txn_fini( map_txn );
-
-    head = next;
-  }
-}
-
 /* fd_progcache_txn_publish_one merges an in-prep transaction whose
    parent is the last published, into the parent. */
 
-static uint
+static void
 fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
                               fd_progcache_txn_t *  txn ) {
 
-  /* Phase 1: Mark transaction as "last published" */
+  /* Phase 1: Drain writers from transaction */
+
+  fd_rwlock_write( &txn->lock );
+
+  /* Phase 2: Mark transaction as "last published" */
 
   fd_xid_t const xid = txn->xid;
   if( FD_UNLIKELY( txn->parent_idx!=UINT_MAX ) ) {
@@ -291,10 +235,6 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   }
   fd_racesan_hook( "prog_publish_one:pre_xid_store" );
   fd_funk_txn_xid_st_atomic( cache->shmem->txn.last_publish, &xid );
-
-  /* Phase 2: Drain inserters from transaction */
-
-  fd_rwlock_write( &txn->lock );
 
   /* Phase 3: Detach records */
 
@@ -305,7 +245,6 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
     atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
   }
 
-  uint rec_head = txn->rec_head_idx;
   txn->rec_head_idx = UINT_MAX;
   txn->rec_tail_idx = UINT_MAX;
 
@@ -338,8 +277,6 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   txn->child_head_idx   = UINT_MAX;
   txn->child_tail_idx   = UINT_MAX;
   fd_prog_txnp_ele_release( cache->txn.pool, txn );
-
-  return rec_head;
 }
 
 void
@@ -371,13 +308,12 @@ fd_progcache_advance_root( fd_progcache_join_t * cache,
   cache->shmem->txn.child_head_idx = txn->child_head_idx;
   cache->shmem->txn.child_tail_idx = txn->child_tail_idx;
 
-  uint publish_head = fd_progcache_txn_publish_one( cache, txn );
+  fd_progcache_txn_publish_one( cache, txn );
 
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
 
   /* Update records */
 
-  fd_progcache_txn_publish_release( cache, publish_head );
   fd_prog_reclaim_work( cache );
 }
 

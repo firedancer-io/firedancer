@@ -22,6 +22,8 @@ struct __attribute__((aligned(64))) fd_progcache_rec {
   ulong slot;
 
   uint        map_next;  /* Internal use by map */
+
+  /* txn_idx, next_idx, prev_idx only valid for non-rooted entries */
   atomic_uint txn_idx;
   uint        next_idx;  /* Record map index of next record in its transaction */
   uint        prev_idx;  /* Record map index of previous record in its transaction */

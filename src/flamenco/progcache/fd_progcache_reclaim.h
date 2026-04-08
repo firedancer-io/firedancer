@@ -14,11 +14,6 @@ long
 fd_prog_delete_rec( fd_progcache_join_t * cache,
                     fd_progcache_rec_t *  rec );
 
-long
-fd_prog_delete_rec_by_key( fd_progcache_join_t *          cache,
-                           fd_funk_xid_key_pair_t const * key,
-                           _Bool                          lock );
-
 /* Internal API */
 
 /* fd_prog_reclaim_enqueue enqueues a progcache_rec object for eventual

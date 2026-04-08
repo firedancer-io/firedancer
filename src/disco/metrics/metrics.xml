@@ -864,10 +864,6 @@ metric introduced.
 
   <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
 
-  <!-- extensive program cache metrics.  Useful for development, will be
-       cut down with time -->
-  <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
-  <counter name="ProgcacheGcRoot" summary="Number of program cache entries garbage collected while rooting" />
   <gauge name="ProgcacheFreeParts" summary="Number of program cache heap partitions free (indicates fragmentation)" />
   <gauge name="ProgcacheFreeBytes" summary="Program cache heap utilization (free bytes)" />
   <gauge name="ProgcacheSizeBytes" summary="Program cache heap utilization (total size)" />

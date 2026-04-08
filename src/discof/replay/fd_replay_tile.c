@@ -570,10 +570,6 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_COPY, (ulong)ctx->accdb_admin->base.dt_copy  );
   FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
 
-  fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
-  FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  pcm->root_cnt    );
-  FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, pcm->gc_root_cnt );
-
   fd_wksp_mon_t * wm = fd_wksp_mon_tick( ctx->progcache_wksp_mon, fd_tickcount() );
   FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTS,             wm->free_cnt       );
   FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_BYTES,             wm->free_sz        );

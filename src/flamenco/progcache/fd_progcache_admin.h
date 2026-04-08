@@ -9,15 +9,6 @@ typedef struct fd_account_meta fd_account_meta_t;
 union fd_features;
 typedef union fd_features fd_features_t;
 
-struct fd_progcache_admin_metrics {
-  ulong gc_root_cnt;
-  ulong root_cnt;
-};
-
-typedef struct fd_progcache_admin_metrics fd_progcache_admin_metrics_t;
-
-extern FD_TL fd_progcache_admin_metrics_t fd_progcache_admin_metrics_g;
-
 FD_PROTOTYPES_BEGIN
 
 /* Constructors *******************************************************/

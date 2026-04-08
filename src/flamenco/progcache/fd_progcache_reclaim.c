@@ -1,6 +1,6 @@
 #include "fd_progcache_reclaim.h"
 #include "fd_progcache_clock.h"
-#include "fd_progcache_user.h"
+#include "fd_progcache.h"
 #include "../../util/racesan/fd_racesan_target.h"
 
 void
@@ -14,31 +14,44 @@ fd_prog_reclaim_enqueue( fd_progcache_join_t * join,
   join->rec.reclaim_head = idx;
 }
 
+static void
+rec_unlink( fd_progcache_join_t * join,
+            fd_progcache_rec_t *  rec ) {
+
+  ulong txn_max = fd_prog_txnp_max( join->txn.pool );
+  uint txn_idx = atomic_load_explicit( &rec->txn_idx, memory_order_acquire );
+  if( txn_idx==UINT_MAX ) return; /* already unlinked */
+  if( FD_UNLIKELY( (ulong)txn_idx >= txn_max ) )
+    FD_LOG_CRIT(( "progcache: corruption detected (rec_reclaim txn_idx=%u txn_max=%lu)", txn_idx, txn_max ));
+
+  fd_progcache_txn_t * txn = &join->txn.pool[ txn_idx ];
+  fd_rwlock_write( &txn->lock );
+
+  fd_xid_t last_publish; fd_funk_txn_xid_ld_atomic( &last_publish, join->shmem->txn.last_publish );
+  if( last_publish.ul[0] >= rec->slot ) goto done; /* already rooted */
+
+  fd_racesan_hook( "prog_reclaim:pre_cas" );
+  if( atomic_compare_exchange_strong_explicit( &rec->txn_idx, &txn_idx, UINT_MAX, memory_order_acq_rel, memory_order_acquire ) ) {
+    /* A transaction may not be deallocated before all records are
+       unlinked. */
+    fd_progcache_rec_unlink( join->rec.pool->ele, rec, txn, join->rec.pool->ele_max );
+  } else {
+    /* Strong CAS failure implies that another thread is already
+       unlinking the record (the rooting logic) */
+    FD_CRIT( txn_idx==UINT_MAX, "concurrency violation" );
+  }
+
+done:
+  fd_rwlock_unwrite( &txn->lock );
+}
+
 static _Bool
 rec_reclaim( fd_progcache_join_t * join,
              fd_progcache_rec_t *  rec ) {
 
   /* Remove the record from a transaction */
 
-  ulong txn_max = fd_prog_txnp_max( join->txn.pool );
-  uint txn_idx = atomic_load_explicit( &rec->txn_idx, memory_order_acquire );
-  if( txn_idx!=UINT_MAX ) {
-    if( FD_UNLIKELY( (ulong)txn_idx >= txn_max ) )
-      FD_LOG_CRIT(( "progcache: corruption detected (rec_reclaim txn_idx=%u txn_max=%lu)", txn_idx, txn_max ));
-    fd_progcache_txn_t * txn = &join->txn.pool[ txn_idx ];
-    fd_rwlock_write( &txn->lock );
-    fd_racesan_hook( "prog_reclaim:pre_cas" );
-    if( atomic_compare_exchange_strong_explicit( &rec->txn_idx, &txn_idx, UINT_MAX, memory_order_acq_rel, memory_order_acquire ) ) {
-      /* A transaction may not be deallocated before all records are
-         unlinked. */
-      fd_progcache_rec_unlink( join->rec.pool->ele, rec, txn, join->rec.pool->ele_max );
-    } else {
-      /* Strong CAS failure implies that another thread is already
-         unlinking the record (the rooting logic) */
-      FD_CRIT( atomic_load_explicit( &rec->txn_idx, memory_order_relaxed )==UINT_MAX, "concurrency violation" );
-    }
-    fd_rwlock_unwrite( &txn->lock );
-  }
+  rec_unlink( join, rec );
   fd_racesan_hook( "prog_reclaim:post_unlink" );
 
   /* Drain existing users
@@ -115,18 +128,4 @@ fd_prog_delete_rec( fd_progcache_join_t * cache,
 
   fd_prog_reclaim_enqueue( cache, rec );
   return (long)rec->data_max;
-}
-
-long
-fd_prog_delete_rec_by_key( fd_progcache_join_t *          cache,
-                           fd_funk_xid_key_pair_t const * key,
-                           _Bool                          lock ) {
-  fd_prog_recm_query_t query[1];
-  int rm_err;
-  if( lock ) rm_err = fd_prog_recm_remove    ( cache->rec.map, key, NULL, query, FD_MAP_FLAG_BLOCKING );
-  else       rm_err = fd_prog_recm_txn_remove( cache->rec.map, key, NULL, query, 0                    );
-  if( rm_err==FD_MAP_ERR_KEY ) return -1L;
-  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
-  fd_prog_reclaim_enqueue( cache, query->ele );
-  return (long)query->ele->data_max;
 }

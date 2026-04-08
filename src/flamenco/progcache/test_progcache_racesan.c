@@ -198,7 +198,6 @@ fiber_reclaim( fiber_t * fiber ) {
 static void
 metrics_reset( void ) {
   memset( &fd_progcache_metrics_default, 0, sizeof(fd_progcache_metrics_default) );
-  memset( &fd_progcache_admin_metrics_g, 0, sizeof(fd_progcache_admin_metrics_g) );
 }
 
 static void
@@ -344,15 +343,6 @@ test_pull_root( fd_wksp_t * wksp ) {
     FD_TEST( fd_progcache_metrics_default.fill_cnt  ==1UL );
     FD_TEST( fd_progcache_metrics_default.hit_cnt   ==0UL );
     FD_TEST( fd_progcache_metrics_default.miss_cnt  ==1UL );
-    if( !fd_progcache_admin_metrics_g.root_cnt ) {
-      fd_progcache_rec_t * rec = fd_progcache_peek( g_fiber[ 0 ].cache, &xid1, &key, 0UL );
-      FD_TEST( rec->txn_idx==UINT_MAX );
-      FD_TEST( rec->next_idx==UINT_MAX );
-      FD_TEST( rec->prev_idx==UINT_MAX );
-      fd_progcache_rec_close( g_fiber[ 0 ].cache, rec );
-    } else {
-      FD_TEST( fd_progcache_admin_metrics_g.root_cnt==1UL );
-    }
     metrics_check_no_oom();
 
     fd_racesan_weave_delete( w );

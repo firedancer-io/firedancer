@@ -993,8 +993,6 @@
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">db</span>"} | counter | Total time in seconds spent rooting accounts (Waiting on database server) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">copy</span>"} | counter | Total time in seconds spent rooting accounts (Copying account data) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
-| <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;parts</span> | gauge | Number of program cache heap partitions free (indicates fragmentation) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;bytes</span> | gauge | Program cache heap utilization (free bytes) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;size_&#8203;bytes</span> | gauge | Program cache heap utilization (total size) |
