@@ -9,16 +9,7 @@
  */
 
 import cpp
-
-abstract class RFunc extends Function { }
-
-class PureFunc extends RFunc {
-  PureFunc() { this.getAnAttribute().getName() = "pure" }
-}
-
-class ConstFunc extends RFunc {
-  ConstFunc() { this.getAnAttribute().getName() = "const" }
-}
+import ConstPure
 
 abstract class ShouldBeFunc extends Function { }
 
@@ -27,10 +18,10 @@ class ShouldBePure extends ShouldBeFunc {
 
   ShouldBePure() {
     (
-      off instanceof RFunc or
+      off instanceof ConstOrPureFunction or
       off instanceof ShouldBeFunc
     ) and
-    not this instanceof RFunc and
+    not this instanceof ConstOrPureFunction and
     this.getACallToThisFunction().getEnclosingFunction() = off and
     this.getLocation().getFile().getRelativePath().matches("src/%")
   }
@@ -40,12 +31,11 @@ class ShouldBePure extends ShouldBeFunc {
 
 string directOrNot(Function off) {
   /* alternatively we could make this query a path-query */
-  result = "is" and off instanceof RFunc
+  result = "is" and off instanceof ConstOrPureFunction
   or
   result = "is called by a" and off instanceof ShouldBeFunc
 }
 
 from ShouldBePure f, Function off
-where
-  off = f.getOff()
+where off = f.getOff()
 select off, f + " is called via " + off + " which " + directOrNot(off) + " const/pure function"

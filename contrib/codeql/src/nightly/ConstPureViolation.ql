@@ -8,6 +8,7 @@
  */
 
 import cpp
+import ConstPure
 import filter
 
 predicate isDref(Parameter p) {
@@ -29,13 +30,13 @@ abstract class RestrictedFunc extends Function {
 }
 
 class ConstFunc extends RestrictedFunc {
-  ConstFunc() { this.getAnAttribute().getName() = "const" }
+  ConstFunc() { this instanceof ConstFunction }
 
   override predicate isViolated() { isDref(this.getAPointerParam()) }
 }
 
 class PureFunc extends RestrictedFunc {
-  PureFunc() { this.getAnAttribute().getName() = "pure" }
+  PureFunc() { this instanceof PureFunction }
 
   override predicate isViolated() {
     exists(Parameter p, VariableAccess a | p = this.getAPointerParam() |
@@ -46,6 +47,9 @@ class PureFunc extends RestrictedFunc {
 }
 
 from RestrictedFunc f
-where f.isViolated() and
-included(f.getLocation())
-select f, "Function is attributed with " + f.getAnAttribute().getName() + ", but accesses a pointer in an illegal way."
+where
+  f.isViolated() and
+  included(f.getLocation())
+select f,
+  "Function is attributed with " + f.getAnAttribute().getName() +
+    ", but accesses a pointer in an illegal way."
