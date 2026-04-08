@@ -492,7 +492,7 @@ struct fd_snapshot_manifest {
              used to compute the leader schedule at E+1.
 
      The epoch stakes are stored in an array:
-       epoch_stakes[0] = epoch E-1 (may be empty if not in snapshot)
+       epoch_stakes[0] = epoch E-1
        epoch_stakes[1] = epoch E
        epoch_stakes[2] = epoch E+1 */
   fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ 3UL ];

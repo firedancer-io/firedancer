@@ -1625,6 +1625,7 @@ state_process( fd_ssmanifest_parser_t * parser,
 
     ulong const epoch_stakes_base = parser->epoch>0UL ? parser->epoch-1UL : 0UL;
     if( parser->epoch_stakes_epoch>=epoch_stakes_base && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
+      FD_LOG_WARNING(("EPOCH STAKES EPOCH !!! %lu", parser->epoch_stakes_epoch));
       parser->epoch_idx = parser->epoch_stakes_epoch-epoch_stakes_base;
       parser->manifest->epoch_stakes[ parser->epoch_idx ].epoch = parser->epoch_stakes_epoch;
     }
@@ -1903,6 +1904,10 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   parser->dst_sz   = state_size( parser );
   parser->dst_cur  = 0UL;
   parser->manifest = manifest;
+
+  manifest->epoch_stakes[0].vote_stakes_len = 0UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 0UL;
+  manifest->epoch_stakes[2].vote_stakes_len = 0UL;
 
   FD_SCRATCH_ALLOC_INIT( l, parser );
                          FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );

@@ -221,7 +221,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      epoch stake by querying for epoch+1.  This logic is encapsulated
      in fd_ssmanifest_parser.c. */
   /* epoch_stakes[2] = epoch E+1 = stakes at start of E */
-  bank->f.total_epoch_stake = manifest->epoch_stakes[2].total_stake;
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
@@ -234,10 +233,17 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_top_votes_init( top_votes_t_1 );
   fd_top_votes_init( top_votes_t_2 );
 
+  ulong t_1_idx = manifest->epoch_stakes[2].vote_stakes_len==0UL ? 1UL : 2UL;
+  ulong t_2_idx = manifest->epoch_stakes[2].vote_stakes_len==0UL ? 0UL : 1UL;
+  FD_LOG_WARNING(("T_1_IDX %lu", t_1_idx));
+
+
+  bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
+
   /* epoch_stakes[2] = epoch E+1 = stakes at start of E.  Populates
      vote_ele with epoch credits and commission from start of E. */
-  for( ulong i=0UL; i<manifest->epoch_stakes[2].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[2].vote_stakes[i];
+  for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
     vote_ele->commission = (uchar)elem->commission;
@@ -268,8 +274,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   /* epoch_stakes[1] = epoch E = stakes at start of E-1.  Overwrites
      commission with the E-1 value and populates top_votes_t_2. */
-  for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
+  for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
 
     fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (const fd_pubkey_t *)elem->vote, NULL, runtime_stack->stakes.vote_ele );
     if( FD_LIKELY( vote_ele ) ) vote_ele->commission = (uchar)elem->commission;
@@ -300,9 +306,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     fd_memcpy( runtime_stack->stakes.snapshot_commission_t_3[i].pubkey.uc, elem->vote, 32UL );
     runtime_stack->stakes.snapshot_commission_t_3[i].commission = (uchar)elem->commission;
   }
-  runtime_stack->stakes.snapshot_commission_t_1_cnt = manifest->epoch_stakes[2].vote_stakes_len;
-  for( ulong i=0UL; i<manifest->epoch_stakes[2].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[2].vote_stakes[i];
+  runtime_stack->stakes.snapshot_commission_t_1_cnt = manifest->epoch_stakes[t_1_idx].vote_stakes_len;
+  for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
+    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
     fd_memcpy( runtime_stack->stakes.snapshot_commission_t_1[i].pubkey.uc, elem->vote, 32UL );
     runtime_stack->stakes.snapshot_commission_t_1[i].commission = (uchar)elem->commission;
   }
