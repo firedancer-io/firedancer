@@ -217,7 +217,8 @@ fd_grpc_client_set_authority( fd_grpc_client_t * client,
    OpenSSL->h2 or h2->OpenSSL writes to directly place data into the
    target buffer.
 
-   Returns 1 on success and 0 if there is an unrecoverable SSL error. */
+   Returns 0 on success and -1 if there is an unrecoverable SSL
+   error. */
 
 int
 fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
