@@ -374,7 +374,7 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
-    fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
+    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
 
     calculate_stake_points_and_credits( epoch_credits,
                                         stake_history,
@@ -448,7 +448,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
     if( is_recalculation || FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
-      fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
+      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
 
       /* We have not cached the stake points yet if we are recalculating
          stake rewards so we need to recalculate them. */
@@ -533,7 +533,7 @@ setup_stake_partitions( fd_bank_t *                    bank,
       uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
       if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
-      fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ idx ];
+      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
 
       fd_calculated_stake_points_t stake_points_result[1];
       calculate_stake_points_and_credits(

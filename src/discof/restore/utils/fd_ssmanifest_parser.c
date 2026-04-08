@@ -1625,7 +1625,6 @@ state_process( fd_ssmanifest_parser_t * parser,
 
     ulong const epoch_stakes_base = parser->epoch>0UL ? parser->epoch-1UL : 0UL;
     if( parser->epoch_stakes_epoch>=epoch_stakes_base && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
-      FD_LOG_WARNING(("EPOCH STAKES EPOCH !!! %lu", parser->epoch_stakes_epoch));
       parser->epoch_idx = parser->epoch_stakes_epoch-epoch_stakes_base;
       parser->manifest->epoch_stakes[ parser->epoch_idx ].epoch = parser->epoch_stakes_epoch;
     }

@@ -238,6 +238,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   /* epoch_stakes[2] = epoch E+1 = stakes at start of E.  Populates
      vote_ele with epoch credits and commission from start of E. */
 
+  ulong epoch_credits_len = 0UL;
+
   for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
     fd_vote_stakes_root_insert_key(
@@ -254,8 +256,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
     fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
 
-    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[runtime_stack->stakes.epoch_credits_len];
-    ec->pubkey       = *(fd_pubkey_t *)elem->vote;
+    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
+    fd_memcpy( ec->pubkey, elem->vote, 32UL );
     ec->cnt          = elem->epoch_credits_history_len;
     ec->base_credits = ec->cnt > 0UL ? elem->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<elem->epoch_credits_history_len; j++ ) {
@@ -263,8 +265,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
       ec->credits_delta[ j ]      = (uint)( elem->epoch_credits[ j ].credits      - ec->base_credits );
       ec->prev_credits_delta[ j ] = (uint)( elem->epoch_credits[ j ].prev_credits - ec->base_credits );
     }
-    runtime_stack->stakes.epoch_credits_len++;
+    epoch_credits_len++;
   }
+  *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;
 
   /* epoch_stakes[1] = epoch E = stakes at start of E-1.  Overwrites
      commission with the E-1 value and populates top_votes_t_2. */

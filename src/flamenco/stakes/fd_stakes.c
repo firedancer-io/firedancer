@@ -575,7 +575,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       exists_t_1 = 0;
       fd_accdb_close_ro( accdb, vote_ro );
     } else {
-      fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ];
+      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
       get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1, &node_account_t_1, epoch_credits );
 
       stake_t_1 = stake_accum->stake;

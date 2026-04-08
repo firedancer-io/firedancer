@@ -66,6 +66,17 @@ typedef struct fd_stake_rewards fd_stake_rewards_t;
 struct fd_top_votes;
 typedef struct fd_top_votes fd_top_votes_t;
 
+#define FD_EPOCH_CREDITS_MAX (64UL)
+struct fd_epoch_credits {
+  uchar  pubkey[32];
+  ulong  cnt;
+  ulong  base_credits;
+  ushort epoch             [ FD_EPOCH_CREDITS_MAX ];
+  uint   credits_delta     [ FD_EPOCH_CREDITS_MAX ];
+  uint   prev_credits_delta[ FD_EPOCH_CREDITS_MAX ];
+};
+typedef struct fd_epoch_credits fd_epoch_credits_t;
+
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;
