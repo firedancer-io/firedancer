@@ -963,6 +963,52 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_runtime_stack_t *      runtime_stack,
                                             fd_capture_ctx_t *        capture_ctx ) {
 
+  /* If the snapshot was loaded while partitioned epoch rewards is
+     active, then the vote rewards map must be populated with the state
+     of the vote accounts as of the end of the previous epoch boundary.
+     The epoch credits for these accounts are stored in the bank along
+     with the t-3 commission.  With this, it's possible to recalculate
+     the rewards for the previous epoch boundary.  We need the
+     commission from the end of the t-3 epoch if we are calculating
+     rewards for the transition from epoch t-1 to t since there needs to
+     be a 2 epoch commission gap for the delay_commission_updates
+     feature. */
+
+  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  ushort             vs_fork_idx = bank->vote_stakes_fork_id;
+
+  ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
+  for( ulong i=0UL; i<epoch_credits_len; i++ ) {
+    fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
+    ulong stake_t_1;
+    uchar commission_t_1;
+    ulong stake_t_2;
+    uchar commission_t_2;
+    fd_vote_stakes_query( vote_stakes, vs_fork_idx, (fd_pubkey_t *)epoch_credits->pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2 );
+
+    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
+    vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
+    vote_ele->vote_rewards = 0UL;
+    if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+      vote_ele->commission = stake_t_2>0UL ? commission_t_2 : commission_t_1;
+    } else {
+      vote_ele->commission = commission_t_1;
+    }
+    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
+  }
+
+  if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+    ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
+    fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
+    for( ulong i=0UL; i<commission_t_3_len; i++ ) {
+      fd_stashed_commission_t const * ele = &commission_t_3[i];
+      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
+      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
+    }
+  }
+
   fd_sysvar_epoch_rewards_t epoch_rewards_sysvar[1];
   if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( accdb, xid, epoch_rewards_sysvar ) ) ) {
     FD_LOG_DEBUG(( "Failed to read or decode epoch rewards sysvar - may not have been created yet" ));

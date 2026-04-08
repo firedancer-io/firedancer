@@ -1152,59 +1152,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_refresh( top_votes_t_2, ctx->accdb, &xid );
 
-  /* Apply deferred commission selection for partitioned epoch rewards
-     recalculation.  Feature flags are now fully restored, so we can
-     check delay_commission_updates (SIMD-0249).
-
-     At this point vote_ele->commission holds the epoch_stakes[1] (E,
-     start of E-1) value from fd_ssload_recover.  The stashed arrays
-     contain commission from epoch_stakes[0] (E-1, start of E-2) and
-     epoch_stakes[2] (E+1, start of E).
-
-     When active:  prefer epoch_stakes[0] commission (start of E-2).
-                   If empty, the epoch_stakes[1] value already set is
-                   the correct second-choice fallback.
-     When inactive: use epoch_stakes[2] commission (start of E). */
-  fd_runtime_stack_t *    runtime_stack = ctx->runtime_stack;
-  fd_vote_rewards_map_t * vote_ele_map  = runtime_stack->stakes.vote_map;
-
-  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ushort             vs_fork_idx = bank->vote_stakes_fork_id;
-
-  ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
-  for( ulong i=0UL; i<epoch_credits_len; i++ ) {
-    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[i];
-    ulong       stake_t_1;
-    fd_pubkey_t node_account_t_1;
-    uchar       commission_t_1;
-    fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, (fd_pubkey_t *)ec->pubkey, &stake_t_1, &node_account_t_1, &commission_t_1 );
-
-    ulong       stake_t_2;
-    fd_pubkey_t node_account_t_2;
-    uchar       commission_t_2;
-    fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, (fd_pubkey_t *)ec->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 );
-
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
-    vote_ele->pubkey       = *(fd_pubkey_t *)ec->pubkey;
-    vote_ele->vote_rewards = 0UL;
-    if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-      vote_ele->commission = stake_t_2>0UL ? commission_t_2 : commission_t_1;
-    } else {
-      vote_ele->commission = commission_t_1;
-    }
-    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
-  }
-
-  if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-    ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
-    fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
-    for( ulong i=0UL; i<commission_t_3_len; i++ ) {
-      fd_stashed_commission_t const * ele = &commission_t_3[i];
-      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
-      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
-    }
-  }
-
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
