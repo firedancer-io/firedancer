@@ -1358,6 +1358,16 @@ telemetry = true
         # revert to the "balanced" strategy.
         schedule_strategy = "balanced"
 
+        # If the pack tile receives a transaction that reads from or
+        # writes to an address in the account_blocklist, it will reject
+        # the transaction immediately and not consider it for inclusion
+        # in any blocks this validator produces as leader.  This does
+        # not prevent replaying blocks that contain transactions that
+        # access an account in the blocklist.  Up to 16 addresses are
+        # currently allowed.  account_blocklist should be a list of
+        # base58-encoded public keys.
+        account_blocklist = []
+
     # The replay tile is responsible for replaying and verifying blocks
     # packed by other validators and for managing the lifecycle of both
     # leader and follower slots.
