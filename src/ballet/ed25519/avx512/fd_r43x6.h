@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_ed25519_avx512_fd_r43x6_h
 #define HEADER_fd_src_ballet_ed25519_avx512_fd_r43x6_h
 
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
 
 #include "../../../util/simd/fd_avx.h"
 #include "../../../util/simd/fd_avx512.h"
@@ -1138,6 +1138,6 @@ FD_PROTOTYPES_END
 
 #include "fd_r43x6_inl.h"
 
-#endif /* FD_HAS_AVX512 */
+#endif /* defined(__AVX512IFMA__) */
 
 #endif /* HEADER_fd_src_ballet_ed25519_avx512_fd_r43x6_h */

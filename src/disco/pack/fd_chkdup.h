@@ -23,10 +23,10 @@
    treated as if they were defined in a .c file. */
 
 #ifndef FD_CHKDUP_IMPL
-# if FD_HAS_AVX512
+# if defined(__AVX512F__)
 #   include "../../util/simd/fd_avx.h"
 #   define FD_CHKDUP_IMPL 2
-# elif FD_HAS_AVX
+# elif defined(__AVX2__)
 #   define FD_CHKDUP_IMPL 1
 # else
 #   define FD_CHKDUP_IMPL 0

@@ -1,5 +1,5 @@
 #include "fd_vinyl_bstream.h"
-#if !FD_HAS_AVX512
+#if !defined(__AVX512F__)
 #error "fd_hash_avx512dq requires AVX-512"
 #endif
 

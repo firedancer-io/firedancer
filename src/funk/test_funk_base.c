@@ -34,11 +34,7 @@ fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
   key->ul[0] = fd_log_app_id();
   key->ul[1] = fd_log_thread_id();
   key->ul[2] = ++unique_tag;
-# if FD_HAS_X86
   key->ul[3] = (ulong)fd_tickcount();
-# else
-  key->ul[3] = 0UL;
-# endif
   return key;
 }
 

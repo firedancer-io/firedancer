@@ -6,7 +6,7 @@
 #include "../../util/log/fd_log.h" /* fd_log_wallclock */
 #include "../../util/tmpl/fd_map.h"
 
-#if FD_HAS_X86
+#if defined(__SSE2__)
 #include <immintrin.h>
 #endif
 
@@ -30,7 +30,7 @@ union __attribute__((aligned(16))) fd_neigh4_entry {
 #if FD_HAS_INT128
   uint128 uf[1];
 #endif
-#if FD_HAS_X86
+#if defined(__SSE2__)
   __m128i xmm[1];
 #endif
 };
@@ -44,7 +44,7 @@ FD_STATIC_ASSERT( sizeof(fd_neigh4_entry_t) == 16, "fd_neigh4_entry_t must be 16
 static inline void
 fd_neigh4_entry_atomic_st( fd_neigh4_entry_t       * dst,
                            fd_neigh4_entry_t const * src ) {
-# if FD_HAS_X86
+# if defined(__SSE2__)
   FD_VOLATILE( dst->xmm[0] ) = src->xmm[0];
 # elif FD_HAS_INT128
   FD_VOLATILE( dst->uf[0] )  = src->uf[0];
@@ -61,7 +61,7 @@ fd_neigh4_entry_atomic_st( fd_neigh4_entry_t       * dst,
 static inline void
 fd_neigh4_entry_atomic_ld( fd_neigh4_entry_t       * dst,
                            fd_neigh4_entry_t const * src ) {
-# if FD_HAS_X86
+# if defined(__SSE2__)
   dst->xmm[0] = FD_VOLATILE_CONST( src->xmm[0] );
 # elif FD_HAS_INT128
   dst->uf[0] = FD_VOLATILE_CONST( src->uf[0] );

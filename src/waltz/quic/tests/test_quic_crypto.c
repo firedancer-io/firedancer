@@ -140,7 +140,7 @@ test_quic_nonce( void ) {
   FD_TEST( 0==memcmp( nonce, expected_nonce, sizeof( expected_nonce ) ) );
 }
 
-#if FD_HAS_AESNI || FD_HAS_GFNI
+#if defined(__AES__) || defined(__GFNI__)
 #define BENCH_ITER 1000000UL
 #else
 #define BENCH_ITER   10000UL

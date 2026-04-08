@@ -1,6 +1,6 @@
 #include "fd_tango.h"
 
-#if FD_HAS_HOSTED && FD_HAS_AVX
+#if FD_HAS_HOSTED && defined(__AVX2__)
 
 FD_STATIC_ASSERT( FD_CHUNK_SZ==64UL, unit_test );
 
@@ -194,7 +194,7 @@ main( int     argc,
     /* Already loaded into registers as part of the wait */
 
 #   elif WAIT_STYLE==0
- 
+
     ulong sig    = (ulong)meta->sig;
     ulong chunk  = (ulong)meta->chunk;
     ulong sz     = (ulong)meta->sz;
@@ -292,7 +292,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_AVX capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and defined(__AVX2__) capabilities" ));
   fd_halt();
   return 0;
 }

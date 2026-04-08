@@ -600,7 +600,7 @@ STEM_(run1)( ulong                        in_cnt,
     ulong                  this_in_seq   = this_in->seq;
     fd_frag_meta_t const * this_in_mline = this_in->mline; /* Already at appropriate line for this_in_seq */
 
-#if FD_HAS_SSE
+#if defined(__SSE__)
     __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
     ulong sig       = fd_frag_meta_sse0_sig( seq_sig );

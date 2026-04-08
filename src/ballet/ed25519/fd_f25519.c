@@ -1,7 +1,7 @@
 #include "fd_f25519.h"
 #include "../hex/fd_hex.h"
 
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
 #include "avx512/fd_f25519.c"
 #else
 #include "ref/fd_f25519.c"

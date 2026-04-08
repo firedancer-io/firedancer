@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_util_simd_fd_avx512_h
 #define HEADER_fd_src_util_simd_fd_avx512_h
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 
 /* An API for writing vectorized C/C++ code using 16-wide 32-bit ints,
    16-wide 32-bit uints, 16-wide 32-bit floats, 8-wide 64-bit doubles,
@@ -63,8 +63,10 @@
 //#include "fd_avx512_wwd.h" /* Vector double support */
 #include "fd_avx512_wwl.h" /* Vector long support */
 #include "fd_avx512_wwv.h" /* Vector ulong support */
+#if defined(__AVX512BW__)
 #include "fd_avx512_wwb.h" /* Vector uchar (byte) support */
 #include "fd_avx512_wwh.h" /* Vector ushort support */
+#endif
 
 #else
 #error "Build target does not support AVX512 wrappers"

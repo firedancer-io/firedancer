@@ -75,7 +75,7 @@ fd_blake3_seek_branch( fd_blake3_pos_t * restrict s,
     return ( s->tail.uc[ s->layer - 1 ] + 1 ) <
            ( s->head.uc[ s->layer - 1 ]     );
 
-# if FD_HAS_AVX
+# if defined(__AVX2__)
 
   wb_t diff = wb_sub( s->head.wb, s->tail.wb );
 
@@ -95,7 +95,7 @@ fd_blake3_seek_branch( fd_blake3_pos_t * restrict s,
   wb_t node = wb_ld( buf->slots[ single_lo ][ s->tail.uc[ single_lo ] ] );
               wb_st( buf->slots[ single_hi ][ s->head.uc[ single_hi ] ], node );
 
-# else /* FD_HAS_AVX */
+# else /* defined(__AVX2__) */
 
   uchar diff[ 32 ];
   for( ulong j=0UL; j<32UL; j++ ) diff[j] = (uchar)( s->head.uc[j] - s->tail.uc[j] );
@@ -135,7 +135,7 @@ fd_blake3_seek_branch( fd_blake3_pos_t * restrict s,
           buf->slots[ single_lo ][ s->tail.uc[ single_lo ] ],
           32UL );
 
-# endif /* FD_HAS_AVX */
+# endif /* defined(__AVX2__) */
 
   FD_BLAKE3_TRACE(( "fd_blake3_seek_branch: moving up %u/%u to %u/%u",
                     single_lo, s->tail.uc[ single_lo ],
@@ -187,13 +187,13 @@ fd_blake3_prepare_branch( fd_blake3_pos_t * restrict s,
 static void
 fd_blake3_advance( fd_blake3_pos_t * restrict s ) {
 
-# if FD_HAS_AVX
+# if defined(__AVX2__)
 
   wb_t mask = wb_eq( s->tail.wb, s->head.wb );
   s->tail.wb = wb_andnot( mask, s->tail.wb );
   s->head.wb = wb_andnot( mask, s->head.wb );
 
-# else /* FD_HAS_AVX */
+# else /* defined(__AVX2__) */
 
   for( ulong j=0UL; j<32UL; j++ ) {
     if( s->tail.uc[j] == s->head.uc[j] ) {
@@ -202,7 +202,7 @@ fd_blake3_advance( fd_blake3_pos_t * restrict s ) {
     }
   }
 
-# endif /* FD_HAS_AVX */
+# endif /* defined(__AVX2__) */
 
   if( s->head.uc[ s->layer ]==FD_BLAKE3_COL_CNT ) {
     s->layer++;
@@ -311,9 +311,9 @@ fd_blake3_batch_hash( fd_blake3_op_t const * ops,
     batch_ctr    [ j ] = ops[ j ].counter;
     batch_flags  [ j ] = ops[ j ].flags;
   }
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
   fd_blake3_avx512_compress16( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
-#elif FD_HAS_AVX
+#elif defined(__AVX2__)
   fd_blake3_avx_compress8    ( op_cnt, batch_data, batch_data_sz, batch_ctr, batch_flags, fd_type_pun( batch_hash ), NULL, 32U, NULL );
 #else
   #error "FIXME missing para support"
@@ -442,9 +442,9 @@ fd_blake3_append_blocks( fd_blake3_pos_t * s,
     do {
       if( !fd_blake3_prepare_fast( s, tbl, op, FD_BLAKE3_PARA_MAX, FD_BLAKE3_PARA_MAX ) )
         return;
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
       fd_blake3_avx512_compress16_fast( op->msg, op->out, op->counter, op->flags );
-#elif FD_HAS_AVX
+#elif defined(__AVX2__)
       fd_blake3_avx_compress8_fast( op->msg, op->out, op->counter, op->flags );
 #else
       #error "missing para support"
@@ -583,7 +583,7 @@ fd_blake3_single_hash( fd_blake3_pos_t * s,
     s->next_tick++;
     FD_BLAKE3_TRACE(( "fd_blake3_single_hash: compressing %hu bytes at layer %u, counter %lu, flags 0x%x",
                       op->sz, s->layer, op->counter, op->flags ));
-#   if FD_HAS_SSE
+#   if defined(__SSE4_2__)
     fd_blake3_sse_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
 #   else
     fd_blake3_ref_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
@@ -643,7 +643,7 @@ fd_blake3_fini_xof_compress( fd_blake3_t * sha,
     fd_blake3_op_t op[1];
     if( !fd_blake3_prepare_leaf( s, tbl, op, s->next_tick ) )
       FD_LOG_ERR(( "fd_blake3_fini_xof_compress invariant violation: failed to prepare compression of <=1024 byte message (duplicate call to fini?)" ));
-#if FD_HAS_SSE
+#if defined(__SSE4_2__)
     fd_blake3_sse_compress1( root_msg, op->msg, op->sz, op->counter, op->flags, root_cv_pre, NULL );
 #else
     fd_blake3_ref_compress1( root_msg, op->msg, op->sz, op->counter, op->flags, root_cv_pre, NULL );
@@ -677,7 +677,7 @@ fd_blake3_fini_xof_compress( fd_blake3_t * sha,
     fd_blake3_op_t op[1] = {0};
     if( !fd_blake3_prepare( s, tbl, op, tick ) )
       break;
-#   if FD_HAS_SSE
+#   if defined(__SSE4_2__)
     fd_blake3_sse_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
 #   else
     fd_blake3_ref_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
@@ -728,7 +728,7 @@ fd_blake3_fini_2048( fd_blake3_t * sha,
      Could write a more optimized version in the future saving some of
      the matrix transpose work. */
   for( ulong i=0UL; i<32UL; i+=FD_BLAKE3_PARA_MAX ) {
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
     ulong  batch_data [ 16 ] __attribute__((aligned(64)));
     /*                     */ for( ulong j=0; j<16; j++ ) batch_data [ j ] = (ulong)root_msg;
     uint   batch_sz   [ 16 ]; for( ulong j=0; j<16; j++ ) batch_sz   [ j ] = last_block_sz;
@@ -737,7 +737,7 @@ fd_blake3_fini_2048( fd_blake3_t * sha,
     void * batch_hash [ 16 ]; for( ulong j=0; j<16; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
     void * batch_cv   [ 16 ]; for( ulong j=0; j<16; j++ ) batch_cv   [ j ] = root_cv_pre;
     fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
-#elif FD_HAS_AVX
+#elif defined(__AVX2__)
     ulong  batch_data [ 8 ]; for( ulong j=0; j<8; j++ ) batch_data [ j ] = (ulong)root_msg;
     uint   batch_sz   [ 8 ]; for( ulong j=0; j<8; j++ ) batch_sz   [ j ] = last_block_sz;
     ulong  batch_ctr  [ 8 ]; for( ulong j=0; j<8; j++ ) batch_ctr  [ j ] = ctr0+i+j;
@@ -745,7 +745,7 @@ fd_blake3_fini_2048( fd_blake3_t * sha,
     void * batch_hash [ 8 ]; for( ulong j=0; j<8; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
     void * batch_cv   [ 8 ]; for( ulong j=0; j<8; j++ ) batch_cv   [ j ] = root_cv_pre;
     fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
-#elif FD_HAS_SSE
+#elif defined(__SSE4_2__)
     fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
 #else
     fd_blake3_ref_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
@@ -770,9 +770,9 @@ fd_blake3_hash( void const * data,
     fd_blake3_op_t op[1];
     if( !fd_blake3_prepare_fast( s, tbl, op, FD_BLAKE3_PARA_MAX, 4 ) )
       break;
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
     fd_blake3_avx512_compress16_fast( op->msg, op->out, op->counter, op->flags );
-#elif FD_HAS_AVX
+#elif defined(__AVX2__)
     fd_blake3_avx_compress8_fast( op->msg, op->out, op->counter, op->flags );
 #else
     #error "missing para support"
@@ -785,7 +785,7 @@ fd_blake3_hash( void const * data,
   return hash;
 }
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 
 void
 fd_blake3_lthash_batch8(
@@ -810,7 +810,7 @@ fd_blake3_lthash_batch8(
 
 #endif
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 
 void
 fd_blake3_lthash_batch16(

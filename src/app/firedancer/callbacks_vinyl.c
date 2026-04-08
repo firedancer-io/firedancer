@@ -61,7 +61,7 @@ vinyl_meta_ele_new( fd_topo_t const *     topo,
      - scattering 8 byte writes is slower
      - memset is slowest */
 
-# if FD_HAS_AVX512
+# if defined(__AVX512F__)
   uchar * m0 = fd_topo_obj_laddr( topo, obj->id );
   uchar * m1 = m0 + vinyl_meta_ele_footprint( topo, obj );
   __m512i zero = _mm512_setzero_si512();

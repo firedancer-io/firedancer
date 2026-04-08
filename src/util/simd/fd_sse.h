@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_util_simd_fd_sse_h
 #define HEADER_fd_src_util_simd_fd_sse_h
 
-#if FD_HAS_SSE
+#if defined(__SSE2__)
 
 /* An API for writing vectorized C/C++ code using 4-wide 32-bit ints,
    4-wide 32-bit uints, 4-wide 32-bit floats, 2-wide 64-bit doubles,

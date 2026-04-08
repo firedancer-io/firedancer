@@ -41,7 +41,7 @@ FD_PROTOTYPES_END
 
 /* AES-NI backend internals *******************************************/
 
-#if FD_HAS_AESNI
+#if defined(__AES__)
 
 FD_PROTOTYPES_BEGIN
 
@@ -67,11 +67,11 @@ fd_aesni_decrypt( uchar const *            in,
 
 FD_PROTOTYPES_END
 
-#endif /* FD_HAS_AESNI */
+#endif /* defined(__AES__) */
 
 /* Backend selection **************************************************/
 
-#if FD_HAS_AESNI
+#if defined(__AES__)
 #define FD_AES_IMPL 1 /* AESNI */
 #else
 #define FD_AES_IMPL 0 /* Portable */

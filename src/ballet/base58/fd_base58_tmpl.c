@@ -24,7 +24,7 @@
 #define ENCODED_SZ() FD_EXPAND_THEN_CONCAT3(FD_BASE58_ENCODED_, N, _SZ)
 #define RAW58_SZ     (INTERMEDIATE_SZ*5UL)
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #define INTERMEDIATE_SZ_W_PADDING FD_ULONG_ALIGN_UP( INTERMEDIATE_SZ, 4UL )
 #else
 #define INTERMEDIATE_SZ_W_PADDING INTERMEDIATE_SZ
@@ -36,7 +36,7 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
                           char        * out    ){
 
   /* Count leading zeros (needed for final output) */
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 # if N==32
   wuc_t _bytes = wuc_ldu( bytes );
   ulong in_leading_0s = count_leading_zeros_32( _bytes );
@@ -65,7 +65,7 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
      Initially, we don't require intermediate[i] < 58^5, but we do want
      to make sure the sums don't overflow. */
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
   ulong W_ATTR intermediate[ INTERMEDIATE_SZ_W_PADDING ];
 #else
   ulong intermediate[ INTERMEDIATE_SZ_W_PADDING ];
@@ -129,7 +129,7 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
     intermediate[ i     ] %= R1div;
   }
 
-#if !FD_HAS_AVX
+#if !defined(__AVX2__)
   /* Convert intermediate form to base 58.  This form of conversion
      exposes tons of ILP, but it's more than the CPU can take advantage
      of.
@@ -181,7 +181,7 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
   ulong skip = raw_leading_0s - in_leading_0s;
   for( ulong i=0UL; i<RAW58_SZ-skip; i++ )  out[ i ] = base58_chars[ raw_base58[ skip+i ] ];
 
-#else /* FD_HAS_AVX */
+#else /* defined(__AVX2__) */
 # if N==32
   wl_t intermediate0 = wl_ld( (long*)intermediate     );
   wl_t intermediate1 = wl_ld( (long*)intermediate+4UL );

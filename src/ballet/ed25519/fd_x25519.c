@@ -4,10 +4,10 @@
 /* FD_X25519_VECTORIZE calls mul4 instead of sqr2+mul2, and similar.
    Only useful if the underlying ops are actually vectorized and therefore
    the cost of 4 muls is <= the cost of 2 sqr + 2 mul. */
-#define FD_X25519_VECTORIZE FD_HAS_AVX512
+#define FD_X25519_VECTORIZE defined(__AVX512IFMA__)
 
 /* FD_X25519_ALIGN aligns variables. */
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #define FD_X25519_ALIGN __attribute__((aligned(32)))
 #else
 #define FD_X25519_ALIGN
@@ -27,7 +27,7 @@ fd_x25519_is_zero_const_time( uchar const point[ 32 ] ) {
   return is_zero;
 }
 
-#if !FD_HAS_AVX512
+#if !defined(__AVX512IFMA__)
 
 static inline void FD_FN_SENSITIVE
 fd_x25519_montgomery_ladder( fd_f25519_t *       x2,

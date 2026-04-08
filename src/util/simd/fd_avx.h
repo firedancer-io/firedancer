@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_util_simd_fd_avx_h
 #define HEADER_fd_src_util_simd_fd_avx_h
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 
 /* An API for writing vectorized C/C++ code using 8-wide 32-bit ints,
    8-wide 32-bit uints, 8-wide 32-bit floats, 4-wide 64-bit doubles,

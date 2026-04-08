@@ -6,7 +6,7 @@
 
 #include "../../disco/fd_disco_base.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED && defined(__x86_64__)
 
 /* Beyond the standard FD_CNC_SIGNAL_HALT, FD_REPLAY_CNC_SIGNAL_ACK can
    be raised by a cnc thread with an open command session while the

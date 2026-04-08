@@ -35,7 +35,7 @@ field_constant( FILE * file, char const * name, fd_f25519_t * value ) {
 
   fprintf( file, "  { ");
 
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
   for( int i=0; i<6; i++ ) {
     fprintf( file, "0x%016lx, ", value->el[i]);
   }
@@ -127,7 +127,7 @@ field_tables_file( FILE * file ) {
 
 void
 point_const( FILE * file, fd_ed25519_point_t const * value ) {
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
       fprintf( file, "    { ");
       for( int i=0; i<8; i++ ) {
         fprintf( file, "0x%016lx, ", value->P03[i]);
@@ -898,7 +898,7 @@ main( int     argc,
   fd_boot( &argc, &argv );
   char path[256];
 
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
   char const * path_suffix = "avx512";
 #else
   char const * path_suffix = "ref";

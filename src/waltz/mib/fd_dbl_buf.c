@@ -2,7 +2,7 @@
 #include "../../util/log/fd_log.h"
 #include "../../tango/fd_tango_base.h"
 
-#if FD_HAS_SSE
+#if defined(__SSE__)
 #include "../../util/simd/fd_sse.h"
 #endif
 
@@ -111,7 +111,7 @@ fd_dbl_buf_insert( fd_dbl_buf_t * buf,
 
   fd_memcpy( dst, msg, sz );
 
-# if FD_HAS_SSE
+# if defined(__SSE__)
   FD_COMPILER_MFENCE();
   vv_t seq_sz = vv( seq, sz );
   _mm_store_si128( &buf->seq_sz, seq_sz );

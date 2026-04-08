@@ -140,7 +140,7 @@ typedef struct fd_alloc_superblock fd_alloc_superblock_t;
 /* FD_ALLOC_MAGIC is an ideally unique number that specifies the precise
    memory layout of a fd_alloc */
 
-#if FD_HAS_X86 /* Technically platforms with 16B compare-exchange */
+#if defined(__x86_64__) /* Technically platforms with 16B compare-exchange */
 
 #define FD_ALLOC_MAGIC (0xF17EDA2C37A110C1UL) /* FIRE DANCER ALLOC version 1 */
 

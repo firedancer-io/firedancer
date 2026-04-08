@@ -3,7 +3,7 @@
 
 #include "fd_aes_gcm.h"
 
-#if FD_HAS_AESNI
+#if defined(__AES__)
 
 #include "../../util/simd/fd_sse.h"
 
@@ -160,9 +160,9 @@ fd_aes_gcm_decrypt_aesni( fd_aes_gcm_aesni_t * aes_gcm,
   return aes_gcm_dec_final_aesni( aes_gcm, le_ctr, ghash_acc, aad_sz, sz, tag, 16 );
 }
 
-#endif /* FD_HAS_AESNI */
+#endif /* defined(__AES__) */
 
-#if FD_HAS_AVX && FD_HAS_AESNI
+#if defined(__AVX2__) && defined(__AES__)
 
 __attribute__((sysv_abi)) extern void
 aes_gcm_precompute_aesni_avx( fd_aes_gcm_aesni_t * key );
@@ -245,9 +245,9 @@ fd_aes_gcm_decrypt_avx2( fd_aes_gcm_aesni_t * aes_gcm,
   return aes_gcm_dec_final_aesni_avx( aes_gcm, le_ctr, ghash_acc, aad_sz, sz, tag, 16 );
 }
 
-#endif /* FD_HAS_AVX && FD_HAS_AESNI */
+#endif /* defined(__AVX2__) && defined(__AESNI__) */
 
-#if FD_HAS_AVX512 && FD_HAS_GFNI && FD_HAS_AESNI
+#if defined(__AVX512BW__) && defined(__GFNI__) && defined(__AES__)
 
 __attribute__((sysv_abi)) extern void
 aes_gcm_precompute_vaes_avx10_512( fd_aes_gcm_avx10_t * key );
@@ -339,4 +339,4 @@ fd_aes_gcm_decrypt_avx10_512( fd_aes_gcm_avx10_t * aes_gcm,
   return aes_gcm_dec_final_vaes_avx10( aes_gcm, le_ctr, ghash_acc, aad_sz, sz, tag, 16 );
 }
 
-#endif /* FD_HAS_AVX512 && FD_HAS_GFNI && FD_HAS_AESNI */
+#endif /* defined(__AVX512BW__) && defined(__GFNI__) && defined(__AESNI__) */

@@ -806,7 +806,7 @@ send_shred( fd_shred_ctx_t                 * ctx,
   hdr->udp->net_dport = fd_ushort_bswap( dest->port );
 
   ulong shred_sz = fd_ulong_if( is_data, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
-#if FD_HAS_AVX
+#if defined(__AVX2__)
   /* We're going to copy this shred potentially a bunch of times without
      reading it again, and we'd rather not thrash our cache, so we want
      to use non-temporal writes here.  We need to make sure we don't
@@ -821,7 +821,7 @@ send_shred( fd_shred_ctx_t                 * ctx,
   ulong end_offset = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
   ulong i;
   for( i=64UL; end_offset-i<64UL; i+=64UL ) {
-#  if FD_HAS_AVX512
+#  if defined(__AVX512F__)
     _mm512_stream_si512( (void *)(packet+i     ), _mm512_loadu_si512( (void const *)(src+i     ) ) );
 #  else
     _mm256_stream_si256( (void *)(packet+i     ), _mm256_loadu_si256( (void const *)(src+i     ) ) );

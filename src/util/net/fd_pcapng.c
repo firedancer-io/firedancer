@@ -10,10 +10,6 @@
 
 void
 fd_pcapng_shb_defaults( fd_pcapng_shb_opts_t * opt ) {
-# if FD_HAS_X86
-  opt->hardware = "x86_64";
-# endif
-
 # if defined(__linux__)
   opt->os       = "Linux";
 # endif

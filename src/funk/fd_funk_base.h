@@ -44,7 +44,7 @@
 
 #include "../util/fd_util.h"
 
-#if FD_HAS_X86
+#if defined(__SSE2__)
 #include <immintrin.h>
 #endif
 
@@ -109,7 +109,7 @@ union __attribute__((aligned(FD_FUNK_TXN_XID_ALIGN))) fd_funk_txn_xid {
 #if FD_HAS_INT128
   uint128 uf[1];
 #endif
-#if FD_HAS_X86
+#if defined(__SSE2__)
   __m128i xmm[1];
 #endif
 };
@@ -285,7 +285,7 @@ fd_funk_txn_xid_copy( fd_funk_txn_xid_t *       xd,
 static inline fd_funk_txn_xid_t *
 fd_funk_txn_xid_st_atomic( fd_funk_txn_xid_t *       xd,
                            fd_funk_txn_xid_t const * xs ) {
-# if FD_HAS_X86
+# if defined(__SSE2__)
   FD_VOLATILE( xd->xmm[0] ) = xs->xmm[0];
 # elif FD_HAS_INT128
   FD_VOLATILE( xd->uf[0] ) = xs->uf[0];
@@ -298,7 +298,7 @@ fd_funk_txn_xid_st_atomic( fd_funk_txn_xid_t *       xd,
 static inline fd_funk_txn_xid_t *
 fd_funk_txn_xid_ld_atomic( fd_funk_txn_xid_t *       xd,
                            fd_funk_txn_xid_t const * xs ) {
-# if FD_HAS_X86
+# if defined(__SSE2__)
   xd->xmm[0] = FD_VOLATILE_CONST( xs->xmm[0] );
 # elif FD_HAS_INT128
   xd->uf[0] = FD_VOLATILE_CONST( xs->uf[0] );

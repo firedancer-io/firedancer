@@ -636,7 +636,7 @@ fd_double_eq( double x,
    through these annotations. */
 
 #ifndef FD_UNALIGNED_ACCESS_STYLE
-#if FD_HAS_X86
+#if defined(__x86_64__)
 #define FD_UNALIGNED_ACCESS_STYLE 0  /* 1 is broken ... */
 #else
 #define FD_UNALIGNED_ACCESS_STYLE 0

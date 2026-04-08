@@ -143,7 +143,7 @@ vu_insert_variable( vu_t a, int n, uint v ) {
 /* vu_rol(x,n) returns vu( rotate_left (x0,n), rotate_left (x1,n), ... )
    vu_ror(x,n) returns vu( rotate_right(x0,n), rotate_right(x1,n), ... ) */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512VL__)
 #define vu_rol(a,imm)  _mm_rol_epi32( (a), (imm) )
 #define vu_ror(a,imm)  _mm_ror_epi32( (a), (imm) )
 #else

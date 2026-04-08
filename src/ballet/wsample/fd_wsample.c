@@ -1,6 +1,6 @@
 #include "fd_wsample.h"
 #include <math.h> /* For sqrt */
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 #include "../../util/simd/fd_avx512.h"
 #endif
 
@@ -435,7 +435,7 @@ fd_wsample_map_sample_i( fd_wsample_t const * sampler,
     ulong x = query;
     ulong child_idx = 0UL;
 
-#if FD_HAS_AVX512 && R==9
+#if defined(__AVX512F__) && R==9
     __mmask8 mask = _mm512_cmple_epu64_mask( wwv_ld( e->left_sum ), wwv_bcast( x ) );
     child_idx = (ulong)fd_uchar_popcnt( mask );
 #else
@@ -488,7 +488,7 @@ fd_wsample_remove( fd_wsample_t * sampler,
   for( ulong h=0UL; h<sampler->height; h++ ) {
     ulong parent = (cursor-1UL)/R;
     ulong child_idx = cursor-1UL - R*parent; /* in [0, R) */
-#if FD_HAS_AVX512 && R==9
+#if defined(__AVX512F__) && R==9
     wwv_t weight = wwv_bcast( to_remove.weight );
     wwv_t left_sum = wwv_ld( tree[ parent ].left_sum );
     __m128i _child_idx = _mm_set1_epi16( (short) child_idx );
@@ -556,7 +556,7 @@ fd_wsample_remove_idx( fd_wsample_t * sampler,
 }
 
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 
 /* TRAVERSE_LEVEL Takes in and updates s (a vector with all elements set
    to the unremoved weight in the current subtree), x or xprime (a

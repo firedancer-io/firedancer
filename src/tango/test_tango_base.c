@@ -32,7 +32,7 @@ main( int     argc,
   FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->ctl   ))==22UL );
   FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->tsorig))==24UL );
   FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->tspub ))==28UL );
-# if FD_HAS_AVX
+# if defined(__AVX__)
   FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sse0  ))== 0UL );
   FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->sse1  ))==16UL );
   FD_TEST( ((ulong)&(((fd_frag_meta_t *)NULL)->avx   ))== 0UL );
@@ -89,7 +89,7 @@ main( int     argc,
     FD_TEST( fd_frag_meta_ctl( orig, som, eom, err )==ctl );
   }
 
-# if FD_HAS_AVX
+# if defined(__AVX__)
   for( ulong iter=0UL; iter<100000000UL; iter++ ) {
     ulong seq = fd_rng_ulong( rng );
     ulong sig = fd_rng_ulong( rng );

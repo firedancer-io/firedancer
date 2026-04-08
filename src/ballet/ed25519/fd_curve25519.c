@@ -6,7 +6,7 @@
  */
 #include "fd_curve25519_secure.c"
 
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
 #include "avx512/fd_curve25519.c"
 #else
 #include "ref/fd_curve25519.c"

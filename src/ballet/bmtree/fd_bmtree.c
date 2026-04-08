@@ -42,7 +42,7 @@
 #define SET_NAME ipfset
 #include "../../util/tmpl/fd_smallset.c"
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #include <x86intrin.h>
 #endif
 
@@ -114,7 +114,7 @@ fd_bmtree_private_merge( fd_bmtree_node_t       * node,
      up tree construction low tens of percent in the large number of
      small leaves limit). */
 
-# if FD_HAS_AVX
+# if defined(__AVX2__)
 
   __m256i avx_pre = _mm256_load_si256 ( (__m256i const *)fd_bmtree_node_prefix );
   __m256i avx_a   = _mm256_loadu_si256( (__m256i const *)a           );
@@ -128,7 +128,7 @@ fd_bmtree_private_merge( fd_bmtree_node_t       * node,
 
   fd_sha256_hash( mem, prefix_sz+2UL*hash_sz, node );
 
-  /* Consider FD_HAS_SSE only variant? */
+  /* Consider SSE only variant? */
 
 # else
 

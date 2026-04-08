@@ -121,7 +121,7 @@ test_small_fixtures( void ) {
   fd_blake3_delete( fd_blake3_leave( blake ) );
 }
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 
 static void
 test_avx_compress8_fast( void ) {
@@ -227,9 +227,9 @@ test_avx_compress8_xof2048_seq( void ) {
   }
 }
 
-#endif /* FD_HAS_AVX */
+#endif /* defined(__AVX2__) */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 
 static void
 test_avx512_compress16_fast( void ) {
@@ -329,7 +329,7 @@ test_avx512_compress16_xof2048_seq( void ) {
   }
 }
 
-#endif /* FD_HAS_AVX512 */
+#endif /* defined(__AVX512F__) */
 
   /* Run through random preimage tests */
 
@@ -580,7 +580,7 @@ bench_streamlined( void ) {
   }
 }
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 
 static void
 bench_avx512_compress16_fast( void ) {
@@ -651,7 +651,7 @@ bench_avx512_lthash( void ) {
 
 #endif
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 
 static void
 bench_avx_compress8_fast( void ) {
@@ -723,7 +723,7 @@ bench_avx_lthash( void ) {
 
 #endif
 
-#if FD_HAS_SSE
+#if defined(__SSE4_2__)
 
 static void
 bench_sse_compress1( void ) {
@@ -745,7 +745,7 @@ bench_sse_compress1( void ) {
   } while(0);
 }
 
-#endif /* FD_HAS_SSE */
+#endif /* defined(__SSE4_2__) */
 
 static void
 bench_ref_compress1( void ) {
@@ -779,13 +779,13 @@ static struct test_fn const tests[] = {
   { "reduced",          test_reduced },
   { "reduced xof2048",  test_reduced_xof2048 },
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
   { "test avx512_compress16_fast",         test_avx512_compress16_fast },
   { "test avx512_compress16",              test_avx512_compress16 },
   { "test avx512_compress16_xof2048_para", test_avx512_compress16_xof2048_para },
   { "test avx512_compress16_xof2048_seq",  test_avx512_compress16_xof2048_seq },
 #endif
-#if FD_HAS_AVX
+#if defined(__AVX2__)
   { "test avx_compress8_fast",         test_avx_compress8_fast },
   { "test avx_compress8",              test_avx_compress8 },
   { "test avx_compress8_xof2048_para", test_avx_compress8_xof2048_para },
@@ -795,17 +795,17 @@ static struct test_fn const tests[] = {
   { "bench incremental",            bench_incremental },
   { "bench streamlined",            bench_streamlined },
   { "bench incremental xof 2048",   bench_incremental_xof_2048 },
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
   { "bench avx512_compress16_fast", bench_avx512_compress16_fast },
   { "bench avx512_compress16",      bench_avx512_compress16 },
   { "bench avx512_lthash",          bench_avx512_lthash },
 #endif
-#if FD_HAS_AVX
+#if defined(__AVX2__)
   { "bench avx_compress8_fast",     bench_avx_compress8_fast },
   { "bench avx_compress8",          bench_avx_compress8 },
   { "bench avx_lthash",             bench_avx_lthash },
 #endif
-#if FD_HAS_SSE
+#if defined(__SSE4_2__)
   { "bench sse_compress1",          bench_sse_compress1 },
 #endif
   { "bench ref_compress1",          bench_ref_compress1 },

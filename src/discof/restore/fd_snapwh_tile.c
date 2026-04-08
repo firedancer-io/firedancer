@@ -216,7 +216,7 @@ handle_data_frag( fd_snapwh_t * ctx,
     }
 
     if( FD_UNLIKELY( ( pair_cnt==PAIR_HASH_N ) || ( !rem_sz ) ) ) {
-#     if FD_HAS_AVX512 && defined(__AVX512DQ__)
+#     if defined(__AVX512DQ__)
       ulong        h_seed [PAIR_HASH_N] = {0};
       ulong        h_trail[PAIR_HASH_N]; /* no initialization needed */
       ulong        h_block[PAIR_HASH_N]; /* no initialization needed */

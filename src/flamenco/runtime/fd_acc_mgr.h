@@ -5,7 +5,7 @@
 
 #include "../types/fd_types_custom.h"
 
-#if FD_HAS_AVX
+#if defined(__AVX__)
 #include "../../util/simd/fd_avx.h"
 #endif
 
@@ -38,7 +38,7 @@ fd_account_meta_exists( fd_account_meta_t const * m ) {
 
   if( !m ) return 0;
 
-# if FD_HAS_AVX
+# if defined(__AVX2__)
   wl_t o = wl_ldu( m->owner );
   int has_owner = !_mm256_testz_si256( o, o );
 # else

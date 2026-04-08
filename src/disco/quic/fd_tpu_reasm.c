@@ -274,9 +274,9 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
   txnm->source_ipv4 = source_ipv4;
   txnm->source_tpu  = source_tpu;
 
-# if FD_HAS_AVX
+# if defined(__AVX__)
   fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
-# elif FD_HAS_SSE
+# elif defined(__SSE__)
   fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
 # else
   fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
@@ -376,9 +376,9 @@ fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
   ulong ctl         = fd_frag_meta_ctl( reasm->orig, 1, 1, 0 );
   uint  tsorig_comp = slot->tsorig_comp;
   uint  tspub_comp  = (uint)fd_frag_meta_ts_comp( tspub );
-# if FD_HAS_AVX
+# if defined(__AVX__)
   fd_mcache_publish_avx( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
-# elif FD_HAS_SSE
+# elif defined(__SSE__)
   fd_mcache_publish_sse( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );
 # else
   fd_mcache_publish    ( mcache, depth, seq, 0UL, chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), ctl, tsorig_comp, tspub_comp );

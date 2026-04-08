@@ -14,9 +14,9 @@
     - noarch128  => 16
     - noarch(64) =>  8 */
 
- #if FD_HAS_AVX512
+ #if defined(__AVX512F__)
  #define FD_ALIGN (64UL)
- #elif FD_HAS_AVX
+ #elif defined(__AVX2__)
  #define FD_ALIGN (32UL)
  #elif FD_HAS_INT128
  #define FD_ALIGN (16UL)

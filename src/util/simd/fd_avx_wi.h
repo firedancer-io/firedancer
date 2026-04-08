@@ -167,7 +167,7 @@ wi_insert_variable( wi_t a, int n, int v ) {
 /* wi_rol(x,n) returns wi( rotate_left (x0,n), rotate_left (x1,n), ... )
    wi_ror(x,n) returns wi( rotate_right(x0,n), rotate_right(x1,n), ... ) */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512VL__)
 #define wi_rol(a,imm)  _mm256_rol_epi32( (a), (imm) )
 #define wi_ror(a,imm)  _mm256_ror_epi32( (a), (imm) )
 #else

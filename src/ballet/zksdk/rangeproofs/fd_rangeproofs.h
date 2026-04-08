@@ -3,7 +3,7 @@
 
 #include "fd_rangeproofs_transcript.h"
 
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
 #include "./fd_rangeproofs_table_avx512.c"
 #else
 #include "./fd_rangeproofs_table_ref.c"

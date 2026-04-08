@@ -232,7 +232,7 @@ test_zero( void ) {
   FD_TEST( table_without_0_tbl[ 1 ].key );
 }
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 #include "../simd/fd_avx512.h"
 uint find32( uint vals[ static 32 ],
              ulong cnt              ) {
@@ -309,7 +309,7 @@ main( int     argc,
   test_permutation_idx();/* Has value, complex key */
   test_zero();
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
   uint sysvars[ 16 ] __attribute__((aligned(64)))
                      = { 1083391431U, 1602521824U, 2556646952U, 3789714888U, 3815109318U,
                          2145702658U, 3210257666U,  624709763U, 1288277025U, 3013340670U,

@@ -7,7 +7,7 @@
 
 #include <math.h> /* FIXME: HMMM */
 #include "../log/fd_log.h"
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #include "../simd/fd_avx.h"
 #endif
 
@@ -132,7 +132,7 @@ fd_histf_sample( fd_histf_t * hist,
                  ulong        value ) {
   hist->sum += value;
   long shifted_v = (long)(value - (1UL<<63));
-#if FD_HAS_AVX
+#if defined(__AVX2__)
   wl_t x = wl_bcast( shifted_v );
   /* !(x-2^63 < left_edge[i]) & (x-2^63 < left_edge[i+1])  <=>
      left_edge[i] <= x-2^63 < left_edge[i+1] */

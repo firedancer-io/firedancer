@@ -89,11 +89,11 @@ main( int     argc,
     FD_LOG_NOTICE(( "  ~%7.3f Gbps / core", gbps ));                   \
   } while(0);
 
-# if FD_HAS_AVX512
+# if defined(__AVX512F__)
   REFILL_TEST( fd_chacha8_rng_refill_avx512,  16*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
   REFILL_TEST( fd_chacha20_rng_refill_avx512, 16*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 # endif
-# if FD_HAS_AVX
+# if defined(__AVX2__)
   REFILL_TEST( fd_chacha8_rng_refill_avx,      8*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA8  );
   REFILL_TEST( fd_chacha20_rng_refill_avx,     8*FD_CHACHA_BLOCK_SZ, FD_CHACHA_RNG_ALGO_CHACHA20 );
 # endif
@@ -142,7 +142,7 @@ main( int     argc,
     fd_chacha20_rng_refill_seq( rng );
     FD_TEST( !memcmp( rng->buf, ref_block, 64 ) );
 
-#   if FD_HAS_AVX
+#   if defined(__AVX2__)
     FD_TEST( fd_chacha_rng_init( rng, key_ref, FD_CHACHA_RNG_ALGO_CHACHA20 ) );
     rng->buf_off  = pos;
     rng->buf_fill = pos;
@@ -150,7 +150,7 @@ main( int     argc,
     FD_TEST( !memcmp( rng->buf, ref_block, 64 ) );
 #   endif
 
-#   if FD_HAS_AVX512
+#   if defined(__AVX512F__)
     FD_TEST( fd_chacha_rng_init( rng, key_ref, FD_CHACHA_RNG_ALGO_CHACHA20 ) );
     rng->buf_off  = pos;
     rng->buf_fill = pos;

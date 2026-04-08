@@ -16,11 +16,11 @@
      3 - GFNI accelerated with AVX512 */
 
 #ifndef FD_REEDSOL_ARITH_IMPL
-#if FD_HAS_GFNI && FD_HAS_AVX512
+#if defined(__GFNI__) && defined(__AVX512BW__)
 #define FD_REEDSOL_ARITH_IMPL 3
-#elif FD_HAS_GFNI
+#elif defined(__GFNI__) && defined(__AVX2__)
 #define FD_REEDSOL_ARITH_IMPL 2
-#elif FD_HAS_AVX
+#elif defined(__AVX2__)
 #define FD_REEDSOL_ARITH_IMPL 1
 #else
 #define FD_REEDSOL_ARITH_IMPL 0
@@ -77,7 +77,7 @@ fd_reedsol_private_encode_128( ulong                 shred_sz,
                                uchar       * const * parity_shred,
                                ulong                 parity_shred_cnt );
 
-#if FD_HAS_GFNI
+#if defined(__GFNI__)
 void
 fd_reedsol_private_encode_32_32( ulong                 shred_sz,
                                  uchar const * const * data_shred,

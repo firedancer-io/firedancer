@@ -175,7 +175,7 @@ fd_quic_log_tx_submit( fd_quic_log_tx_t * tx,
   ulong            chunk0  = tx->chunk0;
   uint             wmark   = tx->wmark;
 
-#if FD_HAS_SSE
+#if defined(__SSE__)
 #define fd_quic_log_publish fd_mcache_publish_sse
 #else
 #define fd_quic_log_publish fd_mcache_publish

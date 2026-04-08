@@ -535,7 +535,7 @@ MAKE_TESTS(64,64    )
 
 #undef MAKE_TESTS
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 
 #include "fd_base58_avx.h"
 
@@ -693,7 +693,7 @@ test_ten_per_slot_down( void ) {
   }
 }
 
-#endif /* FD_HAS_AVX */
+#endif /* defined(__AVX2__) */
 
 int
 main( int     argc,
@@ -703,7 +703,7 @@ main( int     argc,
   ulong cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--cnt", NULL, 100000UL );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-# if FD_HAS_AVX
+# if defined(__AVX2__)
   FD_LOG_NOTICE(( "Testing AVX internals" ));
   test_intermediate_to_raw();
   test_raw_to_base58();

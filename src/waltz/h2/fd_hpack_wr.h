@@ -9,7 +9,7 @@
 
 #define FD_HPACK_INDEXED_SHORT( val ) ((uchar)( 0x80|(val) ))
 
-#if FD_HAS_X86
+#if defined(__BMI2__)
 #include <immintrin.h>
 #endif
 
@@ -29,7 +29,7 @@ fd_hpack_wr_varint(
   } else {
     code[0] = (uchar)( prefix|addend );
     ulong tail = number-addend;
-#if FD_HAS_X86 && defined(__BMI2__)
+#if defined(__BMI2__)
     ulong enc = _pdep_u64( tail, 0x7f7f7f7f7f7f7f7fUL );
 #else
     ulong enc =

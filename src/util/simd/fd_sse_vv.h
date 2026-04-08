@@ -134,7 +134,7 @@ vv_insert_variable( vv_t a, int n, ulong v ) {
 /* vv_rol(x,n) returns vv( rotate_left (x0,n), rotate_left (x1,n), ... )
    vv_ror(x,n) returns vv( rotate_right(x0,n), rotate_right(x1,n), ... ) */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512VL__)
 #define vv_rol(a,imm)  _mm_rol_epi64( (a), (imm) )
 #define vv_ror(a,imm)  _mm_ror_epi64( (a), (imm) )
 #else

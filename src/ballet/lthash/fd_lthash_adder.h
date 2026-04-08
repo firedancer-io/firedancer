@@ -83,9 +83,9 @@ fd_lthash_adder_push( fd_lthash_adder_t * adder,
   adder->batch_sz[ batch_idx ] = (uint)input_sz;
 
   if( batch_idx+1>=FD_LTHASH_ADDER_PARA_CNT ) {
-# if FD_HAS_AVX512
+# if defined(__AVX512F__)
     fd_blake3_lthash_batch16( (void const **)fd_type_pun_const( adder->batch_ptrs ), adder->batch_sz, value->words );
-# elif FD_HAS_AVX
+# elif defined(__AVX2__)
     fd_blake3_lthash_batch8 ( (void const **)fd_type_pun_const( adder->batch_ptrs ), adder->batch_sz, value->words );
 # endif
     adder->batch_cnt = 0;
@@ -167,9 +167,9 @@ fd_lthash_adder_push_solana_account(
   adder->batch_sz[ batch_idx ] = (uint)( p-slot );
 
   if( batch_idx+1>=FD_LTHASH_ADDER_PARA_CNT ) {
-# if FD_HAS_AVX512
+# if defined(__AVX512F__)
     fd_blake3_lthash_batch16( (void const **)fd_type_pun_const( adder->batch_ptrs ), adder->batch_sz, value->words );
-# elif FD_HAS_AVX
+# elif defined(__AVX2__)
     fd_blake3_lthash_batch8 ( (void const **)fd_type_pun_const( adder->batch_ptrs ), adder->batch_sz, value->words );
 # endif
     adder->batch_cnt = 0;
