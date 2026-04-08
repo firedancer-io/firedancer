@@ -13,6 +13,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
 
@@ -73,6 +74,17 @@ struct out_link {
 };
 typedef struct out_link out_link_t;
 
+/* Slim vote_stakes entry holding only the fields needed for epoch
+   info messages (vote pubkey, identity pubkey, and stake amount).
+   This avoids storing the full fd_snapshot_manifest_vote_stakes_t
+   which contains large epoch_credits arrays. */
+struct fd_snapshot_vote_stakes_slim {
+  uchar vote    [ 32UL ];
+  uchar identity[ 32UL ];
+  ulong stake;
+};
+typedef struct fd_snapshot_vote_stakes_slim fd_snapshot_vote_stakes_slim_t;
+
 struct fd_capture_tile_ctx {
   uchar               in_kind[ 32 ];
   fd_capture_in_ctx_t in_links[ 32 ];
@@ -128,6 +140,15 @@ struct fd_capture_tile_ctx {
 
   fd_alloc_t * alloc;
   uchar contact_info_buffer[ MAX_BUFFER_SIZE ];
+
+  /* Slim vote_stakes buffers for epoch info message publishing.
+     vote_stakes_slim[0] holds entries for epoch_idx 0 (current epoch),
+     vote_stakes_slim[1] holds entries for epoch_idx 1 (next epoch).
+     Populated during manifest parsing via the parser's polling
+     interface.  Entries with zero stake are filtered during
+     accumulation. */
+  fd_snapshot_vote_stakes_slim_t vote_stakes_slim[2][ FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ];
+  ulong                         vote_stakes_slim_len[2];
 };
 typedef struct fd_capture_tile_ctx fd_capture_tile_ctx_t;
 
@@ -213,15 +234,69 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static inline ulong
+generate_epoch_info_msg_slim( ulong                                    epoch,
+                              fd_epoch_schedule_t const *              epoch_schedule,
+                              fd_snapshot_vote_stakes_slim_t const *   entries,
+                              ulong                                    entries_len,
+                              ulong *                                  epoch_info_msg_out ) {
+  fd_epoch_info_msg_t *    epoch_info_msg = (fd_epoch_info_msg_t *)fd_type_pun( epoch_info_msg_out );
+  fd_vote_stake_weight_t * stake_weights  = fd_epoch_info_msg_stake_weights( epoch_info_msg );
+
+  epoch_info_msg->epoch             = epoch;
+  epoch_info_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( epoch_schedule, epoch );
+  epoch_info_msg->excluded_id_stake = 0UL;
+
+  /* Set all features as deactivated as we don't have available feature info from manifest. */
+  fd_memset( &epoch_info_msg->features, 0xFF, sizeof(fd_features_t) );
+
+  ulong idx = 0UL;
+  for( ulong i=0UL; i<entries_len; i++ ) {
+    ulong stake = entries[ i ].stake;
+    if( FD_UNLIKELY( !stake ) ) continue;
+    stake_weights[ idx ].stake = stake;
+    memcpy( stake_weights[ idx ].id_key.uc,   entries[ i ].identity, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, entries[ i ].vote,     sizeof(fd_pubkey_t) );
+    idx++;
+  }
+  epoch_info_msg->staked_vote_cnt = idx;
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
+
+  fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
+  epoch_info_msg->staked_id_cnt = compute_id_weights_from_vote_weights( id_weights, stake_weights, epoch_info_msg->staked_vote_cnt );
+
+  FD_TEST( idx<=MAX_SHRED_DESTS );
+
+  epoch_info_msg->epoch_schedule = *epoch_schedule;
+
+  return fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt, epoch_info_msg->staked_id_cnt );
+}
+
 static void
-publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx FD_PARAM_UNUSED,
-                                fd_stem_context_t *    stem FD_PARAM_UNUSED,
-                                fd_snapshot_manifest_t const * manifest FD_PARAM_UNUSED ) {
-  /* Vote stakes data is now processed on-the-fly during parsing and
-     is no longer stored in the manifest struct.  Stake weight
-     publishing from the manifest is not supported.  This is a no-op
-     until shredcap is updated to read stake weights from the bank. */
-  FD_LOG_WARNING(( "stake weight publishing from manifest is not supported; vote_stakes are processed on-the-fly" ));
+publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
+                                fd_stem_context_t *     stem,
+                                fd_snapshot_manifest_t const * manifest ) {
+  fd_epoch_schedule_t const * schedule = fd_type_pun_const( &manifest->epoch_schedule_params );
+  ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
+
+  /* current epoch */
+  ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+  ulong stake_weights_sz = generate_epoch_info_msg_slim( epoch, schedule,
+      ctx->vote_stakes_slim[0], ctx->vote_stakes_slim_len[0], stake_weights_msg );
+  ulong stake_weights_sig = 4UL;
+  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+  FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+
+  /* next epoch */
+  stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+  stake_weights_sz = generate_epoch_info_msg_slim( epoch + 1, schedule,
+      ctx->vote_stakes_slim[1], ctx->vote_stakes_slim_len[1], stake_weights_msg );
+  stake_weights_sig = 4UL;
+  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+  FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
 }
 
 static inline int
@@ -411,9 +486,46 @@ after_credit( fd_capture_tile_ctx_t * ctx,
                 fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
         FD_TEST( parser );
         fd_ssmanifest_parser_init( parser, manifest );
-        int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL, NULL );
-        FD_TEST( parser_err==1 );
-        // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
+
+        /* Parse the manifest, draining vote_stakes entries on-the-fly
+           into slim buffers for later epoch info message publishing. */
+        ctx->vote_stakes_slim_len[0] = 0UL;
+        ctx->vote_stakes_slim_len[1] = 0UL;
+
+        uchar const * parse_buf = buf;
+        ulong         parse_rem = buf_sz;
+        for(;;) {
+          ulong bytes_consumed = 0UL;
+          int res = fd_ssmanifest_parser_consume( parser, parse_buf, parse_rem, NULL, NULL, &bytes_consumed );
+          parse_buf += bytes_consumed;
+          parse_rem -= bytes_consumed;
+
+          /* Drain any ready vote_stakes entry into slim buffers */
+          if( fd_ssmanifest_parser_vote_stakes_ready( parser ) ) {
+            fd_snapshot_manifest_vote_stakes_t const * vs = fd_ssmanifest_parser_vote_stakes_peek( parser );
+            ulong eidx = fd_ssmanifest_parser_vote_stakes_epoch_idx( parser );
+
+            /* Buffer entries for epoch_idx 0 and 1 only (current and
+               next epoch).  epoch_idx 2 entries are not needed for
+               epoch info messages. */
+            if( eidx<2UL && vs->stake!=0UL ) {
+              ulong * len = &ctx->vote_stakes_slim_len[ eidx ];
+              if( *len < FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ) {
+                fd_snapshot_vote_stakes_slim_t * dst = &ctx->vote_stakes_slim[ eidx ][ *len ];
+                fd_memcpy( dst->vote,     vs->vote,     32UL );
+                fd_memcpy( dst->identity, vs->identity,  32UL );
+                dst->stake = vs->stake;
+                (*len)++;
+              }
+            }
+            fd_ssmanifest_parser_vote_stakes_done( parser );
+          }
+
+          if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) break;
+          if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+            FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed" ));
+          }
+        }
       } FD_SPAD_FRAME_END;
       FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->slot ));
 

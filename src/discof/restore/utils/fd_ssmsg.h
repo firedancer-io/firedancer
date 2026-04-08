@@ -9,11 +9,8 @@
 #define FD_SSMSG_DONE                 (2) /* Indicates the snapshot is fully loaded and tiles are shutting down */
 #define FD_SSMSG_EXPECTED_SLOT        (3) /* Expected rooted slot from incremental snapshot */
 
-/* Maximum number of vote accounts in snapshot manifest arrays.
-   This is a practical upper bound (not the protocol maximum which is
-   FD_RUNTIME_MAX_VOTE_ACCOUNTS = 19M).  The value 40200 comes from
-   the gossip protocol's weighted-for-stake (WFS) peers limit. */
-#define FD_SNAPSHOT_MAX_VOTE_ACCOUNTS (40200UL)
+/* Maximum number of vote accounts in snapshot manifest arrays. */
+#define FD_SNAPSHOT_MAX_VOTE_ACCOUNTS FD_RUNTIME_MAX_VOTE_ACCOUNTS
 
 FD_FN_CONST static inline ulong
 fd_ssmsg_sig( ulong message ) {
@@ -55,12 +52,6 @@ struct fd_snapshot_manifest_vote_account {
   uchar node_account_pubkey[ 32UL ];
 
   ulong stake;
-
-  /* The percent of inflation rewards earned by the validator and
-     deposited into the validator's vote account, from 0 to 100%.
-     The remaning percentage of inflation rewards is distributed to
-     all delegated stake accounts by stake weight. */
-  ushort commission;
 };
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
