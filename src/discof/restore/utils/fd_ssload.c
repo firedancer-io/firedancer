@@ -225,9 +225,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
 
-  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
-  fd_vote_rewards_map_reset( vote_ele_map );
-
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_init( top_votes_t_1 );
@@ -235,8 +232,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   ulong t_1_idx = manifest->epoch_stakes[2].vote_stakes_len==0UL ? 1UL : 2UL;
   ulong t_2_idx = manifest->epoch_stakes[2].vote_stakes_len==0UL ? 0UL : 1UL;
-  FD_LOG_WARNING(("T_1_IDX %lu", t_1_idx));
-
 
   bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
 
@@ -244,16 +239,12 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      vote_ele with epoch credits and commission from start of E. */
   for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
-    fd_memcpy( vote_ele->pubkey.uc, elem->vote, 32UL );
-    vote_ele->commission = (uchar)elem->commission;
-    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
     fd_vote_stakes_root_insert_key(
         vote_stakes,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
-        vote_ele->commission,
+        (uchar)elem->commission, /* TODO:FIXME: is this safe??? */
         bank->f.epoch );
 
     if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
@@ -276,9 +267,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      commission with the E-1 value and populates top_votes_t_2. */
   for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
-
-    fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (const fd_pubkey_t *)elem->vote, NULL, runtime_stack->stakes.vote_ele );
-    if( FD_LIKELY( vote_ele ) ) vote_ele->commission = (uchar)elem->commission;
 
     if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
       if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
@@ -305,12 +293,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
     fd_memcpy( runtime_stack->stakes.snapshot_commission_t_3[i].pubkey.uc, elem->vote, 32UL );
     runtime_stack->stakes.snapshot_commission_t_3[i].commission = (uchar)elem->commission;
-  }
-  runtime_stack->stakes.snapshot_commission_t_1_cnt = manifest->epoch_stakes[t_1_idx].vote_stakes_len;
-  for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
-    fd_memcpy( runtime_stack->stakes.snapshot_commission_t_1[i].pubkey.uc, elem->vote, 32UL );
-    runtime_stack->stakes.snapshot_commission_t_1[i].commission = (uchar)elem->commission;
   }
 
   bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
