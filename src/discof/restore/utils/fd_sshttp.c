@@ -136,6 +136,7 @@ fd_sshttp_init( fd_sshttp_t * http,
                 int           is_https,
                 char const *  path,
                 ulong         path_len,
+                ulong         hops,
                 long          now ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
@@ -150,7 +151,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 #endif
   }
 
-  http->hops         = 4UL;
+  if( hops!=ULONG_MAX ) http->hops = hops;
   http->request_sent = 0UL;
   if( FD_LIKELY( is_https ) ) {
     FD_TEST( fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
@@ -317,7 +318,7 @@ static int
 setup_redirect( fd_sshttp_t * http,
               long          now ) {
   fd_sshttp_cancel( http );
-  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, now ) ) ) {
+  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, ULONG_MAX, now ) ) ) {
     return FD_SSHTTP_ADVANCE_ERROR;
   }
   return FD_SSHTTP_ADVANCE_AGAIN;
@@ -518,7 +519,7 @@ follow_redirect( fd_sshttp_t *        http,
   } else {
     if( FD_LIKELY( !fd_sshttp_fuzz ) ) {
       fd_sshttp_cancel( http );
-      if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, now ) ) ) {
+      if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, ULONG_MAX, now ) ) ) {
         return FD_SSHTTP_ADVANCE_ERROR;
       }
     } else {
