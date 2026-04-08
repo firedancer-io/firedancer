@@ -19,8 +19,11 @@
 #include "fd_vote_program.h"
 #include "vote/fd_vote_codec.h"
 #include "vote/fd_authorized_voters.h"
+#include "vote/fd_vote_state_v3.h"
+#include "vote/fd_vote_state_v4.h"
+#include "vote/fd_vote_state_versioned.h"
 
-#include <stdlib.h> // ARM64: malloc(3), free(3)
+#include <stdlib.h>
 
 #define TEST_SLOTS_PER_EPOCH       (3UL)
 #define TEST_ACC_POOL_ACCOUNT_CNT  (32UL)
@@ -606,6 +609,1114 @@ test_vote_instruction_footprints( void ) {
   FD_LOG_NOTICE(( "test_vote_instruction_footprints... ok" ));
 }
 
+/**********************************************************************/
+/* Helpers for unit tests below                                       */
+/**********************************************************************/
+
+/* A minimal ctx mock: only txn_out is valid.
+   Used for functions that only write ctx->txn_out->err.custom_err. */
+static void
+make_mock_ctx( fd_txn_out_t * txn_out, fd_exec_instr_ctx_t * ctx ) {
+  fd_memset( txn_out, 0, sizeof(*txn_out) );
+  fd_memset( ctx,     0, sizeof(*ctx)     );
+  ctx->txn_out = txn_out;
+}
+
+/* Build a V3 vote state in *versioned using the given pubkey as all
+   identities and the given epoch as the initial clock epoch. */
+static void
+make_v3_state( fd_vote_state_versioned_t * versioned,
+               fd_pubkey_t const *         pubkey,
+               ulong                       clock_epoch ) {
+  fd_vote_init_t vote_init = {
+    .authorized_voter    = *pubkey,
+    .authorized_withdrawer = *pubkey,
+    .node_pubkey         = *pubkey,
+    .commission          = 0
+  };
+  fd_sol_sysvar_clock_t clock = { .epoch = clock_epoch };
+  fd_vote_program_v3_create_new( &vote_init, &clock, versioned );
+}
+
+/* Build a V4 vote state in *versioned.  vote_pubkey is the vote account
+   key (used to populate inflation_rewards_collector). */
+static void
+make_v4_state( fd_vote_state_versioned_t * versioned,
+               fd_pubkey_t const *         vote_pubkey,
+               fd_pubkey_t const *         pubkey,
+               ulong                       clock_epoch ) {
+  fd_vote_init_t vote_init = {
+    .authorized_voter      = *pubkey,
+    .authorized_withdrawer = *pubkey,
+    .node_pubkey           = *pubkey,
+    .commission            = 0
+  };
+  fd_sol_sysvar_clock_t clock = { .epoch = clock_epoch };
+  fd_vote_state_v4_create_new_with_defaults( vote_pubkey, &vote_init, &clock, versioned );
+}
+
+/* Count the number of entries in the authorized_voters treap. */
+static ulong
+authorized_voters_len_v3( fd_vote_state_v3_t const * v3 ) {
+  return fd_vote_authorized_voters_treap_ele_cnt( v3->authorized_voters.treap );
+}
+static ulong
+authorized_voters_len_v4( fd_vote_state_v4_t const * v4 ) {
+  return fd_vote_authorized_voters_treap_ele_cnt( v4->authorized_voters.treap );
+}
+
+/* Get total credits from the epoch_credits deque (credits of last entry). */
+static ulong
+total_credits( fd_vote_state_versioned_t * versioned ) {
+  fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( versioned );
+  if( deq_fd_vote_epoch_credits_t_empty( ec ) ) return 0UL;
+  return deq_fd_vote_epoch_credits_t_peek_tail_const( ec )->credits;
+}
+
+/**********************************************************************/
+/* Group 1: Size / constant tests                                     */
+/* Ports: test_v3_v4_size_equality                                    */
+/**********************************************************************/
+
+static void
+test_v3_v4_size_equality( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L2255 */
+  FD_TEST( FD_VOTE_STATE_V3_SZ == FD_VOTE_STATE_V4_SZ );
+  /* V1_14_11 is smaller than V3 */
+  FD_TEST( FD_VOTE_STATE_V2_SZ < FD_VOTE_STATE_V3_SZ );
+  FD_LOG_NOTICE(( "test_v3_v4_size_equality... ok" ));
+}
+
+/**********************************************************************/
+/* Group 2: get_and_update_authorized_voter tests                     */
+/* Ports: test_get_and_update_authorized_voter_v3                     */
+/*        test_get_and_update_authorized_voter_v4                     */
+/**********************************************************************/
+
+static void
+test_get_and_update_authorized_voter_v3( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1384 */
+  fd_pubkey_t original_voter = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t new_voter      = {{ 0x02,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_vote_state_versioned_t versioned[1];
+  make_v3_state( versioned, &original_voter, 0 );
+  fd_vote_state_v3_t * v3 = &versioned->v3;
+
+  FD_TEST( authorized_voters_len_v3( v3 ) == 1 );
+
+  /* Querying epoch 1 should still return original_voter */
+  fd_pubkey_t * out = NULL;
+  FD_TEST( fd_vote_state_v3_get_and_update_authorized_voter( v3, 1, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &original_voter ) );
+
+  /* Query at epoch 5 — original_voter still valid, epochs 0..5 purged */
+  FD_TEST( fd_vote_state_v3_get_and_update_authorized_voter( v3, 5, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &original_voter ) );
+  FD_TEST( authorized_voters_len_v3( v3 ) == 1 );
+  for( ulong i=0; i<5; i++ ) {
+    FD_TEST( !fd_authorized_voters_contains( &v3->authorized_voters, i ) );
+  }
+
+  /* Set a new voter for epoch 7 */
+  fd_txn_out_t txn_out[1]; fd_exec_instr_ctx_t ctx[1];
+  make_mock_ctx( txn_out, ctx );
+  FD_TEST( fd_vote_state_v3_set_new_authorized_voter(
+    ctx, v3, &new_voter, 5, 7, NULL, 1, NULL, 0 ) == FD_EXECUTOR_INSTR_SUCCESS );
+
+  /* Epoch 6 → original_voter */
+  FD_TEST( fd_vote_state_v3_get_and_update_authorized_voter( v3, 6, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &original_voter ) );
+
+  /* Epochs 7..9 → new_voter */
+  for( ulong i=7; i<10; i++ ) {
+    FD_TEST( fd_vote_state_v3_get_and_update_authorized_voter( v3, i, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( fd_pubkey_eq( out, &new_voter ) );
+  }
+
+  /* After advancing to epoch 9, only one entry remains */
+  FD_TEST( authorized_voters_len_v3( v3 ) == 1 );
+
+  FD_LOG_NOTICE(( "test_get_and_update_authorized_voter_v3... ok" ));
+}
+
+static void
+test_get_and_update_authorized_voter_v4( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1454
+     V4 retains current_epoch-1 (purges up to sat_sub(epoch,1)).  */
+  fd_pubkey_t vote_pubkey   = {{ 0xAA,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t original_voter = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t new_voter      = {{ 0x02,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_vote_state_versioned_t versioned[1];
+  make_v4_state( versioned, &vote_pubkey, &original_voter, 0 );
+  fd_vote_state_v4_t * v4 = &versioned->v4;
+
+  FD_TEST( authorized_voters_len_v4( v4 ) == 1 );
+
+  /* Epoch 1 → original_voter */
+  fd_pubkey_t * out = NULL;
+  FD_TEST( fd_vote_state_v4_get_and_update_authorized_voter( v4, 1, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &original_voter ) );
+
+  /* Epoch 5 → original_voter; epochs 0..5 purged (V4 purges up to epoch-1=4, so 0..4) */
+  FD_TEST( fd_vote_state_v4_get_and_update_authorized_voter( v4, 5, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &original_voter ) );
+  FD_TEST( authorized_voters_len_v4( v4 ) == 1 );
+  for( ulong i=0; i<=5; i++ ) {
+    FD_TEST( !fd_authorized_voters_contains( &v4->authorized_voters, i ) );
+  }
+
+  /* Query epochs 6 and 7 back-to-back → len becomes 2 (retains epoch 6 and 7) */
+  FD_TEST( fd_vote_state_v4_get_and_update_authorized_voter( v4, 6, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &original_voter ) );
+  FD_TEST( fd_vote_state_v4_get_and_update_authorized_voter( v4, 7, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &original_voter ) );
+  FD_TEST( authorized_voters_len_v4( v4 ) == 2 );
+
+  /* Set new voter at epoch 9 */
+  fd_txn_out_t txn_out[1]; fd_exec_instr_ctx_t ctx[1];
+  make_mock_ctx( txn_out, ctx );
+  FD_TEST( fd_vote_state_v4_set_new_authorized_voter(
+    ctx, v4, &new_voter, 7, 9, NULL, 1, NULL, 0 ) == FD_EXECUTOR_INSTR_SUCCESS );
+
+  /* Epoch 8 → original_voter */
+  FD_TEST( fd_vote_state_v4_get_and_update_authorized_voter( v4, 8, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &original_voter ) );
+
+  /* Epochs 9..11 → new_voter */
+  for( ulong i=9; i<12; i++ ) {
+    FD_TEST( fd_vote_state_v4_get_and_update_authorized_voter( v4, i, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( fd_pubkey_eq( out, &new_voter ) );
+  }
+  FD_TEST( authorized_voters_len_v4( v4 ) == 2 );
+
+  /* Skip to epoch 15 → only 1 entry retained */
+  FD_TEST( fd_vote_state_v4_get_and_update_authorized_voter( v4, 15, &out ) == FD_EXECUTOR_INSTR_SUCCESS );
+  FD_TEST( fd_pubkey_eq( out, &new_voter ) );
+  FD_TEST( authorized_voters_len_v4( v4 ) == 1 );
+
+  FD_LOG_NOTICE(( "test_get_and_update_authorized_voter_v4... ok" ));
+}
+
+/**********************************************************************/
+/* Group 3: Authorized voter locking tests                            */
+/* Ports: test_authorized_voter_is_locked_within_epoch               */
+/**********************************************************************/
+
+/* Helper: runs the locking check for any vote state version.
+   v is a versioned pointer.  original_voter is the initial voter.   */
+static void
+assert_authorized_voter_is_locked_within_epoch_v3( fd_vote_state_v3_t * v3,
+                                                    fd_pubkey_t const *  original_voter ) {
+  fd_pubkey_t new_voter = {{ 0x77,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_txn_out_t txn_out[1]; fd_exec_instr_ctx_t ctx[1];
+  make_mock_ctx( txn_out, ctx );
+
+  /* Same-epoch → TooSoonToReauthorize */
+  int rc = fd_vote_state_v3_set_new_authorized_voter(
+    ctx, v3, &new_voter, 1, 1, NULL, 1, NULL, 0 );
+  FD_TEST( rc == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR );
+  FD_TEST( txn_out->err.custom_err == (uint)FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE );
+
+  /* original voter unchanged for epoch 1 */
+  fd_pubkey_t * out = NULL;
+  fd_vote_state_v3_get_and_update_authorized_voter( v3, 1, &out );
+  FD_TEST( fd_pubkey_eq( out, original_voter ) );
+
+  /* Setting for future epoch 2 should succeed */
+  make_mock_ctx( txn_out, ctx );
+  FD_TEST( fd_vote_state_v3_set_new_authorized_voter(
+    ctx, v3, &new_voter, 1, 2, NULL, 1, NULL, 0 ) == FD_EXECUTOR_INSTR_SUCCESS );
+
+  /* Same-epoch again (epoch 3) → TooSoonToReauthorize */
+  make_mock_ctx( txn_out, ctx );
+  rc = fd_vote_state_v3_set_new_authorized_voter(
+    ctx, v3, original_voter, 3, 3, NULL, 1, NULL, 0 );
+  FD_TEST( rc == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR );
+  FD_TEST( txn_out->err.custom_err == (uint)FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE );
+
+  /* epoch 3 is still new_voter (not original) */
+  out = NULL;
+  fd_vote_state_v3_get_and_update_authorized_voter( v3, 3, &out );
+  FD_TEST( fd_pubkey_eq( out, &new_voter ) );
+}
+
+static void
+assert_authorized_voter_is_locked_within_epoch_v4( fd_vote_state_v4_t * v4,
+                                                    fd_pubkey_t const *  original_voter ) {
+  fd_pubkey_t new_voter = {{ 0x77,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_txn_out_t txn_out[1]; fd_exec_instr_ctx_t ctx[1];
+  make_mock_ctx( txn_out, ctx );
+
+  /* Same-epoch → TooSoonToReauthorize */
+  int rc = fd_vote_state_v4_set_new_authorized_voter(
+    ctx, v4, &new_voter, 1, 1, NULL, 1, NULL, 0 );
+  FD_TEST( rc == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR );
+  FD_TEST( txn_out->err.custom_err == (uint)FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE );
+
+  /* original voter unchanged */
+  fd_pubkey_t * out = NULL;
+  fd_vote_state_v4_get_and_update_authorized_voter( v4, 1, &out );
+  FD_TEST( fd_pubkey_eq( out, original_voter ) );
+
+  /* Future epoch 2 → success */
+  make_mock_ctx( txn_out, ctx );
+  FD_TEST( fd_vote_state_v4_set_new_authorized_voter(
+    ctx, v4, &new_voter, 1, 2, NULL, 1, NULL, 0 ) == FD_EXECUTOR_INSTR_SUCCESS );
+
+  /* Same-epoch (3→3) → TooSoonToReauthorize */
+  make_mock_ctx( txn_out, ctx );
+  rc = fd_vote_state_v4_set_new_authorized_voter(
+    ctx, v4, original_voter, 3, 3, NULL, 1, NULL, 0 );
+  FD_TEST( rc == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR );
+  FD_TEST( txn_out->err.custom_err == (uint)FD_VOTE_ERR_TOO_SOON_TO_REAUTHORIZE );
+
+  /* epoch 3 still new_voter */
+  out = NULL;
+  fd_vote_state_v4_get_and_update_authorized_voter( v4, 3, &out );
+  FD_TEST( fd_pubkey_eq( out, &new_voter ) );
+}
+
+static void
+test_authorized_voter_is_locked_within_epoch( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1362 */
+  fd_pubkey_t vote_pubkey   = {{ 0xAA,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t original_voter = {{ 0x11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_vote_state_versioned_t versioned_v3[1];
+  make_v3_state( versioned_v3, &original_voter, 0 );
+  assert_authorized_voter_is_locked_within_epoch_v3( &versioned_v3->v3, &original_voter );
+
+  fd_vote_state_versioned_t versioned_v4[1];
+  make_v4_state( versioned_v4, &vote_pubkey, &original_voter, 0 );
+  assert_authorized_voter_is_locked_within_epoch_v4( &versioned_v4->v4, &original_voter );
+
+  FD_LOG_NOTICE(( "test_authorized_voter_is_locked_within_epoch... ok" ));
+}
+
+/**********************************************************************/
+/* Group 4: set_new_authorized_voter                                  */
+/* Ports: test_set_new_authorized_voter                               */
+/**********************************************************************/
+
+/* Helper shared by V3 and V4 variants.  Calls set_new_authorized_voter
+   and validates the common post-conditions (new voter is recorded for
+   target_epoch).  For V3 the caller also checks prior_voters.         */
+static void
+set_new_authorized_voter_and_assert_v3( fd_vote_state_v3_t * v3,
+                                        fd_pubkey_t const *  original_voter,
+                                        ulong                epoch_offset ) {
+  fd_pubkey_t new_voter = {{ 0x99,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_txn_out_t txn_out[1]; fd_exec_instr_ctx_t ctx[1];
+  make_mock_ctx( txn_out, ctx );
+
+  FD_TEST( fd_vote_state_v3_set_new_authorized_voter(
+    ctx, v3, &new_voter, 0, epoch_offset, NULL, 1, NULL, 0 ) == FD_EXECUTOR_INSTR_SUCCESS );
+
+  /* The new voter must be present in the treap */
+  FD_TEST( fd_authorized_voters_contains( &v3->authorized_voters, epoch_offset ) );
+
+  /* prior_voters must have an entry: last entry should have original_voter pubkey */
+  FD_TEST( !v3->prior_voters.is_empty );
+  fd_vote_prior_voter_t * pv = &v3->prior_voters.buf[ v3->prior_voters.idx ];
+  FD_TEST( fd_pubkey_eq( &pv->pubkey, original_voter ) );
+}
+
+static void
+set_new_authorized_voter_and_assert_v4( fd_vote_state_v4_t * v4,
+                                        ulong                epoch_offset ) {
+  fd_pubkey_t new_voter = {{ 0x99,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                              0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_txn_out_t txn_out[1]; fd_exec_instr_ctx_t ctx[1];
+  make_mock_ctx( txn_out, ctx );
+
+  FD_TEST( fd_vote_state_v4_set_new_authorized_voter(
+    ctx, v4, &new_voter, 0, epoch_offset, NULL, 1, NULL, 0 ) == FD_EXECUTOR_INSTR_SUCCESS );
+
+  FD_TEST( fd_authorized_voters_contains( &v4->authorized_voters, epoch_offset ) );
+  /* V4 has no prior_voters field */
+}
+
+static void
+test_set_new_authorized_voter( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1297 */
+  fd_pubkey_t vote_pubkey    = {{ 0xBB,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t original_voter = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  ulong epoch_offset = 15;
+
+  /* V3: prior_voters should record the old voter */
+  fd_vote_state_versioned_t versioned_v3[1];
+  make_v3_state( versioned_v3, &original_voter, 0 );
+  FD_TEST( versioned_v3->v3.prior_voters.is_empty );
+  set_new_authorized_voter_and_assert_v3( &versioned_v3->v3, &original_voter, epoch_offset );
+
+  /* V4: no prior_voters — just check treap */
+  fd_vote_state_versioned_t versioned_v4[1];
+  make_v4_state( versioned_v4, &vote_pubkey, &original_voter, 0 );
+  set_new_authorized_voter_and_assert_v4( &versioned_v4->v4, epoch_offset );
+
+  FD_LOG_NOTICE(( "test_set_new_authorized_voter... ok" ));
+}
+
+/**********************************************************************/
+/* Group 5: BLS authorized voter tests                                */
+/* Ports: test_get_and_update_authorized_voter_v4_with_bls            */
+/**********************************************************************/
+
+static void
+test_get_and_update_authorized_voter_v4_with_bls( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L2323 */
+  fd_pubkey_t vote_pubkey    = {{ 0xCC,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t original_voter = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t new_voter      = {{ 0x02,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t newer_voter    = {{ 0x03,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                   0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_vote_state_versioned_t versioned[1];
+  make_v4_state( versioned, &vote_pubkey, &original_voter, 0 );
+  fd_vote_state_v4_t * v4 = &versioned->v4;
+
+  FD_TEST( authorized_voters_len_v4( v4 ) == 1 );
+  FD_TEST( !fd_vsv_has_bls_pubkey( versioned ) );
+
+  /* Set new voter with a BLS key */
+  uchar bls_key[FD_BLS_PUBKEY_COMPRESSED_SZ];
+  fd_memset( bls_key, 0x03, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  fd_txn_out_t txn_out[1]; fd_exec_instr_ctx_t ctx[1];
+  make_mock_ctx( txn_out, ctx );
+  FD_TEST( fd_vote_state_v4_set_new_authorized_voter(
+    ctx, v4, &new_voter, 0, 1, bls_key, 1, NULL, 0 ) == FD_EXECUTOR_INSTR_SUCCESS );
+
+  FD_TEST( authorized_voters_len_v4( v4 ) == 2 );
+  FD_TEST( v4->has_bls_pubkey_compressed );
+  FD_TEST( !memcmp( v4->bls_pubkey_compressed, bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ ) );
+  FD_TEST( fd_vsv_has_bls_pubkey( versioned ) );
+
+  /* Set another voter with a different BLS key */
+  uchar newer_bls_key[FD_BLS_PUBKEY_COMPRESSED_SZ];
+  fd_memset( newer_bls_key, 0x07, FD_BLS_PUBKEY_COMPRESSED_SZ );
+  make_mock_ctx( txn_out, ctx );
+  FD_TEST( fd_vote_state_v4_set_new_authorized_voter(
+    ctx, v4, &newer_voter, 1, 2, newer_bls_key, 1, NULL, 0 ) == FD_EXECUTOR_INSTR_SUCCESS );
+
+  FD_TEST( authorized_voters_len_v4( v4 ) == 3 );
+  FD_TEST( v4->has_bls_pubkey_compressed );
+  FD_TEST( !memcmp( v4->bls_pubkey_compressed, newer_bls_key, FD_BLS_PUBKEY_COMPRESSED_SZ ) );
+
+  /* V3 rejects BLS pubkey */
+  fd_vote_state_versioned_t versioned_v3[1];
+  make_v3_state( versioned_v3, &original_voter, 0 );
+  make_mock_ctx( txn_out, ctx );
+  FD_TEST( fd_vote_state_v3_set_new_authorized_voter(
+    ctx, &versioned_v3->v3, &new_voter, 0, 1, bls_key, 1, NULL, 0 )
+    == FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+
+  FD_LOG_NOTICE(( "test_get_and_update_authorized_voter_v4_with_bls... ok" ));
+}
+
+/**********************************************************************/
+/* Group 6: Epoch credits tests                                       */
+/* Ports: test_vote_state_epoch_credits                               */
+/*        test_vote_state_epoch0_no_credits                           */
+/*        test_vote_state_increment_credits                           */
+/**********************************************************************/
+
+static void
+test_vote_state_epoch_credits_impl( fd_vote_state_versioned_t * versioned ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1598 */
+  FD_TEST( total_credits( versioned ) == 0 );
+  FD_TEST( deq_fd_vote_epoch_credits_t_empty( fd_vsv_get_epoch_credits( versioned ) ) );
+
+  ulong credits    = 0;
+  ulong prev       = 0;
+  ulong epochs     = (ulong)(MAX_EPOCH_CREDITS_HISTORY + 2);
+
+  for( ulong epoch=0; epoch<epochs; epoch++ ) {
+    for( ulong j=0; j<epoch; j++ ) {
+      fd_vsv_increment_credits( versioned, epoch, 1 );
+      credits++;
+    }
+  }
+
+  FD_TEST( total_credits( versioned ) == credits );
+
+  fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( versioned );
+  ulong len = deq_fd_vote_epoch_credits_t_cnt( ec );
+  FD_TEST( len <= MAX_EPOCH_CREDITS_HISTORY );
+
+  /* Verify the expected (epoch, credits, prev_credits) from the last MAX entries */
+  /* Rebuild expected list from scratch */
+  typedef struct { ulong epoch; ulong credits; ulong prev; } ec_entry_t;
+  ec_entry_t expected[ MAX_EPOCH_CREDITS_HISTORY + 2 ];
+  ulong n_expected = 0;
+  credits = 0; prev = 0;
+  for( ulong epoch=0; epoch<epochs; epoch++ ) {
+    prev = credits;
+    credits += epoch;
+    expected[ n_expected++ ] = (ec_entry_t){ epoch, credits, prev };
+  }
+  /* Trim to last MAX_EPOCH_CREDITS_HISTORY */
+  ulong trim = n_expected > MAX_EPOCH_CREDITS_HISTORY
+    ? n_expected - MAX_EPOCH_CREDITS_HISTORY : 0;
+  ulong n_trimmed = n_expected - trim;
+
+  FD_TEST( len == n_trimmed );
+
+  ulong i = 0;
+  for( deq_fd_vote_epoch_credits_t_iter_t it = deq_fd_vote_epoch_credits_t_iter_init( ec );
+       !deq_fd_vote_epoch_credits_t_iter_done( ec, it );
+       it = deq_fd_vote_epoch_credits_t_iter_next( ec, it ), i++ ) {
+    fd_vote_epoch_credits_t const * e = deq_fd_vote_epoch_credits_t_iter_ele_const( ec, it );
+    ec_entry_t * x = &expected[ trim + i ];
+    FD_TEST( e->epoch == x->epoch );
+    FD_TEST( e->credits == x->credits );
+    FD_TEST( e->prev_credits == x->prev );
+  }
+}
+
+static void
+test_vote_state_epoch_credits( void ) {
+  fd_pubkey_t pk = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                       0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_vote_state_versioned_t v3[1]; make_v3_state( v3, &pk, 0 );
+  test_vote_state_epoch_credits_impl( v3 );
+
+  fd_vote_state_versioned_t v4[1]; make_v4_state( v4, &pk, &pk, 0 );
+  test_vote_state_epoch_credits_impl( v4 );
+
+  FD_LOG_NOTICE(( "test_vote_state_epoch_credits... ok" ));
+}
+
+static void
+test_vote_state_epoch0_no_credits( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1623 */
+  fd_pubkey_t pk = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                       0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  for( int v=0; v<2; v++ ) {
+    fd_vote_state_versioned_t versioned[1];
+    if( v==0 ) make_v3_state( versioned, &pk, 0 );
+    else       make_v4_state( versioned, &pk, &pk, 0 );
+
+    fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( versioned );
+    FD_TEST( deq_fd_vote_epoch_credits_t_empty( ec ) );
+
+    fd_vsv_increment_credits( versioned, 1, 1 );
+    FD_TEST( deq_fd_vote_epoch_credits_t_cnt( fd_vsv_get_epoch_credits( versioned ) ) == 1 );
+
+    fd_vsv_increment_credits( versioned, 2, 1 );
+    FD_TEST( deq_fd_vote_epoch_credits_t_cnt( fd_vsv_get_epoch_credits( versioned ) ) == 2 );
+  }
+
+  FD_LOG_NOTICE(( "test_vote_state_epoch0_no_credits... ok" ));
+}
+
+static void
+test_vote_state_increment_credits( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1634 */
+  fd_pubkey_t pk = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                       0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  for( int v=0; v<2; v++ ) {
+    fd_vote_state_versioned_t versioned[1];
+    if( v==0 ) make_v3_state( versioned, &pk, 0 );
+    else       make_v4_state( versioned, &pk, &pk, 0 );
+
+    ulong n = (ulong)(MAX_EPOCH_CREDITS_HISTORY + 2);
+    for( ulong i=0; i<n; i++ ) {
+      fd_vsv_increment_credits( versioned, i, 1 );
+    }
+
+    FD_TEST( total_credits( versioned ) == n );
+    FD_TEST( deq_fd_vote_epoch_credits_t_cnt( fd_vsv_get_epoch_credits( versioned ) )
+             <= MAX_EPOCH_CREDITS_HISTORY );
+  }
+
+  FD_LOG_NOTICE(( "test_vote_state_increment_credits... ok" ));
+}
+
+/**********************************************************************/
+/* Group 7: Commission BPS tests                                      */
+/* Ports: test_v4_commission_basis_points                             */
+/*        test_set_inflation_rewards_commission_bps                   */
+/**********************************************************************/
+
+static void
+test_v4_commission_basis_points( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L2093
+     V4 stores commission as basis_points = commission * 100.          */
+  static uchar commissions[] = { 0, 1, 5, 10, 25, 50, 75, 100, 255 };
+  static ushort expected_bps[] = { 0, 100, 500, 1000, 2500, 5000, 7500, 10000, 25500 };
+
+  fd_pubkey_t vote_pubkey = {{ 0xDD,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t pk          = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  for( ulong i=0; i<sizeof(commissions)/sizeof(commissions[0]); i++ ) {
+    fd_vote_init_t vi = {
+      .authorized_voter      = pk,
+      .authorized_withdrawer = pk,
+      .node_pubkey           = pk,
+      .commission            = commissions[i]
+    };
+    fd_sol_sysvar_clock_t clock = {0};
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_v4_create_new_with_defaults( &vote_pubkey, &vi, &clock, versioned );
+    FD_TEST( versioned->v4.inflation_rewards_commission_bps == expected_bps[i] );
+    FD_TEST( fd_vsv_get_commission( versioned ) == commissions[i] );
+  }
+
+  FD_LOG_NOTICE(( "test_v4_commission_basis_points... ok" ));
+}
+
+static void
+test_set_inflation_rewards_commission_bps( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L2384 */
+  fd_pubkey_t pk = {{ 0x01,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                       0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  /* V3: fd_vsv_set_commission uses percent, not BPS.
+     Setting commission to 5 stores 5 in v3.commission.
+     fd_vsv_get_commission returns it as-is (no BPS conversion for V3). */
+  fd_vote_state_versioned_t v3[1];
+  make_v3_state( v3, &pk, 0 );
+  uchar orig_commission = fd_vsv_get_commission( v3 );
+  /* The set_commission call stores commission as percent in V3 */
+  fd_vsv_set_commission( v3, 5 );
+  /* V3 get_commission returns the stored percent directly */
+  FD_TEST( fd_vsv_get_commission( v3 ) == 5 );
+  /* Directly setting BPS field has no effect through set_commission in V3 */
+  fd_vsv_set_commission( v3, orig_commission );
+  FD_TEST( fd_vsv_get_commission( v3 ) == orig_commission );
+
+  /* V4: inflation_rewards_commission_bps is a live field.
+     fd_vsv_get_commission() returns bps / 100.
+     Values > 10000 bps are allowed (capping is done at reward calc time). */
+  fd_pubkey_t vote_pubkey = {{ 0xEE,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_vote_state_versioned_t v4[1];
+  make_v4_state( v4, &vote_pubkey, &pk, 0 );
+
+  static ushort bps_vals[] = { 0, 100, 500, 1000, 5000, 10000, 10001, 15000, 65535 };
+  for( ulong i=0; i<sizeof(bps_vals)/sizeof(bps_vals[0]); i++ ) {
+    ushort bps = bps_vals[i];
+    v4->v4.inflation_rewards_commission_bps = bps;
+    /* get_commission returns bps/100 as a truncated uchar */
+    FD_TEST( fd_vsv_get_commission( v4 ) == (uchar)(bps/100) );
+  }
+
+  FD_LOG_NOTICE(( "test_set_inflation_rewards_commission_bps... ok" ));
+}
+
+/**********************************************************************/
+/* Group 8: Version conversion tests                                  */
+/* Ports: test_v4_conversion_from_all_versions                        */
+/**********************************************************************/
+
+static void
+test_v4_conversion_from_all_versions( void ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L2119 */
+  fd_pubkey_t vote_pubkey          = {{ 0xAA,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t node_pubkey          = {{ 0xBB,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t authorized_voter     = {{ 0xCC,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                         0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t authorized_withdrawer = {{ 0xDD,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                          0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  uchar commission = 42;
+
+  /* --- V1_14_11 → V4 --- */
+  {
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v1_14_11 );
+    fd_vote_state_1_14_11_t * s = &versioned->v1_14_11;
+    s->node_pubkey           = node_pubkey;
+    s->authorized_withdrawer = authorized_withdrawer;
+    s->commission            = commission;
+    s->prior_voters.is_empty = 1;
+    s->prior_voters.idx      = 31;
+    /* Insert one authorized voter */
+    fd_vote_authorized_voter_t * av =
+      fd_vote_authorized_voters_pool_ele_acquire( s->authorized_voters.pool );
+    av->epoch = 0; av->pubkey = authorized_voter; av->prio = av->pubkey.uc[0];
+    fd_vote_authorized_voters_treap_ele_insert( s->authorized_voters.treap, av,
+                                                s->authorized_voters.pool );
+
+    FD_TEST( fd_vsv_try_convert_to_v4( versioned, &vote_pubkey ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( versioned->kind == fd_vote_state_versioned_enum_v4 );
+    fd_vote_state_v4_t * v4 = &versioned->v4;
+    FD_TEST( fd_pubkey_eq( &v4->node_pubkey, &node_pubkey ) );
+    FD_TEST( fd_pubkey_eq( &v4->authorized_withdrawer, &authorized_withdrawer ) );
+    /* SIMD-0185 defaults */
+    FD_TEST( v4->inflation_rewards_commission_bps == (ushort)(commission * 100) );
+    FD_TEST( fd_pubkey_eq( &v4->inflation_rewards_collector, &vote_pubkey ) );
+    FD_TEST( fd_pubkey_eq( &v4->block_revenue_collector, &node_pubkey ) );
+    FD_TEST( v4->block_revenue_commission_bps == (ushort)DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
+    FD_TEST( v4->pending_delegator_rewards == 0 );
+    FD_TEST( !v4->has_bls_pubkey_compressed );
+  }
+
+  /* --- V3 → V4 --- */
+  {
+    fd_vote_init_t vi = {
+      .authorized_voter      = authorized_voter,
+      .authorized_withdrawer = authorized_withdrawer,
+      .node_pubkey           = node_pubkey,
+      .commission            = commission
+    };
+    fd_sol_sysvar_clock_t clock = {0};
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_program_v3_create_new( &vi, &clock, versioned );
+
+    FD_TEST( fd_vsv_try_convert_to_v4( versioned, &vote_pubkey ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( versioned->kind == fd_vote_state_versioned_enum_v4 );
+    fd_vote_state_v4_t * v4 = &versioned->v4;
+    FD_TEST( fd_pubkey_eq( &v4->node_pubkey, &node_pubkey ) );
+    FD_TEST( fd_pubkey_eq( &v4->authorized_withdrawer, &authorized_withdrawer ) );
+    FD_TEST( v4->inflation_rewards_commission_bps == (ushort)(commission * 100) );
+    FD_TEST( fd_pubkey_eq( &v4->inflation_rewards_collector, &vote_pubkey ) );
+    FD_TEST( fd_pubkey_eq( &v4->block_revenue_collector, &node_pubkey ) );
+    FD_TEST( v4->block_revenue_commission_bps == (ushort)DEFAULT_BLOCK_REVENUE_COMMISSION_BPS );
+    FD_TEST( v4->pending_delegator_rewards == 0 );
+    FD_TEST( !v4->has_bls_pubkey_compressed );
+  }
+
+  /* --- V4 → V4 (identity) --- */
+  {
+    fd_pubkey_t custom_collector = {{ 0xFF,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                       0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+    fd_vote_init_t vi = {
+      .authorized_voter      = authorized_voter,
+      .authorized_withdrawer = authorized_withdrawer,
+      .node_pubkey           = node_pubkey,
+      .commission            = commission
+    };
+    fd_sol_sysvar_clock_t clock = {0};
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_v4_create_new_with_defaults( &vote_pubkey, &vi, &clock, versioned );
+    /* Customize some V4-specific fields */
+    versioned->v4.inflation_rewards_commission_bps = 1234;
+    versioned->v4.block_revenue_commission_bps = 5678;
+    versioned->v4.inflation_rewards_collector  = custom_collector;
+    versioned->v4.pending_delegator_rewards    = 999;
+
+    /* Snapshot before conversion */
+    ushort saved_ir_bps  = versioned->v4.inflation_rewards_commission_bps;
+    ushort saved_br_bps  = versioned->v4.block_revenue_commission_bps;
+    ulong  saved_rewards = versioned->v4.pending_delegator_rewards;
+
+    FD_TEST( fd_vsv_try_convert_to_v4( versioned, &vote_pubkey ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( versioned->kind == fd_vote_state_versioned_enum_v4 );
+    /* Fields must be unchanged (identity) */
+    FD_TEST( versioned->v4.inflation_rewards_commission_bps == saved_ir_bps );
+    FD_TEST( versioned->v4.block_revenue_commission_bps     == saved_br_bps );
+    FD_TEST( versioned->v4.pending_delegator_rewards        == saved_rewards );
+    FD_TEST( fd_pubkey_eq( &versioned->v4.inflation_rewards_collector, &custom_collector ) );
+  }
+
+  FD_LOG_NOTICE(( "test_v4_conversion_from_all_versions... ok" ));
+}
+
+/**********************************************************************/
+/* Group 9: Account init / deinit tests                               */
+/* Ports: test_init_vote_account_state_v3/v4                          */
+/*        test_deinitialize_vote_account_state_v3/v4                  */
+/*                                                                    */
+/* These require a borrowed_account_t backed by a real accdb.         */
+/* We use the existing test_env_t infrastructure plus a lightweight   */
+/* setup that populates a vote account into the accdb and opens it.   */
+/**********************************************************************/
+
+/* Struct that holds the backing memory for a mock borrowed account
+   together with a minimal exec_instr_ctx for resize/mutation checks. */
+struct mock_vote_ba {
+  /* Instruction info: 1 account (vote account at callee idx 0) */
+  fd_instr_info_t     instr[1];
+  /* Transaction output: 2 slots — [0]=program, [1]=vote account */
+  fd_txn_out_t        txn_out[1];
+  /* Exec instr context */
+  fd_exec_instr_ctx_t ctx[1];
+  /* Meta + data: large enough for the largest V4 state */
+  uchar               acc_mem[ sizeof(fd_account_meta_t) + FD_VOTE_STATE_V4_SZ ];
+  /* Borrowed account ref count */
+  ulong               refcnt;
+  /* Pubkeys */
+  fd_pubkey_t         vote_pubkey[1];
+};
+typedef struct mock_vote_ba mock_vote_ba_t;
+
+static void
+mock_vote_ba_init( mock_vote_ba_t *    m,
+                   fd_pubkey_t const * vote_pubkey,
+                   fd_bank_t *         bank,
+                   ulong               lamports,
+                   ulong               dlen ) {
+  fd_memset( m, 0, sizeof(*m) );
+
+  m->vote_pubkey[0] = *vote_pubkey;
+
+  /* Instruction info: program at txn-idx 0, vote account at callee-idx 0 */
+  m->instr->program_id             = 0; /* txn-level index of the vote program */
+  m->instr->acct_cnt               = 1;
+  m->instr->accounts[0].index_in_transaction = 1; /* vote acc at txn-idx 1 */
+  m->instr->accounts[0].index_in_callee      = 0;
+  m->instr->accounts[0].is_writable          = 1;
+  m->instr->accounts[0].is_signer            = 0;
+
+  /* Transaction output */
+  m->txn_out->accounts.cnt = 2;
+  fd_memcpy( m->txn_out->accounts.keys[0].key,
+             fd_solana_vote_program_id.key, 32 ); /* slot 0 = program */
+  fd_memcpy( m->txn_out->accounts.keys[1].key,
+             vote_pubkey->key, 32 );              /* slot 1 = vote account */
+
+  /* Exec instr context */
+  m->ctx->instr   = m->instr;
+  m->ctx->txn_out = m->txn_out;
+  m->ctx->bank    = bank;
+
+  /* Account meta */
+  fd_account_meta_t * meta = (fd_account_meta_t *)m->acc_mem;
+  meta->lamports = lamports;
+  meta->dlen     = (uint)dlen;
+  fd_memcpy( meta->owner, fd_solana_vote_program_id.key, 32 );
+}
+
+static fd_borrowed_account_t *
+mock_vote_ba_borrow( mock_vote_ba_t * m ) {
+  static fd_borrowed_account_t ba[1];
+  m->refcnt = 1;
+  fd_account_meta_t * meta = (fd_account_meta_t *)m->acc_mem;
+  fd_borrowed_account_init( ba, m->vote_pubkey, meta, m->ctx, 0, &m->refcnt );
+  return ba;
+}
+
+static fd_account_meta_t *
+mock_vote_ba_meta( mock_vote_ba_t * m ) {
+  return (fd_account_meta_t *)m->acc_mem;
+}
+
+/* Compute the rent-exempt minimum balance for a given account size using
+   the default rent params (same as Agave's Rent::default).
+   lamports_per_uint8_year=3480, exemption_threshold=2.0, burn_percent=50 */
+static ulong
+rent_exempt_minimum( ulong dlen ) {
+  fd_rent_t rent = {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 50
+  };
+  return fd_rent_exempt_minimum_balance( &rent, dlen );
+}
+
+static void
+test_init_vote_account_state_v3( fd_wksp_t * wksp ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1902
+     Three cases:
+       (1) dlen=V2_SZ, lamports=rent_exempt(V2) → can't resize → V1_14_11
+       (2) dlen=V2_SZ, lamports=rent_exempt(V3) → resize to V3 → writes V3
+       (3) dlen=V3_SZ, lamports=rent_exempt(V3) → already right size → V3 */
+
+  test_env_t env[1];
+  test_env_init( env, wksp, 0 );
+  process_slot( env, 10UL );
+
+  fd_pubkey_t vote_pubkey = {{ 0x10,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t node_pubkey = {{ 0x20,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t auth_voter  = {{ 0x30,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t auth_wdr    = {{ 0x40,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_vote_init_t vote_init = {
+    .node_pubkey           = node_pubkey,
+    .authorized_voter      = auth_voter,
+    .authorized_withdrawer = auth_wdr,
+    .commission            = 5
+  };
+  fd_sol_sysvar_clock_t clock = {0};
+
+  /* Case 1: dlen=V2_SZ, lamports=rent_exempt(V2) → falls back to V1_14_11 */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V2_SZ ),
+                       FD_VOTE_STATE_V2_SZ );
+
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_program_v3_create_new( &vote_init, &clock, versioned );
+
+    int rc = fd_vote_state_v3_set_vote_account_state( m->ctx, mock_vote_ba_borrow(m), versioned );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+    /* Account stays at V2 size → V1_14_11 serialized */
+    FD_TEST( mock_vote_ba_meta(m)->dlen == FD_VOTE_STATE_V2_SZ );
+    /* Deserialize and check version */
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( check->kind == fd_vote_state_versioned_enum_v1_14_11 );
+    FD_TEST( fd_pubkey_eq( &check->v1_14_11.node_pubkey, &node_pubkey ) );
+    FD_TEST( check->v1_14_11.commission == 5 );
+  }
+
+  /* Case 2: dlen=V2_SZ, lamports=rent_exempt(V3) → resize → V3 */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V3_SZ ),
+                       FD_VOTE_STATE_V2_SZ );
+
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_program_v3_create_new( &vote_init, &clock, versioned );
+
+    int rc = fd_vote_state_v3_set_vote_account_state( m->ctx, mock_vote_ba_borrow(m), versioned );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( mock_vote_ba_meta(m)->dlen == FD_VOTE_STATE_V3_SZ );
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( check->kind == fd_vote_state_versioned_enum_v3 );
+    FD_TEST( fd_pubkey_eq( &check->v3.node_pubkey, &node_pubkey ) );
+    FD_TEST( check->v3.commission == 5 );
+  }
+
+  /* Case 3: dlen=V3_SZ, lamports=rent_exempt(V3) → V3 directly */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V3_SZ ),
+                       FD_VOTE_STATE_V3_SZ );
+
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_program_v3_create_new( &vote_init, &clock, versioned );
+
+    int rc = fd_vote_state_v3_set_vote_account_state( m->ctx, mock_vote_ba_borrow(m), versioned );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( mock_vote_ba_meta(m)->dlen == FD_VOTE_STATE_V3_SZ );
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( check->kind == fd_vote_state_versioned_enum_v3 );
+    FD_TEST( fd_pubkey_eq( &check->v3.node_pubkey, &node_pubkey ) );
+  }
+
+  test_env_cleanup( env );
+  FD_LOG_NOTICE(( "test_init_vote_account_state_v3... ok" ));
+}
+
+static void
+test_init_vote_account_state_v4( fd_wksp_t * wksp ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L1960
+     (1) dlen=V2_SZ, lamports=rent_exempt(V2) → AccountNotRentExempt
+     (2) dlen=V2_SZ, lamports=rent_exempt(V4) → resize → V4
+     (3) dlen=V4_SZ, lamports=rent_exempt(V4) → V4 directly           */
+
+  test_env_t env[1];
+  test_env_init( env, wksp, 0 );
+  process_slot( env, 10UL );
+
+  fd_pubkey_t vote_pubkey = {{ 0x11,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t node_pubkey = {{ 0x21,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t auth_voter  = {{ 0x31,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+  fd_pubkey_t auth_wdr    = {{ 0x41,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  fd_vote_init_t vote_init = {
+    .node_pubkey           = node_pubkey,
+    .authorized_voter      = auth_voter,
+    .authorized_withdrawer = auth_wdr,
+    .commission            = 5
+  };
+  fd_sol_sysvar_clock_t clock = {0};
+
+  /* Case 1: too small + insufficient lamports → AccountNotRentExempt */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V2_SZ ),
+                       FD_VOTE_STATE_V2_SZ );
+
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_v4_create_new_with_defaults( &vote_pubkey, &vote_init, &clock, versioned );
+
+    int rc = fd_vote_state_v4_set_vote_account_state( m->ctx, mock_vote_ba_borrow(m), versioned );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT );
+  }
+
+  /* Case 2: too small + sufficient lamports → resize → V4 */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V4_SZ ),
+                       FD_VOTE_STATE_V2_SZ );
+
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_v4_create_new_with_defaults( &vote_pubkey, &vote_init, &clock, versioned );
+
+    int rc = fd_vote_state_v4_set_vote_account_state( m->ctx, mock_vote_ba_borrow(m), versioned );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( mock_vote_ba_meta(m)->dlen == FD_VOTE_STATE_V4_SZ );
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( check->kind == fd_vote_state_versioned_enum_v4 );
+    FD_TEST( fd_pubkey_eq( &check->v4.node_pubkey, &node_pubkey ) );
+    FD_TEST( check->v4.inflation_rewards_commission_bps == (ushort)(5*100) );
+  }
+
+  /* Case 3: already V4 size → success */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V4_SZ ),
+                       FD_VOTE_STATE_V4_SZ );
+
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_v4_create_new_with_defaults( &vote_pubkey, &vote_init, &clock, versioned );
+
+    int rc = fd_vote_state_v4_set_vote_account_state( m->ctx, mock_vote_ba_borrow(m), versioned );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( mock_vote_ba_meta(m)->dlen == FD_VOTE_STATE_V4_SZ );
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( check->kind == fd_vote_state_versioned_enum_v4 );
+  }
+
+  test_env_cleanup( env );
+  FD_LOG_NOTICE(( "test_init_vote_account_state_v4... ok" ));
+}
+
+static void
+test_deinitialize_vote_account_state_v3( fd_wksp_t * wksp ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L2018
+     Same three size/lamport cases as init_v3, but deinitializes.
+     Result is always an uninitialized (empty authorized_voters) state. */
+
+  test_env_t env[1];
+  test_env_init( env, wksp, 0 );
+  process_slot( env, 10UL );
+
+  fd_pubkey_t vote_pubkey = {{ 0x12,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  /* Case 1: dlen=V2_SZ, lamports=rent_exempt(V2) → V1_14_11 uninitialized */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V2_SZ ),
+                       FD_VOTE_STATE_V2_SZ );
+    fd_borrowed_account_t * ba = mock_vote_ba_borrow( m );
+    int rc = fd_vsv_deinitialize_vote_account_state( m->ctx, ba, VOTE_STATE_TARGET_VERSION_V3 );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( check->kind == fd_vote_state_versioned_enum_v1_14_11 );
+    FD_TEST( fd_vsv_is_uninitialized( check ) );
+  }
+
+  /* Case 2: dlen=V2_SZ, lamports=rent_exempt(V3) → V3 uninitialized */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V3_SZ ),
+                       FD_VOTE_STATE_V2_SZ );
+    fd_borrowed_account_t * ba = mock_vote_ba_borrow( m );
+    int rc = fd_vsv_deinitialize_vote_account_state( m->ctx, ba, VOTE_STATE_TARGET_VERSION_V3 );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( mock_vote_ba_meta(m)->dlen == FD_VOTE_STATE_V3_SZ );
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( check->kind == fd_vote_state_versioned_enum_v3 );
+    FD_TEST( fd_vsv_is_uninitialized( check ) );
+  }
+
+  /* Case 3: dlen=V3_SZ, lamports=rent_exempt(V3) → V3 uninitialized */
+  {
+    mock_vote_ba_t m[1];
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V3_SZ ),
+                       FD_VOTE_STATE_V3_SZ );
+    fd_borrowed_account_t * ba = mock_vote_ba_borrow( m );
+    int rc = fd_vsv_deinitialize_vote_account_state( m->ctx, ba, VOTE_STATE_TARGET_VERSION_V3 );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( mock_vote_ba_meta(m)->dlen == FD_VOTE_STATE_V3_SZ );
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( check->kind == fd_vote_state_versioned_enum_v3 );
+    FD_TEST( fd_vsv_is_uninitialized( check ) );
+  }
+
+  test_env_cleanup( env );
+  FD_LOG_NOTICE(( "test_deinitialize_vote_account_state_v3... ok" ));
+}
+
+static void
+test_deinitialize_vote_account_state_v4( fd_wksp_t * wksp ) {
+  /* https://github.com/anza-xyz/agave/.../handler.rs#L2063
+     V4 deinit zeroes ALL account data (SIMD-0185).
+     Regardless of account size, the data is all zero after deinit.    */
+
+  test_env_t env[1];
+  test_env_init( env, wksp, 0 );
+  process_slot( env, 10UL );
+
+  fd_pubkey_t vote_pubkey = {{ 0x13,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                                0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }};
+
+  /* Test with each of V2, V4 sized accounts */
+  static ulong dlens[] = { FD_VOTE_STATE_V2_SZ, FD_VOTE_STATE_V4_SZ };
+  for( ulong di=0; di<2; di++ ) {
+    ulong dlen = dlens[di];
+    mock_vote_ba_t m[1];
+    /* Lamports must be enough to resize to V4 if needed */
+    mock_vote_ba_init( m, &vote_pubkey, env->bank,
+                       rent_exempt_minimum( FD_VOTE_STATE_V4_SZ ),
+                       dlen );
+    /* Write some non-zero data */
+    uchar * data = fd_account_data( mock_vote_ba_meta(m) );
+    fd_memset( data, 0xAB, dlen );
+
+    fd_borrowed_account_t * ba = mock_vote_ba_borrow( m );
+    int rc = fd_vsv_deinitialize_vote_account_state( m->ctx, ba, VOTE_STATE_TARGET_VERSION_V4 );
+    FD_TEST( rc == FD_EXECUTOR_INSTR_SUCCESS );
+
+    /* ALL data bytes must be zero */
+    ulong act_dlen = mock_vote_ba_meta(m)->dlen;
+    uchar const * act_data = fd_account_data( mock_vote_ba_meta(m) );
+    FD_TEST( fd_mem_iszero( act_data, act_dlen ) );
+
+    /* Deserializes as Uninitialized */
+    fd_vote_state_versioned_t check[1];
+    FD_TEST( fd_vsv_get_state( mock_vote_ba_meta(m), check ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( fd_vsv_is_uninitialized( check ) );
+  }
+
+  test_env_cleanup( env );
+  FD_LOG_NOTICE(( "test_deinitialize_vote_account_state_v4... ok" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -625,6 +1736,7 @@ main( int     argc,
                     _page_sz, page_cnt, near_cpu ));
     wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, near_cpu, "wksp", 0UL );
   }
+  FD_TEST( wksp );
 
   test_account_initialize( wksp );
   test_account_initialize_simd_0387( wksp );
@@ -639,6 +1751,23 @@ main( int     argc,
   test_landed_votes_footprint();
   test_epoch_credits_footprint();
   test_vote_instruction_footprints();
+
+  test_v3_v4_size_equality();
+  test_get_and_update_authorized_voter_v3();
+  test_get_and_update_authorized_voter_v4();
+  test_authorized_voter_is_locked_within_epoch();
+  test_set_new_authorized_voter();
+  test_get_and_update_authorized_voter_v4_with_bls();
+  test_vote_state_epoch_credits();
+  test_vote_state_epoch0_no_credits();
+  test_vote_state_increment_credits();
+  test_v4_commission_basis_points();
+  test_set_inflation_rewards_commission_bps();
+  test_v4_conversion_from_all_versions();
+  test_init_vote_account_state_v3( wksp );
+  test_init_vote_account_state_v4( wksp );
+  test_deinitialize_vote_account_state_v3( wksp );
+  test_deinitialize_vote_account_state_v4( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
