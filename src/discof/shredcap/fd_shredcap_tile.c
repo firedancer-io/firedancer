@@ -142,8 +142,10 @@ struct fd_capture_tile_ctx {
   uchar contact_info_buffer[ MAX_BUFFER_SIZE ];
 
   /* Slim vote_stakes buffers for epoch info message publishing.
-     vote_stakes_slim[0] holds entries for epoch_idx 0 (current epoch),
-     vote_stakes_slim[1] holds entries for epoch_idx 1 (next epoch).
+     vote_stakes_slim[0] holds entries for epoch_idx 1 (epoch E,
+     used for the current epoch's leader schedule).
+     vote_stakes_slim[1] holds entries for epoch_idx 2 (epoch E+1,
+     used for the next epoch's leader schedule).
      Populated during manifest parsing via the parser's polling
      interface.  Entries with zero stake are filtered during
      accumulation. */
@@ -284,7 +286,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
   ulong stake_weights_sz = generate_epoch_info_msg_slim( epoch, schedule,
       ctx->vote_stakes_slim[0], ctx->vote_stakes_slim_len[0], stake_weights_msg );
-  ulong stake_weights_sig = 4UL;
+  ulong stake_weights_sig = FD_EPOCH_OUT_SIG;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
   FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
@@ -293,7 +295,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
   stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
   stake_weights_sz = generate_epoch_info_msg_slim( epoch + 1, schedule,
       ctx->vote_stakes_slim[1], ctx->vote_stakes_slim_len[1], stake_weights_msg );
-  stake_weights_sig = 4UL;
+  stake_weights_sig = FD_EPOCH_OUT_SIG;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
   FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
@@ -505,13 +507,14 @@ after_credit( fd_capture_tile_ctx_t * ctx,
             fd_snapshot_manifest_vote_stakes_t const * vs = fd_ssmanifest_parser_vote_stakes_peek( parser );
             ulong eidx = fd_ssmanifest_parser_vote_stakes_epoch_idx( parser );
 
-            /* Buffer entries for epoch_idx 0 and 1 only (current and
-               next epoch).  epoch_idx 2 entries are not needed for
-               epoch info messages. */
-            if( eidx<2UL && vs->stake!=0UL ) {
-              ulong * len = &ctx->vote_stakes_slim_len[ eidx ];
+            /* Buffer entries for epoch_idx 1 and 2 only.  epoch_idx 1
+               (epoch E) provides the current epoch's leader schedule,
+               epoch_idx 2 (epoch E+1) provides the next epoch's.
+               epoch_idx 0 (epoch E-1) is not needed. */
+            if( eidx>=1UL && eidx<=2UL && vs->stake!=0UL ) {
+              ulong * len = &ctx->vote_stakes_slim_len[ eidx-1UL ];
               if( *len < FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ) {
-                fd_snapshot_vote_stakes_slim_t * dst = &ctx->vote_stakes_slim[ eidx ][ *len ];
+                fd_snapshot_vote_stakes_slim_t * dst = &ctx->vote_stakes_slim[ eidx-1UL ][ *len ];
                 fd_memcpy( dst->vote,     vs->vote,     32UL );
                 fd_memcpy( dst->identity, vs->identity,  32UL );
                 dst->stake = vs->stake;

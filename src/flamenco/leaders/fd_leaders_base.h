@@ -93,6 +93,7 @@ typedef struct fd_epoch_info_msg_t fd_epoch_info_msg_t;
 #define FD_EPOCH_INFO_MSG_HEADER_SZ (sizeof(fd_epoch_info_msg_t))
 #define FD_EPOCH_INFO_MAX_MSG_SZ    (FD_EPOCH_INFO_MSG_HEADER_SZ + MAX_COMPRESSED_STAKE_WEIGHTS * sizeof(fd_vote_stake_weight_t) + MAX_SHRED_DESTS * sizeof(fd_stake_weight_t))
 #define FD_EPOCH_OUT_MTU            FD_EPOCH_INFO_MAX_MSG_SZ
+#define FD_EPOCH_OUT_SIG            (4UL)
 
 static inline ulong fd_epoch_info_msg_sz( ulong vote_cnt,
                                           ulong id_weight_cnt ) {
