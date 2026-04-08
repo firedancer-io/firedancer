@@ -8,14 +8,7 @@
  */
 
 import cpp
-
-private class MemsetCall extends Call {
-  MemsetCall() {
-    this.getTarget().hasGlobalName("fd_memset")
-    or
-    this.getTarget().hasGlobalOrStdOrBslName("memset")
-  }
-}
+import fd_memset
 
 int getMaxMemsetSize() { result = 10 * 1024 * 1024 } // 10MB, adjust as needed
 
@@ -29,11 +22,12 @@ string asString(int size) {
     else result = size + " bytes"
 }
 
-from MemsetCall call, int size, int maxSize
+from FunctionCall call, MemsetFunction memset, int size, int maxSize
 where
-  size = call.getArgument(2).getValue().toInt() and
+  call.getTarget() = memset and
+  size = call.getArgument(memset.sizeIdx()).getValue().toInt() and
   maxSize = getMaxMemsetSize() and
   size > maxSize
 select call,
-  "This call to memset has a $@ (" + asString(size) + ") that is larger than " + asString(maxSize) +
-    ".", call.getArgument(2), "size argument"
+  "This call to " + memset.getName() + " has a $@ (" + asString(size) + ") that is larger than " +
+    asString(maxSize) + ".", call.getArgument(memset.sizeIdx()), "size argument"
