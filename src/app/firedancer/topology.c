@@ -1741,6 +1741,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
     tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
     tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
+    tile->pack.acct_blocklist_cnt            = config->tiles.pack.account_blocklist_cnt;
+
+    for( ulong i=0UL; i<tile->pack.acct_blocklist_cnt; i++ ) {
+      if( FD_UNLIKELY( NULL==fd_base58_decode_32( config->tiles.pack.account_blocklist[i], tile->pack.acct_blocklist[i].uc ) ) ) {
+        FD_LOG_ERR(( "could not parse account %s at index %lu in [tiles.pack.account_blocklist]", config->tiles.pack.account_blocklist[i], i ));
+      }
+    }
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 

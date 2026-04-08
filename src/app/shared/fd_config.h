@@ -424,10 +424,12 @@ struct fd_config {
     } bundle;
 
     struct {
-      uint max_pending_transactions;
-      int  use_consumed_cus;
-      char schedule_strategy[ 16 ];
-      int  schedule_strategy_enum;
+      uint  max_pending_transactions;
+      int   use_consumed_cus;
+      char  schedule_strategy[ 16 ];
+      int   schedule_strategy_enum;
+      ulong account_blocklist_cnt;
+      char  account_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
     } pack;
 
     struct {
