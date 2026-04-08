@@ -432,6 +432,20 @@ test_duplicate_slots( fd_slot_delta_parser_t * parser ) {
 }
 
 static void
+test_zero_slot_deltas( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 8UL ];
+  fd_slot_delta_parser_init( parser );
+
+  /* len is 0 */
+  *(ulong *)input = 0UL;
+
+  fd_slot_delta_parser_advance_result_t result[1];
+  int res = fd_slot_delta_parser_consume( parser, input, sizeof(input), result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE );
+  FD_TEST( result->bytes_consumed==sizeof(input) );
+}
+
+static void
 test_too_many_entries( fd_slot_delta_parser_t * parser ) {
   uchar input[ 5125UL ];
   ulong slots[ 301UL ];
@@ -473,6 +487,7 @@ int main( int     argc,
 
   test_multiple_entries( slot_delta_parser );
   test_multiple_entries_v2( slot_delta_parser );
+  test_zero_slot_deltas( slot_delta_parser );
   test_multiple_slot_deltas_no_entries( slot_delta_parser );
   test_duplicate_slots( slot_delta_parser );
   test_too_many_entries( slot_delta_parser );
