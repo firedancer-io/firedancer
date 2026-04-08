@@ -424,6 +424,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       case REPLAY_SIG_SLOT_COMPLETED: {
         fd_replay_slot_completed_t const * slot_completed = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
+        FD_TEST( slot_completed->bank_idx<ctx->max_live_slots );
         bank_info_t * bank = &ctx->banks[ slot_completed->bank_idx ];
         bank->slot = slot_completed->slot;
         bank->epoch = slot_completed->epoch;
@@ -463,6 +464,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       case REPLAY_SIG_OC_ADVANCED: {
         fd_replay_oc_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         if( FD_LIKELY( ctx->confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->confirmed_idx = msg->bank_idx;
         ctx->cluster_confirmed_slot = msg->slot;
         break;
@@ -470,6 +472,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       case REPLAY_SIG_ROOT_ADVANCED: {
         fd_replay_root_advanced_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         if( FD_LIKELY( ctx->finalized_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, ctx->finalized_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        FD_TEST( msg->bank_idx<ctx->max_live_slots );
         ctx->finalized_idx = msg->bank_idx;
         break;
       }
