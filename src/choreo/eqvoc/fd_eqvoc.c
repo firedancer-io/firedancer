@@ -716,15 +716,6 @@ verify_proof( fd_eqvoc_t const *         eqvoc,
 
     if( FD_UNLIKELY( fd_shred_is_code( fd_shred_type( lo->variant ) ) ) ) {
 
-      /* Test for overlap. The FEC sets overlap if the lower fec_set_idx +
-        data_cnt > higher fec_set_idx. We must have received at least one
-        coding shred in the FEC set with the lower fec_set_idx to perform
-        this check. */
-
-      if( FD_UNLIKELY( lo->fec_set_idx + lo->code.data_cnt > hi->fec_set_idx ) ) {
-        return FD_EQVOC_SUCCESS_OVERLAP;
-      }
-
       /* Test for conflicting chained merkle roots when shred1 and shred2
         are in adjacent FEC sets. We know the FEC sets are adjacent if the
         last data shred index in the lower FEC set is one less than the
@@ -768,16 +759,6 @@ verify_proof( fd_eqvoc_t const *         eqvoc,
 
   if( FD_UNLIKELY( shred1->idx==shred2->idx ) ) {
     return FD_EQVOC_SUCCESS;
-  }
-
-  /* If both are coding shreds, then check if they have the same meta.
-     TODO fixed-32 remove. */
-
-  if( FD_LIKELY( fd_shred_is_code( fd_shred_type( shred1->variant ) ) &&
-                 ( shred1->code.code_cnt != shred2->code.code_cnt ||
-                   shred1->code.data_cnt != shred2->code.data_cnt ||
-                   shred1->idx - shred1->code.idx == shred2->idx - shred2->code.idx ) ) ) {
-    return FD_EQVOC_SUCCESS_META;
   }
 
   /* Shreds do not prove equivocation. */
