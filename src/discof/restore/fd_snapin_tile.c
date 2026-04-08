@@ -1124,6 +1124,7 @@ unprivileged_init( fd_topo_t *      topo,
     ulong depth = out_link_txn->depth;
     FD_TEST( ( depth*snapin_txn.mtu )==( sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) );
     ctx->txncache_entries                 = fd_chunk_to_laddr( snapin_txn.mem, snapin_txn.chunk0 );
+    FD_TEST( fd_dcache_app_sz( out_link_txn->dcache )>=sizeof(ulong) );
     ctx->txncache_entries_len_vinyl_ptr   = (ulong*)fd_dcache_app_laddr( out_link_txn->dcache );
     memset( ctx->txncache_entries_len_vinyl_ptr, 0, sizeof(ulong) );
   } else {
