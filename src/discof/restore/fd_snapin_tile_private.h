@@ -106,7 +106,17 @@ struct fd_snapin_tile {
 
   struct {
     ulong capitalization;
-  } recovery; /* stores the capitalization value from the last full snapshot */
+
+    /* Backup of bank fields populated at CTRL_NEXT (full snapshot
+       completion) for rollback during incremental snapshot CTRL_FAIL.
+       This ensures the bank state can be properly reverted to the full
+       snapshot's values if an incremental snapshot fails at any point
+       after its manifest has been processed. */
+    uchar bank_f[ sizeof(((fd_bank_t *)NULL)->f) ];
+    fd_txncache_fork_id_t txncache_fork_id;
+    uchar top_votes_t_1[ FD_TOP_VOTES_MAX_FOOTPRINT ];
+    uchar top_votes_t_2[ FD_TOP_VOTES_MAX_FOOTPRINT ];
+  } recovery;
 
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;

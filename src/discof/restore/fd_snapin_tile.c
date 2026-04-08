@@ -1112,6 +1112,20 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->recovery.capitalization = ctx->capitalization;
       }
 
+      /* Backup bank state for incremental snapshot rollback.  If an
+         incremental snapshot fails after its manifest has been
+         processed, these backups allow restoring the bank to the full
+         snapshot's state. */
+      if( FD_LIKELY( ctx->banks ) ) {
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, 0UL );
+        if( FD_LIKELY( bank ) ) {
+          fd_memcpy( ctx->recovery.bank_f, &bank->f, sizeof(bank->f) );
+          ctx->recovery.txncache_fork_id = bank->txncache_fork_id;
+          fd_memcpy( ctx->recovery.top_votes_t_1, bank->top_votes_t_1_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
+          fd_memcpy( ctx->recovery.top_votes_t_2, bank->top_votes_t_2_mem, FD_TOP_VOTES_MAX_FOOTPRINT );
+        }
+      }
+
       /* Backup metric counters */
       ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
       ctx->metrics.full_accounts_replaced = ctx->metrics.accounts_replaced;
@@ -1182,6 +1196,22 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       if( !ctx->full ) {
         fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
         fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
+
+        /* Restore the bank to the full snapshot's state.  Stake
+           delegations and epoch stakes (vote_stakes, top_votes,
+           epoch_credits, commissions) do not need explicit restore:
+           stake delegations are unconditionally reset at the next
+           CTRL_INIT, and epoch stakes structures are re-initialized
+           during manifest parsing. */
+        if( FD_LIKELY( ctx->banks ) ) {
+          fd_bank_t * bank = fd_banks_bank_query( ctx->banks, 0UL );
+          if( FD_LIKELY( bank ) ) {
+            fd_memcpy( &bank->f, ctx->recovery.bank_f, sizeof(bank->f) );
+            bank->txncache_fork_id = ctx->recovery.txncache_fork_id;
+            fd_memcpy( bank->top_votes_t_1_mem, ctx->recovery.top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
+            fd_memcpy( bank->top_votes_t_2_mem, ctx->recovery.top_votes_t_2, FD_TOP_VOTES_MAX_FOOTPRINT );
+          }
+        }
       }
       break;
     }
