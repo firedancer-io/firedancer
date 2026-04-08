@@ -320,10 +320,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_memcpy( vote_ele->pubkey.uc, &vote_pubkey, sizeof(fd_pubkey_t) );
-    vote_ele->commission_t_1 = (uchar)prev_vote_accs->commission;
+    vote_ele->commission = (uchar)prev_vote_accs->commission;
 
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
-    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[i];
+    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[i];
     ec->cnt          = prev_vote_accs->epoch_credits_count;
     ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {

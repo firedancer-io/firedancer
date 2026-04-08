@@ -393,6 +393,12 @@ struct fd_banks {
 
   ulong dead_banks_deque_offset;
 
+  ulong epoch_credits_offset;
+  ulong epoch_credits_len;
+
+  ulong snapshot_commission_t_3_offset;
+  ulong snapshot_commission_t_3_len;
+
   /* The set of epoch leaders for the current and previous epochs is
      allocated out-of-line and tracked by epoch_leaders_offset.  Only
      two need to be stored because in the worst case we will have a root
@@ -411,6 +417,18 @@ typedef struct fd_banks fd_banks_t;
 
 /* Bank accesssors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
+
+fd_epoch_credits_t *
+fd_bank_epoch_credits( fd_bank_t * bank );
+
+ulong *
+fd_bank_epoch_credits_len( fd_bank_t * bank );
+
+fd_stashed_commission_t *
+fd_bank_snapshot_commission_t_3( fd_bank_t * bank );
+
+ulong *
+fd_bank_snapshot_commission_t_3_len( fd_bank_t * bank );
 
 fd_stake_rewards_t const *
 fd_bank_stake_rewards_query( fd_bank_t * bank );

@@ -1604,13 +1604,10 @@ state_process( fd_ssmanifest_parser_t * parser,
     parser->leader_schedule_epoch    = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
     ulong const epoch_stakes_ele_cnt = sizeof(parser->manifest->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t);
 
-    if( FD_UNLIKELY( parser->leader_schedule_epoch-parser->epoch>=epoch_stakes_ele_cnt ) ) {
-      /* We only support storing the epoch stakes for the current epoch
-         and the leader schedule epoch, which is usually 1 epoch ahead
-         of the current epoch.  If this ever changes, we will hit this
-         error and need to support more epoch stakes entries. */
-      FD_LOG_WARNING(( "fd_ssmanifest_parser only supports up to %lu epoch_stakes entries, but leader schedule epoch is %lu epochs after bank epoch",
-                       epoch_stakes_ele_cnt, parser->leader_schedule_epoch-parser->epoch ));
+    ulong const epoch_stakes_base = parser->epoch>0UL ? parser->epoch-1UL : 0UL;
+    if( FD_UNLIKELY( parser->leader_schedule_epoch-epoch_stakes_base>=epoch_stakes_ele_cnt ) ) {
+      FD_LOG_WARNING(( "fd_ssmanifest_parser only supports up to %lu epoch_stakes entries, but leader schedule epoch is %lu epochs after base epoch",
+                       epoch_stakes_ele_cnt, parser->leader_schedule_epoch-epoch_stakes_base ));
       return -1;
     }
   }
@@ -1626,8 +1623,9 @@ state_process( fd_ssmanifest_parser_t * parser,
       return -1;
     }
 
-    if( parser->epoch_stakes_epoch>=parser->epoch && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
-      parser->epoch_idx = parser->epoch_stakes_epoch-parser->epoch;
+    ulong const epoch_stakes_base = parser->epoch>0UL ? parser->epoch-1UL : 0UL;
+    if( parser->epoch_stakes_epoch>=epoch_stakes_base && parser->epoch_stakes_epoch<=parser->leader_schedule_epoch ) {
+      parser->epoch_idx = parser->epoch_stakes_epoch-epoch_stakes_base;
       parser->manifest->epoch_stakes[ parser->epoch_idx ].epoch = parser->epoch_stakes_epoch;
     }
     else {
@@ -1905,6 +1903,10 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   parser->dst_sz   = state_size( parser );
   parser->dst_cur  = 0UL;
   parser->manifest = manifest;
+
+  manifest->epoch_stakes[0].vote_stakes_len = 0UL;
+  manifest->epoch_stakes[1].vote_stakes_len = 0UL;
+  manifest->epoch_stakes[2].vote_stakes_len = 0UL;
 
   FD_SCRATCH_ALLOC_INIT( l, parser );
                          FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );

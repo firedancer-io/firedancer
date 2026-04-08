@@ -67,7 +67,7 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *               bank,
     FD_LOG_ERR(( "sysvar epoch rewards is not active" ));
   }
 
-  if( FD_UNLIKELY( fd_ulong_sat_add( epoch_rewards->distributed_rewards, distributed ) > epoch_rewards->total_rewards ) ) {
+  if( FD_UNLIKELY( fd_ulong_sat_add( epoch_rewards->distributed_rewards, distributed )>epoch_rewards->total_rewards ) ) {
     FD_LOG_ERR(( "distributed rewards overflow" ));
   }
 
