@@ -176,16 +176,40 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
         /* ignore */
         break;
       case FD_SSPARSE_ADVANCE_MANIFEST: {
-        int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
-          result->manifest.data,
-          result->manifest.data_sz,
-          result->manifest.acc_vec_map,
-          result->manifest.acc_vec_pool,
-          NULL );
-        if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
-          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
-          transition_malformed( ctx, stem );
-          return 0;
+        uchar const * manifest_data    = result->manifest.data;
+        ulong         manifest_data_sz = result->manifest.data_sz;
+
+        for(;;) {
+          ulong bytes_consumed = 0UL;
+          int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
+            manifest_data,
+            manifest_data_sz,
+            result->manifest.acc_vec_map,
+            result->manifest.acc_vec_pool,
+            &bytes_consumed );
+          manifest_data    += bytes_consumed;
+          manifest_data_sz -= bytes_consumed;
+
+          if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+            FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
+            transition_malformed( ctx, stem );
+            return 0;
+          }
+
+          int drained = 0;
+
+          if( FD_UNLIKELY( fd_ssmanifest_parser_delegation_ready( ctx->manifest_parser ) ) ) {
+            drained = 1;
+            fd_ssmanifest_parser_delegation_done( ctx->manifest_parser );
+          }
+
+          if( FD_UNLIKELY( fd_ssmanifest_parser_vote_stakes_ready( ctx->manifest_parser ) ) ) {
+            drained = 1;
+            fd_ssmanifest_parser_vote_stakes_done( ctx->manifest_parser );
+          }
+
+          if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) break;
+          if( !drained ) break;
         }
         break;
       }

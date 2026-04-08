@@ -502,6 +502,12 @@ after_credit( fd_capture_tile_ctx_t * ctx,
           parse_buf += bytes_consumed;
           parse_rem -= bytes_consumed;
 
+          /* Drain any ready delegation (shredcap doesn't use delegations
+             but must drain them to unblock the parser). */
+          if( FD_UNLIKELY( fd_ssmanifest_parser_delegation_ready( parser ) ) ) {
+            fd_ssmanifest_parser_delegation_done( parser );
+          }
+
           /* Drain any ready vote_stakes entry into slim buffers */
           if( fd_ssmanifest_parser_vote_stakes_ready( parser ) ) {
             fd_snapshot_manifest_vote_stakes_t const * vs = fd_ssmanifest_parser_vote_stakes_peek( parser );

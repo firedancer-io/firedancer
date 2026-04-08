@@ -1998,6 +1998,7 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
   }
 
   if( opt_bytes_consumed ) *opt_bytes_consumed = (ulong)(buf - buf0);
+  if( FD_UNLIKELY( parser->state!=STATE_DONE ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
   return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
 }
 
