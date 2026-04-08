@@ -219,7 +219,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      stakes at the end of epoch 6.  Therefore, we save the total
      epoch stake by querying for epoch+1.  This logic is encapsulated
      in fd_ssmanifest_parser.c. */
-  /* epoch_stakes[2] = epoch E+1 = stakes at start of E */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
@@ -234,11 +233,10 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
 
-  /* epoch_stakes[2] = epoch E+1 = stakes at start of E.  Populates
-     vote_ele with epoch credits and commission from start of E. */
-
   ulong epoch_credits_len = 0UL;
 
+  /* Populate the vote stakes for the end of the T-1 epoch if the
+     snapshot is in epoch T. */
   for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
     fd_vote_stakes_root_insert_key(
@@ -246,7 +244,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
-        (uchar)elem->commission, /* TODO:FIXME: is this safe??? */
+        (uchar)elem->commission,
         bank->f.epoch );
 
     if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
@@ -268,8 +266,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
   *fd_bank_epoch_credits_len( bank ) = epoch_credits_len;
 
-  /* epoch_stakes[1] = epoch E = stakes at start of E-1.  Overwrites
-     commission with the E-1 value and populates top_votes_t_2. */
+  /* Populate the vote stakes for the end of the T-2 epoch if the
+     snapshot is in epoch T. */
   for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
 
@@ -286,13 +284,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         bank->f.epoch );
   }
 
-  /* Stash commission from epoch_stakes[0] (E-1, start of E-2) and
-     epoch_stakes[2] (E+1, start of E) for deferred feature-gated
-     selection in init_after_snapshot, where features are fully loaded.
-
-     At this point vote_ele->commission holds the epoch_stakes[1] (E,
-     start of E-1) value, which is the correct middle-tier fallback
-     for delay_commission_updates (SIMD-0249). */
+  /* Store commissions in the banks for the end of the T-3 epoch if the
+     snapshot is in epoch T. */
   *fd_bank_snapshot_commission_t_3_len( bank ) = manifest->epoch_stakes[0].vote_stakes_len;
   fd_stashed_commission_t * snapshot_commission = fd_bank_snapshot_commission_t_3( bank );
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
