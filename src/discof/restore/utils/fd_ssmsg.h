@@ -49,24 +49,12 @@ struct fd_snapshot_manifest_vote_account {
   uchar node_account_pubkey[ 32UL ];
 
   ulong stake;
-  ulong last_slot;
-  long  last_timestamp;
 
   /* The percent of inflation rewards earned by the validator and
      deposited into the validator's vote account, from 0 to 100%.
      The remaning percentage of inflation rewards is distributed to
      all delegated stake accounts by stake weight. */
   ushort commission;
-
-  /* The epoch credits array tracks the history of how many credits the
-     provided vote account earned in each of the past epochs.  The
-     entry at epoch_credits[0] is for the current epoch,
-     epoch_credits[1] is for the previous epoch, and so on.  In cases of
-     booting a new chain from genesis, or for new vote accounts the
-     epoch credits history may be short.  The maximum number of entries
-     in the epoch credits history is 64. */
-  ulong epoch_credits_history_len;
-  epoch_credits_t epoch_credits[ FD_EPOCH_CREDITS_MAX ];
 };
 
 typedef struct fd_snapshot_manifest_vote_account fd_snapshot_manifest_vote_account_t;
@@ -106,25 +94,11 @@ struct fd_snapshot_manifest_vote_stakes {
   /* The validator identity pubkey, aka node pubkey */
   uchar identity[ 32UL ];
 
-  /* The commission account for inflation rewards (vote, before SIMD-0232) */
-  uchar commission_inflation[ 32UL ];
-
-  /* The commission account for block revenue (identity, before SIMD-0232) */
-  uchar commission_block[ 32UL ];
-
   /* Whether this vote account has a BLS pubkey set */
   uchar has_identity_bls;
 
-  /* The validator BLS pubkey (used after SIMD-0326: Alpenglow) */
-  uchar identity_bls[ 48UL ];
-
   /* The total amount of active stake for the vote account */
   ulong stake;
-
-  /* The latest slot and timestmap that the vote account voted on in
-     the given epoch. */
-  ulong slot;
-  long  timestamp;
 
   /* The validator's commission rate as of the given epoch. */
   ushort commission;
