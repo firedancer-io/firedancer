@@ -44,9 +44,10 @@
         will not be in an ERROR state and will continue producing frags.
         When snapct receives the ERROR message, it will send a FAIL
         message.  snapct then waits for this FAIL message to be
-        progagated through the pipeline and received back.  It then
-        knows that all tiles are synchonized back in an IDLE state and
-        it can try again with a new INIT.
+        progagated through the pipeline and received back.  snapct
+        also guarantees to flush any pending load data in the
+        pipeline.  It then knows that all tiles are synchronized back
+        in an IDLE state and it can try again with a new INIT.
      4. Once snapct detects that the processing is finished, it sends
         a DONE message through the pipeline and waits for it to be
         received back.  We then either move on to the incremental
