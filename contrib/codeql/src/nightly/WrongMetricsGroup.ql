@@ -8,22 +8,15 @@
  */
 
 import cpp
-
+import fd_topo_run_tile
 
 class Tile extends File {
   Tile() { this.getBaseName().matches("%_tile.%") }
 
   string getName() {
-    exists(GlobalVariable v | v.getType().getName() = "fd_topo_run_tile_t" |
+    exists(FdTopoRunTileVariable v |
       v.getLocation().getFile() = this.getFile() and
-      exists(Field f | f.hasName("name") |
-        v.getInitializer()
-            .getExpr()
-            .(ClassAggregateLiteral)
-            .getAFieldExpr(f)
-            .(StringLiteral)
-            .getValue() = result
-      )
+      result = v.getTileName()
     )
   }
 }
