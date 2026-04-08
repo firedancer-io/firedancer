@@ -85,8 +85,10 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
                fd_h2_rbuf_t *            rbuf_rx,
                fd_h2_rbuf_t *            rbuf_tx,
                fd_h2_callbacks_t const * cb ) {
-  /* A receive might generate two WINDOW_UPDATE frames */
-  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx ) < 2*sizeof(fd_h2_window_update_t) ) ) return;
+  /* A receive might generate a single RST_STREAM or two WINDOW_UPDATE
+     frames */
+  ulong tx_reserve = fd_ulong_max( sizeof(fd_h2_rst_stream_t), 2UL*sizeof(fd_h2_window_update_t) );
+  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<tx_reserve ) ) return;
 
   ulong frame_rem  = conn->rx_frame_rem;
   ulong rbuf_avail = fd_h2_rbuf_used_sz( rbuf_rx );
@@ -684,6 +686,11 @@ fd_h2_rx1( fd_h2_conn_t *            conn,
     fd_h2_conn_error( conn, FD_H2_ERR_FRAME_SIZE );
     return;
   }
+
+  /* Ensure TX buffer has enough free space for control frame responses
+     (e.g. RST_STREAM) that frame handlers might generate.  If there is
+     not enough space, defer processing until the TX buffer drains. */
+  if( FD_UNLIKELY( fd_h2_rbuf_free_sz( rbuf_tx )<sizeof(fd_h2_rst_stream_t) ) ) return;
 
   *rbuf_rx = rx_peek;
   uchar * frame = fd_h2_rbuf_pop( rbuf_rx, scratch, payload_sz );
