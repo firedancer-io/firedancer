@@ -1170,7 +1170,25 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
      shreds that don't match it.  Else, we'll accept any and all shreds,
      and invalidating the merkle root if we see more than 1 version of
      the FEC. */
+
   uint fec_idx = fec_set_idx / 32UL;
+
+  /* If this is a slot_complete shred and we know the confirmed
+     block_id, we can immediately verify or reject.  This check is
+     independent of the complete_idx / lowest_verified_fec state, so it
+     covers the case after fec_clear resets those fields. */
+
+  if( FD_UNLIKELY( slot_complete && !fd_hash_eq( &ele->confirmed_bid, &empty_mr ) ) ) {
+    if( FD_UNLIKELY( !fd_hash_eq( &ele->confirmed_bid, mr ) ) ) return NULL; /* wrong version */
+    ele->lowest_verified_fec = fec_idx; /* last FEC verified */
+    if( FD_UNLIKELY( ele->parent_slot != parent_slot ) ) ele = verified_parent_update( forest, ele, parent_slot );
+    ele->merkle_roots[fec_idx].mr  = *mr;
+    ele->merkle_roots[fec_idx].cmr = *cmr;
+  }
+
+  /* Otherwise if this is any other shred and we know the verification
+     status, we can immediately verify or reject. */
+
   if( FD_UNLIKELY( merkle_verified( ele, fec_idx + 1 ) ) ) { /* if the cmr pointing to this FEC has been verified, then... */
     if( FD_UNLIKELY(
          ( fec_idx == (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->confirmed_bid, mr ) ) ||
@@ -1178,6 +1196,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
       /* merkle root doesn't match the verified CMR  */
       return NULL; /* do not accept this shred. */
     } else {
+
       /* A validated mr, but the parent slot is wrong.  This means we
          initially received a the wrong version of the slot that also
          had a different parent slot.  We need to update the parent slot
@@ -1186,13 +1205,13 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
          the sake of correctness, we'll do it.  It is theoretically only
          possible for the parent_slot update to happen once, after
          the fec_chain_verify has identified an incorrect FEC. */
+
       if( FD_UNLIKELY( ele->parent_slot != parent_slot ) ) ele = verified_parent_update( forest, ele, parent_slot );
       ele->merkle_roots[fec_idx].mr = *mr;
       ele->merkle_roots[fec_idx].cmr = *cmr;
 
     }
-  }
-  else { /* No verification / knowledge of canonical merkle root */
+  } else { /* No verification / knowledge of canonical merkle root */
     if( FD_UNLIKELY( !merkle_recvd( ele, fec_idx ) ) ) {
       ele->merkle_roots[fec_idx].mr  = *mr;
       ele->merkle_roots[fec_idx].cmr = *cmr;
@@ -1274,8 +1293,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
     fd_forest_blk_t * child = fd_forest_pool_ele( fd_forest_pool( forest ), ele->child );
     while( FD_UNLIKELY( child ) ) {
       if( FD_UNLIKELY( child->chain_confirmed ) ) {
-        ele->confirmed_bid       = child->merkle_roots[0].cmr;
-        ele->lowest_verified_fec = fec_idx + 1; /* populate the block id with the confirmed child's CMR */
+        ele->confirmed_bid = child->merkle_roots[0].cmr;
         break;
       }
       child = fd_forest_pool_ele( fd_forest_pool( forest ), child->sibling );
@@ -1315,11 +1333,10 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) 
 
 fd_forest_blk_t *
 fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash_t const * bid ) {
-  fd_hash_t const * expected_mr = bid;
   uint fec_idx = ele->complete_idx / 32UL;
 
-  ele->lowest_verified_fec = fec_idx+1;
-  ele->confirmed_bid       = *bid; /* confirmed */
+  ele->confirmed_bid            = *bid; /* confirmed */
+  fd_hash_t const * expected_mr = bid;
 
   while( FD_UNLIKELY( !ele->chain_confirmed ) ) {
     if( FD_UNLIKELY( !fd_hash_eq( expected_mr, &ele->merkle_roots[fec_idx].mr ) ) ) return ele;
@@ -1339,8 +1356,7 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
       }
 
       fec_idx = ele->complete_idx / 32UL;
-      ele->lowest_verified_fec = fec_idx+1;
-      ele->confirmed_bid       = *expected_mr; /* CMR of child slot */
+      ele->confirmed_bid = *expected_mr; /* CMR of child slot */
       continue;
     }
     fec_idx--; /* go back one FEC set */
@@ -1358,6 +1374,12 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
 
   for( uint i=fec_set_idx; i<=fec_set_idx+max_shred_idx; i++ ) {
     fd_forest_blk_idxs_remove( ele->idxs, i );
+  }
+
+  /* clear complete_idx if we've cleared the last FEC in the slot */
+  if( FD_UNLIKELY( fec_set_idx+max_shred_idx == ele->complete_idx ) ) {
+    ele->complete_idx = UINT_MAX;
+    ele->lowest_verified_fec = UINT_MAX;
   }
 
   /* There is a chance that the repair iterator is on this exact slot.
