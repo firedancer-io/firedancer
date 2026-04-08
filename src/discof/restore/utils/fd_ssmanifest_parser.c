@@ -406,6 +406,13 @@ struct fd_ssmanifest_parser_private {
      from struct but parser needs it to compute EPOCH_CREDITS size). */
   ulong   va_epoch_credits_history_len;
 
+  /* Staging for stake delegation entries processed on-the-fly.
+     After each complete delegation entry is parsed, delegation_ready
+     is set to 1.  The consumer (snapin) checks this flag after each
+     fd_ssmanifest_parser_consume() call and drains the entry. */
+  fd_snapshot_manifest_stake_delegation_t staging_delegation;
+  int    delegation_ready;
+
   ulong acc_vec_slot;
   ulong acc_vec_id;
   ulong acc_vec_file_sz;
@@ -938,12 +945,12 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                                         return (uchar*)&parser->option;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                                                         return NULL;
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH:                                                               return (uchar*)&manifest->stake_delegations_len;
-    case STATE_STAKES_STAKE_DELEGATIONS_KEY:                                                                  return (uchar*)&manifest->stake_delegations[ idx1 ].stake_pubkey;
-    case STATE_STAKES_STAKE_DELEGATIONS_VOTER_PUBKEY:                                                         return (uchar*)&manifest->stake_delegations[ idx1 ].vote_pubkey;
-    case STATE_STAKES_STAKE_DELEGATIONS_STAKE:                                                                return (uchar*)&manifest->stake_delegations[ idx1 ].stake_delegation;
-    case STATE_STAKES_STAKE_DELEGATIONS_ACTIVATION_EPOCH:                                                     return (uchar*)&manifest->stake_delegations[ idx1 ].activation_epoch;
-    case STATE_STAKES_STAKE_DELEGATIONS_DEACTIVATION_EPOCH:                                                   return (uchar*)&manifest->stake_delegations[ idx1 ].deactivation_epoch;
-    case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:                                                 return (uchar*)&manifest->stake_delegations[ idx1 ].warmup_cooldown_rate;
+    case STATE_STAKES_STAKE_DELEGATIONS_KEY:                                                                  return (uchar*)&parser->staging_delegation.stake_pubkey;
+    case STATE_STAKES_STAKE_DELEGATIONS_VOTER_PUBKEY:                                                         return (uchar*)&parser->staging_delegation.vote_pubkey;
+    case STATE_STAKES_STAKE_DELEGATIONS_STAKE:                                                                return (uchar*)&parser->staging_delegation.stake_delegation;
+    case STATE_STAKES_STAKE_DELEGATIONS_ACTIVATION_EPOCH:                                                     return (uchar*)&parser->staging_delegation.activation_epoch;
+    case STATE_STAKES_STAKE_DELEGATIONS_DEACTIVATION_EPOCH:                                                   return (uchar*)&parser->staging_delegation.deactivation_epoch;
+    case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:                                                 return (uchar*)&parser->staging_delegation.warmup_cooldown_rate;
     case STATE_STAKES_UNUSED:                                                                                 return NULL;
     case STATE_STAKES_EPOCH:                                                                                  return NULL;
     case STATE_STAKES_STAKE_HISTORY_LENGTH:                                                                   return (uchar*)&parser->length1;
@@ -1405,8 +1412,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE: {
-      if( FD_UNLIKELY( manifest->stake_delegations[ parser->idx1 ].warmup_cooldown_rate>1.0 ) ) {
-        FD_LOG_WARNING(( "invalid stakes_stake_delegations warmup cooldown rate %f", manifest->stake_delegations[ parser->idx1 ].warmup_cooldown_rate ));
+      if( FD_UNLIKELY( parser->staging_delegation.warmup_cooldown_rate>1.0 ) ) {
+        FD_LOG_WARNING(( "invalid stakes_stake_delegations warmup cooldown rate %f", parser->staging_delegation.warmup_cooldown_rate ));
         return -1;
       }
       break;
@@ -1853,6 +1860,11 @@ state_process( fd_ssmanifest_parser_t * parser,
   }
 
   if( FD_UNLIKELY( iter_target!=INT_MAX ) ) {
+    /* Signal that a complete stake delegation entry has been parsed
+       and is ready for on-the-fly processing by the consumer. */
+    if( FD_UNLIKELY( parser->state==STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE ) ) {
+      parser->delegation_ready = 1;
+    }
     *idx += 1UL;
     if( FD_LIKELY( *idx<length ) ) parser->state = iter_target;
     else                           parser->state = next_target;
@@ -1907,6 +1919,8 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   parser->dst_sz   = state_size( parser );
   parser->dst_cur  = 0UL;
   parser->manifest = manifest;
+  parser->delegation_ready = 0;
+  fd_memset( &parser->staging_delegation, 0, sizeof(parser->staging_delegation) );
 
   manifest->epoch_stakes[0].vote_stakes_len = 0UL;
   manifest->epoch_stakes[1].vote_stakes_len = 0UL;
@@ -1974,5 +1988,21 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
   }
 
   return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
+}
+
+int
+fd_ssmanifest_parser_delegation_ready( fd_ssmanifest_parser_t const * parser ) {
+  return parser->delegation_ready;
+}
+
+fd_snapshot_manifest_stake_delegation_t const *
+fd_ssmanifest_parser_delegation_peek( fd_ssmanifest_parser_t const * parser ) {
+  return &parser->staging_delegation;
+}
+
+void
+fd_ssmanifest_parser_delegation_done( fd_ssmanifest_parser_t * parser ) {
+  parser->delegation_ready = 0;
+  fd_memset( &parser->staging_delegation, 0, sizeof(parser->staging_delegation) );
 }
 

@@ -35,6 +35,22 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               acc_vec_map_t *          acc_vec_map,
                               acc_vec_t *              acc_vec_pool );
 
+/* On-the-fly stake delegation polling interface.  After each
+   fd_ssmanifest_parser_consume() call, the consumer checks
+   fd_ssmanifest_parser_delegation_ready().  If it returns non-zero,
+   a complete stake delegation entry is available in staging and should
+   be drained.  The consumer must call
+   fd_ssmanifest_parser_delegation_done() after processing. */
+
+int
+fd_ssmanifest_parser_delegation_ready( fd_ssmanifest_parser_t const * parser );
+
+fd_snapshot_manifest_stake_delegation_t const *
+fd_ssmanifest_parser_delegation_peek( fd_ssmanifest_parser_t const * parser );
+
+void
+fd_ssmanifest_parser_delegation_done( fd_ssmanifest_parser_t * parser );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssmanifest_parser_h */

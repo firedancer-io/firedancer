@@ -632,7 +632,6 @@ process_manifest( fd_snapin_tile_t * ctx ) {
      execution. */
   if( FD_LIKELY( ctx->banks ) ) {
     fd_ssload_recover( manifest,
-                       ctx->banks,
                        fd_banks_bank_query( ctx->banks, 0UL ),
                        !ctx->full );
   }
@@ -716,7 +715,33 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
           FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
-        } else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
+        }
+
+        /* Drain any stake delegation that became ready during parsing.
+           The parser stages one delegation at a time; we insert it into
+           the banks' stake delegation map immediately. */
+        if( FD_UNLIKELY( fd_ssmanifest_parser_delegation_ready( ctx->manifest_parser ) ) ) {
+          if( FD_LIKELY( ctx->banks ) ) {
+            fd_snapshot_manifest_stake_delegation_t const * d =
+                fd_ssmanifest_parser_delegation_peek( ctx->manifest_parser );
+            if( FD_LIKELY( d->stake_delegation!=0UL ) ) {
+              fd_stake_delegations_t * stake_delegations =
+                  fd_banks_stake_delegations_root_query( ctx->banks );
+              fd_stake_delegations_root_update(
+                  stake_delegations,
+                  (fd_pubkey_t *)d->stake_pubkey,
+                  (fd_pubkey_t *)d->vote_pubkey,
+                  d->stake_delegation,
+                  d->activation_epoch,
+                  d->deactivation_epoch,
+                  d->credits_observed,
+                  d->warmup_cooldown_rate );
+            }
+          }
+          fd_ssmanifest_parser_delegation_done( ctx->manifest_parser );
+        }
+
+        if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
           ctx->flags.manifest_done = 1;
         }
         break;
@@ -898,6 +923,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
         ctx->capitalization     = ctx->recovery.capitalization;
         ctx->dup_capitalization = 0UL;
+
+        /* Reset stake delegations for incremental snapshot reload.
+           The full snapshot populates them from scratch; the incremental
+           needs a clean slate so stale entries are discarded. */
+        if( FD_LIKELY( ctx->banks ) ) {
+          fd_stake_delegations_t * stake_delegations =
+              fd_banks_stake_delegations_root_query( ctx->banks );
+          fd_stake_delegations_reset( stake_delegations );
+        }
       }
 
       /* Save the slot advertised by the snapshot peer and verify it

@@ -443,9 +443,10 @@ struct fd_snapshot_manifest {
   ulong                               vote_accounts_len;
   fd_snapshot_manifest_vote_account_t vote_accounts[ FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ];
 
-  /* FIXME: Make this unbounded or support a much larger bound. */
+  /* Stake delegations are processed on-the-fly by the snapin tile
+     during parsing (via the parser's staging_delegation + polling
+     interface).  Only the count is stored here for reference. */
   ulong stake_delegations_len;
-  fd_snapshot_manifest_stake_delegation_t stake_delegations[ 3000000UL ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of a previous epoch.  They are primarily

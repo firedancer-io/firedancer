@@ -60,7 +60,6 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 
 void
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
-                   fd_banks_t *             banks,
                    fd_bank_t *              bank,
                    int                      is_incremental ) {
   /* Slot */
@@ -180,25 +179,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     }
   }
 
-  /* Stake delegations for the current epoch. */
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  if( is_incremental ) fd_stake_delegations_reset( stake_delegations );
-  for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
-    fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
-    if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {
-      continue;
-    }
-    fd_stake_delegations_root_update(
-        stake_delegations,
-        (fd_pubkey_t *)elem->stake_pubkey,
-        (fd_pubkey_t *)elem->vote_pubkey,
-        elem->stake_delegation,
-        elem->activation_epoch,
-        elem->deactivation_epoch,
-        elem->credits_observed,
-        elem->warmup_cooldown_rate
-    );
-  }
+  /* Stake delegations for the current epoch are processed on-the-fly
+     by the snapin tile during manifest parsing.  See the
+     fd_ssmanifest_parser_delegation_ready() polling interface. */
 
   /* We also want to set the total stake to be the total amount of stake
      at the end of the previous epoch. This value is used for the
