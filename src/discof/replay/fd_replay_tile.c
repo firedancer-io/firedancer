@@ -1196,10 +1196,12 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   }
 
   if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-    for( ulong i=0UL; i<runtime_stack->stakes.snapshot_commission_t_3_cnt; i++ ) {
-      fd_stashed_commission_t const * sc = &runtime_stack->stakes.snapshot_commission_t_3[i];
-      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, &sc->pubkey, NULL, runtime_stack->stakes.vote_ele );
-      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = sc->commission;
+    ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
+    fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
+    for( ulong i=0UL; i<commission_t_3_len; i++ ) {
+      fd_stashed_commission_t const * ele = &commission_t_3[i];
+      fd_vote_rewards_t * vote_ele = fd_vote_rewards_map_ele_query( vote_ele_map, (fd_pubkey_t *)ele->pubkey, NULL, runtime_stack->stakes.vote_ele );
+      if( FD_LIKELY( vote_ele ) ) vote_ele->commission = ele->commission;
     }
   }
 
@@ -1681,7 +1683,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                          ctx->banks,
                          fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
-                         ctx->runtime_stack,
                          msg==FD_SSMSG_MANIFEST_INCREMENTAL );
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );

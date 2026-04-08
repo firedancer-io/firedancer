@@ -62,7 +62,6 @@ void
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   fd_runtime_stack_t *     runtime_stack,
                    int                      is_incremental ) {
   /* Slot */
 
@@ -294,11 +293,12 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      At this point vote_ele->commission holds the epoch_stakes[1] (E,
      start of E-1) value, which is the correct middle-tier fallback
      for delay_commission_updates (SIMD-0249). */
-  runtime_stack->stakes.snapshot_commission_t_3_cnt = manifest->epoch_stakes[0].vote_stakes_len;
+  *fd_bank_snapshot_commission_t_3_len( bank ) = manifest->epoch_stakes[0].vote_stakes_len;
+  fd_stashed_commission_t * snapshot_commission = fd_bank_snapshot_commission_t_3( bank );
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
-    fd_memcpy( runtime_stack->stakes.snapshot_commission_t_3[i].pubkey.uc, elem->vote, 32UL );
-    runtime_stack->stakes.snapshot_commission_t_3[i].commission = (uchar)elem->commission;
+    fd_memcpy( snapshot_commission[i].pubkey, elem->vote, 32UL );
+    snapshot_commission[i].commission = (uchar)elem->commission;
   }
 
   bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };

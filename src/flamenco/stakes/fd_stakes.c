@@ -438,25 +438,23 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      stake_delegations, but then iterates vote_accounts.iter(), instead
      of the delegated_stakes map, so they never actually remove any
      entries from the vote_accounts while refreshing. */
-  {
-    fd_vote_stakes_t * vs   = fd_bank_vote_stakes( bank );
-    uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem_vs[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
-    for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vs, parent_idx, iter_mem_vs );
-         !fd_vote_stakes_fork_iter_done( vs, parent_idx, vs_iter );
-         fd_vote_stakes_fork_iter_next( vs, parent_idx, vs_iter ) ) {
-      fd_pubkey_t vs_pubkey;
-      fd_vote_stakes_fork_iter_ele( vs, parent_idx, vs_iter, &vs_pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
-      if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
-        FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
-      }
-      fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
-      sa->pubkey = vs_pubkey;
-      sa->stake  = 0UL;
-      fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
-      staked_accounts++;
+  fd_vote_stakes_t * vs = fd_bank_vote_stakes( bank );
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem_vs[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vs, parent_idx, iter_mem_vs );
+        !fd_vote_stakes_fork_iter_done( vs, parent_idx, vs_iter );
+        fd_vote_stakes_fork_iter_next( vs, parent_idx, vs_iter ) ) {
+    fd_pubkey_t vs_pubkey;
+    fd_vote_stakes_fork_iter_ele( vs, parent_idx, vs_iter, &vs_pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
+    if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
+      FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
     }
-    fd_vote_stakes_fork_iter_fini( vs );
+    fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+    sa->pubkey = vs_pubkey;
+    sa->stake  = 0UL;
+    fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
+    staked_accounts++;
   }
+  fd_vote_stakes_fork_iter_fini( vs );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
