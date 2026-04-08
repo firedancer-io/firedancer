@@ -357,7 +357,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.mem, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu",
                  scratch_top - (ulong)scratch - scratch_footprint( tile ),
