@@ -31,8 +31,11 @@
    feature, simple votes had a fixed cost instead of going through the
    full cost model.
 
-   To avoid feature-gating pack code, pack uses a tight upper bound,
-   FD_PACK_SIMPLE_VOTE_COST, to estimate the cost of simple votes.
+   To avoid feature-gating pack code, pack uses an upper bound on the
+   actual cost of simple votes which is guaranteed to be larger than the
+   cost consumed both before and after feature gate activation.  bank
+   tiles must then carefully rebate the correct amount based on whether
+   the feature is active or not.
 
    Since this is higher than the static cost used before
    remove_simple_vote_from_cost_model is activated, this can be
@@ -280,11 +283,18 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_CU==(FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUN
    - The maximum amount of loaded accounts data
    = 65,189 CUs
 */
-static const ulong FD_PACK_SIMPLE_VOTE_COST = ( 2UL*FD_PACK_COST_PER_SIGNATURE                 + /* 1,440  */
-                                                35UL*FD_PACK_COST_PER_WRITABLE_ACCT            + /* 10,500 */
-                                                FD_PACK_VOTE_MAX_COMPUTE_UNITS                 + /* 36,600 */
-                                                FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST + /* 16,384 */
-                                                FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST );       /* 265    */
+static const ulong FD_PACK_MAX_SIMPLE_VOTE_COST = ( 2UL*FD_PACK_COST_PER_SIGNATURE                 + /* 1,440  */
+                                                    35UL*FD_PACK_COST_PER_WRITABLE_ACCT            + /* 10,500 */
+                                                    FD_PACK_VOTE_MAX_COMPUTE_UNITS                 + /* 36,600 */
+                                                    FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST + /* 16,384 */
+                                                    FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST );       /* 265    */
+
+/* The fixed cost for simple votes before the activation of
+   remove_simple_vote_from_cost_model */
+static const ulong FD_PACK_FIXED_SIMPLE_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE         +
+                                                      2UL*FD_PACK_COST_PER_WRITABLE_ACCT +
+                                                      FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS +
+                                                      8UL );
 
 #undef FD_PACK_SIMPLE_VOTE_MAX_INSTR_DATA_COST
 
@@ -340,22 +350,9 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #endif /* FD_PACK_COST_USE_TRUE_ALLOC_BOUND */
 #undef ROW
 
-  /* special handling for simple votes */
-  if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( txn, payload ) ) ) {
-#if DETAILED_LOGGING
-    FD_BASE58_ENCODE_64_BYTES( (const uchar *)fd_txn_get_signatures(txn, payload), signature_cstr );
-    FD_LOG_NOTICE(( "TXN SIMPLE_VOTE signature[%s] total_cost[%lu]", signature_cstr, FD_PACK_SIMPLE_VOTE_COST));
-#endif
-    *flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-    fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            FD_PACK_VOTE_MAX_COMPUTE_UNITS                 );
-    fd_ulong_store_if( !!opt_fee,                       opt_fee,                       0UL                                            );
-    fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        0UL                                            );
-    fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, FD_PACK_VOTE_DEFAULT_LOADED_ACCOUNTS_DATA_COST );
-    fd_ulong_store_if( !!opt_allocated_data,            opt_allocated_data,            FD_PACK_COST_USE_TRUE_ALLOC_BOUND?3762UL : 0UL ); /* see below */
-    return FD_PACK_SIMPLE_VOTE_COST;
-  }
-
-  *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
+  int is_simple_vote = fd_txn_is_simple_vote_transaction( txn, payload );
+  if( FD_UNLIKELY( is_simple_vote ) ) *flags |=  FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
+  else                                *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
 
   /* We need to be mindful of overflow here, but it's not terrible.
      signature_cost < FD_TXN_ACCT_ADDR_MAX*720 + FD_TXN_INSTR_MAX * UCHAR_MAX * 6690,
@@ -527,6 +524,10 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong loaded_account_data_cost[1];
   fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
 
+  /* As an optimization, for simple votes we can override execution cost
+    with a known tighter upper bound. */
+  if( FD_UNLIKELY( is_simple_vote ) ) *execution_cost           = (uint)FD_PACK_VOTE_MAX_COMPUTE_UNITS;
+
   fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            (ulong)(*execution_cost)      );
   fd_ulong_store_if( !!opt_fee,                       opt_fee,                       *fee                          );
   fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        precompile_sig_cnt            );
@@ -535,12 +536,18 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 
 #if DETAILED_LOGGING
   FD_BASE58_ENCODE_64_BYTES( (const uchar *)fd_txn_get_signatures(txn, payload), signature_cstr );
-  FD_LOG_NOTICE(( "TXN signature[%s] signature_cost[%lu]  writable_cost[%lu]  instr_data_cost[%lu]  non_builtin_cost[%lu]  loaded_account_data_cost[%lu]  precompile_sig_cnt[%lu]  fee[%lu]",
-  signature_cstr, signature_cost, writable_cost, instr_data_cost, non_builtin_cost, *loaded_account_data_cost, precompile_sig_cnt, *fee));
+  FD_LOG_NOTICE(( "TXN signature[%s] signature_cost[%lu]  writable_cost[%lu]  instr_data_cost[%lu]  non_builtin_cnt[%lu]  loaded_account_data_cost[%lu]  precompile_sig_cnt[%lu]  fee[%lu]",
+  signature_cstr, signature_cost, writable_cost, instr_data_cost, non_builtin_cnt, *loaded_account_data_cost, precompile_sig_cnt, *fee));
 #endif
 
   /* <= FD_PACK_MAX_COST, so no overflow concerns */
-  return signature_cost + writable_cost + *execution_cost + instr_data_cost + *loaded_account_data_cost;
+  ulong total_cost = signature_cost + writable_cost + (ulong)(*execution_cost) + instr_data_cost + *loaded_account_data_cost;
+
+  /* Simple votes should always cost at least as much as the old fixed
+     cost model charged for them. */
+  if( FD_UNLIKELY( is_simple_vote ) ) FD_TEST( total_cost>=FD_PACK_FIXED_SIMPLE_VOTE_COST );
+
+  return total_cost;
 }
 #undef MAP_PERFECT_HASH_PP
 #undef PERFECT_HASH

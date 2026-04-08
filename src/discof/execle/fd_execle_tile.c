@@ -269,26 +269,20 @@ handle_microblock( fd_execle_tile_t *  ctx,
     uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
     uint actual_acct_data_cus = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
 
-    int is_simple_vote = 0;
-    if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
-      if( !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) {
-        /* TODO: remove this once remove_simple_vote_from_cost_model is
-                 activated */
-
-        /* Simple votes are charged fixed amounts of compute regardless of
-           the real cost they incur.  Unclear what cost is returned by
-           fd_execute txn, however, so we override it here. */
-        actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-        actual_acct_data_cus = 0U;
-      }
+    int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
+    if( FD_UNLIKELY( is_simple_vote && !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) ) {
+      /* TODO: remove this once remove_simple_vote_from_cost_model is
+         activated */
+      txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+      txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+    } else {
+      /* FeesOnly transactions are transactions that failed to load
+         before they even reach the VM stage. They have zero execution
+         cost but do charge for the account data they are able to load.
+         FeesOnly votes are charged the fixed vote cost. */
+      txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
+      txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
     }
-
-    /* FeesOnly transactions are transactions that failed to load
-       before they even reach the VM stage. They have zero execution
-       cost but do charge for the account data they are able to load.
-       FeesOnly votes are charged the fixed voe cost. */
-    txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
-    txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
     /* Use ALT accounts copied in during_frag for rebates.
        These were resolved by resolv_tile and are needed because the LUT
@@ -448,18 +442,22 @@ handle_bundle( fd_execle_tile_t *  ctx,
                       cost_tracker->remove_simple_vote_from_cost_model ));
       }
 
-      uint actual_execution_cus = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
-      uint actual_acct_data_cus = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
-      if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) &&
-                       !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) ) {
-          actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-          actual_acct_data_cus = 0U;
+      uint actual_execution_cus               = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
+      uint actual_acct_data_cus               = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
+      uint non_execution_cus                  = txns[ i ].pack_cu.non_execution_cus;
+      uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
+
+      int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload );
+      if( FD_UNLIKELY( is_simple_vote && !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) ) {
+        /* TODO: remove this once remove_simple_vote_from_cost_model is
+           activated */
+        txns[ i ].execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+        txns[ i ].execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+      } else {
+        txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
+        txns[ i ].execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
       }
 
-      uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
-      uint non_execution_cus                  = txns[ i ].pack_cu.non_execution_cus;
-      txns[ i ].execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
-      txns[ i ].execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
       txns[ i ].flags                        |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       tips[ i ]                               = txn_out->details.tips;
 
