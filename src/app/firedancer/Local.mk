@@ -19,7 +19,6 @@ include src/app/firedancer/version.h
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_THREADS
 ifdef FD_HAS_ALLOCA
-ifdef FD_HAS_DOUBLE
 ifdef FD_HAS_INT128
 ifdef FD_HAS_ZSTD
 
@@ -59,7 +58,6 @@ endif
 
 else
 $(warning firedancer build disabled due to lack of zstd)
-endif
 endif
 endif
 endif

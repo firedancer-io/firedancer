@@ -7,8 +7,6 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-# if FD_HAS_DOUBLE
-
   for( ulong iter=0; iter<10; iter++ ) {
     double tau;
     double t0 = fd_tempo_wallclock_model( &tau );
@@ -48,8 +46,6 @@ main( int     argc,
     FD_TEST( rms_==rms );
     FD_LOG_NOTICE(( "tick_per_ns: avg %8.3f ghz  rms %8.2e ghz", avg, rms ));
   }
-
-# endif
 
   long now;
   long toc;

@@ -243,20 +243,12 @@ test_mainnet( char const * filename       FD_PARAM_UNUSED,
   }
   sched_duration += fd_tickcount();
 
-# if FD_HAS_DOUBLE
   double ticks_per_ns = fd_tempo_tick_per_ns( NULL );
   FD_LOG_NOTICE(( "inserting %lu transactions took %f ms", txn_cnt, (double)insert_duration/ticks_per_ns * 1e-6 ));
   FD_LOG_NOTICE(( "scheduling took %f ms of work at the replay tile, and an estimated %f ms total time with %lu exec tiles and %f ns/CU",
         (double)sched_duration/ticks_per_ns * 1e-6, (double)(sched_duration+advanced_ticks)/ticks_per_ns * 1e-6, exec_cnt, (double)ticks_per_cu/ticks_per_ns ));
-# else
-  FD_LOG_NOTICE(( "inserting %lu transactions took %li ms", txn_cnt, insert_duration ));
-  FD_LOG_NOTICE(( "scheduling took %li ticks of work at the replay tile, and an estimated %li ticks total time with %lu exec tiles and %lu ticks/CU",
-        sched_duration, sched_duration+advanced_ticks, exec_cnt, ticks_per_cu ));
-# endif
-
   munmap( ptr, file_sz );
   close( fdesc );
-
 #endif
 }
 

@@ -663,7 +663,6 @@ test_pb_encode_float( void ) {
   FD_TEST( !fd_pb_push_packed_float( enc, 1, num, 4 ) );  /* oversz data */
 }
 
-#if FD_HAS_DOUBLE
 static void
 test_pb_encode_double( void ) {
   /* correctness */
@@ -724,7 +723,6 @@ test_pb_encode_double( void ) {
   FD_TEST( fd_pb_encoder_init( enc, buf, 25UL ) );
   FD_TEST( !fd_pb_push_packed_double( enc, 1, num, 3 ) );  /* oversz data */
 }
-#endif
 
 static void
 test_pb_encode_bytes( void ) {
@@ -830,9 +828,7 @@ test_pb_encode( void ) {
   test_pb_encode_fixed32();
   test_pb_encode_fixed64();
   test_pb_encode_float();
-# if FD_HAS_DOUBLE
   test_pb_encode_double();
-# endif
   test_pb_encode_bytes();
   test_pb_encode_nested();
   test_pb_encode_nested_overflow();

@@ -13,7 +13,5 @@ $(call make-fuzz-test,fuzz_bundle_auth_resp,fuzz_bundle_auth_resp,fd_disco fd_wa
 endif
 
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_DOUBLE
 $(call add-objs,fd_bundle_tile,fd_disco)
-endif
 endif

@@ -97,7 +97,7 @@
    list handling. */
 
 #ifndef FD_HAS_DOUBLE
-#define FD_HAS_DOUBLE 0
+#define FD_HAS_DOUBLE 1
 #endif
 
 /* FD_HAS_ALLOCA:  If the build target supports fast alloca-style

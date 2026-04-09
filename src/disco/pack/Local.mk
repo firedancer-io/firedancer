@@ -1,5 +1,4 @@
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_DOUBLE
 $(call add-hdrs,fd_pack.h fd_est_tbl.h fd_compute_budget_program.h fd_microblock.h fd_pack_rebate_sum.h)
 $(call add-objs,fd_pack,fd_ballet)
 $(call add-objs,fd_pack_tile,fd_disco)
@@ -25,6 +24,5 @@ endif
 ifdef FD_HAS_AVX
 $(call run-unit-test,test_deduplication)
 $(call make-unit-test,test_deduplication,test_deduplication,fd_ballet fd_util)
-endif
 endif
 endif

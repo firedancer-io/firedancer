@@ -53,8 +53,6 @@ include config/extra/with-security.mk
 
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
-FD_HAS_DOUBLE:=1
-CPPFLAGS+=-DFD_HAS_DOUBLE=1
 $(call map-define,FD_HAS_ALLOCA, __linux__)
 $(call map-define,FD_HAS_THREADS, __linux__)
 $(call map-define,FD_HAS_X86, __x86_64__)

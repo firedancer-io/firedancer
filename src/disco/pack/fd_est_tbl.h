@@ -3,8 +3,6 @@
 
 #include "../../ballet/fd_ballet_base.h"
 
-#if FD_HAS_DOUBLE
-
 /* This header defines a data structure for estimating the sliding-window mean
    and variance of tagged data.  It takes in real-valued input, with each value
    tagged with an opaque tag.  The data structure gives an estimated answer to
@@ -186,7 +184,5 @@ fd_est_tbl_update( fd_est_tbl_t * tbl,
   bin->d  = 1.0         +   C*bin->d ; /* Can't go denormal */
   bin->d2 = 1.0         + C*C*bin->d2; /* Can't go denormal */
 }
-
-#endif /* FD_HAS_DOUBLE */
 
 #endif /* HEADER_fd_src_disco_pack_fd_est_tbl_h */
