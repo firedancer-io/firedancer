@@ -1493,6 +1493,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.max_full_snapshots_to_keep           = config->firedancer.snapshots.max_full_snapshots_to_keep;
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
+    tile->snapct.target_uid                           = config->uid;
+    tile->snapct.target_gid                           = config->gid;
     tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;
     tile->snapct.sources.gossip.allow_list_cnt        = config->firedancer.snapshots.sources.gossip.allow_list_cnt;
     tile->snapct.sources.gossip.block_list_cnt        = config->firedancer.snapshots.sources.gossip.block_list_cnt;

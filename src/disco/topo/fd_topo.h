@@ -582,6 +582,9 @@ struct fd_topo_tile {
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
+
+      uint target_uid;
+      uint target_gid;
     } snapct;
 
     struct {
