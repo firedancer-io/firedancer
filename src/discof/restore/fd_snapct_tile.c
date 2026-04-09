@@ -1606,10 +1606,16 @@ privileged_init( fd_topo_t *      topo,
 
     ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_FULL_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
     if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_FULL_SNAP_NAME, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==fchown( ctx->local_out.full_snapshot_fd, tile->snapct.target_uid, tile->snapct.target_gid ) ) ) {
+      FD_LOG_ERR(( "fchown(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_FULL_SNAP_NAME, errno, fd_io_strerror( errno ) ));
+    }
 
     if( FD_LIKELY( tile->snapct.incremental_snapshots ) ) {
       ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_INCR_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
       if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_INCR_SNAP_NAME, errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==fchown( ctx->local_out.incremental_snapshot_fd, tile->snapct.target_uid, tile->snapct.target_gid ) ) ) {
+        FD_LOG_ERR(( "fchown(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_INCR_SNAP_NAME, errno, fd_io_strerror( errno ) ));
+      }
     }
   }
 
