@@ -449,6 +449,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   }
   fd_vote_stakes_fork_iter_fini( vs );
 
+  /* Now accumulate vote stakes for all stake delegations. */
+
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
       !fd_stake_delegations_iter_done( iter );
@@ -526,12 +528,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      account and insert into the vote stakes (an account can not exist
      but still be inserted into the vote stakes if it existed in the
      previous epoch or vice versa).  The only condition an account is
-     not inserted into the vote stakes is if it didn't exist in the
-     previous epoch and in the current one. */
+     not inserted into the vote stakes is if it didn't exist at the end
+     of the t-2 epoch and the end of the t-1 epoch assuming we are
+     transitioning into epoch t. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             child_idx   = fd_vote_stakes_new_child( vote_stakes );
-  bank->vote_stakes_fork_id = child_idx;
+  bank->vote_stakes_fork_id      = child_idx;
 
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
