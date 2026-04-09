@@ -117,13 +117,13 @@ FD_SYSVAR_SIMPLE_ITER( SIMPLE_SYSVAR )
 #undef SIMPLE_SYSVAR
 #undef SIMPLE_SYSVAR_READ
 
-ulong
+ulong const *
 fd_sysvar_cache_last_restart_slot_read( fd_sysvar_cache_t const * cache ) {
   ulong const idx = FD_SYSVAR_last_restart_slot_IDX;
   fd_sysvar_desc_t const * desc = &cache->desc[ idx ];
   fd_sysvar_pos_t const *  pos  = &fd_sysvar_pos_tbl[ idx ];
-  if( FD_UNLIKELY( !( desc->flags & FD_SYSVAR_FLAG_VALID ) ) ) return ULONG_MAX;
-  return FD_LOAD( ulong, (uchar const *)cache + pos->data_off );
+  if( FD_UNLIKELY( !( desc->flags & FD_SYSVAR_FLAG_VALID ) ) ) return NULL;
+  return fd_type_pun_const( (uchar const *)cache + pos->data_off );
 }
 
 fd_block_block_hash_entry_t const * /* deque */
