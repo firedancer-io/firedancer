@@ -1,10 +1,6 @@
 #include "../fd_util.h"
 #include <ctype.h>
 
-/* FIXME: COVERAGE FOR FD_CSTR_CASECMP, FD_CSTR_TO_ULONG_OCTAL,
-   FD_CSTR_APPEND_PRINTF, FD_CSTR_APPEND_CSTR, FD_CSTR_APPEND_CSTR_SAFE,
-   FD_CSTR_HASH, FD_CSTR_HASH_APPEND */
-
 char const * ref_text    = "\n\nThe quick brown fox jumps over the lazy dog\nThe quick brown fox jumps over the lazy dog.\n";
 char const * ref_uchar   = "0\n0\n+0\n-0\n1\n1\n+1\n-1\n 9\n09\n +9\n -9\n10\n10\n+10\n-10\n 99\n099\n +99\n -99\n100\n100\n+100\n-100\n 254\n0254\n +254\n -254\n 255\n0255\n +255\n -255\n";
 char const * ref_ushort  = "0\n0\n+0\n-0\n1\n1\n+1\n-1\n 9\n09\n +9\n -9\n10\n10\n+10\n-10\n 99\n099\n +99\n -99\n100\n100\n+100\n-100\n 999\n0999\n +999\n -999\n1000\n1000\n+1000\n-1000\n 9999\n09999\n +9999\n -9999\n10000\n10000\n+10000\n-10000\n 65534\n065534\n +65534\n -65534\n 65535\n065535\n +65535\n -65535\n";
@@ -156,6 +152,39 @@ main( int     argc,
   p0 = p; p = fd_cstr_append_char( fd_cstr_append_text( p, text, sz     ), '\n' ); FD_TEST( p0+sz+1UL==p );
   fd_cstr_fini( p );
   ulong len = strlen( ref_text ); FD_TEST( strlen( buf )==len && !memcmp( buf, ref_text, len+1UL ) );
+
+  do {
+    FD_TEST( fd_cstr_to_ulong_octal( "0"      )==  0UL );
+    FD_TEST( fd_cstr_to_ulong_octal( "10"     )==  8UL );
+    FD_TEST( fd_cstr_to_ulong_octal( "11"     )==  9UL );
+    FD_TEST( fd_cstr_to_ulong_octal( "0777"   )==511UL );
+    FD_TEST( fd_cstr_to_ulong_octal( "  0644" )==420UL );
+    FD_TEST( fd_cstr_to_ulong_octal( "+0123"  )== 83UL );
+  } while(0);
+
+  do {
+    char safe[ 16 ];
+
+    p = fd_cstr_init( safe );
+    p0 = p; p = fd_cstr_append_cstr_safe( p, NULL,    3UL ); FD_TEST( p0    ==p );
+    p0 = p; p = fd_cstr_append_cstr_safe( p, "alpha", 0UL ); FD_TEST( p0    ==p );
+    p0 = p; p = fd_cstr_append_cstr_safe( p, "alpha", 2UL ); FD_TEST( p0+2UL==p );
+    p0 = p; p = fd_cstr_append_cstr_safe( p, "beta",  8UL ); FD_TEST( p0+4UL==p );
+    fd_cstr_fini( p );
+
+    FD_TEST( !strcmp( safe, "albeta" ) );
+  } while(0);
+
+  do {
+    ulong seed = 7UL;
+    char const high_bytes[] = { (char)0x80, (char)0xff, '\0' };
+    ulong manual = ( ( seed*33UL ) ^ 0x80UL );
+    manual = ( manual*33UL ) ^ 0xffUL;
+
+    FD_TEST( fd_cstr_hash_append( seed, NULL )==seed );
+    FD_TEST( fd_cstr_hash_append( fd_cstr_hash_append( seed, "ab" ), "cd" )==fd_cstr_hash_append( seed, "abcd" ) );
+    FD_TEST( fd_cstr_hash_append( seed, high_bytes )==manual );
+  } while(0);
 
   /* Piece together ref_uint128 test from cstr fragments */
   for( ulong i=0UL, off=0UL; i<4; i++ ) {
