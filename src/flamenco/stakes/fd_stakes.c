@@ -669,8 +669,11 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
   if( FD_LIKELY( stake_state != NULL &&
                  stake_state->stake_type == FD_STAKE_STATE_STAKE &&
                  stake_state->stake.stake.delegation.stake != 0UL ) ) {
-
     ulong new_stake = stake_state->stake.stake.delegation.stake;
+
+    FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+    FD_LOG_NOTICE(("UPDATING DELEGATION %s stake %lu %lu %lu", pubkey_b58, new_stake, stake_state->stake.stake.delegation.activation_epoch, stake_state->stake.stake.delegation.deactivation_epoch ));
+
     fd_stake_delegations_fork_update( stake_delegations, bank->stake_delegations_fork_id, pubkey,
                                       &stake_state->stake.stake.delegation.voter_pubkey,
                                       new_stake,
@@ -680,6 +683,9 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                       stake_state->stake.stake.delegation.warmup_cooldown_rate );
 
   } else {
+    FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+    FD_LOG_NOTICE(("REMOVING DELEGATION %s", pubkey_b58 ));
+
     fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );
   }
 }

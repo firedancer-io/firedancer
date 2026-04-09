@@ -489,6 +489,8 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
       fd_stake_delegations_remove( stake_delegations, &stake_delegation->stake_account );
     }
   }
+
+  FD_LOG_NOTICE(("EFFECTIVE STAKES %lu ACTIVATING STAKES %lu DEACTIVATING STAKES %lu", stake_delegations->effective_stake, stake_delegations->activating_stake, stake_delegations->deactivating_stake ));
 }
 
 /* Combined base+delta iterator */
