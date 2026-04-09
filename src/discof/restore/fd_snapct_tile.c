@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_snapct_tile.h"
 #include "utils/fd_sspeer.h"
 #include "utils/fd_ssping.h"
@@ -16,6 +17,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
@@ -1601,6 +1603,15 @@ privileged_init( fd_topo_t *      topo,
   ctx->local_out.full_snapshot_fd        = -1;
   ctx->local_out.incremental_snapshot_fd = -1;
   if( FD_LIKELY( download_enabled( tile ) ) ) {
+    /* Switch to non-root uid/gid for file creation so snapshot files
+       are owned by the target user, not root. */
+    gid_t gid = getgid();
+    uid_t uid = getuid();
+    if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->snapct.target_gid, -1 ) ) )
+      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->snapct.target_uid, -1 ) ) )
+      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
     ctx->local_out.dir_fd = open( tile->snapct.snapshots_path, O_DIRECTORY|O_CLOEXEC );
     if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->snapct.snapshots_path, errno, fd_io_strerror( errno ) ));
 
@@ -1611,6 +1622,11 @@ privileged_init( fd_topo_t *      topo,
       ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_INCR_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
       if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_INCR_SNAP_NAME, errno, fd_io_strerror( errno ) ));
     }
+
+    if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) )
+      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) )
+      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   FD_TEST( fd_rng_secure( &ctx->selector_seed, 8UL ) );
