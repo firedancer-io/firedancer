@@ -160,8 +160,9 @@ snapshot_load_topo( config_t * config ) {
        guarantee enough mcache credits.  The mtu needs to be adjusted
        so that the total dcache size matches what snapin requires.
        Round up the mtu (ulong) size using: (...+(depth-1))/depth. */
-    fd_topob_link( topo, "snapin_txn", "snapin_txn",   16UL,    (sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES+15UL/*depth-1*/)/16UL/*depth*/, 1UL );
-    fd_topob_link( topo, "snapin_wm", "snapin_wm",     16UL,    FD_SNAPWM_PAIR_BATCH_SZ_MAX,    1UL );
+    fd_topo_link_t * snapin_txn = fd_topob_link( topo, "snapin_txn", "snapin_txn",   16UL,    (sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES+15UL/*depth-1*/)/16UL/*depth*/, 1UL );
+    /**/                          fd_topob_link( topo, "snapin_wm", "snapin_wm",     16UL,    FD_SNAPWM_PAIR_BATCH_SZ_MAX,    1UL );
+    fd_pod_insertf_ulong( topo->props, sizeof(ulong), "obj.%lu.app_sz", snapin_txn->dcache_obj_id );
     /* snapwh and snapwr both use snapwm_wh's dcache.  snapwh sends
        control messages to snapwr, using snapwh_wr link, instructing
        which chunks in the dcache are ready to be consumed by snapwr. */

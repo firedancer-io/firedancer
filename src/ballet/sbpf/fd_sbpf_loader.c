@@ -1441,7 +1441,7 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
   info->text_sz       = text_section_range.hi-text_section_range.lo;
   info->text_cnt      = (uint)( info->text_sz/8UL );
   info->shndx_text    = shndx_text;
-  info->calldests_max = fd_ulong_min( text_shdr->sh_size, bin_sz )/8UL;
+  info->calldests_max = (fd_ulong_min( text_shdr->sh_size, bin_sz )+7UL)/8UL;
 
   return FD_SBPF_ELF_SUCCESS;
 }

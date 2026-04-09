@@ -398,6 +398,17 @@ handle_control_frag( fd_snaplv_t *       ctx,
     case FD_SNAPSHOT_MSG_CTRL_FAIL: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
+      /* Discard buffered pending duplicate requests, to prevent them
+         from being emitted from this point onward. */
+      memset( ctx->vinyl.pending.active, 0, FD_SNAPLV_DUP_PENDING_CNT_MAX*sizeof(int) );
+      ctx->vinyl.pending_cnt = 0UL;
+
+      /* Reset hash accumulation state, to avoid publishing FINI to
+         snapct if awaiting_results was set before CTRL_FAIL. */
+      ctx->hash_accum.awaiting_results = 0;
+      ctx->hash_accum.received_lthashes = 0UL;
+
       ctx->fail.exp_sig = FD_SNAPSHOT_MSG_CTRL_FAIL;
       ctx->fail.ack_cnt = 0UL;
       ctx->fail.wait = 1;

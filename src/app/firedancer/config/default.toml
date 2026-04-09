@@ -608,6 +608,16 @@ telemetry = true
     # states for previous epochs.
     max_live_slots = 512
 
+    # fixed_fec_sets controls the maximum data payload size for FEC sets
+    # in the store.  Shreds per FEC set used to be variable-length, but
+    # were changed to always be a fixed size of 32.  When true the data
+    # buffer per FEC set is 31840 bytes (32 shreds * 995 payload bytes
+    # per shred).  When false, the data buffer is 63985 bytes (67 shreds
+    # * 955 payload bytes per shred) to accommodate the old
+    # variable-length FEC sets.  This should be left as its default
+    # value of true unless attempting to replay old ledgers.
+    fixed_fec_sets = true
+
     # max_fork_width specifies the maximum number of forks that will
     # play through the same slot. Specifically, the maximum number
     # of forks that will compute the epoch boundary. If the number

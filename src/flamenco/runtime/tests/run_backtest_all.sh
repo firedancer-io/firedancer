@@ -123,3 +123,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l syscall-parameter-address-r
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l virtual-address-space-adjustments -y 1 -m 1000 -e 819
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l account-data-direct-mapping -y 1 -m 1000 -e 1395
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_sbpf_v3_deployment_and_execution -y 1 -m 1000 -e 961
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5 -y 1 -m 1000 -e 586
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-7 -y 1 -m 10000 -e 1596
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-8 -y 1 -m 10000 -e 1596

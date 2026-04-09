@@ -33,11 +33,11 @@
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/metrics/fd_metrics.h"
-
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
-#include "../../flamenco/runtime/fd_genesis_parse.h"
+#include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
@@ -193,6 +193,8 @@ struct fd_replay_tile {
   fd_reasm_fec_t * reasm_evicted;       /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
 
   fd_sched_t * sched;
+  ulong        in_cnt;
+  ulong        execrp_idle_cnt;
 
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
@@ -1183,6 +1185,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
   if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) return 0;
+  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
   if( !ctx->supports_leader ) return 0;
 
@@ -1627,7 +1630,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                          ctx->banks,
                          fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
-                         ctx->runtime_stack,
                          msg==FD_SSMSG_MANIFEST_INCREMENTAL );
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
@@ -1973,8 +1975,9 @@ insert_fec_set( fd_replay_tile_t *  ctx,
       FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
       return 0;
     }
-    sched_fec->fec = store_fec;
-    if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and block_offs. */
+    sched_fec->fec  = store_fec;
+    sched_fec->data = fd_store_fec_data( ctx->store, store_fec );
+    if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and shred_offs. */
       mark_bank_dead( ctx, stem, sched_fec->bank_idx );
       return 1;
     }
@@ -2241,14 +2244,42 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  /* Try to dispatch some work before we try to ingest more FEC sets.
+     If FEC ingestion takes precedence, exec tiles can be left idle for
+     an extended period of time during catchup due to the burstiness of
+     reassembled FEC delivery.  It's better to keep the exec tiles busy
+     with potentially suboptimal scheduling than to leave them idle
+     while a burst of FEC sets gets ingested. */
+  if( FD_LIKELY( replay( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   /* If the reassembler has a fec that is ready, we should process it
-     and pass it to the scheduler. */
+     and pass it to the scheduler.
+
+     We would also like to pace FEC ingestion such that we keep the exec
+     tiles busy.  If there's a pending frag from one of the exec tiles,
+     we would like to know about that asap, because that could unblock
+     dispatching.  So we ingest FEC sets only if we are sure that there
+     are no more exec tile notifications to process.  This delays FEC
+     ingestion just enough so as to keep the exec tiles as busy as we
+     can, and prevents us from being stuck ingesting a backlog of FEC
+     sets, especially when there is a pending completion notification
+     about a single-transaction chokepoint in the replay dispatcher DAG.
+     Except that when we are leader or the reasm buffer is getting full,
+     we prioritize FEC processing.  In the leader case, this is so we
+     can get to the leader FEC sets asap and freeze the leader bank on
+     time.  In the reasm full case, this is so we don't prematurely
+     trigger eviction. */
   int evict_banks = 0;
-  if( FD_LIKELY( can_process_fec( ctx, &evict_banks ) ) ) {
+  if( FD_LIKELY( (ctx->execrp_idle_cnt>=2UL*ctx->in_cnt||ctx->is_leader||fd_reasm_free( ctx->reasm )<=1UL) && can_process_fec( ctx, &evict_banks ) ) ) {
     fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
     process_fec_set( ctx, stem, fec );
     *charge_busy = 1;
     *opt_poll_in = 0;
+    ctx->execrp_idle_cnt = 0UL;
     return;
   }
 
@@ -2260,8 +2291,7 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  *charge_busy = replay( ctx, stem );
-  *opt_poll_in = !*charge_busy;
+  ctx->execrp_idle_cnt++;
 }
 
 static int
@@ -2462,14 +2492,15 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
-process_fec_complete( fd_replay_tile_t *  ctx,
-                      fd_stem_context_t * stem,
-                      uchar const *       shred_buf ) {
-  fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
+process_fec_complete( fd_replay_tile_t *    ctx,
+                      fd_stem_context_t *   stem,
+                      ulong                 sig,
+                      fd_fec_complete_t * complete_msg ) {
+  fd_shred_t const * shred = &complete_msg->last_shred_hdr;
 
-  fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
-  fd_hash_t const * chained_merkle_root = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) );
-  int               is_leader_fec       = *(int const *)     fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) );
+  fd_hash_t const * merkle_root         = &complete_msg->merkle_root;
+  fd_hash_t const * chained_merkle_root = &complete_msg->chained_merkle_root;
+  int               is_leader_fec       = sig == SHRED_SIG_FEC_COMPLETE_LEADER;
 
   int data_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
   int slot_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
@@ -2650,6 +2681,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_EXECRP: {
       process_exec_task_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sig );
+      ctx->execrp_idle_cnt = 0UL;
       break;
     }
     case IN_KIND_POH: {
@@ -2683,10 +2715,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_REPAIR: {
-      /* TODO: This message/sz should be defined. */
-      if( sz!=0 && fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC ) {
+      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         /* If receive a FEC complete message. */
-        process_fec_complete( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        process_fec_complete( ctx, stem, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }
@@ -2945,6 +2976,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
   FD_TEST( ctx->sched );
+
+  ctx->in_cnt          = tile->in_cnt;
+  ctx->execrp_idle_cnt = 0UL;
 
   FD_TEST( fd_vinyl_req_pool_new( vinyl_req_pool_mem, 1UL, 1UL ) );
 

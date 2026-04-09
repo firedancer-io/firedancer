@@ -17,7 +17,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 
 /* Return data for syscalls */
-
 struct fd_txn_return_data {
   fd_pubkey_t program_id;
   ulong       len;

@@ -9,7 +9,7 @@
 #include "fd_runtime_stack.h"
 #include "fd_acc_pool.h"
 #include "fd_accdb_svm.h"
-#include "fd_genesis_parse.h"
+#include "../genesis/fd_genesis_parse.h"
 #include "fd_executor.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
@@ -152,17 +152,20 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
-  ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
-  ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
-  ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
+  ulong epoch     = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
+  ulong vat_epoch = fd_slot_to_epoch ( epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+  ulong slot0     = fd_epoch_slot0   ( epoch_schedule, epoch );
+  ulong slot_cnt  = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
 
   update_next_leaders( bank, runtime_stack, vote_stakes );
 
+  int vat_in_prev = epoch>=vat_epoch+1UL ? 1 : 0;
+
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, vat_in_prev );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
@@ -595,6 +598,18 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *               bank,
       &fd_solana_spl_token_id,
       &fd_solana_ptoken_program_buffer_address,
       FD_FEATURE_ACTIVE_BANK( bank, relax_programdata_account_check_migration ),
+      capture_ctx );
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank.rs#L5736-L5744 */
+  if( FD_UNLIKELY( FD_FEATURE_JUST_ACTIVATED_BANK( bank, upgrade_bpf_stake_program_to_v5 ) ) ) {
+    fd_upgrade_core_bpf_program(
+      bank,
+      accdb,
+      xid,
+      runtime_stack,
+      &fd_solana_stake_program_id,
+      &fd_solana_stake_program_v5_buffer_address,
       capture_ctx );
   }
 }

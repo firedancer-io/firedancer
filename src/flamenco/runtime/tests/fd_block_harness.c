@@ -292,7 +292,13 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
      from the parent slot */
   bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
 
-  bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
+  /* reduce_stake_warmup_cooldown is activated on all clusters, so the
+     new warmup/cooldown rate (0.09) applies from epoch 0 onwards. */
+  bank->f.warmup_cooldown_rate_epoch = 0UL;
+
+  /* Restore sysvar cache */
+  fd_sysvar_cache_restore_fuzz( bank, accdb, xid );
+
   /* Initialize total_effective/activating/deactivating_stake from the
      loaded stake delegations.  These are read by fd_stakes_activate_epoch
      at epoch boundary instead of re-scanning all delegations. */
@@ -314,10 +320,10 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     fd_memcpy( vote_ele->pubkey.uc, &vote_pubkey, sizeof(fd_pubkey_t) );
-    vote_ele->commission_t_1 = (uchar)prev_vote_accs->commission;
+    vote_ele->commission = (uchar)prev_vote_accs->commission;
 
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
-    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[i];
+    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[i];
     ec->cnt          = prev_vote_accs->epoch_credits_count;
     ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
@@ -342,9 +348,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   fd_memcpy( lthash, block_bank->parent_lt_hash, sizeof(fd_lthash_value_t) );
   fd_bank_lthash_end_locking_modify( bank );
-
-  /* Restore sysvar cache */
-  fd_sysvar_cache_restore_fuzz( bank, accdb, xid );
 
   /* Rent */
   FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );

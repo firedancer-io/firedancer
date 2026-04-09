@@ -180,7 +180,8 @@ state_process( fd_slot_delta_parser_t * parser ) {
 
   switch( parser->state ) {
     case STATE_SLOT_DELTAS_LEN:
-      parser->state = STATE_SLOT_DELTA_SLOT;
+      if( FD_UNLIKELY( !parser->len ) ) parser->state = STATE_DONE;
+      else                              parser->state = STATE_SLOT_DELTA_SLOT;
       break;
     case STATE_SLOT_DELTA_SLOT:
       parser->state = STATE_SLOT_DELTA_IS_ROOT;

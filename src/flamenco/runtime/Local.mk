@@ -45,9 +45,6 @@ $(call add-objs,fd_borrowed_account,fd_flamenco)
 $(call add-hdrs,fd_acc_pool.h)
 $(call add-objs,fd_acc_pool,fd_flamenco)
 
-$(call add-hdrs,fd_genesis_parse.h)
-$(call add-objs,fd_genesis_parse,fd_flamenco)
-
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco fd_funk fd_ballet fd_util)
@@ -82,8 +79,12 @@ $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_
 $(call run-unit-test,test_instr_acct_bounds,)
 $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_accounts_resize_delta)
-$(call make-unit-test,test_settle_fees,tests/test_settle_fees,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_settle_fees)
+$(call make-unit-test,test_fee_reward,tests/test_fee_reward,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_fee_reward)
+ifdef FD_HAS_DOUBLE
+$(call make-unit-test,test_inflation_rewards,tests/test_inflation_rewards,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_inflation_rewards)
+endif
 $(call make-unit-test,test_fee_calculator,tests/test_fee_calculator,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
 $(call run-unit-test,test_fee_calculator)
 $(call make-unit-test,test_feature_activation,tests/test_feature_activation,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
@@ -107,6 +108,5 @@ ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_HOSTED
 # TODO: Flakes
 # $(call run-unit-test,test_txncache)
-$(call make-fuzz-test,fuzz_genesis_parse,fuzz_genesis_parse,fd_flamenco fd_ballet fd_util)
 endif
 endif

@@ -293,7 +293,10 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
      if we are currently in epoch E. We do not count vote accounts that
      have not voted in an epoch's worth of slots (432k). */
 
-  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+  ulong curr_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot, NULL );
+  ulong vat_epoch  = fd_slot_to_epoch( epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+
+  if( curr_epoch>=vat_epoch+1UL ) {
     accum_vote_stakes_vat( bank, runtime_stack, &total_stake, &ts_ele_cnt );
   } else {
     accum_vote_stakes_no_vat( accdb, xid, bank, runtime_stack, &total_stake, &ts_ele_cnt );

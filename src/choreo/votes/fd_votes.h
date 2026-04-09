@@ -99,8 +99,6 @@
    on additional runtime integrity checks. */
 
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower_voters.h"
-#include "../tower/fd_tower_stakes.h"
 
 #ifndef FD_VOTES_PARANOID
 #define FD_VOTES_PARANOID 1
@@ -183,7 +181,11 @@ void *
 fd_votes_delete( void * votes );
 
 /* fd_votes_query returns a pointer to the votes block entry for the
-   given (slot, block_id), or NULL if not found. */
+   given (slot, block_id), or NULL if not found.
+
+   If block_id is NULL, searches all block_ids for the slot and returns
+   the one with the highest forward confirmation level (upper nibble of
+   flags), or NULL if no forward-confirmed entry exists. */
 
 fd_votes_blk_t *
 fd_votes_query( fd_votes_t *      votes,
@@ -211,18 +213,19 @@ fd_votes_count_vote( fd_votes_t *        votes,
 
 /* fd_votes_update_voters updates the set of voters tracked by votes.
    Should be called on each epoch boundary when the stake-weighted voter
-   set changes.  Voters not in tower_voters are removed.  New voters are
-   added and assigned bit positions in the per-slot vtrs bitset.
-   Existing voters keep their old bit positions.  All existing slot vtrs
-   are intersected with the kept set to clear removed voters' bits.
-   Stake is set from tower_stakes for each voter.  We intentionally do
-   NOT update stakes on existing vote counts to match Agave behavior. */
+   set changes.  Voters not in vote_accs[0..cnt) are removed.  New
+   voters are added and assigned bit positions in the per-slot vtrs
+   bitset.  Existing voters keep their old bit positions.  All existing
+   slot vtrs are intersected with the kept set to clear removed voters'
+   bits.  vote_accs and stakes are parallel arrays of length cnt, where
+   vote_accs[i] is the vote account address and stakes[i] is the stake
+   for that voter. */
 
 void
-fd_votes_update_voters( fd_votes_t *              votes,
-                        fd_tower_voters_t const * tower_voters,
-                        fd_tower_stakes_t *       tower_stakes,
-                        ulong                     root_slot );
+fd_votes_update_voters( fd_votes_t *        votes,
+                        fd_pubkey_t const * vote_accs,
+                        ulong const *       stakes,
+                        ulong               cnt );
 
 /* fd_votes_publish publishes root as the new votes root slot, removing
    all blocks with slot numbers < the new votes root slot.  Some slots

@@ -122,8 +122,10 @@ fd_ossl_load_certs( SSL_CTX * ssl_ctx ) {
   }
 
   struct dirent * entry;
-  errno = 0; // clear old value since entry can be NULL when reaching end of directory.
-  while( (entry = readdir( dir )) ) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) continue;
 
     char cert_path[ PATH_MAX ];
@@ -136,10 +138,9 @@ fd_ossl_load_certs( SSL_CTX * ssl_ctx ) {
       /* Not all files in /etc/ssl/certs are valid certs, so ignore errors */
       continue;
     }
-    errno = 0;
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) {
+  if( FD_UNLIKELY( errno ) ) {
     FD_LOG_ERR(( "readdir(%s) failed (%i-%s)", default_dir, errno, fd_io_strerror( errno ) ));
   }
 

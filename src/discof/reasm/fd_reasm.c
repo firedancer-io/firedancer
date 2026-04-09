@@ -11,8 +11,9 @@ fd_reasm_align( void ) {
 
 FD_FN_CONST ulong
 fd_reasm_footprint( ulong fec_max ) {
-  ulong max_slots = fd_ulong_max(fec_max / FD_FEC_BLK_MAX, 1UL);                 /* add capacity for a block id per slot */
-  int lgf_max     = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max + max_slots ) ); /* capacity for fec_max fecs + (fec_max / 1024) more block ids */
+  ulong max_slots = fd_ulong_max(fec_max / FD_FEC_BLK_MAX, 1UL);                  /* add capacity for a block id per slot */
+  ulong chain_cnt = ancestry_chain_cnt_est( fec_max );                            /* estimated buckets for ancestry map */
+  int  lgf_max    = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max + max_slots ) ); /* capacity for fec_max fecs + (fec_max / 1024) more block ids */
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -23,14 +24,14 @@ fd_reasm_footprint( ulong fec_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_reasm_t), sizeof(fd_reasm_t)            ),
-      pool_align(),        pool_footprint    ( fec_max ) ),
-      ancestry_align(),    ancestry_footprint( fec_max ) ),
-      frontier_align(),    frontier_footprint( fec_max ) ),
-      orphaned_align(),    orphaned_footprint( fec_max ) ),
-      subtrees_align(),    subtrees_footprint( fec_max ) ),
-      bfs_align(),         bfs_footprint     ( fec_max ) ),
-      xid_align(),         xid_footprint     ( lgf_max ) ),
+      alignof(fd_reasm_t), sizeof(fd_reasm_t)              ),
+      pool_align(),        pool_footprint    ( fec_max )   ),
+      ancestry_align(),    ancestry_footprint( chain_cnt ) ),
+      frontier_align(),    frontier_footprint( chain_cnt ) ),
+      orphaned_align(),    orphaned_footprint( chain_cnt ) ),
+      subtrees_align(),    subtrees_footprint( chain_cnt ) ),
+      bfs_align(),         bfs_footprint     ( fec_max )   ),
+      xid_align(),         xid_footprint     ( lgf_max )   ),
     fd_reasm_align() );
 }
 
@@ -65,31 +66,32 @@ fd_reasm_new( void * shmem,
 
   ulong max_slots = fd_ulong_max(fec_max / FD_FEC_BLK_MAX, 1UL);                  /* add capacity for a block id per slot */
   int   lgf_max   = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max + max_slots ) ); /* capacity for fec_max fecs + (fec_max / 1024) more block ids */
+  ulong chain_cnt = ancestry_chain_cnt_est( fec_max );                            /* estimated buckets for ancestry map */
 
   fd_reasm_t * reasm;
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  reasm           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reasm_t), sizeof(fd_reasm_t)            );
-  void * pool     = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),        pool_footprint    ( fec_max ) );
-  void * ancestry = FD_SCRATCH_ALLOC_APPEND( l, ancestry_align(),    ancestry_footprint( fec_max ) );
-  void * frontier = FD_SCRATCH_ALLOC_APPEND( l, frontier_align(),    frontier_footprint( fec_max ) );
-  void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, orphaned_align(),    orphaned_footprint( fec_max ) );
-  void * subtrees = FD_SCRATCH_ALLOC_APPEND( l, subtrees_align(),    subtrees_footprint( fec_max ) );
-  void * bfs      = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),         bfs_footprint     ( fec_max ) );
-  void * xid      = FD_SCRATCH_ALLOC_APPEND( l, xid_align(),         xid_footprint     ( lgf_max ) );
+  reasm           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reasm_t), sizeof(fd_reasm_t)              );
+  void * pool     = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),        pool_footprint    ( fec_max )   );
+  void * ancestry = FD_SCRATCH_ALLOC_APPEND( l, ancestry_align(),    ancestry_footprint( chain_cnt ) );
+  void * frontier = FD_SCRATCH_ALLOC_APPEND( l, frontier_align(),    frontier_footprint( chain_cnt ) );
+  void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, orphaned_align(),    orphaned_footprint( chain_cnt ) );
+  void * subtrees = FD_SCRATCH_ALLOC_APPEND( l, subtrees_align(),    subtrees_footprint( chain_cnt ) );
+  void * bfs      = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),         bfs_footprint     ( fec_max )   );
+  void * xid      = FD_SCRATCH_ALLOC_APPEND( l, xid_align(),         xid_footprint     ( lgf_max )   );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_reasm_align() ) == (ulong)shmem + footprint );
 
   reasm->slot0      = ULONG_MAX;
   reasm->root       = pool_idx_null( pool );
   reasm->pool_gaddr = fd_wksp_gaddr_fast( wksp, pool_join( pool_new( pool, fec_max ) ) );
   reasm->wksp_gaddr = fd_wksp_gaddr_fast( wksp, reasm );
-  reasm->ancestry   = ancestry_new( ancestry, fec_max, seed );
-  reasm->frontier   = frontier_new( frontier, fec_max, seed );
-  reasm->orphaned   = orphaned_new( orphaned, fec_max, seed );
-  reasm->subtrees   = subtrees_new( subtrees, fec_max, seed );
-  /*               */ subtreel_new( reasm->_subtrlf         );
-  /*               */ out_new     ( reasm->_out             );
-  reasm->bfs        = bfs_new     ( bfs,      fec_max       );
-  reasm->xid        = xid_new     ( xid,      lgf_max, seed );
+  reasm->ancestry   = ancestry_new( ancestry, chain_cnt, seed );
+  reasm->frontier   = frontier_new( frontier, chain_cnt, seed );
+  reasm->orphaned   = orphaned_new( orphaned, chain_cnt, seed );
+  reasm->subtrees   = subtrees_new( subtrees, chain_cnt, seed );
+  reasm->subtreel   = subtreel_new( reasm->_subtrlf           );
+  reasm->out        = out_new     ( reasm->_out               );
+  reasm->bfs        = bfs_new     ( bfs,      fec_max         );
+  reasm->xid        = xid_new     ( xid,      lgf_max, seed   );
 
   return shmem;
 }

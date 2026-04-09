@@ -1370,9 +1370,14 @@ name and url will not change during the lifetime of the validator.
 
 ```json
 {
-    "name": "jito",
-    "url": "https://mainnet.block-engine.jito.wtf",
-    "status": "connected"
+    "topic": "block_engine",
+    "key": "update",
+    "value": {
+        "name": "jito",
+        "url": "https://mainnet.block-engine.jito.wtf",
+        "ip": "141.98.216.97",
+        "status": "connected"
+    }
 }
 ```
 
@@ -1383,6 +1388,7 @@ name and url will not change during the lifetime of the validator.
 |------------|----------|-------------|
 | name       | `string` | A short, descriptive name for the block engine |
 | url        | `string` | An HTTP URL for the block engine which the validator client connects to |
+| ip         | `string` | The resolved IP address of the block engine |
 | status     | `string` | One of `disconnected`, `connecting`, or `connected` indicating the state of the connection to the block engine |
 
 ### epoch
@@ -1725,7 +1731,7 @@ direction of `0`. Note that the relative ordering of columns with
 #### `gossip.peers_size_update`
 | frequency | type     | example     |
 |-----------|----------|-------------|
-| *Request* | `number` | below       |
+| *Live*    | `number` | below       |
 
 The latest known count of the number of rows in the gossip peer table.
 This is sent every time the total number of rows in the gossip peer
@@ -1756,18 +1762,22 @@ values).
 
 ```json
 {
-    "changes": [
-        {
-            "row_index": 10,
-            "column_name": "IP Address",
-            "new_value": "192.168.0.1"
-        },
-        {
-            "row_index": 10,
-            "column_name": "Port",
-            "new_value": 12345
-        }
-    ]
+    "topic": "gossip",
+    "key": "view_update",
+    "value": {
+        "changes": [
+            {
+                "row_index": 10,
+                "column_name": "IP Address",
+                "new_value": "192.168.0.1"
+            },
+            {
+                "row_index": 10,
+                "column_name": "Port",
+                "new_value": 12345
+            }
+        ]
+    }
 }
 ```
 
@@ -2084,10 +2094,10 @@ initially replay one but the cluster votes on the other one.
 | duration_nanos               | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
 | completed_time_nanos         | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
 | level                        | `string`       | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimistically confirmed or rooted), or also because the validator switched forks |
-| success_nonvote_transactions | `number\|null` | Total number of successfully executed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
-| failed_nonvote_transactions  | `number\|null` | Total number of failed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
-| success_vote_transactions    | `number\|null` | Total number of successfully executed vote transactions in the block |
-| failed_vote_transactions     | `number\|null` | Total number of failed vote transactions in the block.  This should be near-zero in a healthy cluster |
+| success_nonvote_transaction_cnt | `number\|null` | Total number of successfully executed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
+| failed_nonvote_transaction_cnt  | `number\|null` | Total number of failed non-vote transactions in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
+| success_vote_transaction_cnt    | `number\|null` | Total number of successfully executed vote transactions in the block |
+| failed_vote_transaction_cnt     | `number\|null` | Total number of failed vote transactions in the block.  This should be near-zero in a healthy cluster |
 | max_compute_units            | `number\|null` | The maximum number of compute units that can be packed into the slot.  This limit is one of many consensus-critical limits defined by the solana protocol, and helps keeps blocks small enough for validators consume them quickly.  It may grow occasionally via on-chain feature activations |
 | compute_units                | `number\|null` | Total number of compute units used by the slot.  Compute units are a synthetic metric that attempt to capture, based on the content of the block, the various costs that go into processing that block (i.e. cpu, memory, and disk utilization).  They are based on certain transaction features, like the number of included signatures, the number of included signature verification programs, the number of included writeable accounts, the size of the instruction data, the size of the on-chain loaded account data, and the number of computation steps.  NOTE: "compute units" is an overloaded term that is often used in misleading contexts to refer to only a single part of the whole consensus-critical cost formula. For example, the getBlock RPC call includes a "computeUnitsConsumed" which actually only refers only the execution compute units associated with a transaction, but excludes other costs like signature costs, data costs, etc.  This API will always use compute units in a way that includes ALL consensus-relevant costs, unless otherwise specified |
 | shreds                       | `number\|null` | Total number of shreds in the successfully replayed block. Note value is only available in the Firedancer client and will be 0 or null in the Frankendancer client |
@@ -2169,7 +2179,7 @@ and is broadcast to all WebSocket clients.
 ```json
 {
 	"topic": "slot",
-	"key": "shreds",
+	"key": "live_shreds",
 	"value": {
         "reference_slot": 289245044,
         "reference_ts": "1739657041588242791",
@@ -2189,9 +2199,9 @@ and is broadcast to all WebSocket clients.
 | reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
 | reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
 | slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
-| shred_idxs      | `(number\|null)[]` | `shred_idxs[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
-| events          | `number[]`         | `events[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
-| events_ts_delta | `string[]`         | `reference_ts + events_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
+| shred_idx       | `(number\|null)[]` | `shred_idx[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
+| event           | `number[]`         | `event[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
+| event_ts_delta  | `string[]`         | `reference_ts + event_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occurred |
 
 #### `slot.query_shreds`
 | frequency   | type          | example |
@@ -2370,10 +2380,10 @@ explicitly mentioned, skipped slots are not included.
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transactions": 6821,
-            "failed_nonvote_transactions": 6746,
-            "success_vote_transactions": 3703,
-            "failed_vote_transactions": 0,
+            "success_nonvote_transaction_cnt": 6821,
+            "failed_nonvote_transaction_cnt": 6746,
+            "success_vote_transaction_cnt": 3703,
+            "failed_vote_transaction_cnt": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
@@ -2402,7 +2412,7 @@ explicitly mentioned, skipped slots are not included.
 ```json
 {
     "topic": "slot",
-    "key": "query",
+    "key": "query_detailed",
     "id": 32,
     "params": {
         "slot": 289245044
@@ -2425,10 +2435,10 @@ explicitly mentioned, skipped slots are not included.
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transactions": 6821,
-            "failed_nonvote_transactions": 6746,
-            "success_vote_transactions": 3703,
-            "failed_vote_transactions": 0,
+            "success_nonvote_transaction_cnt": 6821,
+            "failed_nonvote_transaction_cnt": 6746,
+            "success_vote_transaction_cnt": 3703,
+            "failed_vote_transaction_cnt": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
@@ -2588,10 +2598,10 @@ explicitly mentioned, skipped slots are not included.
             "duration_nanos": 400000000,
             "completed_time_nanos": "1739657041688342791",
             "level": "rooted",
-            "success_nonvote_transactions": 6821,
-            "failed_nonvote_transactions": 6746,
-            "success_vote_transactions": 3703,
-            "failed_vote_transactions": 0,
+            "success_nonvote_transaction_cnt": 6821,
+            "failed_nonvote_transaction_cnt": 6746,
+            "success_vote_transaction_cnt": 3703,
+            "failed_vote_transaction_cnt": 0,
             "max_compute_units": 48000000,
             "compute_units": 0,
             "shreds": 123,
@@ -2629,19 +2639,19 @@ explicitly mentioned, skipped slots are not included.
             "txn_bank_idx": [0],
             "txn_compute_units_consumed": [3428],
             "txn_compute_units_requested": [3428],
-            "txn_end_timstamps_nanos": ["1754409729594477657"],
+            "txn_end_timestamps_nanos": ["1754409729594477657"],
             "txn_error_code": [0],
             "txn_from_bundle": [false],
             "txn_is_simple_vote": [true],
             "txn_landed": [true],
-            "txn_load_end_timstamps_nanos": ["1754409729594455631"],
+            "txn_load_end_timestamps_nanos": ["1754409729594455631"],
             "txn_mb_end_timestamps_nanos": ["1754409729594625003"],
             "txn_mb_start_timestamps_nanos": ["1754409729594431327"],
             "txn_microblock_id": [0],
-            "txn_preload_end_timstamps_nanos": ["1754409729594432846"],
+            "txn_preload_end_timestamps_nanos": ["1754409729594432846"],
             "txn_priority_fee": ["0"],
             "txn_signature": ["2BfWBnhTP1ZZwFZutwThj5VT1hX71X9otbgFr21W2XJfcppXakbPCvJ2eCh8eBcS74Lfjar5AuowuppAjsEceSuW"],
-            "txn_start_timstamps_nanos": ["1754409729594451074"],
+            "txn_start_timestamps_nanos": ["1754409729594451074"],
             "txn_transaction_fee": [0],
             "txn_tips": ["0"],
             "txn_source_ipv4": ["123.123.123.123"],
@@ -2771,10 +2781,10 @@ explicitly mentioned, skipped slots are not included.
 | target_end_timestamp_nanos        | `string`            | A UNIX timestamp, in nanoseconds, representing the target time in nanoseconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
 | txn_arrival_timestamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_arrival_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot arrived at the transaction scheduler (i.e. pack) |
 | txn_mb_start_timestamps_nanos     | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
-| txn_preload_end_timstamps_nanos   | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_preload_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot was successfully dispatched into an execution environment and is about to start validation checks, which include a final deduplication check as well as an expiration check |
-| txn_start_timstamps_nanos         | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_start_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading |
-| txn_load_end_timstamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished loading and started executing. At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
-| txn_end_timstamps_nanos           | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_end_timstamps_nanos[i]` is the time when the `i`-th transaction in the slot finished executing |
+| txn_preload_end_timestamps_nanos  | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_preload_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot was successfully dispatched into an execution environment and is about to start validation checks, which include a final deduplication check as well as an expiration check |
+| txn_start_timestamps_nanos        | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading |
+| txn_load_end_timestamps_nanos     | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot finished loading and started executing. At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
+| txn_end_timestamps_nanos          | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot finished executing |
 | txn_mb_end_timestamps_nanos       | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
 | txn_compute_units_requested       | `number[]`          | `txn_compute_units_requested[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time |
 | txn_compute_units_consumed        | `number[]`          | `txn_compute_units_consumed[i]` is the actual post-execution cost of the `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed |

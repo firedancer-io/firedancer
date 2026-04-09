@@ -23,6 +23,7 @@
 #include "../../../disco/topo/fd_topob_vinyl.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
+#include "../../../disco/shred/fd_shred_tile.h"
 #include "../../../discof/reasm/fd_reasm.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/fd_snapin_tile_private.h"
@@ -181,7 +182,7 @@ backtest_topo( config_t * config ) {
      batches from the CLI-specified source (eg. RocksDB). */
 
   fd_topob_wksp( topo, "repair_out" );
-  fd_topob_link( topo, "repair_out", "repair_out", 65536UL, FD_SHRED_OUT_MTU, 1UL );
+  fd_topob_link( topo, "repair_out", "repair_out", 65536UL, sizeof(fd_fec_complete_t), 1UL );
   fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "backt", 0UL, "repair_out", 0UL );
 
@@ -235,8 +236,9 @@ backtest_topo( config_t * config ) {
        guarantee enough mcache credits.  The mtu needs to be adjusted
        so that the total dcache size matches what snapin requires.
        Round up the mtu (ulong) size using: (...+(depth-1))/depth. */
-      fd_topob_link( topo, "snapin_txn", "snapin_txn",   16UL, (sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES+15UL/*depth-1*/)/16UL/*depth*/, 1UL );
-      fd_topob_link( topo, "snapin_wm", "snapin_wm",     16UL, FD_SNAPWM_PAIR_BATCH_SZ_MAX,       1UL );
+      fd_topo_link_t * snapin_txn = fd_topob_link( topo, "snapin_txn", "snapin_txn",   16UL, (sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES+15UL/*depth-1*/)/16UL/*depth*/, 1UL );
+      /**/                          fd_topob_link( topo, "snapin_wm", "snapin_wm",     16UL, FD_SNAPWM_PAIR_BATCH_SZ_MAX,       1UL );
+      fd_pod_insertf_ulong( topo->props, sizeof(ulong), "obj.%lu.app_sz", snapin_txn->dcache_obj_id );
       /* snapwh and snapwr both use snapwm_wh's dcache.  snapwh sends
          control messages to snapwr, using snapwh_wr link, instructing
          which chunks in the dcache are ready to be consumed by snapwr. */
@@ -444,7 +446,8 @@ backtest_topo( config_t * config ) {
   }
 
   fd_topob_wksp( topo, "store" );
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX, 1 );
+  ulong store_fec_data_max = fd_ulong_if( config->firedancer.runtime.fixed_fec_sets, 31840UL, 63985UL );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.runtime.max_live_slots * FD_SHRED_BLK_MAX, 1, store_fec_data_max );
   fd_topob_tile_uses( topo, backt_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );

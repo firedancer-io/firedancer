@@ -14,17 +14,6 @@ struct fd_fee_calculator {
 typedef struct fd_fee_calculator fd_fee_calculator_t;
 #define FD_FEE_CALCULATOR_ALIGN alignof(fd_fee_calculator_t)
 
-/* Encoded Size: Fixed (33 bytes) */
-struct fd_fee_rate_governor {
-  ulong target_lamports_per_signature;
-  ulong target_signatures_per_slot;
-  ulong min_lamports_per_signature;
-  ulong max_lamports_per_signature;
-  uchar burn_percent;
-};
-typedef struct fd_fee_rate_governor fd_fee_rate_governor_t;
-#define FD_FEE_RATE_GOVERNOR_ALIGN alignof(fd_fee_rate_governor_t)
-
 /* Encoded Size: Fixed (16 bytes) */
 struct fd_slot_pair {
   ulong slot;
@@ -54,18 +43,6 @@ FD_FN_UNUSED static fd_slot_pair_t * fd_hard_forks_hard_forks_join( fd_hard_fork
 FD_FN_UNUSED static void fd_hard_forks_hard_forks_update( fd_hard_forks_global_t * struct_mem, fd_slot_pair_t * vec ) {
   struct_mem->hard_forks_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
 }
-/* Encoded Size: Fixed (48 bytes) */
-struct fd_inflation {
-  double initial;
-  double terminal;
-  double taper;
-  double foundation;
-  double foundation_term;
-  double unused;
-};
-typedef struct fd_inflation fd_inflation_t;
-#define FD_INFLATION_ALIGN alignof(fd_inflation_t)
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11 */
 /* Encoded Size: Fixed (17 bytes) */
 struct fd_rent {
@@ -118,164 +95,6 @@ struct fd_stake_history {
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_ALIGN alignof(fd_stake_history_t)
 
-/* https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/src/account.rs#L37 */
-/* Encoded Size: Dynamic */
-struct fd_solana_account {
-  ulong lamports;
-  ulong data_len;
-  uchar* data;
-  fd_pubkey_t owner;
-  uchar executable;
-  ulong rent_epoch;
-};
-typedef struct fd_solana_account fd_solana_account_t;
-#define FD_SOLANA_ACCOUNT_ALIGN alignof(fd_solana_account_t)
-
-struct fd_solana_account_global {
-  ulong lamports;
-  ulong data_len;
-  ulong data_offset;
-  fd_pubkey_t owner;
-  uchar executable;
-  ulong rent_epoch;
-};
-typedef struct fd_solana_account_global fd_solana_account_global_t;
-#define FD_SOLANA_ACCOUNT_GLOBAL_ALIGN alignof(fd_solana_account_global_t)
-
-FD_FN_UNUSED static uchar * fd_solana_account_data_join( fd_solana_account_global_t const * struct_mem ) { // vector
-  return struct_mem->data_offset ? (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->data_offset ) : NULL;
-}
-FD_FN_UNUSED static void fd_solana_account_data_update( fd_solana_account_global_t * struct_mem, uchar * vec ) {
-  struct_mem->data_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
-}
-/* Encoded Size: Fixed (12 bytes) */
-struct fd_rust_duration {
-  ulong seconds;
-  uint nanoseconds;
-};
-typedef struct fd_rust_duration fd_rust_duration_t;
-#define FD_RUST_DURATION_ALIGN alignof(fd_rust_duration_t)
-
-/* Encoded Size: Dynamic */
-struct fd_poh_config {
-  fd_rust_duration_t target_tick_duration;
-  ulong target_tick_count;
-  uchar has_target_tick_count;
-  ulong hashes_per_tick;
-  uchar has_hashes_per_tick;
-};
-typedef struct fd_poh_config fd_poh_config_t;
-#define FD_POH_CONFIG_ALIGN alignof(fd_poh_config_t)
-
-struct fd_poh_config_global {
-  fd_rust_duration_t target_tick_duration;
-  ulong target_tick_count;
-  uchar has_target_tick_count;
-  ulong hashes_per_tick;
-  uchar has_hashes_per_tick;
-};
-typedef struct fd_poh_config_global fd_poh_config_global_t;
-#define FD_POH_CONFIG_GLOBAL_ALIGN alignof(fd_poh_config_global_t)
-
-/* Encoded Size: Dynamic */
-struct fd_string_pubkey_pair {
-  ulong string_len;
-  uchar* string;
-  fd_pubkey_t pubkey;
-};
-typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
-#define FD_STRING_PUBKEY_PAIR_ALIGN alignof(fd_string_pubkey_pair_t)
-
-struct fd_string_pubkey_pair_global {
-  ulong string_len;
-  ulong string_offset;
-  fd_pubkey_t pubkey;
-};
-typedef struct fd_string_pubkey_pair_global fd_string_pubkey_pair_global_t;
-#define FD_STRING_PUBKEY_PAIR_GLOBAL_ALIGN alignof(fd_string_pubkey_pair_global_t)
-
-FD_FN_UNUSED static uchar * fd_string_pubkey_pair_string_join( fd_string_pubkey_pair_global_t const * struct_mem ) { // vector
-  return struct_mem->string_offset ? (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->string_offset ) : NULL;
-}
-FD_FN_UNUSED static void fd_string_pubkey_pair_string_update( fd_string_pubkey_pair_global_t * struct_mem, uchar * vec ) {
-  struct_mem->string_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
-}
-/* Encoded Size: Dynamic */
-struct fd_pubkey_account_pair {
-  fd_pubkey_t key;
-  fd_solana_account_t account;
-};
-typedef struct fd_pubkey_account_pair fd_pubkey_account_pair_t;
-#define FD_PUBKEY_ACCOUNT_PAIR_ALIGN alignof(fd_pubkey_account_pair_t)
-
-struct fd_pubkey_account_pair_global {
-  fd_pubkey_t key;
-  fd_solana_account_global_t account;
-};
-typedef struct fd_pubkey_account_pair_global fd_pubkey_account_pair_global_t;
-#define FD_PUBKEY_ACCOUNT_PAIR_GLOBAL_ALIGN alignof(fd_pubkey_account_pair_global_t)
-
-/* Encoded Size: Dynamic */
-struct fd_genesis_solana {
-  ulong creation_time;
-  ulong accounts_len;
-  fd_pubkey_account_pair_t * accounts;
-  ulong native_instruction_processors_len;
-  fd_string_pubkey_pair_t * native_instruction_processors;
-  ulong rewards_pools_len;
-  fd_pubkey_account_pair_t * rewards_pools;
-  ulong ticks_per_slot;
-  ulong unused;
-  fd_poh_config_t poh_config;
-  ulong __backwards_compat_with_v0_23;
-  fd_fee_rate_governor_t fee_rate_governor;
-  fd_rent_t rent;
-  fd_inflation_t inflation;
-  fd_epoch_schedule_t epoch_schedule;
-  uint cluster_type;
-};
-typedef struct fd_genesis_solana fd_genesis_solana_t;
-#define FD_GENESIS_SOLANA_ALIGN alignof(fd_genesis_solana_t)
-
-struct fd_genesis_solana_global {
-  ulong creation_time;
-  ulong accounts_len;
-  ulong accounts_offset;
-  ulong native_instruction_processors_len;
-  ulong native_instruction_processors_offset;
-  ulong rewards_pools_len;
-  ulong rewards_pools_offset;
-  ulong ticks_per_slot;
-  ulong unused;
-  fd_poh_config_global_t poh_config;
-  ulong __backwards_compat_with_v0_23;
-  fd_fee_rate_governor_t fee_rate_governor;
-  fd_rent_t rent;
-  fd_inflation_t inflation;
-  fd_epoch_schedule_t epoch_schedule;
-  uint cluster_type;
-};
-typedef struct fd_genesis_solana_global fd_genesis_solana_global_t;
-#define FD_GENESIS_SOLANA_GLOBAL_ALIGN alignof(fd_genesis_solana_global_t)
-
-FD_FN_UNUSED static fd_pubkey_account_pair_global_t * fd_genesis_solana_accounts_join( fd_genesis_solana_global_t const * struct_mem ) { // vector
-  return struct_mem->accounts_offset ? (fd_pubkey_account_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->accounts_offset ) : NULL;
-}
-FD_FN_UNUSED static void fd_genesis_solana_accounts_update( fd_genesis_solana_global_t * struct_mem, fd_pubkey_account_pair_global_t * vec ) {
-  struct_mem->accounts_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
-}
-FD_FN_UNUSED static fd_string_pubkey_pair_global_t * fd_genesis_solana_native_instruction_processors_join( fd_genesis_solana_global_t const * struct_mem ) { // vector
-  return struct_mem->native_instruction_processors_offset ? (fd_string_pubkey_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->native_instruction_processors_offset ) : NULL;
-}
-FD_FN_UNUSED static void fd_genesis_solana_native_instruction_processors_update( fd_genesis_solana_global_t * struct_mem, fd_string_pubkey_pair_global_t * vec ) {
-  struct_mem->native_instruction_processors_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
-}
-FD_FN_UNUSED static fd_pubkey_account_pair_global_t * fd_genesis_solana_rewards_pools_join( fd_genesis_solana_global_t const * struct_mem ) { // vector
-  return struct_mem->rewards_pools_offset ? (fd_pubkey_account_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->rewards_pools_offset ) : NULL;
-}
-FD_FN_UNUSED static void fd_genesis_solana_rewards_pools_update( fd_genesis_solana_global_t * struct_mem, fd_pubkey_account_pair_global_t * vec ) {
-  struct_mem->rewards_pools_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
-}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
 /* Encoded Size: Dynamic */
 struct fd_slot_history {
@@ -413,21 +232,6 @@ struct fd_sysvar_epoch_rewards {
 };
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 #define FD_SYSVAR_EPOCH_REWARDS_ALIGN alignof(fd_sysvar_epoch_rewards_t)
-
-struct fd_cluster_type {
-  uint discriminant;
-};
-typedef struct fd_cluster_type fd_cluster_type_t;
-#define FD_CLUSTER_TYPE_ALIGN alignof(fd_cluster_type_t)
-
-/* Encoded Size: Fixed (12 bytes) */
-struct fd_cluster_version {
-  uint major;
-  uint minor;
-  uint patch;
-};
-typedef struct fd_cluster_version fd_cluster_version_t;
-#define FD_CLUSTER_VERSION_ALIGN alignof(fd_cluster_version_t)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/system_instruction.rs#L158 */
 /* Encoded Size: Fixed (48 bytes) */
@@ -775,17 +579,6 @@ static inline int fd_fee_calculator_decode_footprint( fd_bincode_decode_ctx_t * 
 }
 void * fd_fee_calculator_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-static inline void fd_fee_rate_governor_new( fd_fee_rate_governor_t * self ) { fd_memset( self, 0, sizeof(fd_fee_rate_governor_t) ); }
-int fd_fee_rate_governor_encode( fd_fee_rate_governor_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_fee_rate_governor_size( fd_fee_rate_governor_t const * self ) { (void)self; return 33UL; }
-static inline ulong fd_fee_rate_governor_align( void ) { return FD_FEE_RATE_GOVERNOR_ALIGN; }
-static inline int fd_fee_rate_governor_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_fee_rate_governor_t);
-  if( (ulong)ctx->data + 33UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_fee_rate_governor_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 static inline void fd_slot_pair_new( fd_slot_pair_t * self ) { fd_memset( self, 0, sizeof(fd_slot_pair_t) ); }
 int fd_slot_pair_encode( fd_slot_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
 static inline ulong fd_slot_pair_size( fd_slot_pair_t const * self ) { (void)self; return 16UL; }
@@ -806,17 +599,6 @@ void * fd_hard_forks_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void * fd_hard_forks_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_hard_forks_encode_global( fd_hard_forks_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_hard_forks_size_global( fd_hard_forks_global_t const * self );
-
-static inline void fd_inflation_new( fd_inflation_t * self ) { fd_memset( self, 0, sizeof(fd_inflation_t) ); }
-int fd_inflation_encode( fd_inflation_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_inflation_size( fd_inflation_t const * self ) { (void)self; return 48UL; }
-static inline ulong fd_inflation_align( void ) { return FD_INFLATION_ALIGN; }
-static inline int fd_inflation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_inflation_t);
-  if( (ulong)ctx->data + 48UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_inflation_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_rent_new( fd_rent_t * self ) { fd_memset( self, 0, sizeof(fd_rent_t) ); }
 int fd_rent_encode( fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -864,67 +646,6 @@ static inline ulong fd_stake_history_size( fd_stake_history_t const * self ) { (
 static inline ulong fd_stake_history_align( void ) { return FD_STAKE_HISTORY_ALIGN; }
 int fd_stake_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_stake_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_solana_account_new( fd_solana_account_t * self );
-int fd_solana_account_encode( fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_solana_account_size( fd_solana_account_t const * self );
-static inline ulong fd_solana_account_align( void ) { return FD_SOLANA_ACCOUNT_ALIGN; }
-int fd_solana_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_solana_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_solana_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_solana_account_encode_global( fd_solana_account_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_solana_account_size_global( fd_solana_account_global_t const * self );
-
-static inline void fd_rust_duration_new( fd_rust_duration_t * self ) { fd_memset( self, 0, sizeof(fd_rust_duration_t) ); }
-int fd_rust_duration_encode( fd_rust_duration_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_rust_duration_size( fd_rust_duration_t const * self ) { (void)self; return 12UL; }
-static inline ulong fd_rust_duration_align( void ) { return FD_RUST_DURATION_ALIGN; }
-static inline int fd_rust_duration_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_rust_duration_t);
-  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_rust_duration_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_poh_config_new( fd_poh_config_t * self );
-int fd_poh_config_encode( fd_poh_config_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_poh_config_size( fd_poh_config_t const * self );
-static inline ulong fd_poh_config_align( void ) { return FD_POH_CONFIG_ALIGN; }
-int fd_poh_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_poh_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_poh_config_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_poh_config_encode_global( fd_poh_config_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_poh_config_size_global( fd_poh_config_global_t const * self );
-
-void fd_string_pubkey_pair_new( fd_string_pubkey_pair_t * self );
-int fd_string_pubkey_pair_encode( fd_string_pubkey_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_string_pubkey_pair_size( fd_string_pubkey_pair_t const * self );
-static inline ulong fd_string_pubkey_pair_align( void ) { return FD_STRING_PUBKEY_PAIR_ALIGN; }
-int fd_string_pubkey_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_string_pubkey_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_string_pubkey_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_string_pubkey_pair_encode_global( fd_string_pubkey_pair_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_string_pubkey_pair_size_global( fd_string_pubkey_pair_global_t const * self );
-
-void fd_pubkey_account_pair_new( fd_pubkey_account_pair_t * self );
-int fd_pubkey_account_pair_encode( fd_pubkey_account_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_pubkey_account_pair_size( fd_pubkey_account_pair_t const * self );
-static inline ulong fd_pubkey_account_pair_align( void ) { return FD_PUBKEY_ACCOUNT_PAIR_ALIGN; }
-int fd_pubkey_account_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_pubkey_account_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_pubkey_account_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_pubkey_account_pair_encode_global( fd_pubkey_account_pair_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_pubkey_account_pair_size_global( fd_pubkey_account_pair_global_t const * self );
-
-void fd_genesis_solana_new( fd_genesis_solana_t * self );
-int fd_genesis_solana_encode( fd_genesis_solana_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_genesis_solana_size( fd_genesis_solana_t const * self );
-static inline ulong fd_genesis_solana_align( void ) { return FD_GENESIS_SOLANA_ALIGN; }
-int fd_genesis_solana_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_genesis_solana_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_genesis_solana_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_genesis_solana_encode_global( fd_genesis_solana_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_genesis_solana_size_global( fd_genesis_solana_global_t const * self );
 
 void fd_slot_history_new( fd_slot_history_t * self );
 int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -1002,35 +723,6 @@ static inline ulong fd_sysvar_epoch_rewards_size( fd_sysvar_epoch_rewards_t cons
 static inline ulong fd_sysvar_epoch_rewards_align( void ) { return FD_SYSVAR_EPOCH_REWARDS_ALIGN; }
 int fd_sysvar_epoch_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_sysvar_epoch_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_cluster_type_new_disc( fd_cluster_type_t * self, uint discriminant ) { self->discriminant = discriminant; }
-static inline void fd_cluster_type_new( fd_cluster_type_t * self ) { self->discriminant = (uint)ULONG_MAX; }
-int fd_cluster_type_encode( fd_cluster_type_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_cluster_type_size( fd_cluster_type_t const * self );
-static inline ulong fd_cluster_type_align( void ) { return FD_CLUSTER_TYPE_ALIGN; }
-int fd_cluster_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_cluster_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_cluster_type_is_Testnet( fd_cluster_type_t const * self );
-FD_FN_PURE uchar fd_cluster_type_is_MainnetBeta( fd_cluster_type_t const * self );
-FD_FN_PURE uchar fd_cluster_type_is_Devnet( fd_cluster_type_t const * self );
-FD_FN_PURE uchar fd_cluster_type_is_Development( fd_cluster_type_t const * self );
-enum {
-fd_cluster_type_enum_Testnet = 0,
-fd_cluster_type_enum_MainnetBeta = 1,
-fd_cluster_type_enum_Devnet = 2,
-fd_cluster_type_enum_Development = 3,
-};
-static inline void fd_cluster_version_new( fd_cluster_version_t * self ) { fd_memset( self, 0, sizeof(fd_cluster_version_t) ); }
-int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_cluster_version_size( fd_cluster_version_t const * self ) { (void)self; return 12UL; }
-static inline ulong fd_cluster_version_align( void ) { return FD_CLUSTER_VERSION_ALIGN; }
-static inline int fd_cluster_version_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_cluster_version_t);
-  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_system_program_instruction_create_account_new( fd_system_program_instruction_create_account_t * self ) { fd_memset( self, 0, sizeof(fd_system_program_instruction_create_account_t) ); }
 int fd_system_program_instruction_create_account_encode( fd_system_program_instruction_create_account_t const * self, fd_bincode_encode_ctx_t * ctx );

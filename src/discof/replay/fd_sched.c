@@ -7,6 +7,7 @@
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../disco/metrics/fd_metrics.h" /* for fd_metrics_convert_seconds_to_ticks and etc. */
 #include "../../disco/pack/fd_chkdup.h"
+#include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
 #include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
@@ -30,7 +31,8 @@ FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_SHRED==((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLO
    straddle FEC set boundaries.  Other minimally parseable units of data
    include the microblock header and the microblock count within a
    batch. */
-#define FD_SCHED_MAX_PAYLOAD_PER_FEC       (FD_STORE_DATA_MAX)
+#define FD_SCHED_MAX_PAYLOAD_PER_FEC       (63985UL)
+FD_STATIC_ASSERT( FD_SCHED_MAX_PAYLOAD_PER_FEC>=FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ, bump sched fec size bound ); /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ is the bound we want, but older ledgers have larger FEC sets. */
 #define FD_SCHED_MAX_FEC_BUF_SZ            (FD_SCHED_MAX_PAYLOAD_PER_FEC+FD_TXN_MTU)
 FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(fd_microblock_hdr_t), resize buffer for residual data );
 FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for residual data );
@@ -965,7 +967,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   }
 
   /* Append the new FEC set to the end of the buffer. */
-  fd_memcpy( block->fec_buf+block->fec_buf_sz, fec->fec->data, fec->fec->data_sz );
+  fd_memcpy( block->fec_buf+block->fec_buf_sz, fec->data, fec->fec->data_sz );
   block->fec_buf_sz += (uint)fec->fec->data_sz;
   sched->metrics->bytes_ingested_cnt += fec->fec->data_sz;
 
@@ -975,14 +977,14 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   ulong block_sz = block->shred_cnt>0 ? block->shred_blk_offs[ block->shred_cnt-1 ] : 0UL;
   for( ulong i=0; i<fec->shred_cnt; i++ ) {
     if( FD_LIKELY( i<32UL ) ) {
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->block_offs[ i ];
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->shred_offs[ i ];
     } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
       /* We don't track shred boundaries after 32 shreds, assume they're
          sized uniformly */
       ulong num_overflow_shreds = fec->shred_cnt-32UL;
       ulong overflow_idx        = i-32UL;
-      ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->block_offs[ 31 ];
-      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->block_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
+      ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->shred_offs[ 31 ];
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->shred_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
     } else {
       block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + (uint)fec->fec->data_sz;
     }
@@ -996,7 +998,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
-  if( FD_UNLIKELY( block->fec_eos && (block->txns_rem||block->mblks_rem) ) ) {
+  if( FD_UNLIKELY( (fec->is_last_in_batch||fec->is_last_in_block) && (block->txns_rem||block->mblks_rem) ) ) {
     /* A malformed block that fails to parse out exactly as many
        transactions and microblocks as it should. */
     FD_LOG_INFO(( "bad block: bytes_rem %u, txns_rem %lu, mblks_rem %lu, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->slot, block->parent_slot ));

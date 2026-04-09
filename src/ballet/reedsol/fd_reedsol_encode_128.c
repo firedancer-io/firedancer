@@ -218,6 +218,7 @@ fd_reedsol_private_encode_128( ulong                 shred_sz,
       parity_remaining = parity_shred_cnt - parity_produced;
     }
     #undef ALL_VARS
+    #undef ALL_VARS_REF
     /* In order to handle shred sizes that are not divisible by 32, we clamp
        shred_pos to shred_sz-32 when shred_sz-32<shred_pos<shred_sz
        (after the increment). */

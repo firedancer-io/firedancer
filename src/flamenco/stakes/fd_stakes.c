@@ -421,12 +421,41 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
 
+  ushort parent_idx = bank->vote_stakes_fork_id;
+
   fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
   ulong epoch              = bank->f.epoch;
   ulong total_stake        = 0UL;
   ulong total_activating   = 0UL;
   ulong total_deactivating = 0UL;
   ulong staked_accounts    = 0UL;
+
+  /* Seed stake_accum_map with all vote accounts from the parent fork
+     with zero stake. The delegation loop below will update the stake
+     for any account that has active delegations.
+
+     In Agave, refresh_vote_accounts() builds delegated_stakes from
+     stake_delegations, but then iterates vote_accounts.iter(), instead
+     of the delegated_stakes map, so they never actually remove any
+     entries from the vote_accounts while refreshing. */
+  fd_vote_stakes_t * vs = fd_bank_vote_stakes( bank );
+  uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem_vs[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+  for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vs, parent_idx, iter_mem_vs );
+        !fd_vote_stakes_fork_iter_done( vs, parent_idx, vs_iter );
+        fd_vote_stakes_fork_iter_next( vs, parent_idx, vs_iter ) ) {
+    fd_pubkey_t vs_pubkey;
+    fd_vote_stakes_fork_iter_ele( vs, parent_idx, vs_iter, &vs_pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
+    if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
+      FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
+    }
+    fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+    sa->pubkey = vs_pubkey;
+    sa->stake  = 0UL;
+    fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
+    staked_accounts++;
+  }
+  fd_vote_stakes_fork_iter_fini( vs );
+
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
       !fd_stake_delegations_iter_done( iter );
@@ -497,22 +526,14 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_vote_block_timestamp_t last_vote;
     FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen, &last_vote ) );
     fd_top_votes_update( top_votes_t_2, &pubkey, last_vote.slot, last_vote.timestamp );
-
-    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-      uchar                commission_t_1   = 0;
-      fd_pubkey_t          node_account_t_1 = {0};
-      fd_epoch_credits_t * epoch_credits    = &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ];
-      get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1, &node_account_t_1, epoch_credits );
-      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
-      vote_ele->pubkey             = pubkey;
-      vote_ele->vote_rewards       = 0UL;
-      vote_ele->commission_t_1     = commission_t_1;
-      vote_ele->commission_t_2     = commission_t_2;
-      fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
-      vote_reward_cnt++;
-    }
     fd_accdb_close_ro( accdb, vote_ro );
   }
+
+  ulong curr_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
+  ulong vat_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+
+  int vat_in_prev = curr_epoch>=vat_epoch+1UL ? 1 : 0;
+  int vat_in_curr = curr_epoch>=vat_epoch     ? 1 : 0;
 
   /* Now for each staked vote account, figure out if it is a valid
      account and insert into the vote stakes (an account can not exist
@@ -522,7 +543,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      previous epoch and in the current one. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ushort parent_idx = bank->vote_stakes_fork_id;
   ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
   bank->vote_stakes_fork_id = child_idx;
 
@@ -531,50 +551,55 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
        iter = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool ) ) {
     fd_stake_accum_t * stake_accum = fd_stake_accum_map_iter_ele( iter, stake_accum_map, stake_accum_pool );
 
+    fd_pubkey_t node_account_t_3 = {0};
+    ulong       stake_t_3        = 0UL;
+    uchar       commission_t_3   = 0;
+    int         exists_t_3      = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_3, &node_account_t_3, &commission_t_3 );
+
     fd_pubkey_t node_account_t_2 = {0};
     ulong       stake_t_2        = 0UL;
     uchar       commission_t_2   = 0;
-    int         exists_prev      = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 );
+    int         exists_t_2      = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 );
 
     fd_pubkey_t node_account_t_1 = {0};
     ulong       stake_t_1        = 0UL;
     uchar       commission_t_1   = 0;
 
     fd_accdb_ro_t vote_ro[1];
-    int exists_curr = 1;
+    int exists_t_1 = 1;
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_accum->pubkey ) ) ) {
-      exists_curr = 0;
+      exists_t_1 = 0;
     } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
-      exists_curr = 0;
+      exists_t_1 = 0;
       fd_accdb_close_ro( accdb, vote_ro );
     } else {
-      fd_epoch_credits_t * epoch_credits = &runtime_stack->stakes.epoch_credits[ vote_reward_cnt ];
+      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
       get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1, &node_account_t_1, epoch_credits );
 
       stake_t_1 = stake_accum->stake;
+      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
+      vote_ele->pubkey             = stake_accum->pubkey;
+      vote_ele->vote_rewards       = 0UL;
+      if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
+        vote_ele->commission = exists_t_3 ? commission_t_3 : (exists_t_2 ? commission_t_2 : commission_t_1);
+      } else {
+        vote_ele->commission = commission_t_1;
+      }
 
-      if( !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-        fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
-        vote_ele->pubkey             = stake_accum->pubkey;
-        vote_ele->vote_rewards       = 0UL;
-        vote_ele->commission_t_1     = commission_t_1;
-        vote_ele->commission_t_2     = exists_prev ? commission_t_2 : commission_t_1;
+      if( FD_LIKELY( !vat_in_prev || fd_top_votes_query( top_votes_t_2, &stake_accum->pubkey, NULL, NULL, NULL, NULL, NULL ) ) ) {
         fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
         vote_reward_cnt++;
       }
 
-
-      if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-        if( FD_UNLIKELY( !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
-          fd_accdb_close_ro( accdb, vote_ro );
-          continue;
-        }
+      if( FD_UNLIKELY( vat_in_curr && !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
+        fd_accdb_close_ro( accdb, vote_ro );
+        continue;
       }
       fd_accdb_close_ro( accdb, vote_ro );
       fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
     }
 
-    if( FD_UNLIKELY( !exists_curr && !exists_prev ) ) continue;
+    if( FD_UNLIKELY( !exists_t_1 && !exists_t_2 ) ) continue;
     fd_vote_stakes_insert(
         vote_stakes, child_idx, &stake_accum->pubkey,
         &node_account_t_1, &node_account_t_2,

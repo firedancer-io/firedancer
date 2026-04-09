@@ -10,6 +10,7 @@
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../disco/gui/fd_gui_config_parse.h"
@@ -144,10 +145,12 @@ fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
-                  uint         part_cnt ) {
+                  uint         part_cnt,
+                  ulong        fec_data_max ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "store", wksp_name );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,  "obj.%lu.fec_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, part_cnt, "obj.%lu.part_cnt", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_max,      "obj.%lu.fec_max",      obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, part_cnt,     "obj.%lu.part_cnt",     obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, fec_data_max, "obj.%lu.fec_data_max", obj->id ) );
   return obj;
 }
 
@@ -566,8 +569,9 @@ fd_topo_initialize( config_t * config ) {
        guarantee enough mcache credits.  The mtu needs to be adjusted
        so that the total dcache size matches what snapin requires.
        Round up the mtu (ulong) size using: (...+(depth-1))/depth. */
-      /**/             fd_topob_link( topo, "snapin_txn",    "snapin_txn",    16UL,                                     (sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES+15UL/*depth-1*/)/16UL/*depth*/, 1UL );
-      /**/             fd_topob_link( topo, "snapin_wm",     "snapin_wm",     16UL,                                     FD_SNAPWM_PAIR_BATCH_SZ_MAX,   1UL );
+      fd_topo_link_t * snapin_txn = fd_topob_link( topo, "snapin_txn",    "snapin_txn",    16UL,                        (sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES+15UL/*depth-1*/)/16UL/*depth*/, 1UL );
+      /**/                          fd_topob_link( topo, "snapin_wm",     "snapin_wm",     16UL,                        FD_SNAPWM_PAIR_BATCH_SZ_MAX,   1UL );
+      fd_pod_insertf_ulong( topo->props, sizeof(ulong), "obj.%lu.app_sz", snapin_txn->dcache_obj_id );
       /* snapwh and snapwr both use snapwm_wh's dcache.  snapwh sends
          control messages to snapwr, using snapwh_wr link, instructing
          which chunks in the dcache are ready to be consumed by snapwr. */
@@ -637,8 +641,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU,                    1UL ); /* TODO: Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
-  /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              FD_SHRED_OUT_MTU,              1UL );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
+  /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              sizeof(fd_fec_complete_t),   1UL );
   /**/                 fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */
   /**/                 fd_topob_link( topo, "txsend_out",    "txsend_out",    128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
@@ -1313,33 +1317,43 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ], fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
-   /* The Store fec_max parameter is the max number of FEC sets that can
-      be retained by store.
+   /* store_fec_max is the maximum number of FEC sets Store retains.
 
-      The base value is from multiplying max_live_slots by the maximum
-      number of FEC sets in a block (which is 1024, given the current
-      consensus limit of 32768 shreds per block).  This is notably, the
-      total capacity of reasm.
+      This value is derived by first multiplying max_live_slots by the
+      max_fec_sets_per_slot (which is 1024, given the current consensus
+      limit of 32768 shreds per block).
 
-      Store needs to hold _at least_ depth(shred_out) +
-      depth(repair_out) + 1 more FEC sets than reasm.  Shred inserts
-      FECs into store (before publishing to shred_out) and Replay
-      inserts FECs into reasm (after consuming from repair_out), so
-      store can be up to depth(shred_out) + depth(repair_out) ahead of
-      reasm.  We + 1 because replay tile can be mid-process of ingesting
-      a FEC set.
+      However, the downstream structure reasm also has the same bound.
+      Replay relies on the guarantee that if a FEC set is present in
+      reasm, then it is present in store.  Therefore, store needs
+      additional room for FEC sets that have been inserted into the
+      store but not yet consumed by reasm.
 
-      store is exactly this total depth ahead of reasm, then this means
-      the links must be full and shred is backpressured via repair_out
-      -> shred_out.  Thus, no more FEC sets will be inserted to store
-      until reasm inserts the next FEC, at which point it must be at
-      capacity (given store is _at least_ total depth larger) and will
-      evict a FEC which is together evicted from store. */
+      This exactly equals the sum of link depths between shred (producer
+      into store), repair (intermediate tile) and replay (consumer into
+      reasm).  This is depth(shred_out) + depth(repair_out).
+
+      Shred inserts FECs into store (before publishing to shred_out) and
+      Replay inserts FECs into reasm (after consuming from repair_out),
+      so store can be up to depth(shred_out) + depth(repair_out) ahead
+      of reasm.  We also add one to avoid a race when replay tile has
+      consumed from the link but not yet read from store.
+
+      If store contains this sum of depths more FEC sets than reasm,
+      then the links must be full and shred is backpressured via
+      repair_out -> shred_out.  This guarantees both 1. no more FEC sets
+      will be inserted into the store, which at this point is full and
+      2. no more FEC sets (transitively) will be inserted into reasm,
+      which is also full. */
 
   fd_topo_link_t * repair_out_link = &topo->links[ fd_topo_find_link( topo, "repair_out", 0UL ) ];
-  ulong store_fec_max = fd_ulong_pow2_up( config->firedancer.runtime.max_live_slots * FD_FEC_BLK_MAX + (shred_depth * shred_tile_cnt) + repair_out_link->depth + 1 );
+  ulong store_fec_max = config->firedancer.runtime.max_live_slots * FD_FEC_BLK_MAX + (shred_depth * shred_tile_cnt) + repair_out_link->depth + 1;
 
-  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt );
+  /* 32 shreds * 995 payload bytes = 31840 bytes with fixed_fec_sets = true
+     67 shreds * 955 payload bytes = 63985 bytes with fixed_fec_sets = false */
+
+  ulong store_fec_data_max = fd_ulong_if( config->firedancer.runtime.fixed_fec_sets, 31840UL, 63985UL );
+  fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt, store_fec_data_max );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
