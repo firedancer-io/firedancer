@@ -1,6 +1,16 @@
 #include <stdint.h>
 #include <s2n-bignum.h>
 
+/* On CPUs without ADX (mulx/adcx/adox), redirect the ADX-optimized
+   s2n-bignum symbols to their _alt equivalents, which use only base
+   x86-64 instructions and are functionally identical. */
+#ifndef __ADX__
+#define bignum_montmul_p256k1  bignum_montmul_p256k1_alt
+#define bignum_montsqr_p256k1  bignum_montsqr_p256k1_alt
+#define bignum_tomont_p256k1   bignum_tomont_p256k1_alt
+#define bignum_triple_p256k1   bignum_triple_p256k1_alt
+#endif
+
 /* Scalars */
 
 static inline int
