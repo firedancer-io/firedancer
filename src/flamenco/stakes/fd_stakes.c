@@ -370,29 +370,22 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
 }
 
 static void
-get_vote_credits_commission( uchar const *        account_data,
-                             ulong                account_data_len,
-                             uchar *              commission_t_1,
-                             fd_pubkey_t *        node_account_t_1,
-                             fd_epoch_credits_t * epoch_credits_opt ) {
+get_vote_credits( uchar const *        account_data,
+                  ulong                account_data_len,
+                  fd_epoch_credits_t * epoch_credits ) {
 
-  FD_TEST( !fd_vote_account_commission( account_data, account_data_len, commission_t_1 ) );
-  FD_TEST( !fd_vote_account_node_pubkey( account_data, account_data_len, node_account_t_1 ) );
-
-  if( !epoch_credits_opt ) return;
-
-  fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &epoch_credits_opt->cnt );
+  fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &epoch_credits->cnt );
   FD_TEST( vote_epoch_credits );
 
-  ulong base = epoch_credits_opt->cnt ? vote_epoch_credits[0].prev_credits : 0UL;
-  for( ulong i=0UL; i<epoch_credits_opt->cnt; i++ ) {
+  ulong base = epoch_credits->cnt ? vote_epoch_credits[0].prev_credits : 0UL;
+  for( ulong i=0UL; i<epoch_credits->cnt; i++ ) {
     fd_vote_epoch_credits_t const * ele        = &vote_epoch_credits[ i ];
-    epoch_credits_opt->epoch[ i ]              = (ushort)ele->epoch;
-    epoch_credits_opt->credits_delta[ i ]      = (uint)( ele->credits      - base );
-    epoch_credits_opt->prev_credits_delta[ i ] = (uint)( ele->prev_credits - base );
+    epoch_credits->epoch[ i ]              = (ushort)ele->epoch;
+    epoch_credits->credits_delta[ i ]      = (uint)( ele->credits      - base );
+    epoch_credits->prev_credits_delta[ i ] = (uint)( ele->prev_credits - base );
   }
 
-  epoch_credits_opt->base_credits = base;
+  epoch_credits->base_credits = base;
 }
 
 /* We need to update the amount of stake that each vote account has for
@@ -529,12 +522,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
     fd_accdb_close_ro( accdb, vote_ro );
   }
 
-  ulong curr_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
-  ulong vat_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
-
-  int vat_in_prev = curr_epoch>=vat_epoch+1UL ? 1 : 0;
-  int vat_in_curr = curr_epoch>=vat_epoch     ? 1 : 0;
-
   /* Now for each staked vote account, figure out if it is a valid
      account and insert into the vote stakes (an account can not exist
      but still be inserted into the vote stakes if it existed in the
@@ -543,7 +530,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      previous epoch and in the current one. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  ushort child_idx  = fd_vote_stakes_new_child( vote_stakes );
+  ushort             child_idx   = fd_vote_stakes_new_child( vote_stakes );
   bank->vote_stakes_fork_id = child_idx;
 
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
@@ -551,15 +538,10 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
        iter = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool ) ) {
     fd_stake_accum_t * stake_accum = fd_stake_accum_map_iter_ele( iter, stake_accum_map, stake_accum_pool );
 
-    fd_pubkey_t node_account_t_3 = {0};
-    ulong       stake_t_3        = 0UL;
-    uchar       commission_t_3   = 0;
-    int         exists_t_3      = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_3, &node_account_t_3, &commission_t_3 );
-
     fd_pubkey_t node_account_t_2 = {0};
     ulong       stake_t_2        = 0UL;
     uchar       commission_t_2   = 0;
-    int         exists_t_2      = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 );
+    int         exists_t_2       = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 );
 
     fd_pubkey_t node_account_t_1 = {0};
     ulong       stake_t_1        = 0UL;
@@ -573,10 +555,19 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       exists_t_1 = 0;
       fd_accdb_close_ro( accdb, vote_ro );
     } else {
-      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
-      get_vote_credits_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1, &node_account_t_1, epoch_credits );
+
+      FD_TEST( !fd_vote_account_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1 ) );
+      FD_TEST( !fd_vote_account_node_pubkey( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &node_account_t_1 ) );
 
       stake_t_1 = stake_accum->stake;
+
+      fd_pubkey_t node_account_t_3 = {0};
+      ulong       stake_t_3        = 0UL;
+      uchar       commission_t_3   = 0;
+      int         exists_t_3       = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_3, &node_account_t_3, &commission_t_3 );
+
+      fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
+      get_vote_credits( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), epoch_credits );
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
       vote_ele->pubkey             = stake_accum->pubkey;
       vote_ele->vote_rewards       = 0UL;
@@ -585,18 +576,13 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       } else {
         vote_ele->commission = commission_t_1;
       }
+      fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
+      vote_reward_cnt++;
 
-      if( FD_LIKELY( !vat_in_prev || fd_top_votes_query( top_votes_t_2, &stake_accum->pubkey, NULL, NULL, NULL, NULL, NULL ) ) ) {
-        fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
-        vote_reward_cnt++;
-      }
-
-      if( FD_UNLIKELY( vat_in_curr && !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
-        fd_accdb_close_ro( accdb, vote_ro );
-        continue;
+      if( FD_LIKELY( fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
+        fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
       }
       fd_accdb_close_ro( accdb, vote_ro );
-      fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
     }
 
     if( FD_UNLIKELY( !exists_t_1 && !exists_t_2 ) ) continue;
@@ -606,6 +592,18 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         stake_t_1, stake_t_2,
         commission_t_1, commission_t_2,
         bank->f.epoch );
+  }
+
+  /* if VAT is active, we only want to try giving rewards to accounts
+     that are in the top votes set. */
+
+  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+    for( ulong i=0UL; i<vote_reward_cnt; i++ ) {
+      fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ i ];
+      if( FD_UNLIKELY( !fd_top_votes_query( top_votes_t_1, &vote_ele->pubkey, NULL, NULL, NULL, NULL, NULL ) ) ) {
+        FD_TEST( fd_vote_rewards_map_ele_remove( vote_reward_map, &vote_ele->pubkey, NULL, runtime_stack->stakes.vote_ele ) );
+      }
+    }
   }
 }
 
