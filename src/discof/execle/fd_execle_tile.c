@@ -476,6 +476,14 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       if( i<=failed_idx ) {
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
+      } else {
+        /* Transactions past the failed index were never executed. Reset
+           the timestamp fields to LONG_MAX to flush stale values from
+           the previous microblock. */
+        ctx->txn_out[ i ].details.prep_start_timestamp   = LONG_MAX;
+        ctx->txn_out[ i ].details.load_start_timestamp   = LONG_MAX;
+        ctx->txn_out[ i ].details.exec_start_timestamp   = LONG_MAX;
+        ctx->txn_out[ i ].details.commit_start_timestamp = LONG_MAX;
       }
 
       uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
