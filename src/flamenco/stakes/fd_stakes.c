@@ -666,6 +666,7 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
 
   /* fd_stakes_get_state returns NULL for closed/invalid accounts. */
   fd_stake_state_t const * stake_state = fd_stakes_get_state( meta );
+  FD_LOG_NOTICE(("STAKES bank idx %lu fork idx %u", bank->idx, bank->stake_delegations_fork_id));
   if( FD_LIKELY( stake_state != NULL &&
                  stake_state->stake_type == FD_STAKE_STATE_STAKE &&
                  stake_state->stake.stake.delegation.stake != 0UL ) ) {
