@@ -129,8 +129,7 @@ fd_vinyl_io_wd_alloc( fd_vinyl_io_t * io,
 int
 fd_vinyl_io_wd_busy( fd_vinyl_io_t * io );
 
-/* fd_vinyl_io_wd_ctrl sends a control message to the snapwr tile.
-   Blocks until the message is acknowledged. */
+/* fd_vinyl_io_wd_ctrl sends a control message to the snapwr tile. */
 
 void
 fd_vinyl_io_wd_ctrl( fd_vinyl_io_t * io,
