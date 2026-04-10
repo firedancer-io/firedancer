@@ -22,10 +22,10 @@ fd_solfuzz_gossip_message_deserialize( uchar *       out,
 
 int
 fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
-                          uchar *              out,
-                          ulong *              out_sz,
-                          uchar const *        in,
-                          ulong                in_sz );
+                          uchar *               out,
+                          ulong *               out_sz,
+                          uchar const *         in,
+                          ulong                 in_sz );
 
 FD_PROTOTYPES_END
 
