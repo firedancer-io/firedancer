@@ -5,6 +5,7 @@
 #include "fd_gossip_message.h"
 #include "fd_gossip_out.h"
 #include "fd_gossip_purged.h"
+#include "../stakes/fd_stake_weight.h"
 
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
@@ -208,6 +209,17 @@ fd_crds_mask_iter_done( fd_crds_mask_iter_t * it,
 fd_crds_entry_t const *
 fd_crds_mask_iter_entry( fd_crds_mask_iter_t * it,
                          fd_crds_t const * crds );
+
+/* fd_crds_refresh_stakes iterates all CRDS entries and updates each
+   entry's stake using the provided sorted_stakes array.  sorted_stakes
+   must be sorted by key (ascending memcmp order) so that binary search
+   can be used.  Entries whose origin pubkey is not found in
+   sorted_stakes are set to zero stake. */
+
+void
+fd_crds_refresh_stakes( fd_crds_t *               crds,
+                        fd_stake_weight_t const * sorted_stakes,
+                        ulong                     sorted_stakes_cnt );
 
 FD_PROTOTYPES_END
 
