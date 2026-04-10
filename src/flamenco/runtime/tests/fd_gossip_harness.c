@@ -215,8 +215,6 @@ fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
                           ulong                in_sz ) {
   fd_exec_test_gossip_effects_t effects = FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO;
 
-  fd_spad_push( runner->spad );
-
   int ok = fd_gossip_message_deserialize( gossip_msg, in, in_sz );
   if( ok ) {
     effects.valid   = true;
@@ -227,7 +225,5 @@ fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
     effects.has_msg = false;
   }
 
-  int ret = !!sol_compat_encode( out, out_sz, &effects, &fd_exec_test_gossip_effects_t_msg );
-  fd_spad_pop( runner->spad );
-  return ret;
+  return !!sol_compat_encode( out, out_sz, &effects, &fd_exec_test_gossip_effects_t_msg );
 }

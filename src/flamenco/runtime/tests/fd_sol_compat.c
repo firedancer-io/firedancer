@@ -247,7 +247,11 @@ sol_compat_gossip_decode_v1( uchar *       out,
                              ulong *       out_sz,
                              uchar const * in,
                              ulong         in_sz ) {
-  return fd_solfuzz_gossip_decode( runner, out, out_sz, in, in_sz );
+  fd_spad_push( runner->spad );
+  int ok = fd_solfuzz_gossip_decode( runner, out, out_sz, in, in_sz );
+  fd_spad_pop( runner->spad );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
 }
 
 /*
