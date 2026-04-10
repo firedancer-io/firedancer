@@ -116,6 +116,8 @@ struct fd_gossip_private {
     fd_gossip_value_t ci[1];
   } my_contact_info;
 
+  fd_stake_weight_t epoch_stakes_scratch[ 40200UL ];
+
   fd_gossip_out_ctx_t * gossip_net_out;
 };
 
@@ -398,12 +400,21 @@ fd_gossip_stakes_update( fd_gossip_t *             gossip,
   stake_map_reset( gossip->stake.map );
   stake_pool_reset( gossip->stake.pool );
 
+  if( FD_UNLIKELY( stake_weights_cnt>40200UL ) ) {
+    FD_LOG_WARNING(( "stake_weights_cnt %lu exceeds scratch capacity 40200; clamping", stake_weights_cnt ));
+  }
+  ulong cnt = fd_ulong_min( stake_weights_cnt, 40200UL );
+  fd_memcpy( gossip->epoch_stakes_scratch, stake_weights, cnt*sizeof(fd_stake_weight_t) );
+  fd_stake_weight_key_sort_inplace( gossip->epoch_stakes_scratch, cnt );
+
   for( ulong i=0UL; i<stake_weights_cnt; i++ ) {
     stake_t * entry = stake_pool_ele_acquire( gossip->stake.pool );
     entry->pubkey = stake_weights[i].key;
     entry->stake  = stake_weights[i].stake;
     stake_map_ele_insert( gossip->stake.map, entry, gossip->stake.pool );
   }
+
+  fd_crds_refresh_stakes( gossip->crds, gossip->epoch_stakes_scratch, cnt );
 
   gossip->identity_stake = get_stake( gossip, gossip->identity_pubkey );
   fd_gossip_wsample_self_stake( gossip->wsample, gossip->identity_stake );
