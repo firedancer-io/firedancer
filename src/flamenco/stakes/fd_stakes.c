@@ -622,17 +622,42 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   /* We can update our stake history sysvar based on the bank stake values.
      Afterward, we can refresh the stake values for the vote accounts. */
 
+  ulong effective_stake    = 0UL;
+  ulong activating_stake   = 0UL;
+  ulong deactivating_stake = 0UL;
+
   fd_stake_history_t stake_history[1];
   if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
+    fd_stake_history_entry_t entry = fd_stakes_activating_and_deactivating(
+        stake_delegation,
+        bank->f.epoch,
+        stake_history,
+        new_rate_activation_epoch );
+    effective_stake    += entry.effective;
+    activating_stake   += entry.activating;
+    deactivating_stake += entry.deactivating;
+  }
+
+  if( FD_UNLIKELY( effective_stake != stake_delegations->effective_stake ||
+                   activating_stake != stake_delegations->activating_stake ||
+                   deactivating_stake != stake_delegations->deactivating_stake ) ) {
+    FD_LOG_WARNING(( "Effective stake mismatch: %lu != %lu, activating stake mismatch: %lu != %lu, deactivating stake mismatch: %lu != %lu", effective_stake, stake_delegations->effective_stake, activating_stake, stake_delegations->activating_stake, deactivating_stake, stake_delegations->deactivating_stake ));
+  }
+
   fd_epoch_stake_history_entry_pair_t elem = {
     .epoch = bank->f.epoch,
     .entry = {
-      .effective    = stake_delegations->effective_stake,
-      .activating   = stake_delegations->activating_stake,
-      .deactivating = stake_delegations->deactivating_stake,
+      .effective    = effective_stake,
+      .activating   = activating_stake,
+      .deactivating = deactivating_stake,
     }
   };
   fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &elem );
