@@ -12,12 +12,10 @@
 #endif
 
 /* Struct definitions */
-/* Raw gossip wire message bytes for deserialization testing */
 typedef struct fd_exec_test_gossip_message_binary {
     pb_bytes_array_t *data;
 } fd_exec_test_gossip_message_binary_t;
 
-/* Whether a gossip message was accepted after deserialization + sanitize */
 typedef struct fd_exec_test_accepts_gossip_message {
     bool valid;
 } fd_exec_test_accepts_gossip_message_t;
@@ -31,6 +29,163 @@ typedef struct fd_exec_test_gossip_message_fixture {
     fd_exec_test_accepts_gossip_message_t output;
 } fd_exec_test_gossip_message_fixture_t;
 
+typedef struct fd_exec_test_gossip_ping {
+    pb_bytes_array_t *from;
+    pb_bytes_array_t *token;
+    pb_bytes_array_t *signature;
+} fd_exec_test_gossip_ping_t;
+
+typedef struct fd_exec_test_gossip_pong {
+    pb_bytes_array_t *from;
+    pb_bytes_array_t *hash;
+    pb_bytes_array_t *signature;
+} fd_exec_test_gossip_pong_t;
+
+typedef struct fd_exec_test_gossip_pull_response {
+    pb_bytes_array_t *pubkey;
+    pb_size_t values_count;
+    struct fd_exec_test_gossip_crds_value *values;
+} fd_exec_test_gossip_pull_response_t;
+
+typedef struct fd_exec_test_gossip_push_message {
+    pb_bytes_array_t *pubkey;
+    pb_size_t values_count;
+    struct fd_exec_test_gossip_crds_value *values;
+} fd_exec_test_gossip_push_message_t;
+
+typedef struct fd_exec_test_gossip_prune_data {
+    pb_bytes_array_t *pubkey;
+    pb_size_t prunes_count;
+    pb_bytes_array_t **prunes;
+    pb_bytes_array_t *signature;
+    pb_bytes_array_t *destination;
+    uint64_t wallclock;
+} fd_exec_test_gossip_prune_data_t;
+
+typedef struct fd_exec_test_gossip_prune_message {
+    pb_bytes_array_t *pubkey;
+    bool has_data;
+    fd_exec_test_gossip_prune_data_t data;
+} fd_exec_test_gossip_prune_message_t;
+
+typedef struct fd_exec_test_gossip_bloom {
+    pb_size_t keys_count;
+    uint64_t *keys;
+    pb_bytes_array_t *bits;
+    uint64_t num_bits_set;
+} fd_exec_test_gossip_bloom_t;
+
+typedef struct fd_exec_test_gossip_crds_filter {
+    bool has_filter;
+    fd_exec_test_gossip_bloom_t filter;
+    uint64_t mask;
+    uint32_t mask_bits;
+} fd_exec_test_gossip_crds_filter_t;
+
+typedef struct fd_exec_test_gossip_contact_info {
+    pb_bytes_array_t *pubkey;
+    uint64_t wallclock;
+    uint64_t outset;
+    uint32_t shred_version;
+} fd_exec_test_gossip_contact_info_t;
+
+typedef struct fd_exec_test_gossip_vote {
+    uint32_t index;
+    pb_bytes_array_t *from;
+    uint64_t wallclock;
+    pb_bytes_array_t *transaction;
+} fd_exec_test_gossip_vote_t;
+
+typedef struct fd_exec_test_gossip_lowest_slot {
+    uint32_t index;
+    pb_bytes_array_t *from;
+    uint64_t lowest;
+    uint64_t wallclock;
+} fd_exec_test_gossip_lowest_slot_t;
+
+typedef struct fd_exec_test_gossip_epoch_slots {
+    uint32_t index;
+    pb_bytes_array_t *from;
+    uint64_t wallclock;
+} fd_exec_test_gossip_epoch_slots_t;
+
+typedef struct fd_exec_test_gossip_snapshot_hashes {
+    pb_bytes_array_t *from;
+    uint64_t full_slot;
+    pb_bytes_array_t *full_hash;
+    pb_size_t incremental_count;
+    struct fd_exec_test_gossip_incremental_hash *incremental;
+    uint64_t wallclock;
+} fd_exec_test_gossip_snapshot_hashes_t;
+
+typedef struct fd_exec_test_gossip_incremental_hash {
+    uint64_t slot;
+    pb_bytes_array_t *hash;
+} fd_exec_test_gossip_incremental_hash_t;
+
+typedef struct fd_exec_test_gossip_duplicate_shred {
+    uint32_t index;
+    pb_bytes_array_t *from;
+    uint64_t wallclock;
+    uint64_t slot;
+    uint32_t shred_index;
+    uint32_t shred_type;
+    uint32_t num_chunks;
+    uint32_t chunk_index;
+    pb_bytes_array_t *chunk;
+} fd_exec_test_gossip_duplicate_shred_t;
+
+typedef struct fd_exec_test_gossip_crds_data {
+    pb_size_t which_data;
+    union {
+        fd_exec_test_gossip_contact_info_t contact_info;
+        fd_exec_test_gossip_vote_t vote;
+        fd_exec_test_gossip_lowest_slot_t lowest_slot;
+        fd_exec_test_gossip_epoch_slots_t epoch_slots;
+        fd_exec_test_gossip_snapshot_hashes_t snapshot_hashes;
+        fd_exec_test_gossip_duplicate_shred_t duplicate_shred;
+    } data;
+} fd_exec_test_gossip_crds_data_t;
+
+typedef struct fd_exec_test_gossip_crds_value {
+    pb_bytes_array_t *signature;
+    bool has_data;
+    fd_exec_test_gossip_crds_data_t data;
+} fd_exec_test_gossip_crds_value_t;
+
+typedef struct fd_exec_test_gossip_pull_request {
+    bool has_filter;
+    fd_exec_test_gossip_crds_filter_t filter;
+    bool has_value;
+    fd_exec_test_gossip_crds_value_t value;
+} fd_exec_test_gossip_pull_request_t;
+
+typedef struct fd_exec_test_gossip_msg {
+    pb_size_t which_msg;
+    union {
+        fd_exec_test_gossip_ping_t ping;
+        fd_exec_test_gossip_pong_t pong;
+        fd_exec_test_gossip_pull_request_t pull_request;
+        fd_exec_test_gossip_pull_response_t pull_response;
+        fd_exec_test_gossip_push_message_t push_message;
+        fd_exec_test_gossip_prune_message_t prune_message;
+    } msg;
+} fd_exec_test_gossip_msg_t;
+
+typedef struct fd_exec_test_gossip_effects {
+    bool valid;
+    bool has_msg;
+    fd_exec_test_gossip_msg_t msg;
+} fd_exec_test_gossip_effects_t;
+
+typedef struct fd_exec_test_gossip_fixture {
+    bool has_metadata;
+    fd_exec_test_fixture_metadata_t metadata;
+    pb_bytes_array_t *input;
+    bool has_output;
+    fd_exec_test_gossip_effects_t output;
+} fd_exec_test_gossip_fixture_t;
+
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,9 +195,51 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_DEFAULT {NULL}
 #define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_DEFAULT {0}
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_DEFAULT, false, FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_DEFAULT}
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, NULL, false, FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_DEFAULT {0, false, FD_EXEC_TEST_GOSSIP_MSG_INIT_DEFAULT}
+#define FD_EXEC_TEST_GOSSIP_MSG_INIT_DEFAULT     {0, {FD_EXEC_TEST_GOSSIP_PING_INIT_DEFAULT}}
+#define FD_EXEC_TEST_GOSSIP_PING_INIT_DEFAULT    {NULL, NULL, NULL}
+#define FD_EXEC_TEST_GOSSIP_PONG_INIT_DEFAULT    {NULL, NULL, NULL}
+#define FD_EXEC_TEST_GOSSIP_PULL_REQUEST_INIT_DEFAULT {false, FD_EXEC_TEST_GOSSIP_CRDS_FILTER_INIT_DEFAULT, false, FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_DEFAULT}
+#define FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_INIT_DEFAULT {NULL, 0, NULL}
+#define FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_INIT_DEFAULT {NULL, 0, NULL}
+#define FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_INIT_DEFAULT {NULL, false, FD_EXEC_TEST_GOSSIP_PRUNE_DATA_INIT_DEFAULT}
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_INIT_DEFAULT {NULL, 0, NULL, NULL, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_INIT_DEFAULT {false, FD_EXEC_TEST_GOSSIP_BLOOM_INIT_DEFAULT, 0, 0}
+#define FD_EXEC_TEST_GOSSIP_BLOOM_INIT_DEFAULT   {0, NULL, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_DEFAULT {NULL, false, FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_DEFAULT}
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_DEFAULT {0, {FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_DEFAULT}}
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_DEFAULT {NULL, 0, 0, 0}
+#define FD_EXEC_TEST_GOSSIP_VOTE_INIT_DEFAULT    {0, NULL, 0, NULL}
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INIT_DEFAULT {0, NULL, 0, 0}
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_DEFAULT {0, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT {NULL, 0, NULL, 0, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT {0, NULL}
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT {0, NULL, 0, 0, 0, 0, 0, 0, NULL}
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_ZERO {NULL}
 #define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_ZERO {0}
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_ZERO, false, FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_ZERO}
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_INIT_ZERO    {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, NULL, false, FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO}
+#define FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO    {0, false, FD_EXEC_TEST_GOSSIP_MSG_INIT_ZERO}
+#define FD_EXEC_TEST_GOSSIP_MSG_INIT_ZERO        {0, {FD_EXEC_TEST_GOSSIP_PING_INIT_ZERO}}
+#define FD_EXEC_TEST_GOSSIP_PING_INIT_ZERO       {NULL, NULL, NULL}
+#define FD_EXEC_TEST_GOSSIP_PONG_INIT_ZERO       {NULL, NULL, NULL}
+#define FD_EXEC_TEST_GOSSIP_PULL_REQUEST_INIT_ZERO {false, FD_EXEC_TEST_GOSSIP_CRDS_FILTER_INIT_ZERO, false, FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_ZERO}
+#define FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_INIT_ZERO {NULL, 0, NULL}
+#define FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_INIT_ZERO {NULL, 0, NULL}
+#define FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_INIT_ZERO {NULL, false, FD_EXEC_TEST_GOSSIP_PRUNE_DATA_INIT_ZERO}
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_INIT_ZERO {NULL, 0, NULL, NULL, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_INIT_ZERO {false, FD_EXEC_TEST_GOSSIP_BLOOM_INIT_ZERO, 0, 0}
+#define FD_EXEC_TEST_GOSSIP_BLOOM_INIT_ZERO      {0, NULL, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_ZERO {NULL, false, FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_ZERO}
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_ZERO  {0, {FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_ZERO}}
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_ZERO {NULL, 0, 0, 0}
+#define FD_EXEC_TEST_GOSSIP_VOTE_INIT_ZERO       {0, NULL, 0, NULL}
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INIT_ZERO {0, NULL, 0, 0}
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_ZERO {0, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_ZERO {NULL, 0, NULL, 0, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_ZERO {0, NULL}
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_ZERO {0, NULL, 0, 0, 0, 0, 0, 0, NULL}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_DATA_TAG 1
@@ -50,6 +247,81 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_METADATA_TAG 1
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INPUT_TAG 2
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_OUTPUT_TAG 3
+#define FD_EXEC_TEST_GOSSIP_PING_FROM_TAG        1
+#define FD_EXEC_TEST_GOSSIP_PING_TOKEN_TAG       2
+#define FD_EXEC_TEST_GOSSIP_PING_SIGNATURE_TAG   3
+#define FD_EXEC_TEST_GOSSIP_PONG_FROM_TAG        1
+#define FD_EXEC_TEST_GOSSIP_PONG_HASH_TAG        2
+#define FD_EXEC_TEST_GOSSIP_PONG_SIGNATURE_TAG   3
+#define FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_PUBKEY_TAG 1
+#define FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_VALUES_TAG 2
+#define FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_PUBKEY_TAG 1
+#define FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_VALUES_TAG 2
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_PUBKEY_TAG 1
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_PRUNES_TAG 2
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_SIGNATURE_TAG 3
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_DESTINATION_TAG 4
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_WALLCLOCK_TAG 5
+#define FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_PUBKEY_TAG 1
+#define FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_DATA_TAG 2
+#define FD_EXEC_TEST_GOSSIP_BLOOM_KEYS_TAG       1
+#define FD_EXEC_TEST_GOSSIP_BLOOM_BITS_TAG       2
+#define FD_EXEC_TEST_GOSSIP_BLOOM_NUM_BITS_SET_TAG 3
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_FILTER_TAG 1
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_MASK_TAG 2
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_MASK_BITS_TAG 3
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_PUBKEY_TAG 1
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_WALLCLOCK_TAG 2
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_OUTSET_TAG 3
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_SHRED_VERSION_TAG 4
+#define FD_EXEC_TEST_GOSSIP_VOTE_INDEX_TAG       1
+#define FD_EXEC_TEST_GOSSIP_VOTE_FROM_TAG        2
+#define FD_EXEC_TEST_GOSSIP_VOTE_WALLCLOCK_TAG   3
+#define FD_EXEC_TEST_GOSSIP_VOTE_TRANSACTION_TAG 4
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INDEX_TAG 1
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_FROM_TAG 2
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_LOWEST_TAG 3
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_WALLCLOCK_TAG 4
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INDEX_TAG 1
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_FROM_TAG 2
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_WALLCLOCK_TAG 3
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FROM_TAG 1
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FULL_SLOT_TAG 2
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FULL_HASH_TAG 3
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INCREMENTAL_TAG 4
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_WALLCLOCK_TAG 5
+#define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_SLOT_TAG 1
+#define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_HASH_TAG 2
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INDEX_TAG 1
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_FROM_TAG 2
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_WALLCLOCK_TAG 3
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_SLOT_TAG 4
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_SHRED_INDEX_TAG 5
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_SHRED_TYPE_TAG 6
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_NUM_CHUNKS_TAG 7
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_CHUNK_INDEX_TAG 8
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_CHUNK_TAG 9
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_CONTACT_INFO_TAG 1
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_VOTE_TAG   2
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_LOWEST_SLOT_TAG 3
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_EPOCH_SLOTS_TAG 4
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_SNAPSHOT_HASHES_TAG 5
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_DUPLICATE_SHRED_TAG 6
+#define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_SIGNATURE_TAG 1
+#define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_DATA_TAG  2
+#define FD_EXEC_TEST_GOSSIP_PULL_REQUEST_FILTER_TAG 1
+#define FD_EXEC_TEST_GOSSIP_PULL_REQUEST_VALUE_TAG 2
+#define FD_EXEC_TEST_GOSSIP_MSG_PING_TAG         1
+#define FD_EXEC_TEST_GOSSIP_MSG_PONG_TAG         2
+#define FD_EXEC_TEST_GOSSIP_MSG_PULL_REQUEST_TAG 3
+#define FD_EXEC_TEST_GOSSIP_MSG_PULL_RESPONSE_TAG 4
+#define FD_EXEC_TEST_GOSSIP_MSG_PUSH_MESSAGE_TAG 5
+#define FD_EXEC_TEST_GOSSIP_MSG_PRUNE_MESSAGE_TAG 6
+#define FD_EXEC_TEST_GOSSIP_EFFECTS_VALID_TAG    1
+#define FD_EXEC_TEST_GOSSIP_EFFECTS_MSG_TAG      2
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_METADATA_TAG 1
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_INPUT_TAG    2
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_OUTPUT_TAG   3
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_FIELDLIST(X, a) \
@@ -72,18 +344,263 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
 #define fd_exec_test_gossip_message_fixture_t_input_MSGTYPE fd_exec_test_gossip_message_binary_t
 #define fd_exec_test_gossip_message_fixture_t_output_MSGTYPE fd_exec_test_accepts_gossip_message_t
 
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
+X(a, POINTER,  SINGULAR, BYTES,    input,             2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_DEFAULT NULL
+#define fd_exec_test_gossip_fixture_t_metadata_MSGTYPE fd_exec_test_fixture_metadata_t
+#define fd_exec_test_gossip_fixture_t_output_MSGTYPE fd_exec_test_gossip_effects_t
+
+#define FD_EXEC_TEST_GOSSIP_EFFECTS_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     valid,             1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  msg,               2)
+#define FD_EXEC_TEST_GOSSIP_EFFECTS_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_EFFECTS_DEFAULT NULL
+#define fd_exec_test_gossip_effects_t_msg_MSGTYPE fd_exec_test_gossip_msg_t
+
+#define FD_EXEC_TEST_GOSSIP_MSG_FIELDLIST(X, a) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,ping,msg.ping),   1) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,pong,msg.pong),   2) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,pull_request,msg.pull_request),   3) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,pull_response,msg.pull_response),   4) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,push_message,msg.push_message),   5) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (msg,prune_message,msg.prune_message),   6)
+#define FD_EXEC_TEST_GOSSIP_MSG_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_MSG_DEFAULT NULL
+#define fd_exec_test_gossip_msg_t_msg_ping_MSGTYPE fd_exec_test_gossip_ping_t
+#define fd_exec_test_gossip_msg_t_msg_pong_MSGTYPE fd_exec_test_gossip_pong_t
+#define fd_exec_test_gossip_msg_t_msg_pull_request_MSGTYPE fd_exec_test_gossip_pull_request_t
+#define fd_exec_test_gossip_msg_t_msg_pull_response_MSGTYPE fd_exec_test_gossip_pull_response_t
+#define fd_exec_test_gossip_msg_t_msg_push_message_MSGTYPE fd_exec_test_gossip_push_message_t
+#define fd_exec_test_gossip_msg_t_msg_prune_message_MSGTYPE fd_exec_test_gossip_prune_message_t
+
+#define FD_EXEC_TEST_GOSSIP_PING_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    from,              1) \
+X(a, POINTER,  SINGULAR, BYTES,    token,             2) \
+X(a, POINTER,  SINGULAR, BYTES,    signature,         3)
+#define FD_EXEC_TEST_GOSSIP_PING_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_PING_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_PONG_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    from,              1) \
+X(a, POINTER,  SINGULAR, BYTES,    hash,              2) \
+X(a, POINTER,  SINGULAR, BYTES,    signature,         3)
+#define FD_EXEC_TEST_GOSSIP_PONG_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_PONG_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_PULL_REQUEST_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  filter,            1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  value,             2)
+#define FD_EXEC_TEST_GOSSIP_PULL_REQUEST_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_PULL_REQUEST_DEFAULT NULL
+#define fd_exec_test_gossip_pull_request_t_filter_MSGTYPE fd_exec_test_gossip_crds_filter_t
+#define fd_exec_test_gossip_pull_request_t_value_MSGTYPE fd_exec_test_gossip_crds_value_t
+
+#define FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    pubkey,            1) \
+X(a, POINTER,  REPEATED, MESSAGE,  values,            2)
+#define FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_DEFAULT NULL
+#define fd_exec_test_gossip_pull_response_t_values_MSGTYPE fd_exec_test_gossip_crds_value_t
+
+#define FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    pubkey,            1) \
+X(a, POINTER,  REPEATED, MESSAGE,  values,            2)
+#define FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_DEFAULT NULL
+#define fd_exec_test_gossip_push_message_t_values_MSGTYPE fd_exec_test_gossip_crds_value_t
+
+#define FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    pubkey,            1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  data,              2)
+#define FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_DEFAULT NULL
+#define fd_exec_test_gossip_prune_message_t_data_MSGTYPE fd_exec_test_gossip_prune_data_t
+
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    pubkey,            1) \
+X(a, POINTER,  REPEATED, BYTES,    prunes,            2) \
+X(a, POINTER,  SINGULAR, BYTES,    signature,         3) \
+X(a, POINTER,  SINGULAR, BYTES,    destination,       4) \
+X(a, STATIC,   SINGULAR, UINT64,   wallclock,         5)
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  filter,            1) \
+X(a, STATIC,   SINGULAR, UINT64,   mask,              2) \
+X(a, STATIC,   SINGULAR, UINT32,   mask_bits,         3)
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_DEFAULT NULL
+#define fd_exec_test_gossip_crds_filter_t_filter_MSGTYPE fd_exec_test_gossip_bloom_t
+
+#define FD_EXEC_TEST_GOSSIP_BLOOM_FIELDLIST(X, a) \
+X(a, POINTER,  REPEATED, UINT64,   keys,              1) \
+X(a, POINTER,  SINGULAR, BYTES,    bits,              2) \
+X(a, STATIC,   SINGULAR, UINT64,   num_bits_set,      3)
+#define FD_EXEC_TEST_GOSSIP_BLOOM_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_BLOOM_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    signature,         1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  data,              2)
+#define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_DEFAULT NULL
+#define fd_exec_test_gossip_crds_value_t_data_MSGTYPE fd_exec_test_gossip_crds_data_t
+
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_FIELDLIST(X, a) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (data,contact_info,data.contact_info),   1) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (data,vote,data.vote),   2) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (data,lowest_slot,data.lowest_slot),   3) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (data,epoch_slots,data.epoch_slots),   4) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (data,snapshot_hashes,data.snapshot_hashes),   5) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (data,duplicate_shred,data.duplicate_shred),   6)
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_DEFAULT NULL
+#define fd_exec_test_gossip_crds_data_t_data_contact_info_MSGTYPE fd_exec_test_gossip_contact_info_t
+#define fd_exec_test_gossip_crds_data_t_data_vote_MSGTYPE fd_exec_test_gossip_vote_t
+#define fd_exec_test_gossip_crds_data_t_data_lowest_slot_MSGTYPE fd_exec_test_gossip_lowest_slot_t
+#define fd_exec_test_gossip_crds_data_t_data_epoch_slots_MSGTYPE fd_exec_test_gossip_epoch_slots_t
+#define fd_exec_test_gossip_crds_data_t_data_snapshot_hashes_MSGTYPE fd_exec_test_gossip_snapshot_hashes_t
+#define fd_exec_test_gossip_crds_data_t_data_duplicate_shred_MSGTYPE fd_exec_test_gossip_duplicate_shred_t
+
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    pubkey,            1) \
+X(a, STATIC,   SINGULAR, UINT64,   wallclock,         2) \
+X(a, STATIC,   SINGULAR, UINT64,   outset,            3) \
+X(a, STATIC,   SINGULAR, UINT32,   shred_version,     4)
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_VOTE_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   index,             1) \
+X(a, POINTER,  SINGULAR, BYTES,    from,              2) \
+X(a, STATIC,   SINGULAR, UINT64,   wallclock,         3) \
+X(a, POINTER,  SINGULAR, BYTES,    transaction,       4)
+#define FD_EXEC_TEST_GOSSIP_VOTE_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_VOTE_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   index,             1) \
+X(a, POINTER,  SINGULAR, BYTES,    from,              2) \
+X(a, STATIC,   SINGULAR, UINT64,   lowest,            3) \
+X(a, STATIC,   SINGULAR, UINT64,   wallclock,         4)
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   index,             1) \
+X(a, POINTER,  SINGULAR, BYTES,    from,              2) \
+X(a, STATIC,   SINGULAR, UINT64,   wallclock,         3)
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FIELDLIST(X, a) \
+X(a, POINTER,  SINGULAR, BYTES,    from,              1) \
+X(a, STATIC,   SINGULAR, UINT64,   full_slot,         2) \
+X(a, POINTER,  SINGULAR, BYTES,    full_hash,         3) \
+X(a, POINTER,  REPEATED, MESSAGE,  incremental,       4) \
+X(a, STATIC,   SINGULAR, UINT64,   wallclock,         5)
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_DEFAULT NULL
+#define fd_exec_test_gossip_snapshot_hashes_t_incremental_MSGTYPE fd_exec_test_gossip_incremental_hash_t
+
+#define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   slot,              1) \
+X(a, POINTER,  SINGULAR, BYTES,    hash,              2)
+#define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   index,             1) \
+X(a, POINTER,  SINGULAR, BYTES,    from,              2) \
+X(a, STATIC,   SINGULAR, UINT64,   wallclock,         3) \
+X(a, STATIC,   SINGULAR, UINT64,   slot,              4) \
+X(a, STATIC,   SINGULAR, UINT32,   shred_index,       5) \
+X(a, STATIC,   SINGULAR, UINT32,   shred_type,        6) \
+X(a, STATIC,   SINGULAR, UINT32,   num_chunks,        7) \
+X(a, STATIC,   SINGULAR, UINT32,   chunk_index,       8) \
+X(a, POINTER,  SINGULAR, BYTES,    chunk,             9)
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_DEFAULT NULL
+
 extern const pb_msgdesc_t fd_exec_test_gossip_message_binary_t_msg;
 extern const pb_msgdesc_t fd_exec_test_accepts_gossip_message_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_message_fixture_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_fixture_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_effects_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_msg_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_ping_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_pong_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_pull_request_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_pull_response_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_push_message_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_prune_message_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_prune_data_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_crds_filter_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_bloom_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_crds_value_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_crds_data_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_contact_info_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_vote_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_lowest_slot_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_epoch_slots_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_snapshot_hashes_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_incremental_hash_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_FIELDS &fd_exec_test_gossip_message_binary_t_msg
 #define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_FIELDS &fd_exec_test_accepts_gossip_message_t_msg
 #define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_FIELDS &fd_exec_test_gossip_message_fixture_t_msg
+#define FD_EXEC_TEST_GOSSIP_FIXTURE_FIELDS &fd_exec_test_gossip_fixture_t_msg
+#define FD_EXEC_TEST_GOSSIP_EFFECTS_FIELDS &fd_exec_test_gossip_effects_t_msg
+#define FD_EXEC_TEST_GOSSIP_MSG_FIELDS &fd_exec_test_gossip_msg_t_msg
+#define FD_EXEC_TEST_GOSSIP_PING_FIELDS &fd_exec_test_gossip_ping_t_msg
+#define FD_EXEC_TEST_GOSSIP_PONG_FIELDS &fd_exec_test_gossip_pong_t_msg
+#define FD_EXEC_TEST_GOSSIP_PULL_REQUEST_FIELDS &fd_exec_test_gossip_pull_request_t_msg
+#define FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_FIELDS &fd_exec_test_gossip_pull_response_t_msg
+#define FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_FIELDS &fd_exec_test_gossip_push_message_t_msg
+#define FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_FIELDS &fd_exec_test_gossip_prune_message_t_msg
+#define FD_EXEC_TEST_GOSSIP_PRUNE_DATA_FIELDS &fd_exec_test_gossip_prune_data_t_msg
+#define FD_EXEC_TEST_GOSSIP_CRDS_FILTER_FIELDS &fd_exec_test_gossip_crds_filter_t_msg
+#define FD_EXEC_TEST_GOSSIP_BLOOM_FIELDS &fd_exec_test_gossip_bloom_t_msg
+#define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_FIELDS &fd_exec_test_gossip_crds_value_t_msg
+#define FD_EXEC_TEST_GOSSIP_CRDS_DATA_FIELDS &fd_exec_test_gossip_crds_data_t_msg
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_FIELDS &fd_exec_test_gossip_contact_info_t_msg
+#define FD_EXEC_TEST_GOSSIP_VOTE_FIELDS &fd_exec_test_gossip_vote_t_msg
+#define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_FIELDS &fd_exec_test_gossip_lowest_slot_t_msg
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_FIELDS &fd_exec_test_gossip_epoch_slots_t_msg
+#define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FIELDS &fd_exec_test_gossip_snapshot_hashes_t_msg
+#define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_FIELDS &fd_exec_test_gossip_incremental_hash_t_msg
+#define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_FIELDS &fd_exec_test_gossip_duplicate_shred_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_GossipMessageBinary_size depends on runtime parameters */
 /* fd_exec_test_GossipMessageFixture_size depends on runtime parameters */
+/* fd_exec_test_GossipFixture_size depends on runtime parameters */
+/* fd_exec_test_GossipEffects_size depends on runtime parameters */
+/* fd_exec_test_GossipMsg_size depends on runtime parameters */
+/* fd_exec_test_GossipPing_size depends on runtime parameters */
+/* fd_exec_test_GossipPong_size depends on runtime parameters */
+/* fd_exec_test_GossipPullRequest_size depends on runtime parameters */
+/* fd_exec_test_GossipPullResponse_size depends on runtime parameters */
+/* fd_exec_test_GossipPushMessage_size depends on runtime parameters */
+/* fd_exec_test_GossipPruneMessage_size depends on runtime parameters */
+/* fd_exec_test_GossipPruneData_size depends on runtime parameters */
+/* fd_exec_test_GossipCrdsFilter_size depends on runtime parameters */
+/* fd_exec_test_GossipBloom_size depends on runtime parameters */
+/* fd_exec_test_GossipCrdsValue_size depends on runtime parameters */
+/* fd_exec_test_GossipCrdsData_size depends on runtime parameters */
+/* fd_exec_test_GossipContactInfo_size depends on runtime parameters */
+/* fd_exec_test_GossipVote_size depends on runtime parameters */
+/* fd_exec_test_GossipLowestSlot_size depends on runtime parameters */
+/* fd_exec_test_GossipEpochSlots_size depends on runtime parameters */
+/* fd_exec_test_GossipSnapshotHashes_size depends on runtime parameters */
+/* fd_exec_test_GossipIncrementalHash_size depends on runtime parameters */
+/* fd_exec_test_GossipDuplicateShred_size depends on runtime parameters */
 #define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_SIZE 2
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PB_H_MAX_SIZE FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_SIZE
 
@@ -91,12 +608,75 @@ extern const pb_msgdesc_t fd_exec_test_gossip_message_fixture_t_msg;
 #define org_solana_sealevel_v1_GossipMessageBinary fd_exec_test_GossipMessageBinary
 #define org_solana_sealevel_v1_AcceptsGossipMessage fd_exec_test_AcceptsGossipMessage
 #define org_solana_sealevel_v1_GossipMessageFixture fd_exec_test_GossipMessageFixture
+#define org_solana_sealevel_v1_GossipFixture fd_exec_test_GossipFixture
+#define org_solana_sealevel_v1_GossipEffects fd_exec_test_GossipEffects
+#define org_solana_sealevel_v1_GossipMsg fd_exec_test_GossipMsg
+#define org_solana_sealevel_v1_GossipPing fd_exec_test_GossipPing
+#define org_solana_sealevel_v1_GossipPong fd_exec_test_GossipPong
+#define org_solana_sealevel_v1_GossipPullRequest fd_exec_test_GossipPullRequest
+#define org_solana_sealevel_v1_GossipPullResponse fd_exec_test_GossipPullResponse
+#define org_solana_sealevel_v1_GossipPushMessage fd_exec_test_GossipPushMessage
+#define org_solana_sealevel_v1_GossipPruneMessage fd_exec_test_GossipPruneMessage
+#define org_solana_sealevel_v1_GossipPruneData fd_exec_test_GossipPruneData
+#define org_solana_sealevel_v1_GossipCrdsFilter fd_exec_test_GossipCrdsFilter
+#define org_solana_sealevel_v1_GossipBloom fd_exec_test_GossipBloom
+#define org_solana_sealevel_v1_GossipCrdsValue fd_exec_test_GossipCrdsValue
+#define org_solana_sealevel_v1_GossipCrdsData fd_exec_test_GossipCrdsData
+#define org_solana_sealevel_v1_GossipContactInfo fd_exec_test_GossipContactInfo
+#define org_solana_sealevel_v1_GossipVote fd_exec_test_GossipVote
+#define org_solana_sealevel_v1_GossipLowestSlot fd_exec_test_GossipLowestSlot
+#define org_solana_sealevel_v1_GossipEpochSlots fd_exec_test_GossipEpochSlots
+#define org_solana_sealevel_v1_GossipSnapshotHashes fd_exec_test_GossipSnapshotHashes
+#define org_solana_sealevel_v1_GossipIncrementalHash fd_exec_test_GossipIncrementalHash
+#define org_solana_sealevel_v1_GossipDuplicateShred fd_exec_test_GossipDuplicateShred
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MESSAGE_BINARY_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_ACCEPTS_GOSSIP_MESSAGE_INIT_DEFAULT FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MESSAGE_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_FIXTURE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MSG_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_MSG_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PING_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_PING_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PONG_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_PONG_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PULL_REQUEST_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_PULL_REQUEST_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PULL_RESPONSE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PUSH_MESSAGE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PRUNE_MESSAGE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PRUNE_DATA_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_PRUNE_DATA_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_FILTER_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_CRDS_FILTER_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_BLOOM_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_BLOOM_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_VALUE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_DATA_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CONTACT_INFO_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_VOTE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_VOTE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_LOWEST_SLOT_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_EPOCH_SLOTS_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MESSAGE_BINARY_INIT_ZERO FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_ACCEPTS_GOSSIP_MESSAGE_INIT_ZERO FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MESSAGE_FIXTURE_INIT_ZERO FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_FIXTURE_INIT_ZERO FD_EXEC_TEST_GOSSIP_FIXTURE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_EFFECTS_INIT_ZERO FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MSG_INIT_ZERO FD_EXEC_TEST_GOSSIP_MSG_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PING_INIT_ZERO FD_EXEC_TEST_GOSSIP_PING_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PONG_INIT_ZERO FD_EXEC_TEST_GOSSIP_PONG_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PULL_REQUEST_INIT_ZERO FD_EXEC_TEST_GOSSIP_PULL_REQUEST_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PULL_RESPONSE_INIT_ZERO FD_EXEC_TEST_GOSSIP_PULL_RESPONSE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PUSH_MESSAGE_INIT_ZERO FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PRUNE_MESSAGE_INIT_ZERO FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PRUNE_DATA_INIT_ZERO FD_EXEC_TEST_GOSSIP_PRUNE_DATA_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_FILTER_INIT_ZERO FD_EXEC_TEST_GOSSIP_CRDS_FILTER_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_BLOOM_INIT_ZERO FD_EXEC_TEST_GOSSIP_BLOOM_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_VALUE_INIT_ZERO FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_DATA_INIT_ZERO FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CONTACT_INFO_INIT_ZERO FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_VOTE_INIT_ZERO FD_EXEC_TEST_GOSSIP_VOTE_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_LOWEST_SLOT_INIT_ZERO FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_EPOCH_SLOTS_INIT_ZERO FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_SNAPSHOT_HASHES_INIT_ZERO FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_INCREMENTAL_HASH_INIT_ZERO FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_DUPLICATE_SHRED_INIT_ZERO FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_ZERO
 
 #ifdef __cplusplus
 } /* extern "C" */
