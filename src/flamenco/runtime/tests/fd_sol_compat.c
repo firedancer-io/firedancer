@@ -6,7 +6,7 @@
 #include "../fd_executor_err.h"
 #include "../../capture/fd_solcap_writer.h"
 #include "../../../ballet/shred/fd_shred.h"
-#include "../../gossip/fd_gossip_message.h"
+#include "fd_gossip_harness.h"
 
 #include "generated/block.pb.h"
 #include "generated/invoke.pb.h"
@@ -234,22 +234,20 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   return ok;
 }
 
-/* Unlike the execute_v1 protobuf APIs above, this entrypoint uses raw
-   bytes for both input and output. Input is a gossip wire message
-   (up to 1232 bytes). Output is a single byte: 1 if deserialization
-   and validation succeeded, 0 otherwise. Returns 1 on success. */
-
-static fd_gossip_message_t gossip_msg[1];
-
 int
 sol_compat_gossip_message_deserialize_v1( uchar *       out,
                                           ulong *       out_sz,
                                           uchar const * in,
                                           ulong         in_sz ) {
-  if( FD_UNLIKELY( *out_sz<1UL ) ) return 0;
-  out[0] = !!fd_gossip_message_deserialize( gossip_msg, in, in_sz );
-  *out_sz = 1UL;
-  return 1;
+  return fd_solfuzz_gossip_message_deserialize( out, out_sz, in, in_sz );
+}
+
+int
+sol_compat_gossip_decode_v1( uchar *       out,
+                             ulong *       out_sz,
+                             uchar const * in,
+                             ulong         in_sz ) {
+  return fd_solfuzz_gossip_decode( runner, out, out_sz, in, in_sz );
 }
 
 /*
