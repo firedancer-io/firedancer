@@ -1178,6 +1178,9 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
     snapshot_slot = 0UL;
   }
+
+  /* Signals fd_sleep_until_replay_started */
+  FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
 }
 
 static inline int
