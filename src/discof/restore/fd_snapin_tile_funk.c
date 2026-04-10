@@ -195,7 +195,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     ctx->metrics.accounts_loaded++;
     fd_funk_rec_t * r = rec[ i ];
     if( FD_LIKELY( !r ) ) {  /* optimize for new account */
-      r = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
+      r = fd_funk_rec_pool_acquire( funk->rec_pool );
       FD_TEST( r );
       ulong rec_idx = (ulong)( r - rec_tbl );
 

@@ -158,53 +158,21 @@
      myele_t *       mypool_peek      ( mypool_t       * join );
 
      // mypool_acquire acquires an element from a mypool.  Assumes join
-     // is a current local join.  If the mypool is empty or an error
-     // occurs, returns sentinel (arbitrary).  A non-zero / zero value
-     // for blocking indicates locked operations on the mypool are / are
-     // not allowed to block the caller.  If opt_err is not NULL, on
-     // return, *_opt_err will indicate FD_POOL_SUCCESS (zero) or an
-     // FD_POOL_ERR code (negative).  On success, the returned value
-     // will be a pointer in the caller's address space to the element
-     // store element acquired from the mypool.  On failure for any
-     // reason, the value returned will be sentinel and the mypool will
-     // be unchanged.  Reasons for failure:
-     //
-     // FD_POOL_ERR_EMPTY: the mypool contained no elements at some
-     // point during the call.
-     //
-     // FD_POOL_ERR_AGAIN: the mypool was locked at some point during
-     // the call.  Never returned for a blocking call (but then locking
-     // operations can then potentially block the caller indefinitely).
-     //
-     // FD_POOL_ERR_CORRUPT: memory corruption was detected during the
-     // call.
+     // is a current local join.  If the mypool is empty returns NULL
+     // On success, the returned value will be a pointer in the caller's
+     // address space to the element store element acquired from the
+     // mypool.  On failure, the value returned will be NULL and the
+     // mypool will be unchanged.  Failure can occur if the mypool
+     // contained no elements at some point during the call.
 
-     myele_t * mypool_acquire( mypool_t * join, myele_t * sentinel, int blocking, int * _opt_err );
+     myele_t * mypool_acquire( mypool_t * join );
 
      // mypool_release releases an element to a mypoool.  Assumes join
      // is a current local join, ele is a pointer in the caller's
      // address space to the element, and the element is currently not
-     // in the mypool.  Returns FD_POOL_SUCCESS (zero) on success (the
-     // element will be in the mypool on return) and an FD_POOL_ERR code
-     // (negative) on failure (the element will not be in the mypool on
-     // return).  Reasons for failure:
-     //
-     // FD_POOL_ERR_INVAL: ele does not point to an element in mypool's
-     // element store.
-     //
-     // FD_POOL_ERR_AGAIN: the mypool was locked at some point during
-     // the call.  Never returned for a blocking call (but locking
-     // operations can then potentially block the caller indefinitely).
-     //
-     // FD_POOL_ERR_CORRUPT: memory corruption was detected during the
-     // call.
+     // in the mypool.
 
-     int mypool_release( mypool_t * join, myele_t * ele, int blocking );
-
-     // mypool_is_locked returns whether or not a mypool is locked.
-     // Assumes join is a current local join.
-
-     int mypool_is_locked( mypool_t const * join );
+     void mypool_release( mypool_t * join, myele_t * ele );
 
      // mypool_lock will lock a mypool (e.g. pausing concurrent acquire
      // / release operations).  A non-zero / zero value for blocking
@@ -224,18 +192,12 @@
 
      void mypool_unlock( mypool_t * join );
 
-     // mypool_reset resets the mypool.  On return, it will hold all but
-     // the leading sentinel_cnt elements in the element store (e.g.
-     // initialization after creation) in ascending order.  If
-     // sentinel_cnt is greater than or equal to the element store
-     // capacity, the mypool will be empty on return.  Thus, on return,
-     // if sentinel_cnt is zero, every element in the element store will
-     // be in the mypool and, if sentinel_cnt is ele_max or greater
-     // (e.g. ULONG_MAX), every element will be removed from the mypool.
-     // Assumes join is a current local join and the mypool is locked or
-     // otherwise idle.
+     // mypool_reset resets the mypool.  On return, it will hold all
+     // elements in the element store (e.g. initialization after
+     // creation) in ascending order.  Assumes join is a current local
+     // join and the mypool is locked or otherwise idle.
 
-     void mypool_reset( mypool_t * join, ulong sentinel_cnt );
+     void mypool_reset( mypool_t * join );
 
      // mypool_verify returns FD_POOL_SUCCESS if join appears to be
      // current local join to a valid mypool and FD_POOL_ERR_CORRUPT
@@ -336,12 +298,8 @@
    we don't have to do this in the generator itself) */
 
 #define FD_POOL_SUCCESS     ( 0)
-#define FD_POOL_ERR_INVAL   (-1)
-#define FD_POOL_ERR_AGAIN   (-2)
-#define FD_POOL_ERR_CORRUPT (-3)
-#define FD_POOL_ERR_EMPTY   (-4)
-//#define FD_POOL_ERR_FULL    (-5)
-//#define FD_POOL_ERR_KEY     (-6)
+#define FD_POOL_ERR_AGAIN   (-1)
+#define FD_POOL_ERR_CORRUPT (-2)
 
 /* Implementation *****************************************************/
 
@@ -504,23 +462,6 @@ POOL_(peek_const)( POOL_(t) const * join ) {
 
 static inline POOL_ELE_T * POOL_(peek)( POOL_(t) * join ) { return (POOL_ELE_T *)POOL_(peek_const)( join ); }
 
-static inline int
-POOL_(is_locked)( POOL_(t) const * join ) {
-  POOL_(shmem_t) const * pool = join->pool;
-  FD_COMPILER_MFENCE();
-  ulong ver_top  = pool->ver_top;
-# if POOL_LAZY
-  ulong ver_lazy = pool->ver_lazy;
-# endif
-  FD_COMPILER_MFENCE();
-  return
-      (int)(POOL_(private_vidx_ver)( ver_top  ) & 1UL)
-# if POOL_LAZY
-    | (int)(POOL_(private_vidx_ver)( ver_lazy ) & 1UL)
-# endif
-  ;
-}
-
 static inline void
 POOL_(unlock)( POOL_(t) * join ) {
   POOL_(shmem_t) * pool = join->pool;
@@ -537,15 +478,13 @@ POOL_STATIC POOL_(t) * POOL_(join)  ( void *     ljoin, void * shpool, void * sh
 POOL_STATIC void *     POOL_(leave) ( POOL_(t) * join );
 POOL_STATIC void *     POOL_(delete)( void *     shpool );
 
-POOL_STATIC POOL_ELE_T * POOL_(acquire)( POOL_(t) * join, POOL_ELE_T * sentinel, int blocking, int * _opt_err );
+POOL_STATIC POOL_ELE_T * POOL_(acquire)( POOL_(t) * join );
 
-POOL_STATIC int POOL_(release)( POOL_(t) * join, POOL_ELE_T * ele, int blocking );
-
-POOL_STATIC int POOL_(is_empty)( POOL_(t) * join );
+POOL_STATIC void POOL_(release)( POOL_(t) * join, POOL_ELE_T * ele );
 
 POOL_STATIC int POOL_(lock)( POOL_(t) * join, int blocking );
 
-POOL_STATIC void POOL_(reset)( POOL_(t) * join, ulong sentinel_cnt );
+POOL_STATIC void POOL_(reset)( POOL_(t) * join );
 
 POOL_STATIC int POOL_(verify)( POOL_(t) const * join );
 
@@ -681,16 +620,12 @@ POOL_(delete)( void * shpool ) {
 #if POOL_LAZY
 
 static inline POOL_ELE_T *
-POOL_(acquire_lazy)( POOL_(t) *   join,
-                     POOL_ELE_T * sentinel,
-                     int          blocking,
-                     int *        _opt_err ) {
+POOL_(acquire_lazy)( POOL_(t) * join ) {
   POOL_ELE_T *     ele0    = join->ele;
   ulong            ele_max = join->ele_max;
   ulong volatile * _l      = (ulong volatile *)&join->pool->ver_lazy;
 
-  POOL_ELE_T * ele = sentinel;
-  int          err = FD_POOL_SUCCESS;
+  POOL_ELE_T * ele = NULL;
 
   FD_COMPILER_MFENCE();
 
@@ -703,13 +638,11 @@ POOL_(acquire_lazy)( POOL_(t) *   join,
     if( FD_LIKELY( !(ver & 1UL) ) ) { /* opt for unlocked */
 
       if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) { /* opt for not empty */
-        err = FD_POOL_ERR_EMPTY;
         break;
       }
 
-      if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* opt for not corrupt */
-        err = FD_POOL_ERR_CORRUPT;
-        break;
+      if( FD_UNLIKELY( ele_idx>=ele_max ) ) {
+        FD_LOG_CRIT(( "corruption detected (ele_idx=%lu ele_max=%lu)", ele_idx, ele_max ));
       }
 
       ulong ele_nxt = ele_idx+1UL;
@@ -720,11 +653,6 @@ POOL_(acquire_lazy)( POOL_(t) *   join,
         ele = ele0 + ele_idx;
         break;
       }
-    } else if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
-
-      err = FD_POOL_ERR_AGAIN;
-      break; /* opt for blocking */
-
     }
 
     FD_SPIN_PAUSE();
@@ -732,23 +660,18 @@ POOL_(acquire_lazy)( POOL_(t) *   join,
 
   FD_COMPILER_MFENCE();
 
-  fd_int_store_if( !!_opt_err, _opt_err, err );
   return ele;
 }
 
 #endif /* POOL_LAZY */
 
 POOL_STATIC POOL_ELE_T *
-POOL_(acquire)( POOL_(t) *   join,
-                POOL_ELE_T * sentinel,
-                int          blocking,
-                int *        _opt_err ) {
+POOL_(acquire)( POOL_(t) * join ) {
   POOL_ELE_T *     ele0    = join->ele;
   ulong            ele_max = join->ele_max;
   ulong volatile * _v      = (ulong volatile *)&join->pool->ver_top;
 
-  POOL_ELE_T * ele = sentinel;
-  int          err = FD_POOL_SUCCESS;
+  POOL_ELE_T * ele = NULL;
 
   FD_COMPILER_MFENCE();
 
@@ -762,15 +685,13 @@ POOL_(acquire)( POOL_(t) *   join,
 
       if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) { /* opt for not empty */
 #       if POOL_LAZY
-        return POOL_(acquire_lazy)( join, sentinel, blocking, _opt_err );
+        return POOL_(acquire_lazy)( join );
 #       endif
-        err = FD_POOL_ERR_EMPTY;
         break;
       }
 
-      if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* opt for not corrupt */
-        err = FD_POOL_ERR_CORRUPT;
-        break;
+      if( FD_UNLIKELY( ele_idx>=ele_max ) ) {
+        FD_LOG_CRIT(( "corruption detected (ele_idx=%lu ele_max=%lu)", ele_idx, ele_max ));
       }
 
       ulong ele_nxt = POOL_(private_idx)( ele0[ ele_idx ].POOL_NEXT );
@@ -785,8 +706,7 @@ POOL_(acquire)( POOL_(t) *   join,
            since we read it. */
 
         if( FD_UNLIKELY( POOL_(private_vidx_ver)( *_v )==ver ) ) {
-          err = FD_POOL_ERR_CORRUPT;
-          break;
+          FD_LOG_CRIT(( "corruption detected (ele_nxt=%lu ele_max=%lu)", ele_nxt, ele_max ));
         }
       } else { /* ele_nxt is valid */
         ulong new_ver_top = POOL_(private_vidx)( ver+2UL, ele_nxt );
@@ -796,11 +716,6 @@ POOL_(acquire)( POOL_(t) *   join,
           break;
         }
       }
-    } else if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
-
-      err = FD_POOL_ERR_AGAIN;
-      break; /* opt for blocking */
-
     }
 
     FD_SPIN_PAUSE();
@@ -808,21 +723,17 @@ POOL_(acquire)( POOL_(t) *   join,
 
   FD_COMPILER_MFENCE();
 
-  fd_int_store_if( !!_opt_err, _opt_err, err );
   return ele;
 }
 
-POOL_STATIC int
+POOL_STATIC void
 POOL_(release)( POOL_(t) *   join,
-                POOL_ELE_T * ele,
-                int          blocking ) {
+                POOL_ELE_T * ele ) {
   ulong            ele_max = join->ele_max;
   ulong volatile * _v      = (ulong volatile *)&join->pool->ver_top;
 
   ulong ele_idx = (ulong)(ele - join->ele);
-  if( FD_UNLIKELY( ele_idx>=ele_max ) ) return FD_POOL_ERR_INVAL; /* opt for valid call */
-
-  int err = FD_POOL_SUCCESS;
+  if( FD_UNLIKELY( ele_idx>=ele_max ) ) FD_LOG_CRIT(( "corruption detected: ele=%p is not in bounds", (void *)ele ));
 
   FD_COMPILER_MFENCE();
 
@@ -835,8 +746,7 @@ POOL_(release)( POOL_(t) *   join,
     if( FD_LIKELY( !(ver & 1UL) ) ) { /* opt for unlocked */
 
       if( FD_UNLIKELY( (ele_nxt>=ele_max) & (!POOL_(idx_is_null)( ele_nxt )) ) ) { /* opt for not corrupt */
-        err = FD_POOL_ERR_CORRUPT;
-        break;
+        FD_LOG_CRIT(( "corruption detected (ele_nxt=%lu ele_max=%lu)", ele_nxt, ele_max ));
       }
 
       ele->POOL_NEXT = POOL_(private_cidx)( ele_nxt );
@@ -845,40 +755,12 @@ POOL_(release)( POOL_(t) *   join,
 
       if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) ) break; /* opt for low contention */
 
-    } else if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
-
-      err = FD_POOL_ERR_AGAIN;
-      break;
-
     }
 
     FD_SPIN_PAUSE();
   }
 
   FD_COMPILER_MFENCE();
-
-  return err;
-}
-
-POOL_STATIC int
-POOL_(is_empty)( POOL_(t) * join ) {
-  POOL_(shmem_t) const * pool = join->pool;
-  FD_COMPILER_MFENCE();
-  ulong ver_top  = pool->ver_top;
-# if POOL_LAZY
-  ulong ver_lazy = pool->ver_lazy;
-# endif
-  FD_COMPILER_MFENCE();
-
-  ulong top_idx = POOL_(private_vidx_idx)( ver_top );
-# if POOL_LAZY
-  ulong  ele_max = join->ele_max;
-  if( FD_LIKELY( top_idx<ele_max ) ) return 0;  /* explicit stack non-empty */
-  ulong lazy_idx = POOL_(private_vidx_idx)( ver_lazy );
-  return !(lazy_idx<ele_max);                   /* empty only if lazy also empty */
-# else
-  return POOL_(idx_is_null)( top_idx );
-# endif
 }
 
 POOL_STATIC int
@@ -946,20 +828,16 @@ fail:
 #if !POOL_LAZY
 
 POOL_STATIC void
-POOL_(reset)( POOL_(t) * join,
-              ulong      sentinel_cnt ) {
+POOL_(reset)( POOL_(t) * join ) {
   POOL_(shmem_t) * pool    = join->pool;
   POOL_ELE_T *     ele     = join->ele;
   ulong            ele_max = join->ele_max;
 
-  /* Insert all but the leading sentinel_cnt elements in increasing
-     order */
+  /* Insert all elements in increasing order */
 
-  ulong ele_top;
-
-  if( FD_UNLIKELY( sentinel_cnt>=ele_max ) ) ele_top = POOL_(idx_null)(); /* All items are sentinels */
-  else { /* Note: ele_max at least 1 here */
-    ele_top = sentinel_cnt;
+  ulong ele_top = 0UL;
+  if( FD_UNLIKELY( !ele_max ) ) ele_top = POOL_(idx_null)();
+  else {
     for( ulong ele_idx=ele_top; ele_idx<(ele_max-1UL); ele_idx++ ) {
       ele[ ele_idx ].POOL_NEXT = POOL_(private_cidx)( ele_idx+1UL );
     }
@@ -974,16 +852,13 @@ POOL_(reset)( POOL_(t) * join,
 #else
 
 POOL_STATIC void
-POOL_(reset)( POOL_(t) * join,
-              ulong      sentinel_cnt ) {
+POOL_(reset)( POOL_(t) * join ) {
   POOL_(shmem_t) * pool    = join->pool;
-  ulong            ele_max = join->ele_max;
 
-  /* Assign all but the leading sentinel_cnt elements to the bump
-     allocator */
+  /* Assign all elements to the bump allocator */
 
   ulong ele_top  = POOL_(idx_null)();
-  ulong ele_lazy = sentinel_cnt<ele_max ? sentinel_cnt : POOL_(idx_null)();
+  ulong ele_lazy = 0UL;
 
   ulong ver_top  = pool->ver_top;
   ulong ver_lazy = pool->ver_lazy;
@@ -1052,10 +927,8 @@ POOL_STATIC char const *
 POOL_(strerror)( int err ) {
   switch( err ) {
   case FD_POOL_SUCCESS:     return "success";
-  case FD_POOL_ERR_INVAL:   return "bad input";
   case FD_POOL_ERR_AGAIN:   return "try again";
   case FD_POOL_ERR_CORRUPT: return "corruption detected";
-  case FD_POOL_ERR_EMPTY:   return "pool empty";
   default: break;
   }
   return "unknown";
