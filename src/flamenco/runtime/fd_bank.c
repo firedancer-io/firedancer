@@ -569,6 +569,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   child_bank->f.failed_txn_count         = 0UL;
   child_bank->f.nonvote_failed_txn_count = 0UL;
   child_bank->f.identity_vote_idx        = ULONG_MAX;
+  FD_LOG_NOTICE(("DELTA NEW child bank idx %lu fork idx %u", child_bank->idx, child_bank->stake_delegations_fork_id));
 
   child_bank->state = FD_BANK_STATE_REPLAYABLE;
 
@@ -608,6 +609,7 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t * banks,
   fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
   while( !!curr_bank ) {
     if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
+      FD_LOG_NOTICE(("DELTA APPLY bank idx %lu fork idx %u", curr_bank->idx, curr_bank->stake_delegations_fork_id));
       pool_indices[pool_indices_len++] = curr_bank->stake_delegations_fork_id;
     }
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
