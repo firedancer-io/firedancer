@@ -75,7 +75,6 @@ main( int     argc,
   else if( 0==strcmp( type, "txn"         ) ) fn_name = "sol_compat_txn_execute_v1";
   else if( 0==strcmp( type, "block"       ) ) fn_name = "sol_compat_block_execute_v1";
   else if( 0==strcmp( type, "vm_syscall"  ) ) fn_name = "sol_compat_vm_syscall_execute_v1";
-  else if( 0==strcmp( type, "shred_parse" ) ) fn_name = "sol_compat_shred_parse_v1";
   else usage();
 
   __typeof__(&sol_compat_instr_execute_v1) execute_fn = dlsym( so, fn_name );

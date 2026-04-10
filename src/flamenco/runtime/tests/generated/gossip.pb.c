@@ -15,4 +15,67 @@ PB_BIND(FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE, fd_exec_test_accepts_gossip_message
 PB_BIND(FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE, fd_exec_test_gossip_message_fixture_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_GOSSIP_FIXTURE, fd_exec_test_gossip_fixture_t, 2)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_EFFECTS, fd_exec_test_gossip_effects_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_MSG, fd_exec_test_gossip_msg_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_PING, fd_exec_test_gossip_ping_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_PONG, fd_exec_test_gossip_pong_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_PULL_REQUEST, fd_exec_test_gossip_pull_request_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_PULL_RESPONSE, fd_exec_test_gossip_pull_response_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_PUSH_MESSAGE, fd_exec_test_gossip_push_message_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_PRUNE_MESSAGE, fd_exec_test_gossip_prune_message_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_PRUNE_DATA, fd_exec_test_gossip_prune_data_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_CRDS_FILTER, fd_exec_test_gossip_crds_filter_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_BLOOM, fd_exec_test_gossip_bloom_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_CRDS_VALUE, fd_exec_test_gossip_crds_value_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_CRDS_DATA, fd_exec_test_gossip_crds_data_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_CONTACT_INFO, fd_exec_test_gossip_contact_info_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_VOTE, fd_exec_test_gossip_vote_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_LOWEST_SLOT, fd_exec_test_gossip_lowest_slot_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS, fd_exec_test_gossip_epoch_slots_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES, fd_exec_test_gossip_snapshot_hashes_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH, fd_exec_test_gossip_incremental_hash_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED, fd_exec_test_gossip_duplicate_shred_t, AUTO)
+
+
 
