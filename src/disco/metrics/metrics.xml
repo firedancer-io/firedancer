@@ -1281,6 +1281,7 @@ metric introduced.
     <gauge name="IgnoredSlot" summary="Most recent ignored replay_slot_completed frag" />
     <counter name="EqvocCnt" summary="Number of replay_slot_completed frags we detect as equivocations" />
     <gauge name="EqvocSlot" summary="Most recent equivocating replay_slot_completed frag" />
+    <gauge name="InvalidSlot" summary="Most recent detected duplicate slot that is invalidated" />
 
     <!-- Tower slot metadata -->
 

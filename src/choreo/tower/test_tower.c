@@ -872,6 +872,86 @@ test_reconcile_on_chain_root_ahead( fd_wksp_t * wksp ) {
 }
 
 void
+test_invalid_ancestor_switch_fallthrough( fd_wksp_t * wksp ) {
+
+  /* Scenario: our prev vote (slot 4) was voted on, then later marked
+     invalid (duplicate detected).  ghost_best is on a different fork
+     (slot 5).  Neither Case 1a (ancestor_rollback) nor Case 1b
+     (sibling_confirmed) applies, so the code must fall through from
+     Case 1 into Cases 2-4.  Here, slot 5 is on a different fork from
+     slot 4, so Case 2 (same fork) doesn't match.  No lockouts are set
+     up so the switch check fails (Case 4).  Because invalid_ancestor
+     is true, Case 4a applies and we reset to ghost_deepest from our
+     prev vote block.
+
+     Before the fix, Cases 2-4 were `else if` of Case 1, so when Case 1
+     entered but neither subcase matched, reset_blk stayed NULL and the
+     function would crash on `FD_TEST( reset_blk )`.
+
+         1 (root)
+        / \
+       2   3
+       |   |
+       4   5       4 is our prev vote (marked invalid), 5 is ghost_best
+  */
+
+  ulong blk_max   = 64;
+  ulong voter_max = 16;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( blk_max, voter_max ), 1UL );
+
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, blk_max, voter_max, 0UL ) );
+  FD_TEST( tower );
+  FD_TEST( ghost );
+
+  /* Build fork tree. */
+
+  mock( ghost, fd_tower_blocks_insert( tower, 1, ULONG_MAX ), 0, &(fd_hash_t){.ul = {1}}, NULL );
+  mock( ghost, fd_tower_blocks_insert( tower, 2, 1 ),         1, &(fd_hash_t){.ul = {2}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 3, 1 ),         2, &(fd_hash_t){.ul = {3}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 4, 2 ),         3, &(fd_hash_t){.ul = {4}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 5, 3 ),         4, &(fd_hash_t){.ul = {5}}, &(fd_hash_t){.ul = {3}} );
+
+
+  /* Vote on slot 4, making it our prev vote. */
+
+  push_vote( tower, 1 );
+  push_vote( tower, 4 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &(fd_hash_t){.ul = {4}}), &(fd_pubkey_t){.ul = {1}}, 30, 4 ); /* us */
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &(fd_hash_t){.ul = {5}}), &(fd_pubkey_t){.ul = {2}}, 50, 5 ); /* someone else */
+
+  /* Mark our prev vote slot 4 as voted in tower_blocks. */
+
+  fd_tower_blk_t * fork4 = fd_tower_blocks_query( tower, 4 );
+  fork4->voted          = 1;
+  fork4->voted_block_id = (fd_hash_t){.ul = {4}};
+
+  /* Now mark slot 4's ghost block as invalid (duplicate detected after
+     we voted).  This makes invalid_ancestor return slot 4 itself. */
+
+  fd_ghost_eqvoc( ghost, &(fd_hash_t){.ul = {4}} );
+
+  /* Call vote_and_reset.  No lockouts set up, so switch check fails.
+     Before the fix this would crash because reset_blk was NULL. */
+
+  fd_tower_out_t out = fd_tower_vote_and_reset( tower, ghost, NULL );
+
+  /* Verify: we should have fallen through Case 1 into Case 4a (switch
+     fail with invalid ancestor) and reset to ghost_deepest from our
+     prev vote block (slot 4). */
+
+  FD_TEST( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_FAIL) );
+  FD_TEST( out.reset_slot == 4 );
+
+  FD_LOG_NOTICE(( "test_invalid_ancestor_switch_fallthrough passed" ));
+
+  fd_wksp_free_laddr( fd_ghost_delete( fd_ghost_leave( ghost ) ) );
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+}
+
+void
 test_vtr_valid_join( fd_wksp_t * wksp ) {
   ulong vtr_max = 4;
 
@@ -929,6 +1009,8 @@ main( int argc, char ** argv ) {
 
 
   test_switch_eqvoc( wksp );
+
+  test_invalid_ancestor_switch_fallthrough( wksp );
 
   test_reconcile_voted_block_id( wksp );
   test_reconcile_on_chain_root_ahead( wksp );

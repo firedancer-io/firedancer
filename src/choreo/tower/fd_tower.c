@@ -726,6 +726,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1016-L1019 */
 
     int ancestor_rollback = prev_vote_blk != best_blk && !!fd_ghost_ancestor( ghost, prev_vote_blk, &best_blk->id );
+    int sibling_confirmed = prev_vote_fork->confirmed && 0!=memcmp( &prev_vote_fork->voted_block_id, &prev_vote_fork->confirmed_block_id, sizeof(fd_hash_t) );
     if( FD_LIKELY( ancestor_rollback ) ) {
       flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK );
       reset_blk = best_blk;
@@ -743,8 +744,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1021-L1024 */
 
-    int sibling_confirmed = prev_vote_fork->confirmed && 0!=memcmp( &prev_vote_fork->voted_block_id, &prev_vote_fork->confirmed_block_id, sizeof(fd_hash_t) );
-    if( FD_LIKELY( sibling_confirmed ) ) {
+    else if( FD_LIKELY( sibling_confirmed ) ) {
       flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
       reset_blk = best_blk;
       vote_blk  = best_blk;
@@ -757,78 +757,81 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
        different fork from prev vote (same as non-duplicate case). */
   }
 
-  /* Case 2: if our prev vote slot is an ancestor of the best slot, then
-     they are on the same fork and we can both reset to it.  We can also
-     vote for it if we pass the can_vote checks.
+  if( FD_LIKELY( !reset_blk )) { /* As long as one of the above cases didn't apply, we do the standard checks below */
 
-     https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1057 */
+    /* Case 2: if our prev vote slot is an ancestor of the best slot, then
+       they are on the same fork and we can both reset to it.  We can also
+       vote for it if we pass the can_vote checks.
 
-  else if( FD_LIKELY( best_blk->slot == prev_vote_slot || fd_tower_blocks_is_slot_ancestor( tower, best_blk->slot, prev_vote_slot ) ) ) {
-    flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SAME_FORK );
-    reset_blk = best_blk;
-    vote_blk  = best_blk;
-  }
+       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1057 */
 
-  /* Case 3: if our prev vote is not an ancestor of the best block, then
-     it is on a different fork.  If we pass the switch check, we can
-     reset to it.  If we additionally pass the lockout check, we can
-     also vote for it.
-
-     https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1208-L1215
-
-     Note also Agave uses the best blk's total stake for checking the
-     threshold.
-
-     https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L443-L445 */
-
-  else if( FD_LIKELY( switch_check( tower, ghost, best_blk->total_stake, best_blk->slot ) ) ) {
-    flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
-    reset_blk = best_blk;
-    vote_blk  = best_blk;
-  }
-
-  /* Case 4: same as case 3 but we didn't pass the switch check.  In
-     this case we reset to either ghost_best or ghost_deepest beginning
-     from our prev vote blk.
-
-     We must reset to a block beginning from our prev vote fork to
-     ensure votes get a chance to propagate.  Because in order for votes
-     to land, someone needs to build a block on that fork.
-
-     We reset to ghost_best or ghost_deepest depending on whether our
-     prev vote is valid.  When it's invalid we use ghost_deepest instead
-     of ghost_best, because ghost_best won't be able to return a valid
-     block beginning from our prev_vote because by definition the entire
-     subtree will be invalid.
-
-     When our prev vote fork is not a duplicate, we want to propagate
-     votes that might allow others to switch to our fork.  In addition,
-     if our prev vote fork is a duplicate, we want to propagate votes
-     that might "duplicate confirm" that block (reach 52% of stake).
-
-     See top-level documentation in fd_tower.h for more details on vote
-     propagation. */
-
-  else {
-
-    /* Case 4a: failed switch check and last vote's fork is invalid.
-
-      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/heaviest_subtree_fork_choice.rs#L1187 */
-
-    if( FD_UNLIKELY( invalid_ancestor ) ) {
-      flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_FAIL );
-      reset_blk = fd_ghost_deepest( ghost, prev_vote_blk );
+    if( FD_LIKELY( best_blk->slot == prev_vote_slot || fd_tower_blocks_is_slot_ancestor( tower, best_blk->slot, prev_vote_slot ) ) ) {
+      flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SAME_FORK );
+      reset_blk = best_blk;
+      vote_blk  = best_blk;
     }
 
-    /* Case 4b: failed switch check and last vote's fork is valid.
+    /* Case 3: if our prev vote is not an ancestor of the best block, then
+       it is on a different fork.  If we pass the switch check, we can
+       reset to it.  If we additionally pass the lockout check, we can
+       also vote for it.
 
-      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L200 */
+       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1208-L1215
+
+       Note also Agave uses the best blk's total stake for checking the
+       threshold.
+
+       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L443-L445 */
+
+    else if( FD_LIKELY( switch_check( tower, ghost, best_blk->total_stake, best_blk->slot ) ) ) {
+      flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
+      reset_blk = best_blk;
+      vote_blk  = best_blk;
+    }
+
+    /* Case 4: same as case 3 but we didn't pass the switch check.  In
+       this case we reset to either ghost_best or ghost_deepest beginning
+       from our prev vote blk.
+
+       We must reset to a block beginning from our prev vote fork to
+       ensure votes get a chance to propagate.  Because in order for votes
+       to land, someone needs to build a block on that fork.
+
+       We reset to ghost_best or ghost_deepest depending on whether our
+       prev vote is valid.  When it's invalid we use ghost_deepest instead
+       of ghost_best, because ghost_best won't be able to return a valid
+       block beginning from our prev_vote because by definition the entire
+       subtree will be invalid.
+
+       When our prev vote fork is not a duplicate, we want to propagate
+       votes that might allow others to switch to our fork.  In addition,
+       if our prev vote fork is a duplicate, we want to propagate votes
+       that might "duplicate confirm" that block (reach 52% of stake).
+
+       See top-level documentation in fd_tower.h for more details on vote
+       propagation. */
 
     else {
-      flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_FAIL );
-      reset_blk = fd_ghost_best( ghost, prev_vote_blk );
+
+      /* Case 4a: failed switch check and last vote's fork is invalid.
+
+        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/heaviest_subtree_fork_choice.rs#L1187 */
+
+      if( FD_UNLIKELY( invalid_ancestor ) ) {
+        flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_FAIL );
+        reset_blk = fd_ghost_deepest( ghost, prev_vote_blk );
+      }
+
+      /* Case 4b: failed switch check and last vote's fork is valid.
+
+        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L200 */
+
+      else {
+        flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_FAIL );
+        reset_blk = fd_ghost_best( ghost, prev_vote_blk );
+      }
     }
-  }
+  } /* end if(!reset_blk) */
 
   /* If there is a block to vote for, there are a few additional checks
      to make sure we can actually vote for it.

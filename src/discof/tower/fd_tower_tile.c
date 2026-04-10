@@ -278,6 +278,7 @@ struct fd_tower_tile {
     ulong ignored_slot;
     ulong eqvoc_cnt;
     ulong eqvoc_slot;
+    ulong invalid_slot; /* updated on every fd_ghost_eqvoc call */
 
     ulong replay_slot;
     ulong last_vote_slot;
@@ -536,6 +537,7 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
         tower_blk->confirmed          = 1;
         tower_blk->confirmed_block_id = votes_blk->key.block_id;
         fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
+        ctx->metrics.invalid_slot = tower_blk->slot;
       }
       continue;
     }
@@ -577,7 +579,10 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
         tower_anc->confirmed          = 1;
         tower_anc->confirmed_block_id = ghost_anc->id;
         fd_ghost_confirm( ctx->ghost, &ghost_anc->id );
-        if( FD_UNLIKELY( memcmp( &tower_anc->replayed_block_id, &ghost_anc->id, sizeof(fd_hash_t) ) ) ) fd_ghost_eqvoc( ctx->ghost, &tower_anc->replayed_block_id );
+        if( FD_UNLIKELY( memcmp( &tower_anc->replayed_block_id, &ghost_anc->id, sizeof(fd_hash_t) ) ) ) {
+          fd_ghost_eqvoc( ctx->ghost, &tower_anc->replayed_block_id );
+          ctx->metrics.invalid_slot = tower_anc->slot;
+        }
       }
 
       /* Walk up to next ancestor. */
@@ -671,7 +676,10 @@ publish_slot_duplicate( fd_tower_tile_t *                ctx,
 
   fd_tower_blk_t * tower_blk = fd_tower_blocks_query( ctx->tower, slot );
   int eqvoc = tower_blk && (!tower_blk->confirmed || memcmp( &tower_blk->replayed_block_id, &tower_blk->confirmed_block_id, sizeof(fd_hash_t) ) );
-  if( FD_LIKELY( eqvoc ) ) fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
+  if( FD_LIKELY( eqvoc ) ) {
+    fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
+    ctx->metrics.invalid_slot = tower_blk->slot;
+  }
 }
 
 static void
@@ -1024,11 +1032,12 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     FD_TEST( eqvoc_tower_blk->confirmed ); /* check the confirmed bit is set (the confirmation must have already happened before replay_slot_completed) */
     fd_tower_lockos_remove( ctx->tower, slot_completed->slot );
 
-    ctx->metrics.eqvoc_cnt++;
-    ctx->metrics.eqvoc_slot = fd_ulong_max( ctx->metrics.eqvoc_slot, slot_completed->slot );
 
     fd_ghost_confirm( ctx->ghost, &slot_completed->block_id );
     fd_ghost_eqvoc( ctx->ghost, &eqvoc_tower_blk->replayed_block_id );
+    ctx->metrics.invalid_slot = slot_completed->slot;
+    ctx->metrics.eqvoc_slot   = slot_completed->slot;
+    ctx->metrics.eqvoc_cnt++;
 
     eqvoc_tower_blk->parent_slot       = slot_completed->parent_slot;
     eqvoc_tower_blk->replayed_block_id = slot_completed->block_id;
@@ -1080,6 +1089,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
            so our replayed block is an equivocating sibling. */
 
         fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
+        ctx->metrics.invalid_slot = slot_completed->slot;
       }
 
     } else if( FD_UNLIKELY( fd_eqvoc_query( ctx->eqvoc, slot_completed->slot ) ) ) {
@@ -1088,6 +1098,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
          or gossip before replay).  Mark the ghost block invalid. */
 
       fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
+      ctx->metrics.invalid_slot = slot_completed->slot;
     }
   }
 
@@ -1401,6 +1412,9 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MCNT_SET( TOWER, EQVOC_ERR_TYPE,      ctx->metrics.eqvoc_err_type      );
   FD_MCNT_SET( TOWER, EQVOC_ERR_MERKLE,    ctx->metrics.eqvoc_err_merkle    );
   FD_MCNT_SET( TOWER, EQVOC_ERR_SIGNATURE, ctx->metrics.eqvoc_err_signature );
+  FD_MCNT_SET( TOWER, EQVOC_CNT,           ctx->metrics.eqvoc_cnt );
+  FD_MGAUGE_SET( TOWER, EQVOC_SLOT,        ctx->metrics.eqvoc_slot );
+  FD_MGAUGE_SET( TOWER, INVALID_SLOT,      ctx->metrics.invalid_slot );
 
   FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_CNT, ctx->metrics.eqvoc_err_chunk_cnt );
   FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_IDX, ctx->metrics.eqvoc_err_chunk_idx );
