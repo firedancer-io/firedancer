@@ -762,7 +762,6 @@ metric introduced.
 </enum>
 
 <tile name="replay">
-
   <counter name="StoreQueryAcquire" summary="Count of store slock acquires for query" />
   <counter name="StoreQueryRelease" summary="Count of store slock releases for query" />
   <histogram name="StoreQueryWait" min="0.00000001" max="0.001" converter="seconds">
@@ -883,6 +882,8 @@ metric introduced.
   <gauge name="AccdbCacheFreePartMaxBytes" summary="Largest free heap partition in account database cache" />
   <gauge name="AccdbCacheUsedPartMedianBytes" summary="Median used heap partition size in account database cache" />
   <gauge name="AccdbCacheUsedPartMeanBytes" summary="Mean used heap partition size in account database cache" />
+
+  <gauge name="RuntimeStatus" summary="Solana runtime status (0=initializing 1=loaded)" />
 </tile>
 
 <enum name="RepairSentRequestTypes">
