@@ -177,8 +177,7 @@ returnable_frag( fd_poh_tile_t *     ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_PACK: {
-      fd_done_packing_t const * done_packing = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      fd_poh_done_packing( ctx->poh, done_packing->microblocks_in_slot );
+      fd_poh_done_packing( ctx->poh );
       break;
     }
     case IN_KIND_REPLAY: {

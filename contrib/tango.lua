@@ -540,13 +540,13 @@ end
 -- Define a new protocol
 local fd_done_packing = Proto("fd_done_packing_t", "FD Pack to PoH Done Packing Message")
 
-local f_microblocks_in_slot = ProtoField.uint64("fd_done_packing_t.microblocks_in_slot", "Microblocks in slot")
+local f_max_pack_idx = ProtoField.uint32("fd_done_packing_t.max_pack_idx", "Max pack idx")
 
-fd_done_packing.fields = { f_microblocks_in_slot }
+fd_done_packing.fields = { f_max_pack_idx }
 
 function fd_done_packing.dissector(buffer, pinfo, tree)
   local subtree = tree:add(fd_done_packing, buffer(), "fd_done_packing_t")
-  subtree:add_le(f_microblocks_in_slot, buffer(0, 8))
+  subtree:add_le(f_max_pack_idx, buffer(0, 4))
 end
 
 
