@@ -1,8 +1,10 @@
 #include "fd_poh.h"
-#include "generated/fd_poh_tile_seccomp.h"
 #include "fd_poh_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
+#include "../../discof/fd_startup.h"
+#include <time.h>
+#include "generated/fd_poh_tile_seccomp.h"
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_PACK   (1)
@@ -272,6 +274,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong

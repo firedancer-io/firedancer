@@ -41,3 +41,6 @@ ftruncate: (or (eq (arg 0) solcap_fd_0)
 fsync: (or (eq (arg 0) logfile_fd)
            (eq (arg 0) solcap_fd_0)
            (eq (arg 0) solcap_fd_1))
+
+# startup: sleep until snapshot loaded
+clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)

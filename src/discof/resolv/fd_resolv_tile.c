@@ -2,14 +2,16 @@
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../replay/fd_replay_tile.h"
-#include "generated/fd_resolv_tile_seccomp.h"
 #include "../../discof/fd_accdb_topo.h"
+#include "../../discof/fd_startup.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_alut.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod_format.h"
+#include <time.h>
+#include "generated/fd_resolv_tile_seccomp.h"
 
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
@@ -630,6 +632,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong

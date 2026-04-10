@@ -1,6 +1,6 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_txn_p.h"
-#include "generated/fd_execrp_tile_seccomp.h"
+#include "../../discof/fd_startup.h"
 
 #include "../../ballet/sha256/fd_sha256.h" /* fd_sha256_hash_32_repeated */
 #include "../../choreo/tower/fd_tower_serdes.h"
@@ -14,6 +14,8 @@
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include <time.h>
+#include "generated/fd_execrp_tile_seccomp.h"
 
 /* The exec tile is responsible for executing single transactions. The
    tile receives a parsed transaction (fd_txn_p_t) and an identifier to
@@ -476,6 +478,8 @@ unprivileged_init( fd_topo_t *      topo,
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
   fd_wksp_oom_silent = 1;
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong
