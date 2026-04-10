@@ -1,13 +1,13 @@
 #include "fd_base58.h"
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #include "fd_base58_avx.h"
 #endif
 
 /* base58_chars maps [0, 58) to the base58 character.  In the AVX case,
    this lookup table is contained implicitly in raw_to_base58 */
 
-#if !FD_HAS_AVX
+#if !defined(__AVX2__)
 static char const base58_chars[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 #endif
 

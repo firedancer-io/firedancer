@@ -232,9 +232,9 @@ FD_PROTOTYPES_END
 /* See fd_sha256.h for details on how use the batching API */
 
 #ifndef FD_SHA512_BATCH_IMPL
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 #define FD_SHA512_BATCH_IMPL 2
-#elif FD_HAS_AVX
+#elif defined(__AVX2__)
 #define FD_SHA512_BATCH_IMPL 1
 #else
 #define FD_SHA512_BATCH_IMPL 0

@@ -162,7 +162,7 @@ wv_insert_variable( wv_t a, int n, ulong v ) {
 /* wv_rol(x,n) returns wv( rotate_left (x0,n), rotate_left (x1,n), ... )
    wv_ror(x,n) returns wv( rotate_right(x0,n), rotate_right(x1,n), ... ) */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512VL__)
 #define wv_rol(a,imm)  _mm256_rol_epi64( (a), (imm) )
 #define wv_ror(a,imm)  _mm256_ror_epi64( (a), (imm) )
 #else

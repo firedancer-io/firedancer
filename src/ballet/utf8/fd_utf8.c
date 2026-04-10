@@ -17,7 +17,7 @@ static uchar const fd_utf8_dfa[ 256 + 9*16 ] = {
   1,3,1,1,1,1,1,3,1,3,1,1,1,1,1,1,1,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
 };
 
-#if FD_HAS_AVX512
+#if defined(__AVX512BW__)
 #include "../../util/simd/fd_avx512.h"
 
 /* AVX512 UTF-8 validator based on https://arxiv.org/pdf/2010.03090
@@ -232,4 +232,4 @@ fd_utf8_verify( char const * str,
   return state == 0;
 }
 
-#endif /* FD_HAS_AVX512 */
+#endif /* defined(__AVX512BW__) */

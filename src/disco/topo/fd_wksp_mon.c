@@ -3,7 +3,7 @@
 #include "../../util/wksp/fd_wksp_private.h"
 #include <stddef.h>
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #include <immintrin.h>
 #endif
 
@@ -77,7 +77,7 @@ fd_wksp_mon_tick( fd_wksp_mon_t * mon,
   FD_STATIC_ASSERT( offsetof(fd_wksp_private_pinfo_t, gaddr_hi)== 8UL, layout );
   FD_STATIC_ASSERT( offsetof(fd_wksp_private_pinfo_t, tag     )==16UL, layout );
 
-# if FD_HAS_AVX
+# if defined(__AVX2__)
   for( ulong i=scan_idx; i<scan_end; i++ ) {
     __m256i v = _mm256_stream_load_si256( (__m256i const *)(pinfo + i) );
     ulong tmp[4] __attribute__((aligned(32)));

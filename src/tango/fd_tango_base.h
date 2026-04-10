@@ -112,7 +112,7 @@
 
 #include "../util/fd_util.h"
 
-#if FD_HAS_SSE /* also covers FD_HAS_AVX */
+#if defined(__SSE__)
 #include <x86intrin.h>
 #endif
 
@@ -187,14 +187,14 @@ union __attribute__((aligned(FD_FRAG_META_ALIGN))) fd_frag_meta {
      atomic on many x86 platforms but this is not guaranteed and such
      should not be assumed. */
 
-# if FD_HAS_SSE
+# if defined(__SSE__)
   struct {
     __m128i sse0; /* naturally atomic r/w, covers seq and sig */
     __m128i sse1; /* naturally atomic r/w, covers chunk, sz, ctl, tsorig and tspub */
   };
 # endif
 
-# if FD_HAS_AVX
+# if defined(__AVX__)
   __m256i avx; /* Possibly non-atomic but can hold the metadata in a single register */
 # endif
 
@@ -275,7 +275,7 @@ fd_frag_meta_seq_query( fd_frag_meta_t const * meta ) { /* Assumed non-NULL */
   return seq;
 }
 
-#if FD_HAS_SSE
+#if defined(__SSE__)
 
 /* fd_frag_meta_seq_sig_query returns the sequence number and signature
    pointed to by meta in one atomic read, same semantics as
@@ -306,7 +306,7 @@ FD_FN_CONST static inline int   fd_frag_meta_ctl_som ( ulong ctl ) { return (int
 FD_FN_CONST static inline int   fd_frag_meta_ctl_eom ( ulong ctl ) { return (int)((ctl>>1) & 1UL); }
 FD_FN_CONST static inline int   fd_frag_meta_ctl_err ( ulong ctl ) { return (int)((ctl>>2) & 1UL); }
 
-#if FD_HAS_SSE
+#if defined(__SSE__)
 
 FD_FN_CONST static inline __m128i
 fd_frag_meta_sse0( ulong seq,
@@ -334,7 +334,7 @@ FD_FN_CONST static inline ulong fd_frag_meta_sse1_tsorig( __m128i sse1 ) { retur
 FD_FN_CONST static inline ulong fd_frag_meta_sse1_tspub ( __m128i sse1 ) { return (ulong)(uint  )_mm_extract_epi32( sse1, 3 ); }
 
 #endif
-#if FD_HAS_AVX
+#if defined(__AVX__)
 
 FD_FN_CONST static inline __m256i
 fd_frag_meta_avx( ulong seq,

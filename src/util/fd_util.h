@@ -27,7 +27,7 @@
 //#include "archive/fd_tar.h"        /* includes fd_io.h */
 //#include "bits/fd_float.h"         /* includes bits/fd_bits.h */
 //#include "bits/fd_uwide.h"         /* includes bits/fd_bits.h */
-//#include "hist/fd_histf.h"         /* includes log/fd_log.h math.h (FD_HAS_AVX) fd_avx.h */
+//#include "hist/fd_histf.h"         /* includes log/fd_log.h math.h fd_avx.h */
 //#include "math/fd_stat.h"          /* includes bits/fd_bits.h */
 //#include "math/fd_sqrt.h"          /* includes bits/fd_bits.h */
 //#include "math/fd_fxp.h"           /* includes math/fd_sqrt.h, (!FD_HAS_INT128) bits/fd_uwide.h */
@@ -41,9 +41,9 @@
 //#include "pod/fd_pod.h"            /* includes cstr/fd_cstr.h */
 //#include "sanitize/fd_fuzz.h"      /* includes fd_util_base.h */
 //#include "sanitize/fd_backtrace.h" /* FIXME: this probably should be merged with another header */
-//#include "simd/fd_sse.h"           /* includes bits/fd_bits.h, requires FD_HAS_SSE */
-//#include "simd/fd_avx.h"           /* includes bits/fd_bits.h, requires FD_HAS_AVX */
-//#include "simd/fd_avx512.h"        /* includes bits/fd_bits.h, requires FD_HAS_AVX512 */
+//#include "simd/fd_sse.h"           /* includes bits/fd_bits.h, requires defined(__SSE__) */
+//#include "simd/fd_avx.h"           /* includes bits/fd_bits.h, requires defined(__AVX2__) */
+//#include "simd/fd_avx512.h"        /* includes bits/fd_bits.h, requires defined(__AVX512F__) */
 
 FD_PROTOTYPES_BEGIN
 

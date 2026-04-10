@@ -1,6 +1,6 @@
 #include "../fd_disco.h"
 
-#if FD_HAS_HOSTED && FD_HAS_AVX
+#if FD_HAS_HOSTED && defined(__AVX2__)
 
 #include <math.h> /* For expm1f */
 
@@ -208,7 +208,7 @@ tx_tile_main( int     argc,
     int ctl_eom = !burst_rem;
     int ctl_err = 0;
 
-    int   is_dup = fd_rng_uint( rng ) < dup_thresh; 
+    int   is_dup = fd_rng_uint( rng ) < dup_thresh;
     uint  age    = is_dup ? (uint)(int)(1.0f + dup_avg_age*fd_rng_float_exp( rng )) : 0U;
     ulong sig    = fd_ulong_hash( (((ulong)tx_idx)<<32) | ((ulong)(dup_seq-age)) );
     sig |= (ulong)(sig==FD_TCACHE_TAG_NULL);
@@ -612,7 +612,7 @@ main( int     argc,
   cfg->rx_rng_mem    = rng_mem  +  tx_cnt     *rng_footprint;  cfg->rx_rng_footprint    = rng_footprint;
   cfg->rx_fseq_mem   = fseq_mem +  tx_cnt     *fseq_footprint; cfg->rx_fseq_footprint   = fseq_footprint;
   cfg->rx_tcache_mem = rx_tcache_mem;                          cfg->rx_tcache_footprint = rx_tcache_footprint;
-  
+
   cfg->pkt_framing     = pkt_framing;
   cfg->pkt_payload_max = pkt_payload_max;
   cfg->burst_tau       = burst_tau;
@@ -736,7 +736,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and FD_HAS_AVX capabilities" ));
+  FD_LOG_WARNING(( "skip: unit test requires FD_HAS_HOSTED and defined(__AVX2__) capabilities" ));
   fd_halt();
   return 0;
 }

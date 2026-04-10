@@ -11,7 +11,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod_format.h"
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #include "../../util/simd/fd_avx.h"
 #endif
 
@@ -53,7 +53,7 @@ static const blockhash_t null_blockhash = { 0 };
 #define MAP_KEY_T             blockhash_t
 #define MAP_LG_SLOT_CNT       (BLOCKHASH_LG_RING_CNT+1UL)
 #define MAP_KEY_NULL          null_blockhash
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 # define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
 #else
 # define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_blockhash)

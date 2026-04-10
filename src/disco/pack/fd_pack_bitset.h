@@ -61,9 +61,9 @@
    All of this can be done with AVX or with fd_set. */
 
 #ifndef FD_PACK_BITSET_MODE
-#  if FD_HAS_AVX512
+#  if defined(__AVX512F__)
 #    define FD_PACK_BITSET_MODE 2
-#  elif FD_HAS_AVX
+#  elif defined(__AVX2__)
 #    define FD_PACK_BITSET_MODE 1
 #  else
 #    define FD_PACK_BITSET_MODE 0

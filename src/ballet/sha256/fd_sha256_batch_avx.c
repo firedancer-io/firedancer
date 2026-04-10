@@ -17,7 +17,7 @@ fd_sha256_private_batch_avx( ulong          batch_cnt,
      sequential implementation is faster, so we need a larger batch size
      to justify using the batched implementation. */
 
-# if FD_HAS_SHANI
+# if defined(__SHA__)
 # define MIN_BATCH_CNT (6UL)
 # else
 # define MIN_BATCH_CNT (2UL)

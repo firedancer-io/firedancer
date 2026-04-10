@@ -321,7 +321,7 @@ fd_mcache_publish( fd_frag_meta_t * mcache,   /* Assumed a current local join */
   FD_COMPILER_MFENCE();
 }
 
-#if FD_HAS_SSE
+#if defined(__SSE__)
 
 /* fd_mcache_publish_sse is a SSE implementation of fd_mcache_publish.
    It is compatible with FD_MCACHE_WAIT and FD_MCACHE_WAIT_SSE. */
@@ -350,7 +350,7 @@ fd_mcache_publish_sse( fd_frag_meta_t * mcache,   /* Assumed a current local joi
 
 #endif
 
-#if FD_HAS_AVX
+#if defined(__AVX__)
 
 /* fd_mcache_publish_avx is an AVX implementation of fd_mcache_publish.
    It is compatible with FD_MCACHE_WAIT, FD_MCACHE_WAIT_SSE and
@@ -653,11 +653,11 @@ fd_mcache_publish_avx( fd_frag_meta_t * mcache,   /* Assumed a current local joi
     (poll_max)  = _fd_mcache_wait_poll_max;                                                                               \
   } while(0)
 
-#if FD_HAS_AVX
+#if defined(__AVX__)
 
 /* FD_MCACHE_WAIT_SSE: similar to FD_MCACHE_WAIT but uses a pair of SSE
    registers to hold the metadata instead of a local buffer.  This is
-   only valid on targets with the FD_HAS_AVX capability (see
+   only valid on targets with the __AVX__ capability (see
    fd_tango_base.h for details on Intel's atomicity guarantees). */
 
 #define FD_MCACHE_WAIT_SSE( meta_sse0, meta_sse1, mline, seq_found, seq_diff, poll_max, mcache, depth, seq_expected ) do { \

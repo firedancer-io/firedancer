@@ -86,7 +86,7 @@ fd_blake3_ref_compress1( uchar * restrict       out, /* align==1 len==32 */
                          uchar * restrict       out_chain,  /* optional, 16 byte output chaining value of last block */
                          uchar const * restrict in_chain ); /* optional, 16 byte input chaining value of first block (default IV) */
 
-#if FD_HAS_SSE
+#if defined(__SSE4_2__)
 
 void
 fd_blake3_sse_compress1( uchar * restrict       out, /* align==1 len==32 */
@@ -97,9 +97,9 @@ fd_blake3_sse_compress1( uchar * restrict       out, /* align==1 len==32 */
                          uchar * restrict       out_chain,
                          uchar const * restrict in_chain );
 
-#endif /* FD_HAS_SSE */
+#endif /* defined(__SSE4_2__) */
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 
 /* BLAKE3 AVX cores
 
@@ -149,9 +149,9 @@ fd_blake3_avx_compress8_fast( uchar const * restrict batch_data,  /* align==32 l
                               ulong                  counter,
                               uchar                  flags );
 
-#endif /* FD_HAS_AVX */
+#endif /* defined(__AVX2__) */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 
 /* fd_blake3_avx512_compress16{,fast} are analogous to the avx APIs
    above.  The only difference is larger alignment assumptions and that
@@ -174,7 +174,7 @@ fd_blake3_avx512_compress16_fast( uchar const * restrict batch_data,  /* align==
                                   ulong                  counter,
                                   uchar                  flags );
 
-#endif /* FD_HAS_AVX512 */
+#endif /* defined(__AVX512F__) */
 
 FD_PROTOTYPES_END
 

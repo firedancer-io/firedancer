@@ -8,7 +8,7 @@ FD_FN_CONST static inline int fd_ulong_find_msb ( ulong  x ) { return 63 - __bui
 
 #if FD_HAS_INT128
 
-#if FD_HAS_X86
+#if defined(__x86_64__)
 
 FD_FN_CONST static inline int
 fd_uint128_find_msb( uint128 x ) {
@@ -39,7 +39,7 @@ fd_uint128_find_msb( uint128 x ) {
 
 /* find_msb_w_default */
 
-#if FD_HAS_X86
+#if defined(__x86_64__)
 
 /* find_msb_w_default has been optimized for both lzcnt and bsr.  Note
    that in older Intel architectures (before Skylake) lzcnt has a false
@@ -144,7 +144,7 @@ FD_FN_CONST static inline int fd_ulong_find_msb_w_default ( ulong  x, int d ) { 
 
 #if FD_HAS_INT128
 
-#if FD_HAS_X86
+#if defined(__x86_64__)
 
 FD_FN_CONST static inline int
 fd_uint128_find_msb_w_default( uint128 x,

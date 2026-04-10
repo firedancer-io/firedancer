@@ -126,11 +126,7 @@ PREDEFINED = FD_PROTOTYPES_BEGIN \
   aligned \
   sizeof \
   alignof \
-  __linux__ \
-  FD_HAS_SSE \
-  FD_HAS_AVX \
-  FD_HAS_AVX512 \
-  FD_HAS_GFNI
+  __linux__
 
 HTML_DYNAMIC_SECTIONS   = YES
 SEARCHENGINE            = YES

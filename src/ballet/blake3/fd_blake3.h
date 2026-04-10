@@ -2,7 +2,7 @@
 #define HEADER_fd_src_ballet_blake3_fd_blake3_h
 
 #include "../fd_ballet_base.h"
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #include "../../util/simd/fd_avx.h"
 #endif
 
@@ -172,7 +172,7 @@
    buffered per hash state.  Used for parallel processing.
    (1<<FD_BLAKE3_COL_LG_CNT) == FD_BLAKE3_COL_CNT */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 #define FD_BLAKE3_COL_LG_CNT ( 5UL)
 #define FD_BLAKE3_COL_CNT    (32UL)
 #else
@@ -214,7 +214,7 @@ struct __attribute__((aligned(FD_BLAKE3_ALIGN))) fd_blake3_pos {
 
   /* This point is 128-byte aligned */
 
-# if FD_HAS_AVX
+# if defined(__AVX2__)
   union { uchar uc[ 32 ]; wb_t wb; } tail;
   union { uchar uc[ 32 ]; wb_t wb; } head;
 # else
@@ -270,9 +270,9 @@ typedef union fd_blake3_buf fd_blake3_buf_t;
 
 /* Simple API *********************************************************/
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 #define FD_BLAKE3_PARA_LG_MAX (4UL)
-#elif FD_HAS_AVX
+#elif defined(__AVX2__)
 #define FD_BLAKE3_PARA_LG_MAX (3UL)
 #else
 #define FD_BLAKE3_PARA_LG_MAX (0UL)
@@ -383,7 +383,7 @@ fd_blake3_hash( void const * data,
 
    Execution time is bound by the largest batch_sz[i] input. */
 
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 
 void
 fd_blake3_lthash_batch8(
@@ -394,7 +394,7 @@ fd_blake3_lthash_batch8(
 
 #endif
 
-#if FD_HAS_AVX512
+#if defined(__AVX512F__)
 
 void
 fd_blake3_lthash_batch16(

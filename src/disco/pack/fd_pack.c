@@ -336,7 +336,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_T                 fd_pack_addr_use_t
 #define MAP_KEY_T             fd_acct_addr_t
 #define MAP_KEY_NULL          null_addr
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 # define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
 #else
 # define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
@@ -352,7 +352,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_T                 fd_pack_bitset_acct_mapping_t
 #define MAP_KEY_T             fd_acct_addr_t
 #define MAP_KEY_NULL          null_addr
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 # define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
 #else
 # define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
@@ -414,7 +414,7 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
 #define MAP_T                 fd_pack_penalty_treap_t
 #define MAP_KEY_T             fd_acct_addr_t
 #define MAP_KEY_NULL          null_addr
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 # define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
 #else
 # define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
@@ -1851,7 +1851,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     /* Capture next so that we can delete while we iterate. */
     prev = treap_rev_iter_next( _cur, pool );
 
-#   if FD_HAS_X86
+#   if defined(__SSE2__)
     _mm_prefetch( &(pool[ prev ].prev),      _MM_HINT_T0 );
 #   endif
 
@@ -1973,13 +1973,13 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     fd_txn_p_t * out_txnp = out->txnp;
     if(
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+#if defined(__AVX512F__) && FD_PACK_USE_NON_TEMPORAL_MEMCPY
         FD_LIKELY( cur->txn->payload_sz>=1024UL )
 #else
         0
 #endif
       ) {
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+#if defined(__AVX512F__) && FD_PACK_USE_NON_TEMPORAL_MEMCPY
       _mm512_stream_si512( (void*)(out_txnp->payload+   0UL), _mm512_load_epi64( cur->txn->payload+   0UL ) );
       _mm512_stream_si512( (void*)(out_txnp->payload+  64UL), _mm512_load_epi64( cur->txn->payload+  64UL ) );
       _mm512_stream_si512( (void*)(out_txnp->payload+ 128UL), _mm512_load_epi64( cur->txn->payload+ 128UL ) );
@@ -2029,7 +2029,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     }
     /* Copy the ALT accounts from the source fd_txn_e_t */
     ulong alt_acct_cnt = (ulong)txn->addr_table_adtl_cnt;
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+#if defined(__AVX512F__) && FD_PACK_USE_NON_TEMPORAL_MEMCPY
     /* In order to use non-temporal copies, we have to copy a full cache
        line (which fits two pubkeys) at a time.  If alt_acct_cnt is odd,
        this copies one extra address, but it touches the same number of
@@ -2646,7 +2646,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
 
-#if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
+#if defined(__AVX512F__) && FD_PACK_USE_NON_TEMPORAL_MEMCPY
   _mm_sfence();
 #endif
 

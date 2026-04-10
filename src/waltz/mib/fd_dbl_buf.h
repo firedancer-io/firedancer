@@ -14,7 +14,7 @@
 
 #include "../../util/bits/fd_bits.h"
 #include "../../util/log/fd_log.h"
-#if FD_HAS_SSE
+#if defined(__SSE__)
 #include <emmintrin.h>
 #endif
 
@@ -36,7 +36,7 @@ union __attribute__((aligned(16UL))) fd_dbl_buf {
     /* objects follow here */
   };
 
-# if FD_HAS_SSE
+# if defined(__SSE__)
   struct {
     __m128i magic_mtu;
     __m128i buf0_buf1;

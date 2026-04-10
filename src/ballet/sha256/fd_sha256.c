@@ -1,7 +1,7 @@
 #include "fd_sha256.h"
 #include "fd_sha256_constants.h"
 
-#if FD_HAS_SHANI
+#if defined(__SSE2__)
 /* For the optimized repeated hash */
 #include "../../util/simd/fd_sse.h"
 #endif
@@ -103,7 +103,7 @@ fd_sha256_delete( void * shsha ) {
 }
 
 #ifndef FD_SHA256_CORE_IMPL
-#if FD_HAS_SHANI
+#if defined(__SHA__)
 #define FD_SHA256_CORE_IMPL 1
 #else
 #define FD_SHA256_CORE_IMPL 0
@@ -543,7 +543,7 @@ fd_sha256_hash_32_repeated( void const * _data,
                             ulong        cnt ) {
   uchar const * data = (uchar const *)_data;
   uchar       * hash = (uchar       *)_hash;
-#if FD_HAS_SHANI
+#if defined(__SSE2__)
   vu_t       w0003 = vu_bswap( vu_ldu( data      ) );
   vu_t       w0407 = vu_bswap( vu_ldu( data+16UL ) );
   vb_t const w080b = vb( 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00,

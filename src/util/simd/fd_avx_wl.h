@@ -165,7 +165,7 @@ wl_insert_variable( wl_t a, int n, long v ) {
 /* wl_rol(x,n) returns wl( rotate_left (x0,n), rotate_left (x1,n), ... )
    wl_ror(x,n) returns wl( rotate_right(x0,n), rotate_right(x1,n), ... ) */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512VL__)
 #define wl_rol(a,imm)  _mm256_rol_epi64( (a), (imm) )
 #define wl_ror(a,imm)  _mm256_ror_epi64( (a), (imm) )
 #else

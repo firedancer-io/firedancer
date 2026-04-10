@@ -109,86 +109,6 @@
 #define FD_HAS_ALLOCA 0
 #endif
 
-/* FD_HAS_X86:  If the build target supports x86 specific features and
-   can benefit from x86 specific optimizations, define FD_HAS_X86.  Code
-   needing more specific target features (Intel / AMD / SSE / AVX2 /
-   AVX512 / etc) can specialize further as necessary with even more
-   precise capabilities (that in turn imply FD_HAS_X86). */
-
-#ifndef FD_HAS_X86
-#define FD_HAS_X86 0
-#endif
-
-/* These allow even more precise targeting for X86. */
-
-/* FD_HAS_SSE indicates the target supports Intel SSE4 style SIMD
-   (basically do the 128-bit wide parts of "x86intrin.h" work).
-   Recommend using the simd/fd_sse.h APIs instead of raw Intel
-   intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_X86. */
-
-#ifndef FD_HAS_SSE
-#define FD_HAS_SSE 0
-#endif
-
-/* FD_HAS_AVX indicates the target supports Intel AVX2 style SIMD
-   (basically do the 256-bit wide parts of "x86intrin.h" work).
-   Recommend using the simd/fd_avx.h APIs instead of raw Intel
-   intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_SSE. */
-
-#ifndef FD_HAS_AVX
-#define FD_HAS_AVX 0
-#endif
-
-/* FD_HAS_AVX512 indicates the target supports Intel AVX-512 style SIMD
-   (basically do the 512-bit wide parts of "x86intrin.h" work).
-   Recommend using the simd/fd_avx512.h APIs instead of raw Intel
-   intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_AVX. */
-
-#ifndef FD_HAS_AVX512
-#define FD_HAS_AVX512 0
-#endif
-
-/* FD_HAS_SHANI indicates that the target supports Intel SHA extensions
-   which accelerate SHA-1 and SHA-256 computation.  This extension is
-   also called SHA-NI or SHA_NI (Secure Hash Algorithm New
-   Instructions).  Although proposed in 2013, they're only supported on
-   Intel Ice Lake and AMD Zen CPUs and newer.  Implies FD_HAS_AVX. */
-
-#ifndef FD_HAS_SHANI
-#define FD_HAS_SHANI 0
-#endif
-
-/* FD_HAS_GFNI indicates that the target supports Intel Galois Field
-   extensions, which accelerate operations over binary extension fields,
-   especially GF(2^8).  These instructions are supported on Intel Ice
-   Lake and newer and AMD Zen4 and newer CPUs.  Implies FD_HAS_AVX. */
-
-#ifndef FD_HAS_GFNI
-#define FD_HAS_GFNI 0
-#endif
-
-/* FD_HAS_AESNI indicates that the target supports AES-NI extensions,
-   which accelerate AES encryption and decryption.  While AVX predates
-   the original AES-NI extension, the combination of AES-NI+AVX adds
-   additional opcodes (such as vaesenc, a more flexible variant of
-   aesenc).  Thus, implies FD_HAS_AVX.  A conservative estimate for
-   minimum platform support is Intel Haswell or AMD Zen. */
-
-#ifndef FD_HAS_AESNI
-#define FD_HAS_AESNI 0
-#endif
-
-/* FD_HAS_ARM:  If the build target supports armv8-a specific features
-   and can benefit from aarch64 specific optimizations, define
-   FD_HAS_ARM. */
-
-#ifndef FD_HAS_ARM
-#define FD_HAS_ARM 0
-#endif
-
 /* FD_HAS_LZ4 indicates that the target supports LZ4 compression.
    Roughly, does "#include <lz4.h>" and the APIs therein work? */
 
@@ -765,7 +685,7 @@ fd_type_pun_const( void const * p ) {
    memory) but this should not be relied upon for portable code
    (consider making this a compiler memory fence on all platforms?) */
 
-#if FD_HAS_X86
+#if defined(__x86_64__)
 #define FD_SPIN_PAUSE() __builtin_ia32_pause()
 #else
 #define FD_SPIN_PAUSE() ((void)0)
@@ -858,7 +778,7 @@ fd_type_pun_const( void const * p ) {
    slowly via CAS there).  Sigh ... we do what we can to fix this up. */
 
 #ifndef FD_ATOMIC_XCHG_STYLE
-#if FD_HAS_X86 && !__cplusplus
+#if defined(__x86_64__) && !__cplusplus
 #define FD_ATOMIC_XCHG_STYLE 1
 #else
 #define FD_ATOMIC_XCHG_STYLE 0
@@ -1122,7 +1042,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_USE_ARCH_MEMCPY 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
+#if defined(__x86_64__) && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
 
 static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
@@ -1167,7 +1087,7 @@ fd_memcpy( void       * FD_RESTRICT d,
 #define FD_USE_ARCH_MEMSET 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
+#if defined(__x86_64__) && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
 
 static inline void *
 fd_memset( void  * d,
@@ -1214,7 +1134,7 @@ fd_memzero_explicit( void * d,
 #define FD_USE_ARCH_MEMEQ 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__) && __STDC_VERSION__>=199901L
+#if defined(__x86_64__) && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__) && __STDC_VERSION__>=199901L
 
 FD_FN_PURE static inline int
 fd_memeq( void const * s0,
@@ -1273,7 +1193,7 @@ fd_hash_memcpy( ulong                    seed,
                 ulong                    sz );
 
 #ifndef FD_TICKCOUNT_STYLE
-#if FD_HAS_X86 /* Use RDTSC */
+#if defined(__x86_64__) /* Use RDTSC */
 #define FD_TICKCOUNT_STYLE 1
 #elif FD_HAS_ARM /* Use CNTVCT_EL0 */
 #define FD_TICKCOUNT_STYLE 2

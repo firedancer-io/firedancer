@@ -9,12 +9,6 @@
 FD_STATIC_ASSERT( !(FD_HAS_THREADS && !FD_HAS_ATOMIC), devenv );
 FD_STATIC_ASSERT( !(FD_HAS_THREADS && !FD_HAS_HOSTED), devenv );
 
-FD_STATIC_ASSERT( !(FD_HAS_SSE    && !FD_HAS_X86), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_AVX    && !FD_HAS_SSE), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_AVX512 && !FD_HAS_AVX), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_SHANI  && !FD_HAS_AVX), devenv );
-FD_STATIC_ASSERT( !(FD_HAS_GFNI   && !FD_HAS_AVX), devenv );
-
 /* Test size_t <> ulong, uintptr_t <> ulong, intptr_t <> long (which
    then further imply sizeof and alignof return a ulong and that
    pointers can be interchangeably treated as a ulong or long). */

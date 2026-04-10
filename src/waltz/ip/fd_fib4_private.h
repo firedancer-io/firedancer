@@ -4,7 +4,7 @@
 #include "fd_fib4.h"
 #include "../../util/fd_util.h"
 
-#if FD_HAS_X86
+#if defined(__x86_64__)
 #include <immintrin.h>
 #endif
 
@@ -28,10 +28,10 @@ union __attribute__((aligned(16))) fd_fib4_hmap_entry {
 #if FD_HAS_INT128
   uint128 uf[2];
 #endif
-#if FD_HAS_X86
+#if defined(__x86_64__)
   __m128i xmm[2];
 #endif
-#if FD_HAS_AVX
+#if defined(__AVX2__)
   __m256i avx[1];
 #endif
 };
@@ -40,13 +40,13 @@ typedef union fd_fib4_hmap_entry fd_fib4_hmap_entry_t;
 
 /* fd_fib4_hmap_entry_st stores from src into dst. Assumes no other writers,
    and that src is non-volatile. Best effort for atomicity, but only guaranteed
-   when FD_HAS_AVX. */
+   when defined(__AVX2__). */
 static inline void
 fd_fib4_hmap_entry_st( fd_fib4_hmap_entry_t       * dst,
                        fd_fib4_hmap_entry_t const * src ) {
-# if FD_HAS_AVX
+# if defined(__AVX2__)
   FD_VOLATILE( dst->avx[0] ) = src->avx[0];
-# elif FD_HAS_X86
+# elif defined(__x86_64__)
   FD_VOLATILE( dst->xmm[0] ) = src->xmm[0];
   FD_VOLATILE( dst->xmm[1] ) = src->xmm[1];
 # elif FD_HAS_INT128
@@ -60,15 +60,15 @@ fd_fib4_hmap_entry_st( fd_fib4_hmap_entry_t       * dst,
 }
 
 /* fd_fib4_hmap_entry_ld loads from src into dst.
-   Best effort for atomicity, but only guaranteed when FD_HAS_AVX.
+   Best effort for atomicity, but only guaranteed when defined(__AVX2__).
    Assumes that dst is non-volatile. */
 static inline void
 fd_fib4_hmap_entry_ld( fd_fib4_hmap_entry_t       * dst,
                        fd_fib4_hmap_entry_t const * src ) {
 
-# if FD_HAS_AVX
+# if defined(__AVX2__)
   dst->avx[0] = FD_VOLATILE_CONST( src->avx[0] );
-# elif FD_HAS_X86
+# elif defined(__x86_64__)
   dst->xmm[0] = FD_VOLATILE_CONST( src->xmm[0] );
   dst->xmm[1] = FD_VOLATILE_CONST( src->xmm[1] );
 # elif FD_HAS_INT128

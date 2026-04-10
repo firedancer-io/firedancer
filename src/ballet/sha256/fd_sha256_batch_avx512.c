@@ -24,7 +24,7 @@ fd_sha256_private_batch_avx512( ulong          batch_cnt,
      on whether that itself narrower batched implementation is using
      SHA-NI acceleration for really small batches. */
 
-# if FD_HAS_SHANI
+# if defined(__SHA__)
 # define MIN_BATCH_CNT (5UL)
 # else
 # define MIN_BATCH_CNT (2UL)

@@ -64,11 +64,11 @@ typedef struct fd_aes_gcm_avx10_state fd_aes_gcm_avx10_t;
 
 /* Backend selection **************************************************/
 
-#if FD_HAS_AVX512 && FD_HAS_GFNI && FD_HAS_AESNI
+#if defined(__AVX512F__) && defined(__GFNI__) && defined(__AES__) && defined(__VPCLMULQDQ__)
 #define FD_AES_GCM_IMPL 3 /* AVX10.1/512, VAES, VPCLMUL */
-#elif FD_HAS_AVX && FD_HAS_AESNI
+#elif defined(__AVX2__) && defined(__AES__)
 #define FD_AES_GCM_IMPL 2 /* AVX2, VAES */
-#elif FD_HAS_AESNI
+#elif defined(__x86_64__) && defined(__AES__)
 #define FD_AES_GCM_IMPL 1 /* AESNI */
 #else
 #define FD_AES_GCM_IMPL 0 /* Portable */

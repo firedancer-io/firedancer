@@ -3,7 +3,7 @@
 
 #include "fd_hpack.h"
 
-#if FD_HAS_X86
+#if defined(__BMI2__)
 #include <immintrin.h>
 #endif
 
@@ -66,7 +66,7 @@ fd_hpack_rd_varint( fd_hpack_rd_t * rd,
   enc &= fd_ulong_shift_left( 1UL, sz_bits )-1UL;
 
   /* Remove varint length bits */
-#if FD_HAS_X86 && defined(__BMI2__)
+#if defined(__BMI2__)
   ulong result = _pext_u64( enc, 0x7f7f7f7f7f7f7f7fUL );
 #else
   ulong result =

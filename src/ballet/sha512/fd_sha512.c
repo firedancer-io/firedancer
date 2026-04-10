@@ -97,7 +97,7 @@ fd_sha512_delete( void * shsha ) {
 }
 
 #ifndef FD_SHA512_CORE_IMPL
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #define FD_SHA512_CORE_IMPL 1
 #else
 #define FD_SHA512_CORE_IMPL 0

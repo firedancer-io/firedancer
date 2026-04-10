@@ -139,7 +139,7 @@ vi_insert_variable( vi_t a, int n, int v ) {
 /* vi_rol(x,n) returns vi( rotate_left (x0,n), rotate_left (x1,n), ... )
    vi_ror(x,n) returns vi( rotate_right(x0,n), rotate_right(x1,n), ... ) */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512VL__)
 #define vi_rol(a,imm)  _mm_rol_epi32( (a), (imm) )
 #define vi_ror(a,imm)  _mm_ror_epi32( (a), (imm) )
 #else

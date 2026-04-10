@@ -25,7 +25,7 @@
 #define OPTIMIZE
 #endif
 
-#if FD_HAS_X86
+#if defined(__x86_64__)
 #include <x86intrin.h>
 #endif
 
@@ -42,7 +42,7 @@ fd_ulong_sub_borrow(
     ulong   a1,
     int     bi   /* in borrow flag */
 ) {
-# if FD_HAS_X86
+# if defined(__x86_64__)
   *b = (uchar)_subborrow_u64( (uchar)bi, a0, a1, (unsigned long long *)r );
 # else
   a1 += !!bi;

@@ -9,7 +9,7 @@
 
    Const time operations are made explicit, see fd_curve25519_secure.c */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
 #include "avx512/fd_curve25519.h"
 #else
 #include "ref/fd_curve25519.h"

@@ -1,6 +1,6 @@
 #include "fd_replay_loop.h"
 
-#if FD_HAS_HOSTED && FD_HAS_X86
+#if FD_HAS_HOSTED && defined(__x86_64__)
 
 #include "../../util/net/fd_pcap.h"
 #include <stdio.h>

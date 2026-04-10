@@ -18,7 +18,7 @@
    it's internal representation (and alignment) depends on the
    backend: ref, avx, avx512. */
 
-#if FD_HAS_AVX512
+#if defined(__AVX512IFMA__)
 #include "avx512/fd_f25519.h"
 #else
 #include "ref/fd_f25519.h"

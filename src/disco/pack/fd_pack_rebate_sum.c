@@ -1,6 +1,6 @@
 #include "fd_pack_rebate_sum.h"
 #include "fd_pack.h"
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 #include "../../util/simd/fd_avx.h"
 #endif
 
@@ -11,7 +11,7 @@ static const fd_acct_addr_t null_addr = { 0 };
 #define MAP_LG_SLOT_CNT 13
 #define MAP_KEY_T       fd_acct_addr_t
 #define MAP_KEY_NULL    null_addr
-#if FD_HAS_AVX
+#if defined(__AVX2__)
 # define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
 #else
 # define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
