@@ -5,6 +5,9 @@ $(call add-objs,fd_vm_syscall fd_vm_syscall_cpi fd_vm_syscall_hash fd_vm_syscall
 $(call make-unit-test,test_vm_syscall_cpi,test_vm_syscall_cpi,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_vm_syscall_cpi)
 
+$(call make-unit-test,test_vm_syscall_hash,test_vm_syscall_hash,fd_flamenco fd_funk fd_util fd_ballet)
+$(call run-unit-test,test_vm_syscall_hash)
+
 ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_syscalls,test_vm_syscalls,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_vm_syscalls)

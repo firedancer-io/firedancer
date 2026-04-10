@@ -268,5 +268,6 @@
   {"name":"replace_spl_token_with_p_token","pubkey":"ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP"},
   {"name":"delay_commission_updates","pubkey":"76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B"},
   {"name":"validate_chained_block_id","pubkey":"vcmrbYbiMVKaq1snKP6eCacNDcr6qZvpCNUjmk6gxvZ"},
-  {"name":"upgrade_bpf_stake_program_to_v5","pubkey":"STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk"}
+  {"name":"upgrade_bpf_stake_program_to_v5","pubkey":"STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk"},
+  {"name":"enable_sha512_syscall","pubkey":"ToDo111111111111111111111111111111111111111","hardcode_for_fuzzing":1}
 ]
