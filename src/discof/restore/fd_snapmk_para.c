@@ -142,7 +142,7 @@ rd_tile_exec( int     argc,
             0UL,
             0UL
         );
-        cr_avails[ out2 ]--;
+        cr_avails[ out2 ] -= 2;
         if( out2>0UL ) {
           fd_mcache_publish(
               tar_links[ out2 ].mcache,
@@ -194,6 +194,7 @@ rd_tile_exec( int     argc,
             0UL,
             0UL
         );
+        cr_avails[ out_idx ]--;
         /* Poll for barrier receive */
         ulong * wr_fseq = glob.wr_fseqs[0];
         for(;;) {
@@ -311,7 +312,7 @@ rd_tile_exec( int     argc,
       0UL,
       0UL
   );
-  cr_avails[ 0 ]--;
+  cr_avails[ 0 ] -= 2;
 
   FD_LOG_NOTICE(( "Reader done" ));
 
@@ -393,6 +394,7 @@ comp_tile_exec( int     argc,
       /* Forward control signal */
       while( !cr_avail ) cr_avail = fd_fctl_tx_cr_update( fctl, cr_avail, out_seq );
       fd_mcache_publish( out_mcache, depth, out_seq++, 0UL, 0UL, 0UL, fd_frag_meta_ctl( in_orig, 0, 0, 0 ), 0UL, 0UL );
+      cr_avail--;
       in_seq = fd_seq_inc( in_seq, 1UL );
 
       if( in_orig==ORIG_SHUTDOWN ) break;
