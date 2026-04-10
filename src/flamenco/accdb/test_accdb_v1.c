@@ -268,7 +268,7 @@ add_account_funk( fd_accdb_user_t * accdb_,
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
 
-  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( rec_pool, NULL, 1, NULL );
+  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( rec_pool );
   FD_TEST( rec );
   *rec = (fd_funk_rec_t) {
     .next_idx = UINT_MAX,
@@ -434,8 +434,7 @@ test_random_ops( fd_wksp_t * wksp,
     uint op = fd_rng_uint_roll( rng, 1U+2U+8U );
     if( op>=3U ) { /* insert (2x as frequent as attach_child) */
 
-      if( FD_UNLIKELY( fd_funk_rec_is_full( funk ) ) ) continue;
-      if( FD_UNLIKELY( !ref->txn_cnt               ) ) continue;
+      if( FD_UNLIKELY( !ref->txn_cnt ) ) continue;
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
       txn_t * rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
@@ -455,7 +454,10 @@ test_random_ops( fd_wksp_t * wksp,
       int err;
       fd_funk_rec_prepare_t prepare[1];
       fd_funk_rec_t * trec = fd_funk_rec_prepare( funk, xid_set( txid, rxid ), key_set( tkey, rkey ), prepare, &err );
-      FD_TEST( trec );
+      if( FD_UNLIKELY( !trec ) ) {
+        FD_TEST( err==FD_FUNK_ERR_REC );
+        continue;
+      }
       ulong val_sz = sizeof(fd_account_meta_t);
       fd_account_meta_t * meta = fd_funk_val_truncate( trec, funk->alloc, funk->wksp, 1UL, val_sz, NULL );
       FD_TEST( meta );
@@ -468,7 +470,7 @@ test_random_ops( fd_wksp_t * wksp,
 
     } else if( op>=1U ) { /* attach_child (2x as frequent as advance_root) */
 
-      if( FD_UNLIKELY( fd_funk_txn_is_full( funk ) ) ) continue;
+      if( FD_UNLIKELY( fd_funk_txn_pool_idx_is_null( fd_funk_txn_pool_private_vidx_idx( funk->txn_pool->pool->ver_top ) ) ) ) continue;
 
       txn_t *           rparent;
       fd_funk_txn_xid_t tparent;
