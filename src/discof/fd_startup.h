@@ -4,12 +4,12 @@
 #include "../disco/topo/fd_topo.h"
 
 /* fd_sleep_until_replay_started sleeps until the replay tile's status
-   metric indicated that it loaded a snapshot.
+   metric indicates that it loaded a snapshot.
 
    Requires read access to the metric_in workspace.
    Dispatches syscall clock_nanosleep( CLOCK_REALTIME, 0, ???, NULL ).
 
-   Typically called in unprivileged_init.  (Sleeping in unprivilged_init
+   Typically called in unprivileged_init.  (Sleeping in unprivileged_init
    makes the tile appear as offline in metrics) */
 
 void

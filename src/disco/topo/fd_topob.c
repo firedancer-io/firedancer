@@ -399,7 +399,12 @@ static char const * STARTUP[] = {
 /* Tiles only active post startup
    (Must sleep until snapshot load finishes) */
 static char const * POST_START[] = {
+  "resolv", /* FIREDANCER only */
   "accdb",  /* FIREDANCER only */
+  "execle", /* FIREDANCER only */
+  "poh",    /* FIREDANCER only */
+  "execrp", /* FIREDANCER only */
+  "txsend", /* FIREDANCER only */
   NULL
 };
 
@@ -415,16 +420,13 @@ static char const * ALWAYS[] = {
   "verify",
   "dedup",
   "resolh", /* FRANK only */
-  "resolv", /* FIREDANCER only */
   "pack",
   "bank",   /* FRANK only */
-  "execle", /* FIREDANCER only */
-  "poh",    /* FRANK only */
-  "pohh",   /* FIREDANCER only */
+  "pohh",   /* FRANK only */
+  "sign",
   "shred",
   "event",  /* FIREDANCER only */
   "store",  /* FRANK only */
-  "sign",
   "plugin", /* FRANK only */
   "gui",
   "rpc",    /* FIREDANCER only */
@@ -432,8 +434,6 @@ static char const * ALWAYS[] = {
   "gossip", /* FIREDANCER only */
   "repair", /* FIREDANCER only */
   "replay", /* FIREDANCER only */
-  "execrp", /* FIREDANCER only */
-  "txsend", /* FIREDANCER only */
   "tower",  /* FIREDANCER only */
   "pktgen",
   "arch_f", /* FIREDANCER only */
