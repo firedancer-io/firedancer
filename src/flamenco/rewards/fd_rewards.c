@@ -982,10 +982,10 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
   for( ulong i=0UL; i<epoch_credits_len; i++ ) {
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
-    ulong stake_t_1;
-    uchar commission_t_1;
-    ulong stake_t_2;
-    uchar commission_t_2;
+    ulong stake_t_1      = 0UL;
+    uchar commission_t_1 = 0;
+    ulong stake_t_2      = 0UL;
+    uchar commission_t_2 = 0;
     fd_vote_stakes_query( vote_stakes, vs_fork_idx, (fd_pubkey_t *)epoch_credits->pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2 );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];

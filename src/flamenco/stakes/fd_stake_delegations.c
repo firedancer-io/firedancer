@@ -408,8 +408,14 @@ fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
   fork_dlist_t * dlist = get_fork_dlist( stake_delegations, fork_idx );
   fork_dlist_ele_push_tail( dlist, stake_delegation, delta_pool );
 
-  stake_delegation->stake_account = *stake_account;
-  stake_delegation->is_tombstone  = 1;
+  stake_delegation->stake_account        = *stake_account;
+  stake_delegation->vote_account         = (fd_pubkey_t){0};
+  stake_delegation->stake                = 0UL;
+  stake_delegation->credits_observed     = 0UL;
+  stake_delegation->activation_epoch     = 0;
+  stake_delegation->deactivation_epoch   = 0;
+  stake_delegation->warmup_cooldown_rate = 0;
+  stake_delegation->is_tombstone         = 1;
 
   fd_rwlock_unwrite( &stake_delegations->delta_lock );
 }
@@ -567,10 +573,16 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
 
     fd_stake_delegation_t * base_delegation = root_map_ele_query( root_map, &delta_delegation->stake_account, NULL, root_pool);
     if( FD_UNLIKELY( !base_delegation ) ) {
-      base_delegation                = root_pool_ele_acquire( root_pool );
-      base_delegation->stake_account = delta_delegation->stake_account;
-      base_delegation->dne_in_root   = 1;
-      base_delegation->delta_idx     = (uint)delta_pool_idx( delta_pool, delta_delegation );
+      base_delegation                       = root_pool_ele_acquire( root_pool );
+      base_delegation->stake_account        = delta_delegation->stake_account;
+      base_delegation->vote_account         = (fd_pubkey_t){0};
+      base_delegation->stake                = 0UL;
+      base_delegation->credits_observed     = 0UL;
+      base_delegation->activation_epoch     = 0;
+      base_delegation->deactivation_epoch   = 0;
+      base_delegation->warmup_cooldown_rate = 0;
+      base_delegation->dne_in_root          = 1;
+      base_delegation->delta_idx            = (uint)delta_pool_idx( delta_pool, delta_delegation );
       root_map_ele_insert( root_map, base_delegation, root_pool );
     } else {
       /* Only subtract the old version's stake if it's not a tombstone.*/
