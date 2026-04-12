@@ -16,7 +16,7 @@
 #include "../../progcache/fd_progcache_user.h"
 #include "../fd_bank.h"
 #if FD_HAS_FLATCC
-#include "flatcc/flatcc_builder.h"
+#include <flatcc/flatcc_builder.h>
 #endif
 
 /* A fd_solfuzz_runner_t object processes solfuzz inputs.  Can be reused
