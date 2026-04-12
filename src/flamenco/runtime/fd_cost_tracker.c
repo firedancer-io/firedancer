@@ -215,8 +215,9 @@ get_write_lock_cost( ulong num_write_locks ) {
    system program allocations done.
 
    https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L367-L386 */
-static inline ulong
-calculate_allocated_accounts_data_size( fd_bank_t * bank, fd_txn_in_t const * txn_in ) {
+ulong
+fd_calculate_allocated_accounts_data_size( fd_bank_t *         bank,
+                                           fd_txn_in_t const * txn_in ) {
   fd_txn_t const * txn     = TXN( txn_in->txn );
   void const *     payload = txn_in->txn->payload;
 
@@ -298,7 +299,7 @@ calculate_non_vote_transaction_cost( fd_bank_t *          bank,
   ulong write_lock_cost = get_write_lock_cost( fd_txn_account_cnt( TXN( txn_in->txn ), FD_TXN_ACCT_CAT_WRITABLE ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L135-L136 */
-  ulong allocated_accounts_data_size = calculate_allocated_accounts_data_size( bank, txn_in );
+  ulong allocated_accounts_data_size = fd_calculate_allocated_accounts_data_size( bank, txn_in );
 
   return (fd_transaction_cost_t) {
     .type = FD_TXN_COST_TYPE_TRANSACTION,

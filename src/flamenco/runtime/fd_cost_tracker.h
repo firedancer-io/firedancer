@@ -154,6 +154,10 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
                       fd_features_t const * features,
                       ulong                 slot );
 
+ulong
+fd_calculate_allocated_accounts_data_size( fd_bank_t *         bank,
+                                           fd_txn_in_t const * txn_in );
+
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
 FD_FN_PURE ulong
 fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * txn_out );
