@@ -1,17 +1,15 @@
 #include "fd_solfuzz.h"
 #include "fd_solfuzz_private.h"
-#define _GNU_SOURCE
 #include "fd_sol_compat.h"
-
-#include "../fd_executor_err.h"
 #include "../../capture/fd_solcap_writer.h"
-#include "../../../ballet/shred/fd_shred.h"
 #include "fd_gossip_harness.h"
+#include "fd_cost_harness.h"
 
 #include "generated/block.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/txn.pb.h"
+#include "generated/cost.pb.h"
 
 #if FD_HAS_FLATCC
 #include "flatbuffers/generated/elf_reader.h"
@@ -21,7 +19,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <stdio.h>
 #include <unistd.h>
 
 static fd_wksp_t *           wksp   = NULL;
@@ -184,6 +181,28 @@ sol_compat_txn_execute_v1( uchar *       out,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_txn_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
+}
+
+int
+sol_compat_txn_cost_v1( uchar *       out,
+                        ulong *       out_sz,
+                        uchar const * in,
+                        ulong         in_sz ) {
+  fd_exec_test_cost_context_t input[1] = { FD_EXEC_TEST_COST_CONTEXT_INIT_ZERO };
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_cost_context_t_msg );
+  if( FD_UNLIKELY( !res ) ) return 0;
+
+  fd_spad_push( runner->spad );
+  fd_exec_test_cost_result_t output_msg = FD_EXEC_TEST_COST_RESULT_INIT_ZERO;
+  int ok = fd_solfuzz_pb_cost_run( runner, input, &output_msg );
+  if( FD_LIKELY( ok ) ) {
+    ok = !!sol_compat_encode( out, out_sz, &output_msg, &fd_exec_test_cost_result_t_msg );
+  }
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_cost_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }
