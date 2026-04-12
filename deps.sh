@@ -136,11 +136,11 @@ fetch () {
   checkout_repo zstd      https://github.com/facebook/zstd            "v1.5.7"
   checkout_repo lz4       https://github.com/lz4/lz4                  "v1.10.0"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "4d2e22a"
-  checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.0"
+  checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.2"
   checkout_repo blst      https://github.com/supranational/blst       "v0.3.13"
   checkout_repo bzip2     https://gitlab.com/bzip2/bzip2              "bzip2-1.0.8"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo rocksdb https://github.com/facebook/rocksdb         "v10.5.1"
+    checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.0.4"
     checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
     checkout_repo flatcc  https://github.com/dvidelabs/flatcc         "" "3ae5eda"
   fi
