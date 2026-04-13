@@ -1178,6 +1178,9 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
     snapshot_slot = 0UL;
   }
+
+  /* Signals fd_sleep_until_replay_started */
+  FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
 }
 
 static inline int
@@ -1392,8 +1395,8 @@ store_xinsert( fd_store_t      * store,
       .ele     = fd_wksp_laddr_fast( fd_store_wksp( store ), store->pool_ele_gaddr ),
       .ele_max = store->fec_max
   };
-  int err; fd_store_fec_t * fec = fd_store_pool_acquire( &pool, NULL, 1 /* blocking */, &err );
-  if( FD_UNLIKELY( err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "store pool: %s", fd_store_pool_strerror( err ) ));
+  fd_store_fec_t * fec = fd_store_pool_acquire( &pool );
+  if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "fd_store_pool_acquire failed" ));
   fec->key.merkle_root = *merkle_root;
   fec->key.part_idx    = 0;
   fec->cmr             = (fd_hash_t){ 0 };

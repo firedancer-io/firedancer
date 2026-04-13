@@ -127,4 +127,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_t
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-7 -y 1 -m 10000 -e 1596
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-8 -y 1 -m 10000 -e 1596
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -y 1 -m 10000 -e 540
-
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall -y 1 -m 1000 -e 379

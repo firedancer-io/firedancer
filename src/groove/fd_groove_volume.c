@@ -57,11 +57,7 @@ fd_groove_volume_pool_add( fd_groove_volume_pool_t * pool,
     _volume->magic = ~FD_GROOVE_VOLUME_MAGIC; /* Mark groove volume as containing no data allocations */
     FD_COMPILER_MFENCE();
 
-    int err = fd_groove_volume_pool_release( pool, _volume, 1 /* blocking */ );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_WARNING(( "fd_groove_volume_pool_release failed (%i-%s)", err, fd_groove_volume_pool_strerror( err ) ));
-      return err;
-    }
+    fd_groove_volume_pool_release( pool, _volume );
 
   } while( _volume>_va );
 
@@ -76,8 +72,7 @@ fd_groove_volume_pool_remove( fd_groove_volume_pool_t * pool ) {
     return NULL;
   }
 
-  int err;
-  fd_groove_volume_t * _volume = fd_groove_volume_pool_acquire( pool, NULL, 1 /* blocking */, &err );
+  fd_groove_volume_t * _volume = fd_groove_volume_pool_acquire( pool );
 
   if( FD_LIKELY( _volume ) ) {
 
@@ -104,10 +99,6 @@ fd_groove_volume_pool_remove( fd_groove_volume_pool_t * pool ) {
     FD_COMPILER_MFENCE();
     _volume->magic = 0UL; /* mark as no longer a groove volume */
     FD_COMPILER_MFENCE();
-
-  } else if( FD_UNLIKELY( err!=FD_POOL_ERR_EMPTY ) ) {
-
-    FD_LOG_WARNING(( "fd_groove_volume_pool_acquire failed (%i-%s)", err, fd_groove_volume_pool_strerror( err ) ));
 
   }
 

@@ -8,27 +8,12 @@
  */
 
 import cpp
-
-/** Models the fd_topo_run_tile_t type. */
-private class FdTopoRunTileType extends Type {
-  FdTopoRunTileType() { this.getName() = "fd_topo_run_tile_t" }
-}
-
-Field populateAllowedSeccompField() { result.hasName("populate_allowed_seccomp") }
-
-private class FdTopoRunTileVariable extends GlobalVariable {
-  FdTopoRunTileVariable() { this.getType() instanceof FdTopoRunTileType }
-}
+import fd_topo_run_tile
 
 predicate usesSeccompPolicy(FdTopoRunTileVariable tileVar) {
   exists(Function populateAllowedSeccompPolicyFunction |
-    tileVar
-        .getInitializer()
-        .getExpr()
-        .(ClassAggregateLiteral)
-        .getAFieldExpr(populateAllowedSeccompField())
-        .(FunctionAccess)
-        .getTarget() = populateAllowedSeccompPolicyFunction
+    tileVar.getAFieldExpr("populate_allowed_seccomp").(FunctionAccess).getTarget() =
+      populateAllowedSeccompPolicyFunction
   |
     exists(Function expectedSeccompPolicyFunction |
       expectedSeccompPolicyFunction.getName().matches("populate_sock_filter_policy_%") and

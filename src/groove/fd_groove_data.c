@@ -323,16 +323,8 @@ fd_groove_data_private_alloc_obj( fd_groove_data_t * data,
 
       if( FD_UNLIKELY( parent_szc==FD_GROOVE_DATA_SZC_CNT ) ) { /* Acquire a volume to use for the new superblock */
 
-        int err;
-        fd_groove_volume_t * _volume = fd_groove_volume_pool_acquire( data->volume_pool, NULL, 1 /* blocking */, &err );
-
-        if( FD_UNLIKELY( !_volume ) ) {
-          if( FD_UNLIKELY( err!=FD_POOL_ERR_EMPTY ) ) {
-            FD_LOG_WARNING(( "fd_groove_volume_pool_acquire failed (%i-%s)", err, fd_groove_volume_pool_strerror( err ) ));
-            return FD_GROOVE_ERR_CORRUPT;
-          }
-          return FD_GROOVE_ERR_FULL;
-        }
+        fd_groove_volume_t * _volume = fd_groove_volume_pool_acquire( data->volume_pool );
+        if( FD_UNLIKELY( !_volume ) ) return FD_GROOVE_ERR_FULL;
 
 #       if FD_GROOVE_PARANOID
         ulong volume_off = (ulong)_volume - (ulong)_volume0;
@@ -759,11 +751,7 @@ fd_groove_data_private_free( fd_groove_data_t * data,
         _volume->magic = ~FD_GROOVE_VOLUME_MAGIC; /* mark volume as containing no groove data allocations */
         FD_COMPILER_MFENCE();
 
-        int err = fd_groove_volume_pool_release( data->volume_pool, _volume, 1 /* blocking */ );
-        if( FD_UNLIKELY( err ) ) {
-          FD_LOG_WARNING(( "fd_groove_volume_pool_release failed (%i-%s)", err, fd_groove_volume_pool_strerror( err ) ));
-          return FD_GROOVE_ERR_CORRUPT;
-        }
+        fd_groove_volume_pool_release( data->volume_pool, _volume );
 
       }
     }

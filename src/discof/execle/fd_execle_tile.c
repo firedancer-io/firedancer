@@ -1,7 +1,6 @@
 #include "fd_execle_err.h"
 
 #include "../../disco/tiles.h"
-#include "generated/fd_execle_tile_seccomp.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/blake3/fd_blake3.h"
@@ -11,11 +10,14 @@
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../discof/fd_accdb_topo.h"
+#include "../../discof/fd_startup.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
+#include <time.h>
+#include "generated/fd_execle_tile_seccomp.h"
 
 struct fd_execle_out {
   ulong       idx;
@@ -102,11 +104,10 @@ metrics_write( fd_execle_tile_t * ctx ) {
 
 static int
 before_frag( fd_execle_tile_t * ctx,
-             ulong             in_idx,
-             ulong             seq,
-             ulong             sig ) {
-  (void)in_idx;
-  (void)seq;
+             ulong              in_idx,
+             ulong              seq,
+             ulong              sig ) {
+  (void)in_idx; (void)seq;
 
   /* Pack also outputs "leader slot done" which we can ignore. */
   if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) return 1;
@@ -476,6 +477,14 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       if( i<=failed_idx ) {
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
+      } else {
+        /* Transactions past the failed index were never executed. Reset
+           the timestamp fields to LONG_MAX to flush stale values from
+           the previous microblock. */
+        ctx->txn_out[ i ].details.prep_start_timestamp   = LONG_MAX;
+        ctx->txn_out[ i ].details.load_start_timestamp   = LONG_MAX;
+        ctx->txn_out[ i ].details.exec_start_timestamp   = LONG_MAX;
+        ctx->txn_out[ i ].details.commit_start_timestamp = LONG_MAX;
       }
 
       uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
@@ -668,6 +677,8 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->out_pack = out1( topo, tile, "execle_pack" );
 
   ctx->enable_rebates = ctx->out_pack->idx!=ULONG_MAX;
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong

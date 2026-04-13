@@ -48,8 +48,4 @@ $(call add-objs,utils/fd_sspeer_selector,fd_discof)
 $(call add-objs,utils/fd_vinyl_io_wd,fd_discof)
 $(call add-objs,utils/fd_vinyl_admin,fd_discof)
 $(call make-unit-test,test_vinyl_admin,utils/test_vinyl_admin,fd_discof fd_flamenco fd_ballet fd_util)
-
-ifdef FD_HAS_ZSTD
-$(call make-bin,fd_snapmk_para,fd_snapmk_para,fd_discof fd_flamenco fd_ballet fd_tango fd_util)
-endif
 endif

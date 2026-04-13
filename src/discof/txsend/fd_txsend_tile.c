@@ -5,11 +5,13 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../discof/tower/fd_tower_tile.h"
-#include "generated/fd_txsend_tile_seccomp.h"
-
+#include "../fd_startup.h"
+#include "../tower/fd_tower_tile.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../waltz/quic/fd_quic.h"
+
+#include <time.h>
+#include "generated/fd_txsend_tile_seccomp.h"
 
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
@@ -691,6 +693,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top != (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   }
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong

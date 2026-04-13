@@ -129,7 +129,7 @@ txn_free( fd_funk_t *     funk,
   txn->sibling_next_cidx = UINT_MAX;
   txn->child_head_cidx   = UINT_MAX;
   txn->child_tail_cidx   = UINT_MAX;
-  fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
+  fd_funk_txn_pool_release( funk->txn_pool, txn );
 }
 
 static void

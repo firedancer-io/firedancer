@@ -87,6 +87,8 @@ $(call run-unit-test,test_inflation_rewards)
 endif
 $(call make-unit-test,test_fee_calculator,tests/test_fee_calculator,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
 $(call run-unit-test,test_fee_calculator)
+$(call make-unit-test,test_cost_model,tests/test_cost_model,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco)
+$(call run-unit-test,test_cost_model)
 $(call make-unit-test,test_feature_activation,tests/test_feature_activation,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_feature_activation)
 endif

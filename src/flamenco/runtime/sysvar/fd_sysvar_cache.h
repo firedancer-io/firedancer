@@ -240,7 +240,7 @@ fd_sysvar_cache_last_restart_slot_is_valid( fd_sysvar_cache_t const * sysvar_cac
   return FD_SYSVAR_IS_VALID( sysvar_cache, last_restart_slot );
 }
 
-ulong
+ulong const *
 fd_sysvar_cache_last_restart_slot_read( fd_sysvar_cache_t const * sysvar_cache );
 
 static inline int

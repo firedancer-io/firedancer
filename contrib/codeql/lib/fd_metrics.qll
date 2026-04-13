@@ -1,12 +1,3 @@
-/**
- * @name Metrics Enum Access Issues
- * @id asymmetric-research/metrics-enum-access
- * @description Finds issues with FD_METRICS_ENUM_%_CNT and FD_METRICS_ENUM_%_IDX macros used for array accesses.
- * @kind problem
- * @severity warning
- * @precision high
- */
-
 import cpp
 import semmle.code.cpp.dataflow.new.DataFlow
 
@@ -34,7 +25,7 @@ private int getNumArrayDimensions(ArrayType at) {
 }
 
 pragma[inline]
-Literal nextLiteral(Element l) {
+private Literal nextLiteral(Element l) {
   min(Literal li |
     afterElement(l.getLocation(), li)
   |
@@ -42,7 +33,7 @@ Literal nextLiteral(Element l) {
   ) = result
 }
 
-Literal nthLiteralAfterVariable(ArrayVariable v, int n) {
+private Literal nthLiteralAfterVariable(ArrayVariable v, int n) {
   (
     n = 0 and result = nextLiteral(v)
     or
@@ -53,7 +44,7 @@ Literal nthLiteralAfterVariable(ArrayVariable v, int n) {
 
 /** Holds if `e` starts strictly after `f` textually. */
 pragma[inline]
-predicate afterElement(Location f, Element e) {
+private predicate afterElement(Location f, Element e) {
   e.getLocation().getFile() = f.getFile() and
   e.getLocation().getStartLine() >= f.getStartLine() and
   e.getLocation().getStartColumn() > f.getStartColumn()
@@ -143,7 +134,7 @@ class FdDeclareMetricEnumInvocation extends MacroInvocation {
 /**
  * Matches variable declarations of array type.
  */
-class ArrayVariable extends Variable {
+private class ArrayVariable extends Variable {
   ArrayVariable() { this.getType() instanceof ArrayType }
 }
 
@@ -230,22 +221,3 @@ predicate isMismatchedEnumName(MetricsEnumAccess a) {
     )
   )
 }
-
-from ArrayExpr access, string des
-where
-  isArrayAccessOob(access) and
-  des =
-    "The IDX value (" + access.getArrayOffset().getValue() + ") is greater than the arrays size (" +
-      access.getArrayBase().getType().(ArrayType).getArraySize() + ")."
-  or
-  isMismatchedCount(access) and
-  des =
-    "The CNT value (" + access.(MetricsEnumAccess).getMacro().getBody() +
-      ") associated with the IDX macro and the array size (" +
-      access.getArrayBase().getType().(ArrayType).getArraySize() +
-      ") do not match and could result in under/over reads/writes."
-  or
-  isMismatchedEnumName(access) and
-  des =
-    "The enum name in the IDX macro does not match the one associated with the CNT macro in the array definition."
-select access, des

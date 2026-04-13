@@ -100,7 +100,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
 
   /* Get a new transaction from the map */
 
-  fd_funk_txn_t * txn = fd_funk_txn_pool_acquire( funk->txn_pool, NULL, 1, NULL );
+  fd_funk_txn_t * txn = fd_funk_txn_pool_acquire( funk->txn_pool );
   if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed: transaction object pool out of memory" ));
   fd_funk_txn_xid_copy( &txn->xid, xid );
   ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);

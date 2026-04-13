@@ -1,7 +1,5 @@
 #include "fd_store.h"
 
-#define BLOCKING 1
-
 static inline fd_store_map_t *
 map_laddr( fd_store_t * store ) {
   return fd_wksp_laddr_fast( fd_store_wksp( store ), store->map_gaddr );
@@ -84,7 +82,7 @@ fd_store_new( void * shmem,
     return NULL;
   }
   fd_store_pool_t pool_ljoin;
-  fd_store_pool_reset( fd_store_pool_join( &pool_ljoin, shpool, shele, fec_max ), 0 );
+  fd_store_pool_reset( fd_store_pool_join( &pool_ljoin, shpool, shele, fec_max ) );
 
   /* Set each element's data_gaddr to point to its slice of the
      contiguous data buffer region. */
@@ -201,8 +199,8 @@ fd_store_insert( fd_store_t * store,
     if( FD_UNLIKELY( fec ) ) return fec;
   }
 
-  int err; fd_store_fec_t * fec = fd_store_pool_acquire( &pool, NULL, BLOCKING, &err );
-  if( FD_UNLIKELY( err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "store pool: %s", fd_store_pool_strerror( err ) ));
+  fd_store_fec_t * fec = fd_store_pool_acquire( &pool );
+  if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "fd_store_pool_acquire failed" ));
   fec->key.merkle_root = *merkle_root;
   fec->key.part_idx    = part_idx;
   fec->cmr             = (fd_hash_t){ 0 };
@@ -230,8 +228,7 @@ fd_store_remove( fd_store_t      * store,
     } FD_STORE_XLOCK_END;
     if( FD_UNLIKELY( !fec ) ) continue;
 
-    int err = fd_store_pool_release( &pool, fec, BLOCKING );
-    if( FD_UNLIKELY( err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "store pool: %s", fd_store_pool_strerror( err ) ));
+    fd_store_pool_release( &pool, fec );
     return;
   }
 

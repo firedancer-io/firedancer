@@ -160,7 +160,7 @@ fd_progcache_shmem_new( void * shmem,
   pc->rec.pool_gaddr = fd_wksp_gaddr_fast( wksp, rec_pool2 );
   fd_prog_recp_t rec_join[1];
   fd_prog_recp_join( rec_join, rec_pool2, rec_ele, rec_max );
-  fd_prog_recp_reset( rec_join, 0UL );
+  fd_prog_recp_reset( rec_join );
   pc->rec.ele_gaddr = fd_wksp_gaddr_fast( wksp, rec_ele );
   pc->rec.max = (uint)rec_max;
   fd_prog_recp_leave( rec_join );
