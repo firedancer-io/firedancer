@@ -632,7 +632,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xe0\x31\xcd\xc7\x1c\xf7\x58\x54\x9d\x9f\x58\x3b\xa5\xe4\x94\xf7\xc8\x74\xb1\xab\xcf\xed\xe9\x3b\x3b\xce\x1c\xc0\xeb\x2d\xda\xe1"},
                                  /* G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ */
     .name                      = "stake_minimum_delegation_for_rewards",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, add_set_compute_unit_price_ix)>>3,
     .id                        = {"\x78\xe2\x1a\x43\xc1\x90\x64\x60\x36\x9e\x01\x54\xad\x41\x14\x72\x2f\x6b\x2a\x43\xe7\x9b\x9a\x61\xcb\x4b\x37\xa1\x0c\x7f\x4b\xd1"},
