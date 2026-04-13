@@ -3,11 +3,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/types/fd_types.h"
 
-#ifdef FD_HAS_ROCKSDB
 #include <rocksdb/c.h>
-#else
-#include "../../../opt/include/rocksdb/c.h"
-#endif
 
 struct fd_backtest_rocksdb_private {
   rocksdb_t * db;

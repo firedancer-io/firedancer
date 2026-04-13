@@ -519,6 +519,11 @@ struct fd_topo_tile {
     } backtest;
 
     struct {
+      char   rocksdb_path[ PATH_MAX ];
+      ushort shred_listen_port;
+    } forktest;
+
+    struct {
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;

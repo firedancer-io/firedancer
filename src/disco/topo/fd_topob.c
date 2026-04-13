@@ -436,8 +436,7 @@ static char const * ALWAYS[] = {
   "replay", /* FIREDANCER only */
   "tower",  /* FIREDANCER only */
   "pktgen",
-  "arch_f", /* FIREDANCER only */
-  "arch_w", /* FIREDANCER only */
+  "forkt",  /* FIREDANCER only */
   NULL
 };
 

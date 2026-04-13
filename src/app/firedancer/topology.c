@@ -79,8 +79,10 @@ setup_topo_banks( fd_topo_t *  topo,
   return obj;
 }
 
-static fd_topo_obj_t *
-setup_topo_fec_sets( fd_topo_t * topo, char const * wksp_name, ulong sz ) {
+fd_topo_obj_t *
+setup_topo_fec_sets( fd_topo_t *  topo,
+                     char const * wksp_name,
+                     ulong        sz ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "fec_sets", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, sz, "obj.%lu.sz",   obj->id ) );
   return obj;
@@ -1893,6 +1895,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->solcap.solcap_capture, config->capture.solcap_capture, sizeof(tile->solcap.solcap_capture) );
     tile->solcap.recent_only = config->capture.recent_only;
     tile->solcap.recent_slots_per_file = config->capture.recent_slots_per_file;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "forkt" ) ) ) {
+
+    fd_cstr_ncpy( tile->forktest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
+    tile->forktest.shred_listen_port = config->tiles.shred.shred_listen_port;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

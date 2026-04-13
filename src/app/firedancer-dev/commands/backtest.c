@@ -1,5 +1,4 @@
-/* The backtest command spawns a smaller topology for replaying shreds from
-   rocksdb (or other sources TBD) and reproduce the behavior of replay tile.
+/* The backtest topology exercises offline replay with mocked consensus.
 
    The smaller topology is:
            shred_out             replay_execr
@@ -611,6 +610,7 @@ backtest_cmd_fn( args_t *   args,
 
     watch_args.watch.drain_output_fd = pipefd[0];
     if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );

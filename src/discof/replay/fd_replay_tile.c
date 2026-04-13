@@ -2727,7 +2727,6 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_REPAIR: {
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
-        /* If receive a FEC complete message. */
         process_fec_complete( ctx, stem, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
@@ -3051,6 +3050,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "tower_out"     ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "poh_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_replay" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( !strcmp( link->name, "shred_out"     ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "repair_out"    ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
