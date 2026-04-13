@@ -422,9 +422,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
 
-  /* Accumulate stakes across all delegations for all vote accounts.
-     If the account is in the top votes for the t-3 epoch, stash its
-     commission value for later use. */
+  /* Accumulate stakes across all delegations for all vote accounts. */
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
       !fd_stake_delegations_iter_done( iter );
@@ -526,7 +524,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
      t-2/t-3 commissions from the vote stakes and not the top votes. */
   ulong vat_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
   int   vat_in_t_2 = bank->f.epoch    >vat_epoch;
-  int   vat_in_t_3 = bank->f.epoch-1UL>vat_epoch;
+  int   vat_in_t_3 = fd_ulong_sat_sub(bank->f.epoch, 1UL )>vat_epoch;
 
   ushort             parent_idx  = bank->vote_stakes_fork_id;
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
