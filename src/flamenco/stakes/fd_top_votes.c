@@ -183,48 +183,31 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * node_account,
                      ulong               stake,
                      uchar               commission ) {
-/* If the heap is full, then we need to remove the minimum element.
-   There are a few cases to consider:
-   1. There are multiple elements at the bottom of the heap with the
-      same stake.  In this case, evict all of them and insert the new
-      element.
-   2. The element we are attempting to insert has the same stake as
-      the minimum element.  In this case, we remove all elements with
-      the minimum stake and don't insert a new element.  We need to
-      watermark the minimum stake value that was evicted to avoid
-      allowing later inserts with the same stake.
-   3. Don't insert the new element if it has a stake less than the
-      watermark. */
+/* If the heap is full, treat the current minimum stake as the cutoff
+   stake.  This matches Agave's retain(stake > floor_stake) behavior:
+   1. Reject candidates below the cutoff.
+   2. Evict all entries at the cutoff stake and watermark that stake so
+      later inserts at or below the cutoff stay excluded.
+   3. Insert the candidate only if it is strictly above the cutoff. */
 
   vote_ele_t * pool = get_pool( top_votes );
   heap_t *     heap = get_heap( top_votes );
   map_t *      map  = get_map( top_votes );
 
-  if( FD_UNLIKELY( stake==0UL ) ) return;
-  if( FD_UNLIKELY( stake<=top_votes->min_stake_wmark ) ) return;
+  if( FD_UNLIKELY( stake==0UL || stake<=top_votes->min_stake_wmark ) ) return;
 
   if( FD_UNLIKELY( heap_ele_cnt( heap )==heap_ele_max( heap ) ) ) {
-    vote_ele_t * ele = heap_ele_peek_min( heap, pool );
-    if( stake<ele->stake ) return;
+    vote_ele_t * ele       = heap_ele_peek_min( heap, pool );
+    ulong        min_stake = ele->stake;
+    if( stake<min_stake ) return;
 
-    /* If the prospective element ties with the minimum element, remove
-       all elements with the same stake and update the watermark. */
-    if( FD_UNLIKELY( stake==ele->stake ) ) {
-      top_votes->min_stake_wmark = stake;
-      while( (ele=heap_ele_peek_min( heap, pool )) && ele && ele->stake==stake ) {
-        heap_ele_remove_min( heap, pool );
-        map_ele_remove( map, &ele->pubkey, NULL, pool );
-        pool_ele_release( pool, ele );
-      }
-      return;
-    }
-
-    ulong min_stake = ele->stake;
+    top_votes->min_stake_wmark = min_stake;
     while( (ele=heap_ele_peek_min( heap, pool )) && ele && min_stake==ele->stake ) {
       heap_ele_remove_min( heap, pool );
       map_ele_remove( map, &ele->pubkey, NULL, pool );
       pool_ele_release( pool, ele );
     }
+    if( FD_UNLIKELY( stake==min_stake ) ) return;
   }
 
   vote_ele_t * ele         = pool_ele_acquire( pool );
