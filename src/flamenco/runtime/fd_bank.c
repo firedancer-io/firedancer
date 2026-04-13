@@ -519,9 +519,6 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   fd_vote_stakes_t * vote_stakes = fd_banks_get_vote_stakes( banks );
   bank->vote_stakes_fork_id      = fd_vote_stakes_get_root_idx( vote_stakes );
 
-  fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
-  bank->stake_delegations_fork_id            = fd_stake_delegations_new_fork( stake_delegations );
-
   bank->state  = FD_BANK_STATE_FROZEN;
   bank->refcnt = 0UL;
 
