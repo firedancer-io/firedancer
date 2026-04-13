@@ -280,7 +280,7 @@ union fd_features {
     /* 0xf55c421c9eccc012 */ ulong remove_simple_vote_from_cost_model;
     /* 0x7428565ab3b6d152 */ ulong limit_instruction_accounts;
     /* 0xd2ff523ae3f23607 */ ulong validator_admission_ticket;
-    /* 0x6d9baef98a3cfd0c */ ulong discard_unexpected_data_complete_shreds;
+    /* 0x6735cf1d3c656109 */ ulong discard_unexpected_data_complete_shreds;
     /* 0x632b9b7c9e9a3257 */ ulong create_account_allow_prefund;
     /* 0xa4c86f030ee0440c */ ulong replace_spl_token_with_p_token;
     /* 0xf5434d796d0f975a */ ulong delay_commission_updates;
