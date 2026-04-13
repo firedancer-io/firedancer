@@ -1140,16 +1140,41 @@ merkle_recvd( fd_forest_blk_t * ele, uint fec_idx ) {
   return memcmp( &ele->merkle_roots[fec_idx].mr, &empty_mr, sizeof(fd_hash_t) ) != 0;
 }
 
+/* returns 1 if the FEC set after the given FEC set has been confirmed */
 static inline int
-merkle_verified( fd_forest_blk_t * ele, uint fec_idx ) {
+next_merkle_confirmed( fd_forest_blk_t * ele, uint fec_idx ) {
   // not possible for anything to be verified if the slot doesn't know the last index
   if( ele->complete_idx == UINT_MAX ) return 0;
   /* if we are asking about the block_id, it's stored in the confirmed_bid field */
-  if( FD_UNLIKELY( fec_idx == (ele->complete_idx / 32UL + 1) ) ) {
+  if( FD_UNLIKELY( fec_idx == (ele->complete_idx / 32UL) ) ) {
     return !fd_hash_eq( &ele->confirmed_bid, &empty_mr );
   }
-  return ele->lowest_verified_fec <= fec_idx;
+  return ele->lowest_verified_fec <= (fec_idx + 1UL);
 }
+
+/* Returns the chained merkle root that commits to the given FEC set.
+   Only meaningful when next_merkle_confirmed() is true; otherwise the
+   returned cmr may be uninitialized. For most FEC sets this is
+   merkle_roots[fec_idx+1].cmr.  For the last FEC in the slot (fec_idx
+   == complete_idx/32) it is confirmed_bid.
+
+   Guard against OOB read: an attacker can send a fec_idx beyond
+   complete_idx. The shred gets filtered upstream, so we don't need to
+   guard against it here. */
+
+static inline fd_hash_t *
+next_chained_merkle( fd_forest_blk_t * ele, uint fec_idx ) {
+  if( FD_UNLIKELY( fec_idx == ele->complete_idx / 32UL ) ) {
+    return &ele->confirmed_bid;
+  }
+  return &ele->merkle_roots[fec_idx + 1].cmr;
+}
+
+/* data_shred_insert accepts the first complete_idx it sees while
+   complete_idx is UINT_MAX, and rejects any subsequent shreds that are
+   greater than the complete_idx.  This is applies for the very first
+   slot_complete seen (could be incorrect), or after the complete_idx has
+   been cleared by fec_clear due to an incorrect FEC. */
 
 fd_forest_blk_t *
 fd_forest_data_shred_insert( fd_forest_t * forest,
@@ -1190,13 +1215,29 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
     ele->merkle_roots[fec_idx].cmr = *cmr;
   }
 
+  /* We can automatically reject if the shred index is greater than the
+     complete index, as it clearly signifies some duplicity is
+     occurring.  What if this shred is part of the canonical chain
+     though?  When the duplicate confirmation arrives from tower, the
+     false complete_idx will be cleared, and shreds higher than the
+     false complete_idx will be accepted.  It is always beneficial for
+     us to take the minimum slot complete index because this triggers
+     the chain verification to start. */
+
+  if( FD_UNLIKELY( shred_idx > ele->complete_idx ) ) {
+    FD_LOG_WARNING(( "[%s] slot %lu shred index %u is greater than known complete_idx %u. rejecting shred", __func__, slot, shred_idx, ele->complete_idx ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( slot_complete && ele->complete_idx < shred_idx ) ) {
+    FD_LOG_WARNING(( "[%s] slot %lu slot_complete received, but new complete_idx %u > complete_idx %u. rejecting shred", __func__, slot, ele->complete_idx, shred_idx ));
+    return NULL;
+  }
+
   /* Otherwise if this is any other shred and we know the verification
      status, we can immediately verify or reject. */
 
-  if( FD_UNLIKELY( merkle_verified( ele, fec_idx + 1 ) ) ) { /* if the cmr pointing to this FEC has been verified, then... */
-    if( FD_UNLIKELY(
-         ( fec_idx == (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->confirmed_bid, mr ) ) ||
-         ( fec_idx != (ele->complete_idx / 32UL) && !fd_hash_eq( &ele->merkle_roots[fec_idx + 1].cmr, mr ) ) ) ) {
+  if( FD_UNLIKELY( next_merkle_confirmed( ele, fec_idx ) ) ) { /* if the cmr pointing to this FEC has been confirmed, then... */
+    if( FD_UNLIKELY( !fd_hash_eq( next_chained_merkle( ele, fec_idx ), mr ) ) ) {
       /* merkle root doesn't match the verified CMR  */
       return NULL; /* do not accept this shred. */
     } else {
@@ -1263,31 +1304,38 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 # endif
 
   uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
-  if( FD_UNLIKELY( merkle_recvd( ele, fec_idx )
-                   && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
+
+  /* if the FEC set is beyond the complete_idx, then we reject the FEC */
+  if( FD_UNLIKELY( fec_set_idx > ele->complete_idx ) ) {
+    FD_LOG_WARNING(( "[%s] slot %lu fec set %u is greater than known complete_idx %u. rejecting FEC", __func__, slot, fec_set_idx, ele->complete_idx ));
+    return NULL;
+  }
+
+  /* reject if the fec is confirmed and the merkle root doesn't match */
+  if( FD_UNLIKELY( next_merkle_confirmed( ele, fec_idx ) && !fd_hash_eq( next_chained_merkle( ele, fec_idx ), mr ) ) ) return NULL;
+
+  if( FD_UNLIKELY( merkle_recvd( ele, fec_idx ) && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
+    /* overwrite the merkle root with the new one */
     FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[fec_idx].mr.key, mr_b58 );
     FD_BASE58_ENCODE_32_BYTES( mr->key, mr_recv_b58 );
-    FD_LOG_WARNING(( "[%s] received a version of slot %lu fec set %u we dont have recorded. current_mr %s, received_mr %s", __func__, slot, fec_set_idx, mr_b58, mr_recv_b58 ));
+    FD_LOG_WARNING(( "[%s] received a version of slot %lu fec_set_idx %u that isn't recorded. current_mr %s, received_mr %s", __func__, slot, fec_set_idx, mr_b58, mr_recv_b58 ));
     /* there are two cases:
+        (1) the first and common case is that we've received a mix of
+        shreds from equivocating FEC siblings A & B.  In forest we have
+        recorded hash = { invalid_mr } for this fec set because we've
+        received a mix of merkle roots, so we nulled the FEC set. Let's
+        say fec_resolver then completes version B, and delivers it.  We
+        can safely overwrite our null merkle root with B because we know
+        we must've received all the data for version B!
 
-       (1) the first and common case is that we've received a mix of
-           shreds from equivocating FEC siblings A & B.  In forest we
-           have recorded hash = { 0 } for this fec set because we've
-           received a mix of merkle roots, so we nulled the FEC set.
-           Let's say fec_resolver then completes version B, and delivers
-           it.  We can safely overwrite our null merkle root with B
-           because we know we must've received all the data for version
-           B!
-       (2) the second case is that we get two FEC completion msgs:
-           one for both version B and A. They get completed, one after
-           the other. In this case we've first overwritten from { 0 } to
-           B.  But if version A arrives, what should we do?  If B
-           is the correct version, but we choose to overwrite the fec
-           when A arrive, then we need to ask ask shred to
-           re-deliver the FEC set.  Since we don't know at this time if
-           B or A is correct, we optimize for case 1, and overwrite the
-           merkle root with the new one. */
-    // overwrite the merkle root with the new one
+        (2) the second case is that we get two FEC completion msgs: one
+        for both version B and A. They get completed, one after the
+        other.  We first overwrite from { invalid_mr } to B.  But if
+        version A arrives, what should we do?  If B is the correct
+        version, but we choose to overwrite the fec when A arrive, then
+        we need to ask shred to re-deliver the FEC set. Since we
+        don't know at this time if B or A is correct, we optimize for
+        case 1, and overwrite the merkle root with the new one. */
     ele->merkle_roots[fec_idx].mr  = *mr;
     ele->merkle_roots[fec_idx].cmr = *cmr;
   }
