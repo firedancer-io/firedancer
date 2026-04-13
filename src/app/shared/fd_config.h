@@ -485,7 +485,6 @@ struct fd_config {
     } replay;
 
     struct {
-      int   enabled;
       int   ingest_dead_slots;
       ulong end_slot;
       ulong root_distance;

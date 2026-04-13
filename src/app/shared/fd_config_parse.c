@@ -278,7 +278,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( ushort, tiles.txsend.txsend_src_port                     );
 
-  CFG_POP      ( bool,   tiles.archiver.enabled                           );
   CFG_POP      ( bool,   tiles.archiver.ingest_dead_slots                 );
   CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
   CFG_POP      ( ulong,  tiles.archiver.root_distance                     );

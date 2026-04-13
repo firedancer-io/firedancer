@@ -1092,25 +1092,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
 
-  if( FD_UNLIKELY( config->tiles.archiver.enabled ) ) {
-    fd_topob_wksp( topo, "arch_f" );
-    fd_topob_wksp( topo, "arch_w" );
-    fd_topob_wksp( topo, "feeder" );
-    fd_topob_wksp( topo, "arch_f2w" );
-
-    fd_topob_link( topo, "feeder", "feeder", 65536UL, 4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
-    fd_topob_link( topo, "arch_f2w", "arch_f2w", 128UL, 4UL*FD_SHRED_STORE_MTU, 1UL );
-
-    fd_topob_tile( topo, "arch_f", "arch_f", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
-    fd_topob_tile( topo, "arch_w", "arch_w", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
-
-    fd_topob_tile_out( topo, "replay", 0UL,              "feeder", 0UL );
-    fd_topob_tile_in(  topo, "arch_f", 0UL, "metric_in", "feeder", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-    fd_topob_tile_out( topo, "arch_f", 0UL,              "arch_f2w", 0UL );
-    fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f2w", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
-
   if( FD_UNLIKELY( config->tiles.shredcap.enabled ) ) {
     fd_topob_wksp( topo, "scap" );
 
@@ -1836,11 +1817,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rpc.accdb_max_depth = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
 
     fd_cstr_ncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
-
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
-                          !strcmp( tile->name, "arch_w" ) ) ) {
-
-    fd_cstr_ncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 

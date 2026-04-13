@@ -77,7 +77,6 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
     execrp_tile_count = 6
 [tiles]
     [tiles.archiver]
-        enabled = true
         end_slot = 406545600
         rocksdb_path = "${ledger_dir}/rocksdb"
         ingest_mode = "rocksdb"
