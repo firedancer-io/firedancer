@@ -89,7 +89,7 @@
   {"name":"stake_allow_zero_undelegated_amount","pubkey":"sTKz343FM8mqtyGvYWvbLpTThw3ixRM4Xk8QvZ985mw","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"require_static_program_ids_in_transaction","pubkey":"8FdwgyHFEjhAdjWfV2vfqk7wA1g9X3fQpKH7SBpEv3kC","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"stake_raise_minimum_delegation_to_1_sol","pubkey":"9onWzzvCzNC2jfhxxeqRgs5q7nFAAKpCUvkj6T6GJK9i"},
-  {"name":"stake_minimum_delegation_for_rewards","pubkey":"G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ","comment":"not ready for activation as in flux in Agave"},
+  {"name":"stake_minimum_delegation_for_rewards","pubkey":"G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ","comment":"not ready for activation as in flux in Agave","reverted":1},
   {"name":"add_set_compute_unit_price_ix","pubkey":"98std1NSHqXi9WYvFShfVepRdCoq1qvsp8fsR2XZtG8g","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"disable_deploy_of_alloc_free_syscall","pubkey":"79HWsX9rpnnJBPcdNURVqygpMAfxdrAirzAGAVmf92im","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"include_account_index_in_rent_error","pubkey":"2R72wpcQ7qV7aTJWUumdn8u5wmmTyXbK7qzEy7YSAgyY","cleaned_up":1,"hardcode_for_fuzzing":1},
