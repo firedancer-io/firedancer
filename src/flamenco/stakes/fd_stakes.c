@@ -523,7 +523,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
   /* If VAT feature has just been activated, we want to reference the
      t-2/t-3 commissions from the vote stakes and not the top votes. */
   ulong vat_epoch  = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
-  int   vat_in_t_2 = bank->f.epoch    >vat_epoch;
+  int   vat_in_t_2 = bank->f.epoch>vat_epoch;
   int   vat_in_t_3 = fd_ulong_sat_sub(bank->f.epoch, 1UL )>vat_epoch;
 
   ushort             parent_idx  = bank->vote_stakes_fork_id;
