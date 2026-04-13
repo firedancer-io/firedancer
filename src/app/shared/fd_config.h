@@ -175,6 +175,10 @@ struct fd_configf {
     struct {
       int validate_genesis_hash;
     } genesis;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+    } forktest;
   } development;
 
   struct {
@@ -185,6 +189,7 @@ struct fd_configf {
     ulong authorized_voter_paths_cnt;
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
+
 };
 
 typedef struct fd_configf fd_configf_t;

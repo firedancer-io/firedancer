@@ -119,6 +119,7 @@ extern fd_topo_run_tile_t fd_tile_execrp;
 extern fd_topo_run_tile_t fd_tile_txsend;
 extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_backtest;
+extern fd_topo_run_tile_t fd_tile_forktest;
 extern fd_topo_run_tile_t fd_tile_shredcap;
 extern fd_topo_run_tile_t fd_tile_vinyl;
 extern fd_topo_run_tile_t fd_tile_solcap;
@@ -167,6 +168,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_tower,
   &fd_tile_shredcap,
   &fd_tile_backtest,
+# if FD_HAS_ROCKSDB
+  &fd_tile_forktest,
+# endif
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
@@ -229,6 +233,9 @@ extern action_t fd_action_gossip_dump;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
+#if FD_HAS_ROCKSDB
+extern action_t fd_action_forktest;
+#endif
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -268,6 +275,9 @@ action_t * ACTIONS[] = {
   &fd_action_monitor_gossip,
   &fd_action_watch,
   &fd_action_add_authorized_voter,
+#if FD_HAS_ROCKSDB
+  &fd_action_forktest,
+#endif
   NULL,
 };
 

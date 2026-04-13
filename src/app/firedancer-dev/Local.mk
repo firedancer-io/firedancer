@@ -18,6 +18,10 @@ $(call add-objs,commands/ipecho_server,fd_firedancer_dev)
 $(call add-objs,commands/gossip_dump,fd_firedancer_dev)
 $(call add-objs,commands/reasm,fd_firedancer_dev)
 
+ifdef FD_HAS_ROCKSDB
+$(call add-objs,commands/forktest/forktest commands/forktest/fd_forktest_tile,fd_firedancer_dev)
+endif
+
 ifdef FD_HAS_SSE
 # ifdef FD_HAS_BLST -- will be a required dependency soon
 ifdef FD_HAS_S2NBIGNUM
