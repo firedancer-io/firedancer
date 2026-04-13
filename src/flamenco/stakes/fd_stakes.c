@@ -574,6 +574,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
     vote_reward_cnt++;
   }
+  *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
 }
 
 static void
@@ -777,6 +778,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
         commission_t_1, commission_t_2,
         bank->f.epoch );
   }
+  *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
 }
 
 /* We need to update the amount of stake that each vote account has for
