@@ -1849,8 +1849,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x06\xdd\x5c\xe0\x96\x03\xbe\x56\xf7\xf1\x0e\xc1\xc0\x69\x70\x3e\x85\x2f\xe0\x91\x0f\x77\x8c\x22\x63\x32\x43\x00\x00\x00\x00\x00"},
                                  /* ToDo111111111111111111111111111111111111111 */
     .name                      = "enable_sha512_syscall",
-    .cleaned_up                = 0,
-    .hardcode_for_fuzzing      = 1 },
+    .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
 };
