@@ -1114,7 +1114,7 @@ fd_runtime_save_account( fd_accdb_user_t *         accdb,
                          fd_account_meta_t *       meta,
                          fd_bank_t *               bank,
                          fd_capture_ctx_t *        capture_ctx ) {
-  fd_lthash_value_t lthash_post[1];
+  fd_lthash_value_t lthash_post[1] = {0};
   fd_lthash_value_t lthash_prev[1];
 
   /* Update LtHash
