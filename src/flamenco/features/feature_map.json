@@ -263,7 +263,7 @@
   {"name":"remove_simple_vote_from_cost_model","pubkey":"2GCrNXbzmt4xrwdcKS2RdsLzsgu4V5zHAemW57pcHT6a"},
   {"name":"limit_instruction_accounts","pubkey":"6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC","old":"DqbnFPASg7tHmZ6qfpdrt2M6MWoSeiicWPXxPhxqFCQ"},
   {"name":"validator_admission_ticket","pubkey":"VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ"},
-  {"name":"discard_unexpected_data_complete_shreds","pubkey":"shredXP8xLjJWp1AWh3gAFsFn4GSH1vohhCMDHw5koU"},
+  {"name":"discard_unexpected_data_complete_shreds","pubkey":"dcomRRWHXP1FVWPqi9Mm4oxJhF4ehC795SvAtUdA9os"},
   {"name":"create_account_allow_prefund","pubkey":"6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331"},
   {"name":"replace_spl_token_with_p_token","pubkey":"ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP"},
   {"name":"delay_commission_updates","pubkey":"76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B"},
