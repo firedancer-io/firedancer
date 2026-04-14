@@ -262,7 +262,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_acc_pool = {
 static ulong
 rnonce_ss_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
                      fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return sizeof(fd_rnonce_ss_t) + sizeof(ulong);
+  return sizeof(fd_rnonce_ss_t);
 }
 
 static ulong
@@ -273,8 +273,8 @@ rnonce_ss_align( fd_topo_t const *     topo FD_FN_UNUSED,
 
 static void
 rnonce_ss_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  memset( fd_topo_obj_laddr( topo, obj->id ), '\0', sizeof(fd_rnonce_ss_t)+sizeof(ulong) );
+               fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_rng_secure( fd_topo_obj_laddr( topo, obj->id ), sizeof(fd_rnonce_ss_t) ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss = {

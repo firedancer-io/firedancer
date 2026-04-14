@@ -1165,15 +1165,9 @@ privileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_rng_secure( &ctx->repair_seed, sizeof(ulong) ) );
 
-  FD_LOG_DEBUG(( "Generating rnonce_ss" ));
   ulong rnonce_ss_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "rnonce_ss" );
   FD_TEST( rnonce_ss_id!=ULONG_MAX );
-  void * shared_rnonce = fd_topo_obj_laddr( topo, rnonce_ss_id );
-  ulong * nonce_initialized = (ulong *)(sizeof(fd_rnonce_ss_t)+(uchar *)shared_rnonce);
-  FD_TEST( fd_rng_secure( shared_rnonce, sizeof(fd_rnonce_ss_t) ) );
-  memcpy( ctx->repair_nonce_ss, shared_rnonce, sizeof(fd_rnonce_ss_t) );
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *nonce_initialized ) = 1UL;
+  memcpy( ctx->repair_nonce_ss, fd_topo_obj_laddr( topo, rnonce_ss_id ), sizeof(fd_rnonce_ss_t) );
 }
 
 static void
