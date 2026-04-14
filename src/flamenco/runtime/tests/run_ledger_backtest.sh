@@ -245,7 +245,6 @@ cat <<EOF > ${CONFIG_FILE}
     execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
     [tiles.archiver]
-        enabled = true
         end_slot = $END_SLOT
         rocksdb_path = "$DUMP/$LEDGER/rocksdb"
         shredcap_path = "$DUMP/$LEDGER/shreds.pcapng.zst"

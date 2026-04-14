@@ -27,6 +27,15 @@ get_program_kind( fd_bank_t const *      bank,
 
   /* The program is a standard, non-migrating builtin (e.g. system program) */
   if( fd_is_non_migrating_builtin_program( program_pubkey ) ) {
+    /* bls_pubkey_management_in_vote_account: the vote program is NOT
+       being migrated to BPF, but is treated as migrated by the cost
+       model.
+
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/builtins-default-costs/src/lib.rs#L95-L107 */
+    if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, bls_pubkey_management_in_vote_account ) &&
+                     fd_pubkey_eq( program_pubkey, &fd_solana_vote_program_id ) ) ) {
+      return FD_PROGRAM_KIND_MIGRATING_BUILTIN;
+    }
     return FD_PROGRAM_KIND_BUILTIN;
   }
 

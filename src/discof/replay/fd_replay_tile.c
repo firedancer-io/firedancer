@@ -725,7 +725,9 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
                         fd_stem_context_t * stem,
                         fd_bank_t *         bank,
                         int                 is_initial,
-                        int                 is_leader ) {
+                        int                 is_leader,
+                        ulong               execution_fees_pre_settle,
+                        ulong               priority_fees_pre_settle ) {
 
   ulong slot = bank->f.slot;
 
@@ -814,9 +816,9 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   }
 
   slot_info->is_leader = is_leader;
-  slot_info->transaction_fee = bank->f.execution_fees;
+  slot_info->transaction_fee = execution_fees_pre_settle;
   slot_info->transaction_fee -= (slot_info->transaction_fee>>1); /* burn */
-  slot_info->priority_fee = bank->f.priority_fees;
+  slot_info->priority_fee = priority_fees_pre_settle;
   slot_info->tips = bank->f.tips;
   slot_info->shred_cnt = bank->f.shred_cnt;
 
@@ -830,7 +832,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
                  bank->f.transaction_count - bank->f.nonvote_txn_count,
                  bank->f.shred_cnt,
                  bank->f.total_compute_units_used,
-                 bank->f.execution_fees + bank->f.priority_fees,
+                 execution_fees_pre_settle + priority_fees_pre_settle,
                  !!parent_bank ? parent_bank->block_completed_nanos - bank->first_fec_set_received_nanos : LONG_MAX,
                  bank->preparation_begin_nanos - bank->first_fec_set_received_nanos,
                  bank->first_transaction_scheduled_nanos - bank->preparation_begin_nanos,
@@ -885,6 +887,9 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Set shred count in bank. */
   bank->f.shred_cnt = fd_sched_get_shred_cnt( ctx->sched, bank->idx );
 
+  ulong execution_fees_pre_settle = bank->f.execution_fees;
+  ulong priority_fees_pre_settle  = bank->f.priority_fees;
+
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
 
@@ -908,7 +913,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Must be last so we can measure completion time correctly, even
      though we could technically do this before the hash cmp and vote
      tower stuff. */
-  publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */ );
+  publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */, execution_fees_pre_settle, priority_fees_pre_settle );
 
 # if FD_HAS_FLATCC
   /* If enabled, dump the block to a file and reset the dumping
@@ -1028,6 +1033,9 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, curr_slot );
 
+  ulong execution_fees_pre_settle = ctx->leader_bank->f.execution_fees;
+  ulong priority_fees_pre_settle  = ctx->leader_bank->f.priority_fees;
+
   fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, ctx->capture_ctx );
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -1038,7 +1046,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   fd_banks_mark_bank_frozen( ctx->leader_bank );
   ctx->leader_bank->block_completed_nanos = fd_log_wallclock();
 
-  publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */ );
+  publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */, execution_fees_pre_settle, priority_fees_pre_settle );
 
   /* The reference on the bank is finally no longer needed. */
   ctx->leader_bank->refcnt--;
@@ -1484,7 +1492,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   cost_tracker_snap( bank, slot_info );
   slot_info->identity_balance = get_identity_balance( ctx, xid );
 
-  publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
+  publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
   publish_root_advanced( ctx, stem );
   publish_reset( ctx, stem, bank );
 }
@@ -1605,7 +1613,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     cost_tracker_snap( bank, slot_info );
     slot_info->identity_balance = get_identity_balance( ctx, xid );
 
-    publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
+    publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
     publish_root_advanced( ctx, stem );
 
     fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted ); /* FIXME manifest block_id */

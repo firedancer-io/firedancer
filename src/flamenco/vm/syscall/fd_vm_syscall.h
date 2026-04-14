@@ -885,6 +885,7 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
 FD_VM_SYSCALL_DECL( sol_blake3    );
 FD_VM_SYSCALL_DECL( sol_keccak256 );
 FD_VM_SYSCALL_DECL( sol_sha256    );
+FD_VM_SYSCALL_DECL( sol_sha512    );
 
 /* syscall(c4947c21) sol_poseidon computes the Poseidon hash on an array of input values.
    See SIMD-0129.

@@ -219,7 +219,7 @@ calculate_allocated_accounts_data_size( fd_bank_t * bank, fd_txn_in_t const * tx
     fd_acct_addr_t const * prog_id    = accounts + instr->program_id;
     uchar const *          instr_data = fd_txn_get_instr_data( instr, payload );
 
-    if( instr->data_sz==0UL || !fd_memeq( prog_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) continue;
+    if( !fd_memeq( prog_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L266-L275
        FIXME use limited_deserialize */

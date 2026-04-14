@@ -2,7 +2,6 @@
     shred_tile_count = 4
 [tiles]
     [tiles.archiver]
-        enabled = true
         end_slot = {end_slot}
         ingest_mode = "rocksdb"
         rocksdb_path = "{ledger}/rocksdb"
