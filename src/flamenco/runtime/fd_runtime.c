@@ -1609,12 +1609,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       if( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) continue;
       if( !stake_state->stake.stake.delegation.stake ) continue;
 
-      if( FD_UNLIKELY( stake_state->stake.stake.delegation.warmup_cooldown_rate!=0.25 &&
-                       stake_state->stake.stake.delegation.warmup_cooldown_rate!=0.09 ) ) {
-        FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 );
-        FD_LOG_ERR(( "Invalid warmup cooldown rate %f for stake account %s", stake_state->stake.stake.delegation.warmup_cooldown_rate, stake_b58 ));
-      }
-
       fd_stake_delegations_root_update(
           stake_delegations,
           &account->pubkey,
@@ -1623,7 +1617,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
           stake_state->stake.stake.delegation.activation_epoch,
           stake_state->stake.stake.delegation.deactivation_epoch,
           stake_state->stake.stake.credits_observed,
-          stake_state->stake.stake.delegation.warmup_cooldown_rate );
+          FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
 
     } else if( !memcmp( account->meta.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* Feature Account */

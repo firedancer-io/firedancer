@@ -353,7 +353,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
                                       ULONG_MAX,  /* activation_epoch (bootstrap) */
                                       ULONG_MAX,  /* deactivation_epoch */
                                       0UL,        /* credits_observed */
-                                      0.25        /* warmup_cooldown_rate */ );
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* warmup_cooldown_rate */ );
 
     stakes[i] = (fd_vote_stake_weight_t){
       .vote_key = vote_key,
