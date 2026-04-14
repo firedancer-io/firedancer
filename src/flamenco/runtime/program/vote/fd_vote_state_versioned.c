@@ -710,10 +710,6 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
   ulong         data_len = meta->dlen;
   uint const *  disc_ptr = (uint const *)data; // NOT SAFE TO ACCESS YET!
 
-  if( FD_UNLIKELY( memcmp( meta->owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    return 0;
-  }
-
   /* VoteStateV4::is_correct_size_and_initialized
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v4.rs#L207-L210 */
   if( FD_LIKELY( data_len==FD_VOTE_STATE_V4_SZ && *disc_ptr==fd_vote_state_versioned_enum_v4 ) ) {
@@ -735,4 +731,13 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
   }
 
   return 0;
+}
+
+int
+fd_vsv_is_correct_size_owner_and_init( fd_account_meta_t const * meta ) {
+  if( FD_UNLIKELY( memcmp( meta->owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    return 0;
+  }
+
+  return fd_vsv_is_correct_size_and_initialized( meta );
 }

@@ -1247,7 +1247,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       }
 
       if( txn_out->accounts.vote_update[i] ) {
-        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_and_initialized( account->meta ) ) ) {
+        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_owner_and_init( account->meta ) ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
         } else {
           fd_vote_block_timestamp_t last_vote;
