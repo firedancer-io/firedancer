@@ -524,6 +524,13 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   banks->root_idx = bank->idx;
 
+  FD_LOG_DEBUG(( "init bank (idx=%lu, epoch_leaders_idx=%lu, vote_stakes_idx=%u, stake_rewards_idx=%u, stake_delegations_idx=%u)",
+                 bank->idx,
+                 bank->epoch_leaders_idx,
+                 bank->vote_stakes_fork_id,
+                 bank->stake_rewards_fork_id,
+                 bank->stake_delegations_fork_id ));
+
   return bank;
 }
 
@@ -569,6 +576,14 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   child_bank->state = FD_BANK_STATE_REPLAYABLE;
 
+  FD_LOG_DEBUG(( "cloning bank (idx=%lu, parent_idx=%lu, epoch_leaders_idx=%lu, vote_stakes_idx=%u, stake_rewards_idx=%u, stake_delegations_idx=%u)",
+                 child_bank_idx,
+                 parent_bank->idx,
+                 child_bank->epoch_leaders_idx,
+                 child_bank->vote_stakes_fork_id,
+                 child_bank->stake_rewards_fork_id,
+                 child_bank->stake_delegations_fork_id ));
+
   return child_bank;
 }
 
@@ -604,6 +619,7 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t * banks,
 
   fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
   while( !!curr_bank ) {
+    FD_LOG_DEBUG(( "applying stake delegation delta (bank_idx=%lu, fork_idx=%u)", curr_bank->idx, curr_bank->stake_delegations_fork_id ));
     if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
       pool_indices[pool_indices_len++] = curr_bank->stake_delegations_fork_id;
     }
@@ -757,6 +773,7 @@ fd_banks_advance_root( fd_banks_t * banks,
     head->vote_stakes_fork_id = USHORT_MAX;
 
     if( head->stake_delegations_fork_id!=USHORT_MAX ) {
+      FD_LOG_DEBUG(( "evicting stake delegation fork (bank_idx=%lu, fork_idx=%u)", head->idx, head->stake_delegations_fork_id ));
       fd_stake_delegations_evict_fork( stake_delegations, head->stake_delegations_fork_id );
       head->stake_delegations_fork_id = USHORT_MAX;
     }
