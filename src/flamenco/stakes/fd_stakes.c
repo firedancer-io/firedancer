@@ -19,8 +19,6 @@
 /* Constants                                                          */
 /**********************************************************************/
 
-#define DEFAULT_WARMUP_COOLDOWN_RATE               ( 0.25 )
-#define NEW_WARMUP_COOLDOWN_RATE                   ( 0.09 )
 #define DEFAULT_SLASH_PENALTY                      ( 12 )
 
 /**********************************************************************/
@@ -39,8 +37,8 @@ typedef struct effective_activating effective_activating_t;
 
 static inline double
 warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
-  ulong activation_epoch = new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX;
-  return current_epoch<activation_epoch ? DEFAULT_WARMUP_COOLDOWN_RATE : NEW_WARMUP_COOLDOWN_RATE;
+  return fd_stake_delegations_warmup_cooldown_rate_to_double(
+    fd_stake_warmup_cooldown_rate( current_epoch, new_rate_activation_epoch ) );
 }
 
 static fd_stake_history_entry_t const *
@@ -888,7 +886,7 @@ fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
                                       stake_state->stake.stake.delegation.activation_epoch,
                                       stake_state->stake.stake.delegation.deactivation_epoch,
                                       stake_state->stake.stake.credits_observed,
-                                      stake_state->stake.stake.delegation.warmup_cooldown_rate );
+                                      fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
 
   } else {
     fd_stake_delegations_fork_remove( stake_delegations, bank->stake_delegations_fork_id, pubkey );

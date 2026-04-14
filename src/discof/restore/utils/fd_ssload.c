@@ -196,7 +196,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         elem->activation_epoch,
         elem->deactivation_epoch,
         elem->credits_observed,
-        elem->warmup_cooldown_rate
+        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025
     );
   }
 
