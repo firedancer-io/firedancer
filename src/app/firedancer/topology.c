@@ -554,7 +554,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "snapld_dc",     "snapld_dc",     16384UL,                                  USHORT_MAX,                    1UL );
     /**/               fd_topob_link( topo, "snapdc_in",     "snapdc_in",     16384UL,                                  USHORT_MAX,                    1UL );
 
-    /**/               fd_topob_link( topo, "snapin_manif",  "snapin_manif",  4UL,                                      sizeof(fd_snapshot_manifest_t),1UL );
+    /**/               fd_topob_link( topo, "snapin_manif",  "snapin_manif",  8UL,                                      sizeof(fd_snapshot_manifest_t),1UL ); /* depth==8UL to alleviate downstream backpressure. */
     /**/               fd_topob_link( topo, "snapct_repr",   "snapct_repr",   128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
     if( FD_LIKELY( config->tiles.gui.enabled ) ) {
       /**/             fd_topob_link( topo, "snapct_gui",    "snapct_gui",    128UL,                                    sizeof(fd_snapct_update_t),    1UL );
