@@ -526,6 +526,14 @@ rx_pull_request( fd_gossip_t *                    gossip,
     uchar const * crds_val;
     ulong         crds_size;
     fd_crds_entry_value( candidate, &crds_val, &crds_size );
+
+    if( FD_UNLIKELY( crds_size<sizeof(uint) ) ) continue;
+    uint crds_type = FD_LOAD( uint, crds_val );
+    if( FD_UNLIKELY( crds_type==FD_GOSSIP_VALUE_RESTART_LAST_VOTED_FORK_SLOTS ||
+                     crds_type==FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK ) ) {
+      continue;
+    }
+
     if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( pull_resp, crds_size ) ) ) txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
     fd_gossip_txbuild_append( pull_resp, crds_size, crds_val );
     if( FD_UNLIKELY( !gossip->outbound_budget.remaining ) ) break;
