@@ -529,6 +529,8 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
   ushort             parent_idx  = bank->vote_stakes_fork_id;
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
 
+  /* Populate the vote rewards map with the final set of filtered vote
+     accounts for the t-1 epoch. */
   for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_1, top_votes_iter_mem );
        !fd_top_votes_iter_done( top_votes_t_1, iter );
        fd_top_votes_iter_next( top_votes_t_1, iter ) ) {
@@ -539,21 +541,17 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     int   exists_t_3 = 0;
     uchar commission_t_3 = 0;
     if( FD_LIKELY( vat_in_t_3 ) ) {
-      commission_t_3 = 0;
-      exists_t_3     = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3 );
+      exists_t_3 = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3 );
     } else {
-      commission_t_3 = 0;
-      exists_t_3     = fd_vote_stakes_query( vote_stakes, parent_idx, &pubkey, NULL, NULL, NULL, NULL, NULL, &commission_t_3 );
+      exists_t_3 = fd_vote_stakes_query( vote_stakes, parent_idx, &pubkey, NULL, NULL, NULL, NULL, NULL, &commission_t_3 );
     }
 
     int   exists_t_2     = 0;
     uchar commission_t_2 = 0;
     if( FD_LIKELY( vat_in_t_2 ) ) {
-      commission_t_2 = 0;
-      exists_t_2     = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2 );
+      exists_t_2 = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2 );
     } else {
-      commission_t_2 = 0;
-      exists_t_2     = fd_vote_stakes_query( vote_stakes, parent_idx, &pubkey, NULL, NULL, NULL, NULL, NULL, &commission_t_2 );
+      exists_t_2 = fd_vote_stakes_query( vote_stakes, parent_idx, &pubkey, NULL, NULL, NULL, NULL, NULL, &commission_t_2 );
     }
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
@@ -795,6 +793,15 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
+  /* If validator_admission_ticket is enabled, the top 2000 vote
+     accounts for every epoch (the agave epoch stakes), are stored in
+     the top votes set.  If the feature is not active, there is no
+     stake-based filtering on the vote accounts that are eligible for
+     receving rewards/being included in the leader schedule computation.
+     Once the feature is active, only the top vote accounts will be
+     tracked for historical stake/node_account/commission lookups.
+     The non vat code path uses the vote stakes data structure as it
+     considers all vote/stake accounts. */
   if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
     fd_refresh_vote_accounts_vat( bank, accdb, xid, runtime_stack, stake_delegations, history, new_rate_activation_epoch );
   } else {
