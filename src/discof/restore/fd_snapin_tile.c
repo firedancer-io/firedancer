@@ -1137,8 +1137,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
   ctx->lthash_disabled = tile->snapin.lthash_disabled;
 
-  ctx->boot_timestamp = fd_log_wallclock();
-
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   void * shfunk       = fd_topo_obj_laddr( topo, funk_obj_id       );
@@ -1223,6 +1221,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( tile->snapin.use_vinyl ) {
     ctx->use_vinyl = 1;
   }
+
+  ctx->boot_timestamp = fd_log_wallclock();
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
