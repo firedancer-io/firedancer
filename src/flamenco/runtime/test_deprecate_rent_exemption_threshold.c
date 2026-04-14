@@ -190,7 +190,7 @@ add_bank_stake_delegation_entry( test_env_t *        env,
                                     0UL,
                                     ULONG_MAX,
                                     0UL,
-                                    0.25 );
+                                    FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 }
 
 static test_env_t *

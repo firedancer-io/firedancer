@@ -245,7 +245,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    activation_epoch,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
-                                  double                   warmup_cooldown_rate ) {
+                                  uchar                    warmup_cooldown_rate ) {
   fd_stake_delegation_t * pool = get_root_pool( stake_delegations );
   root_map_t *            map = get_root_map( stake_delegations );
 
@@ -262,7 +262,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->activation_epoch     = (ushort)fd_ulong_min( activation_epoch, USHORT_MAX );
   stake_delegation->deactivation_epoch   = (ushort)fd_ulong_min( deactivation_epoch, USHORT_MAX );
   stake_delegation->credits_observed     = credits_observed;
-  stake_delegation->warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_enum( warmup_cooldown_rate );
+  stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
   stake_delegation->dne_in_root          = 0;
   stake_delegation->delta_idx            = UINT_MAX;
 }
@@ -327,7 +327,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
           stake->stake.stake.delegation.activation_epoch,
           stake->stake.stake.delegation.deactivation_epoch,
           stake->stake.stake.credits_observed,
-          stake->stake.stake.delegation.warmup_cooldown_rate );
+          fd_stake_warmup_cooldown_rate( epoch, warmup_cooldown_rate_epoch ) );
 
       fd_stake_history_entry_t entry = stake_activating_and_deactivating( &stake->stake.stake.delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
       stake_delegations->effective_stake    += entry.effective;
@@ -370,7 +370,7 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    activation_epoch,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
-                                  double                   warmup_cooldown_rate ) {
+                                  uchar                    warmup_cooldown_rate ) {
   fd_rwlock_write( &stake_delegations->delta_lock );
 
   fd_stake_delegation_t * delta_pool = get_delta_pool( stake_delegations );
@@ -388,7 +388,7 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->activation_epoch     = (ushort)fd_ulong_min( activation_epoch, USHORT_MAX );
   stake_delegation->deactivation_epoch   = (ushort)fd_ulong_min( deactivation_epoch, USHORT_MAX );
   stake_delegation->credits_observed     = credits_observed;
-  stake_delegation->warmup_cooldown_rate = fd_stake_delegations_warmup_cooldown_rate_enum( warmup_cooldown_rate );
+  stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
   stake_delegation->is_tombstone         = 0;
 
   fd_rwlock_unwrite( &stake_delegations->delta_lock );
@@ -469,7 +469,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
           stake_delegation->activation_epoch,
           stake_delegation->deactivation_epoch,
           stake_delegation->credits_observed,
-          fd_stake_delegations_warmup_cooldown_rate_to_double( stake_delegation->warmup_cooldown_rate ) );
+          stake_delegation->warmup_cooldown_rate );
 
       fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating( stake_delegation, epoch, stake_history, warmup_cooldown_rate_epoch );
       stake_delegations->effective_stake    += new_entry.effective;
