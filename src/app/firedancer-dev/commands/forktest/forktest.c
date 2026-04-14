@@ -13,7 +13,6 @@ Constructed using a full topology which is pruned down. */
 #include "../../../../discof/tower/fd_tower_tile.h"
 #include "../../../../discof/replay/fd_replay_tile.h"
 #include "../../../../disco/shred/fd_shred_tile.h"
-#include "../../../../disco/shred/fd_rnonce_ss.h"
 #include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/pack/fd_pack_cost.h"
 #include "../../../../disco/topo/fd_topob.h"
@@ -499,14 +498,6 @@ forktest_fn( args_t *   args,
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
-
-  ulong rnonce_ss_id = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "rnonce_ss" );
-  FD_TEST( rnonce_ss_id!=ULONG_MAX );
-  void * shared_rnonce = fd_topo_obj_laddr( &config->topo, rnonce_ss_id );
-  ulong * nonce_initialized = (ulong *)(sizeof(fd_rnonce_ss_t)+(uchar *)shared_rnonce);
-  FD_TEST( fd_rng_secure( shared_rnonce, sizeof(fd_rnonce_ss_t) ) );
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( *nonce_initialized ) = 1UL;
 
   args_t watch_args;
   int pipefd[2];
