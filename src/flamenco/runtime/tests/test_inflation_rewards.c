@@ -4,6 +4,8 @@
 #include "../../rewards/fd_rewards_base.h"
 #include "../../rewards/fd_stake_rewards.h"
 #include "../../stakes/fd_stake_types.h"
+#include "../../stakes/fd_stake_delegations.h"
+#include "../../features/fd_features.h"
 #include "../program/fd_vote_program.h"
 #include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
@@ -1312,6 +1314,340 @@ test_get_reward_distribution_num_blocks_none( void ) {
   FD_LOG_NOTICE(( "test_get_reward_distribution_num_blocks_none: PASSED" ));
 }
 
+/* ====================================================================
+   delay_commission_updates parity tests
+   Ported from Agave calculation.rs:
+     - test_calculate_stake_vote_rewards_new_vote_account
+     - test_calculate_stake_vote_rewards_prestaked_vote_account
+     - test_calculate_stake_vote_rewards_genesis_vote_account
+   ==================================================================== */
+
+#define DCU_SLOTS_PER_EPOCH 32UL
+#define DCU_ROOT_SLOT        1UL
+
+static fd_inflation_t const dcu_inflation = {
+  .initial         = 0.08,
+  .terminal        = 0.015,
+  .taper           = 0.15,
+  .foundation      = 0.05,
+  .foundation_term = 7.0,
+};
+
+/* Step from the current epoch boundary through freeze + distribution,
+   returning the bank index of the distribution slot.  prev_idx must
+   already be frozen and rooted.  epoch_boundary_slot is the first slot
+   of the new epoch; distrib_slot is epoch_boundary_slot+1. */
+
+/* Cross an epoch boundary from prev_idx (which must already be frozen
+   and rooted).  Creates the epoch boundary slot and the distribution
+   slot (boundary+1).  The epoch boundary slot is frozen and rooted
+   before the distribution slot is returned. */
+
+static ulong
+dcu_cross_epoch( fd_svm_mini_t * mini,
+                 ulong           prev_idx,
+                 ulong           epoch_boundary_slot ) {
+  ulong epoch_idx = fd_svm_mini_attach_child( mini, prev_idx, epoch_boundary_slot );
+  fd_svm_mini_freeze( mini, epoch_idx );
+  fd_svm_mini_advance_root( mini, epoch_idx );
+  ulong distrib_idx = fd_svm_mini_attach_child( mini, epoch_idx, epoch_boundary_slot + 1UL );
+  return distrib_idx;
+}
+
+/* Infer the effective reward commission percentage from voter vs staker
+   reward deltas.  Returns UCHAR_MAX if rewards are zero (no reward
+   epoch). */
+
+static uchar
+dcu_infer_commission( ulong voter_reward, ulong staker_reward ) {
+  ulong total = voter_reward + staker_reward;
+  if( total==0UL ) return UCHAR_MAX;
+  return (uchar)( ( voter_reward * 100UL + total / 2UL ) / total );
+}
+
+/* Agave test_calculate_stake_vote_rewards_new_vote_account.
+   Parameterized: delay_on = 1 (delay_commission_updates active)
+                  delay_on = 0 (feature disabled).
+
+   Epoch 0: create vote account with commission=1, earn 1000 credits,
+            delegate stake.  Expect no reward (first delegation epoch).
+   Epoch 1: change commission to 2, earn 1000 credits.
+            delay_on  => reward uses commission 1 (from t-3/t-2 fallback)
+            delay_off => reward uses commission 2 (current)
+   Epoch 2: change commission to 3, earn 1000 credits.
+            delay_on  => reward uses commission 1
+            delay_off => reward uses commission 3 */
+
+static void
+test_delay_commission_new_vote_account( fd_svm_mini_t * mini,
+                                        int             delay_on ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = DCU_SLOTS_PER_EPOCH;
+  params->root_slot          = DCU_ROOT_SLOT;
+  params->mock_validator_cnt = 1UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = dcu_inflation;
+
+  if( delay_on ) {
+    FD_FEATURE_SET_ACTIVE( &root_bank->f.features, delay_commission_updates, 0UL );
+  }
+
+  fd_pubkey_t identity_key, vote_key, stake_key;
+  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+
+  /* Epoch 0: set commission=1, add credits.  No reward expected. */
+  patch_vote_account( mini, root_idx, &vote_key, 1, 0UL, 1000UL, 0UL );
+
+  fd_xid_t root_xid = fd_svm_mini_xid( mini, root_idx );
+  ulong vote_lam_e0_before  = read_lamports( mini, &root_xid, &vote_key );
+  ulong stake_lam_e0_before = read_lamports( mini, &root_xid, &stake_key );
+
+  ulong e1_boundary = DCU_SLOTS_PER_EPOCH;
+  ulong distrib_0   = dcu_cross_epoch( mini, root_idx, e1_boundary );
+  fd_xid_t xid_d0   = fd_svm_mini_xid( mini, distrib_0 );
+
+  ulong vote_lam_e0_after  = read_lamports( mini, &xid_d0, &vote_key );
+  ulong stake_lam_e0_after = read_lamports( mini, &xid_d0, &stake_key );
+
+  ulong voter_reward_0  = vote_lam_e0_after  - vote_lam_e0_before;
+  ulong staker_reward_0 = stake_lam_e0_after - stake_lam_e0_before;
+  (void)voter_reward_0;
+  (void)staker_reward_0;
+
+  /* Freeze distribution slot and advance root for next epoch. */
+  fd_svm_mini_freeze( mini, distrib_0 );
+  fd_svm_mini_advance_root( mini, distrib_0 );
+
+  /* Epoch 1: change commission to 2, add credits. */
+  patch_vote_account( mini, distrib_0, &vote_key, 2, 1UL, 2000UL, 1000UL );
+
+  ulong vote_lam_e1_before  = read_lamports( mini, &xid_d0, &vote_key );
+  ulong stake_lam_e1_before = read_lamports( mini, &xid_d0, &stake_key );
+
+  ulong e2_boundary = 2UL * DCU_SLOTS_PER_EPOCH;
+  ulong distrib_1   = dcu_cross_epoch( mini, distrib_0, e2_boundary );
+  fd_xid_t xid_d1   = fd_svm_mini_xid( mini, distrib_1 );
+
+  ulong vote_lam_e1_after  = read_lamports( mini, &xid_d1, &vote_key );
+  ulong stake_lam_e1_after = read_lamports( mini, &xid_d1, &stake_key );
+
+  ulong voter_reward_1  = vote_lam_e1_after  - vote_lam_e1_before;
+  ulong staker_reward_1 = stake_lam_e1_after - stake_lam_e1_before;
+  uchar inferred_comm_1 = dcu_infer_commission( voter_reward_1, staker_reward_1 );
+
+  uchar expected_comm_1 = delay_on ? 1 : 2;
+
+  FD_LOG_NOTICE(( "  epoch 1: voter_reward=%lu staker_reward=%lu inferred_comm=%u expected_comm=%u",
+                   voter_reward_1, staker_reward_1, (uint)inferred_comm_1, (uint)expected_comm_1 ));
+  FD_TEST( inferred_comm_1 == expected_comm_1 );
+
+  /* Freeze and advance root for epoch 2. */
+  fd_svm_mini_freeze( mini, distrib_1 );
+  fd_svm_mini_advance_root( mini, distrib_1 );
+
+  /* Epoch 2: change commission to 3, add credits. */
+  patch_vote_account( mini, distrib_1, &vote_key, 3, 2UL, 3000UL, 2000UL );
+
+  ulong vote_lam_e2_before  = read_lamports( mini, &xid_d1, &vote_key );
+  ulong stake_lam_e2_before = read_lamports( mini, &xid_d1, &stake_key );
+
+  ulong e3_boundary = 3UL * DCU_SLOTS_PER_EPOCH;
+  ulong distrib_2   = dcu_cross_epoch( mini, distrib_1, e3_boundary );
+  fd_xid_t xid_d2   = fd_svm_mini_xid( mini, distrib_2 );
+
+  ulong vote_lam_e2_after  = read_lamports( mini, &xid_d2, &vote_key );
+  ulong stake_lam_e2_after = read_lamports( mini, &xid_d2, &stake_key );
+
+  ulong voter_reward_2  = vote_lam_e2_after  - vote_lam_e2_before;
+  ulong staker_reward_2 = stake_lam_e2_after - stake_lam_e2_before;
+  uchar inferred_comm_2 = dcu_infer_commission( voter_reward_2, staker_reward_2 );
+
+  uchar expected_comm_2 = delay_on ? 1 : 3;
+
+  FD_LOG_NOTICE(( "  epoch 2: voter_reward=%lu staker_reward=%lu inferred_comm=%u expected_comm=%u",
+                   voter_reward_2, staker_reward_2, (uint)inferred_comm_2, (uint)expected_comm_2 ));
+  FD_TEST( inferred_comm_2 == expected_comm_2 );
+
+  FD_LOG_NOTICE(( "test_delay_commission_new_vote_account (delay=%d): PASSED", delay_on ));
+}
+
+/* Agave test_calculate_stake_vote_rewards_prestaked_vote_account.
+   delay_commission_updates is always on.
+
+   Epoch 0: delegate stake to a vote address that doesn't exist yet.
+   Epoch 1: create vote account with commission=1, earn credits.
+            Commission falls back to current (1) since no history.
+   Epoch 2: change commission to 2, earn credits.
+            Expect commission 1 (from t-2 fallback, since t-3 missing).
+   Epoch 3: change commission to 3, earn credits.
+            Expect commission 1 (t-3 still shows commission 1). */
+
+static void
+test_delay_commission_prestaked( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = DCU_SLOTS_PER_EPOCH;
+  params->root_slot          = DCU_ROOT_SLOT;
+  params->mock_validator_cnt = 1UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = dcu_inflation;
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, delay_commission_updates, 0UL );
+
+  fd_pubkey_t identity_key, vote_key, stake_key;
+  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+
+  /* Epoch 0: just delegate.  No vote account mutation needed since
+     mock validator already set up the vote account with commission=0.
+     Cross to epoch 1 - no reward expected. */
+  ulong e1_boundary = DCU_SLOTS_PER_EPOCH;
+  ulong distrib_0   = dcu_cross_epoch( mini, root_idx, e1_boundary );
+  fd_svm_mini_freeze( mini, distrib_0 );
+  fd_svm_mini_advance_root( mini, distrib_0 );
+
+  /* Epoch 1: set commission=1, add credits. */
+  patch_vote_account( mini, distrib_0, &vote_key, 1, 0UL, 1000UL, 0UL );
+
+  fd_xid_t xid_d0 = fd_svm_mini_xid( mini, distrib_0 );
+  ulong vote_lam_e1_before  = read_lamports( mini, &xid_d0, &vote_key );
+  ulong stake_lam_e1_before = read_lamports( mini, &xid_d0, &stake_key );
+
+  ulong e2_boundary = 2UL * DCU_SLOTS_PER_EPOCH;
+  ulong distrib_1   = dcu_cross_epoch( mini, distrib_0, e2_boundary );
+  fd_xid_t xid_d1   = fd_svm_mini_xid( mini, distrib_1 );
+
+  ulong voter_reward_1  = read_lamports( mini, &xid_d1, &vote_key )  - vote_lam_e1_before;
+  ulong staker_reward_1 = read_lamports( mini, &xid_d1, &stake_key ) - stake_lam_e1_before;
+  uchar inferred_comm_1 = dcu_infer_commission( voter_reward_1, staker_reward_1 );
+
+  FD_LOG_NOTICE(( "  epoch 1: inferred_comm=%u expected=1", (uint)inferred_comm_1 ));
+  FD_TEST( inferred_comm_1 == 1 );
+
+  fd_svm_mini_freeze( mini, distrib_1 );
+  fd_svm_mini_advance_root( mini, distrib_1 );
+
+  /* Epoch 2: change commission to 2, add credits. */
+  patch_vote_account( mini, distrib_1, &vote_key, 2, 1UL, 2000UL, 1000UL );
+
+  ulong vote_lam_e2_before  = read_lamports( mini, &xid_d1, &vote_key );
+  ulong stake_lam_e2_before = read_lamports( mini, &xid_d1, &stake_key );
+
+  ulong e3_boundary = 3UL * DCU_SLOTS_PER_EPOCH;
+  ulong distrib_2   = dcu_cross_epoch( mini, distrib_1, e3_boundary );
+  fd_xid_t xid_d2   = fd_svm_mini_xid( mini, distrib_2 );
+
+  ulong voter_reward_2  = read_lamports( mini, &xid_d2, &vote_key )  - vote_lam_e2_before;
+  ulong staker_reward_2 = read_lamports( mini, &xid_d2, &stake_key ) - stake_lam_e2_before;
+  uchar inferred_comm_2 = dcu_infer_commission( voter_reward_2, staker_reward_2 );
+
+  FD_LOG_NOTICE(( "  epoch 2: inferred_comm=%u expected=1", (uint)inferred_comm_2 ));
+  FD_TEST( inferred_comm_2 == 1 );
+
+  fd_svm_mini_freeze( mini, distrib_2 );
+  fd_svm_mini_advance_root( mini, distrib_2 );
+
+  /* Epoch 3: change commission to 3, add credits. */
+  patch_vote_account( mini, distrib_2, &vote_key, 3, 2UL, 3000UL, 2000UL );
+
+  ulong vote_lam_e3_before  = read_lamports( mini, &xid_d2, &vote_key );
+  ulong stake_lam_e3_before = read_lamports( mini, &xid_d2, &stake_key );
+
+  ulong e4_boundary = 4UL * DCU_SLOTS_PER_EPOCH;
+  ulong distrib_3   = dcu_cross_epoch( mini, distrib_2, e4_boundary );
+  fd_xid_t xid_d3   = fd_svm_mini_xid( mini, distrib_3 );
+
+  ulong voter_reward_3  = read_lamports( mini, &xid_d3, &vote_key )  - vote_lam_e3_before;
+  ulong staker_reward_3 = read_lamports( mini, &xid_d3, &stake_key ) - stake_lam_e3_before;
+  uchar inferred_comm_3 = dcu_infer_commission( voter_reward_3, staker_reward_3 );
+
+  FD_LOG_NOTICE(( "  epoch 3: inferred_comm=%u expected=1", (uint)inferred_comm_3 ));
+  FD_TEST( inferred_comm_3 == 1 );
+
+  FD_LOG_NOTICE(( "test_delay_commission_prestaked: PASSED" ));
+}
+
+/* Agave test_calculate_stake_vote_rewards_genesis_vote_account.
+   delay_commission_updates is always on.
+   Uses the genesis validator (which starts with commission=0).
+
+   Epoch 0: change commission to 1, earn credits.
+            Expect reward commission=0 (genesis initial).
+   Epoch 1: change commission to 2, earn credits.
+            Expect reward commission=0 (still genesis).
+   Epoch 2: earn credits only.
+            Expect reward commission=1 (delayed by 2 epochs from epoch 0 change).
+   Epoch 3: earn credits only.
+            Expect reward commission=2 (delayed from epoch 1 change).
+   Epoch 4: earn credits only.
+            Expect reward commission=2 (no further changes). */
+
+static void
+test_delay_commission_genesis_vote( fd_svm_mini_t * mini ) {
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch    = DCU_SLOTS_PER_EPOCH;
+  params->root_slot          = DCU_ROOT_SLOT;
+  params->mock_validator_cnt = 1UL;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
+  root_bank->f.inflation = dcu_inflation;
+  FD_FEATURE_SET_ACTIVE( &root_bank->f.features, delay_commission_updates, 0UL );
+
+  fd_pubkey_t identity_key, vote_key, stake_key;
+  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+
+  struct {
+    uchar new_commission;
+    int   set_commission;
+    ulong credits;
+    ulong prev_credits;
+    uchar expected_commission;
+  } epochs[] = {
+    { .set_commission=1, .new_commission=1, .credits=1000UL, .prev_credits=0UL,    .expected_commission=0 },
+    { .set_commission=1, .new_commission=2, .credits=2000UL, .prev_credits=1000UL, .expected_commission=0 },
+    { .set_commission=0,                    .credits=3000UL, .prev_credits=2000UL, .expected_commission=1 },
+    { .set_commission=0,                    .credits=4000UL, .prev_credits=3000UL, .expected_commission=2 },
+    { .set_commission=0,                    .credits=5000UL, .prev_credits=4000UL, .expected_commission=2 },
+  };
+  ulong num_epochs = sizeof(epochs)/sizeof(epochs[0]);
+
+  ulong prev_idx = root_idx;
+  uchar last_commission = 0;
+  for( ulong e=0UL; e<num_epochs; e++ ) {
+    uchar comm = epochs[e].set_commission ? epochs[e].new_commission : last_commission;
+    patch_vote_account( mini, prev_idx, &vote_key, comm,
+                        e, epochs[e].credits, epochs[e].prev_credits );
+    last_commission = comm;
+
+    fd_xid_t prev_xid = fd_svm_mini_xid( mini, prev_idx );
+    ulong vote_lam_before  = read_lamports( mini, &prev_xid, &vote_key );
+    ulong stake_lam_before = read_lamports( mini, &prev_xid, &stake_key );
+
+    ulong boundary = (e + 1UL) * DCU_SLOTS_PER_EPOCH;
+    ulong distrib  = dcu_cross_epoch( mini, prev_idx, boundary );
+    fd_xid_t xid_d = fd_svm_mini_xid( mini, distrib );
+
+    ulong voter_reward  = read_lamports( mini, &xid_d, &vote_key )  - vote_lam_before;
+    ulong staker_reward = read_lamports( mini, &xid_d, &stake_key ) - stake_lam_before;
+    uchar inferred = dcu_infer_commission( voter_reward, staker_reward );
+
+    FD_LOG_NOTICE(( "  epoch %lu: voter=%lu staker=%lu inferred_comm=%u expected=%u",
+                     e, voter_reward, staker_reward, (uint)inferred, (uint)epochs[e].expected_commission ));
+    FD_TEST( inferred == epochs[e].expected_commission );
+
+    fd_svm_mini_freeze( mini, distrib );
+    fd_svm_mini_advance_root( mini, distrib );
+    prev_idx = distrib;
+  }
+
+  FD_LOG_NOTICE(( "test_delay_commission_genesis_vote: PASSED" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1345,6 +1681,11 @@ main( int     argc,
   test_get_reward_distribution_num_blocks_normal();
   test_get_reward_distribution_num_blocks_warmup();
   test_get_reward_distribution_num_blocks_none();
+
+  test_delay_commission_new_vote_account( mini, 1 );
+  test_delay_commission_new_vote_account( mini, 0 );
+  test_delay_commission_prestaked( mini );
+  test_delay_commission_genesis_vote( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );
