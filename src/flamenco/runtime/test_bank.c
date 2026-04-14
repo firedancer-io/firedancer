@@ -586,7 +586,7 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   fd_pubkey_t vote_1  = { .ul[0] = 0x2002UL };
 
   fd_stake_delegations_t * root_stake_delegations = fd_banks_stake_delegations_root_query( banks_small );
-  fd_stake_delegations_root_update( root_stake_delegations, &stake_0, &vote_0, 11UL, 1UL, 2UL, 3UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
+  fd_stake_delegations_root_update( root_stake_delegations, &stake_0, &vote_0, 11UL, 1UL, 2UL, 3UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
   fd_stake_delegations_t * frontier_stake_delegations = fd_bank_stake_delegations_frontier_query( banks_small, root_bank );
   FD_TEST( fd_stake_delegations_cnt( frontier_stake_delegations )==1UL );
@@ -605,8 +605,8 @@ test_bank_stake_delegations_dynamic_sizing( void * mem ) {
   FD_TEST( child_bank );
 
   fd_stake_delegations_t * sd = fd_bank_stake_delegations_modify( child_bank );
-  fd_stake_delegations_fork_update( sd, child_bank->stake_delegations_fork_id, &stake_0, &vote_0, 33UL, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
-  fd_stake_delegations_fork_update( sd, child_bank->stake_delegations_fork_id, &stake_1, &vote_1, 22UL, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 );
+  fd_stake_delegations_fork_update( sd, child_bank->stake_delegations_fork_id, &stake_0, &vote_0, 33UL, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
+  fd_stake_delegations_fork_update( sd, child_bank->stake_delegations_fork_id, &stake_1, &vote_1, 22UL, 4UL, 5UL, 6UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   frontier_stake_delegations = fd_bank_stake_delegations_frontier_query( banks_small, child_bank );
   FD_TEST( fd_stake_delegations_cnt( frontier_stake_delegations )==2UL );
   stake_delegation = test_bank_frontier_delegation_query( banks_small, frontier_stake_delegations, &stake_0 );
@@ -757,7 +757,7 @@ main( int argc, char ** argv ) {
   fd_stake_delegations_t * sd_test = fd_bank_stake_delegations_modify( bank );
   bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( sd_test );
 
-  fd_stake_delegations_fork_update( sd_test, bank->stake_delegations_fork_id, &key_0, &key_9, 100UL, 100UL, 100UL, 100UL, 0.09 );
+  fd_stake_delegations_fork_update( sd_test, bank->stake_delegations_fork_id, &key_0, &key_9, 100UL, 100UL, 100UL, 100UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
 
   fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 1UL );
@@ -798,8 +798,8 @@ main( int argc, char ** argv ) {
   /* Make updates to delta */
 
   sd_test = fd_bank_stake_delegations_modify( bank2 );
-  fd_stake_delegations_fork_update( sd_test, bank2->stake_delegations_fork_id, &key_0, &key_0, 200UL, 100UL, 100UL, 100UL, 0.09 );
-  fd_stake_delegations_fork_update( sd_test, bank2->stake_delegations_fork_id, &key_1, &key_8, 100UL, 100UL, 100UL, 100UL, 0.09 );
+  fd_stake_delegations_fork_update( sd_test, bank2->stake_delegations_fork_id, &key_0, &key_0, 200UL, 100UL, 100UL, 100UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
+  fd_stake_delegations_fork_update( sd_test, bank2->stake_delegations_fork_id, &key_1, &key_8, 100UL, 100UL, 100UL, 100UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank2 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
   stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_0 );
@@ -825,7 +825,7 @@ main( int argc, char ** argv ) {
      the updates don't get incorrectly applied. */
 
   sd_test = fd_bank_stake_delegations_modify( bank3 );
-  fd_stake_delegations_fork_update( sd_test, bank3->stake_delegations_fork_id, &key_2, &key_7, 10UL, 100UL, 100UL, 100UL, 0.09 );
+  fd_stake_delegations_fork_update( sd_test, bank3->stake_delegations_fork_id, &key_2, &key_7, 10UL, 100UL, 100UL, 100UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank3 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
   stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_2 );
@@ -884,7 +884,7 @@ main( int argc, char ** argv ) {
   FD_TEST( bank7->f.capitalization == 2100UL );
 
   sd_test = fd_bank_stake_delegations_modify( bank7 );
-  fd_stake_delegations_fork_update( sd_test, bank7->stake_delegations_fork_id, &key_3, &key_6, 7UL, 100UL, 100UL, 100UL, 0.09 );
+  fd_stake_delegations_fork_update( sd_test, bank7->stake_delegations_fork_id, &key_3, &key_6, 7UL, 100UL, 100UL, 100UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank7 );
 
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
@@ -914,7 +914,7 @@ main( int argc, char ** argv ) {
   FD_TEST( bank8->f.capitalization == 2100UL );
 
   sd_test = fd_bank_stake_delegations_modify( bank8 );
-  fd_stake_delegations_fork_update( sd_test, bank8->stake_delegations_fork_id, &key_4, &key_5, 4UL, 100UL, 100UL, 100UL, 0.09 );
+  fd_stake_delegations_fork_update( sd_test, bank8->stake_delegations_fork_id, &key_4, &key_5, 4UL, 100UL, 100UL, 100UL, FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009 );
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank8 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 4UL );
   stake_delegation = test_bank_frontier_delegation_query( banks, stake_delegations, &key_4 );
