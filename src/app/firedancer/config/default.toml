@@ -968,9 +968,9 @@ telemetry = true
     mount_path = "/mnt/.fd"
 
     # The largest supported page size on the system.  Possible values
-    # are either "huge" (2 MiB) or "gigantic" (1 GiB).  Larger sizes
-    # yield better performance.  Smaller values may be required on
-    # virtualized environments like cloud providers.
+    # are "normal" (4 KiB), "huge" (2 MiB), or "gigantic" (1 GiB).
+    # Larger sizes yield better performance.  "normal" or "huge" may
+    # be required on virtualized environments like cloud providers.
     max_page_size = "gigantic"
 
     # Workspaces are either fully backed by "huge" or "gigantic" pages.

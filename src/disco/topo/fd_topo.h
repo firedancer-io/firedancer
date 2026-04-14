@@ -1229,20 +1229,24 @@ fd_topo_gigantic_page_cnt( fd_topo_t const * topo,
 
 /* This returns the number of huge pages in the application needed by
    the topology on the provided numa node.  It includes pages needed by
-   things placed in the hugetlbfs (workspaces, process stacks).  If
-   include_anonymous is true, it also includes anonymous hugepages which
-   are needed but are not placed in the hugetlbfs. */
+   things placed in the hugetlbfs (workspaces, process stacks). */
 
 FD_FN_PURE ulong
 fd_topo_huge_page_cnt( fd_topo_t const * topo,
-                       ulong             numa_idx,
-                       int               include_anonymous );
+                       ulong             numa_idx );
+
+/* Returns the number of normal pages in the application needed by the
+   topology on the provided NUMA node.  Includes extra pages. */
+
+FD_FN_PURE ulong
+fd_topo_normal_page_cnt( fd_topo_t const * topo,
+                         ulong             numa_idx );
 
 /* Returns the number of normal (4 KiB) pages needed by the topology
    for extra allocations like private key storage and XSK rings. */
 
 FD_FN_PURE ulong
-fd_topo_normal_page_cnt( fd_topo_t const * topo );
+fd_topo_extra_normal_page_cnt( fd_topo_t const * topo );
 
 /* Prints a message describing the topology to an output stream.  If
    stdout is true, will be written to stdout, otherwise will be written
