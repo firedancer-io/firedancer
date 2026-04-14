@@ -585,39 +585,61 @@ fd_vm_mem_haddr_tlb_miss( fd_vm_t const * vm,
   ulong offset = vaddr & FD_VM_OFFSET_MASK;
   ulong region_bits = region << FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS;
 
+  /* For input regions, do an integrated translate+TLB-populate using a
+     single binary search, avoiding the double lookup that would result
+     from calling fd_vm_mem_haddr (which searches) then searching again
+     to find the region bounds for the TLB entry. */
+  if( FD_UNLIKELY( region == FD_VM_INPUT_REGION ) ) {
+    if( FD_UNLIKELY( vm->input_mem_regions_cnt==0 ) ) return sentinel;
+
+    ulong idx = fd_vm_get_input_mem_region_idx( vm, offset );
+    if( FD_UNLIKELY( idx>=vm->input_mem_regions_cnt ) ) return sentinel;
+
+    fd_vm_input_region_t const * ir = &vm->input_mem_regions[ idx ];
+
+    ulong bytes_in_region = fd_ulong_sat_sub( ir->region_sz,
+                              fd_ulong_sat_sub( offset, ir->vaddr_offset ) );
+    if( FD_UNLIKELY( sz>bytes_in_region ) ) {
+      fd_vm_handle_input_mem_region_oob( vm, offset, sz, idx, write );
+      ir = &vm->input_mem_regions[ idx ];
+      bytes_in_region = fd_ulong_sat_sub( ir->region_sz,
+                          fd_ulong_sat_sub( offset, ir->vaddr_offset ) );
+      if( FD_UNLIKELY( sz>bytes_in_region ) ) return sentinel;
+    }
+
+    if( FD_UNLIKELY( write && ir->is_writable==0U ) ) return sentinel;
+
+    ulong haddr = ir->haddr + offset - ir->vaddr_offset;
+    *p_tlb_vaddr_lo   = region_bits | ir->vaddr_offset;
+    *p_tlb_vaddr_hi   = region_bits | (ir->vaddr_offset + ir->region_sz);
+    *p_tlb_haddr_base = ir->haddr   - ir->vaddr_offset;
+    return haddr;
+  }
+
+  /* Non-input regions: delegate to fd_vm_mem_haddr for the full
+     translation (stack gap handling, lazy zeroing, bounds checks),
+     then populate the TLB entry. */
   ulong haddr = fd_vm_mem_haddr( vm, vaddr, sz, vm_region_haddr, vm_region_sz, write, sentinel );
 
   if( FD_LIKELY( haddr != sentinel ) ) {
     *p_tlb_haddr_base = haddr - offset;
 
-    if( FD_LIKELY( region != FD_VM_INPUT_REGION ) ) {
-      if( FD_UNLIKELY( region == FD_VM_STACK_REGION && stack_gaps_enabled ) ) {
-        /* Stack with gaps: TLB covers one 4KB data frame (contains 2 lazy pages).
-           Pre-zero all pages in the frame so TLB hits are safe.
-           The gap adjustment maps virtual frame_base to physical frame_base>>1. */
-        ulong frame_base = offset & ~0x1FFFUL;
-        *p_tlb_vaddr_lo = region_bits | frame_base;
-        *p_tlb_vaddr_hi = region_bits | (frame_base + 0x1000UL);
-        {
-          fd_vm_t * vm_mut  = (fd_vm_t *)vm;
-          ulong     phys_lo = frame_base >> 1;
-          fd_vm_lazy_zero_range( vm_mut->stack_zero_bitmap, vm_mut->stack, phys_lo, 0x1000UL );
-        }
-      } else if( FD_UNLIKELY( region == FD_VM_STACK_REGION || region == FD_VM_HEAP_REGION ) ) {
-        ulong page_base = offset & ~(FD_VM_LAZY_PAGE_SZ - 1UL);
-        *p_tlb_vaddr_lo = region_bits | page_base;
-        *p_tlb_vaddr_hi = region_bits | (page_base + FD_VM_LAZY_PAGE_SZ);
-      } else {
-        *p_tlb_vaddr_lo = region_bits;
-        *p_tlb_vaddr_hi = region_bits | (ulong)vm_region_sz[ region ];
+    if( FD_UNLIKELY( region == FD_VM_STACK_REGION && stack_gaps_enabled ) ) {
+      ulong frame_base = offset & ~0x1FFFUL;
+      *p_tlb_vaddr_lo = region_bits | frame_base;
+      *p_tlb_vaddr_hi = region_bits | (frame_base + 0x1000UL);
+      {
+        fd_vm_t * vm_mut  = (fd_vm_t *)vm;
+        ulong     phys_lo = frame_base >> 1;
+        fd_vm_lazy_zero_range( vm_mut->stack_zero_bitmap, vm_mut->stack, phys_lo, 0x1000UL );
       }
+    } else if( FD_UNLIKELY( region == FD_VM_STACK_REGION || region == FD_VM_HEAP_REGION ) ) {
+      ulong page_base = offset & ~(FD_VM_LAZY_PAGE_SZ - 1UL);
+      *p_tlb_vaddr_lo = region_bits | page_base;
+      *p_tlb_vaddr_hi = region_bits | (page_base + FD_VM_LAZY_PAGE_SZ);
     } else {
-      ulong idx = fd_vm_get_input_mem_region_idx( vm, offset );
-      *p_tlb_vaddr_lo   = region_bits | vm->input_mem_regions[ idx ].vaddr_offset;
-      *p_tlb_vaddr_hi   = region_bits | (vm->input_mem_regions[ idx ].vaddr_offset
-                                        + vm->input_mem_regions[ idx ].region_sz);
-      *p_tlb_haddr_base = vm->input_mem_regions[ idx ].haddr
-                        - vm->input_mem_regions[ idx ].vaddr_offset;
+      *p_tlb_vaddr_lo = region_bits;
+      *p_tlb_vaddr_hi = region_bits | (ulong)vm_region_sz[ region ];
     }
   }
 
@@ -650,8 +672,10 @@ fd_vm_mem_haddr_with_tlb( fd_vm_t const * vm,
                           ulong *         p_tlb_vaddr_lo,
                           ulong *         p_tlb_vaddr_hi,
                           int             stack_gaps_enabled ) {
+  ulong vaddr_end = vaddr + sz;
   if( FD_LIKELY( vaddr >= *p_tlb_vaddr_lo
-              && (vaddr + sz) <= *p_tlb_vaddr_hi ) ) {
+              && vaddr_end <= *p_tlb_vaddr_hi
+              && vaddr_end >= vaddr ) ) {
     return *p_tlb_haddr_base + (uint)vaddr;
   }
 

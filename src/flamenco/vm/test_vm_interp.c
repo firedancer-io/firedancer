@@ -687,6 +687,449 @@ test_lazy_zero_bench( fd_runtime_t *       runtime,
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
+
+/* Direct-mapping TLB tests.
+
+   Simulate DM-style fragmented input regions with small token-account-
+   sized data (165 bytes) and separate metadata regions.  Three
+   scenarios:
+
+   1. dm_contiguous:  Sequential loads within one account's data region.
+      Models a p-token transfer reading/writing a single account — the
+      TLB should hit ~100% after the first miss.
+
+   2. dm_alternating: Alternating loads between two different account
+      data regions.  Every load switches fragment, causing a TLB miss.
+      Worst-case for a single-slot TLB under DM.
+
+   3. dm_resize:      Writes past the end of a writable data region
+      with VAS enabled, triggering fd_vm_handle_input_mem_region_oob
+      to grow region_sz.  Verifies the TLB picks up the new size on
+      the next miss.
+
+   All three use the interpreter (fd_vm_exec) so the soft TLB is
+   exercised end-to-end. */
+
+/* Token account data size (SPL Token Account layout) */
+#define DM_TEST_ACCT_DLEN        (165UL)
+/* Per-account metadata serialized before data: 88 bytes (ABI v1) */
+#define DM_TEST_META_SZ          (88UL)
+/* address_space_reserved = dlen + MAX_PERMITTED_DATA_INCREASE (10 KB) */
+#define DM_TEST_ADDR_RESERVED    (DM_TEST_ACCT_DLEN + MAX_PERMITTED_DATA_INCREASE)
+
+/* Build a DM-style input_mem_regions array for N_ACCTS token accounts.
+   Layout per account:
+     region[2*i]   = metadata region  (DM_TEST_META_SZ bytes, writable)
+     region[2*i+1] = data region      (DM_TEST_ACCT_DLEN bytes, writable, haddr -> acct_data_bufs[i])
+   vaddr_offsets are contiguous: meta0 | data0 (reserved) | meta1 | data1 (reserved) | ... */
+
+#define DM_TEST_MAX_ACCTS (4)
+
+static void
+dm_test_build_regions( fd_vm_input_region_t    regions[ /* 2*n_accts */ ],
+                       uchar *                 meta_buf,        /* at least DM_TEST_META_SZ * n_accts */
+                       uchar *                 acct_data_bufs[],/* n_accts pointers, each >= DM_TEST_ADDR_RESERVED */
+                       fd_vm_acc_region_meta_t arm[],            /* n_accts entries */
+                       ulong                   n_accts ) {
+  ulong vaddr = 0UL;
+  for( ulong i = 0; i < n_accts; i++ ) {
+    /* Metadata region */
+    regions[2*i].vaddr_offset           = vaddr;
+    regions[2*i].haddr                  = (ulong)(meta_buf + i * DM_TEST_META_SZ);
+    regions[2*i].region_sz              = (uint)DM_TEST_META_SZ;
+    regions[2*i].address_space_reserved = DM_TEST_META_SZ;
+    regions[2*i].is_writable            = 1;
+    regions[2*i].acc_region_meta_idx    = ULONG_MAX;
+    vaddr += DM_TEST_META_SZ;
+
+    /* Data region — haddr points at the account's backing buffer */
+    regions[2*i+1].vaddr_offset           = vaddr;
+    regions[2*i+1].haddr                  = (ulong)acct_data_bufs[i];
+    regions[2*i+1].region_sz              = (uint)DM_TEST_ACCT_DLEN;
+    regions[2*i+1].address_space_reserved = DM_TEST_ADDR_RESERVED;
+    regions[2*i+1].is_writable            = 1;
+    regions[2*i+1].acc_region_meta_idx    = i;
+    vaddr += DM_TEST_ADDR_RESERVED;
+
+    arm[i].region_idx        = (uint)(2*i+1);
+    arm[i].original_data_len = DM_TEST_ACCT_DLEN;
+    arm[i].meta              = NULL;
+  }
+}
+
+static void
+test_dm_tlb( fd_runtime_t *       runtime,
+             fd_sbpf_syscalls_t * syscalls ) {
+
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_exec_instr_ctx_t instr_ctx[1];
+  fd_bank_t           bank[1];
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+
+  /* Backing buffers for 4 token accounts (165 B data + 10 KB realloc headroom). */
+
+  static uchar acct_data_0[ DM_TEST_ADDR_RESERVED ];
+  static uchar acct_data_1[ DM_TEST_ADDR_RESERVED ];
+  static uchar acct_data_2[ DM_TEST_ADDR_RESERVED ];
+  static uchar acct_data_3[ DM_TEST_ADDR_RESERVED ];
+  uchar * acct_data_bufs[DM_TEST_MAX_ACCTS] = { acct_data_0, acct_data_1, acct_data_2, acct_data_3 };
+
+  /* Fill each account's data region with a recognizable pattern */
+  for( ulong a = 0; a < DM_TEST_MAX_ACCTS; a++ ) {
+    memset( acct_data_bufs[a], 0, DM_TEST_ADDR_RESERVED );
+    for( ulong j = 0; j < DM_TEST_ACCT_DLEN; j++ ) {
+      acct_data_bufs[a][j] = (uchar)((a + 1) * 0x11 + j);
+    }
+  }
+
+  static uchar meta_buf[ DM_TEST_META_SZ * DM_TEST_MAX_ACCTS ];
+  memset( meta_buf, 0xAA, sizeof(meta_buf) );
+
+  /* === Test 1: dm_contiguous ===
+     Load 1M times sequentially within account 0's data region.
+     Expect ~100% TLB hit rate after the first miss. */
+  {
+    ulong n_accts = 2;
+    fd_vm_input_region_t    regions[ 2 * DM_TEST_MAX_ACCTS ];
+    fd_vm_acc_region_meta_t arm[ DM_TEST_MAX_ACCTS ];
+    memset( arm, 0, sizeof(arm) );
+    dm_test_build_regions( regions, meta_buf, acct_data_bufs, arm, n_accts );
+
+    /* Data region 0 starts at vaddr_offset = DM_TEST_META_SZ within input space.
+       Input vaddr = 0x400000000 + DM_TEST_META_SZ + byte_offset */
+    ulong data0_input_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START + DM_TEST_META_SZ;
+
+    ulong load_cnt = 1024UL * 1024UL;
+    ulong text_cnt = 2UL + load_cnt + 1UL;
+    ulong * text   = (ulong *)malloc( sizeof(ulong) * text_cnt );
+    FD_TEST( text );
+
+    /* LDDW r1, data0_input_vaddr */
+    text[0] = fd_vm_instr( FD_SBPF_OP_LDDW, 1, 0, 0, (uint)(data0_input_vaddr) );
+    text[1] = fd_vm_instr( 0, 0, 0, 0, (uint)(data0_input_vaddr >> 32) );
+
+    for( ulong i = 0; i < load_cnt; i++ ) {
+      short off = (short)(( i * 8UL ) % (DM_TEST_ACCT_DLEN - 8UL));
+      text[2 + i] = fd_vm_instr( FD_SBPF_OP_LDXDW, 0, 1, off, 0 );
+    }
+    text[text_cnt - 1] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    fd_vm_t _vm[1];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    FD_TEST( vm );
+
+    int vm_ok = !!fd_vm_init(
+        vm, instr_ctx, FD_VM_HEAP_DEFAULT, text_cnt + 10UL,
+        (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+        0UL, NULL, FD_SBPF_V0, syscalls, NULL, sha,
+        regions, (uint)(n_accts * 2), arm, 0,
+        1 /* direct_mapping */,
+        0 /* syscall_parameter_address_restrictions */,
+        0 /* virtual_address_space_adjustments */,
+        0, 0UL );
+    FD_TEST( vm_ok );
+    vm->pc = vm->entry_pc; vm->ic = 0UL; vm->cu = vm->entry_cu;
+    vm->frame_cnt = 0UL; vm->heap_sz = 0UL;
+    fd_vm_mem_cfg( vm );
+    FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+
+    long dt = -fd_log_wallclock();
+    int err = fd_vm_exec( vm );
+    dt += fd_log_wallclock();
+
+    FD_TEST( err==FD_VM_SUCCESS );
+    FD_LOG_NOTICE(( "%-20s %11li ns (%.1f ns/load, %lu loads)",
+      "dm_contiguous", dt, (double)dt / (double)load_cnt, load_cnt ));
+
+    free( text );
+    fd_vm_delete( fd_vm_leave( vm ) );
+  }
+
+  /* === Test 2: dm_alternating ===
+     Alternate loads between account 0 and account 1 data regions.
+     Every load misses the single-slot TLB (worst case). */
+  {
+    ulong n_accts = 2;
+    fd_vm_input_region_t    regions[ 2 * DM_TEST_MAX_ACCTS ];
+    fd_vm_acc_region_meta_t arm[ DM_TEST_MAX_ACCTS ];
+    memset( arm, 0, sizeof(arm) );
+    dm_test_build_regions( regions, meta_buf, acct_data_bufs, arm, n_accts );
+
+    ulong data0_input_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START + DM_TEST_META_SZ;
+    ulong data1_input_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START
+                            + DM_TEST_META_SZ + DM_TEST_ADDR_RESERVED
+                            + DM_TEST_META_SZ;
+
+    /* Program:
+       LDDW r1, data0_vaddr    (2 words)
+       LDDW r2, data1_vaddr    (2 words)
+       loop body (2 instrs per iter): ldxdw r0,[r1+off] ; ldxdw r0,[r2+off]
+       exit */
+    ulong load_pairs = 512UL * 1024UL;
+    ulong text_cnt   = 4UL + load_pairs * 2UL + 1UL;
+    ulong * text     = (ulong *)malloc( sizeof(ulong) * text_cnt );
+    FD_TEST( text );
+
+    text[0] = fd_vm_instr( FD_SBPF_OP_LDDW, 1, 0, 0, (uint)(data0_input_vaddr) );
+    text[1] = fd_vm_instr( 0, 0, 0, 0, (uint)(data0_input_vaddr >> 32) );
+    text[2] = fd_vm_instr( FD_SBPF_OP_LDDW, 2, 0, 0, (uint)(data1_input_vaddr) );
+    text[3] = fd_vm_instr( 0, 0, 0, 0, (uint)(data1_input_vaddr >> 32) );
+
+    for( ulong i = 0; i < load_pairs; i++ ) {
+      short off = (short)(( i * 8UL ) % (DM_TEST_ACCT_DLEN - 8UL));
+      text[4 + i*2]     = fd_vm_instr( FD_SBPF_OP_LDXDW, 0, 1, off, 0 );
+      text[4 + i*2 + 1] = fd_vm_instr( FD_SBPF_OP_LDXDW, 0, 2, off, 0 );
+    }
+    text[text_cnt - 1] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    fd_vm_t _vm[1];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    FD_TEST( vm );
+
+    int vm_ok = !!fd_vm_init(
+        vm, instr_ctx, FD_VM_HEAP_DEFAULT, text_cnt + 10UL,
+        (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+        0UL, NULL, FD_SBPF_V0, syscalls, NULL, sha,
+        regions, (uint)(n_accts * 2), arm, 0,
+        1 /* direct_mapping */,
+        0 /* syscall_parameter_address_restrictions */,
+        0 /* virtual_address_space_adjustments */,
+        0, 0UL );
+    FD_TEST( vm_ok );
+    vm->pc = vm->entry_pc; vm->ic = 0UL; vm->cu = vm->entry_cu;
+    vm->frame_cnt = 0UL; vm->heap_sz = 0UL;
+    fd_vm_mem_cfg( vm );
+    FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+
+    long dt = -fd_log_wallclock();
+    int err = fd_vm_exec( vm );
+    dt += fd_log_wallclock();
+
+    ulong total_loads = load_pairs * 2UL;
+    FD_TEST( err==FD_VM_SUCCESS );
+    FD_LOG_NOTICE(( "%-20s %11li ns (%.1f ns/load, %lu loads)",
+      "dm_alternating", dt, (double)dt / (double)total_loads, total_loads ));
+
+    free( text );
+    fd_vm_delete( fd_vm_leave( vm ) );
+  }
+
+  /* === Test 3: dm_resize ===
+     With VAS + DM, write past the current region_sz to trigger
+     fd_vm_handle_input_mem_region_oob, which grows region_sz.
+     Then read back to verify the TLB picks up the new size.
+
+     The account data region starts with region_sz = DM_TEST_ACCT_DLEN
+     (165 B) and address_space_reserved = DM_TEST_ADDR_RESERVED (~10 KB).
+     We write at offset 200 (past 165), triggering resize, then read
+     it back and verify. */
+  {
+    ulong n_accts = 1;
+    fd_vm_input_region_t    regions[ 2 * DM_TEST_MAX_ACCTS ];
+    fd_vm_acc_region_meta_t arm[ DM_TEST_MAX_ACCTS ];
+    memset( arm, 0, sizeof(arm) );
+    dm_test_build_regions( regions, meta_buf, acct_data_bufs, arm, n_accts );
+
+    /* We need a real fd_account_meta_t for the resize path to call
+       fd_account_meta_resize on.  Place it at the start of the data buffer. */
+    static uchar resize_acct_buf[ sizeof(fd_account_meta_t) + DM_TEST_ADDR_RESERVED ]
+      __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+    memset( resize_acct_buf, 0, sizeof(resize_acct_buf) );
+    fd_account_meta_t * resize_meta = (fd_account_meta_t *)resize_acct_buf;
+    resize_meta->dlen = (uint)DM_TEST_ACCT_DLEN;
+
+    uchar * resize_data = resize_acct_buf + sizeof(fd_account_meta_t);
+    for( ulong j = 0; j < DM_TEST_ACCT_DLEN; j++ ) resize_data[j] = (uchar)(0x11 + j);
+
+    /* Point the data region haddr at resize_data (past the meta header) */
+    regions[1].haddr = (ulong)resize_data;
+    arm[0].meta = resize_meta;
+
+    ulong data0_input_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START + DM_TEST_META_SZ;
+
+    /* Program:
+       LDDW r1, data0_input_vaddr   (2 words)
+       MOV64_IMM r3, 0xBE           (marker byte value)
+       STB [r1+200], r3             (write at offset 200 — past region_sz=165, triggers resize)
+       LDXB r0, [r1+200]            (read back — should get 0xBE)
+       EXIT */
+    ulong text_cnt = 6UL;
+    ulong * text = (ulong *)malloc( sizeof(ulong) * text_cnt );
+    FD_TEST( text );
+
+    text[0] = fd_vm_instr( FD_SBPF_OP_LDDW, 1, 0, 0, (uint)(data0_input_vaddr) );
+    text[1] = fd_vm_instr( 0, 0, 0, 0, (uint)(data0_input_vaddr >> 32) );
+    text[2] = fd_vm_instr( FD_SBPF_OP_MOV64_IMM, 3, 0, 0, 0xBE );
+    text[3] = fd_vm_instr( FD_SBPF_OP_STXB, 1, 3, 200, 0 );
+    text[4] = fd_vm_instr( FD_SBPF_OP_LDXB, 0, 1, 200, 0 );
+    text[5] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    fd_vm_t _vm[1];
+    fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+    FD_TEST( vm );
+
+    int vm_ok = !!fd_vm_init(
+        vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+        (uchar *)text, 8UL*text_cnt, text, text_cnt, 0UL, 8UL*text_cnt,
+        0UL, NULL, FD_SBPF_V0, syscalls, NULL, sha,
+        regions, (uint)(n_accts * 2), arm, 0,
+        1 /* direct_mapping */,
+        0 /* syscall_parameter_address_restrictions */,
+        1 /* virtual_address_space_adjustments */,
+        0, 0UL );
+    FD_TEST( vm_ok );
+    vm->pc = vm->entry_pc; vm->ic = 0UL; vm->cu = vm->entry_cu;
+    vm->frame_cnt = 0UL; vm->heap_sz = 0UL;
+    fd_vm_mem_cfg( vm );
+    FD_TEST( fd_vm_validate( vm )==FD_VM_SUCCESS );
+
+    int err = fd_vm_exec( vm );
+    FD_TEST( err==FD_VM_SUCCESS );
+
+    /* Verify: r0 should hold 0xBE (the byte we wrote past the original region_sz) */
+    FD_TEST( vm->reg[0] == 0xBEUL );
+
+    /* Verify: region_sz was grown past the original 165 */
+    FD_TEST( regions[1].region_sz > DM_TEST_ACCT_DLEN );
+
+    FD_LOG_NOTICE(( "%-20s PASS (region grew from %lu to %u, read back 0x%lx)",
+      "dm_resize", DM_TEST_ACCT_DLEN, regions[1].region_sz, vm->reg[0] ));
+
+    free( text );
+    fd_vm_delete( fd_vm_leave( vm ) );
+  }
+
+  fd_sha256_delete( fd_sha256_leave( sha ) );
+}
+
+
+/* Direct translation microbenchmark: isolates fd_vm_mem_haddr vs
+   fd_vm_mem_haddr_with_tlb cost for DM-style fragmented input regions
+   by calling them directly in a loop (no interpreter overhead). */
+
+static void
+test_dm_translate_bench( fd_runtime_t *       runtime,
+                         fd_sbpf_syscalls_t * syscalls ) {
+  (void)syscalls;
+
+  fd_sha256_t _sha[1];
+  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+
+  fd_exec_instr_ctx_t instr_ctx[1];
+  fd_bank_t           bank[1];
+  fd_txn_out_t        txn_out[1];
+  test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
+
+  static uchar acct_data_0[ DM_TEST_ADDR_RESERVED ];
+  static uchar acct_data_1[ DM_TEST_ADDR_RESERVED ];
+  uchar * acct_data_bufs[DM_TEST_MAX_ACCTS] = { acct_data_0, acct_data_1, NULL, NULL };
+  static uchar meta_buf[ DM_TEST_META_SZ * DM_TEST_MAX_ACCTS ];
+  memset( meta_buf, 0xAA, sizeof(meta_buf) );
+  memset( acct_data_0, 0x11, DM_TEST_ACCT_DLEN );
+  memset( acct_data_1, 0x22, DM_TEST_ACCT_DLEN );
+
+  ulong n_accts = 2;
+  fd_vm_input_region_t    regions[ 2 * DM_TEST_MAX_ACCTS ];
+  fd_vm_acc_region_meta_t arm[ DM_TEST_MAX_ACCTS ];
+  memset( arm, 0, sizeof(arm) );
+  dm_test_build_regions( regions, meta_buf, acct_data_bufs, arm, n_accts );
+
+  /* vaddrs for byte 0 of each data region */
+  ulong vaddr0 = FD_VM_MEM_MAP_INPUT_REGION_START + DM_TEST_META_SZ;
+  ulong vaddr1 = FD_VM_MEM_MAP_INPUT_REGION_START
+               + DM_TEST_META_SZ + DM_TEST_ADDR_RESERVED
+               + DM_TEST_META_SZ;
+
+  fd_vm_t _vm[1];
+  fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
+  FD_TEST( vm );
+
+  ulong dummy_text[2] = { fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 ), 0 };
+  int vm_ok = !!fd_vm_init(
+      vm, instr_ctx, FD_VM_HEAP_DEFAULT, 100UL,
+      (uchar *)dummy_text, 8UL, dummy_text, 1UL, 0UL, 8UL,
+      0UL, NULL, FD_SBPF_V0, syscalls, NULL, sha,
+      regions, (uint)(n_accts * 2), arm, 0,
+      1 /* direct_mapping */, 0, 0, 0, 0UL );
+  FD_TEST( vm_ok );
+  vm->pc = 0; vm->ic = 0; vm->cu = 100; vm->frame_cnt = 0; vm->heap_sz = 0;
+  fd_vm_mem_cfg( vm );
+
+  ulong const N = 1UL << 20;
+
+  /* --- Bench 1: fd_vm_mem_haddr alternating (no TLB, DM baseline) --- */
+  {
+    ulong haddr;
+    volatile ulong sink = 0;
+    long dt = -fd_log_wallclock();
+    for( ulong i = 0; i < N; i++ ) {
+      ulong vaddr = (i & 1) ? vaddr1 : vaddr0;
+      haddr = fd_vm_mem_haddr( vm, vaddr, 8UL, vm->region_haddr, vm->region_ld_sz, 0, 0UL );
+      sink += haddr;
+    }
+    dt += fd_log_wallclock();
+    (void)sink;
+    FD_LOG_NOTICE(( "%-20s %11li ns (%.1f ns/xlat, %lu xlats)",
+      "dm_raw_alt", dt, (double)dt / (double)N, N ));
+  }
+
+  /* --- Bench 2: fd_vm_mem_haddr contiguous (no TLB, DM baseline) --- */
+  {
+    ulong haddr;
+    volatile ulong sink = 0;
+    long dt = -fd_log_wallclock();
+    for( ulong i = 0; i < N; i++ ) {
+      haddr = fd_vm_mem_haddr( vm, vaddr0, 8UL, vm->region_haddr, vm->region_ld_sz, 0, 0UL );
+      sink += haddr;
+    }
+    dt += fd_log_wallclock();
+    (void)sink;
+    FD_LOG_NOTICE(( "%-20s %11li ns (%.1f ns/xlat, %lu xlats)",
+      "dm_raw_contig", dt, (double)dt / (double)N, N ));
+  }
+
+  /* --- Bench 3: fd_vm_mem_haddr_with_tlb alternating (100% miss) --- */
+  {
+    ulong tlb_ld_haddr_base = 0, tlb_ld_vaddr_lo = 0, tlb_ld_vaddr_hi = 0;
+    ulong haddr;
+    volatile ulong sink = 0;
+    long dt = -fd_log_wallclock();
+    for( ulong i = 0; i < N; i++ ) {
+      ulong vaddr = (i & 1) ? vaddr1 : vaddr0;
+      haddr = fd_vm_mem_haddr_with_tlb( vm, vaddr, 8UL, vm->region_haddr, vm->region_ld_sz, 0, 0UL,
+        &tlb_ld_haddr_base, &tlb_ld_vaddr_lo, &tlb_ld_vaddr_hi, 0 );
+      sink += haddr;
+    }
+    dt += fd_log_wallclock();
+    (void)sink;
+    FD_LOG_NOTICE(( "%-20s %11li ns (%.1f ns/xlat, %lu xlats)",
+      "dm_tlb_alt", dt, (double)dt / (double)N, N ));
+  }
+
+  /* --- Bench 4: fd_vm_mem_haddr_with_tlb contiguous (100% hit after 1st) --- */
+  {
+    ulong tlb_ld_haddr_base = 0, tlb_ld_vaddr_lo = 0, tlb_ld_vaddr_hi = 0;
+    ulong haddr;
+    volatile ulong sink = 0;
+    long dt = -fd_log_wallclock();
+    for( ulong i = 0; i < N; i++ ) {
+      haddr = fd_vm_mem_haddr_with_tlb( vm, vaddr0, 8UL, vm->region_haddr, vm->region_ld_sz, 0, 0UL,
+        &tlb_ld_haddr_base, &tlb_ld_vaddr_lo, &tlb_ld_vaddr_hi, 0 );
+      sink += haddr;
+    }
+    dt += fd_log_wallclock();
+    (void)sink;
+    FD_LOG_NOTICE(( "%-20s %11li ns (%.1f ns/xlat, %lu xlats)",
+      "dm_tlb_contig", dt, (double)dt / (double)N, N ));
+  }
+
+  fd_vm_delete( fd_vm_leave( vm ) );
+  fd_sha256_delete( fd_sha256_leave( sha ) );
+}
+
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
 int
@@ -2163,6 +2606,8 @@ main( int     argc,
   test_mem_ld_bench( runtime, syscalls );
   test_branch_bench( runtime, syscalls );
   test_lazy_zero_bench( runtime, syscalls );
+  test_dm_tlb( runtime, syscalls );
+  test_dm_translate_bench( runtime, syscalls );
 
 
   free( text );
