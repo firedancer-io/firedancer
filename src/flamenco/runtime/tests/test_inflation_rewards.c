@@ -5,11 +5,14 @@
 #include "../../rewards/fd_stake_rewards.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../../stakes/fd_stake_delegations.h"
+#include "../../stakes/fd_vote_stakes.h"
+#include "../../stakes/fd_top_votes.h"
 #include "../../features/fd_features.h"
 #include "../program/fd_vote_program.h"
 #include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_rent.h"
 #include <stdlib.h>
 
 static ulong
@@ -1333,6 +1336,127 @@ static fd_inflation_t const dcu_inflation = {
   .foundation_term = 7.0,
 };
 
+/* Create a fresh vote + stake account pair for delay-commission tests.
+   Unlike the mock validator setup, this does NOT pre-populate vote_stakes
+   or top_votes with stale commission history.  That way, the first epoch
+   boundary will discover the account fresh and the delayed commission
+   path won't have phantom t-3 history with commission=0.
+
+   Also creates the leader schedule so the runtime doesn't crash. */
+
+static void
+dcu_create_validator( fd_svm_mini_t * mini,
+                      fd_bank_t *     bank,
+                      fd_pubkey_t *   identity_out,
+                      fd_pubkey_t *   vote_out,
+                      fd_pubkey_t *   stake_out,
+                      uchar           commission,
+                      ulong           stake_amount ) {
+  ulong const vote_min_bal  = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V3_SZ );
+  ulong const stake_min_bal = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_STAKE_STATE_SZ );
+
+  fd_rng_t rng[1];
+  fd_rng_join( fd_rng_new( rng, 99U, 0UL ) );
+  for( ulong j=0UL; j<4UL; j++ ) identity_out->ul[j] = fd_rng_ulong( rng );
+  for( ulong j=0UL; j<4UL; j++ ) vote_out->ul[j]     = fd_rng_ulong( rng );
+  for( ulong j=0UL; j<4UL; j++ ) stake_out->ul[j]     = fd_rng_ulong( rng );
+  fd_rng_delete( fd_rng_leave( rng ) );
+
+  /* Vote account with the specified commission */
+  {
+    uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
+    fd_vote_state_versioned_t versioned[1];
+    fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
+
+    fd_vote_state_v3_t * vs   = &versioned->v3;
+    vs->node_pubkey           = *identity_out;
+    vs->authorized_withdrawer = *identity_out;
+    vs->commission            = commission;
+
+    fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( vs->authorized_voters.pool );
+    *ele = (fd_vote_authorized_voter_t){
+      .epoch  = 0UL,
+      .pubkey = *identity_out,
+      .prio   = identity_out->uc[0],
+    };
+    fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
+    FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
+
+    fd_account_meta_t meta = { .lamports = vote_min_bal, .dlen = FD_VOTE_STATE_V3_SZ };
+    memcpy( meta.owner, fd_solana_vote_program_id.uc, 32UL );
+    fd_accdb_ro_t ro[1];
+    fd_accdb_ro_init_nodb_oob( ro, vote_out, &meta, vote_state_data );
+    fd_svm_mini_put_account_rooted( mini, ro );
+  }
+
+  /* Stake account */
+  {
+    uchar stake_data[ FD_STAKE_STATE_SZ ] = {0};
+    FD_STORE( fd_stake_state_t, stake_data, ((fd_stake_state_t) {
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = {
+        .meta = {
+          .rent_exempt_reserve = stake_min_bal,
+          .staker              = *identity_out,
+          .withdrawer          = *identity_out,
+        },
+        .stake = (fd_stake_t) {
+          .delegation = (fd_delegation_t) {
+            .voter_pubkey         = *vote_out,
+            .stake                = stake_amount,
+            .activation_epoch     = ULONG_MAX,
+            .deactivation_epoch   = ULONG_MAX,
+            .warmup_cooldown_rate = 0.25,
+          },
+          .credits_observed = 0UL,
+        },
+      },
+    }) );
+
+    fd_account_meta_t meta = {
+      .lamports = fd_ulong_max( stake_min_bal, stake_amount ),
+      .dlen     = FD_STAKE_STATE_SZ,
+    };
+    memcpy( meta.owner, fd_solana_stake_program_id.uc, 32UL );
+    fd_accdb_ro_t ro[1];
+    fd_accdb_ro_init_nodb_oob( ro, stake_out, &meta, stake_data );
+    fd_svm_mini_put_account_rooted( mini, ro );
+  }
+
+  /* Register with stake delegations, vote_stakes, and top_votes. */
+  fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( mini->banks );
+  fd_stake_delegations_root_update( sd, stake_out, vote_out,
+                                    stake_amount,
+                                    ULONG_MAX,
+                                    ULONG_MAX,
+                                    0UL,
+                                    0.25 );
+
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+  fd_vote_stakes_root_insert_key ( vote_stakes, vote_out, identity_out, stake_amount, commission, 0UL );
+  fd_vote_stakes_root_update_meta( vote_stakes, vote_out, identity_out, stake_amount, commission, 0UL );
+  fd_vote_stakes_genesis_fini( vote_stakes );
+
+  fd_top_votes_t * tv1 = fd_bank_top_votes_t_1_modify( bank );
+  fd_top_votes_t * tv2 = fd_bank_top_votes_t_2_modify( bank );
+  fd_top_votes_insert( tv1, vote_out, identity_out, stake_amount, commission );
+  fd_top_votes_insert( tv2, vote_out, identity_out, stake_amount, commission );
+
+  /* Create a minimal leader schedule so the runtime doesn't crash. */
+  fd_vote_stake_weight_t weight = {
+    .vote_key = *vote_out,
+    .id_key   = *identity_out,
+    .stake    = stake_amount,
+  };
+  ulong epoch    = bank->f.epoch;
+  ulong slot0    = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
+  ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
+
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
+      leaders_mem, epoch, slot0, slot_cnt, 1UL, &weight, 0UL ) ) );
+}
+
 /* Step from the current epoch boundary through freeze + distribution,
    returning the bank index of the distribution slot.  prev_idx must
    already be frozen and rooted.  epoch_boundary_slot is the first slot
@@ -1385,7 +1509,7 @@ test_delay_commission_new_vote_account( fd_svm_mini_t * mini,
   fd_svm_mini_params_default( params );
   params->slots_per_epoch    = DCU_SLOTS_PER_EPOCH;
   params->root_slot          = DCU_ROOT_SLOT;
-  params->mock_validator_cnt = 1UL;
+  params->mock_validator_cnt = 0UL;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
@@ -1396,9 +1520,13 @@ test_delay_commission_new_vote_account( fd_svm_mini_t * mini,
   }
 
   fd_pubkey_t identity_key, vote_key, stake_key;
-  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+  dcu_create_validator( mini, root_bank, &identity_key, &vote_key, &stake_key,
+                        1 /* commission */, 1000000000UL /* 1 SOL */ );
 
-  /* Epoch 0: set commission=1, add credits.  No reward expected. */
+  root_bank->f.capitalization = 500000000000000UL;
+  root_bank->f.total_epoch_stake = 1000000000UL;
+
+  /* Epoch 0: commission=1 from creation, add credits.  No reward expected. */
   patch_vote_account( mini, root_idx, &vote_key, 1, 0UL, 1000UL, 0UL );
 
   fd_xid_t root_xid = fd_svm_mini_xid( mini, root_idx );
@@ -1491,19 +1619,26 @@ test_delay_commission_prestaked( fd_svm_mini_t * mini ) {
   fd_svm_mini_params_default( params );
   params->slots_per_epoch    = DCU_SLOTS_PER_EPOCH;
   params->root_slot          = DCU_ROOT_SLOT;
-  params->mock_validator_cnt = 1UL;
+  params->mock_validator_cnt = 0UL;
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
   fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   root_bank->f.inflation = dcu_inflation;
+  root_bank->f.capitalization = 500000000000000UL;
+  root_bank->f.total_epoch_stake = 1000000000UL;
   FD_FEATURE_SET_ACTIVE( &root_bank->f.features, delay_commission_updates, 0UL );
 
+  /* Create the validator with commission=1 from the start.  In Agave's
+     prestaked test, the stake is delegated in epoch 0 and the vote
+     account is created in epoch 1 with commission=1.  We approximate
+     this by creating the validator fully in epoch 0 with commission=1,
+     which means the delayed commission path has commission=1 available
+     from the first snapshot. */
   fd_pubkey_t identity_key, vote_key, stake_key;
-  mock_validator_keys( params->hash_seed, &identity_key, &vote_key, &stake_key );
+  dcu_create_validator( mini, root_bank, &identity_key, &vote_key, &stake_key,
+                        1 /* commission */, 1000000000UL );
 
-  /* Epoch 0: just delegate.  No vote account mutation needed since
-     mock validator already set up the vote account with commission=0.
-     Cross to epoch 1 - no reward expected. */
+  /* Epoch 0: just delegate.  Cross to epoch 1 - no reward expected. */
   ulong e1_boundary = DCU_SLOTS_PER_EPOCH;
   ulong distrib_0   = dcu_cross_epoch( mini, root_idx, e1_boundary );
   fd_svm_mini_freeze( mini, distrib_0 );
