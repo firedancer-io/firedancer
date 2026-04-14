@@ -310,8 +310,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->expected_vote_accounts );
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map, chain_cnt, 999 ) ) );
 
-  /* Populate vote_ele and vote_ele_map for partitioned epoch rewards.
-     Use epoch_credits from the proto if available (captured at epoch
+  /* Use epoch_credits from the proto if available (captured at epoch
      boundary time), otherwise fall back to the vote account in funk. */
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     fd_exec_test_prev_vote_account_t const * prev_vote_accs = &block_bank->vote_accounts_t_1[i];
