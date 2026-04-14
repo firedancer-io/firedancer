@@ -1000,6 +1000,31 @@ after_frag( ctx_t *             ctx,
         ctx->turbine_slot0 = shred->slot;
         fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
         fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
+
+        /* On first turbine shred, seed repair by queuing highest_shred
+           requests for slots between snapshot and turbine_slot0. This
+           bypasses forest entirely and dispatches directly via the sign
+           queue. Cap at half queue capacity to leave room for pongs. */
+        ulong root = fd_forest_root_slot( ctx->forest );
+        if( FD_LIKELY( root != ULONG_MAX && shred->slot > root ) ) {
+          ulong capacity = fd_signs_queue_max( ctx->pong_queue ) - fd_signs_queue_cnt( ctx->pong_queue );
+          ulong seed_cnt = fd_ulong_min( shred->slot-root, capacity/2 );
+          long  now_ms   = fd_log_wallclock()/(long)1e6;
+          ulong seeded   = 0UL;
+          for( ulong i=1; i<=seed_cnt; i++ ) {
+            if( fd_signs_queue_full( ctx->pong_queue ) ) break;
+            ulong slot = root + i;
+            fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+            if( FD_UNLIKELY( !peer ) ) break;
+            fd_repair_msg_t * msg = fd_repair_highest_shred( ctx->protocol, peer, (ulong)now_ms, 0, slot, 0 );
+            if( FD_LIKELY( msg ) ) {
+              fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
+              seeded++;
+            }
+          }
+          FD_LOG_NOTICE(( "seeded %lu highest_shred requests for slots [%lu, %lu]",
+                          seeded, root + 1, root + seeded ));
+        }
       }
 
 
