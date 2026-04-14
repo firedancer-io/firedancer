@@ -10,7 +10,7 @@ fd_secp256k1_recovery_y( fd_secp256k1_point_t *r, fd_secp256k1_fp_t const *x, in
   /* x^3 + b */
   fd_secp256k1_fp_sqr( x2, x );
   fd_secp256k1_fp_mul( x3, x2, x );
-  fd_secp256k1_fp_add( x3, x3, fd_secp256k1_const_b_mont );
+  fd_secp256k1_fp_add( x3, x3, fd_secp256k1_const_b );
 
   /* y^2 = x^3 + b <=> y = sqrt(x^3 + b) */
   if( FD_UNLIKELY( !fd_secp256k1_fp_sqrt( r->y, x3 ) ) ) {
@@ -22,7 +22,7 @@ fd_secp256k1_recovery_y( fd_secp256k1_point_t *r, fd_secp256k1_fp_t const *x, in
   }
 
   fd_secp256k1_fp_set( r->x, x );
-  fd_secp256k1_fp_set( r->z, fd_secp256k1_const_one_mont );
+  fd_secp256k1_fp_set( r->z, fd_secp256k1_const_one );
   return r;
 }
 
@@ -46,7 +46,7 @@ fd_secp256k1_recover( uchar        public_key[64],
   }
 
   fd_secp256k1_fp_t r[1];
-  bignum_tomont_p256k1( r->limbs, rs->limbs );
+  fd_secp256k1_fp_set( r, (fd_secp256k1_fp_t const *)rs );
 
   if( recovery_id & 2 ) {
     /* If rs >= p - n, return NULL. Otherwise, add the n to r.
@@ -55,7 +55,7 @@ fd_secp256k1_recover( uchar        public_key[64],
       return NULL;
     }
     /* Note that *only* r is incremented, rs is left unchanged. */
-    fd_secp256k1_fp_add( r, r, fd_secp256k1_const_n_mont );
+    fd_secp256k1_fp_add( r, r, fd_secp256k1_const_n_fp );
   }
 
   /* Recover the full public key group element. */
@@ -90,7 +90,8 @@ fd_secp256k1_recover( uchar        public_key[64],
 
   fd_secp256k1_scalar_demont( u2, u2 );
   fd_secp256k1_scalar_demont( u1, u1 );
-  fd_secp256k1_double_base_mul( pubkey, u1, a, u2 );
+
+  fd_secp256k1_double_scalar_mul_base( pubkey, u1, a, u2 );
 
   /* If the computed pubkey is the identity point, we return NULL
      https://github.com/bitcoin-core/secp256k1/blob/v0.7.1/src/modules/recovery/main_impl.h#L120 */

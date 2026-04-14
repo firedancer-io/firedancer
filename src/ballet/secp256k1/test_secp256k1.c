@@ -506,6 +506,29 @@ test_recover_consistency( void ) {
 /**********************************************************************/
 
 static void
+bench_fp( void ) {
+  /* Bench fp_sqrt using a known QR: 8 = 1^3 + 7 (plain field element) */
+  fd_uint256_t a[1], r[1];
+  a->limbs[0] = 8; a->limbs[1] = 0; a->limbs[2] = 0; a->limbs[3] = 0;
+  /* No Montgomery conversion needed -- field is now plain */
+
+  FD_TEST( fd_secp256k1_fp_sqrt( r, a ) != NULL );
+
+  fd_uint256_t * rp = r;
+  fd_uint256_t * ap = a;
+
+  ulong iter = 100000UL;
+  long dt = fd_log_wallclock();
+  for( ulong rem=iter; rem; rem-- ) {
+    FD_COMPILER_FORGET( rp ); FD_COMPILER_FORGET( ap );
+    fd_secp256k1_fp_sqrt( rp, ap );
+  }
+  dt = fd_log_wallclock() - dt;
+  char cstr[128];
+  log_bench( fd_cstr_printf( cstr, 128UL, NULL, "fd_secp256k1_fp_sqrt" ), iter, dt );
+}
+
+static void
 bench_recover( void ) {
   uchar _pub[64]; uchar * pub = _pub;
   uchar _msg[32]; uchar * msg = _msg;
@@ -552,6 +575,7 @@ main( int     argc,
   test_recover_extended ();
   test_recover_edge_cases();
   test_recover_consistency();
+  bench_fp();
   bench_recover();
 
   FD_LOG_NOTICE(( "pass" ));
