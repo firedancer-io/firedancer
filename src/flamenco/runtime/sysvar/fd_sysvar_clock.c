@@ -141,7 +141,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
         continue;
       }
-      if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) {
+      if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( ro->meta ) ) ) {
         fd_accdb_close_ro( accdb, ro );
         continue;
       }

@@ -475,7 +475,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     fd_accdb_ro_t vote_ro[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_accum->pubkey ) ) ) {
       continue;
-    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ||
+    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( vote_ro->meta ) ||
                             !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
       fd_accdb_close_ro( accdb, vote_ro );
       continue;
@@ -502,7 +502,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
       fd_top_votes_invalidate( top_votes_t_2, &pubkey );
       continue;
     }
-    if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
+    if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( vote_ro->meta ) ) ) {
       fd_top_votes_invalidate( top_votes_t_2, &pubkey );
       fd_accdb_close_ro( accdb, vote_ro );
       continue;
@@ -692,7 +692,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       fd_top_votes_invalidate( top_votes_t_2, &pubkey );
       continue;
     }
-    if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
+    if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( vote_ro->meta ) ) ) {
       fd_top_votes_invalidate( top_votes_t_2, &pubkey );
       fd_accdb_close_ro( accdb, vote_ro );
       continue;
@@ -734,7 +734,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
     int exists_t_1 = 1;
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_accum->pubkey ) ) ) {
       exists_t_1 = 0;
-    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( vote_ro->meta ) ) ) {
+    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( vote_ro->meta ) ) ) {
       exists_t_1 = 0;
       fd_accdb_close_ro( accdb, vote_ro );
     } else {

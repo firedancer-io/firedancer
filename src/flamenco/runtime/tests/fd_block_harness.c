@@ -46,7 +46,7 @@ fd_solfuzz_block_register_vote_account( fd_top_votes_t *          top_votes,
 
   if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_vote_program_id ) ||
       fd_accdb_ref_lamports( ro )==0UL ||
-      !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) {
+      !fd_vsv_is_correct_size_owner_and_init( ro->meta ) ) {
     fd_accdb_close_ro( accdb, ro );
     return;
   }
