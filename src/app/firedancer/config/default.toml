@@ -606,7 +606,7 @@ telemetry = true
     # is not stored as an account. Examples of members of the bank
     # are the total capitalization of the chain and the vote account
     # states for previous epochs.
-    max_live_slots = 512
+    max_live_slots = 2048
 
     # fixed_fec_sets controls the maximum data payload size for FEC sets
     # in the store.  Shreds per FEC set used to be variable-length, but
