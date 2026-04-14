@@ -619,11 +619,11 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t * banks,
 
   fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
   while( !!curr_bank ) {
+    FD_LOG_DEBUG(( "applying stake delegation delta (bank_idx=%lu, fork_idx=%u)", curr_bank->idx, curr_bank->stake_delegations_fork_id ));
     if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
       pool_indices[pool_indices_len++] = curr_bank->stake_delegations_fork_id;
     }
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
-    FD_LOG_DEBUG(( "applying stake delegation delta (bank_idx=%lu, fork_idx=%u)", curr_bank->idx, curr_bank->stake_delegations_fork_id ));
   }
 
   /* We have populated all of the indicies that we need to apply deltas
