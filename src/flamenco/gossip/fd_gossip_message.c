@@ -207,9 +207,8 @@ deser_lowest_slot( fd_gossip_value_t * value,
   ulong root;
   READ_U64( root, payload, payload_sz );
   CHECK( !root );
-  ulong lowest;
-  READ_U64( lowest, payload, payload_sz );
-  CHECK( lowest<MAX_SLOT );
+  READ_U64( value->lowest_slot->lowest, payload, payload_sz );
+  CHECK( value->lowest_slot->lowest<MAX_SLOT );
   ulong slots_len;
   READ_U64( slots_len, payload, payload_sz );
   CHECK( !slots_len );
