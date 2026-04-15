@@ -286,6 +286,6 @@ union fd_features {
     /* 0xf5434d796d0f975a */ ulong delay_commission_updates;
     /* 0x7f5bea39613bbc0d */ ulong validate_chained_block_id;
     /* 0xfde26f7b21c28506 */ ulong upgrade_bpf_stake_program_to_v5;
-    /* 0x56be0396e05cdd06 */ ulong enable_sha512_syscall;
+    /* 0x154206ed5990d30c */ ulong enable_sha512_syscall;
   };
 };
