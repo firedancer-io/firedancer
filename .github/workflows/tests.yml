@@ -81,7 +81,7 @@ jobs:
 
       - uses: ./.github/actions/cpusonline
 
-      - uses: dtolnay/rust-toolchain@1.84.1
+      - uses: dtolnay/rust-toolchain@1.94.0
         if: ${{ contains(matrix.targets, 'fdctl') }}
 
       - name: clean targets
