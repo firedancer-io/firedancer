@@ -242,7 +242,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   if( input->syscall_invocation.heap_prefix ) {
     ulong hsz = fd_ulong_min( input->syscall_invocation.heap_prefix->size, vm->heap_max );
     if( hsz ) {
-      fd_vm_lazy_zero_range( vm->heap_zero_bitmap, vm->heap, 0UL, hsz );
+      fd_vm_lazy_zero_pages( vm->heap_zero_bitmap, vm->heap, 0UL, hsz );
       fd_memcpy( vm->heap, input->syscall_invocation.heap_prefix->bytes, hsz );
     }
   }
@@ -250,7 +250,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   if( input->syscall_invocation.stack_prefix ) {
     ulong ssz = fd_ulong_min( input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX );
     if( ssz ) {
-      fd_vm_lazy_zero_range( vm->stack_zero_bitmap, vm->stack, 0UL, ssz );
+      fd_vm_lazy_zero_pages( vm->stack_zero_bitmap, vm->stack, 0UL, ssz );
       fd_memcpy( vm->stack, input->syscall_invocation.stack_prefix->bytes, ssz );
     }
   }

@@ -9,6 +9,7 @@
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 
 /* Hardware performance counters (Linux only) */
@@ -376,7 +377,7 @@ bench_ptoken_transfer( fd_runtime_t * runtime,
 
   /* Load p-token ELF */
 
-  FILE * f = fopen( elf_path, "r" );
+  FILE * f = fopen( elf_path, "rb" );
   if( FD_UNLIKELY( !f ) ) {
     FD_LOG_WARNING(( "ptoken: cannot open %s, skipping", elf_path ));
     return;

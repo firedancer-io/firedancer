@@ -198,9 +198,8 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
    and the bit is set.  On the fast path (page already zeroed), this
    costs a shift, a bit-test, and a predicted-taken branch (~3 cycles).
 
-   fd_vm_lazy_zero_range zeros all pages in [off_lo, off_lo+len).
-   Used after TLB setup to pre-zero the entire cached range so that
-   TLB hits don't need per-access bitmap checks. */
+   Also used after TLB setup to pre-zero the entire cached range so
+   that TLB hits don't need per-access bitmap checks. */
 
 static inline void
 fd_vm_lazy_zero_pages( ulong * bitmap,
@@ -210,24 +209,6 @@ fd_vm_lazy_zero_pages( ulong * bitmap,
   if( FD_UNLIKELY( !sz ) ) return;
   ulong p_lo = offset >> FD_VM_LAZY_PAGE_LG_SZ;
   ulong p_hi = (offset + sz - 1UL) >> FD_VM_LAZY_PAGE_LG_SZ;
-  for( ulong p = p_lo; p <= p_hi; p++ ) {
-    ulong w = p >> 6;
-    ulong b = 1UL << (p & 63UL);
-    if( FD_UNLIKELY( !(bitmap[w] & b) ) ) {
-      fd_memset( region_base + (p << FD_VM_LAZY_PAGE_LG_SZ), 0, FD_VM_LAZY_PAGE_SZ );
-      bitmap[w] |= b;
-    }
-  }
-}
-
-static inline void
-fd_vm_lazy_zero_range( ulong * bitmap,
-                       uchar * region_base,
-                       ulong   off_lo,
-                       ulong   len ) {
-  if( FD_UNLIKELY( !len ) ) return;
-  ulong p_lo = off_lo >> FD_VM_LAZY_PAGE_LG_SZ;
-  ulong p_hi = (off_lo + len - 1UL) >> FD_VM_LAZY_PAGE_LG_SZ;
   for( ulong p = p_lo; p <= p_hi; p++ ) {
     ulong w = p >> 6;
     ulong b = 1UL << (p & 63UL);
@@ -631,7 +612,7 @@ fd_vm_mem_haddr_tlb_miss( fd_vm_t const * vm,
       {
         fd_vm_t * vm_mut  = (fd_vm_t *)vm;
         ulong     phys_lo = frame_base >> 1;
-        fd_vm_lazy_zero_range( vm_mut->stack_zero_bitmap, vm_mut->stack, phys_lo, 0x1000UL );
+        fd_vm_lazy_zero_pages( vm_mut->stack_zero_bitmap, vm_mut->stack, phys_lo, 0x1000UL );
       }
     } else if( FD_UNLIKELY( region == FD_VM_STACK_REGION || region == FD_VM_HEAP_REGION ) ) {
       ulong page_base = offset & ~(FD_VM_LAZY_PAGE_SZ - 1UL);
@@ -676,7 +657,7 @@ fd_vm_mem_haddr_with_tlb( fd_vm_t const * vm,
   if( FD_LIKELY( vaddr >= *p_tlb_vaddr_lo
               && vaddr_end <= *p_tlb_vaddr_hi
               && vaddr_end >= vaddr ) ) {
-    return *p_tlb_haddr_base + (uint)vaddr;
+    return *p_tlb_haddr_base + (vaddr & FD_VM_OFFSET_MASK);
   }
 
   return fd_vm_mem_haddr_tlb_miss( vm, vaddr, sz, vm_region_haddr, vm_region_sz,
@@ -702,7 +683,7 @@ fd_vm_mem_haddr_with_tlb_1( fd_vm_t const * vm,
                             int             stack_gaps_enabled ) {
   if( FD_LIKELY( vaddr >= *p_tlb_vaddr_lo
               && vaddr <  *p_tlb_vaddr_hi ) ) {
-    return *p_tlb_haddr_base + (uint)vaddr;
+    return *p_tlb_haddr_base + (vaddr & FD_VM_OFFSET_MASK);
   }
 
   return fd_vm_mem_haddr_tlb_miss( vm, vaddr, 1UL, vm_region_haddr, vm_region_sz,
