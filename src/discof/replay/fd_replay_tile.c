@@ -1156,6 +1156,9 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       &bank->f.warmup_cooldown_rate_epoch,
       ctx->accdb,
       &xid );
+  bank->f.total_effective_stake    = root_delegations->effective_stake;
+  bank->f.total_activating_stake   = root_delegations->activating_stake;
+  bank->f.total_deactivating_stake = root_delegations->deactivating_stake;
 
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_top_votes_refresh( top_votes_t_2, ctx->accdb, &xid );

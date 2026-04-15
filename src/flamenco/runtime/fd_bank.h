@@ -303,7 +303,8 @@ struct fd_bank {
     double                 slots_per_year;
     fd_inflation_t         inflation;
     ulong                  cluster_type;
-    ulong                  total_epoch_stake;
+    ulong                  total_epoch_stake; /* total staked to active vote accounts */
+    ulong                  total_effective_stake; /* effective stake from stake delegations*/
     ulong                  total_activating_stake;
     ulong                  total_deactivating_stake;
     ulong                  warmup_cooldown_rate_epoch; /* epoch when reduce_stake_warmup_cooldown */

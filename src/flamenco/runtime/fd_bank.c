@@ -601,7 +601,7 @@ fd_bank_stake_delegation_apply_deltas( fd_banks_t * banks,
      stake totals for the current root need to be updated. */
   fd_bank_t * old_root = fd_banks_root( banks );
   if( old_root->f.epoch!=bank->f.epoch ) {
-    stake_delegations->effective_stake    = bank->f.total_epoch_stake;
+    stake_delegations->effective_stake    = bank->f.total_effective_stake;
     stake_delegations->activating_stake   = bank->f.total_activating_stake;
     stake_delegations->deactivating_stake = bank->f.total_deactivating_stake;
   }

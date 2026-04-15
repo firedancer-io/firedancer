@@ -247,10 +247,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         (uchar)elem->commission,
         bank->f.epoch );
 
-    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
-    }
-
     fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
 
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
@@ -271,9 +267,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
 
-    if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-      if( FD_UNLIKELY( !elem->has_identity_bls ) ) continue;
-    }
     fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
     fd_vote_stakes_root_update_meta(
         vote_stakes,
