@@ -583,7 +583,8 @@ main( int     argc,
   ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 5UL             );
   ulong        near_cpu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",   NULL, fd_log_cpu_id() );
   ulong        wksp_tag   = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",   NULL, 1234UL          );
-  char const * ptoken_elf = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ptoken-elf", NULL, NULL            );
+  char const * ptoken_elf = fd_env_strip_cmdline_cstr ( &argc, &argv, "--ptoken-elf", NULL,
+                                                       "src/ballet/sbpf/fixtures/ptoken_program.so" );
 
   fd_wksp_t * wksp;
   if( name ) {
@@ -630,13 +631,234 @@ main( int     argc,
 
   free( text );
 
+  /* Memory load benchmark: 1M sequential loads from input region */
+
+  {
+    ulong input_sz = 32768UL;
+    uchar * input_buf = (uchar *)malloc( input_sz );
+    FD_TEST( input_buf );
+    memset( input_buf, 0x42, input_sz );
+
+    fd_vm_input_region_t input_region;
+    memset( &input_region, 0, sizeof(input_region) );
+    input_region.vaddr_offset           = 0UL;
+    input_region.haddr                  = (ulong)input_buf;
+    input_region.region_sz              = (uint)input_sz;
+    input_region.address_space_reserved = input_sz;
+    input_region.is_writable            = 0;
+
+    ulong load_cnt = 1024UL * 1024UL;
+    ulong ld_text_cnt = 2UL + load_cnt + 1UL;
+    ulong * ld_text = (ulong *)malloc( sizeof(ulong) * ld_text_cnt );
+    FD_TEST( ld_text );
+
+    ld_text[0] = fd_vm_instr( 0x18, 1, 0, 0, 0 );
+    ld_text[1] = fd_vm_instr( 0,    0, 0, 0, 4 );
+
+    for( ulong i = 0; i < load_cnt; i++ ) {
+      short off = (short)((i * 8UL) % (input_sz - 8UL));
+      ld_text[2 + i] = fd_vm_instr( 0x79, 0, 1, off, 0 );
+    }
+    ld_text[ld_text_cnt - 1] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    fd_sha256_t _sha2[1];
+    fd_sha256_t * sha2 = fd_sha256_join( fd_sha256_new( _sha2 ) );
+
+    fd_vm_t _vm2[1];
+    fd_vm_t * vm2 = fd_vm_join( fd_vm_new( _vm2 ) );
+    FD_TEST( vm2 );
+
+    fd_sbpf_syscalls_t * ld_syscalls = fd_sbpf_syscalls_new(
+        aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+    FD_TEST( ld_syscalls );
+    fd_vm_syscall_register_all( ld_syscalls, 0 );
+
+    int vm_ok = !!fd_vm_init(
+        vm2, instr_ctx, FD_VM_HEAP_DEFAULT, ld_text_cnt + 10UL,
+        (uchar *)ld_text, 8UL*ld_text_cnt, ld_text, ld_text_cnt, 0UL, 8UL*ld_text_cnt,
+        0UL, NULL, FD_SBPF_V0, ld_syscalls, NULL, sha2,
+        &input_region, 1UL, NULL, 0,
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+        0, 0UL );
+    FD_TEST( vm_ok );
+
+    vm2->pc        = vm2->entry_pc;
+    vm2->ic        = 0UL;
+    vm2->cu        = vm2->entry_cu;
+    vm2->frame_cnt = 0UL;
+    vm2->heap_sz   = 0UL;
+    fd_vm_mem_cfg( vm2 );
+    FD_TEST( fd_vm_validate( vm2 )==FD_VM_SUCCESS );
+
+    long dt2 = -fd_log_wallclock();
+#if defined(__linux__)
+    if( have_perf_g ) fd_perf_ctr_reset_and_enable( &pctr_g );
+#endif
+    int err2 = fd_vm_exec( vm2 );
+#if defined(__linux__)
+    if( have_perf_g ) fd_perf_ctr_disable( &pctr_g );
+#endif
+    dt2 += fd_log_wallclock();
+    FD_TEST( err2==FD_VM_SUCCESS );
+    perf_report( "mem_ld", dt2, load_cnt );
+
+    free( ld_text );
+    free( input_buf );
+    free( fd_sbpf_syscalls_delete( ld_syscalls ) );
+    fd_vm_delete( fd_vm_leave( vm2 ) );
+    fd_sha256_delete( fd_sha256_leave( sha2 ) );
+  }
+
+  /* Branch benchmark: tight loop of JNE (taken) + ADD (1M branches) */
+
+  {
+    fd_sha256_t _sha3[1];
+    fd_sha256_t * sha3 = fd_sha256_join( fd_sha256_new( _sha3 ) );
+
+    fd_sbpf_syscalls_t * br_syscalls = fd_sbpf_syscalls_new(
+        aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+    FD_TEST( br_syscalls );
+    fd_vm_syscall_register_all( br_syscalls, 0 );
+
+    ulong loop_iters = 1UL << 20;
+    ulong br_text_cnt = 3UL;
+    ulong br_text[3];
+    br_text[0] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 0, 0, 0, 1 );
+    br_text[1] = fd_vm_instr( FD_SBPF_OP_JNE_IMM, 0, 0, (short)(-2), (uint)loop_iters );
+    br_text[2] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    fd_vm_t _vm3[1];
+    fd_vm_t * vm3 = fd_vm_join( fd_vm_new( _vm3 ) );
+    FD_TEST( vm3 );
+
+    int vm_ok = !!fd_vm_init(
+        vm3, instr_ctx, FD_VM_HEAP_DEFAULT, 4UL * loop_iters,
+        (uchar *)br_text, 8UL*br_text_cnt, br_text, br_text_cnt, 0UL, 8UL*br_text_cnt,
+        0UL, NULL, FD_SBPF_V0, br_syscalls, NULL, sha3,
+        NULL, 0UL, NULL, 0,
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+        FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+        0, 0UL );
+    FD_TEST( vm_ok );
+
+    vm3->pc        = vm3->entry_pc;
+    vm3->ic        = 0UL;
+    vm3->cu        = vm3->entry_cu;
+    vm3->frame_cnt = 0UL;
+    vm3->heap_sz   = 0UL;
+    fd_vm_mem_cfg( vm3 );
+    FD_TEST( fd_vm_validate( vm3 )==FD_VM_SUCCESS );
+
+    long dt3 = -fd_log_wallclock();
+#if defined(__linux__)
+    if( have_perf_g ) fd_perf_ctr_reset_and_enable( &pctr_g );
+#endif
+    int err3 = fd_vm_exec( vm3 );
+#if defined(__linux__)
+    if( have_perf_g ) fd_perf_ctr_disable( &pctr_g );
+#endif
+    dt3 += fd_log_wallclock();
+    FD_TEST( err3==FD_VM_SUCCESS );
+    perf_report( "branch", dt3, loop_iters );
+
+    free( fd_sbpf_syscalls_delete( br_syscalls ) );
+    fd_vm_delete( fd_vm_leave( vm3 ) );
+    fd_sha256_delete( fd_sha256_leave( sha3 ) );
+  }
+
+  /* Lazy zeroing benchmarks */
+
+  {
+    /* vm_new cost (lazy: only zeros config+tail, not stack/heap) */
+    ulong const NEW_ITERS = 1UL << 14;
+    uchar * shmem = (uchar *)aligned_alloc( FD_VM_ALIGN, FD_VM_FOOTPRINT );
+    FD_TEST( shmem );
+
+    long dt4 = -fd_log_wallclock();
+#if defined(__linux__)
+    if( have_perf_g ) fd_perf_ctr_reset_and_enable( &pctr_g );
+#endif
+    for( ulong i = 0; i < NEW_ITERS; i++ ) {
+      fd_vm_new( shmem );
+      fd_vm_delete( shmem );
+      __asm__ volatile( "" ::: "memory" );
+    }
+#if defined(__linux__)
+    if( have_perf_g ) fd_perf_ctr_disable( &pctr_g );
+#endif
+    dt4 += fd_log_wallclock();
+    perf_report( "vm_new", dt4, NEW_ITERS );
+    free( shmem );
+  }
+
+  {
+    /* Program touching 16 stack pages via stores (measures per-page lazy zeroing overhead) */
+    fd_sha256_t _sha5[1];
+    fd_sha256_t * sha5 = fd_sha256_join( fd_sha256_new( _sha5 ) );
+
+    fd_sbpf_syscalls_t * lz_syscalls = fd_sbpf_syscalls_new(
+        aligned_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+    FD_TEST( lz_syscalls );
+    fd_vm_syscall_register_all( lz_syscalls, 0 );
+
+    ulong pages_to_touch = 16;
+    ulong lz_text_cnt = 2UL + pages_to_touch * 2UL + 1UL;
+    ulong * lz_text = (ulong *)malloc( sizeof(ulong) * lz_text_cnt );
+    FD_TEST( lz_text );
+
+    ulong stack_base = FD_VM_MEM_MAP_STACK_REGION_START;
+    lz_text[0] = fd_vm_instr( FD_SBPF_OP_LDDW, 2, 0, 0, (uint)(stack_base) );
+    lz_text[1] = fd_vm_instr( 0, 0, 0, 0, (uint)(stack_base >> 32) );
+
+    for( ulong p = 0; p < pages_to_touch; p++ ) {
+      short off = (short)(p * FD_VM_LAZY_PAGE_SZ);
+      lz_text[2 + p*2]     = fd_vm_instr( FD_SBPF_OP_STB, 2, 0, off, 0x42 );
+      lz_text[2 + p*2 + 1] = fd_vm_instr( FD_SBPF_OP_ADD64_IMM, 0, 0, 0, 1 );
+    }
+    lz_text[lz_text_cnt - 1] = fd_vm_instr( FD_SBPF_OP_EXIT, 0, 0, 0, 0 );
+
+    ulong const LZ_ITERS = 1UL << 14;
+    fd_vm_t _vm5[1];
+    fd_vm_t * vm5 = fd_vm_join( fd_vm_new( _vm5 ) );
+    FD_TEST( vm5 );
+
+    long dt5 = -fd_log_wallclock();
+#if defined(__linux__)
+    if( have_perf_g ) fd_perf_ctr_reset_and_enable( &pctr_g );
+#endif
+    for( ulong i = 0; i < LZ_ITERS; i++ ) {
+      int vm_ok = !!fd_vm_init(
+          vm5, instr_ctx, FD_VM_HEAP_DEFAULT, 10UL * lz_text_cnt,
+          (uchar *)lz_text, 8UL*lz_text_cnt, lz_text, lz_text_cnt, 0UL, 8UL*lz_text_cnt,
+          0UL, NULL, FD_SBPF_V1, lz_syscalls, NULL, sha5,
+          NULL, 0UL, NULL, 0,
+          FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping ),
+          FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions ),
+          FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments ),
+          0, 0UL );
+      FD_TEST( vm_ok );
+      int err5 = fd_vm_exec( vm5 );
+      FD_TEST( err5==FD_VM_SUCCESS );
+      __asm__ volatile( "" ::: "memory" );
+    }
+#if defined(__linux__)
+    if( have_perf_g ) fd_perf_ctr_disable( &pctr_g );
+#endif
+    dt5 += fd_log_wallclock();
+    perf_report( "lazy_16pg_exec", dt5, LZ_ITERS );
+
+    free( lz_text );
+    free( fd_sbpf_syscalls_delete( lz_syscalls ) );
+    fd_vm_delete( fd_vm_leave( vm5 ) );
+    fd_sha256_delete( fd_sha256_leave( sha5 ) );
+  }
+
   /* Macro-benchmark: p-token transfer */
 
-  if( ptoken_elf ) {
-    bench_ptoken_transfer( runtime, ptoken_elf );
-  } else {
-    FD_LOG_NOTICE(( "skipping ptoken bench (pass --ptoken-elf <path>)" ));
-  }
+  bench_ptoken_transfer( runtime, ptoken_elf );
 
   perf_fini();
 
