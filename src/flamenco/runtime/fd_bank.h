@@ -4,6 +4,7 @@
 #include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
+#include "../stakes/fd_new_votes.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_top_votes.h"
 #include "../stakes/fd_vote_stakes.h"
@@ -90,12 +91,10 @@ FD_PROTOTYPES_BEGIN
   modified, a new element of the pool is acquired and the data is
   copied over from the parent.
 
-  Currently, there is a delta-based field, fd_stake_delegations_t.
-  Each bank stores a delta-based representation in the form of an
-  aligned uchar buffer.  The full state is stored in fd_banks_t in
-  out-of-line memory sized using max_stake_accounts, and fd_banks_t
-  also reserves another out-of-line buffer which can store the full
-  state of the stake delegations for frontier queries.
+  Currently, there are two delta-based fields, fd_stake_delegations_t
+  and fd_new_votes_t.  The full state for these is stored in
+  fd_banks_t in out-of-line memory, with each bank carrying the fork
+  index for its delta.
 
   The cost tracker is allocated from a pool.  The lifetime of a cost
   tracker element starts when the bank is linked to a parent with a
@@ -267,6 +266,7 @@ struct fd_bank {
   ushort                vote_stakes_fork_id; /* fork id used by the vote stakes */
   uchar                 stake_rewards_fork_id; /* fork id used by stake rewards */
   ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
+  ushort                new_votes_fork_id; /* fork id used by new vote account deltas */
   ulong                 cost_tracker_pool_idx;
   ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
 
@@ -347,6 +347,9 @@ typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 fd_vote_stakes_t *
 fd_bank_vote_stakes( fd_bank_t const * bank );
 
+fd_new_votes_t *
+fd_bank_new_votes( fd_bank_t const * bank );
+
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank );
 
@@ -388,6 +391,8 @@ struct fd_banks {
   ulong cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
 
   ulong vote_stakes_pool_offset;
+
+  ulong new_votes_offset;
 
   ulong stake_rewards_offset;
 
@@ -506,6 +511,14 @@ fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
 
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks );
+
+fd_new_votes_t *
+fd_banks_new_votes_frontier_query( fd_banks_t * banks,
+                                   fd_bank_t *  bank );
+
+void
+fd_banks_new_votes_end_frontier_query( fd_banks_t * banks,
+                                       fd_bank_t *  bank );
 
 /* fd_banks_pool_used_cnt returns the number of bank pool elements
    currently in use. */
