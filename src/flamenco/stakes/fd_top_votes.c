@@ -287,7 +287,7 @@ fd_top_votes_refresh( fd_top_votes_t *          top_votes,
     fd_accdb_ro_t acc[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, acc, xid, &pubkey ) ) ) {
       is_valid = 0;
-    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( acc->meta ) ) ) {
+    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc->meta ) ) ) {
       fd_accdb_close_ro( accdb, acc );
       is_valid = 0;
     }

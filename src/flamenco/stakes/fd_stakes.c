@@ -458,7 +458,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
      are snapshots of the stake totals for the current epoch. */
   bank->f.total_activating_stake   = total_activating;
   bank->f.total_deactivating_stake = total_deactivating;
-  bank->f.total_epoch_stake        = total_stake;
+  bank->f.total_effective_stake    = total_stake;
 
   /* Iterate over the valid delegated vote accounts and insert them into
      the top votes set for the t-1 epoch. */
@@ -473,6 +473,12 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     uchar       commission_t_1   = 0;
 
     fd_accdb_ro_t vote_ro[1];
+    /* Agave's VAT filter also checks lamports against the VoteStateV4
+       rent-exempt minimum.  We intentionally omit that here because a
+       live initialized vote account cannot remain below that reserve:
+       InitializeAccount{,V2} requires rent exemption, partial withdraws
+       below the reserve are rejected, and a full withdraw deinitializes
+       the account. */
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_accum->pubkey ) ) ) {
       continue;
     } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( vote_ro->meta ) ||
@@ -531,12 +537,14 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
   /* Populate the vote rewards map with the final set of filtered vote
      accounts for the t-1 epoch. */
+  bank->f.total_epoch_stake = 0UL;
   for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_1, top_votes_iter_mem );
        !fd_top_votes_iter_done( top_votes_t_1, iter );
        fd_top_votes_iter_next( top_votes_t_1, iter ) ) {
     fd_pubkey_t pubkey;
+    ulong       stake;
     uchar       commission_t_1 = 0;
-    fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, NULL, NULL, &commission_t_1, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, NULL, &stake, &commission_t_1, NULL, NULL );
 
     int   exists_t_3 = 0;
     uchar commission_t_3 = 0;
@@ -571,6 +579,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
     fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
     vote_reward_cnt++;
+    bank->f.total_epoch_stake += stake;
   }
   *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
 }
@@ -666,7 +675,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
      are snapshots of the stake totals for the current epoch. */
   bank->f.total_activating_stake   = total_activating;
   bank->f.total_deactivating_stake = total_deactivating;
-  bank->f.total_epoch_stake        = total_stake;
+  bank->f.total_effective_stake    = total_stake;
 
   /* Copy the top votes set for the t-1 epoch into the t-2 epoch now
      that the epoch boundary is being crossed.  Reset the existing t-1
@@ -716,6 +725,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   ushort             child_idx   = fd_vote_stakes_new_child( vote_stakes );
   bank->vote_stakes_fork_id      = child_idx;
 
+  bank->f.total_epoch_stake = 0UL;
   for( fd_stake_accum_map_iter_t iter = fd_stake_accum_map_iter_init( stake_accum_map, stake_accum_pool );
        !fd_stake_accum_map_iter_done( iter, stake_accum_map, stake_accum_pool );
        iter = fd_stake_accum_map_iter_next( iter, stake_accum_map, stake_accum_pool ) ) {
@@ -743,6 +753,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       FD_TEST( !fd_vote_account_node_pubkey( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &node_account_t_1 ) );
 
       stake_t_1 = stake_accum->stake;
+      bank->f.total_epoch_stake += stake_t_1;
 
       fd_pubkey_t node_account_t_3 = {0};
       ulong       stake_t_3        = 0UL;
