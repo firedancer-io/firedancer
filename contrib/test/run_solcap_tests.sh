@@ -53,8 +53,8 @@ if [ ! -d "solcap-tools" ]; then
   git clone https://github.com/firedancer-io/solcap-tools.git > /dev/null 2>&1
 fi
 cd solcap-tools
-git checkout main > /dev/null 2>&1
-git pull > /dev/null 2>&1
+git fetch > /dev/null 2>&1
+git checkout 44dc8e2a5c65435daf57b009c108234f316224f7 > /dev/null 2>&1
 cargo build --release > /dev/null 2>&1
 cd "$ORIG_DIR"
 
