@@ -80,33 +80,42 @@ nuke () {
 }
 
 checkout_repo () {
-  # Skip if dir already exists
   if [[ -d "$PREFIX/git/$1" ]]; then
-    echo "[~] Skipping $1 fetch as \"$PREFIX/git/$1\" already exists"
+    if [[ -n "$3" ]]; then
+      # Tag-based repo: skip if already on the right tag
+      if [[ "$(git -C "$PREFIX/git/$1" describe --tags --abbrev=0 2>/dev/null)" == "$3" ]]; then
+        echo "[~] Skipping $1 fetch (already at $3)"
+        return
+      fi
+      echo "[~] Updating $1 to $3"
+      (
+        cd "$PREFIX/git/$1"
+        git fetch origin "$3" --tags --depth=1
+        git -c advice.detachedHead=false checkout "$3"
+      )
+    elif [[ -n "$4" ]]; then
+      # Commit-hash repo: skip if already on the right commit
+      if [[ "$(git -C "$PREFIX/git/$1" rev-parse HEAD)" == "$(git -C "$PREFIX/git/$1" rev-parse "$4" 2>/dev/null)" ]]; then
+        echo "[~] Skipping $1 fetch (already at $4)"
+        return
+      fi
+      echo "[~] Updating $1 to $4"
+      (
+        cd "$PREFIX/git/$1"
+        git fetch origin
+        git -c advice.detachedHead=false checkout "$4"
+      )
+    else
+      echo "[~] Skipping $1 fetch as \"$PREFIX/git/$1\" already exists"
+    fi
   elif [[ -z "$3" ]]; then
     echo "[+] Cloning $1 from $2"
     git -c advice.detachedHead=false clone "$2" "$PREFIX/git/$1" && cd "$PREFIX/git/$1" && git reset --hard "$4"
-    echo
   else
     echo "[+] Cloning $1 from $2"
     git -c advice.detachedHead=false clone "$2" "$PREFIX/git/$1" --branch "$3" --depth=1
-    echo
   fi
-
-  if [[ ! -z "$3" ]]; then
-    # Skip if tag already correct
-    if [[ "$(git -C "$PREFIX/git/$1" describe --tags --abbrev=0)" == "$3" ]]; then
-      return
-    fi
-
-    echo "[~] Checking out $1 $3"
-    (
-      cd "$PREFIX/git/$1"
-      git fetch origin "$3" --tags --depth=1
-      git -c advice.detachedHead=false checkout "$3"
-    )
-    echo
-  fi
+  echo
 }
 
 checkout_llvm () {
