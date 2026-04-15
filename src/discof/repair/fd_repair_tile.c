@@ -304,7 +304,14 @@ typedef struct sign_req sign_req_t;
    Typical flow is that a pong will get added to the pong_queue during
    an after_frag call.  Then on the following after_credit will get
    popped from the sign_queue and added to sign_map, and then dispatched
-   to the sign tile. */
+   to the sign tile.
+
+   Note that after the first turbine shred arrives, the signs_queue also
+   stores highest window index requests for slots between snapshot and
+   turbine_slot0, which are dispatched first before any other requests
+   as a catchup optimization.  This doesn't break any of the inflight
+   invariants as highest window index requests do not get added to the
+   inflight table. */
 
 struct sign_pending {
   fd_repair_msg_t msg;
@@ -1010,20 +1017,13 @@ after_frag( ctx_t *             ctx,
           ulong capacity = fd_signs_queue_max( ctx->pong_queue ) - fd_signs_queue_cnt( ctx->pong_queue );
           ulong seed_cnt = fd_ulong_min( shred->slot-root, capacity/2 );
           long  now_ms   = fd_log_wallclock()/(long)1e6;
-          ulong seeded   = 0UL;
           for( ulong i=1; i<=seed_cnt; i++ ) {
-            if( fd_signs_queue_full( ctx->pong_queue ) ) break;
             ulong slot = root + i;
             fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
             if( FD_UNLIKELY( !peer ) ) break;
             fd_repair_msg_t * msg = fd_repair_highest_shred( ctx->protocol, peer, (ulong)now_ms, 0, slot, 0 );
-            if( FD_LIKELY( msg ) ) {
-              fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
-              seeded++;
-            }
+            if( FD_LIKELY( msg ) )  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
           }
-          FD_LOG_NOTICE(( "seeded %lu highest_shred requests for slots [%lu, %lu]",
-                          seeded, root + 1, root + seeded ));
         }
       }
 
@@ -1070,9 +1070,9 @@ after_credit( ctx_t *             ctx,
   }
 
   /* If inflights is at capacity, then the only thing we can send is:
-     pongs, initial warmup requests, or resend things that are already
-     inflight.  Any new requests that would cause an inflight to be
-     added to the queue must be deferred. */
+     pongs, initial highest window index requests, or resend things that
+     are already inflight.  Any new requests that would cause an
+     inflight to be added to the queue must be deferred. */
 
   if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->pong_queue ) ) ) {
     sign_pending_t signable = fd_signs_queue_pop( ctx->pong_queue );
