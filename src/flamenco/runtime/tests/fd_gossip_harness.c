@@ -42,7 +42,7 @@ convert_crds_data( fd_spad_t *                      spad,
     out->which_data = FD_EXEC_TEST_GOSSIP_CRDS_DATA_LOWEST_SLOT_TAG;
     out->data.lowest_slot.index     = 0;
     out->data.lowest_slot.from      = alloc_bytes( spad, val->origin, sizeof(val->origin) );
-    out->data.lowest_slot.lowest    = 0; /* FD does not store this field */
+    out->data.lowest_slot.lowest    = val->lowest_slot->lowest;
     out->data.lowest_slot.wallclock = val->wallclock;
     break;
   case FD_GOSSIP_VALUE_EPOCH_SLOTS:
