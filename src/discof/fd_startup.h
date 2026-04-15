@@ -10,9 +10,11 @@
    Dispatches syscall clock_nanosleep( CLOCK_REALTIME, 0, ???, NULL ).
 
    Typically called in unprivileged_init.  (Sleeping in unprivileged_init
-   makes the tile appear as offline in metrics) */
+   makes the tile appear as offline in metrics)
 
-void
+   Returns the startup/root slot. */
+
+ulong
 fd_sleep_until_replay_started( fd_topo_t const * topo );
 
 #endif /* HEADER_fd_src_discof_fd_startup_h */

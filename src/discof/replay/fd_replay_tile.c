@@ -1191,7 +1191,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   }
 
   /* Signals fd_sleep_until_replay_started */
-  FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
+  FD_MGAUGE_SET( REPLAY, ROOT_SLOT, snapshot_slot );
+  __atomic_store_n( &fd_metrics_tl[ MIDX( GAUGE, REPLAY, RUNTIME_STATUS ) ], 1UL, __ATOMIC_RELEASE );
 }
 
 static inline int

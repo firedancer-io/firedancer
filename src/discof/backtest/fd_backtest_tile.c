@@ -2,9 +2,9 @@
 #include "fd_backtest_shredcap.h"
 #include "../../disco/store/fd_store.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
-#include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/fd_startup.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -13,10 +13,6 @@
 #define SHRED_BUFFER_LEN     (1048576UL)
 #define BANK_HASH_BUFFER_LEN (4096UL)
 #define OUT_FECS_BUFFER_LEN  (2048UL)
-
-#define IN_KIND_REPLAY (0)
-#define IN_KIND_SNAP   (1)
-#define IN_KIND_GENESI (2)
 
 #define DEQUE_NAME rooted_slots
 #define DEQUE_T    ulong
@@ -42,16 +38,6 @@ struct fd_backt_out {
 typedef struct fd_backt_out fd_backt_out_t;
 
 struct fd_backt_tile {
-  /* On boot, snapshot load happens and then when it completes, both
-     this tile and replay receive a signal to start processing.  If
-     replay receives it earlier, and manages to send us a frag quickly,
-     we could attempt to process it before the snapshot load complete
-     fragment which would be a race condition.  This flag indicates if
-     snapshot load is complete and if not we do not process replay
-     frags. */
-  int initialized;
-  int genesis;
-  int snapshot_done;
   int first_fec_complete;
   int reasm_ready; /* reasm root is set, so we can start publishing FECs to replay */
 
@@ -84,8 +70,7 @@ struct fd_backt_tile {
 
   fd_store_t * store;
 
-  int in_kind[ 16UL ];
-  fd_backt_in_t in[ 16UL ];
+  fd_backt_in_t in[ 1 ];
 
   fd_backt_out_t repair_out[ 1 ];
   fd_backt_out_t tower_out[ 1 ];
@@ -208,9 +193,6 @@ before_credit( fd_backt_tile_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-
-  if( FD_UNLIKELY( !ctx->initialized ) ) return;
-  if( FD_UNLIKELY( !ctx->snapshot_done ) ) return;
 
   ctx->idle_cnt++;
   if( FD_UNLIKELY( ctx->idle_cnt<=1UL ) ) return; /* publishing fragments in after credit takes priority */
@@ -338,49 +320,6 @@ returnable_frag( fd_backt_tile_t *   ctx,
   (void)ctl;
   (void)tsorig;
 
-  switch( ctx->in_kind[ in_idx ] ) {
-    case IN_KIND_SNAP: {
-      if( FD_LIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
-        /* We can technically start loading shreds as soon as we know
-           the start slot, but there's no point.  It would just take
-           disk read time away from snapshot loading which is the
-           bottleneck. */
-# if FD_HAS_ROCKSDB
-        if( ctx->rocksdb && ctx->start_slot < ctx->rocksdb_first_slot ) {
-          FD_LOG_ERR(( "Snapshots too old for RocksDB! "
-                       "Snapshot slot: %lu is before RocksDB start slot: %lu",
-                       ctx->start_slot, ctx->rocksdb_first_slot ));
-        }
-# endif
-        ctx->replay_time = -fd_log_wallclock();
-        ctx->publish_time = -fd_log_wallclock();
-        ctx->snapshot_done = 1;
-        return 0;
-      }
-
-      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-
-      ctx->initialized = 1;
-      ctx->reading_slot = manifest->slot;
-      ctx->start_slot  = manifest->slot;
-      FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
-      source_init( ctx, manifest->slot );
-      break;
-    }
-    case IN_KIND_GENESI: {
-      if( FD_UNLIKELY( ctx->genesis ) ) {
-        ctx->snapshot_done = 1;
-        ctx->initialized = 1;
-        ctx->reading_slot = 0UL;
-        ctx->start_slot  = 0UL;
-        FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
-        ctx->replay_time = -fd_log_wallclock();
-        ctx->publish_time = -fd_log_wallclock();
-        source_init( ctx, 0UL );
-      }
-      break;
-    }
-    case IN_KIND_REPLAY: {
       if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_DEAD ) ) {
         fd_replay_slot_dead_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         if( FD_UNLIKELY( !ctx->ingest_dead_slots ) ) FD_LOG_ERR(( "unexpectedly marked slot=%lu as dead", msg->slot ));
@@ -388,7 +327,6 @@ returnable_frag( fd_backt_tile_t *   ctx,
         return 0;
       }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return 0;
-      if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
       if( FD_UNLIKELY( !ctx->reasm_ready ) ) ctx->reasm_ready = 1;
 
       fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -464,12 +402,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       fd_stem_publish( stem, ctx->tower_out->idx, FD_TOWER_SIG_SLOT_DONE, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
-      break;
-    }
-    default: FD_LOG_ERR(( "unhandled in_kind: %d in_idx: %lu", ctx->in_kind[ in_idx ], in_idx ));
-  }
-
-  return 0;
+      return 0;
 }
 
 static inline fd_backt_out_t
@@ -509,11 +442,8 @@ unprivileged_init( fd_topo_t *      topo,
 # endif
   memset( ctx, 0, sizeof(fd_backt_tile_t) );
 
-  ctx->snapshot_done = 0;
-  ctx->initialized = 0;
   ctx->first_fec_complete = 0;
   ctx->reasm_ready = 0;
-  ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
 
   ctx->end_slot = tile->backtest.end_slot;
@@ -571,20 +501,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
 
-  FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
-  for( uint i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+  FD_TEST( tile->in_cnt==1UL );
+  {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ 0 ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    FD_TEST( !strcmp( link->name, "replay_out" ) );
 
-    ctx->in[ i ].mem    = link_wksp->wksp;
-    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
-    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
-    ctx->in[ i ].mtu    = link->mtu;
-
-    if(      !strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
-    else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
+    ctx->in[ 0 ].mem    = link_wksp->wksp;
+    ctx->in[ 0 ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ 0 ].mem, link->dcache );
+    ctx->in[ 0 ].wmark  = fd_dcache_compact_wmark ( ctx->in[ 0 ].mem, link->dcache, link->mtu );
+    ctx->in[ 0 ].mtu    = link->mtu;
   }
 
   *ctx->repair_out = out1( topo, tile, "repair_out" );
@@ -595,6 +521,14 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  ulong startup_slot = fd_sleep_until_replay_started( topo );
+  ctx->reading_slot  = startup_slot;
+  ctx->start_slot    = startup_slot;
+  FD_MGAUGE_SET( BACKT, START_SLOT, startup_slot );
+  ctx->replay_time  = -fd_log_wallclock();
+  ctx->publish_time = -fd_log_wallclock();
+  source_init( ctx, startup_slot );
 }
 
 #define STEM_BURST                  (2UL) /* 1 after_credit + 1 returnable_frag */

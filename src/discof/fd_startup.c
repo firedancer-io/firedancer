@@ -2,7 +2,7 @@
 #include "../disco/metrics/fd_metrics.h"
 #include <time.h>
 
-void
+ulong
 fd_sleep_until_replay_started( fd_topo_t const * topo ) {
 
   /* Defensive boilerplate to prevent segfault */
@@ -39,10 +39,12 @@ fd_sleep_until_replay_started( fd_topo_t const * topo ) {
   /* Wait */
 
   FD_LOG_INFO(( "waiting for replay:0 to start runtime" ));
-  while( FD_VOLATILE_CONST( *replay_status )==0 ) {
+  while( __atomic_load_n( replay_status, __ATOMIC_ACQUIRE )==0 ) {
     struct timespec ts = { .tv_sec=0, .tv_nsec=(int)1e6 }; /* 1ms */
     (void)clock_nanosleep( CLOCK_REALTIME, 0, &ts, NULL );
   }
 
   /* No need to log here because stem_run logs on startup */
+
+  return replay_tile_metrics[ MIDX( GAUGE, REPLAY, ROOT_SLOT ) ];
 }
