@@ -663,6 +663,8 @@ publish_slot_duplicate( fd_tower_tile_t *                ctx,
   publish_t * pub = publishes_push_head_nocopy( ctx->publishes );
   pub->sig        = FD_TOWER_SIG_SLOT_DUPLICATE;
   memcpy( pub->msg.slot_duplicate.chunks, chunks, sizeof(pub->msg.slot_duplicate.chunks) );
+  ctx->metrics.eqvoc_slot = slot;
+  ctx->metrics.eqvoc_cnt++;
 
   /* If we already have a tower blk for this just-proved duplicate
      slot, then we know we have replayed one of the equivocating
@@ -1036,8 +1038,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     fd_ghost_confirm( ctx->ghost, &slot_completed->block_id );
     fd_ghost_eqvoc( ctx->ghost, &eqvoc_tower_blk->replayed_block_id );
     ctx->metrics.invalid_slot = slot_completed->slot;
-    ctx->metrics.eqvoc_slot   = slot_completed->slot;
-    ctx->metrics.eqvoc_cnt++;
 
     eqvoc_tower_blk->parent_slot       = slot_completed->parent_slot;
     eqvoc_tower_blk->replayed_block_id = slot_completed->block_id;
