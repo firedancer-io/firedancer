@@ -1560,14 +1560,17 @@ privileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed) ) );
 
-  if( FD_UNLIKELY( !strcmp( tile->tower.identity_key, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
+  if( FD_UNLIKELY( !strcmp( tile->tower.identity_key, "" ) ) ) FD_LOG_ERR(( "missing [paths.identity_key]" ));
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.identity_key, /* pubkey only: */ 1 ) );
 
   /* The vote key can be specified either directly as a base58 encoded
      pubkey, or as a file path.  We first try to decode as a pubkey. */
 
   uchar * vote_key = fd_base58_decode_32( tile->tower.vote_account, ctx->vote_account->uc );
-  if( FD_UNLIKELY( !vote_key ) ) ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
+  if( FD_UNLIKELY( !vote_key ) ) {
+    if( FD_UNLIKELY( !strcmp( tile->tower.vote_account, "" ) ) ) FD_LOG_ERR(( "missing [paths.vote_account]" ));
+    ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
+  }
 
   ctx->auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {
