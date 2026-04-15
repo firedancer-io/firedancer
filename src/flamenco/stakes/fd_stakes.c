@@ -646,7 +646,6 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
       staked_accounts++;
     }
-
   }
 
   /* Now accumulate vote stakes for all stake delegations. */
