@@ -7,6 +7,7 @@
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/sysvar/fd_sysvar_cache.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../runtime/program/fd_vote_program.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_system_ids.h"
 #include "fd_stake_delegations.h"
@@ -472,14 +473,17 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
     fd_accdb_ro_t vote_ro[1];
     /* Agave's VAT filter also checks lamports against the VoteStateV4
-       rent-exempt minimum.  We intentionally omit that here because a
-       live initialized vote account cannot remain below that reserve:
-       InitializeAccount{,V2} requires rent exemption, partial withdraws
-       below the reserve are rejected, and a full withdraw deinitializes
-       the account. */
+       rent-exempt minimum. */
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &stake_accum->pubkey ) ) ) {
       continue;
-    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( vote_ro->meta ) ||
+    }
+    ulong vote_account_lamports = vote_ro->meta->lamports;
+    ulong vote_account_rent_exempt_minimum = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ );
+    if( FD_UNLIKELY( vote_account_lamports < vote_account_rent_exempt_minimum ) ) {
+      fd_accdb_close_ro( accdb, vote_ro );
+      continue;
+    }
+    if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( vote_ro->meta ) ||
                             !fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
       fd_accdb_close_ro( accdb, vote_ro );
       continue;
