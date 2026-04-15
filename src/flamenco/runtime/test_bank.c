@@ -696,6 +696,56 @@ test_bank_new_votes_lifecycle( void * mem ) {
 }
 
 static void
+test_bank_new_votes_fork_indices( void * mem ) {
+  fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 2048UL, 0, 5555UL ) );
+  FD_TEST( banks );
+
+  /* Root bank (no fork id). */
+  fd_bank_t * root = fd_banks_init_bank( banks );
+  FD_TEST( root );
+
+  ushort out[16];
+  ulong cnt = fd_banks_new_votes_fork_indices( root, out );
+  FD_TEST( cnt==0UL );
+
+  /* A -> B -> C chain, each cloned from parent. */
+  fd_bank_t * A = fd_banks_new_bank( banks, root->idx, 0L );
+  ulong A_idx = A->idx;
+  A = fd_banks_clone_from_parent( banks, A_idx );
+  FD_TEST( A->new_votes_fork_id!=USHORT_MAX );
+  fd_banks_mark_bank_frozen( A );
+
+  fd_bank_t * B = fd_banks_new_bank( banks, A_idx, 0L );
+  ulong B_idx = B->idx;
+  B = fd_banks_clone_from_parent( banks, B_idx );
+  FD_TEST( B->new_votes_fork_id!=USHORT_MAX );
+  fd_banks_mark_bank_frozen( B );
+
+  fd_bank_t * C = fd_banks_new_bank( banks, B_idx, 0L );
+  ulong C_idx = C->idx;
+  C = fd_banks_clone_from_parent( banks, C_idx );
+  FD_TEST( C->new_votes_fork_id!=USHORT_MAX );
+
+  cnt = fd_banks_new_votes_fork_indices( C, out );
+  FD_TEST( cnt==3UL );
+  FD_TEST( out[0]==C->new_votes_fork_id );
+  FD_TEST( out[1]==B->new_votes_fork_id );
+  FD_TEST( out[2]==A->new_votes_fork_id );
+
+  cnt = fd_banks_new_votes_fork_indices( B, out );
+  FD_TEST( cnt==2UL );
+  FD_TEST( out[0]==B->new_votes_fork_id );
+  FD_TEST( out[1]==A->new_votes_fork_id );
+
+  cnt = fd_banks_new_votes_fork_indices( A, out );
+  FD_TEST( cnt==1UL );
+  FD_TEST( out[0]==A->new_votes_fork_id );
+
+  (void)C_idx;
+  fd_banks_clear( banks );
+}
+
+static void
 test_bank_clear( void * mem ) {
   fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 4UL, 2048UL, 2048UL, 0, 7777UL ) );
   FD_TEST( banks );
@@ -1101,6 +1151,8 @@ main( int argc, char ** argv ) {
   test_bank_stake_delegations_dynamic_sizing( mem );
 
   test_bank_new_votes_lifecycle( mem );
+
+  test_bank_new_votes_fork_indices( mem );
 
   test_bank_clear( mem );
 

@@ -4,7 +4,7 @@
 
 #define POOL_NAME  nv_pool
 #define POOL_T     fd_new_vote_ele_t
-#define POOL_NEXT  next_free
+#define POOL_NEXT  next
 #define POOL_IDX_T uint
 #define POOL_LAZY  1
 #include "../../util/tmpl/fd_pool.c"
@@ -15,14 +15,14 @@
 #define MAP_KEY                pubkey
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
-#define MAP_NEXT               next_map
+#define MAP_NEXT               next
 #define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME  nv_dlist
 #define DLIST_ELE_T fd_new_vote_ele_t
-#define DLIST_PREV  prev_dlist
-#define DLIST_NEXT  next_dlist
+#define DLIST_PREV  prev
+#define DLIST_NEXT  next
 #define DLIST_IDX_T uint
 #include "../../util/tmpl/fd_dlist.c"
 
@@ -264,7 +264,6 @@ fd_new_votes_insert( fd_new_votes_t *    new_votes,
   FD_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
   fd_new_vote_ele_t * ele = nv_pool_ele_acquire( pool );
   ele->pubkey = *pubkey;
-  ele->marked = 0;
   nv_dlist_ele_push_tail( dlist, ele, pool );
 
   fd_rwlock_unwrite( &new_votes->lock );
@@ -306,9 +305,137 @@ fd_new_votes_mark_delta( fd_new_votes_t * new_votes,
     fd_new_vote_ele_t * ele = nv_dlist_iter_ele( iter, dlist, pool );
     if( FD_UNLIKELY( nv_map_ele_query( map, &ele->pubkey, NULL, pool ) ) ) continue;
 
-    ele->marked = 1U;
     nv_map_ele_insert( map, ele, pool );
   }
 
   fd_rwlock_unwrite( &new_votes->lock );
+}
+
+/* Iterator internals.  Phase 0 walks the root map; phase 1 walks
+   each fork dlist in order, skipping pubkeys already in the root map. */
+
+struct fd_new_votes_iter {
+  fd_new_votes_t * new_votes;
+  ushort const *   fork_idxs;
+  ulong            fork_idx_cnt;
+  ulong            fork_pos;       /* current position in fork_idxs (phase 1) */
+  nv_map_iter_t    map_iter;       /* 16 bytes */
+  nv_dlist_iter_t  dlist_iter;     /* 8 bytes */
+  int              phase;          /* 0 = root map, 1 = fork dlists, 2 done */
+};
+
+FD_STATIC_ASSERT( sizeof(struct fd_new_votes_iter)<=FD_NEW_VOTES_ITER_FOOTPRINT, fd_new_votes_iter_footprint );
+FD_STATIC_ASSERT( alignof(struct fd_new_votes_iter)<=FD_NEW_VOTES_ITER_ALIGN,    fd_new_votes_iter_align     );
+
+static void
+iter_advance_dlist( fd_new_votes_iter_t * it ) {
+  fd_new_vote_ele_t * pool = get_pool( it->new_votes );
+  nv_map_t *          map  = get_map( it->new_votes );
+
+  for(;;) {
+    nv_dlist_t * dlist = get_dlist( it->new_votes, it->fork_idxs[ it->fork_pos ] );
+
+    while( !nv_dlist_iter_done( it->dlist_iter, dlist, pool ) ) {
+      fd_new_vote_ele_t const * ele = nv_dlist_iter_ele_const( it->dlist_iter, dlist, pool );
+      if( FD_LIKELY( !nv_map_ele_query( map, &ele->pubkey, NULL, pool ) ) ) return;
+      it->dlist_iter = nv_dlist_iter_fwd_next( it->dlist_iter, dlist, pool );
+    }
+
+    it->fork_pos++;
+    if( it->fork_pos>=it->fork_idx_cnt ) {
+      it->phase = 2;
+      return;
+    }
+    dlist = get_dlist( it->new_votes, it->fork_idxs[ it->fork_pos ] );
+    it->dlist_iter = nv_dlist_iter_fwd_init( dlist, pool );
+  }
+}
+
+fd_new_votes_iter_t *
+fd_new_votes_iter_init( fd_new_votes_t * new_votes,
+                        ushort const *   fork_idxs,
+                        ulong            fork_idx_cnt,
+                        uchar *          iter_mem ) {
+  fd_new_votes_iter_t * it = (fd_new_votes_iter_t *)iter_mem;
+
+  fd_rwlock_read( &new_votes->lock );
+
+  it->new_votes    = new_votes;
+  it->fork_idxs    = fork_idxs;
+  it->fork_idx_cnt = fork_idx_cnt;
+
+  fd_new_vote_ele_t * pool = get_pool( new_votes );
+  nv_map_t *          map  = get_map( new_votes );
+
+  it->map_iter = nv_map_iter_init( map, pool );
+
+  if( !nv_map_iter_done( it->map_iter, map, pool ) ) {
+    it->phase = 0;
+    return it;
+  }
+
+  if( fork_idx_cnt>0UL ) {
+    it->phase      = 1;
+    it->fork_pos   = 0UL;
+    nv_dlist_t * dlist = get_dlist( new_votes, fork_idxs[0] );
+    it->dlist_iter = nv_dlist_iter_fwd_init( dlist, pool );
+    iter_advance_dlist( it );
+  } else {
+    it->phase = 2;
+  }
+
+  return it;
+}
+
+int
+fd_new_votes_iter_done( fd_new_votes_iter_t const * iter ) {
+  return iter->phase==2;
+}
+
+void
+fd_new_votes_iter_next( fd_new_votes_iter_t * it ) {
+  fd_new_vote_ele_t * pool = get_pool( it->new_votes );
+  nv_map_t *          map  = get_map( it->new_votes );
+
+  if( it->phase==0 ) {
+    it->map_iter = nv_map_iter_next( it->map_iter, map, pool );
+    if( !nv_map_iter_done( it->map_iter, map, pool ) ) return;
+
+    if( it->fork_idx_cnt>0UL ) {
+      it->phase    = 1;
+      it->fork_pos = 0UL;
+      nv_dlist_t * dlist = get_dlist( it->new_votes, it->fork_idxs[0] );
+      it->dlist_iter = nv_dlist_iter_fwd_init( dlist, pool );
+      iter_advance_dlist( it );
+    } else {
+      it->phase = 2;
+    }
+    return;
+  }
+
+  if( it->phase==1 ) {
+    nv_dlist_t * dlist = get_dlist( it->new_votes, it->fork_idxs[ it->fork_pos ] );
+    it->dlist_iter = nv_dlist_iter_fwd_next( it->dlist_iter, dlist, pool );
+    iter_advance_dlist( it );
+  }
+}
+
+fd_pubkey_t const *
+fd_new_votes_iter_ele( fd_new_votes_iter_t const * it ) {
+  fd_new_vote_ele_t * pool = get_pool( it->new_votes );
+
+  if( it->phase==0 ) {
+    nv_map_t * map = get_map( it->new_votes );
+    fd_new_vote_ele_t const * ele = nv_map_iter_ele_const( it->map_iter, map, pool );
+    return &ele->pubkey;
+  }
+
+  nv_dlist_t * dlist = get_dlist( it->new_votes, it->fork_idxs[ it->fork_pos ] );
+  fd_new_vote_ele_t const * ele = nv_dlist_iter_ele_const( it->dlist_iter, dlist, pool );
+  return &ele->pubkey;
+}
+
+void
+fd_new_votes_iter_fini( fd_new_votes_iter_t * it ) {
+  fd_rwlock_unread( &it->new_votes->lock );
 }

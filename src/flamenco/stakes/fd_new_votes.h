@@ -16,8 +16,8 @@
 
 struct fd_new_vote_ele {
   fd_pubkey_t pubkey;
+  uint        next;
   uint        prev;
-  uint        marked;
 };
 typedef struct fd_new_vote_ele fd_new_vote_ele_t;
 
@@ -77,6 +77,53 @@ fd_new_votes_insert( fd_new_votes_t *    new_votes,
 void
 fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
                           ushort           fork_idx );
+
+
+/* Iterates through all distinct pubkeys visible from a bank's
+   perspective: first every entry in the root map, then every entry
+   in the per-fork dlists (in the order given by fork_idxs), skipping
+   any pubkey already present in the root map.
+
+   The caller provides an array of fork indices (child-to-root order)
+   and a scratch buffer for the iterator state.
+
+   init acquires a read lock.  The caller MUST call fini after the loop
+   to release it.
+
+   Example:
+     uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)))
+       iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
+     for( fd_new_votes_iter_t * iter =
+            fd_new_votes_iter_init( nv, fork_idxs, cnt, iter_mem );
+          !fd_new_votes_iter_done( iter );
+          fd_new_votes_iter_next( iter ) ) {
+       fd_pubkey_t const * pk = fd_new_votes_iter_ele( iter );
+     }
+     fd_new_votes_iter_fini( iter ); */
+
+#define FD_NEW_VOTES_ITER_FOOTPRINT (64UL)
+#define FD_NEW_VOTES_ITER_ALIGN     (8UL)
+
+struct fd_new_votes_iter;
+typedef struct fd_new_votes_iter fd_new_votes_iter_t;
+
+fd_new_votes_iter_t *
+fd_new_votes_iter_init( fd_new_votes_t * new_votes,
+                        ushort const *   fork_idxs,
+                        ulong            fork_idx_cnt,
+                        uchar *          iter_mem );
+
+int
+fd_new_votes_iter_done( fd_new_votes_iter_t const * iter );
+
+void
+fd_new_votes_iter_next( fd_new_votes_iter_t * iter );
+
+fd_pubkey_t const *
+fd_new_votes_iter_ele( fd_new_votes_iter_t const * iter );
+
+void
+fd_new_votes_iter_fini( fd_new_votes_iter_t * iter );
 
 FD_PROTOTYPES_END
 

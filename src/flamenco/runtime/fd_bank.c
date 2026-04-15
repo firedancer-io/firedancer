@@ -744,19 +744,21 @@ fd_banks_stake_delegations_root_query( fd_banks_t * banks ) {
   return fd_banks_get_stake_delegations( banks );
 }
 
-fd_new_votes_t *
-fd_banks_new_votes_frontier_query( fd_banks_t * banks,
-                                   fd_bank_t *  bank ) {
-  (void)banks;
-  (void)bank;
-  return NULL;
-}
+ulong
+fd_banks_new_votes_fork_indices( fd_bank_t * bank,
+                                 ushort *    fork_indices_out ) {
+  fd_banks_t * banks     = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
+  fd_bank_t *  bank_pool = fd_banks_get_bank_pool( banks );
+  ulong cnt = 0UL;
 
-void
-fd_banks_new_votes_end_frontier_query( fd_banks_t * banks,
-                                       fd_bank_t *  bank ) {
-  (void)banks;
-  (void)bank;
+  fd_bank_t * curr = fd_banks_pool_ele( bank_pool, bank->idx );
+  while( !!curr ) {
+    if( curr->new_votes_fork_id!=USHORT_MAX ) {
+      fork_indices_out[cnt++] = curr->new_votes_fork_id;
+    }
+    curr = fd_banks_pool_ele( bank_pool, curr->parent_idx );
+  }
+  return cnt;
 }
 
 void

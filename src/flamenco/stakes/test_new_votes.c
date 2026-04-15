@@ -128,6 +128,149 @@ int main( int argc, char * argv[] ) {
   fd_new_votes_reset( nv );
   FD_TEST( fd_new_votes_cnt( nv )==0UL );
 
+  /* ---- Iterator tests ---- */
+
+  uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)))
+    iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
+
+  /* Empty root, no forks: iterator is immediately done. */
+  {
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, iter_mem );
+    FD_TEST( fd_new_votes_iter_done( it ) );
+    fd_new_votes_iter_fini( it );
+  }
+
+  /* Root-only: apply a fork so root has {a, b}, iterate with no fork
+     indices -- should yield exactly 2 entries. */
+  {
+    ushort f = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f, &pk_a );
+    fd_new_votes_insert( nv, f, &pk_b );
+    fd_new_votes_apply_delta( nv, f );
+
+    ulong cnt = 0UL;
+    int saw_a = 0, saw_b = 0;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it );
+      if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
+      if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==2UL );
+    FD_TEST( saw_a && saw_b );
+    fd_new_votes_reset( nv );
+  }
+
+  /* Fork-only: empty root, one fork with {a, b} -- should yield 2. */
+  {
+    ushort f = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f, &pk_a );
+    fd_new_votes_insert( nv, f, &pk_b );
+
+    ulong cnt = 0UL;
+    int saw_a = 0, saw_b = 0;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, &f, 1UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it );
+      if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
+      if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==2UL );
+    FD_TEST( saw_a && saw_b );
+    fd_new_votes_evict_fork( nv, f );
+    fd_new_votes_reset( nv );
+  }
+
+  /* Root + fork with dedup: root has {a, b}, fork has {b, c}.
+     Iterator should yield {a, b} from root then {c} from fork
+     (b skipped as duplicate).  Total = 3. */
+  {
+    ushort f0x = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f0x, &pk_a );
+    fd_new_votes_insert( nv, f0x, &pk_b );
+    fd_new_votes_apply_delta( nv, f0x );
+
+    ushort f1x = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f1x, &pk_b );
+    fd_new_votes_insert( nv, f1x, &pk_c );
+
+    ulong cnt = 0UL;
+    int saw_a = 0, saw_b = 0, saw_c = 0;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, &f1x, 1UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it );
+      if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
+      if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
+      if( fd_pubkey_eq( pk, &pk_c ) ) saw_c = 1;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==3UL );
+    FD_TEST( saw_a && saw_b && saw_c );
+    fd_new_votes_evict_fork( nv, f1x );
+    fd_new_votes_reset( nv );
+  }
+
+  /* Multi-fork: root has {a}, fork0 has {b}, fork1 has {c, a}.
+     Iterator should yield {a} from root, {b} from fork0, {c} from
+     fork1 (a skipped).  Total = 3. */
+  {
+    ushort fr = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, fr, &pk_a );
+    fd_new_votes_apply_delta( nv, fr );
+
+    ushort fks[2];
+    fks[0] = fd_new_votes_new_fork( nv );
+    fks[1] = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, fks[0], &pk_b );
+    fd_new_votes_insert( nv, fks[1], &pk_c );
+    fd_new_votes_insert( nv, fks[1], &pk_a );
+
+    ulong cnt = 0UL;
+    int saw_a = 0, saw_b = 0, saw_c = 0;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, fks, 2UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it );
+      if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
+      if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
+      if( fd_pubkey_eq( pk, &pk_c ) ) saw_c = 1;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==3UL );
+    FD_TEST( saw_a && saw_b && saw_c );
+    fd_new_votes_evict_fork( nv, fks[0] );
+    fd_new_votes_evict_fork( nv, fks[1] );
+    fd_new_votes_reset( nv );
+  }
+
+  /* Multi-fork with all duplicates: root has {a, b}, fork has {a, b}.
+     Iterator should yield only the 2 root entries. */
+  {
+    ushort fr = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, fr, &pk_a );
+    fd_new_votes_insert( nv, fr, &pk_b );
+    fd_new_votes_apply_delta( nv, fr );
+
+    ushort fdup = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, fdup, &pk_a );
+    fd_new_votes_insert( nv, fdup, &pk_b );
+
+    ulong cnt = 0UL;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, &fdup, 1UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==2UL );
+    fd_new_votes_evict_fork( nv, fdup );
+    fd_new_votes_reset( nv );
+  }
+
   FD_LOG_NOTICE(( "pass" ));
 
   fd_halt();

@@ -512,13 +512,19 @@ fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks );
 
-fd_new_votes_t *
-fd_banks_new_votes_frontier_query( fd_banks_t * banks,
-                                   fd_bank_t *  bank );
+/* fd_banks_new_votes_fork_indices collects the new_votes fork ids
+   along the ancestry chain from `bank` up to (and including) the root
+   bank.  Valid (non-USHORT_MAX) fork ids are written into
+   fork_indices_out in child-to-root order.
 
-void
-fd_banks_new_votes_end_frontier_query( fd_banks_t * banks,
-                                       fd_bank_t *  bank );
+   The caller must provide an array large enough to hold all possible
+   ancestors; banks->max_total_banks is always sufficient.
+
+   Returns the number of entries written. */
+
+ulong
+fd_banks_new_votes_fork_indices( fd_bank_t * bank,
+                                 ushort *    fork_indices_out );
 
 /* fd_banks_pool_used_cnt returns the number of bank pool elements
    currently in use. */
