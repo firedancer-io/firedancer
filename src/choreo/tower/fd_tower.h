@@ -564,8 +564,8 @@ fd_tower_count_vote( fd_tower_t *        tower,
                      uchar const         data[static FD_VOTE_STATE_DATA_MAX] );
 
 /* fd_tower_vote_and_reset selects both a block to vote for and block to
-   reset to.  Returns a struct with a reason code (FD_TOWER_{EMPTY,...})
-   in addition to {reset,vote,root}_{slot,block_id}.
+   reset to.  Returns flags (FD_TOWER_FLAG_{...}) and writes results to
+   out-pointers for {reset,vote,root}_{slot,block_id}.
 
    We can't always vote, so vote_slot may be ULONG_MAX which indicates
    no vote should be cast and caller should ignore vote_block_id.  New
@@ -574,10 +574,16 @@ fd_tower_count_vote( fd_tower_t *        tower,
    reset_slot and reset_block_id will always be populated on return. The
    implementation contains detailed documentation of the tower rules. */
 
-fd_tower_out_t
+uchar
 fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_ghost_t * ghost,
-                         fd_votes_t * votes );
+                         fd_votes_t * votes,
+                         ulong *      reset_slot,
+                         fd_hash_t *  reset_block_id,
+                         ulong *      vote_slot,
+                         fd_hash_t *  vote_block_id,
+                         ulong *      root_slot,
+                         fd_hash_t *  root_block_id );
 
 /* Misc */
 

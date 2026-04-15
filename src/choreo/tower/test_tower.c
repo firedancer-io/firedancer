@@ -614,6 +614,183 @@ test_switch_eqvoc( fd_wksp_t * wksp ) {
 }
 
 void
+test_case_1c_switch_pass( fd_wksp_t * wksp ) {
+
+  /* Case 1c falling through to Case 3 (switch pass).
+
+     Setup: prev vote is on a fork with an invalid ancestor (duplicate).
+     ghost_best is on a different fork (not an ancestor of prev_vote
+     and not a sibling-confirmed duplicate).  The switch check passes
+     because enough stake is on a different fork.
+
+         1 (invalid / eqvoc)
+        / \
+       2   4 - 5 (ghost_best, most stake)
+       |
+       3 (prev vote)
+  */
+
+  ulong blk_max     = 64;
+  ulong voter_max   = 16;
+  ulong total_stake = 100;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( blk_max, voter_max ), 1UL );
+
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, blk_max, voter_max, 0UL ) );
+  FD_TEST( tower );
+  FD_TEST( ghost );
+
+  mock( ghost, fd_tower_blocks_insert( tower, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}}, NULL );
+  mock( ghost, fd_tower_blocks_insert( tower, 1, 0 ), 1,         &(fd_hash_t){.ul = {1}}, &(fd_hash_t){.ul = {0}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 2, 1 ), 2,         &(fd_hash_t){.ul = {2}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 3, 2 ), 3,         &(fd_hash_t){.ul = {3}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 4, 0 ), 4,         &(fd_hash_t){.ul = {4}}, &(fd_hash_t){.ul = {0}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 5, 4 ), 5,         &(fd_hash_t){.ul = {5}}, &(fd_hash_t){.ul = {4}} );
+
+  /* Mark slot 1 as a duplicate (invalid).  This makes prev_vote's fork
+     have an invalid ancestor, triggering Case 1. */
+
+  fd_ghost_eqvoc( ghost, &(fd_hash_t){.ul = {1}} );
+
+  /* Give slot 5's fork lots of stake so ghost_best returns slot 5 and
+     the switch check passes. */
+
+  fd_ghost_query( ghost, &(fd_hash_t){.ul = {5}} )->stake       = total_stake;
+  fd_ghost_query( ghost, &(fd_hash_t){.ul = {5}} )->total_stake  = total_stake;
+  fd_ghost_query( ghost, &(fd_hash_t){.ul = {4}} )->total_stake  = total_stake;
+  fd_ghost_query( ghost, &(fd_hash_t){.ul = {0}} )->total_stake  = total_stake;
+
+  /* Our tower: voted for slots 0 and 3.  Prev vote is slot 3.
+     Must set voted and voted_block_id on the fork blocks so
+     fd_tower_vote_and_reset can look up prev_vote_blk in ghost. */
+
+  push_vote( tower, 0 );
+  push_vote( tower, 3 );
+
+  fd_tower_blk_t * blk0 = fd_tower_blocks_query( tower, 0 );
+  blk0->voted = 1; blk0->voted_block_id = (fd_hash_t){.ul = {0}};
+
+  fd_tower_blk_t * blk3 = fd_tower_blocks_query( tower, 3 );
+  blk3->voted = 1; blk3->voted_block_id = (fd_hash_t){.ul = {3}};
+
+  /* Need an artificial root so switch_check can find root_slot. */
+
+  fd_tower_vote_push_head( tower->votes, (fd_tower_vote_t){.slot = 0, .conf = 32} );
+
+  /* Set up switch proof: a voter locked out on slot 5's fork covering
+     our last vote.  This provides enough switch stake. */
+
+  fd_tower_vtr_t acct;
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) mock_tower_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * mock_tower = fd_tower_vote_join( fd_tower_vote_new( mock_tower_mem ) );
+
+  mock_vote_acc( &(fd_hash_t){.ul = {1}}, total_stake, 5, 6, &acct, mock_tower );
+  fd_tower_lockos_insert( tower, 5, &acct.vote_acc, acct.votes );
+  fd_tower_stakes_insert( tower, 5, &acct.vote_acc, acct.stake, ULONG_MAX );
+
+  fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
+  out.flags = fd_tower_vote_and_reset( tower, ghost, NULL,
+      &out.reset_slot, &out.reset_block_id,
+      &out.vote_slot,  &out.vote_block_id,
+      &out.root_slot,  &out.root_block_id );
+
+  /* Should have SWITCH_PASS flag set (Case 1c → Case 3). */
+
+  FD_TEST( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_PASS ) );
+
+  /* reset_blk should be ghost_best (slot 5). */
+
+  FD_TEST( out.reset_slot == 5 );
+
+  FD_LOG_NOTICE(( "test_case_1c_switch_pass passed" ));
+}
+
+void
+test_case_1c_switch_fail( fd_wksp_t * wksp ) {
+
+  /* Case 1c falling through to Case 4a (switch fail, invalid ancestor).
+
+     Setup: same fork structure as above, but no switch stake so the
+     switch check fails.  Because invalid_ancestor is true, we go to
+     Case 4a and reset to fd_ghost_deepest from prev_vote_blk.
+
+         1 (invalid / eqvoc)
+        / \
+       2   4 - 5 (ghost_best, most stake)
+       |
+       3 (prev vote)
+  */
+
+  ulong blk_max     = 64;
+  ulong voter_max   = 16;
+  ulong total_stake = 100;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( blk_max, voter_max ), 1UL );
+
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, blk_max, voter_max, 0UL ) );
+  FD_TEST( tower );
+  FD_TEST( ghost );
+
+  mock( ghost, fd_tower_blocks_insert( tower, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}}, NULL );
+  mock( ghost, fd_tower_blocks_insert( tower, 1, 0 ), 1,         &(fd_hash_t){.ul = {1}}, &(fd_hash_t){.ul = {0}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 2, 1 ), 2,         &(fd_hash_t){.ul = {2}}, &(fd_hash_t){.ul = {1}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 3, 2 ), 3,         &(fd_hash_t){.ul = {3}}, &(fd_hash_t){.ul = {2}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 4, 0 ), 4,         &(fd_hash_t){.ul = {4}}, &(fd_hash_t){.ul = {0}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 5, 4 ), 5,         &(fd_hash_t){.ul = {5}}, &(fd_hash_t){.ul = {4}} );
+
+  /* Mark slot 1 as a duplicate (invalid). */
+
+  fd_ghost_eqvoc( ghost, &(fd_hash_t){.ul = {1}} );
+
+  /* Give slot 5's fork lots of stake so ghost_best returns slot 5. */
+
+  fd_ghost_query( ghost, &(fd_hash_t){.ul = {5}} )->stake       = total_stake;
+  fd_ghost_query( ghost, &(fd_hash_t){.ul = {5}} )->total_stake  = total_stake;
+  fd_ghost_query( ghost, &(fd_hash_t){.ul = {4}} )->total_stake  = total_stake;
+  fd_ghost_query( ghost, &(fd_hash_t){.ul = {0}} )->total_stake  = total_stake;
+
+  /* Our tower: voted for slots 0 and 3.  Prev vote is slot 3.
+     Must set voted and voted_block_id on the fork blocks so
+     fd_tower_vote_and_reset can look up prev_vote_blk in ghost. */
+
+  push_vote( tower, 0 );
+  push_vote( tower, 3 );
+
+  fd_tower_blk_t * blk0 = fd_tower_blocks_query( tower, 0 );
+  blk0->voted = 1; blk0->voted_block_id = (fd_hash_t){.ul = {0}};
+
+  fd_tower_blk_t * blk3 = fd_tower_blocks_query( tower, 3 );
+  blk3->voted = 1; blk3->voted_block_id = (fd_hash_t){.ul = {3}};
+
+  /* No switch stake set up — switch check will fail. */
+
+  fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
+  out.flags = fd_tower_vote_and_reset( tower, ghost, NULL,
+      &out.reset_slot, &out.reset_block_id,
+      &out.vote_slot,  &out.vote_block_id,
+      &out.root_slot,  &out.root_block_id );
+
+  /* Should have SWITCH_FAIL flag set (Case 1c → Case 4a). */
+
+  FD_TEST( fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_FAIL ) );
+
+  /* reset_blk should be fd_ghost_deepest from prev_vote_blk (slot 3).
+     Since slot 3 is a leaf, deepest from slot 3 is slot 3 itself. */
+
+  FD_TEST( out.reset_slot == 3 );
+
+  /* No vote should be cast. */
+
+  FD_TEST( out.vote_slot == ULONG_MAX );
+
+  FD_LOG_NOTICE(( "test_case_1c_switch_fail passed" ));
+}
+
+void
 test_reconcile_voted_block_id( fd_wksp_t * wksp ) {
 
   /* Scenario: staked primary / unstaked backup.  The backup voted down
@@ -929,6 +1106,9 @@ main( int argc, char ** argv ) {
 
 
   test_switch_eqvoc( wksp );
+
+  test_case_1c_switch_pass( wksp );
+  test_case_1c_switch_fail( wksp );
 
   test_reconcile_voted_block_id( wksp );
   test_reconcile_on_chain_root_ahead( wksp );

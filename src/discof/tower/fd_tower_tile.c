@@ -249,7 +249,7 @@ struct fd_tower_tile {
   uchar                         vote_txn[FD_TPU_PARSED_MTU];
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
-  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN     ))) iter_mem    [ FD_TOP_VOTES_ITER_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN     ))) iter_mem    [ FD_TOP_VOTES_ITER_FOOTPRINT      ];
 
   /* metadata */
 
@@ -535,6 +535,8 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
         FD_TEST( 0!=memcmp( &tower_blk->replayed_block_id, &votes_blk->key.block_id, sizeof(fd_hash_t) ) );
         tower_blk->confirmed          = 1;
         tower_blk->confirmed_block_id = votes_blk->key.block_id;
+        FD_BASE58_ENCODE_32_BYTES( tower_blk->replayed_block_id.uc, eqvoc_blk_id );
+        FD_LOG_DEBUG(( "[%s] equivocation detected via forward-confirmed block id mismatch (replayed before confirmed). slot: %lu. block_id: %s", __func__, votes_blk->key.slot, eqvoc_blk_id ));
         fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
       }
       continue;
@@ -577,7 +579,11 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
         tower_anc->confirmed          = 1;
         tower_anc->confirmed_block_id = ghost_anc->id;
         fd_ghost_confirm( ctx->ghost, &ghost_anc->id );
-        if( FD_UNLIKELY( memcmp( &tower_anc->replayed_block_id, &ghost_anc->id, sizeof(fd_hash_t) ) ) ) fd_ghost_eqvoc( ctx->ghost, &tower_anc->replayed_block_id );
+        if( FD_UNLIKELY( memcmp( &tower_anc->replayed_block_id, &ghost_anc->id, sizeof(fd_hash_t) ) ) ) {
+          FD_BASE58_ENCODE_32_BYTES( tower_anc->replayed_block_id.uc, eqvoc_blk_id );
+          FD_LOG_DEBUG(( "[%s] equivocation detected via ancestor duplicate confirmation. slot: %lu. block_id: %s", __func__, ghost_anc->slot, eqvoc_blk_id ));
+          fd_ghost_eqvoc( ctx->ghost, &tower_anc->replayed_block_id );
+        }
       }
 
       /* Walk up to next ancestor. */
@@ -671,7 +677,11 @@ publish_slot_duplicate( fd_tower_tile_t *                ctx,
 
   fd_tower_blk_t * tower_blk = fd_tower_blocks_query( ctx->tower, slot );
   int eqvoc = tower_blk && (!tower_blk->confirmed || memcmp( &tower_blk->replayed_block_id, &tower_blk->confirmed_block_id, sizeof(fd_hash_t) ) );
-  if( FD_LIKELY( eqvoc ) ) fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
+  if( FD_LIKELY( eqvoc ) ) {
+    FD_BASE58_ENCODE_32_BYTES( tower_blk->replayed_block_id.uc, eqvoc_blk_id );
+    FD_LOG_DEBUG(( "[%s] equivocation detected via duplicate shred proof. slot: %lu. block_id: %s", __func__, slot, eqvoc_blk_id ));
+    fd_ghost_eqvoc( ctx->ghost, &tower_blk->replayed_block_id );
+  }
 }
 
 static void
@@ -1028,6 +1038,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     ctx->metrics.eqvoc_slot = fd_ulong_max( ctx->metrics.eqvoc_slot, slot_completed->slot );
 
     fd_ghost_confirm( ctx->ghost, &slot_completed->block_id );
+    FD_BASE58_ENCODE_32_BYTES( eqvoc_tower_blk->replayed_block_id.uc, eqvoc_blk_id );
+    FD_LOG_DEBUG(( "[%s] equivocation detected via duplicate replay. slot: %lu. block_id: %s", __func__, slot_completed->slot, eqvoc_blk_id ));
     fd_ghost_eqvoc( ctx->ghost, &eqvoc_tower_blk->replayed_block_id );
 
     eqvoc_tower_blk->parent_slot       = slot_completed->parent_slot;
@@ -1079,6 +1091,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
         /* The forward-confirmed block_id differs from what we replayed,
            so our replayed block is an equivocating sibling. */
 
+        FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, eqvoc_blk_id );
+        FD_LOG_DEBUG(( "[%s] equivocation detected via forward-confirmed block id mismatch (confirmed before replayed). slot: %lu. block_id: %s", __func__, slot_completed->slot, eqvoc_blk_id ));
         fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
       }
 
@@ -1087,6 +1101,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
       /* Eqvoc already detected equivocation for this slot (via shreds
          or gossip before replay).  Mark the ghost block invalid. */
 
+      FD_BASE58_ENCODE_32_BYTES( slot_completed->block_id.uc, eqvoc_blk_id );
+      FD_LOG_DEBUG(( "[%s] equivocation detected via eqvoc shred proof before replay. slot: %lu. block_id: %s", __func__, slot_completed->slot, eqvoc_blk_id ));
       fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
     }
   }
@@ -1119,7 +1135,11 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* Determine reset, vote, and root slots.  There may not be a vote or
      root slot but there is always a reset slot. */
 
-  fd_tower_out_t out = fd_tower_vote_and_reset( ctx->tower, ctx->ghost, ctx->votes );
+  fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
+  out.flags = fd_tower_vote_and_reset( ctx->tower, ctx->ghost, ctx->votes,
+      &out.reset_slot, &out.reset_block_id,
+      &out.vote_slot,  &out.vote_block_id,
+      &out.root_slot,  &out.root_block_id );
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) {
 
     /* If there is a vote slot we record it. */
