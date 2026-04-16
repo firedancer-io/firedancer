@@ -511,15 +511,16 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
-      int   ingest_dead_slots;
-      ulong root_distance;
+      char  ledger_format[ 16 ];
+      char  ledger_path[ PATH_MAX ];
       ulong end_slot;
-      char  rocksdb_path[ PATH_MAX ];
-      char  shredcap_path[ PATH_MAX ];
+      ulong root_distance;
     } backtest;
 
     struct {
-      char   rocksdb_path[ PATH_MAX ];
+      char   ledger_format[ 16 ];
+      char   ledger_path[ PATH_MAX ];
+      ulong  end_slot;
       ushort shred_listen_port;
     } forktest;
 

@@ -76,10 +76,6 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
     verify_tile_count = 2
     execrp_tile_count = 6
 [tiles]
-    [tiles.archiver]
-        end_slot = 406545600
-        rocksdb_path = "${ledger_dir}/rocksdb"
-        ingest_mode = "rocksdb"
     [tiles.replay]
         enable_features = [  ]
     [tiles.gui]
@@ -106,6 +102,9 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
         disable_lthash_verification = true
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
+[development.ledger_input]
+    path = "${ledger_dir}/rocksdb"
+    end_slot = 406545600
 EOF
 
 $OBJDIR/bin/firedancer-dev configure fini all

@@ -15,13 +15,16 @@
    start-of-file.  Reading lazily decompresses input bytes from the
    underlying file.
 
-   The ownership of file is moved (closing the returned FILE handle also
-   closes the provided underlying file handle).  The dstream is only
-   borrowed (closing the returned FILE handle leaves the dstream
+   The ownership of file is moved on success (closing the returned FILE
+   handle also closes the provided underlying file handle).  The dstream
+   is only borrowed (closing the returned FILE handle leaves the dstream
    intact).
 
-   Calls malloc().  Logs to FD_LOG_WARNING on decompression and I/O
-   error. */
+   On failure, returns NULL and returns ownership of file to the caller.
+   (The caller is responsible for closing the file on failure).
+
+   During this call and further I/O operation, may allocate from libc
+   heap and write to warning log. */
 
 FILE *
 fd_zstd_rstream_open( FILE *         file,

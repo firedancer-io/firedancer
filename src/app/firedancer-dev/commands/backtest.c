@@ -17,13 +17,11 @@
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/commands/watch/watch.h"
 #include "../../shared/fd_config.h" /* config_t */
-#include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/topo/fd_topob_vinyl.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/genesis/fd_genesi_tile.h"
 #include "../../../disco/shred/fd_shred_tile.h"
-#include "../../../discof/reasm/fd_reasm.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/fd_snapin_tile_private.h"
 #include "../../../discof/restore/fd_snaplv_tile_private.h"
