@@ -12,23 +12,6 @@
 #endif
 
 /* Struct definitions */
-typedef struct fd_exec_test_gossip_message_binary {
-    pb_bytes_array_t *data;
-} fd_exec_test_gossip_message_binary_t;
-
-typedef struct fd_exec_test_accepts_gossip_message {
-    bool valid;
-} fd_exec_test_accepts_gossip_message_t;
-
-typedef struct fd_exec_test_gossip_message_fixture {
-    bool has_metadata;
-    fd_exec_test_fixture_metadata_t metadata;
-    bool has_input;
-    fd_exec_test_gossip_message_binary_t input;
-    bool has_output;
-    fd_exec_test_accepts_gossip_message_t output;
-} fd_exec_test_gossip_message_fixture_t;
-
 typedef struct fd_exec_test_gossip_ping {
     pb_bytes_array_t *from;
     pb_bytes_array_t *token;
@@ -192,9 +175,6 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_DEFAULT {NULL}
-#define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_DEFAULT {0}
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_DEFAULT, false, FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_DEFAULT}
 #define FD_EXEC_TEST_GOSSIP_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, NULL, false, FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_DEFAULT {0, false, FD_EXEC_TEST_GOSSIP_MSG_INIT_DEFAULT}
 #define FD_EXEC_TEST_GOSSIP_MSG_INIT_DEFAULT     {0, {FD_EXEC_TEST_GOSSIP_PING_INIT_DEFAULT}}
@@ -216,9 +196,6 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT {NULL, 0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT {0, NULL}
 #define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT {0, NULL, 0, 0, 0, 0, 0, 0, NULL}
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_ZERO {NULL}
-#define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_ZERO {0}
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_ZERO, false, FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_ZERO}
 #define FD_EXEC_TEST_GOSSIP_FIXTURE_INIT_ZERO    {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, NULL, false, FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO    {0, false, FD_EXEC_TEST_GOSSIP_MSG_INIT_ZERO}
 #define FD_EXEC_TEST_GOSSIP_MSG_INIT_ZERO        {0, {FD_EXEC_TEST_GOSSIP_PING_INIT_ZERO}}
@@ -242,11 +219,6 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_ZERO {0, NULL, 0, 0, 0, 0, 0, 0, NULL}
 
 /* Field tags (for use in manual encoding/decoding) */
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_DATA_TAG 1
-#define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_VALID_TAG 1
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_METADATA_TAG 1
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INPUT_TAG 2
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_OUTPUT_TAG 3
 #define FD_EXEC_TEST_GOSSIP_PING_FROM_TAG        1
 #define FD_EXEC_TEST_GOSSIP_PING_TOKEN_TAG       2
 #define FD_EXEC_TEST_GOSSIP_PING_SIGNATURE_TAG   3
@@ -324,26 +296,6 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_FIXTURE_OUTPUT_TAG   3
 
 /* Struct field encoding specification for nanopb */
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_FIELDLIST(X, a) \
-X(a, POINTER,  SINGULAR, BYTES,    data,              1)
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_CALLBACK NULL
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_DEFAULT NULL
-
-#define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, BOOL,     valid,             1)
-#define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_CALLBACK NULL
-#define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_DEFAULT NULL
-
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  input,             2) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_CALLBACK NULL
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_DEFAULT NULL
-#define fd_exec_test_gossip_message_fixture_t_metadata_MSGTYPE fd_exec_test_fixture_metadata_t
-#define fd_exec_test_gossip_message_fixture_t_input_MSGTYPE fd_exec_test_gossip_message_binary_t
-#define fd_exec_test_gossip_message_fixture_t_output_MSGTYPE fd_exec_test_accepts_gossip_message_t
-
 #define FD_EXEC_TEST_GOSSIP_FIXTURE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
 X(a, POINTER,  SINGULAR, BYTES,    input,             2) \
@@ -526,9 +478,6 @@ X(a, POINTER,  SINGULAR, BYTES,    chunk,             9)
 #define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_CALLBACK NULL
 #define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_DEFAULT NULL
 
-extern const pb_msgdesc_t fd_exec_test_gossip_message_binary_t_msg;
-extern const pb_msgdesc_t fd_exec_test_accepts_gossip_message_t_msg;
-extern const pb_msgdesc_t fd_exec_test_gossip_message_fixture_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_fixture_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_effects_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_msg_t_msg;
@@ -552,9 +501,6 @@ extern const pb_msgdesc_t fd_exec_test_gossip_incremental_hash_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_FIELDS &fd_exec_test_gossip_message_binary_t_msg
-#define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_FIELDS &fd_exec_test_accepts_gossip_message_t_msg
-#define FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_FIELDS &fd_exec_test_gossip_message_fixture_t_msg
 #define FD_EXEC_TEST_GOSSIP_FIXTURE_FIELDS &fd_exec_test_gossip_fixture_t_msg
 #define FD_EXEC_TEST_GOSSIP_EFFECTS_FIELDS &fd_exec_test_gossip_effects_t_msg
 #define FD_EXEC_TEST_GOSSIP_MSG_FIELDS &fd_exec_test_gossip_msg_t_msg
@@ -578,8 +524,6 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 #define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_FIELDS &fd_exec_test_gossip_duplicate_shred_t_msg
 
 /* Maximum encoded size of messages (where known) */
-/* fd_exec_test_GossipMessageBinary_size depends on runtime parameters */
-/* fd_exec_test_GossipMessageFixture_size depends on runtime parameters */
 /* fd_exec_test_GossipFixture_size depends on runtime parameters */
 /* fd_exec_test_GossipEffects_size depends on runtime parameters */
 /* fd_exec_test_GossipMsg_size depends on runtime parameters */
@@ -601,13 +545,8 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 /* fd_exec_test_GossipSnapshotHashes_size depends on runtime parameters */
 /* fd_exec_test_GossipIncrementalHash_size depends on runtime parameters */
 /* fd_exec_test_GossipDuplicateShred_size depends on runtime parameters */
-#define FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_SIZE 2
-#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PB_H_MAX_SIZE FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
-#define org_solana_sealevel_v1_GossipMessageBinary fd_exec_test_GossipMessageBinary
-#define org_solana_sealevel_v1_AcceptsGossipMessage fd_exec_test_AcceptsGossipMessage
-#define org_solana_sealevel_v1_GossipMessageFixture fd_exec_test_GossipMessageFixture
 #define org_solana_sealevel_v1_GossipFixture fd_exec_test_GossipFixture
 #define org_solana_sealevel_v1_GossipEffects fd_exec_test_GossipEffects
 #define org_solana_sealevel_v1_GossipMsg fd_exec_test_GossipMsg
@@ -629,9 +568,6 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 #define org_solana_sealevel_v1_GossipSnapshotHashes fd_exec_test_GossipSnapshotHashes
 #define org_solana_sealevel_v1_GossipIncrementalHash fd_exec_test_GossipIncrementalHash
 #define org_solana_sealevel_v1_GossipDuplicateShred fd_exec_test_GossipDuplicateShred
-#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MESSAGE_BINARY_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_ACCEPTS_GOSSIP_MESSAGE_INIT_DEFAULT FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MESSAGE_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MSG_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_MSG_INIT_DEFAULT
@@ -653,9 +589,6 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MESSAGE_BINARY_INIT_ZERO FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_ACCEPTS_GOSSIP_MESSAGE_INIT_ZERO FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MESSAGE_FIXTURE_INIT_ZERO FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_FIXTURE_INIT_ZERO FD_EXEC_TEST_GOSSIP_FIXTURE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_EFFECTS_INIT_ZERO FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_MSG_INIT_ZERO FD_EXEC_TEST_GOSSIP_MSG_INIT_ZERO

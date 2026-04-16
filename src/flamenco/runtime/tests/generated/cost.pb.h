@@ -136,8 +136,8 @@ extern const pb_msgdesc_t fd_exec_test_cost_fixture_t_msg;
 
 /* Maximum encoded size of messages (where known) */
 #if defined(fd_exec_test_SanitizedTransaction_size) && defined(fd_exec_test_FeatureSet_size)
-#define FD_EXEC_TEST_COST_CONTEXT_SIZE           (31 + fd_exec_test_SanitizedTransaction_size + fd_exec_test_FeatureSet_size)
-#define FD_EXEC_TEST_COST_FIXTURE_SIZE           (252 + fd_exec_test_SanitizedTransaction_size + fd_exec_test_FeatureSet_size)
+#define FD_EXEC_TEST_COST_CONTEXT_SIZE           (36 + fd_exec_test_SanitizedTransaction_size + fd_exec_test_FeatureSet_size)
+#define FD_EXEC_TEST_COST_FIXTURE_SIZE           (257 + fd_exec_test_SanitizedTransaction_size + fd_exec_test_FeatureSet_size)
 #define ORG_SOLANA_SEALEVEL_V1_COST_PB_H_MAX_SIZE FD_EXEC_TEST_COST_FIXTURE_SIZE
 #endif
 #define FD_EXEC_TEST_COST_RESULT_SIZE            79
