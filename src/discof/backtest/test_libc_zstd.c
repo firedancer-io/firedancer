@@ -107,7 +107,7 @@ test_rstream_multi_frame( void ) {
   }
   FD_TEST( ferror( p_file )==0 );
   FD_TEST( rd_off==10UL );
-  fd_memeq( p, "hellohello", 10UL );
+  FD_TEST( fd_memeq( p, "hellohello", 10UL ) );
   FD_TEST( fclose( p_file )==0 );
   ZSTD_freeDStream( dstream );
   free( c );
