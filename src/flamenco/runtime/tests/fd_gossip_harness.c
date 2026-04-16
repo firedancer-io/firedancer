@@ -80,7 +80,9 @@ convert_crds_data( fd_spad_t *                      spad,
     out->data.duplicate_shred.shred_type  = 0;
     out->data.duplicate_shred.num_chunks  = val->duplicate_shred->num_chunks;
     out->data.duplicate_shred.chunk_index = val->duplicate_shred->chunk_index;
-    out->data.duplicate_shred.chunk       = alloc_bytes( spad, val->duplicate_shred->chunk, val->duplicate_shred->chunk_len );
+    out->data.duplicate_shred.chunk       = val->duplicate_shred->chunk_len
+                                              ? alloc_bytes( spad, val->duplicate_shred->chunk, val->duplicate_shred->chunk_len )
+                                              : NULL;
     break;
   default:
     /* Deprecated or unrecognized variant -- empty data */
@@ -125,9 +127,21 @@ convert_bloom( fd_spad_t *                   spad,
     out->keys = fd_spad_alloc( spad, alignof(uint64_t), bloom->keys_len * sizeof(uint64_t) );
     memcpy( out->keys, bloom->keys, bloom->keys_len * sizeof(uint64_t) );
   }
-  /* Copy raw bloom bitset bytes. */
-  ulong bits_byte_len = bloom->bits_cap * sizeof(bloom->bits[0]);
+  /* Copy only block_len() worth of u64 blocks, not bits_cap.
+     https://github.com/tov/bv-rs/blob/0.11.1/src/bit_vec/mod.rs#L243-L245 */
+  ulong bits_blocks   = (bloom->bits_len + 63UL) / 64UL;
+  ulong bits_byte_len = bits_blocks * sizeof(bloom->bits[0]);
   out->bits = alloc_bytes( spad, (uchar const *)bloom->bits, bits_byte_len );
+  /* Mask trailing bits beyond bits_len in the last block of the
+     protobuf copy.  bv::BitVec::get_block() returns get_masked_block()
+     which zeros bits past bit_len() in the last block.
+     https://github.com/tov/bv-rs/blob/0.11.1/src/bit_vec/impls.rs#L30-L32
+     https://github.com/tov/bv-rs/blob/0.11.1/src/traits/bits.rs#L134-L137 */
+  if( bloom->bits_len & 63UL ) {
+    ulong last = bits_blocks - 1UL;
+    ulong mask = ( 2UL << ((bloom->bits_len - 1UL) & 63UL) ) - 1UL;
+    ((ulong *)out->bits->bytes)[ last ] &= mask;
+  }
   out->num_bits_set = bloom->num_bits_set;
 }
 
