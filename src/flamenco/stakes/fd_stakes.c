@@ -318,6 +318,11 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
 
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
 
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/leader-schedule/src/lib.rs#L80-L83
+     We do not deduplicate the weights here, unlike Agave, as it is
+     guaranteed there will be no duplicate stake entries for a given fork
+     in the stakes map. */
+
   return weights_cnt;
 }
 
@@ -365,6 +370,11 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
   }
 
   sort_vote_weights_by_stake_vote_inplace( weights, weights_cnt );
+
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/leader-schedule/src/lib.rs#L80-L83
+     We do not deduplicate the weights here, unlike Agave, as it is
+     guaranteed there will be no duplicate stake entries for a given fork
+     in the stakes map. */
 
   return weights_cnt;
 }
