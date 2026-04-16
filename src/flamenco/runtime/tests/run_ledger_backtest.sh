@@ -227,8 +227,17 @@ if [[ "$DOWNLOAD_ONLY" == "true" ]]; then
   exit 0
 fi
 
-chmod -R 0700 $DUMP/$LEDGER
+if [[ "$INGEST_MODE" == "shredcap" ]]; then
+  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
+    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
+    echo "Converted rocksdb to shredcap"
+  fi
+  LEDGER_INPUT="$DUMP/$LEDGER/shreds.pcapng.zst"
+else
+  LEDGER_INPUT="$DUMP/$LEDGER/rocksdb"
+fi
 
+chmod -R 0700 $DUMP/$LEDGER
 
 CONFIG_FILE="$DUMP_DIR/${LEDGER}_backtest.toml"
 cat <<EOF > ${CONFIG_FILE}
@@ -244,13 +253,7 @@ cat <<EOF > ${CONFIG_FILE}
     snapshot_hash_tile_count = 1
     execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
-    [tiles.archiver]
-        end_slot = $END_SLOT
-        rocksdb_path = "$DUMP/$LEDGER/rocksdb"
-        shredcap_path = "$DUMP/$LEDGER/shreds.pcapng.zst"
-        ingest_mode = "$INGEST_MODE"
-        ingest_dead_slots = $INGEST_DEAD_SLOTS
-        root_distance = $ROOT_DISTANCE
+
     [tiles.replay]
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
@@ -270,6 +273,11 @@ cat <<EOF > ${CONFIG_FILE}
 [development]
     [development.snapshots]
         disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION
+    [development.ledger_input]
+        path = "$LEDGER_INPUT"
+        end_slot = $END_SLOT
+    [development.backtest]
+        root_distance = $ROOT_DISTANCE
 EOF
 
 if [[ "$DB" == "funk" ]]; then
@@ -299,14 +307,6 @@ if [[ -z "$GENESIS" ]]; then
 else
   echo "[paths]
     genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
-fi
-
-
-if [[ "$INGEST_MODE" == "shredcap" ]]; then
-  if [[ ! -e $DUMP/$LEDGER/shreds.pcapng.zst ]]; then
-    $OBJDIR/bin/fd_blockstore2shredcap --rocksdb $DUMP/$LEDGER/rocksdb --out $DUMP/$LEDGER/shreds.pcapng.zst --zstd
-  fi
-  echo "Converted rocksdb to shredcap"
 fi
 
 echo_notice "Running backtest for $LEDGER"

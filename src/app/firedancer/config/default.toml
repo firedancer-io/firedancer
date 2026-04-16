@@ -1917,3 +1917,44 @@ telemetry = true
     # the layout will be ignored.
     [development.snapshots]
         disable_lthash_verification = false
+
+    # Inject shreds (block data) into the system to replay.
+    # Used by 'firedancer-dev {backtest,forktest}'.
+    [development.ledger_input]
+        # The following input ledger formats are supported:
+        #
+        #   "auto" (default)
+        #    Attempt to detect input format based on file path.
+        #
+        #   "rocksdb"
+        #    Read an Agave-like blockstore RocksDB directory
+        #    The database is opened in "read only secondary" mode.
+        #    Requires a build with './deps.sh +dev'
+        #
+        #   "pcap"
+        #    Read a PCAP or PCAPNG file and inject all UDP packets as
+        #    shreds.  Supports the following link types: ETHERNET, IPv4,
+        #    or RAW (interprets first header as IPv4).
+        #    Supports Zstandard (.zst) compression.
+        #
+        format = "auto"
+
+        # Absolute file system path to shred source.
+        path = ""
+
+        # Stop injecting when this slot is reached (inclusive).
+        # Zero signals to only stop when the input is fully consumed.
+        end_slot = 0
+
+    # 'firedancer-dev backtest' specific options
+    [development.backtest]
+        # See [layout.affinity]
+        affinity = "auto"
+
+        # Delays rooting by the given number of slots.
+        root_distance = 32
+
+    # 'firedancer-dev forktest' specific options
+    [development.forktest]
+        # See [layout.affinity]
+        affinity = "auto"
