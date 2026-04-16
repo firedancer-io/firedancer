@@ -6,7 +6,6 @@
 #include "fd_authorized_voters.h"
 #include "../../fd_runtime.h"
 #include "../../fd_system_ids.h"
-#include "../../../../choreo/tower/fd_tower_serdes.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42 */
 #define DEFAULT_PRIOR_VOTERS_OFFSET 114

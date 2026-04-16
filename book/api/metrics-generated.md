@@ -1124,16 +1124,16 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">tower_&#8203;not_&#8203;ready</span> | counter | Frag was dropped because it arrived before tower tile was initialized |
 | <span class="metrics-name">tower_&#8203;ignored_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we ignored |
-| <span class="metrics-name">tower_&#8203;ignored_&#8203;slot</span> | gauge | Most recent ignored replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
-| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;slot</span> | gauge | Most recent equivocating replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | The most recently replayed slot, ULONG_MAX if nothing replayed yet. Not monotonically increasing. |
 | <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | The highest voted slot in the local tower, ULONG_MAX if haven't voted. Monotonically increasing. |
 | <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | The most recent reset slot, ULONG_MAX if no reset yet. Not monotonically increasing. |
 | <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | The highest rooted slot, ULONG_MAX if no root yet. Monotonically increasing. |
 | <span class="metrics-name">tower_&#8203;init_&#8203;slot</span> | gauge | Init slot. Either the snapshot or genesis slot. Set once and does not change. |
-| <span class="metrics-name">tower_&#8203;not_&#8203;ready</span> | counter | Frag was dropped because it arrived before tower tile was initialized |
+| <span class="metrics-name">tower_&#8203;ignored_&#8203;slot</span> | gauge | Most recent ignored replay_slot_completed frag |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;slot</span> | gauge | Most recent equivocating replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;deser</span> | counter | Vote txn failed to deserialize |
 | <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;tower</span> | counter | Vote txn deserialized but tower was invalid |
 | <span class="metrics-name">tower_&#8203;txn_&#8203;not_&#8203;tower_&#8203;sync</span> | counter | Vote txn was not a TowerSync instruction |
@@ -1164,14 +1164,14 @@
 | <span class="metrics-name">tower_&#8203;hfork_&#8203;too_&#8203;old</span> | counter | Hfork vote slot not newer than previous |
 | <span class="metrics-name">tower_&#8203;hfork_&#8203;matched_&#8203;slot</span> | gauge | Highest slot where 52%+ of stake agreed on our bank hash |
 | <span class="metrics-name">tower_&#8203;hfork_&#8203;mismatched_&#8203;slot</span> | gauge | Highest slot where 52%+ of stake agreed on a different bank hash than ours (we hard forked) |
-| <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
-| <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
-| <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
-| <span class="metrics-name">tower_&#8203;switch_&#8203;pass</span> | counter | Prev vote was on a different fork, but we are allowed to switch (can vote) |
-| <span class="metrics-name">tower_&#8203;switch_&#8203;fail</span> | counter | Prev vote was on a different fork, and we are not allowed to switch (can't vote) |
-| <span class="metrics-name">tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
-| <span class="metrics-name">tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
-| <span class="metrics-name">tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
+| <span class="metrics-name">tower_&#8203;tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
+| <span class="metrics-name">tower_&#8203;tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
+| <span class="metrics-name">tower_&#8203;tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |
+| <span class="metrics-name">tower_&#8203;tower_&#8203;switch_&#8203;pass</span> | counter | Prev vote was on a different fork, but we are allowed to switch (can vote) |
+| <span class="metrics-name">tower_&#8203;tower_&#8203;switch_&#8203;fail</span> | counter | Prev vote was on a different fork, and we are not allowed to switch (can't vote) |
+| <span class="metrics-name">tower_&#8203;tower_&#8203;lockout_&#8203;fail</span> | counter | Locked out (can't vote) |
+| <span class="metrics-name">tower_&#8203;tower_&#8203;threshold_&#8203;fail</span> | counter | Did not pass threshold check (can't vote) |
+| <span class="metrics-name">tower_&#8203;tower_&#8203;propagated_&#8203;fail</span> | counter | Prev leader block did not propagate (can't vote) |
 | <span class="metrics-name">tower_&#8203;votes_&#8203;too_&#8203;old</span> | counter | Vote slot was behind the votes root |
 | <span class="metrics-name">tower_&#8203;votes_&#8203;too_&#8203;new</span> | counter | Vote slot was too far ahead of the votes root |
 | <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;vtr</span> | counter | Vote account was not in the voter set |

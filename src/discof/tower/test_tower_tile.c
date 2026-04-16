@@ -4,6 +4,7 @@
 #include "fd_tower_tile.c"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* mock_vote_txn builds a vote transaction from a tower.  Constructs an
@@ -27,9 +28,9 @@ mock_vote_txn( ulong               root,
   fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, 2, 2, 0 ) );
 
   for( ulong i = 0; i < cnt; i++ ) {
-    fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot = slots[i], .conf = confs[i] } );
+    fd_tower_vote_push_tail( fd_tower_votes( tower ), (fd_tower_vote_t){ .slot = slots[i], .conf = confs[i] } );
   }
-  tower->root = root;
+  fd_tower_publish( tower, root );
 
   fd_hash_t     bank_hash          = { .ul = { 0xAA } };
   fd_hash_t     recent_blockhash   = {0};
@@ -55,10 +56,10 @@ test_count_vote_txn( void ) {
   static fd_tower_tile_t ctx[1];
   memset( ctx, 0, sizeof(*ctx) );
   ctx->tower         = fd_tower_join( fd_tower_new( tower_mem2, 2, 2, 0 ) );
-  ctx->scratch_tower = fd_tower_vote_join( fd_tower_vote_new( scratch_tower_mem ) );
-  ctx->tower->root   = 0; /* mark as ready */
+  ctx->scratch_votes = fd_tower_vote_join( fd_tower_vote_new( scratch_tower_mem ) );
+  fd_tower_publish( ctx->tower, 0 ); /* mark as ready */
   FD_TEST( ctx->tower );
-  FD_TEST( ctx->scratch_tower );
+  FD_TEST( ctx->scratch_votes );
 
   fd_txn_p_t        txnp[1];
   uchar             txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
@@ -184,8 +185,8 @@ ulong
 mock_query_vote_accs( fd_tower_tile_t *            ctx,
                       fd_replay_slot_completed_t * slot_completed,
                       fd_ghost_blk_t *             ghost_blk,
-                      int *                        found_our_vote_acct,
-                      ulong *                      our_vote_acct_bal ) {
+                      int *                        found_our_vote_acct FD_PARAM_UNUSED,
+                      ulong *                      our_vote_acct_bal FD_PARAM_UNUSED ) {
 
   /* Open the fixture file for this slot. */
 
@@ -201,8 +202,7 @@ mock_query_vote_accs( fd_tower_tile_t *            ctx,
 
   /* Iterate records. */
 
-  ulong total_stake    = 0UL;
-  ulong prev_voter_idx = ULONG_MAX;
+  ulong total_stake = 0UL;
 
   for( ulong i = 0UL; i < FIXTURE_VTR_CNT; i++ ) {
     uchar const * rec = buf + i * FIXTURE_RECORD_SZ;
@@ -218,43 +218,20 @@ mock_query_vote_accs( fd_tower_tile_t *            ctx,
     count_vote_acc( ctx, slot_completed, ghost_blk, &vote_acc, stake, data, FD_VOTE_STATE_DATA_MAX );
 
     total_stake += stake;
-    prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_acc, stake, prev_voter_idx );
   }
-
-  /* No reconciliation in mock — just report not found. */
-
-  *found_our_vote_acct = 0;
-  *our_vote_acct_bal   = ULONG_MAX;
 
   return total_stake;
 }
 
 static void
-test_fixture_replay( fd_wksp_t * wksp ) {
-
-  /* Use scratch_footprint to compute the exact allocation size needed,
-     matching the production init path.  We construct a mock
-     fd_topo_tile_t with just the fields that scratch_footprint and
-     init_choreo access. */
-
-  fd_topo_tile_t tile[1];
-  memset( tile, 0, sizeof(*tile) );
-  tile->tower.max_live_slots = MOCK_SLOT_MAX;
-
-  FD_TEST( scratch_align()==128UL );
-
-  ulong footprint = scratch_footprint( tile );
-  FD_TEST( footprint );
-
-  void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), footprint, 1UL );
-  FD_TEST( scratch );
+test_fixture_replay( void * scratch ) {
 
   /* Initialize all choreo structures via the production init path.
      init_choreo handles scratch layout, new/join of all
      choreo structures, and state initialization. */
 
   ((fd_tower_tile_t *)scratch)->seed = 42UL;
-  fd_tower_tile_t * ctx = init_choreo( scratch, tile );
+  fd_tower_tile_t * ctx = init_choreo( scratch, scratch_align(), MOCK_SLOT_MAX );
   FD_TEST( ctx );
 
   /* Set fields normally handled by privileged_init. */
@@ -264,9 +241,11 @@ test_fixture_replay( fd_wksp_t * wksp ) {
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
 
-  /* Replay each fixture slot. */
+  /* Set the tower root to the start slot, mirroring what snapshot
+     restore would do in production. */
 
   ulong start_slot = 398915634UL;
+  fd_tower_publish( ctx->tower, start_slot );
   ulong num_slots  = 32UL;
 
   for( ulong slot = start_slot; slot < start_slot + num_slots; slot++ ) {
@@ -283,7 +262,8 @@ test_fixture_replay( fd_wksp_t * wksp ) {
     sc.bank_idx         = slot; /* arbitrary */
     sc.is_leader        = 0;
 
-    replay_slot_completed( ctx, &sc, 0UL, NULL );
+    replay_slot_completed( ctx, &sc );
+    publishes_remove_all( ctx->publishes );
   }
 
   /* Verify: init flag set after first slot. */
@@ -298,14 +278,14 @@ test_fixture_replay( fd_wksp_t * wksp ) {
   /* Verify: tower has blocks for all replayed slots. */
 
   for( ulong slot = start_slot; slot < start_slot + num_slots; slot++ ) {
-    fd_tower_blk_t * blk = fd_tower_blocks_query( ctx->tower, slot );
+    fd_tower_blk_t * blk = fd_tower_query( ctx->tower, slot );
     FD_TEST( blk );
     FD_TEST( blk->replayed==1 );
   }
 
   /* Verify: tower root set. */
 
-  FD_TEST( ctx->tower->root!=ULONG_MAX );
+  FD_TEST( fd_tower_root( ctx->tower )!=ULONG_MAX );
 
   /* Verify: ghost has entries for all replayed slots. */
 
@@ -364,16 +344,9 @@ mock_eqvoc_query_fn( fd_eqvoc_t * eqvoc FD_PARAM_UNUSED, ulong slot ) {
    EQVOC_BOOT_CNT slots.  Returns the initialized context. */
 
 static fd_tower_tile_t *
-eqvoc_setup( fd_wksp_t * wksp ) {
-  fd_topo_tile_t tile[1];
-  memset( tile, 0, sizeof(*tile) );
-  tile->tower.max_live_slots = MOCK_SLOT_MAX;
-
-  void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
-  FD_TEST( scratch );
-
+eqvoc_setup( void * scratch ) {
   ((fd_tower_tile_t *)scratch)->seed = 42UL;
-  fd_tower_tile_t * ctx = init_choreo( scratch, tile );
+  fd_tower_tile_t * ctx = init_choreo( scratch, scratch_align(), MOCK_SLOT_MAX );
   FD_TEST( ctx );
 
   ctx->checkpt_fd = -1;
@@ -391,7 +364,8 @@ eqvoc_setup( fd_wksp_t * wksp ) {
     sc.bank_hash       = (fd_hash_t){ .ul = { slot } };
     sc.block_hash      = (fd_hash_t){ .ul = { slot } };
     sc.bank_idx        = slot;
-    replay_slot_completed( ctx, &sc, 0UL, NULL );
+    replay_slot_completed( ctx, &sc );
+    publishes_remove_all( ctx->publishes );
   }
   FD_TEST( ctx->init==1 );
   mock_eqvoc_slot = ULONG_MAX;
@@ -413,7 +387,8 @@ mock_replay( fd_tower_tile_t * ctx,
   sc.bank_hash       = (fd_hash_t){ .ul = { slot } };
   sc.block_hash      = (fd_hash_t){ .ul = { slot } };
   sc.bank_idx        = slot;
-  replay_slot_completed( ctx, &sc, 0UL, NULL );
+  replay_slot_completed( ctx, &sc );
+  publishes_remove_all( ctx->publishes );
 }
 
 static void
@@ -437,14 +412,15 @@ static void
 mock_eqvoc( fd_tower_tile_t * ctx,
           ulong             slot ) {
   static fd_gossip_duplicate_shred_t dummy_chunks[FD_EQVOC_CHUNK_CNT];
-  publish_slot_duplicate( ctx, dummy_chunks, slot );
+  dummy_chunks[0].slot = slot;
+  publish_slot_duplicate( ctx, dummy_chunks );
 }
 
 /* ---- C=A tests (confirmed block = replayed block) ---- */
 
 static void
-test_eqvoc_rce_same( fd_wksp_t * wksp ) {
-  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+test_eqvoc_rce_same( void * scratch ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( scratch );
   ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
   fd_hash_t         A    = { .ul = { slot } };
 
@@ -452,7 +428,7 @@ test_eqvoc_rce_same( fd_wksp_t * wksp ) {
   mock_confirmed ( ctx, slot, &A );
   mock_eqvoc     ( ctx, slot );
 
-  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  fd_tower_blk_t * tb = fd_tower_query( ctx->tower, slot );
   FD_TEST( tb && tb->confirmed==1 );
   FD_TEST( 0==memcmp( &tb->confirmed_block_id, &A, sizeof(fd_hash_t) ) );
 
@@ -463,8 +439,8 @@ test_eqvoc_rce_same( fd_wksp_t * wksp ) {
 }
 
 static void
-test_eqvoc_rec_same( fd_wksp_t * wksp ) {
-  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+test_eqvoc_rec_same( void * scratch ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( scratch );
   ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
   fd_hash_t         A    = { .ul = { slot } };
 
@@ -479,7 +455,7 @@ test_eqvoc_rec_same( fd_wksp_t * wksp ) {
 
   /* Bug 1 fix: fd_ghost_confirm re-validates A. */
 
-  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  fd_tower_blk_t * tb = fd_tower_query( ctx->tower, slot );
   FD_TEST( tb && tb->confirmed==1 );
 
   fd_ghost_blk_t * gb = fd_ghost_query( ctx->ghost, &A );
@@ -489,8 +465,8 @@ test_eqvoc_rec_same( fd_wksp_t * wksp ) {
 }
 
 static void
-test_eqvoc_cre_same( fd_wksp_t * wksp ) {
-  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+test_eqvoc_cre_same( void * scratch ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( scratch );
   ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
   fd_hash_t         A    = { .ul = { slot } };
 
@@ -498,13 +474,13 @@ test_eqvoc_cre_same( fd_wksp_t * wksp ) {
 
   /* Forward confirmation: no ghost or tower yet. */
 
-  FD_TEST( !fd_tower_blocks_query( ctx->tower, slot ) );
+  FD_TEST( !fd_tower_query( ctx->tower, slot ) );
   FD_TEST( !fd_ghost_query( ctx->ghost, &A ) );
 
   mock_replay ( ctx, slot, &A );
   mock_eqvoc  ( ctx, slot );
 
-  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  fd_tower_blk_t * tb = fd_tower_query( ctx->tower, slot );
   FD_TEST( tb && tb->confirmed==1 );
   FD_TEST( 0==memcmp( &tb->confirmed_block_id, &A, sizeof(fd_hash_t) ) );
 
@@ -517,8 +493,8 @@ test_eqvoc_cre_same( fd_wksp_t * wksp ) {
 /* ---- C=B tests (confirmed block differs from replayed block) ---- */
 
 static void
-test_eqvoc_rce_diff( fd_wksp_t * wksp ) {
-  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+test_eqvoc_rce_diff( void * scratch ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( scratch );
   ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
   fd_hash_t         A    = { .ul = { slot } };
   fd_hash_t         B    = { .ul = { slot, 0xBB } };
@@ -527,7 +503,7 @@ test_eqvoc_rce_diff( fd_wksp_t * wksp ) {
   mock_confirmed ( ctx, slot, &B );
   mock_eqvoc     ( ctx, slot );
 
-  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  fd_tower_blk_t * tb = fd_tower_query( ctx->tower, slot );
   FD_TEST( tb && tb->confirmed==1 );
   FD_TEST( 0==memcmp( &tb->confirmed_block_id, &B, sizeof(fd_hash_t) ) );
 
@@ -538,8 +514,8 @@ test_eqvoc_rce_diff( fd_wksp_t * wksp ) {
 }
 
 static void
-test_eqvoc_erc_diff( fd_wksp_t * wksp ) {
-  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+test_eqvoc_erc_diff( void * scratch ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( scratch );
   ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
   fd_hash_t         A    = { .ul = { slot } };
   fd_hash_t         B    = { .ul = { slot, 0xBB } };
@@ -558,7 +534,7 @@ test_eqvoc_erc_diff( fd_wksp_t * wksp ) {
 
   mock_confirmed ( ctx, slot, &B );
 
-  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  fd_tower_blk_t * tb = fd_tower_query( ctx->tower, slot );
   FD_TEST( tb && tb->confirmed==1 );
   FD_TEST( 0==memcmp( &tb->confirmed_block_id, &B, sizeof(fd_hash_t) ) );
 
@@ -569,8 +545,8 @@ test_eqvoc_erc_diff( fd_wksp_t * wksp ) {
 }
 
 static void
-test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
-  fd_tower_tile_t * ctx  = eqvoc_setup( wksp );
+test_eqvoc_cre_diff( void * scratch ) {
+  fd_tower_tile_t * ctx  = eqvoc_setup( scratch );
   ulong             slot = EQVOC_START_SLOT + EQVOC_BOOT_CNT;
   fd_hash_t         A    = { .ul = { slot } };
   fd_hash_t         B    = { .ul = { slot, 0xBB } };
@@ -579,14 +555,14 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
 
   /* Forward confirmation for B: no ghost or tower yet. */
 
-  FD_TEST( !fd_tower_blocks_query( ctx->tower, slot ) );
+  FD_TEST( !fd_tower_query( ctx->tower, slot ) );
 
   mock_replay ( ctx, slot, &A );
 
   /* Bug 2 fix: fd_votes_query(NULL) finds B's fwd entry, sets
      tower confirmed and ghost_eqvoc(A). */
 
-  fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
+  fd_tower_blk_t * tb = fd_tower_query( ctx->tower, slot );
   FD_TEST( tb && tb->confirmed==1 );
   FD_TEST( 0==memcmp( &tb->confirmed_block_id, &B, sizeof(fd_hash_t) ) );
 
@@ -610,20 +586,18 @@ main( int     argc,
 
   test_count_vote_txn();
 
-  ulong       page_cnt = 4;
-  char *      page_sz  = "gigantic";
-  ulong       numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-  FD_TEST( wksp );
+  void * scratch = aligned_alloc( 128UL, 4UL<<30 );
+  FD_LOG_NOTICE(( "scratch=%p", scratch ));
+  FD_TEST( scratch );
+  memset( scratch, 0, 4UL<<30 );
 
-  test_fixture_replay( wksp );
-
-  fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_same( wksp );
-  fd_wksp_reset( wksp, 1UL ); test_eqvoc_rec_same( wksp );
-  fd_wksp_reset( wksp, 1UL ); test_eqvoc_cre_same( wksp );
-  fd_wksp_reset( wksp, 1UL ); test_eqvoc_rce_diff( wksp );
-  fd_wksp_reset( wksp, 1UL ); test_eqvoc_erc_diff( wksp );
-  fd_wksp_reset( wksp, 1UL ); test_eqvoc_cre_diff( wksp );
+  test_fixture_replay( scratch );
+  test_eqvoc_rce_same( scratch );
+  test_eqvoc_rec_same( scratch );
+  test_eqvoc_cre_same( scratch );
+  test_eqvoc_rce_diff( scratch );
+  test_eqvoc_erc_diff( scratch );
+  test_eqvoc_cre_diff( scratch );
 
   fd_halt();
 }

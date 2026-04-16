@@ -369,14 +369,22 @@
 */
 
 #include "../fd_choreo_base.h"
-#include "fd_tower_serdes.h"
-
-#define FD_TOWER_LOCKOS_MAX 31UL
-#include "fd_tower_stakes.h"
 #include "../ghost/fd_ghost.h"
 #include "../votes/fd_votes.h"
 #include "../../disco/pack/fd_microblock.h"
 
+#define FD_TOWER_FLAG_ANCESTOR_ROLLBACK 0 /* rollback to an ancestor of our prev vote */
+#define FD_TOWER_FLAG_SIBLING_CONFIRMED 1 /* our prev vote was a duplicate and its sibling got confirmed */
+#define FD_TOWER_FLAG_SAME_FORK         2 /* prev vote is on the same fork */
+#define FD_TOWER_FLAG_SWITCH_PASS       3 /* successfully switched to a different fork */
+#define FD_TOWER_FLAG_SWITCH_FAIL       4 /* failed to switch to a different fork */
+#define FD_TOWER_FLAG_LOCKOUT_FAIL      5 /* failed lockout check */
+#define FD_TOWER_FLAG_THRESHOLD_FAIL    6 /* failed threshold check */
+#define FD_TOWER_FLAG_PROPAGATED_FAIL   7 /* failed propagated check */
+
+#define FD_VOTE_STATE_DATA_MAX 3762UL
+
+#define FD_TOWER_LOCKOS_MAX 31UL
 #define FD_TOWER_VOTE_MAX (FD_TOWER_LOCKOS_MAX)
 
 /* fd_tower is a representation of a validator's "vote tower" (described
@@ -430,13 +438,13 @@ FD_STATIC_ASSERT( sizeof (fd_tower_vote_private_t)==512UL, FD_TOWER_VOTE_FOOTPRI
    towers are stored) only stores slot numbers and not block_ids. */
 
 struct fd_tower_blk {
-  ulong     slot;               /* pool next / map key */
-  ulong     next;               /* pool next / map next */
-  ulong     prev;               /* map prev */
+  ulong     prev;               /* for map */
+  ulong     next;               /* for pool, map */
+  ulong     slot;               /* map key */
   ulong     parent_slot;        /* parent slot */
+  fd_hash_t block_id;           /* the block_id we _last_ replayed for this slot */
+  fd_hash_t parent_block_id;    /* the parent block_id */
   ulong     epoch;              /* epoch of this slot */
-  int       replayed;           /* whether we've replayed this slot yet */
-  fd_hash_t replayed_block_id;  /* the block_id we _last_ replayed for this slot */
   int       voted;              /* whether we voted for this slot yet */
   fd_hash_t voted_block_id;     /* the block_id we voted on for this slot */
   int       confirmed;          /* whether this slot has been duplicate confirmed */
@@ -464,33 +472,10 @@ typedef struct fd_tower_vtr fd_tower_vtr_t;
 #define DEQUE_T    fd_tower_vtr_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
-/* fd_tower_t wraps the vote deque, root slot, block metadata, and
-   voter entries.  Sub-structures are allocated inline after the struct.
-   Use fd_tower_{new,join,leave,delete,align,footprint} to manage. */
-
-struct fd_tower {
-  fd_tower_vote_t * votes; /* our local tower's vote deque */
-  ulong             root;  /* our local tower's root slot (ULONG_MAX if none) */
-
-  ulong              blk_max;   /* max number of blocks */
-  ulong              vtr_max;   /* max number of voters */
-  fd_tower_blk_t *   blk_pool;  /* pool of blk_t elements (NULL if blk_max==0) */
-  void *             blk_map;   /* map chain of blk_t elements (NULL if blk_max==0) */
-  fd_tower_vtr_t *   vtrs;      /* deque of voter entries (NULL if vtr_max==0) */
-
-  void * lck_pool; /* lockout interval pool */
-  void * lck_map;  /* lockout interval map chain */
-
-  fd_tower_stakes_vtr_map_t * stk_vtr_map;
-  fd_tower_stakes_vtr_t *     stk_vtr_pool;
-  fd_tower_stakes_slot_t *    stk_slot_map;
-  fd_used_acc_scratch_t *     stk_used_acc;
-};
 typedef struct fd_tower fd_tower_t;
 
 /* fd_tower_{align,footprint} return the required alignment and
-   footprint of a memory region suitable for use as a tower.
-   blk_max==0 creates a votes-only tower (for voter towers). */
+   footprint of a memory region suitable for use as a tower. */
 
 FD_FN_CONST ulong
 fd_tower_align( void );
@@ -501,8 +486,7 @@ fd_tower_footprint( ulong blk_max,
 
 /* fd_tower_new formats an unused memory region for use as a tower.  mem
    is a non-NULL pointer to this region in the local address space with
-   the required footprint and alignment.  seed is for the block map
-   hash. */
+   the required footprint and alignment.  seed is the map seed. */
 
 void *
 fd_tower_new( void * mem,
@@ -535,33 +519,80 @@ fd_tower_leave( fd_tower_t const * tower );
 void *
 fd_tower_delete( void * tower );
 
-#define FD_TOWER_FLAG_ANCESTOR_ROLLBACK 0 /* rollback to an ancestor of our prev vote */
-#define FD_TOWER_FLAG_SIBLING_CONFIRMED 1 /* our prev vote was a duplicate and its sibling got confirmed */
-#define FD_TOWER_FLAG_SAME_FORK         2 /* prev vote is on the same fork */
-#define FD_TOWER_FLAG_SWITCH_PASS       3 /* successfully switched to a different fork */
-#define FD_TOWER_FLAG_SWITCH_FAIL       4 /* failed to switch to a different fork */
-#define FD_TOWER_FLAG_LOCKOUT_FAIL      5 /* failed lockout check */
-#define FD_TOWER_FLAG_THRESHOLD_FAIL    6 /* failed threshold check */
-#define FD_TOWER_FLAG_PROPAGATED_FAIL   7 /* failed propagated check */
+FD_FN_PURE fd_tower_vote_t *
+fd_tower_votes( fd_tower_t const * tower );
 
-struct fd_tower_out {
-  uchar     flags;          /* one of FD_TOWER_{EMPTY,...} */
-  ulong     reset_slot;     /* slot to reset PoH to */
-  fd_hash_t reset_block_id; /* block ID to reset PoH to */
-  ulong     vote_slot;      /* slot to vote for (ULONG_MAX if no vote) */
-  fd_hash_t vote_block_id;  /* block ID to vote for */
-  ulong     root_slot;      /* new tower root slot (ULONG_MAX if no new root) */
-  fd_hash_t root_block_id;  /* new tower root block ID */
-};
-typedef struct fd_tower_out fd_tower_out_t;
+FD_FN_PURE fd_tower_vtr_t *
+fd_tower_vtrs( fd_tower_t const * tower );
 
-#define FD_TOWER_CSTR_MIN (917UL) /* worst-case tower with 31 entries and 20-digit (the max width of a `ulong`) slots */
+FD_FN_PURE ulong
+fd_tower_root( fd_tower_t const * tower );
+
+/* fd_tower_query returns the block keyed by slot.  Returns NULL if
+   not found. */
+
+fd_tower_blk_t *
+fd_tower_query( fd_tower_t * tower,
+                ulong        slot );
+
+/* fd_tower_insert inserts a block keyed by slot.  Returns the new
+   block. */
+
+fd_tower_blk_t *
+fd_tower_insert( fd_tower_t * tower,
+                 ulong        slot );
+
+/* fd_tower_confirm handles the tower-internal bookkeeping when a slot's
+   confirmed duplicate block is re-replayed.  Asserts that the slot was
+   already marked confirmed, removes the old lockos and stakes entries
+   for the slot, and updates the tower_blk's parent_slot and
+   replayed_block_id to reflect the new block. */
+
+void
+fd_tower_confirm( fd_tower_t *      tower,
+                  ulong             slot,
+                  ulong             parent_slot,
+                  fd_hash_t const * block_id );
+
+/* fd_tower_count_vote records a validator's vote into the tower at the
+   given slot.  votes is a joined fd_tower_vote deque containing the
+   voter's deserialized tower, and root is the voter's root slot
+   (ULONG_MAX if none).  Indexes the voter's lockouts and stake for use
+   in threshold and switch checks. */
 
 void
 fd_tower_count_vote( fd_tower_t *        tower,
-                     fd_pubkey_t const * vote_acc,
+                     ulong               slot,
+                     fd_pubkey_t const *  vote_acc,
                      ulong               stake,
-                     uchar const         data[static FD_VOTE_STATE_DATA_MAX] );
+                     fd_tower_vote_t *   votes,
+                     ulong               root );
+
+/* fd_tower_publish removes tower_blocks, tower_lockos, and tower_stakes
+   entries older than root.  Does not update tower->root. */
+
+void
+fd_tower_publish( fd_tower_t * tower, ulong root );
+
+/* fd_tower_reconcile reconciles our local tower with the on-chain tower.
+   Mirrors what Agave does.  If the on-chain tower is newer (higher top
+   vote slot), replaces the local tower contents with the on-chain
+   tower, filtering out votes <= tower->root.  onchain_tower is an
+   fd_tower_vote deque.  Does not update tower_blk voted metadata —
+   that is the caller's responsibility. */
+
+void
+fd_tower_reconcile( fd_tower_t      * tower,
+                    fd_tower_vote_t * onchain_tower,
+                    ulong             onchain_root );
+
+/* fd_tower_stakes_query_stake looks up the stake for a vote account at
+   a given slot.  Returns the stake, or ULONG_MAX if not found. */
+
+ulong
+fd_tower_stakes_query_stake( fd_tower_t const * tower,
+                             fd_hash_t const *  vote_acc,
+                             ulong              slot );
 
 /* fd_tower_vote_and_reset selects both a block to vote for and block to
    reset to.  Returns flags (FD_TOWER_FLAG_{...}) and writes results to
@@ -578,130 +609,11 @@ uchar
 fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_ghost_t * ghost,
                          fd_votes_t * votes,
-                         ulong *      reset_slot,
-                         fd_hash_t *  reset_block_id,
-                         ulong *      vote_slot,
-                         fd_hash_t *  vote_block_id,
-                         ulong *      root_slot,
-                         fd_hash_t *  root_block_id );
-
-/* Misc */
-
-/* fd_tower_reconcile reconciles our local tower with the on-chain tower
-   inside our vote account.  Mirrors what Agave does.  Also updates
-   block vote metadata to match the updated tower. */
-
-void
-fd_tower_reconcile( fd_tower_t  * tower,
-                    uchar const * vote_acc );
-
-/* fd_tower_blocks_{query,insert,remove} provide convenient wrappers for
-   {querying,inserting,removing} blocks into the tower's block map. */
-
-fd_tower_blk_t *
-fd_tower_blocks_query( fd_tower_t * tower,
-                       ulong        slot );
-
-fd_tower_blk_t *
-fd_tower_blocks_insert( fd_tower_t * tower,
-                        ulong        slot,
-                        ulong        parent_slot );
-
-void
-fd_tower_blocks_remove( fd_tower_t * tower,
-                        ulong        slot );
-
-int
-fd_tower_blocks_is_slot_ancestor( fd_tower_t * tower,
-                                  ulong        descendant_slot,
-                                  ulong        ancestor_slot );
-
-int
-fd_tower_blocks_is_slot_descendant( fd_tower_t * tower,
-                                    ulong        ancestor_slot,
-                                    ulong        descendant_slot );
-
-ulong
-fd_tower_blocks_lowest_common_ancestor( fd_tower_t * tower,
-                                        ulong        slot1,
-                                        ulong        slot2 );
-
-fd_hash_t const *
-fd_tower_blocks_canonical_block_id( fd_tower_t * tower,
-                                    ulong        slot );
-
-/* fd_tower_from_vote_acc deserializes the vote account into a votes
-   deque and extracts the root.  Assumes votes is a valid joined deque
-   and currently empty.  On return *root is the tower root slot, or
-   ULONG_MAX if the vote account has no root. */
-
-void
-fd_tower_from_vote_acc( fd_tower_vote_t * votes,
-                        ulong           * root,
-                        uchar const     * vote_acc );
-
-/* fd_tower_with_lat_from_vote_acc deserializes the vote account into
-   tower, including slot latency (when available) for tower votes.
-   Assumes tower points to a static array of length FD_TOWER_VOTE_MAX.
-
-   Returns the number of copied elements. */
-
-ulong
-fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_MAX ],
-                                 uchar const *      vote_acc );
-
-/* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
-   instruction and serializes it into a Solana transaction.  Assumes
-   tower is a valid local join. */
-
-void
-fd_tower_to_vote_txn( fd_tower_t    const * tower,
-                      fd_hash_t     const * bank_hash,
-                      fd_hash_t     const * block_id,
-                      fd_hash_t     const * recent_blockhash,
-                      fd_pubkey_t   const * validator_identity,
-                      fd_pubkey_t   const * vote_authority,
-                      fd_pubkey_t   const * vote_account,
-                      fd_txn_p_t          * vote_txn );
-
-/* fd_tower_verify checks tower is in a valid state. Valid iff:
-   - cnt < FD_TOWER_VOTE_MAX
-   - vote slots and confirmation counts in the tower are monotonically
-     increasing */
-
-int
-fd_tower_verify( fd_tower_t const * tower );
-
-/* fd_tower_to_cstr pretty-prints tower as a formatted table to the
-   buffer cstr.  Assumes cstr is a buffer of at least FD_TOWER_CSTR_MIN
-   capacity.
-
-   Sample output:
-
-        slot | confirmation count
-   --------- | ------------------
-   279803931 | 1
-   279803930 | 2
-   ...
-   279803901 | 31
-   279803900 | root
-*/
-
-char *
-fd_tower_to_cstr( fd_tower_t const * tower,
-                  char *             cstr );
-
-/* fd_tower_lockos API.  Lockout intervals are stored inline in the
-   tower (lck_pool and lck_map). */
-
-void
-fd_tower_lockos_insert( fd_tower_t *      tower,
-                        ulong             slot,
-                        fd_hash_t const * vote_acc,
-                        fd_tower_vote_t * votes );
-
-void
-fd_tower_lockos_remove( fd_tower_t * tower,
-                        ulong        slot );
+                         ulong *      reset_slot,     /* slot to reset PoH to */
+                         fd_hash_t *  reset_block_id, /* block ID to reset PoH to */
+                         ulong *      vote_slot,      /* slot to vote for (ULONG_MAX if no vote) */
+                         fd_hash_t *  vote_block_id,  /* block ID to vote for */
+                         ulong *      root_slot,      /* new tower root slot (ULONG_MAX if no new root) */
+                         fd_hash_t *  root_block_id   /* new tower root block ID */ );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_h */

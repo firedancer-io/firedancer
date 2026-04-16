@@ -1284,13 +1284,9 @@ metric introduced.
 </tile>
 
 <tile name="tower">
-
-    <!-- Replay slot completed -->
-
+    <counter name="NotReady" summary="Frag was dropped because it arrived before tower tile was initialized" />
     <counter name="IgnoredCnt" summary="Number of replay_slot_completed frags we ignored" />
-    <gauge name="IgnoredSlot" summary="Most recent ignored replay_slot_completed frag" />
     <counter name="EqvocCnt" summary="Number of replay_slot_completed frags we detect as equivocations" />
-    <gauge name="EqvocSlot" summary="Most recent equivocating replay_slot_completed frag" />
 
     <!-- Tower slot metadata -->
 
@@ -1299,10 +1295,10 @@ metric introduced.
     <gauge name="ResetSlot" summary="The most recent reset slot, ULONG_MAX if no reset yet. Not monotonically increasing." />
     <gauge name="RootSlot" summary="The highest rooted slot, ULONG_MAX if no root yet. Monotonically increasing." />
     <gauge name="InitSlot" summary="Init slot. Either the snapshot or genesis slot. Set once and does not change." />
+    <gauge name="IgnoredSlot" summary="Most recent ignored replay_slot_completed frag" />
+    <gauge name="EqvocSlot" summary="Most recent equivocating replay_slot_completed frag" />
 
     <!-- Vote txn handling -->
-
-    <counter name="NotReady" summary="Frag was dropped because it arrived before tower tile was initialized" />
 
     <counter name="TxnBadDeser" summary="Vote txn failed to deserialize" />
     <counter name="TxnBadTower" summary="Vote txn deserialized but tower was invalid" />
@@ -1350,14 +1346,14 @@ metric introduced.
 
     <!-- Tower -->
 
-    <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
-    <counter name="SiblingConfirmed" summary="Duplicate sibling got confirmed (can't vote)" />
-    <counter name="SameFork" summary="Same fork as prev vote (can vote)" />
-    <counter name="SwitchPass" summary="Prev vote was on a different fork, but we are allowed to switch (can vote)" />
-    <counter name="SwitchFail" summary="Prev vote was on a different fork, and we are not allowed to switch (can't vote)" />
-    <counter name="LockoutFail" summary="Locked out (can't vote)" />
-    <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
-    <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
+    <counter name="TowerAncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
+    <counter name="TowerSiblingConfirmed" summary="Duplicate sibling got confirmed (can't vote)" />
+    <counter name="TowerSameFork" summary="Same fork as prev vote (can vote)" />
+    <counter name="TowerSwitchPass" summary="Prev vote was on a different fork, but we are allowed to switch (can vote)" />
+    <counter name="TowerSwitchFail" summary="Prev vote was on a different fork, and we are not allowed to switch (can't vote)" />
+    <counter name="TowerLockoutFail" summary="Locked out (can't vote)" />
+    <counter name="TowerThresholdFail" summary="Did not pass threshold check (can't vote)" />
+    <counter name="TowerPropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
 
     <!-- Votes -->
 

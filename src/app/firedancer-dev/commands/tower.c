@@ -4,6 +4,7 @@
 
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h"
+#include "../../../choreo/tower/fd_tower.c"
 #include "../../../discof/tower/fd_tower_tile.c"
 
 #include <stdio.h>
@@ -57,7 +58,7 @@ print_all_forks( fd_tower_t * tower ) {
   for( ulong i = 0; i < tower->blk_max; i++ ) {
     fd_tower_blk_t * blk = tower->blk_pool + i;
     if( !blk->slot ) continue; /* unused pool element */
-    fd_tower_blk_t * found = fd_tower_blocks_query( tower, blk->slot );
+    fd_tower_blk_t * found = fd_tower_query( tower, blk->slot );
     if( !found ) continue;
     printf( "%-15lu | ", found->slot );
     if( found->parent_slot == ULONG_MAX ) {
@@ -161,7 +162,7 @@ tower_cmd_fn_tower( args_t    * args,
 
   for( ;; ) {
     char cstr[4096]; cstr[4095] = '\0';
-    FD_LOG_DEBUG(( "\n\n%s", fd_tower_to_cstr( tower, cstr ) ));
+    FD_LOG_DEBUG(( "\n\n%s", fd_tower_to_cstr( tower->votes, tower->root, cstr ) ));
     sleep( 1 );
   }
 }

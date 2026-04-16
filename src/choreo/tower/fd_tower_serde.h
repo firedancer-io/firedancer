@@ -1,9 +1,10 @@
-#ifndef HEADER_fd_src_choreo_tower_fd_tower_serdes_h
-#define HEADER_fd_src_choreo_tower_fd_tower_serdes_h
+#ifndef HEADER_fd_src_choreo_tower_fd_tower_serde_h
+#define HEADER_fd_src_choreo_tower_fd_tower_serde_h
 
 #include "../fd_choreo_base.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
+#include "fd_tower.h"
 
 #define FD_VOTE_IX_KIND_TOWER_SYNC        (14)
 #define FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH (15)
@@ -57,8 +58,6 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           uchar const *                   buf,
                           ulong                           buf_sz );
 
-#define FD_VOTE_STATE_DATA_MAX 3762UL
-
 #define FD_VOTE_ACC_V2 (1)
 #define FD_VOTE_ACC_V3 (2)
 #define FD_VOTE_ACC_V4 (3)
@@ -85,12 +84,12 @@ FD_STATIC_ASSERT( FD_VOTE_ACC_V4==fd_vote_state_versioned_enum_v4,       FD_VOTE
    The binary layout begins with metadata in the vote account, followed
    by the voter's votes (tower), and terminates with the root. */
 
-struct __attribute__((packed)) fd_vote_acc_vote {
+struct __attribute__((packed)) fd_lat_vote {
   uchar latency;
   ulong slot;
   uint  conf;
 };
-typedef struct fd_vote_acc_vote fd_vote_acc_vote_t;
+typedef struct fd_lat_vote fd_lat_vote_t;
 
 struct __attribute__((packed)) fd_vote_acc {
   uint kind;
@@ -113,7 +112,7 @@ struct __attribute__((packed)) fd_vote_acc {
       fd_pubkey_t        authorized_withdrawer;
       uchar              commission;
       ulong              votes_cnt;
-      fd_vote_acc_vote_t    votes[31]; /* variable-length */
+      fd_lat_vote_t    votes[31]; /* variable-length */
       /* uchar root_option */
       /* ulong root */
     } v3;
@@ -129,7 +128,7 @@ struct __attribute__((packed)) fd_vote_acc {
       uchar           has_bls_pubkey_compressed;
       uchar           bls_pubkey_compressed[48];
       /* ulong              votes_cnt; */
-      /* fd_vote_acc_vote_t votes[31]; */
+      /* fd_lat_vote_t votes[31]; */
       /* uchar root_option */
       /* ulong root */
     } v4;
@@ -163,4 +162,60 @@ fd_txn_parse_simple_vote( fd_txn_t const * txn,
                           fd_pubkey_t *    opt_vote_acct,
                           ulong *          opt_vote_slot );
 
-#endif /* HEADER_fd_src_choreo_tower_fd_tower_serdes_h */
+/* fd_tower_from_vote_acc deserializes the vote account into a votes
+   deque and extracts the root.  Assumes votes is a valid joined deque
+   and currently empty.  On return *root is the tower root slot, or
+   ULONG_MAX if the vote account has no root. */
+
+void
+fd_tower_from_vote_acc( fd_tower_vote_t * votes,
+                        ulong           * root,
+                        uchar const     * vote_acc );
+
+/* fd_tower_with_lat_from_vote_acc deserializes the vote account into
+   tower, including slot latency (when available) for tower votes.
+   Assumes tower points to a static array of length FD_TOWER_VOTE_MAX.
+
+   Returns the number of copied elements. */
+
+ulong
+fd_tower_with_lat_from_vote_acc( fd_lat_vote_t tower[ static FD_TOWER_VOTE_MAX ],
+                                 uchar const * vote_acc );
+
+/* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
+   instruction and serializes it into a Solana transaction.  Assumes
+   tower is a valid local join. */
+
+void
+fd_tower_to_vote_txn( fd_tower_t    const * tower,
+                      fd_hash_t     const * bank_hash,
+                      fd_hash_t     const * block_id,
+                      fd_hash_t     const * recent_blockhash,
+                      fd_pubkey_t   const * validator_identity,
+                      fd_pubkey_t   const * vote_authority,
+                      fd_pubkey_t   const * vote_account,
+                      fd_txn_p_t          * vote_txn );
+
+/* fd_tower_to_cstr pretty-prints tower as a formatted table to the
+   buffer cstr.  Assumes cstr is a buffer of at least FD_TOWER_CSTR_MIN
+   capacity.
+
+   Sample output:
+
+        slot | confirmation count
+   --------- | ------------------
+   279803931 | 1
+   279803930 | 2
+   ...
+   279803901 | 31
+   279803900 | root
+*/
+
+#define FD_TOWER_CSTR_MIN (917UL)
+
+char *
+fd_tower_to_cstr( fd_tower_vote_t * votes,
+                  ulong             root,
+                  char *            cstr );
+
+#endif /* HEADER_fd_src_choreo_tower_fd_tower_serde_h */
