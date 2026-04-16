@@ -28,9 +28,6 @@ dev_cmd_args( int *    pargc,
   args->dev.no_init_workspaces = fd_env_strip_cmdline_contains( pargc, pargv, "--no-init-workspaces" );
   args->dev.no_agave = fd_env_strip_cmdline_contains( pargc, pargv, "--no-agave"  ) ||
                        fd_env_strip_cmdline_contains( pargc, pargv, "--no-solana" );
-  const char * debug_tile = fd_env_strip_cmdline_cstr( pargc, pargv, "--debug-tile", NULL, NULL );
-  if( FD_UNLIKELY( debug_tile ) )
-    strncpy( args->dev.debug_tile, debug_tile, sizeof( args->dev.debug_tile ) - 1 );
 }
 
 void
@@ -55,16 +52,11 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
 extern int fd_log_private_restore_stderr;
-extern int * fd_log_private_shared_lock;
 
 static void
 parent_signal( int sig ) {
   if( FD_LIKELY( firedancer_pid ) ) kill( firedancer_pid, SIGINT );
   if( FD_LIKELY( watch_pid ) )      kill( watch_pid, SIGKILL );
-
-  /* Same hack as in run.c, see comments there. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
   if( FD_LIKELY( -1!=fd_log_private_restore_stderr ) ) {
     if( FD_UNLIKELY( -1==dup2( fd_log_private_restore_stderr, STDERR_FILENO ) ) ) FD_LOG_STDOUT(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -125,10 +117,6 @@ run_firedancer_threaded( config_t * config,
 
   run_firedancer_init( config, init_workspaces, 1 );
 
-  if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    fd_log_private_shared_lock[ 1 ] = 1;
-  }
-
   /* This is kind of a hack, but we have to join all the workspaces as read-write
      if we are running things threaded.  The reason is that if one of the earlier
      tiles maps it in as read-only, later tiles will reuse the same cached shmem
@@ -161,22 +149,6 @@ dev_cmd_fn( args_t *   args,
 
   update_config_for_dev( config );
   if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
-
-  if( FD_UNLIKELY( strcmp( "", args->dev.debug_tile ) ) ) {
-    if( FD_LIKELY( config->development.sandbox ) ) {
-      FD_LOG_WARNING(( "disabling sandbox to debug tile `%s`", args->dev.debug_tile ));
-      config->development.sandbox = 0;
-    }
-
-    if( !strcmp( args->dev.debug_tile, "solana" ) ||
-        !strcmp( args->dev.debug_tile, "agave" ) ) {
-      config->development.debug_tile = UINT_MAX; /* Sentinel value representing Agave */
-    } else {
-      ulong tile_id = fd_topo_find_tile( &config->topo, args->dev.debug_tile, 0UL );
-      if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "--debug-tile `%s` not present in topology", args->dev.debug_tile ));
-      config->development.debug_tile = 1U+(uint)tile_id;
-    }
-  }
 
   if( FD_LIKELY( args->dev.no_watch ) ) {
     if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );

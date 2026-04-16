@@ -68,7 +68,12 @@ test_oring( void ) {
   };
 
   uchar scratch[ 1633024 ] __attribute__((aligned(128UL)));
+#if FD_HAS_ZSTD
   FD_TEST( fd_http_server_footprint( params )==1633024 );
+#else
+  FD_TEST( fd_http_server_footprint( params )==329344 );
+  FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
+#endif
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
 
   http->stage_off = 6UL;
@@ -81,44 +86,48 @@ test_oring( void ) {
   FD_TEST( !memcmp( "ABC", http->oring, 3UL ) );
   fd_http_server_unstage( http );
 
-  for( ulong i=1UL; i<32UL; i++ ) {
+  for( ulong i=1UL; i<=7UL; i++ ) {
     for( ulong j=0UL; j<1024UL; j++ ) {
       for( ulong k=0UL; k<i; k++ ) fd_http_server_printf( http, "%c", (char)('a'+i) );
 
       fd_http_server_response_t response;
-      if( i>8 ) {
-        FD_TEST( fd_http_server_stage_body( http, &response ) );
-      } else {
-        FD_TEST( !fd_http_server_stage_body( http, &response ) );
-        FD_TEST( response._body_len==i );
-        FD_TEST( (response._body_off%8UL)<=8-i );
-        for( ulong l=0UL; l<i; l++ ) {
-          FD_TEST( http->oring[(response._body_off%8UL)+l]==(uchar)('a'+i) );
-        }
+      FD_TEST( !fd_http_server_stage_body( http, &response ) );
+      FD_TEST( response._body_len==i );
+      FD_TEST( (response._body_off%8UL)<=8-i );
+      for( ulong l=0UL; l<i; l++ ) {
+        FD_TEST( http->oring[(response._body_off%8UL)+l]==(uchar)('a'+i) );
       }
     }
+  }
+
+  /* Verify overflow is handled correctly for body sizes exceeding the
+     oring (only one iteration needed per size since no wrapping occurs). */
+  for( ulong i=8UL; i<32UL; i++ ) {
+    for( ulong k=0UL; k<i; k++ ) fd_http_server_printf( http, "%c", (char)('a'+i) );
+    fd_http_server_response_t response;
+    FD_TEST( fd_http_server_stage_body( http, &response ) );
   }
 
   fd_http_server_response_t response;
 
   http->stage_off = 1UL;
-  fd_http_server_printf( http, "01234567" );
+  fd_http_server_printf( http, "0123456" );
   FD_TEST( http->stage_off==8UL );
-  FD_TEST( http->stage_len==8UL );
+  FD_TEST( http->stage_len==7UL );
   FD_TEST( !fd_http_server_stage_body( http, &response ) );
   FD_TEST( http->stage_comp_len==0UL );
 
   http->stage_off = 7UL;
-  fd_http_server_printf( http, "01234567" );
+  fd_http_server_printf( http, "0123456" );
   FD_TEST( http->stage_off==8UL );
-  FD_TEST( http->stage_len==8UL );
+  FD_TEST( http->stage_len==7UL );
   fd_http_server_unstage( http );
   FD_TEST( http->stage_comp_len==0UL );
 
   http->stage_off = 16UL;
-  fd_http_server_printf( http, "01234567" );
+  fd_http_server_printf( http, "0123456" );
   FD_TEST( http->stage_off==16UL );
-  FD_TEST( http->stage_len==8UL );
+  FD_TEST( http->stage_len==7UL );
   FD_TEST( !fd_http_server_stage_body( http, &response ) );
   FD_TEST( http->stage_comp_len==0UL );
 
@@ -150,7 +159,12 @@ test_content_length_overflow_close( void ) {
 
   FD_LOG_NOTICE(( "footprint %lu", fd_http_server_footprint( params ) ));
   uchar scratch[ 1306624 ] __attribute__((aligned(128UL)));
-  FD_TEST( fd_http_server_footprint( params )==1306624 );
+#if FD_HAS_ZSTD
+  FD_TEST( fd_http_server_footprint( params )==sizeof( scratch ) );
+#else
+  FD_TEST( fd_http_server_footprint( params )==3072 );
+  FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
+#endif
 
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
   FD_TEST( http );

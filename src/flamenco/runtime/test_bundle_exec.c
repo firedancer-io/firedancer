@@ -198,7 +198,7 @@ process_slot( test_env_t * env,
   ulong parent_slot       = parent_bank->f.slot;
   ulong parent_bank_idx   = parent_bank->idx;
 
-  FD_TEST( parent_bank->flags & FD_BANK_FLAGS_FROZEN );
+FD_TEST( parent_bank->state==FD_BANK_STATE_FROZEN );
 
   ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
   fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
@@ -339,8 +339,9 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );
   FD_TEST( starting_rw_active == env->accdb->base.rw_active );
 
-  env->txn_in.txn              = &txn_p;
-  env->txn_in.bundle.is_bundle = 1;
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 0;
 
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
@@ -424,8 +425,9 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* Execute a first transaction where the second account is writable
      and the balance is incremented by 1. */
 
-  env->txn_in.txn              = &txn_p;
-  env->txn_in.bundle.is_bundle = 1;
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
@@ -513,8 +515,9 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* Execute a first transaction where the second account is writable
      and the balance is incremented by 1. */
 
-  env->txn_in.txn              = &txn_p;
-  env->txn_in.bundle.is_bundle = 1;
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
@@ -543,8 +546,9 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* Execute a first transaction where the second account is writable
      and the balance is incremented by 1. */
 
-  env->txn_in.txn              = &txn_p;
-  env->txn_in.bundle.is_bundle = 1;
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );

@@ -106,7 +106,7 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
   FD_SCRATCH_ALLOC_FINI( l, fd_progcache_val_align() );
   FD_TEST( _l-(ulong)val == fd_progcache_val_footprint( elf_info ) );
 
-  rec->calldests_off = has_calldests ? (uint)( (ulong)calldests_mem - (ulong)val ) : 0U;
+  rec->calldests_off = has_calldests ? (uint)( (ulong)calldests_mem - (ulong)val ) : UINT_MAX;
   rec->rodata_off    = (uint)( (ulong)rodata_mem - (ulong)val );
   rec->entry_pc      = 0;
   rec->rodata_sz     = 0;
@@ -191,7 +191,7 @@ fd_progcache_rec_nx( fd_progcache_rec_t * rec ) {
   rec->text_off      = 0;
   rec->text_sz       = 0;
   rec->rodata_sz     = 0;
-  rec->calldests_off = 0;
+  rec->calldests_off = UINT_MAX;
   rec->rodata_off    = 0;
   rec->sbpf_version  = 0;
   return rec;

@@ -468,6 +468,11 @@ STEM_(run1)( ulong                        in_cnt,
           }
         }
 
+        /* Publish producer progress sync word */
+        for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
+          fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
+        }
+
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
         STEM_CALLBACK_DURING_HOUSEKEEPING( ctx );
 #else
@@ -786,8 +791,17 @@ STEM_(run)( fd_topo_t *      topo,
     }
   }
 
+  /* The stem rng is only used internally for shuffling event/input
+     polling ordering and for setting the housekeeping timer.  It is
+     never exposed to tile callbacks.  As a result, no cryptographic
+     quality is needed.  fd_tickcount() provides per-run entropy,
+     tile->id guarantees per-tile uniqueness, and fd_ulong_hash (a
+     Murmur3 finalizer) gives near-perfect avalanche so even a 1-bit
+     input difference flips ~50% of output bits.  fd_rng_secure is not
+     used here because STEM_(run) executes after the seccomp sandbox
+     is applied. */
   fd_rng_t rng[1];
-  FD_TEST( fd_rng_join( fd_rng_new( rng, 0, 0UL ) ) );
+  FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_ulong_hash( (ulong)fd_tickcount() + tile->id ), 0UL ) ) );
 
   STEM_CALLBACK_CONTEXT_TYPE * ctx = (STEM_CALLBACK_CONTEXT_TYPE*)fd_ulong_align_up( (ulong)fd_topo_obj_laddr( topo, tile->tile_obj_id ), STEM_CALLBACK_CONTEXT_ALIGN );
 

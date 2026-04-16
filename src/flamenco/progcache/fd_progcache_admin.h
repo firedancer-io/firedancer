@@ -12,13 +12,6 @@ typedef union fd_features fd_features_t;
 struct fd_progcache_admin_metrics {
   ulong gc_root_cnt;
   ulong root_cnt;
-
-  struct {
-    ulong free_part_cnt;
-    ulong free_sz;
-    ulong free_part_max;
-    ulong total_sz;
-  } wksp;
 };
 
 typedef struct fd_progcache_admin_metrics fd_progcache_admin_metrics_t;
@@ -79,13 +72,6 @@ fd_progcache_reset( fd_progcache_join_t * cache );
 
 void
 fd_progcache_clear( fd_progcache_join_t * cache );
-
-/* fd_progcache_wksp_metrics_update updates
-   fd_progcache_admin_metrics_g.wksp.  Holds a lock on the wksp and is
-   O(part cnt), therefore should be used infrequently. */
-
-void
-fd_progcache_wksp_metrics_update( fd_progcache_join_t * cache );
 
 /* fd_progcache_verify checks the structural integrity of the program
    cache.  Returns 0 on success, -1 on failure.  Logs warnings

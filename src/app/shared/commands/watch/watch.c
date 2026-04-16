@@ -386,7 +386,7 @@ write_snapshots( config_t const * config,
            " " BOLD "ACC"   UNBOLD " %3.1f M/s"
            " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
            " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
-      fd_snapct_state_str( state ),
+      fd_snapct_state_str( (int)state ),
       progress,
       megabytes_per_second,
       million_accounts_per_second,
@@ -408,7 +408,7 @@ write_snapshots( config_t const * config,
            " " BOLD "ACC"   UNBOLD " %3.1f M/s"
            " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
            " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
-      fd_snapct_state_str( state ),
+      fd_snapct_state_str( (int)state ),
       progress,
       megabytes_per_second,
       million_accounts_per_second,
@@ -936,8 +936,6 @@ watch_cmd_fn( args_t *   args,
   populate_sock_filter_policy_watch( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), drain_output_fd );
 
   if( FD_LIKELY( config->development.sandbox ) ) {
-    if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
     fd_sandbox_enter( config->uid,
                       config->gid,
                       0,

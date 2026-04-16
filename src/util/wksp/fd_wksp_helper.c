@@ -360,7 +360,7 @@ fd_wksp_cstr_laddr( void const * laddr,
   ulong gaddr = fd_wksp_gaddr_fast( wksp, laddr );
   if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<=wksp->gaddr_hi)) ) ) {
     FD_LOG_WARNING(( "laddr does not appear to be from a workspace" ));
-    return 0UL;
+    return NULL;
   }
 
   return fd_wksp_private_cstr( wksp->name, gaddr, cstr );

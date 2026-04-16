@@ -14,6 +14,7 @@
 
 #include "fd_accdb_base.h"
 #include "../fd_flamenco_base.h"
+#include "../types/fd_types_custom.h"
 
 /* fd_accdb_ref_t is an opaque account database handle. */
 
@@ -115,9 +116,9 @@ fd_accdb_ref_lamports( fd_accdb_ro_t const * ro ) {
   return ro->meta->lamports;
 }
 
-static inline void const *
+static inline fd_pubkey_t const *
 fd_accdb_ref_owner( fd_accdb_ro_t const * ro ) {
-  return ro->meta->owner;
+  return fd_type_pun_const( ro->meta->owner );
 }
 
 static inline uint

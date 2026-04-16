@@ -1,6 +1,7 @@
 #include "fd_vote_state_v3.h"
+#include "fd_vote_codec.h"
 #include "fd_authorized_voters.h"
-#include "fd_vote_common.h"
+#include "fd_vote_utils.h"
 #include "fd_vote_state_versioned.h"
 #include "../fd_vote_program.h"
 #include "../../fd_runtime.h"
@@ -11,62 +12,47 @@
    https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L67 */
 static void
 to_vote_state_1_14_11( fd_vote_state_v3_t *      vote_state,
-                       fd_vote_state_1_14_11_t * vote_state_1_14_11, /* out */
-                       uchar *                   vote_lockout_mem ) {
-  vote_state_1_14_11->node_pubkey           = vote_state->node_pubkey;            /* copy */
-  vote_state_1_14_11->authorized_withdrawer = vote_state->authorized_withdrawer;  /* copy */
-  vote_state_1_14_11->commission            = vote_state->commission;             /* copy */
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L72
-  if( vote_state->votes ) {
-    vote_state_1_14_11->votes = deq_fd_vote_lockout_t_join(
-      deq_fd_vote_lockout_t_new( vote_lockout_mem, deq_fd_landed_vote_t_cnt( vote_state->votes ) ) );
-    for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
-         !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
-         iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ) ) {
-      fd_landed_vote_t const * landed_vote = deq_fd_landed_vote_t_iter_ele_const( vote_state->votes, iter );
-      deq_fd_vote_lockout_t_push_tail_wrap( vote_state_1_14_11->votes, landed_vote->lockout );
-    }
-  }
-
-  vote_state_1_14_11->has_root_slot     = vote_state->has_root_slot;      /* copy */
-  vote_state_1_14_11->root_slot         = vote_state->root_slot;          /* copy */
-  vote_state_1_14_11->authorized_voters = vote_state->authorized_voters;  /* move */
-  vote_state_1_14_11->prior_voters      = vote_state->prior_voters;       /* deep copy */
-  vote_state_1_14_11->epoch_credits     = vote_state->epoch_credits;      /* move */
-  vote_state_1_14_11->last_timestamp    = vote_state->last_timestamp;     /* deep copy */
-
-  /* Clear moved objects */
-  vote_state->authorized_voters.treap = NULL;
-  vote_state->authorized_voters.pool  = NULL;
-  vote_state->epoch_credits           = NULL;
-
+                       fd_vote_state_1_14_11_t * vote_state_1_14_11 /* out */ ) {
+  vote_state_1_14_11->node_pubkey           = vote_state->node_pubkey;
+  vote_state_1_14_11->authorized_withdrawer = vote_state->authorized_withdrawer;
+  vote_state_1_14_11->commission            = vote_state->commission;
+  vote_state_1_14_11->votes                 = vote_state->votes;
+  vote_state_1_14_11->has_root_slot         = vote_state->has_root_slot;
+  vote_state_1_14_11->root_slot             = vote_state->root_slot;
+  vote_state_1_14_11->authorized_voters     = vote_state->authorized_voters;
+  vote_state_1_14_11->prior_voters          = vote_state->prior_voters;
+  vote_state_1_14_11->epoch_credits         = vote_state->epoch_credits;
+  vote_state_1_14_11->last_timestamp        = vote_state->last_timestamp;
 }
 
 void
 fd_vote_program_v3_create_new( fd_vote_init_t * const        vote_init,
                                fd_sol_sysvar_clock_t const * clock,
-                               uchar *                       authorized_voters_mem,
                                fd_vote_state_versioned_t *   versioned /* out */ ) {
-  versioned->discriminant = fd_vote_state_versioned_enum_v3;
+  fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
 
-  fd_vote_state_v3_t * vote_state      = &versioned->inner.v3;
+  fd_vote_state_v3_t * vote_state   = &versioned->v3;
   vote_state->node_pubkey           = vote_init->node_pubkey;
-  vote_state->authorized_voters     = *fd_authorized_voters_new( clock->epoch, &vote_init->authorized_voter, authorized_voters_mem );
   vote_state->authorized_withdrawer = vote_init->authorized_withdrawer;
   vote_state->commission            = vote_init->commission;
   vote_state->prior_voters.idx      = 31;
   vote_state->prior_voters.is_empty = 1;
+
+  /* Insert the authorized voter */
+  fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
+  voter->epoch  = clock->epoch;
+  voter->pubkey = vote_init->authorized_voter;
+  voter->prio   = voter->pubkey.uc[0];
+  fd_vote_authorized_voters_treap_ele_insert( vote_state->authorized_voters.treap, voter, vote_state->authorized_voters.pool );
 }
 
 int
 fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                          fd_borrowed_account_t *     vote_account,
-                                         fd_vote_state_versioned_t * versioned,
-                                         uchar *                     vote_lockout_mem ) {
+                                         fd_vote_state_versioned_t * versioned ) {
   /* This is a horrible conditional expression in Agave.
      The terms were broken up into their own variables. */
-  fd_vote_state_v3_t * v3_vote_state = &versioned->inner.v3;
+  fd_vote_state_v3_t * v3_vote_state = &versioned->v3;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L420-L424 */
   fd_rent_t const * rent               = &ctx->bank->f.rent;
@@ -84,10 +70,10 @@ fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
 
   if( FD_UNLIKELY( resize_needed && ( !resize_rent_exempt || resize_failed ) ) ) {
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L426-L430 */
-    fd_vote_state_versioned_t v1_14_11;
-    fd_vote_state_versioned_new_disc( &v1_14_11, fd_vote_state_versioned_enum_v1_14_11 );
-    to_vote_state_1_14_11( v3_vote_state, &v1_14_11.inner.v1_14_11, vote_lockout_mem );
-    return fd_vsv_set_state( vote_account, &v1_14_11 );
+    fd_vote_state_versioned_t vsv[1];
+    fd_vote_state_versioned_new( vsv, fd_vote_state_versioned_enum_v1_14_11 );
+    to_vote_state_1_14_11( v3_vote_state, &vsv->v1_14_11 );
+    return fd_vsv_set_state( vote_account, vsv );
   }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L432-L433 */
@@ -96,25 +82,23 @@ fd_vote_state_v3_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
 
 int
 fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
-                              uchar *                       vote_state_mem,
-                              uchar *                       landed_votes_mem ) {
+                              fd_vote_state_versioned_t *   versioned ) {
   /* deserialize_into_ptr is essentially a call to get_state +
      try_convert_to_v3. It's written a little more verbosely in Agave
      as they try to optimize the decoding steps.
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L162-L202 */
-  int rc = fd_vsv_get_state( vote_account->meta, vote_state_mem );
+  int rc = fd_vsv_get_state( vote_account->meta, versioned );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* Unlike vote states v4 decoding, vote state v3 decoding will only
      pass for v1_14_11 and v3 vote states.
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.0.0/vote-interface/src/state/vote_state_v3.rs#L157-L164 */
-  fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
-  if( FD_UNLIKELY( versioned->discriminant!=fd_vote_state_versioned_enum_v1_14_11 &&
-                   versioned->discriminant!=fd_vote_state_versioned_enum_v3 ) ) {
+  if( FD_UNLIKELY( versioned->kind!=fd_vote_state_versioned_enum_v1_14_11 &&
+                   versioned->kind!=fd_vote_state_versioned_enum_v3 ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
-  return fd_vsv_try_convert_to_v3( versioned, landed_votes_mem );
+  return fd_vsv_try_convert_to_v3( versioned );
 }
 
 int
@@ -135,15 +119,15 @@ fd_vote_state_v3_get_and_update_authorized_voter( fd_vote_state_v3_t * self,
 }
 
 int
-fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
-                                           fd_vote_state_v3_t *               self,
-                                           fd_pubkey_t const *                authorized_pubkey,
-                                           ulong                              current_epoch,
-                                           ulong                              target_epoch,
-                                           fd_bls_pubkey_compressed_t const * bls_pubkey,
-                                           int                                authorized_withdrawer_signer,
-                                           fd_pubkey_t const *                signers[ FD_TXN_SIG_MAX ],
-                                           ulong                              signers_cnt ) {
+fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t * ctx,
+                                           fd_vote_state_v3_t *  self,
+                                           fd_pubkey_t const *   authorized_pubkey,
+                                           ulong                 current_epoch,
+                                           ulong                 target_epoch,
+                                           uchar const *         bls_pubkey,
+                                           int                   authorized_withdrawer_signer,
+                                           fd_pubkey_t const *   signers[ FD_TXN_SIG_MAX ],
+                                           ulong                 signers_cnt ) {
   int           rc;
   fd_pubkey_t * epoch_authorized_voter = NULL;
 
@@ -207,7 +191,7 @@ fd_vote_state_v3_set_new_authorized_voter( fd_exec_instr_ctx_t *              ct
       fd_vote_authorized_voters_pool_ele_acquire( self->authorized_voters.pool );
   ele->epoch  = target_epoch;
   ele->pubkey = *authorized_pubkey;
-  ele->prio   = (ulong)&ele->pubkey;
+  ele->prio   = ele->pubkey.uc[0];
   fd_vote_authorized_voters_treap_ele_insert(
       self->authorized_voters.treap, ele, self->authorized_voters.pool );
 

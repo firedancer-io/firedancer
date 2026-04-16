@@ -166,7 +166,7 @@ fd_vinyl_meta_lock_update_fast( ulong * lock,
    Inserting without doing a prepare is fine so long as phdr.ctl becomes
    visible last. */
 
-FD_FN_PURE int
+int
 fd_vinyl_meta_query_fast( fd_vinyl_meta_ele_t const * ele0,       /* indexed [0,ele_max) */
                           ulong                       ele_max,    /* power of 2 */
                           fd_vinyl_key_t const *      key,        /* key to query */

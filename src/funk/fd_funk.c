@@ -111,7 +111,7 @@ fd_funk_shmem_new( void * shmem,
   funk->txn_pool_gaddr = fd_wksp_gaddr_fast( wksp, txn_pool2 );
   fd_funk_txn_pool_t txn_join[1];
   fd_funk_txn_pool_join( txn_join, txn_pool2, txn_ele, txn_max );
-  fd_funk_txn_pool_reset( txn_join, 0UL );
+  fd_funk_txn_pool_reset( txn_join );
   funk->txn_ele_gaddr = fd_wksp_gaddr_fast( wksp, txn_ele );
   funk->txn_max = txn_max;
   funk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
@@ -129,7 +129,7 @@ fd_funk_shmem_new( void * shmem,
   funk->rec_pool_gaddr = fd_wksp_gaddr_fast( wksp, rec_pool2 );
   fd_funk_rec_pool_t rec_join[1];
   fd_funk_rec_pool_join( rec_join, rec_pool2, rec_ele, rec_max );
-  fd_funk_rec_pool_reset( rec_join, 0UL );
+  fd_funk_rec_pool_reset( rec_join );
   funk->rec_ele_gaddr = fd_wksp_gaddr_fast( wksp, rec_ele );
   funk->rec_max = (uint)rec_max;
 

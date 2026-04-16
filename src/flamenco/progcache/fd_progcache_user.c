@@ -202,13 +202,13 @@ fd_progcache_query( fd_progcache_t *          cache,
 }
 
 fd_progcache_rec_t * /* read locked */
-fd_progcache_peek( fd_progcache_t * cache,
-                   fd_xid_t const * xid,
-                   void const *     prog_addr,
-                   ulong            revision_slot ) {
+fd_progcache_peek( fd_progcache_t    * cache,
+                   fd_xid_t    const * xid,
+                   fd_pubkey_t const * prog_addr,
+                   ulong               revision_slot ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   fd_progcache_load_fork( cache, xid );
-  fd_funk_rec_key_t key[1]; memcpy( key->uc, prog_addr, 32UL );
+  fd_funk_rec_key_t key[1]; fd_memcpy( key->uc, prog_addr->hash, 32UL );
   fd_progcache_rec_t * rec = fd_progcache_query( cache, xid, key, revision_slot );
   if( FD_UNLIKELY( !rec ) ) return NULL;
   return rec;
@@ -285,7 +285,7 @@ fd_progcache_push( fd_progcache_join_t * cache,
       fd_progcache_val_free( prev_rec, cache );
       fd_rwlock_unwrite( &prev_rec->lock );
       fd_prog_clock_remove( cache->clock.bits, (ulong)( prev_rec - cache->rec.pool->ele ) );
-      fd_prog_recp_release( cache->rec.pool, prev_rec, 1 );
+      fd_prog_recp_release( cache->rec.pool, prev_rec );
     } else {
       fd_prog_recm_txn_test( map_txn );
       fd_prog_recm_txn_fini( map_txn );
@@ -472,11 +472,11 @@ fd_progcache_insert( fd_progcache_t *        cache,
 
   /* Allocate record and heap space */
 
-  fd_progcache_rec_t * rec = fd_prog_recp_acquire( ljoin->rec.pool, NULL, 1, NULL );
+  fd_progcache_rec_t * rec = fd_prog_recp_acquire( ljoin->rec.pool );
   if( FD_UNLIKELY( !rec ) ) {
     cache->metrics->oom_desc_cnt++;
     fd_prog_clock_evict( cache, 4UL, 0UL );
-    rec = fd_prog_recp_acquire( ljoin->rec.pool, NULL, 1, NULL );
+    rec = fd_prog_recp_acquire( ljoin->rec.pool );
     if( FD_UNLIKELY( !rec ) ) {
       /* Out of memory (record table) */
       return fd_progcache_spill_open( cache, params );
@@ -497,7 +497,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
       if( FD_UNLIKELY( !fd_progcache_val_alloc( rec, ljoin, val_align, val_footprint ) ) ) {
         /* Out of memory (heap) */
         rec->exists = 0;
-        fd_prog_recp_release( ljoin->rec.pool, rec, 1 );
+        fd_prog_recp_release( ljoin->rec.pool, rec );
         return fd_progcache_spill_open( cache, params );
       }
     }
@@ -523,7 +523,7 @@ fd_progcache_insert( fd_progcache_t *        cache,
     fd_rwlock_unread( &ljoin->shmem->txn.rwlock );
     fd_rwlock_unwrite( &rec->lock );
     fd_progcache_val_free( rec, ljoin );
-    fd_prog_recp_release( ljoin->rec.pool, rec, 1 );
+    fd_prog_recp_release( ljoin->rec.pool, rec );
     return NULL;
   }
   fd_rwlock_unread( &ljoin->shmem->txn.rwlock );
@@ -554,18 +554,19 @@ fd_progcache_insert( fd_progcache_t *        cache,
 }
 
 fd_progcache_rec_t * /* read locked */
-fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_xid_t const *           xid,
-                   void const *               prog_addr,
+fd_progcache_pull( fd_progcache_t           * cache,
+                   fd_xid_t           const * xid,
+                   fd_pubkey_t        const * prog_addr,
                    fd_prog_load_env_t const * env,
-                   fd_accdb_ro_t *            prog_ro ) {
+                   fd_accdb_ro_t            * prog_ro,
+                   fd_pubkey_t        const * program_owner ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   long dt = -fd_tickcount();
   fd_progcache_load_fork( cache, xid );
   cache->metrics->lookup_cnt++;
 
   fd_prog_info_t info[1];
-  if( FD_UNLIKELY( !fd_prog_info( info, prog_ro ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_prog_info( info, prog_ro, program_owner ) ) ) return NULL;
   ulong revision_slot = fd_progcache_revision_slot( env->epoch_slot0, info->deploy_slot );
 
   insert_params_t insert[1];

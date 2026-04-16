@@ -57,16 +57,6 @@ epoch rewards during the distribution phase. */
     fd_exec_test_vote_account_version_t version;
 } fd_exec_test_prev_vote_account_t;
 
-typedef struct fd_exec_test_stake_delegation {
-    pb_byte_t stake_account[32];
-    pb_byte_t vote_account[32];
-    uint64_t stake;
-    uint64_t credits_observed;
-    uint64_t activation_epoch;
-    uint64_t deactivation_epoch;
-    fd_exec_test_warmup_cooldown_rate_t warmup_cooldown_rate;
-} fd_exec_test_stake_delegation_t;
-
 typedef struct fd_exec_test_block_bank {
     /* Up to 300 (actually 301) most recent blockhashes (ordered from oldest to newest) */
     pb_size_t blockhash_queue_count;
@@ -100,16 +90,12 @@ foundation_term: 0.0 - 100.0 (mainnet: 7.0) */
     uint64_t parent_signature_count;
     bool has_epoch_schedule;
     fd_exec_test_epoch_schedule_t epoch_schedule;
-    bool has_rent;
-    fd_exec_test_rent_t rent;
     bool has_features;
     fd_exec_test_feature_set_t features;
     pb_size_t vote_accounts_t_1_count;
     struct fd_exec_test_prev_vote_account *vote_accounts_t_1;
     pb_size_t vote_accounts_t_2_count;
     struct fd_exec_test_prev_vote_account *vote_accounts_t_2;
-    pb_size_t stake_delegations_t_1_count;
-    struct fd_exec_test_stake_delegation *stake_delegations_t_1;
 } fd_exec_test_block_bank_t;
 
 typedef struct fd_exec_test_block_context {
@@ -184,8 +170,6 @@ extern "C" {
 
 #define fd_exec_test_prev_vote_account_t_version_ENUMTYPE fd_exec_test_vote_account_version_t
 
-#define fd_exec_test_stake_delegation_t_warmup_cooldown_rate_ENUMTYPE fd_exec_test_warmup_cooldown_rate_t
-
 
 
 
@@ -197,8 +181,7 @@ extern "C" {
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_DEFAULT   {0, 0, 0}
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
-#define FD_EXEC_TEST_STAKE_DELEGATION_INIT_DEFAULT {{0}, {0}, 0, 0, 0, 0, _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_MIN}
-#define FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT     {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT, false, FD_EXEC_TEST_RENT_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT     {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0, {0}}
 #define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT}
@@ -207,8 +190,7 @@ extern "C" {
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CREDIT_INIT_ZERO      {0, 0, 0}
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO {{0}, {0}, 0, 0, 0, NULL, _FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_MIN}
-#define FD_EXEC_TEST_STAKE_DELEGATION_INIT_ZERO  {{0}, {0}, 0, 0, 0, 0, _FD_EXEC_TEST_WARMUP_COOLDOWN_RATE_MIN}
-#define FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO        {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO, false, FD_EXEC_TEST_RENT_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, NULL, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO        {0, NULL, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0, 0, 0, {0}, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, {0}, {0}, {0}, 0, false, FD_EXEC_TEST_EPOCH_SCHEDULE_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, false, FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO}
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO {0, 0, 0, 0, 0, {0}}
 #define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_ZERO, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO}
@@ -231,13 +213,6 @@ extern "C" {
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_COMMISSION_TAG 4
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_EPOCH_CREDITS_TAG 5
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_VERSION_TAG 6
-#define FD_EXEC_TEST_STAKE_DELEGATION_STAKE_ACCOUNT_TAG 1
-#define FD_EXEC_TEST_STAKE_DELEGATION_VOTE_ACCOUNT_TAG 2
-#define FD_EXEC_TEST_STAKE_DELEGATION_STAKE_TAG  3
-#define FD_EXEC_TEST_STAKE_DELEGATION_CREDITS_OBSERVED_TAG 4
-#define FD_EXEC_TEST_STAKE_DELEGATION_ACTIVATION_EPOCH_TAG 5
-#define FD_EXEC_TEST_STAKE_DELEGATION_DEACTIVATION_EPOCH_TAG 6
-#define FD_EXEC_TEST_STAKE_DELEGATION_WARMUP_COOLDOWN_RATE_TAG 7
 #define FD_EXEC_TEST_BLOCK_BANK_BLOCKHASH_QUEUE_TAG 1
 #define FD_EXEC_TEST_BLOCK_BANK_RBH_LAMPORTS_PER_SIGNATURE_TAG 2
 #define FD_EXEC_TEST_BLOCK_BANK_FEE_RATE_GOVERNOR_TAG 3
@@ -252,11 +227,9 @@ extern "C" {
 #define FD_EXEC_TEST_BLOCK_BANK_PARENT_LT_HASH_TAG 12
 #define FD_EXEC_TEST_BLOCK_BANK_PARENT_SIGNATURE_COUNT_TAG 13
 #define FD_EXEC_TEST_BLOCK_BANK_EPOCH_SCHEDULE_TAG 14
-#define FD_EXEC_TEST_BLOCK_BANK_RENT_TAG         15
 #define FD_EXEC_TEST_BLOCK_BANK_FEATURES_TAG     16
 #define FD_EXEC_TEST_BLOCK_BANK_VOTE_ACCOUNTS_T_1_TAG 17
 #define FD_EXEC_TEST_BLOCK_BANK_VOTE_ACCOUNTS_T_2_TAG 18
-#define FD_EXEC_TEST_BLOCK_BANK_STAKE_DELEGATIONS_T_1_TAG 19
 #define FD_EXEC_TEST_BLOCK_CONTEXT_TXNS_TAG      1
 #define FD_EXEC_TEST_BLOCK_CONTEXT_ACCT_STATES_TAG 2
 #define FD_EXEC_TEST_BLOCK_CONTEXT_BANK_TAG      6
@@ -309,17 +282,6 @@ X(a, STATIC,   SINGULAR, UENUM,    version,           6)
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_DEFAULT NULL
 #define fd_exec_test_prev_vote_account_t_epoch_credits_MSGTYPE fd_exec_test_epoch_credit_t
 
-#define FD_EXEC_TEST_STAKE_DELEGATION_FIELDLIST(X, a) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, stake_account,     1) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, vote_account,      2) \
-X(a, STATIC,   SINGULAR, UINT64,   stake,             3) \
-X(a, STATIC,   SINGULAR, UINT64,   credits_observed,   4) \
-X(a, STATIC,   SINGULAR, UINT64,   activation_epoch,   5) \
-X(a, STATIC,   SINGULAR, UINT64,   deactivation_epoch,   6) \
-X(a, STATIC,   SINGULAR, UENUM,    warmup_cooldown_rate,   7)
-#define FD_EXEC_TEST_STAKE_DELEGATION_CALLBACK NULL
-#define FD_EXEC_TEST_STAKE_DELEGATION_DEFAULT NULL
-
 #define FD_EXEC_TEST_BLOCK_BANK_FIELDLIST(X, a) \
 X(a, POINTER,  REPEATED, MESSAGE,  blockhash_queue,   1) \
 X(a, STATIC,   SINGULAR, UINT32,   rbh_lamports_per_signature,   2) \
@@ -335,22 +297,18 @@ X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_bank_hash,  11) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_lt_hash,   12) \
 X(a, STATIC,   SINGULAR, UINT64,   parent_signature_count,  13) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_schedule,   14) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  rent,             15) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  features,         16) \
 X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_1,  17) \
-X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_2,  18) \
-X(a, POINTER,  REPEATED, MESSAGE,  stake_delegations_t_1,  19)
+X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_2,  18)
 #define FD_EXEC_TEST_BLOCK_BANK_CALLBACK NULL
 #define FD_EXEC_TEST_BLOCK_BANK_DEFAULT NULL
 #define fd_exec_test_block_bank_t_blockhash_queue_MSGTYPE fd_exec_test_blockhash_queue_entry_t
 #define fd_exec_test_block_bank_t_fee_rate_governor_MSGTYPE fd_exec_test_fee_rate_governor_t
 #define fd_exec_test_block_bank_t_inflation_MSGTYPE fd_exec_test_inflation_t
 #define fd_exec_test_block_bank_t_epoch_schedule_MSGTYPE fd_exec_test_epoch_schedule_t
-#define fd_exec_test_block_bank_t_rent_MSGTYPE fd_exec_test_rent_t
 #define fd_exec_test_block_bank_t_features_MSGTYPE fd_exec_test_feature_set_t
 #define fd_exec_test_block_bank_t_vote_accounts_t_1_MSGTYPE fd_exec_test_prev_vote_account_t
 #define fd_exec_test_block_bank_t_vote_accounts_t_2_MSGTYPE fd_exec_test_prev_vote_account_t
-#define fd_exec_test_block_bank_t_stake_delegations_t_1_MSGTYPE fd_exec_test_stake_delegation_t
 
 #define FD_EXEC_TEST_BLOCK_CONTEXT_FIELDLIST(X, a) \
 X(a, POINTER,  REPEATED, MESSAGE,  txns,              1) \
@@ -397,7 +355,6 @@ extern const pb_msgdesc_t fd_exec_test_cost_tracker_t_msg;
 extern const pb_msgdesc_t fd_exec_test_inflation_t_msg;
 extern const pb_msgdesc_t fd_exec_test_epoch_credit_t_msg;
 extern const pb_msgdesc_t fd_exec_test_prev_vote_account_t_msg;
-extern const pb_msgdesc_t fd_exec_test_stake_delegation_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_bank_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_leader_schedule_effects_t_msg;
@@ -409,7 +366,6 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define FD_EXEC_TEST_INFLATION_FIELDS &fd_exec_test_inflation_t_msg
 #define FD_EXEC_TEST_EPOCH_CREDIT_FIELDS &fd_exec_test_epoch_credit_t_msg
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_FIELDS &fd_exec_test_prev_vote_account_t_msg
-#define FD_EXEC_TEST_STAKE_DELEGATION_FIELDS &fd_exec_test_stake_delegation_t_msg
 #define FD_EXEC_TEST_BLOCK_BANK_FIELDS &fd_exec_test_block_bank_t_msg
 #define FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS &fd_exec_test_block_context_t_msg
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_FIELDS &fd_exec_test_leader_schedule_effects_t_msg
@@ -426,7 +382,6 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define FD_EXEC_TEST_EPOCH_CREDIT_SIZE           33
 #define FD_EXEC_TEST_INFLATION_SIZE              45
 #define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_SIZE 73
-#define FD_EXEC_TEST_STAKE_DELEGATION_SIZE       114
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_MAX_SIZE FD_EXEC_TEST_BLOCK_EFFECTS_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
@@ -436,7 +391,6 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define org_solana_sealevel_v1_Inflation fd_exec_test_Inflation
 #define org_solana_sealevel_v1_EpochCredit fd_exec_test_EpochCredit
 #define org_solana_sealevel_v1_PrevVoteAccount fd_exec_test_PrevVoteAccount
-#define org_solana_sealevel_v1_StakeDelegation fd_exec_test_StakeDelegation
 #define org_solana_sealevel_v1_BlockBank fd_exec_test_BlockBank
 #define org_solana_sealevel_v1_BlockContext fd_exec_test_BlockContext
 #define org_solana_sealevel_v1_LeaderScheduleEffects fd_exec_test_LeaderScheduleEffects
@@ -452,7 +406,6 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_DEFAULT FD_EXEC_TEST_INFLATION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CREDIT_INIT_DEFAULT FD_EXEC_TEST_EPOCH_CREDIT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_PREV_VOTE_ACCOUNT_INIT_DEFAULT FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_DEFAULT
-#define ORG_SOLANA_SEALEVEL_V1_STAKE_DELEGATION_INIT_DEFAULT FD_EXEC_TEST_STAKE_DELEGATION_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_BANK_INIT_DEFAULT FD_EXEC_TEST_BLOCK_BANK_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT
@@ -462,7 +415,6 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_INFLATION_INIT_ZERO FD_EXEC_TEST_INFLATION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_EPOCH_CREDIT_INIT_ZERO FD_EXEC_TEST_EPOCH_CREDIT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_PREV_VOTE_ACCOUNT_INIT_ZERO FD_EXEC_TEST_PREV_VOTE_ACCOUNT_INIT_ZERO
-#define ORG_SOLANA_SEALEVEL_V1_STAKE_DELEGATION_INIT_ZERO FD_EXEC_TEST_STAKE_DELEGATION_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_BANK_INIT_ZERO FD_EXEC_TEST_BLOCK_BANK_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_CONTEXT_INIT_ZERO FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_LEADER_SCHEDULE_EFFECTS_INIT_ZERO FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO

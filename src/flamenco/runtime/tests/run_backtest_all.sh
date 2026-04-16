@@ -122,3 +122,10 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l replace_spl_token_with_p_to
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l syscall-parameter-address-restrictions -y 1 -m 1000 -e 312
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l virtual-address-space-adjustments -y 1 -m 1000 -e 819
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l account-data-direct-mapping -y 1 -m 1000 -e 1395
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_sbpf_v3_deployment_and_execution -y 1 -m 1000 -e 961
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5 -y 1 -m 1000 -e 586
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-7 -y 1 -m 10000 -e 1596
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-8 -y 1 -m 10000 -e 1596
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -y 1 -m 10000 -e 540
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall -y 1 -m 1000 -e 379
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account -y 1 -m 1000 -e 364

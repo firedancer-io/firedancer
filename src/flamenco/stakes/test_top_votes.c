@@ -137,6 +137,15 @@ main( int argc, char * argv[] ) {
   assert_vote_present( top_votes, &vote_D, &node_D, 30UL );
   assert_vote_present( top_votes, &vote_E, &node_E, 40UL );
 
+  /* Agave removes all accounts at the cutoff stake.  Once a higher
+     stake evicts the current floor, later inserts at that same floor
+     stake should remain excluded. */
+  fd_top_votes_insert( top_votes, &vote_F, &node_F, 10UL, 1 );
+  assert_vote_absent( top_votes, &vote_F );
+
+  fd_top_votes_insert( top_votes, &vote_G, &node_G, 11UL, 1 );
+  assert_vote_present( top_votes, &vote_G, &node_G, 11UL );
+
   /* If a candidate stake ties the minimum when full, all min entries are removed,
      no new entry is inserted, and that stake is permanently watermarked. */
   fd_top_votes_init( top_votes );

@@ -1,8 +1,7 @@
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower.h"
 #include "fd_eqvoc.h"
 #include "../../ballet/shred/fd_shred.h"
-
+#include "../../disco/shred/fd_fec_set.h"
 /* fd_eqvoc maintains four bounded maps:
 
    dup_map  (capacity dup_max): maps slot -> equivocation result,
@@ -264,10 +263,11 @@ fd_eqvoc_footprint( ulong dup_max,
                     ulong per_vtr_max,
                     ulong vtr_max ) {
 
-  dup_max          = fd_ulong_pow2_up( dup_max );
-  fec_max          = fd_ulong_pow2_up( fec_max );
-  ulong prf_max    = per_vtr_max * vtr_max;
-  vtr_max          = fd_ulong_pow2_up( vtr_max );
+  dup_max       = fd_ulong_pow2_up( dup_max );
+  fec_max       = fd_ulong_pow2_up( fec_max );
+  per_vtr_max   = fd_ulong_pow2_up( per_vtr_max );
+  vtr_max       = fd_ulong_pow2_up( vtr_max );
+  ulong prf_max = per_vtr_max * vtr_max;
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_eqvoc_t),    sizeof(fd_eqvoc_t)                                      );
@@ -314,10 +314,11 @@ fd_eqvoc_new( void * shmem,
     return NULL;
   }
 
-  dup_max          = fd_ulong_pow2_up( dup_max );
-  fec_max          = fd_ulong_pow2_up( fec_max );
-  vtr_max          = fd_ulong_pow2_up( vtr_max );
-  ulong prf_max    = per_vtr_max * vtr_max;
+  dup_max       = fd_ulong_pow2_up( dup_max );
+  fec_max       = fd_ulong_pow2_up( fec_max );
+  per_vtr_max   = fd_ulong_pow2_up( per_vtr_max );
+  vtr_max       = fd_ulong_pow2_up( vtr_max );
+  ulong prf_max = per_vtr_max * vtr_max;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   void * eqvoc_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_eqvoc_t),    sizeof(fd_eqvoc_t)                                      );
@@ -341,19 +342,19 @@ fd_eqvoc_new( void * shmem,
   eqvoc->per_vtr_max = per_vtr_max;
   eqvoc->vtr_max     = vtr_max;
 
-  eqvoc->sha512     = fd_sha512_new( sha512                                            );
+  eqvoc->sha512     = fd_sha512_new( sha512                                           );
   eqvoc->bmtree_mem = bmtree_mem;
-  eqvoc->dup_pool   = dup_pool_new ( dup_pool, dup_max                                 );
-  eqvoc->dup_map    = dup_map_new  ( dup_map,  dup_map_chain_cnt_est( dup_max ),  seed );
-  eqvoc->dup_dlist  = dup_dlist_new( dup_dlist                                         );
-  eqvoc->fec_pool   = fec_pool_new ( fec_pool, fec_max                                 );
-  eqvoc->fec_map    = fec_map_new  ( fec_map,  fec_map_chain_cnt_est( fec_max ),  seed );
-  eqvoc->fec_dlist  = fec_dlist_new( fec_dlist                                         );
-  eqvoc->prf_pool   = prf_pool_new ( prf_pool, prf_max                                 );
-  eqvoc->prf_map    = prf_map_new  ( prf_map,  prf_map_chain_cnt_est( prf_max ),  seed );
-  eqvoc->vtr_pool   = vtr_pool_new ( vtr_pool, vtr_max                                 );
-  eqvoc->vtr_map    = vtr_map_new  ( vtr_map,  vtr_map_chain_cnt_est( vtr_max ),  seed );
-  eqvoc->vtr_dlist  = vtr_dlist_new( vtr_dlist                                         );
+  eqvoc->dup_pool   = dup_pool_new ( dup_pool, dup_max                                );
+  eqvoc->dup_map    = dup_map_new  ( dup_map,  dup_map_chain_cnt_est( dup_max ), seed );
+  eqvoc->dup_dlist  = dup_dlist_new( dup_dlist                                        );
+  eqvoc->fec_pool   = fec_pool_new ( fec_pool, fec_max                                );
+  eqvoc->fec_map    = fec_map_new  ( fec_map,  fec_map_chain_cnt_est( fec_max ), seed );
+  eqvoc->fec_dlist  = fec_dlist_new( fec_dlist                                        );
+  eqvoc->prf_pool   = prf_pool_new ( prf_pool, prf_max                                );
+  eqvoc->prf_map    = prf_map_new  ( prf_map,  prf_map_chain_cnt_est( prf_max ), seed );
+  eqvoc->vtr_pool   = vtr_pool_new ( vtr_pool, vtr_max                                );
+  eqvoc->vtr_map    = vtr_map_new  ( vtr_map,  vtr_map_chain_cnt_est( vtr_max ), seed );
+  eqvoc->vtr_dlist  = vtr_dlist_new( vtr_dlist                                        );
 
   vtr_t * pool_join = vtr_pool_join( eqvoc->vtr_pool );
   for( ulong i = 0UL; i < vtr_max; i++ ) {
@@ -596,7 +597,9 @@ construct_proof( fd_shred_t const *          shred1,
 }
 
 /* verify_proof verifies that the two shreds contained in `proof` do in
-   fact equivocate.
+   fact equivocate.  If leader_schedule is NULL, then both shreds have
+   already been sig-verified to have originated from the correct leader
+   for that slot.
 
    Returns: FD_EQVOC_SUCCESS if no effect
             FD_EQVOC_SUCCESS_{...} if they do
@@ -682,15 +685,16 @@ verify_proof( fd_eqvoc_t const *         eqvoc,
   fd_bmtree_node_t root2;
   if( FD_UNLIKELY( !fd_shred_merkle_root( shred2, eqvoc->bmtree_mem, &root2 ) ) ) return FD_EQVOC_ERR_MERKLE;
 
-  fd_pubkey_t const * leader = fd_epoch_leaders_get( leader_schedule, shred1->slot );
-  if( FD_UNLIKELY( !leader ) ) return FD_EQVOC_ERR_SIG;
-  FD_BASE58_ENCODE_32_BYTES( leader->uc, leader_b58 );
+  if( FD_UNLIKELY( leader_schedule ) ) {
+    fd_pubkey_t const * leader = fd_epoch_leaders_get( leader_schedule, shred1->slot );
+    if( FD_UNLIKELY( !leader ) ) return FD_EQVOC_ERR_SIG;
 
-  fd_sha512_t _sha512[1];
-  fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( _sha512 ) );
-  if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( root1.hash, 32UL, shred1->signature, leader->uc, sha512 ) ||
-                   FD_ED25519_SUCCESS != fd_ed25519_verify( root2.hash, 32UL, shred2->signature, leader->uc, sha512 ) ) ) {
-    return FD_EQVOC_ERR_SIG;
+    fd_sha512_t  _sha512[1];
+    fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( _sha512 ) );
+    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( root1.hash, 32UL, shred1->signature, leader->uc, sha512 ) ||
+                     FD_ED25519_SUCCESS != fd_ed25519_verify( root2.hash, 32UL, shred2->signature, leader->uc, sha512 ) ) ) {
+      return FD_EQVOC_ERR_SIG;
+    }
   }
 
   /* If both are data shreds, then check if one is marked the last shred
@@ -703,8 +707,6 @@ verify_proof( fd_eqvoc_t const *         eqvoc,
     }
   }
 
-  /* TODO remove below with fixed-32 */
-
   if( FD_UNLIKELY( shred1->fec_set_idx != shred2->fec_set_idx ) ) {
 
     /* Different FEC set index checks. Lower FEC set index shred must be a
@@ -713,32 +715,20 @@ verify_proof( fd_eqvoc_t const *         eqvoc,
     fd_shred_t const * lo = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx, shred1, shred2 );
     fd_shred_t const * hi = fd_ptr_if( shred1->fec_set_idx > shred2->fec_set_idx, shred1, shred2 );
 
-    if( FD_UNLIKELY( fd_shred_is_code( fd_shred_type( lo->variant ) ) ) ) {
+    /* Test for conflicting chained merkle roots when shred1 and shred2
+       are in adjacent FEC sets. We know the FEC sets are adjacent if
+       the lower FEC set index + FD_FEC_SHRED_CNT is the higher FEC set
+       index. */
 
-      /* Test for overlap. The FEC sets overlap if the lower fec_set_idx +
-        data_cnt > higher fec_set_idx. We must have received at least one
-        coding shred in the FEC set with the lower fec_set_idx to perform
-        this check. */
-
-      if( FD_UNLIKELY( lo->fec_set_idx + lo->code.data_cnt > hi->fec_set_idx ) ) {
-        return FD_EQVOC_SUCCESS_OVERLAP;
-      }
-
-      /* Test for conflicting chained merkle roots when shred1 and shred2
-        are in adjacent FEC sets. We know the FEC sets are adjacent if the
-        last data shred index in the lower FEC set is one less than the
-        first data shred index in the higher FEC set. */
-
-      if( FD_UNLIKELY( lo->fec_set_idx + lo->code.data_cnt == hi->fec_set_idx ) ) {
-        uchar * merkle_hash  = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx,
-                                          (uchar *)shred1 + fd_shred_merkle_off( shred1 ),
-                                          (uchar *)shred2 + fd_shred_merkle_off( shred2 ) );
-        uchar * chained_hash = fd_ptr_if( shred1->fec_set_idx > shred2->fec_set_idx,
-                                          (uchar *)shred1 + fd_shred_chain_off( shred1->variant ),
-                                          (uchar *)shred2 + fd_shred_chain_off( shred2->variant ) );
-        if( FD_LIKELY( 0!=memcmp( merkle_hash, chained_hash, FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
-          return FD_EQVOC_SUCCESS_CHAINED;
-        }
+    if( FD_UNLIKELY( lo->fec_set_idx+FD_FEC_SHRED_CNT == hi->fec_set_idx ) ) {
+      uchar * merkle_hash  = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx,
+                                        (uchar *)root1.hash,
+                                        (uchar *)root2.hash );
+      uchar * chained_hash = fd_ptr_if( shred1->fec_set_idx > shred2->fec_set_idx,
+                                        (uchar *)shred1 + fd_shred_chain_off( shred1->variant ),
+                                        (uchar *)shred2 + fd_shred_chain_off( shred2->variant ) );
+      if( FD_LIKELY( 0!=memcmp( merkle_hash, chained_hash, FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
+        return FD_EQVOC_SUCCESS_CHAINED;
       }
     }
     return FD_EQVOC_SUCCESS; /* these shreds in different FEC sets do not prove equivocation */
@@ -769,16 +759,6 @@ verify_proof( fd_eqvoc_t const *         eqvoc,
     return FD_EQVOC_SUCCESS;
   }
 
-  /* If both are coding shreds, then check if they have the same meta.
-     TODO fixed-32 remove. */
-
-  if( FD_LIKELY( fd_shred_is_code( fd_shred_type( shred1->variant ) ) &&
-                 ( shred1->code.code_cnt != shred2->code.code_cnt ||
-                   shred1->code.data_cnt != shred2->code.data_cnt ||
-                   shred1->idx - shred1->code.idx == shred2->idx - shred2->code.idx ) ) ) {
-    return FD_EQVOC_SUCCESS_META;
-  }
-
   /* Shreds do not prove equivocation. */
 
   return FD_EQVOC_SUCCESS;
@@ -788,11 +768,10 @@ int
 fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
                        ushort                      shred_version,
                        ulong                       root,
-                       fd_epoch_leaders_t const *  leader_schedule,
                        fd_shred_t const *          shred,
                        fd_gossip_duplicate_shred_t chunks_out[static FD_EQVOC_CHUNK_CNT] ) {
 
-  if( FD_UNLIKELY( !leader_schedule || shred->slot < root ) ) return FD_EQVOC_ERR_IGNORED_SLOT;
+  if( FD_UNLIKELY( shred->slot < root ) ) return FD_EQVOC_ERR_IGNORED_SLOT;
 
   /* Short-circuit if we already know this shred equivocates. */
 
@@ -832,7 +811,7 @@ fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
 
   /* Verify if the shred equivocates and construct a proof if so. */
 
-  int err = verify_proof( eqvoc, shred_version, leader_schedule, &fec->shred, shred );
+  int err = verify_proof( eqvoc, shred_version, NULL, &fec->shred, shred );
   if( FD_UNLIKELY( err>FD_EQVOC_SUCCESS ) ) {
     construct_proof( &fec->shred, shred, chunks_out );
     dup_t * dup = dup_insert( eqvoc, slot );
@@ -916,9 +895,16 @@ cleanup:;
   return err;
 }
 
+int
+fd_eqvoc_query( fd_eqvoc_t * eqvoc,
+                ulong        slot ) {
+  return !!dup_query( eqvoc, slot );
+}
+
 void
-fd_eqvoc_update_voters( fd_eqvoc_t *              eqvoc,
-                        fd_tower_voters_t const * tower_voters ) {
+fd_eqvoc_update_voters( fd_eqvoc_t *        eqvoc,
+                        fd_pubkey_t const * id_keys,
+                        ulong               cnt ) {
 
   for( vtr_dlist_iter_t iter = vtr_dlist_iter_fwd_init( eqvoc->vtr_dlist, eqvoc->vtr_pool );
        !vtr_dlist_iter_done( iter, eqvoc->vtr_dlist, eqvoc->vtr_pool );
@@ -926,13 +912,11 @@ fd_eqvoc_update_voters( fd_eqvoc_t *              eqvoc,
     eqvoc->vtr_pool[iter].next = 1; /* mark for removal */
   }
 
-  /* Move all voters in the new tower_voters set to the back of the
+  /* Move all voters in the new voters set to the back of the
      dlist.  We mark them by setting their `next` field to null. */
 
-  for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( tower_voters );
-                                    !fd_tower_voters_iter_done( tower_voters, iter );
-                              iter = fd_tower_voters_iter_next( tower_voters, iter ) ) {
-    fd_pubkey_t const * id  = &fd_tower_voters_iter_ele_const( tower_voters, iter )->id_key;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t const * id  = &id_keys[i];
     vtr_t *             vtr = vtr_map_ele_query( eqvoc->vtr_map, id, NULL, eqvoc->vtr_pool );
     if( FD_UNLIKELY( !vtr ) ) {
       vtr                = vtr_pool_ele_acquire( eqvoc->vtr_pool );

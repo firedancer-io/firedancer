@@ -46,6 +46,10 @@ fi
 git -C "$CACHE" fetch -q --prune
 git -C "$CACHE" checkout -q "$GIT_REF"
 
+# Remove stale working copies older than 24 hours (non-fatal)
+find dump -maxdepth 1 -regex '.*/test-vectors-[0-9]+$' -type d -mtime +0 \
+  -exec echo "  removing stale: {}" \; -exec rm -rf {} \; 2>/dev/null || true
+
 rm -rf "$WORK_DIR"
 rsync -a --link-dest="$CACHE" "$CACHE"/ "$WORK_DIR"
 

@@ -365,12 +365,18 @@ run_monitor( config_t const * config,
       ulong link_idx = 0UL;
       for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
         for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
-          link_snap_t * prv = &link_snap_prv[ link_idx ];
-          link_snap_t * cur = &link_snap_cur[ link_idx ];
-
           fd_topo_link_t link = topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
           ulong producer_tile_id = fd_topo_find_link_producer( topo, &link );
           FD_TEST( producer_tile_id != ULONG_MAX );
+
+          if( tile_snap_cur[ producer_tile_id ].status==2UL && tile_snap_cur[ tile_idx ].status==2UL ) {
+            link_idx++;
+            continue;
+          }
+
+          link_snap_t * prv = &link_snap_prv[ link_idx ];
+          link_snap_t * cur = &link_snap_cur[ link_idx ];
+
           char const * producer = topo->tiles[ producer_tile_id ].name;
           PRINT( " %7s->%-7s", producer, topo->tiles[ tile_idx ].name );
           ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
@@ -545,7 +551,6 @@ monitor_cmd_fn( args_t *   args,
                     0U,
                     0,
                     0U,
-                    1,
                     !config->is_firedancer );
   }
 
@@ -573,8 +578,6 @@ monitor_cmd_fn( args_t *   args,
   struct sock_filter seccomp_filter[ 128UL ];
   uint drain_output_fd = args->monitor.drain_output_fd >= 0 ? (uint)args->monitor.drain_output_fd : (uint)-1;
   populate_sock_filter_policy_monitor( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), drain_output_fd );
-
-  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,

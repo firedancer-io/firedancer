@@ -125,9 +125,9 @@ fd_progcache_shmem_new( void * shmem,
   void * txn_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_txnp_align(), fd_prog_txnp_footprint( txn_max ) );
 
   ulong rec_chain_cnt = fd_prog_recm_chain_cnt_est( rec_max );
-  void * rec_map = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_recm_align(), fd_prog_recm_footprint( rec_chain_cnt ) );
-  void * rec_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_recp_align(), fd_prog_recp_footprint() );
-  fd_progcache_rec_t * rec_ele = (fd_progcache_rec_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_progcache_rec_t), sizeof(fd_progcache_rec_t) * rec_max );
+  void *               rec_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_recm_align(), fd_prog_recm_footprint( rec_chain_cnt ) );
+  void *               rec_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_prog_recp_align(), fd_prog_recp_footprint() );
+  fd_progcache_rec_t * rec_ele  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_progcache_rec_t), sizeof(fd_progcache_rec_t) * rec_max );
 
   void * alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
 
@@ -135,7 +135,8 @@ fd_progcache_shmem_new( void * shmem,
 
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_progcache_shmem_align() ) == (ulong)pc + fd_progcache_shmem_footprint( txn_max, rec_max ) );
 
-  fd_memset( pc, 0, offsetof(fd_progcache_shmem_t, spill) );
+  fd_memset( pc,      0, offsetof(fd_progcache_shmem_t, spill) );
+  fd_memset( rec_ele, 0, rec_max * sizeof(fd_progcache_rec_t)  );
 
   pc->wksp_tag = wksp_tag;
   pc->seed     = seed;
@@ -159,12 +160,9 @@ fd_progcache_shmem_new( void * shmem,
   pc->rec.pool_gaddr = fd_wksp_gaddr_fast( wksp, rec_pool2 );
   fd_prog_recp_t rec_join[1];
   fd_prog_recp_join( rec_join, rec_pool2, rec_ele, rec_max );
-  fd_prog_recp_reset( rec_join, 0UL );
+  fd_prog_recp_reset( rec_join );
   pc->rec.ele_gaddr = fd_wksp_gaddr_fast( wksp, rec_ele );
   pc->rec.max = (uint)rec_max;
-  for( ulong i=0UL; i<rec_max; i++ ) {
-    fd_rwlock_new( &rec_ele[ i ].lock );
-  }
   fd_prog_recp_leave( rec_join );
 
   fd_rwlock_new( &pc->txn.rwlock );

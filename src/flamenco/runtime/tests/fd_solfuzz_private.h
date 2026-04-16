@@ -11,7 +11,7 @@
 #include "generated/context.pb.h"
 
 #if FD_HAS_FLATCC
-#include "flatcc/flatcc_builder.h"
+#include <flatcc/flatcc_builder.h>
 #include "flatbuffers/generated/context_reader.h"
 #endif
 
@@ -44,12 +44,6 @@ fd_solfuzz_pb_restore_fee_rate_governor( fd_bank_t *                            
 void
 fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank,
                                       fd_exec_test_epoch_schedule_t const * epoch_schedule );
-
-/* Restores the rent parameters in the bank from the given protobuf
-   rent. */
-void
-fd_solfuzz_pb_restore_rent( fd_bank_t *                 bank,
-                            fd_exec_test_rent_t const * rent );
 
 /* Initializes the blockhash queue in the bank from the given protobuf
    blockhash queue entries. */

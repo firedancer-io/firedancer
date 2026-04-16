@@ -2,6 +2,7 @@
 #include "fd_precompiles.h"
 #include "../fd_system_ids.h"
 #include "../fd_system_ids_pp.h"
+#include "../fd_accdb_svm.h"
 #include "../../accdb/fd_accdb_sync.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \
@@ -135,7 +136,7 @@ fd_builtin_is_bpf( fd_accdb_user_t *         accdb,
   if( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) {
     return 0;
   }
-  int is_bpf = memcmp( fd_accdb_ref_owner( ro ), &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_solana_bpf_loader_upgradeable_program_id) )==0;
+  int is_bpf = fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_bpf_loader_upgradeable_program_id );
   fd_accdb_close_ro( accdb, ro );
   return is_bpf;
 }
@@ -156,25 +157,15 @@ fd_write_builtin_account( fd_bank_t  *              bank,
                           fd_pubkey_t const         pubkey,
                           void const *              data,
                           ulong                     sz ) {
-
-  fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( accdb, rw, xid, &pubkey, sz, FD_ACCDB_FLAG_CREATE );
-
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash(
-    &pubkey,
-    rw->meta,
-    fd_accdb_ref_data_const( rw->ro ),
-    prev_hash );
-
-  fd_accdb_ref_data_set( accdb, rw, data, sz );
-  fd_accdb_ref_lamports_set( rw, 1UL );
-  fd_accdb_ref_exec_bit_set( rw, 1 );
-  fd_accdb_ref_owner_set( rw, &fd_solana_native_loader_id );
-
-  fd_hashes_update_lthash( &pubkey, rw->meta, prev_hash, bank, capture_ctx );
-  bank->f.capitalization = bank->f.capitalization + 1UL;
-  fd_accdb_close_rw( accdb, rw );
+  fd_accdb_svm_write(
+      accdb, bank, xid, capture_ctx,
+      &pubkey,
+      &fd_solana_native_loader_id, /* owner */
+      data, sz,                    /* data */
+      1UL,                         /* lamports_min */
+      1,                           /* exec_bit */
+      FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE
+  );
 }
 
 void

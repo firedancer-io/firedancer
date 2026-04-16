@@ -76,36 +76,30 @@ void test_sbpf_version_from_elf_header_with_min( void ) {
 /* Strict parser hex-based test merged from test_sbpf_elf_peek_strict.c */
 static void
 test_sbpf_elf_peek_strict_hex( void ) {
-  /* 64-bit LE ELF, ET_DYN, EM_SBPF, 4 program headers (bytecode/rodata/stack/heap),
-     bytecode at offset 0x120 with 1 instruction: ADD64_IMM dst=r10, imm=0 */
   static char const * hex =
     /* ELF header (64 bytes) */
-    "7f454c46020101000000000000000000"
-    "0300"
-    "0701"
-    "01000000"
+    "7f454c46020101000000000000000000" /* e_ident */
+    "0300"                             /* e_type    = ET_DYN (3) */
+    "f700"                             /* e_machine = EM_BPF (247) */
+    "01000000"                         /* e_version = 1 */
+    "0000000001000000"                 /* e_entry   = 0x100000000 */
+    "4000000000000000"                 /* e_phoff   = 64 */
+    "0000000000000000"                 /* e_shoff   = 0 */
+    "03000000"                         /* e_flags   = 3 (SBPF V3) */
+    "4000"                             /* e_ehsize  = 64 */
+    "3800"                             /* e_phentsize = 56 */
+    "0200"                             /* e_phnum   = 2 */
+    "0000"                             /* e_shentsize */
+    "0000"                             /* e_shnum */
+    "0000"                             /* e_shstrndx */
+    /* Program header 0: PT_LOAD PF_R (rodata), vaddr 0x0, offset 0xb0, filesz=memsz=8 */
+    "01000000" "04000000" "b000000000000000" "0000000000000000" "0000000000000000" "0800000000000000" "0800000000000000" "0800000000000000"
+    /* Program header 1: PT_LOAD PF_X (bytecode), vaddr 0x100000000, offset 0xb8, filesz=memsz=8 */
+    "01000000" "01000000" "b800000000000000" "0000000001000000" "0000000001000000" "0800000000000000" "0800000000000000" "0800000000000000"
+    /* Rodata at 0xb0: 8 zero bytes */
     "0000000000000000"
-    "4000000000000000"
-    "0000000000000000"
-    "03000000"
-    "4000"
-    "3800"
-    "0400"
-    "4000"
-    "0100"
-    "0000"
-    /* Program header 0: PT_LOAD X, vaddr 0x0, offset 0x120, filesz=memsz=8 */
-    "01000000" "01000000" "2001000000000000" "0000000000000000" "0000000000000000" "0800000000000000" "0800000000000000" "0800000000000000"
-    /* Program header 1: PT_LOAD R, vaddr 0x100000000, offset 0x128, filesz=memsz=0 */
-    "01000000" "04000000" "2801000000000000" "0000000001000000" "0000000001000000" "0000000000000000" "0000000000000000" "0800000000000000"
-    /* Program header 2: PT_LOAD RW (stack), vaddr 0x200000000, offset 0x128, filesz=0, memsz=0x1000 */
-    "01000000" "06000000" "2801000000000000" "0000000002000000" "0000000002000000" "0000000000000000" "0010000000000000" "0800000000000000"
-    /* Program header 3: PT_LOAD RW (heap), vaddr 0x300000000, offset 0x128, filesz=0, memsz=0x1000 */
-    "01000000" "06000000" "2801000000000000" "0000000003000000" "0000000003000000" "0000000000000000" "0010000000000000" "0800000000000000"
-    /* .text at 0x120: ADD64_IMM dst=r10, imm=0 (function start marker), 8 bytes */
-    "070a000000000000"
-    /* one extra padding byte to keep rodata p_offset (0x128) < file size */
-    "00";
+    /* Bytecode at 0xb8: ADD64_IMM dst=r10, imm=0 (function start marker), 8 bytes */
+    "070a000000000000";
 
   ulong bin_sz = (ulong)strlen( hex ) / 2UL;
   FD_TEST( bin_sz<=512UL );
@@ -119,7 +113,7 @@ test_sbpf_elf_peek_strict_hex( void ) {
   int rc = fd_sbpf_elf_peek( &info, bin, bin_sz, &config );
   FD_TEST( rc==0 );
 
-  FD_TEST( info.text_off==0x120U );
+  FD_TEST( info.text_off==8U );   /* rodata_sz = phdr0.p_memsz = 8 */
   FD_TEST( info.text_sz ==8UL );
   FD_TEST( info.text_cnt==1U );
   FD_TEST( info.bin_sz==bin_sz );

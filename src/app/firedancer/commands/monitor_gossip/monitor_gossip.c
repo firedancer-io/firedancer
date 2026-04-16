@@ -99,8 +99,6 @@ monitor_gossip_cmd_fn( args_t *   args,
   populate_sock_filter_policy_monitor_gossip( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd() );
 
   if( FD_LIKELY( config->development.sandbox ) ) {
-    if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
     fd_sandbox_enter( config->uid,
                       config->gid,
                       0,

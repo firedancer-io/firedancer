@@ -519,6 +519,11 @@ struct fd_topo_tile {
     } backtest;
 
     struct {
+      char   rocksdb_path[ PATH_MAX ];
+      ushort shred_listen_port;
+    } forktest;
+
+    struct {
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
@@ -577,6 +582,9 @@ struct fd_topo_tile {
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
+
+      uint target_uid;
+      uint target_gid;
     } snapct;
 
     struct {
@@ -698,7 +706,7 @@ typedef struct {
    between them. */
 struct fd_topo {
   char           app_name[ 256UL ];
-  uchar          props[ 16384UL ];
+  uchar          props[ 32768UL ];
 
   ulong          wksp_cnt;
   ulong          link_cnt;
@@ -1177,8 +1185,6 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
-                  volatile int *       wait,
-                  volatile int *       debugger,
                   fd_topo_run_tile_t * tile_run );
 
 /* This is for determining the value of RLIMIT_MLOCK that we need to

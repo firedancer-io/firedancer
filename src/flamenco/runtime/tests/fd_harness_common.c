@@ -3,7 +3,6 @@
 #include "../fd_runtime.h"
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
-#include "../sysvar/fd_sysvar_clock.h"
 #include "../../features/fd_features.h"
 #include "../../accdb/fd_accdb_sync.h"
 #include <assert.h>
@@ -31,17 +30,6 @@ fd_solfuzz_pb_restore_epoch_schedule( fd_bank_t *                           bank
     .warmup                      = epoch_schedule->warmup,
     .first_normal_epoch          = epoch_schedule->first_normal_epoch,
     .first_normal_slot           = epoch_schedule->first_normal_slot,
-  };
-}
-
-void
-fd_solfuzz_pb_restore_rent( fd_bank_t *                 bank,
-                            fd_exec_test_rent_t const * rent ) {
-  fd_rent_t * r = &bank->f.rent;
-  *r = (fd_rent_t){
-    .lamports_per_uint8_year = rent->lamports_per_byte_year,
-    .exemption_threshold     = rent->exemption_threshold,
-    .burn_percent            = (uchar)rent->burn_percent,
   };
 }
 

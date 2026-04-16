@@ -124,15 +124,13 @@ streamlined_hash( fd_snapla_tile_t * ctx,
   if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
   if( FD_UNLIKELY( lamports==0UL ) ) return;
 
-  uchar executable_flag = executable & 0x1;
-
   fd_lthash_adder_push_solana_account( ctx->adder,
                                        &ctx->running_lthash,
                                        pubkey,
                                        frame+0x88UL,
                                        data_len,
                                        lamports,
-                                       executable_flag,
+                                       executable,
                                        owner );
 
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
@@ -264,6 +262,7 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->full          = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->state         = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->in.pos        = 0UL;
       ctx->accounts_seen = 0UL;
       ctx->hash_account  = 0;
       ctx->acc_data_sz   = 0UL;
@@ -392,6 +391,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapla_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapla_tile_t),   sizeof(fd_snapla_tile_t)        );
   void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),           fd_ssparse_footprint( 1UL<<24UL ));
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
+
+  FD_TEST( fd_topo_tile_name_cnt( topo, "snapla" )<=FD_SNAPSHOT_MAX_SNAPLA_TILES );
 
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt  ));

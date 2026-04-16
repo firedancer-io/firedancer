@@ -55,7 +55,7 @@ rec_reclaim( fd_progcache_join_t * join,
   fd_progcache_val_free( rec, join );
   rec->exists = 0;
   fd_prog_clock_remove( join->clock.bits, (ulong)( rec - join->rec.pool->ele ) );
-  fd_prog_recp_release( join->rec.pool, rec, 1 );
+  fd_prog_recp_release( join->rec.pool, rec );
   return 1;
 }
 
@@ -85,11 +85,34 @@ long
 fd_prog_delete_rec( fd_progcache_join_t * cache,
                     fd_progcache_rec_t *  rec ) {
   if( !rec ) return -1L;
+
+  /* Prepare index removal, and bail if rec is no longer present in map */
+  struct {
+    fd_prog_recm_txn_t txn[1];
+    fd_prog_recm_txn_private_info_t info[1];
+  } _map_txn;
+  fd_prog_recm_txn_t * map_txn = fd_prog_recm_txn_init( _map_txn.txn, cache->rec.map, 1UL );
+  fd_prog_recm_txn_add( map_txn, &rec->pair, 1 );
+  int txn_err = fd_prog_recm_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) )
+    FD_LOG_CRIT(( "fd_prog_recm_txn_try failed: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
   fd_prog_recm_query_t query[1];
-  int rm_err = fd_prog_recm_remove( cache->rec.map, &rec->pair, NULL, query, FD_MAP_FLAG_BLOCKING );
-  if( rm_err==FD_MAP_ERR_KEY ) return -1L;
-  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_prog_recm_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
-  if( FD_UNLIKELY( query->ele!=rec ) ) FD_LOG_CRIT(( "record collision (rec=%p found=%p)", (void *)rec, (void *)query->ele ));
+  int q_err = fd_prog_recm_txn_query( cache->rec.map, &rec->pair, NULL, query, 0 );
+  if( q_err==FD_MAP_ERR_KEY || query->ele!=rec ) {
+    fd_prog_recm_txn_test( map_txn );
+    fd_prog_recm_txn_fini( map_txn );
+    return -1L;
+  }
+
+  /* Drop record */
+  int rm_err = fd_prog_recm_txn_remove( cache->rec.map, &rec->pair, NULL, query, 0 );
+  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) )
+    FD_LOG_CRIT(( "fd_prog_recm_txn_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
+  int test_err = fd_prog_recm_txn_test( map_txn );
+  if( FD_UNLIKELY( test_err!=FD_MAP_SUCCESS ) )
+    FD_LOG_CRIT(( "fd_prog_recm_txn_test failed: %i-%s", test_err, fd_map_strerror( test_err ) ));
+  fd_prog_recm_txn_fini( map_txn );
+
   fd_prog_reclaim_enqueue( cache, rec );
   return (long)rec->data_max;
 }

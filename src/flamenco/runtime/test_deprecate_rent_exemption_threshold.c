@@ -10,6 +10,7 @@
 #include "fd_bank.h"
 #include "fd_system_ids.h"
 #include "program/fd_vote_program.h"
+#include "program/vote/fd_vote_codec.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_stake_history.h"
@@ -115,31 +116,24 @@ add_vote_account( test_env_t *        env,
                   fd_pubkey_t const * node_pubkey ) {
   uchar vote_state_data[ FD_VOTE_STATE_V3_SZ ] = {0};
 
-  fd_vote_state_versioned_t vsv[1];
-  fd_vote_state_versioned_new_disc( vsv, fd_vote_state_versioned_enum_v3 );
-  fd_vote_state_v3_t * vs = &vsv->inner.v3;
-  vs->node_pubkey           = *node_pubkey;
-  vs->authorized_withdrawer = *node_pubkey;
-  vs->commission            = 100;
+  fd_vote_state_versioned_t versioned[1];
+  fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
 
-  uchar auth_mem[ 1024 ] __attribute__((aligned(128)));
-  void * alloc_mem = auth_mem;
-  vs->authorized_voters.pool  = fd_vote_authorized_voters_pool_join_new( &alloc_mem, 1UL );
-  vs->authorized_voters.treap = fd_vote_authorized_voters_treap_join_new( &alloc_mem, 1UL );
+  fd_vote_state_v3_t * vote_state   = &versioned->v3;
+  vote_state->node_pubkey           = *node_pubkey;
+  vote_state->authorized_withdrawer = *node_pubkey;
+  vote_state->commission            = 100;
+  vote_state->prior_voters.idx      = 31;
+  vote_state->prior_voters.is_empty = 1;
 
-  fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( vs->authorized_voters.pool );
-  *ele = (fd_vote_authorized_voter_t){
-    .epoch  = 0UL,
-    .pubkey = *node_pubkey,
-    .prio   = node_pubkey->ul[0]
-  };
-  fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
+  fd_vote_authorized_voter_t * voter = fd_vote_authorized_voters_pool_ele_acquire( vote_state->authorized_voters.pool );
+  fd_memset( voter, 0, sizeof(fd_vote_authorized_voter_t) );
+  voter->epoch  = 0UL;
+  voter->pubkey = *node_pubkey;
+  voter->prio   = node_pubkey->uc[0];
+  fd_vote_authorized_voters_treap_ele_insert( vote_state->authorized_voters.treap, voter, vote_state->authorized_voters.pool );
 
-  fd_bincode_encode_ctx_t encode = {
-    .data    = vote_state_data,
-    .dataend = vote_state_data + sizeof(vote_state_data)
-  };
-  FD_TEST( fd_vote_state_versioned_encode( vsv, &encode )==FD_BINCODE_SUCCESS );
+  FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, vote_account, sizeof(vote_state_data), FD_ACCDB_FLAG_CREATE ) );
@@ -196,7 +190,7 @@ add_bank_stake_delegation_entry( test_env_t *        env,
                                     0UL,
                                     ULONG_MAX,
                                     0UL,
-                                    0.25 );
+                                    FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 }
 
 static test_env_t *
@@ -336,7 +330,7 @@ process_slot( test_env_t * env,
   ulong parent_slot       = parent_bank->f.slot;
   ulong parent_bank_idx   = parent_bank->idx;
 
-  FD_TEST( parent_bank->flags & FD_BANK_FLAGS_FROZEN );
+  FD_TEST( parent_bank->state==FD_BANK_STATE_FROZEN );
 
   ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
   fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
@@ -361,7 +355,7 @@ process_slot( test_env_t * env,
 
   int rent_modified = rent_was_modified_in_txn( env, &xid );
 
-  fd_banks_mark_bank_frozen( env->banks, new_bank );
+  fd_banks_mark_bank_frozen( new_bank );
 
   fd_accdb_advance_root( env->accdb_admin, &xid );
   fd_banks_advance_root( env->banks, new_bank_idx );

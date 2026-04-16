@@ -7,10 +7,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-void
-fd_stakes_config_init( fd_accdb_user_t *         accdb,
-                       fd_funk_txn_xid_t const * xid );
-
 fd_stake_state_t const *
 fd_stakes_get_state( fd_account_meta_t const * meta );
 

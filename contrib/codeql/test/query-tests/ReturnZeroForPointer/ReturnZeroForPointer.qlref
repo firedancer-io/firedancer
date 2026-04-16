@@ -1,0 +1,2 @@
+query: ReturnZeroForPointer.ql
+postprocess: InlineExpectationsTestQuery.ql

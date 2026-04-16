@@ -1,6 +1,16 @@
 #include <stdint.h>
 #include <s2n-bignum.h>
 
+/* On CPUs without ADX (mulx/adcx/adox), redirect the ADX-optimized
+   s2n-bignum symbols to their _alt equivalents, which use only base
+   x86-64 instructions and are functionally identical. */
+#ifndef __ADX__
+#define bignum_montmul_p256k1  bignum_montmul_p256k1_alt
+#define bignum_montsqr_p256k1  bignum_montsqr_p256k1_alt
+#define bignum_tomont_p256k1   bignum_tomont_p256k1_alt
+#define bignum_triple_p256k1   bignum_triple_p256k1_alt
+#endif
+
 /* Scalars */
 
 static inline int
@@ -57,11 +67,11 @@ fd_secp256k1_scalar_negate( fd_secp256k1_scalar_t *       r,
   /* We cannot use bignum_modsub() as it requires a < n /\ b < n.
 
      The best way to implement it using the current API is to use
-     bignum_sub(n, a), getting a reuslt bound within [0, n+1). Then
+     bignum_sub(n, a), getting a result bounded within [0, n+1). Then
      we perform a second reduction from [0, n+1) to [0, n) with
      bignum_mod_n256k1_4(). */
 
-  /* t \in [0, n + 1). There is not carry-out, as a < n. */
+  /* t \in [0, n + 1). There is no carry-out, as a < n. */
   ulong t[4];
   bignum_sub( 4, t, 4, (ulong *)fd_secp256k1_const_n[ 0 ].limbs, 4, (ulong *)a->limbs );
   bignum_mod_n256k1_4( r->limbs, t );

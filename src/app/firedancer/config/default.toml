@@ -606,7 +606,17 @@ telemetry = true
     # is not stored as an account. Examples of members of the bank
     # are the total capitalization of the chain and the vote account
     # states for previous epochs.
-    max_live_slots = 512
+    max_live_slots = 2048
+
+    # fixed_fec_sets controls the maximum data payload size for FEC sets
+    # in the store.  Shreds per FEC set used to be variable-length, but
+    # were changed to always be a fixed size of 32.  When true the data
+    # buffer per FEC set is 31840 bytes (32 shreds * 995 payload bytes
+    # per shred).  When false, the data buffer is 63985 bytes (67 shreds
+    # * 955 payload bytes per shred) to accommodate the old
+    # variable-length FEC sets.  This should be left as its default
+    # value of true unless attempting to replay old ledgers.
+    fixed_fec_sets = true
 
     # max_fork_width specifies the maximum number of forks that will
     # play through the same slot. Specifically, the maximum number
@@ -1611,9 +1621,6 @@ telemetry = true
         # RPC to serve a subset of calls even when snapshots are
         # loading.
         delay_startup = true
-
-    [tiles.archiver]
-        enabled = false
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to

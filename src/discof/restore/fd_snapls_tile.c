@@ -412,7 +412,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapls_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapls_tile_t), sizeof(fd_snapls_tile_t)         );
 
   ulong expected_in_cnt = 1UL + fd_topo_tile_name_cnt( topo, "snapla" );
-  if( FD_UNLIKELY( tile->in_cnt!=expected_in_cnt ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu",  tile->in_cnt, expected_in_cnt ));
+  if( FD_UNLIKELY( tile->in_cnt!=expected_in_cnt ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu", tile->in_cnt, expected_in_cnt ));
+  if( FD_UNLIKELY( tile->in_cnt>MAX_IN_LINKS ) )     FD_LOG_ERR(( "tile `" NAME "` has %lu ins, max %lu",      tile->in_cnt, (ulong)MAX_IN_LINKS ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
 
   ulong adder_idx = 0UL;

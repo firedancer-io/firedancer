@@ -214,6 +214,7 @@ fd_snapwm_vinyl_unprivileged_init( fd_snapwm_tile_t * ctx,
   fd_lthash_zero( &ctx->vinyl.running_lthash );
 
   ulong wr_cnt      = fd_topo_tile_name_cnt( topo, "snapwr" );
+  FD_TEST( wr_cnt<=FD_VINYL_ADMIN_WR_SEQ_CNT_MAX );
   ctx->vinyl.wr_cnt = wr_cnt;
 
   ctx->vinyl.admin = NULL;
@@ -734,7 +735,7 @@ fd_snapwm_vinyl_init_admin( fd_snapwm_tile_t * ctx,
     goto init_admin_error;
   }
 
-  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt ) ) {
+  if( FD_UNLIKELY( !ctx->vinyl.wr_cnt || ctx->vinyl.wr_cnt>FD_VINYL_ADMIN_WR_SEQ_CNT_MAX ) ) {
     FD_LOG_WARNING(( "vinyl admin sees unexpected write tile count %lu", ctx->vinyl.wr_cnt ));
     goto init_admin_error;
   }
@@ -816,7 +817,7 @@ fd_snapwm_vinyl_revert_full( fd_snapwm_tile_t * ctx  ) {
 
 void
 fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx ) {
-  FD_CRIT( ctx->vinyl.txn_active, "txn_commit called while not in txn" );
+  FD_CRIT( !ctx->vinyl.txn_active, "revert_incr called while txn_active" );
   FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
   fd_vinyl_io_t * io = ctx->vinyl.io_mm;
 
@@ -937,9 +938,13 @@ fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx ) {
           FD_LOG_CRIT(( "element seq %lu for key %s memo %016lx not in use", seq, phdr_key_b58, memo ));
         }
 
-        /* Either free the meta map element or update it. */
+        /* Either remove the meta map element or update it.  In order
+           to preserve linear probing invariants, use remove_fast. */
         if( FD_UNLIKELY( !recovery_seq ) ) {
-          fd_vinyl_meta_private_ele_free( meta_map->ctx, ele );
+          fd_vinyl_meta_remove_fast( meta_map->ele, meta_map->ele_max,
+                                     meta_map->lock, meta_map->lock_shift,
+                                     NULL/*no dcache line*/, 0UL/*no dcache line*/,
+                                     found_ele_idx );
         } else {
           fd_vinyl_bstream_block_t * full_block = (void *)( mmio+recovery_seq );
           fd_vinyl_bstream_phdr_t    full_phdr  = FD_VOLATILE_CONST( full_block->phdr );

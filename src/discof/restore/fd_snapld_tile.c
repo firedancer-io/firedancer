@@ -373,6 +373,11 @@ after_credit( fd_snapld_tile_t *  ctx,
         break;
       }
       case FD_SSHTTP_ADVANCE_DONE:
+        if( FD_UNLIKELY( !ctx->sent_meta ) ) {
+          FD_LOG_WARNING(( "zero-length HTTP response for %s snapshot", ctx->load_full ? "full" : "incremental" ));
+          transition_malformed( ctx, stem );
+          break;
+        }
         FD_LOG_NOTICE(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
@@ -432,8 +437,11 @@ returnable_frag( fd_snapld_tile_t *  ctx,
           FD_LOG_ERR(( "lseek(0) failed on %s snapshot file (%i-%s)",
                        ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
       } else {
-        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, now );
-        else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, now );
+        if( FD_UNLIKELY( fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, msg_in->path, msg_in->path_len, 4UL, now ) ) ) {
+          transition_malformed( ctx, stem );
+          forward_msg = 0;
+          break;
+        }
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
       fd_memcpy( msg_out, msg_in, sz );

@@ -1,11 +1,11 @@
 #include "../fd_vote_program.h"
 #include "fd_vote_state_versioned.h"
-#include "fd_vote_common.h"
-#include "fd_vote_lockout.h"
+#include "fd_vote_utils.h"
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
 #include "fd_authorized_voters.h"
 #include "../../fd_runtime.h"
+#include "../../fd_system_ids.h"
 #include "../../../../choreo/tower/fd_tower_serdes.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42 */
@@ -27,15 +27,15 @@
 static inline fd_vote_lockout_t *
 last_lockout( fd_vote_state_versioned_t * self ) {
   fd_landed_vote_t * votes = NULL;
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      votes = self->inner.v3.votes;
+      votes = self->v3.votes;
       break;
     case fd_vote_state_versioned_enum_v4:
-      votes = self->inner.v4.votes;
+      votes = self->v4.votes;
       break;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 
   if( deq_fd_landed_vote_t_empty( votes ) ) return NULL;
@@ -48,37 +48,24 @@ last_lockout( fd_vote_state_versioned_t * self ) {
 /**********************************************************************/
 
 int
-fd_vsv_get_state( fd_account_meta_t const * meta,
-                  uchar *                   vote_state_mem ) {
-
-  fd_bincode_decode_ctx_t decode = {
-    .data    = fd_account_data( meta ),
-    .dataend = fd_account_data( meta ) + meta->dlen,
-  };
-
-  ulong total_sz = 0UL;
-  int err = fd_vote_state_versioned_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
+fd_vsv_get_state( fd_account_meta_t const *   meta,
+                  fd_vote_state_versioned_t * versioned ) {
+  if( FD_UNLIKELY( !fd_vote_state_versioned_deserialize( versioned, fd_account_data( meta ), meta->dlen ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
-
-  FD_TEST( total_sz<=FD_VOTE_STATE_VERSIONED_FOOTPRINT );
-
-  fd_vote_state_versioned_decode( vote_state_mem, &decode );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 int
-fd_vsv_deserialize( fd_account_meta_t const * meta,
-                    uchar *                   vote_state_mem ) {
-  int rc = fd_vsv_get_state( meta, vote_state_mem );
+fd_vsv_deserialize( fd_account_meta_t const *   meta,
+                    fd_vote_state_versioned_t * versioned ) {
+  int rc = fd_vsv_get_state( meta, versioned );
   if( FD_UNLIKELY( rc ) ) {
     return rc;
   }
 
-  fd_vote_state_versioned_t * versioned = (fd_vote_state_versioned_t *)vote_state_mem;
-  if( FD_UNLIKELY( versioned->discriminant==fd_vote_state_versioned_enum_uninitialized ) ) {
+  if( FD_UNLIKELY( versioned->kind==fd_vote_state_versioned_enum_uninitialized ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -87,27 +74,27 @@ fd_vsv_deserialize( fd_account_meta_t const * meta,
 
 fd_pubkey_t const *
 fd_vsv_get_authorized_withdrawer( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v1_14_11:
-      return &self->inner.v1_14_11.authorized_withdrawer;
+      return &self->v1_14_11.authorized_withdrawer;
     case fd_vote_state_versioned_enum_v3:
-      return &self->inner.v3.authorized_withdrawer;
+      return &self->v3.authorized_withdrawer;
     case fd_vote_state_versioned_enum_v4:
-      return &self->inner.v4.authorized_withdrawer;
+      return &self->v4.authorized_withdrawer;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 uchar
 fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      return self->inner.v3.commission;
+      return self->v3.commission;
     case fd_vote_state_versioned_enum_v4:
-      return (uchar)(self->inner.v4.inflation_rewards_commission_bps/100);
+      return (uchar)(self->v4.inflation_rewards_commission_bps/100);
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
@@ -130,35 +117,34 @@ fd_vsv_get_last_voted_slot( fd_vote_state_versioned_t * self ) {
 
 ulong const *
 fd_vsv_get_root_slot( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      if( !self->inner.v3.has_root_slot ) return NULL;
-      return &self->inner.v3.root_slot;
+      if( !self->v3.has_root_slot ) return NULL;
+      return &self->v3.root_slot;
     case fd_vote_state_versioned_enum_v4:
-      if( !self->inner.v4.has_root_slot ) return NULL;
-      return &self->inner.v4.root_slot;
+      if( !self->v4.has_root_slot ) return NULL;
+      return &self->v4.root_slot;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 fd_vote_block_timestamp_t const *
 fd_vsv_get_last_timestamp( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      return &self->inner.v3.last_timestamp;
+      return &self->v3.last_timestamp;
     case fd_vote_state_versioned_enum_v4:
-      return &self->inner.v4.last_timestamp;
+      return &self->v4.last_timestamp;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L938 */
 int
 fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
-  /* Implementation slightly simplified */
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_uninitialized:
       return 0;
     case fd_vote_state_versioned_enum_v1_14_11:
@@ -168,22 +154,22 @@ fd_vsv_has_bls_pubkey( fd_vote_state_versioned_t * self ) {
       return 0;
     case fd_vote_state_versioned_enum_v4:
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L676 */
-      return !!self->inner.v4.has_bls_pubkey_compressed;
+      return !!self->v4.has_bls_pubkey_compressed;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L823-L828 */
 ulong
 fd_vsv_get_pending_delegator_rewards( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
       return 0UL;
     case fd_vote_state_versioned_enum_v4:
-      return self->inner.v4.pending_delegator_rewards;
+      return self->v4.pending_delegator_rewards;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
@@ -193,25 +179,25 @@ fd_vsv_get_pending_delegator_rewards( fd_vote_state_versioned_t * self ) {
 
 fd_vote_epoch_credits_t *
 fd_vsv_get_epoch_credits_mutable( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      return self->inner.v3.epoch_credits;
+      return self->v3.epoch_credits;
     case fd_vote_state_versioned_enum_v4:
-      return self->inner.v4.epoch_credits;
+      return self->v4.epoch_credits;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 fd_landed_vote_t *
 fd_vsv_get_votes_mutable( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      return self->inner.v3.votes;
+      return self->v3.votes;
     case fd_vote_state_versioned_enum_v4:
-      return self->inner.v4.votes;
+      return self->v4.votes;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
@@ -230,19 +216,19 @@ fd_vsv_set_state( fd_borrowed_account_t *     self,
     return err;
   }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L978
-  ulong serialized_size = fd_vote_state_versioned_size( state );
-  if( FD_UNLIKELY( serialized_size > dlen ) )
+  /* Note that although the serialization method already performs bounds
+     checks, the account data buffer should remain unmodified if the
+     serialization would fail.
+     https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L978 */
+  ulong serialized_size = fd_vote_state_versioned_serialized_size( state );
+  if( FD_UNLIKELY( serialized_size>dlen ) ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+  }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L983
-  fd_bincode_encode_ctx_t encode =
-    { .data    = data,
-      .dataend = data + dlen };
-  do {
-    int err = fd_vote_state_versioned_encode( state, &encode );
-    if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "fd_vote_state_versioned_encode failed (%d)", err ));
-  } while(0);
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L983 */
+  if( FD_UNLIKELY( fd_vote_state_versioned_serialize( state, data, dlen ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: fd_vote_state_versioned_serialize failed" ));
+  }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -250,50 +236,49 @@ fd_vsv_set_state( fd_borrowed_account_t *     self,
 int
 fd_vsv_set_vote_account_state( fd_exec_instr_ctx_t const * ctx,
                                fd_borrowed_account_t *     vote_account,
-                               fd_vote_state_versioned_t * versioned,
-                               uchar *                     vote_lockout_mem ) {
-  switch( versioned->discriminant ) {
+                               fd_vote_state_versioned_t * versioned ) {
+  switch( versioned->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned, vote_lockout_mem );
+      return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned );
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", versioned->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", versioned->kind ));
   }
 }
 
 void
 fd_vsv_set_authorized_withdrawer( fd_vote_state_versioned_t * self,
                                   fd_pubkey_t const *         authorized_withdrawer ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3: {
-      self->inner.v3.authorized_withdrawer = *authorized_withdrawer;
+      self->v3.authorized_withdrawer = *authorized_withdrawer;
       break;
     }
     case fd_vote_state_versioned_enum_v4: {
-      self->inner.v4.authorized_withdrawer = *authorized_withdrawer;
+      self->v4.authorized_withdrawer = *authorized_withdrawer;
       break;
     }
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 int
-fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
-                                 fd_vote_state_versioned_t *        self,
-                                 fd_pubkey_t const *                authorized_pubkey,
-                                 ulong                              current_epoch,
-                                 ulong                              target_epoch,
-                                 fd_bls_pubkey_compressed_t const * bls_pubkey,
-                                 int                                authorized_withdrawer_signer,
-                                 fd_pubkey_t const *                signers[ FD_TXN_SIG_MAX ],
-                                 ulong                              signers_cnt ) {
-  switch( self->discriminant ) {
+fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *       ctx,
+                                 fd_vote_state_versioned_t * self,
+                                 fd_pubkey_t const *         authorized_pubkey,
+                                 ulong                       current_epoch,
+                                 ulong                       target_epoch,
+                                 uchar const *               bls_pubkey,
+                                 int                         authorized_withdrawer_signer,
+                                 fd_pubkey_t const *         signers[ FD_TXN_SIG_MAX ],
+                                 ulong                       signers_cnt ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
       return fd_vote_state_v3_set_new_authorized_voter(
           ctx,
-          &self->inner.v3,
+          &self->v3,
           authorized_pubkey,
           current_epoch,
           target_epoch,
@@ -305,7 +290,7 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
     case fd_vote_state_versioned_enum_v4:
       return fd_vote_state_v4_set_new_authorized_voter(
           ctx,
-          &self->inner.v4,
+          &self->v4,
           authorized_pubkey,
           current_epoch,
           target_epoch,
@@ -315,87 +300,87 @@ fd_vsv_set_new_authorized_voter( fd_exec_instr_ctx_t *              ctx,
           signers_cnt
       );
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 void
 fd_vsv_set_node_pubkey( fd_vote_state_versioned_t * self,
                         fd_pubkey_t const *         node_pubkey ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      self->inner.v3.node_pubkey = *node_pubkey;
+      self->v3.node_pubkey = *node_pubkey;
       break;
     case fd_vote_state_versioned_enum_v4:
-      self->inner.v4.node_pubkey = *node_pubkey;
+      self->v4.node_pubkey = *node_pubkey;
       break;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 void
 fd_vsv_set_block_revenue_collector( fd_vote_state_versioned_t * self,
                                     fd_pubkey_t const *         block_revenue_collector ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v4:
-      self->inner.v4.block_revenue_collector = *block_revenue_collector;
+      self->v4.block_revenue_collector = *block_revenue_collector;
       break;
     case fd_vote_state_versioned_enum_v3:
       /* No-op for v3 */
       break;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 void
 fd_vsv_set_commission( fd_vote_state_versioned_t * self,
                        uchar                       commission ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      self->inner.v3.commission = commission;
+      self->v3.commission = commission;
       break;
     case fd_vote_state_versioned_enum_v4:
-      self->inner.v4.inflation_rewards_commission_bps = (ushort)( commission*100 );
+      self->v4.inflation_rewards_commission_bps = (ushort)( commission*100 );
       break;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 void
 fd_vsv_set_root_slot( fd_vote_state_versioned_t * self, ulong * root_slot ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      self->inner.v3.has_root_slot = (root_slot!=NULL);
+      self->v3.has_root_slot = (root_slot!=NULL);
       if( FD_LIKELY( root_slot ) ) {
-        self->inner.v3.root_slot = *root_slot;
+        self->v3.root_slot = *root_slot;
       }
       break;
     case fd_vote_state_versioned_enum_v4:
-      self->inner.v4.has_root_slot = (root_slot!=NULL);
+      self->v4.has_root_slot = (root_slot!=NULL);
       if( FD_LIKELY( root_slot ) ) {
-        self->inner.v4.root_slot = *root_slot;
+        self->v4.root_slot = *root_slot;
       }
       break;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 static void
 fd_vsv_set_last_timestamp( fd_vote_state_versioned_t *       self,
                            fd_vote_block_timestamp_t const * last_timestamp ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:
-      self->inner.v3.last_timestamp = *last_timestamp;
+      self->v3.last_timestamp = *last_timestamp;
       break;
     case fd_vote_state_versioned_enum_v4:
-      self->inner.v4.last_timestamp = *last_timestamp;
+      self->v4.last_timestamp = *last_timestamp;
       break;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
@@ -559,34 +544,36 @@ fd_vsv_process_next_vote_slot( fd_vote_state_versioned_t * self,
 }
 
 int
-fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
-                          uchar *                     landed_votes_mem ) {
-  switch( self->discriminant ) {
+fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self ) {
+  switch( self->kind ) {
     /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L47-L73 */
     case fd_vote_state_versioned_enum_uninitialized: {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
     /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L75-L91 */
     case fd_vote_state_versioned_enum_v1_14_11: {
-      fd_vote_state_1_14_11_t * state = &self->inner.v1_14_11;
+      fd_vote_state_1_14_11_t * state = &self->v1_14_11;
 
-      /* Temporary to hold v3 */
+      /* Temporary to hold v3. Note that since v1_14_11 and v3/v4 use
+         the same underlying types for votes, we can just directly set
+         it and avoid an intermediate call to
+         fd_vote_lockout_landed_votes_from_lockouts. */
       fd_vote_state_v3_t v3 = {
-        .node_pubkey            = state->node_pubkey,
-        .authorized_withdrawer  = state->authorized_withdrawer,
-        .commission             = state->commission,
-        .votes                  = fd_vote_lockout_landed_votes_from_lockouts( state->votes, landed_votes_mem ),
-        .has_root_slot          = state->has_root_slot,
-        .root_slot              = state->root_slot,
-        .authorized_voters      = state->authorized_voters,
-        .prior_voters           = state->prior_voters,
-        .epoch_credits          = state->epoch_credits,
-        .last_timestamp         = state->last_timestamp
+        .node_pubkey           = state->node_pubkey,
+        .authorized_withdrawer = state->authorized_withdrawer,
+        .commission            = state->commission,
+        .votes                 = state->votes,
+        .has_root_slot         = state->has_root_slot,
+        .root_slot             = state->root_slot,
+        .authorized_voters     = state->authorized_voters,
+        .prior_voters          = state->prior_voters,
+        .epoch_credits         = state->epoch_credits,
+        .last_timestamp        = state->last_timestamp
       };
 
       /* Emplace new vote state into target */
-      self->discriminant = fd_vote_state_versioned_enum_v3;
-      self->inner.v3 = v3;
+      self->kind = fd_vote_state_versioned_enum_v3;
+      self->v3   = v3;
 
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
@@ -597,48 +584,26 @@ fd_vsv_try_convert_to_v3( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v4:
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 int
 fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
-                          fd_pubkey_t const *         vote_pubkey,
-                          uchar *                     landed_votes_mem ) {
-  switch( self->discriminant ) {
+                          fd_pubkey_t const *         vote_pubkey ) {
+  switch( self->kind ) {
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L971-L974 */
     case fd_vote_state_versioned_enum_uninitialized: {
       return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
     }
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L975-L989 */
     case fd_vote_state_versioned_enum_v1_14_11: {
-      fd_vote_state_1_14_11_t * state = &self->inner.v1_14_11;
-      fd_vote_state_v4_t v4 = {
-        .node_pubkey                      = state->node_pubkey,
-        .authorized_withdrawer            = state->authorized_withdrawer,
-        .inflation_rewards_collector      = *vote_pubkey,
-        .block_revenue_collector          = state->node_pubkey,
-        .inflation_rewards_commission_bps = fd_ushort_sat_mul( state->commission, 100 ),
-        .block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS,
-        .pending_delegator_rewards        = 0,
-        .has_bls_pubkey_compressed        = 0,
-        .votes                            = fd_vote_lockout_landed_votes_from_lockouts( state->votes, landed_votes_mem ),
-        .has_root_slot                    = state->has_root_slot,
-        .root_slot                        = state->root_slot,
-        .authorized_voters                = state->authorized_voters,
-        .epoch_credits                    = state->epoch_credits,
-        .last_timestamp                   = state->last_timestamp
-      };
+      fd_vote_state_1_14_11_t * state = &self->v1_14_11;
 
-      /* Emplace new vote state into target */
-      self->discriminant = fd_vote_state_versioned_enum_v4;
-      self->inner.v4     = v4;
-
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
-    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L990-L1004 */
-    case fd_vote_state_versioned_enum_v3: {
-      fd_vote_state_v3_t * state = &self->inner.v3;
+      /* Temporary to hold v4. Note that since v1_14_11 and v3/v4 use
+         the same underlying types for votes, we can just directly set
+         it and avoid an intermediate call to
+         fd_vote_lockout_landed_votes_from_lockouts. */
       fd_vote_state_v4_t v4 = {
         .node_pubkey                      = state->node_pubkey,
         .authorized_withdrawer            = state->authorized_withdrawer,
@@ -657,8 +622,34 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
       };
 
       /* Emplace new vote state into target */
-      self->discriminant = fd_vote_state_versioned_enum_v4;
-      self->inner.v4     = v4;
+      self->kind = fd_vote_state_versioned_enum_v4;
+      self->v4   = v4;
+
+      return FD_EXECUTOR_INSTR_SUCCESS;
+    }
+    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L990-L1004 */
+    case fd_vote_state_versioned_enum_v3: {
+      fd_vote_state_v3_t * state = &self->v3;
+      fd_vote_state_v4_t v4 = {
+        .node_pubkey                      = state->node_pubkey,
+        .authorized_withdrawer            = state->authorized_withdrawer,
+        .inflation_rewards_collector      = *vote_pubkey,
+        .block_revenue_collector          = state->node_pubkey,
+        .inflation_rewards_commission_bps = fd_ushort_sat_mul( state->commission, 100 ),
+        .block_revenue_commission_bps     = DEFAULT_BLOCK_REVENUE_COMMISSION_BPS,
+        .pending_delegator_rewards        = 0,
+        .has_bls_pubkey_compressed        = 0,
+        .votes                            = state->votes,
+        .has_root_slot                    = state->has_root_slot,
+        .root_slot                        = state->root_slot,
+        .authorized_voters                = state->authorized_voters,
+        .epoch_credits                    = state->epoch_credits,
+        .last_timestamp                   = state->last_timestamp
+      };
+
+      /* Emplace new vote state into target */
+      self->kind = fd_vote_state_versioned_enum_v4;
+      self->v4   = v4;
 
       return FD_EXECUTOR_INSTR_SUCCESS;
     }
@@ -666,28 +657,22 @@ fd_vsv_try_convert_to_v4( fd_vote_state_versioned_t * self,
     case fd_vote_state_versioned_enum_v4:
       return FD_EXECUTOR_INSTR_SUCCESS;
     default:
-      FD_LOG_CRIT(( "unsupported vote state version: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
 }
 
 int
 fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
                                         fd_borrowed_account_t * vote_account,
-                                        int                     target_version,
-                                        uchar *                 vote_lockout_mem ) {
+                                        int                     target_version ) {
   switch( target_version ) {
     case VOTE_STATE_TARGET_VERSION_V3: {
       /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L878 */
-      fd_vote_state_versioned_t versioned;
-      fd_vote_state_versioned_new_disc( &versioned, fd_vote_state_versioned_enum_v3 );
-      versioned.inner.v3.prior_voters.idx      = 31;
-      versioned.inner.v3.prior_voters.is_empty = 1;
-      return fd_vote_state_v3_set_vote_account_state(
-          ctx,
-          vote_account,
-          &versioned,
-          vote_lockout_mem
-      );
+      fd_vote_state_versioned_t versioned[1];
+      fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
+      versioned->v3.prior_voters.idx      = 31;
+      versioned->v3.prior_voters.is_empty = 1;
+      return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned );
     }
     case VOTE_STATE_TARGET_VERSION_V4: {
       /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L881-L883 */
@@ -705,17 +690,17 @@ fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
 
 int
 fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self ) {
-  switch( self->discriminant ) {
+  switch( self->kind ) {
     case fd_vote_state_versioned_enum_uninitialized:
       return 1;
     case fd_vote_state_versioned_enum_v1_14_11:
-      return fd_authorized_voters_is_empty( &self->inner.v1_14_11.authorized_voters );
+      return fd_authorized_voters_is_empty( &self->v1_14_11.authorized_voters );
     case fd_vote_state_versioned_enum_v3:
-      return fd_authorized_voters_is_empty( &self->inner.v3.authorized_voters );
+      return fd_authorized_voters_is_empty( &self->v3.authorized_voters );
     case fd_vote_state_versioned_enum_v4:
       return 0; // v4 vote states are always initialized
     default:
-      FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", self->discriminant ));
+      FD_LOG_CRIT(( "unsupported vote state versioned kind: %u", self->kind ));
   }
 }
 
@@ -749,36 +734,10 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
 }
 
 int
-fd_vsv_is_v4_with_bls_pubkey( fd_account_meta_t const * meta ) {
-  uchar const * data     = fd_account_data( meta );
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( data );
-  return voter->kind == FD_VOTE_ACC_V4 && voter->v4.has_bls_pubkey_compressed;
-}
+fd_vsv_is_correct_size_owner_and_init( fd_account_meta_t const * meta ) {
+  if( FD_UNLIKELY( memcmp( meta->owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    return 0;
+  }
 
-fd_vote_block_timestamp_t
-fd_vsv_get_vote_block_timestamp( uchar const * data,
-                                 ulong         data_len ) {
-
-  /* TODO: A smarter/safer xray should be used here instead of the
-     fd_types xray functions + an offset. */
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = data,
-    .dataend = data + data_len,
-  };
-
-  FD_TEST( data_len>=16UL );
-
-  /* The vote block timestamp are always the last 16 bytes of the vote
-     account data. */
-
-  fd_vote_state_versioned_seek_end( &ctx );
-  uchar * data_ptr = (uchar *)ctx.data;
-  return *(fd_vote_block_timestamp_t *)(data_ptr-16UL);
-}
-
-fd_pubkey_t
-fd_vsv_get_node_account( uchar const * data ) {
-  fd_pubkey_t pubkey;
-  memcpy( &pubkey, data + sizeof(uint), sizeof(fd_pubkey_t) );
-  return pubkey;
+  return fd_vsv_is_correct_size_and_initialized( meta );
 }

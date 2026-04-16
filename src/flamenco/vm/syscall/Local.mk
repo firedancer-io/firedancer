@@ -5,6 +5,9 @@ $(call add-objs,fd_vm_syscall fd_vm_syscall_cpi fd_vm_syscall_hash fd_vm_syscall
 $(call make-unit-test,test_vm_syscall_cpi,test_vm_syscall_cpi,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_vm_syscall_cpi)
 
+$(call make-unit-test,test_vm_syscall_hash,test_vm_syscall_hash,fd_flamenco fd_funk fd_util fd_ballet)
+$(call run-unit-test,test_vm_syscall_hash)
+
 ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_syscalls,test_vm_syscalls,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_vm_syscalls)
@@ -12,7 +15,7 @@ $(call make-unit-test,test_vm_syscall_curve,test_vm_syscall_curve,fd_flamenco fd
 $(call run-unit-test,test_vm_syscall_curve)
 $(call make-unit-test,test_vm_increase_cpi_account_info_limit,test_vm_increase_cpi_account_info_limit,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_vm_increase_cpi_account_info_limit)
-$(call make-unit-test,test_cpi_shared_data_addr,test_cpi_shared_data_addr,fd_flamenco fd_funk fd_util fd_ballet)
+$(call make-unit-test,test_cpi_shared_data_addr,test_cpi_shared_data_addr,fd_flamenco_test fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_cpi_shared_data_addr)
 endif
 endif

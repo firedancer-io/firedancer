@@ -34,17 +34,17 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST char const * fd_cstr_to_cstr  ( char const * s );
 FD_FN_PURE  char         fd_cstr_to_char  ( char const * s );
-FD_FN_PURE  schar        fd_cstr_to_schar ( char const * s );
-FD_FN_PURE  short        fd_cstr_to_short ( char const * s );
-FD_FN_PURE  int          fd_cstr_to_int   ( char const * s );
-FD_FN_PURE  long         fd_cstr_to_long  ( char const * s );
-FD_FN_PURE  uchar        fd_cstr_to_uchar ( char const * s );
-FD_FN_PURE  ushort       fd_cstr_to_ushort( char const * s );
-FD_FN_PURE  uint         fd_cstr_to_uint  ( char const * s );
-FD_FN_PURE  ulong        fd_cstr_to_ulong ( char const * s );
-FD_FN_PURE  float        fd_cstr_to_float ( char const * s );
+            schar        fd_cstr_to_schar ( char const * s );
+            short        fd_cstr_to_short ( char const * s );
+            int          fd_cstr_to_int   ( char const * s );
+            long         fd_cstr_to_long  ( char const * s );
+            uchar        fd_cstr_to_uchar ( char const * s );
+            ushort       fd_cstr_to_ushort( char const * s );
+            uint         fd_cstr_to_uint  ( char const * s );
+            ulong        fd_cstr_to_ulong ( char const * s );
+            float        fd_cstr_to_float ( char const * s );
 #if FD_HAS_DOUBLE
-FD_FN_PURE  double       fd_cstr_to_double( char const * s );
+            double       fd_cstr_to_double( char const * s );
 #endif
 
 /* fd_cstr_to_ulong_octal is the same as fd_cstr_to_ulong but assumes s

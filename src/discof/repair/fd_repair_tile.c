@@ -120,13 +120,15 @@
 #include "../genesis/fd_genesi_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "generated/fd_repair_tile_seccomp.h"
-#include "../../disco/fd_disco.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
+#include "../replay/fd_replay_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../util/net/fd_net_headers.h"
@@ -138,7 +140,6 @@
 #include "fd_inflight.h"
 #include "fd_repair.h"
 #include "fd_policy.h"
-#include "../replay/fd_replay_tile.h"
 
 #define LOGGING       1
 #define DEBUG_LOGGING 0
@@ -303,7 +304,14 @@ typedef struct sign_req sign_req_t;
    Typical flow is that a pong will get added to the pong_queue during
    an after_frag call.  Then on the following after_credit will get
    popped from the sign_queue and added to sign_map, and then dispatched
-   to the sign tile. */
+   to the sign tile.
+
+   Note that after the first turbine shred arrives, the signs_queue also
+   stores highest window index requests for slots between snapshot and
+   turbine_slot0, which are dispatched first before any other requests
+   as a catchup optimization.  This doesn't break any of the inflight
+   invariants as highest window index requests do not get added to the
+   inflight table. */
 
 struct sign_pending {
   fd_repair_msg_t msg;
@@ -738,7 +746,7 @@ after_shred( ctx_t      * ctx,
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
   int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
-  int src     = fd_disco_shred_out_shred_sig_is_turbine( sig ) ? SHRED_SRC_TURBINE : SHRED_SRC_REPAIR;
+  int src     = fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE ? SHRED_SRC_TURBINE : SHRED_SRC_REPAIR /* bad or good repair */ ;
 
   if( FD_LIKELY( !is_code ) ) {
     long rtt = 0;
@@ -835,7 +843,7 @@ after_fec( ctx_t      * ctx,
   }
 
   /* re-trigger continuation of chained merkle verification if this FEC
-     set enables it */
+     set enables it  TODO MOVE TO AFTER_SHRED? */
   if( FD_UNLIKELY( ele->lowest_verified_fec == (shred->fec_set_idx / 32UL) + 1 ) &&
                    ele->buffered_idx == ele->complete_idx ) {
     check_confirmed( ctx, ele, &ele->confirmed_bid /* if lowest_verified_fec is not UINT_MAX, confirmed_bid must be populated */ );
@@ -885,12 +893,8 @@ after_net( ctx_t * ctx,
 
 static inline void
 after_evict( ctx_t * ctx,
-             ulong   sig ) {
-  ulong spilled_slot        = fd_disco_shred_out_shred_sig_slot       ( sig );
-  uint  spilled_fec_set_idx = fd_disco_shred_out_shred_sig_fec_set_idx( sig );
-  uint  spilled_max_idx     = fd_disco_shred_out_shred_sig_shred_idx  ( sig );
-
-  fd_forest_fec_clear( ctx->forest, spilled_slot, spilled_fec_set_idx, spilled_max_idx );
+             fd_fec_evicted_t * evicted ) {
+  fd_forest_fec_clear( ctx->forest, evicted->slot, evicted->fec_set_idx, FD_FEC_SHRED_CNT - 1 );
 }
 
 static void
@@ -951,17 +955,16 @@ after_frag( ctx_t *             ctx,
         if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
           fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
           if( FD_UNLIKELY( !blk ) ) {
-
             /* If we receive a confirmation for a slot we don't have,
                create a sentinel forest block that we can repair from. */
-
             ulong evicted = ULONG_MAX;
-            blk = fd_forest_blk_insert( ctx->forest, msg->slot, msg->slot, &evicted );
-            if( FD_LIKELY( blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) {
-              blk->confirmed_bid = msg->block_id;
-              check_confirmed( ctx, blk, &msg->block_id );
-            }
+            blk = fd_forest_blk_insert( ctx->forest, msg->slot, ULONG_MAX, &evicted );
+            if( FD_UNLIKELY( !blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) break;
           }
+
+          /* Confirm the block */
+          blk->confirmed_bid = msg->block_id;
+          check_confirmed( ctx, blk, &msg->block_id );
         }
       }
       break;
@@ -975,18 +978,16 @@ after_frag( ctx_t *             ctx,
 
           Msgs 2 and 3 have a shred header in the dcache.  Msg 1 is empty. */
 
-      int resolver_evicted = sz == 0;
-      int fec_completes    = fd_disco_shred_out_msg_type( sig )==FD_SHRED_OUT_MSG_TYPE_FEC;
-      if( FD_UNLIKELY( resolver_evicted ) ) {
-        after_evict( ctx, sig );
+      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_EVICTED ) ) {
+        fd_fec_evicted_t * evicted = (fd_fec_evicted_t *)fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
+        after_evict( ctx, evicted );
         return;
       }
 
       uchar * src = fd_chunk_to_laddr( in_ctx->mem, ctx->chunk );
-      fd_shred_t * shred = (fd_shred_t *)fd_type_pun( src );
-      fd_hash_t  * mr    = (fd_hash_t *)(src + fd_shred_header_sz( shred->variant ));
-      fd_hash_t  * cmr   = (fd_hash_t *)(src + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) );
-      uint         nonce = FD_LOAD(uint, src + fd_shred_header_sz( shred->variant ) + sizeof(fd_hash_t) + sizeof(fd_hash_t) ); /* gibberish if not shred msg */
+      fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_type_pun( src );
+      fd_shred_t      * shred     = &shred_msg->shred; /* completes & shred messages all have a shred header at the same offset (after merkle root) */
+
       if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
         FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
         return;
@@ -1006,17 +1007,38 @@ after_frag( ctx_t *             ctx,
         ctx->turbine_slot0 = shred->slot;
         fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
         fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
+
+        /* On first turbine shred, seed repair by queuing highest_shred
+           requests for slots between snapshot and turbine_slot0. This
+           bypasses forest entirely and dispatches directly via the sign
+           queue. Cap at half queue capacity to leave room for pongs. */
+        ulong root = fd_forest_root_slot( ctx->forest );
+        if( FD_LIKELY( root != ULONG_MAX && shred->slot > root ) ) {
+          ulong capacity = fd_signs_queue_max( ctx->pong_queue ) - fd_signs_queue_cnt( ctx->pong_queue );
+          ulong seed_cnt = fd_ulong_min( shred->slot-root, capacity/2 );
+          long  now_ms   = fd_log_wallclock()/(long)1e6;
+          for( ulong i=1; i<=seed_cnt; i++ ) {
+            ulong slot = root + i;
+            fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+            if( FD_UNLIKELY( !peer ) ) break;
+            fd_repair_msg_t * msg = fd_repair_highest_shred( ctx->protocol, peer, (ulong)now_ms, 0, slot, 0 );
+            if( FD_LIKELY( msg ) )  fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *msg } );
+          }
+        }
       }
 
-      if( FD_UNLIKELY( fec_completes ) ) {
-        after_fec( ctx, shred, mr, cmr );
+
+      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
+        fd_fec_complete_t * complete_msg = (fd_fec_complete_t *)fd_type_pun( src );
+        after_fec( ctx, &complete_msg->last_shred_hdr, &complete_msg->merkle_root, &complete_msg->chained_merkle_root );
 
         /* forward along to replay */
         memcpy( fd_chunk_to_laddr( ctx->repair_out_ctx->mem, ctx->repair_out_ctx->chunk ), src, sz );
         fd_stem_publish( ctx->stem, ctx->repair_out_ctx->idx, sig, ctx->repair_out_ctx->chunk, sz, 0UL, 0UL, tspub );
         ctx->repair_out_ctx->chunk = fd_dcache_compact_next( ctx->repair_out_ctx->chunk, sz, ctx->repair_out_ctx->chunk0, ctx->repair_out_ctx->wmark );
-      } else {
-        after_shred( ctx, sig, shred, nonce, mr, cmr );
+      } else if( FD_LIKELY( fd_shred_sig_res( sig )!=SHRED_SIG_RESULT_EQVOC ) ) {
+        fd_hash_t * cmr = (fd_hash_t *)fd_type_pun(shred_msg->shred_ + fd_shred_chain_off( shred->variant ));
+        after_shred( ctx, sig, shred, shred_msg->rnonce, &shred_msg->merkle_root, cmr );
       }
 
       /* update metrics */
@@ -1048,9 +1070,9 @@ after_credit( ctx_t *             ctx,
   }
 
   /* If inflights is at capacity, then the only thing we can send is:
-     pongs, initial warmup requests, or resend things that are already
-     inflight.  Any new requests that would cause an inflight to be
-     added to the queue must be deferred. */
+     pongs, initial highest window index requests, or resend things that
+     are already inflight.  Any new requests that would cause an
+     inflight to be added to the queue must be deferred. */
 
   if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->pong_queue ) ) ) {
     sign_pending_t signable = fd_signs_queue_pop( ctx->pong_queue );

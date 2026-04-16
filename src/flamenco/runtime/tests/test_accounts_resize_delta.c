@@ -1,27 +1,14 @@
 /* Test accounts_resize_delta tracking with signed arithmetic. */
 
-#include "../fd_acc_pool.h"
-#include "../fd_runtime.h"
-#include "../fd_runtime_stack.h"
-#include "../fd_bank.h"
-#include "../fd_system_ids.h"
-#include "../sysvar/fd_sysvar_rent.h"
-#include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../sysvar/fd_sysvar_stake_history.h"
-#include "../sysvar/fd_sysvar_clock.h"
-#include "../program/fd_builtin_programs.h"
-#include "../../accdb/fd_accdb_admin_v1.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
-#include "../../features/fd_features.h"
+#include "fd_svm_mini.h"
 #include "../../accdb/fd_accdb_sync.h"
-#include "../../progcache/fd_progcache_admin.h"
-#include "../../progcache/fd_progcache_user.h"
-#include "../../log_collector/fd_log_collector.h"
+#include "../fd_system_ids.h"
+#include "../../features/fd_features.h"
+#include "../../../disco/fd_txn_p.h"
 
 #define MiB (1L << 20)
 
 #define TEST_SLOTS_PER_EPOCH       (3UL)
-#define TEST_ACC_POOL_ACCOUNT_CNT  (32UL)
 #define TEST_LAMPORTS              (100000000000UL)
 
 #define LOADER_V4_SET_PROGRAM_LENGTH_IX (2U)
@@ -31,35 +18,22 @@
 #define SYSTEM_PROGRAM_IX_ALLOCATE (8U)
 
 struct test_env {
-  fd_wksp_t *          wksp;
-  ulong                tag;
-  fd_banks_t *         banks;
-  fd_bank_t *          bank;
-  void *               funk_mem;
-  void *               funk_locks;
-  fd_accdb_admin_t     accdb_admin[1];
-  fd_accdb_user_t      accdb[1];
-  void *               pcache_mem;
-  fd_progcache_t       progcache[1];
-  uchar *              progcache_scratch;
-  fd_funk_txn_xid_t    xid;
-  fd_runtime_stack_t * runtime_stack;
-
-  fd_runtime_t *       runtime;
-  fd_txn_in_t          txn_in;
-  fd_txn_out_t         txn_out[1];
-  fd_log_collector_t   log_collector[1];
+  fd_svm_mini_t * mini;
+  fd_bank_t *     bank;
+  fd_xid_t        xid;
+  fd_txn_in_t     txn_in;
+  fd_txn_out_t    txn_out[1];
 };
 typedef struct test_env test_env_t;
 
 static void
-create_account_raw( fd_accdb_user_t *         user,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_pubkey_t const *       pubkey,
-                    ulong                     lamports,
-                    uint                      dlen,
-                    uchar *                   data,
-                    fd_pubkey_t const *       owner ) {
+create_account_raw( fd_accdb_user_t *   user,
+                    fd_xid_t const *    xid,
+                    fd_pubkey_t const * pubkey,
+                    ulong               lamports,
+                    uint                dlen,
+                    uchar *             data,
+                    fd_pubkey_t const * owner ) {
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( user, rw, xid, pubkey, dlen, FD_ACCDB_FLAG_CREATE ) );
   fd_accdb_ref_data_set( user, rw, data, dlen );
@@ -75,202 +49,32 @@ create_account_raw( fd_accdb_user_t *         user,
 }
 
 static void
-init_rent_sysvar( test_env_t * env ) {
-  fd_rent_t rent = {
-    .lamports_per_uint8_year = 3480UL,
-    .exemption_threshold     = 2.0,
-    .burn_percent            = 50
-  };
-  env->bank->f.rent = rent;
-  fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &rent );
-}
-
-static void
-init_epoch_schedule_sysvar( test_env_t * env ) {
-  fd_epoch_schedule_t epoch_schedule = {
-    .slots_per_epoch             = TEST_SLOTS_PER_EPOCH,
-    .leader_schedule_slot_offset = TEST_SLOTS_PER_EPOCH,
-    .warmup                      = 0,
-    .first_normal_epoch          = 0UL,
-    .first_normal_slot           = 0UL
-  };
-  env->bank->f.epoch_schedule = epoch_schedule;
-  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
-}
-
-static void
-init_stake_history_sysvar( test_env_t * env ) {
-  fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
-}
-
-static void
-init_clock_sysvar( test_env_t * env ) {
-  fd_sysvar_clock_init( env->bank, env->accdb, &env->xid, NULL );
-}
-
-static void
-init_blockhash_queue( test_env_t * env ) {
-  ulong blockhash_seed = 12345UL;
-  fd_blockhashes_t * bhq = fd_blockhashes_init( &env->bank->f.block_hash_queue, blockhash_seed );
-  fd_hash_t dummy_hash = {0};
-  fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
-  fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
-  info->fee_calculator.lamports_per_signature = 0UL;
-}
-
-static test_env_t *
-test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
+setup_test( test_env_t * env, fd_svm_mini_t * mini, int enable_loader_v4 ) {
   fd_memset( env, 0, sizeof(test_env_t) );
-  env->wksp = wksp;
-  env->tag  = 1UL;
+  env->mini = mini;
 
-  ulong const funk_seed       = 17UL;
-  ulong const txn_max         = 16UL;
-  ulong const rec_max         = 1024UL;
-  ulong const max_total_banks = 2UL;
-  ulong const max_fork_width  = 2UL;
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  params->slots_per_epoch = TEST_SLOTS_PER_EPOCH;
+  ulong root_idx = fd_svm_mini_reset( mini, params );
 
-  env->funk_mem   = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, rec_max ), env->tag );
-  env->funk_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, rec_max ), env->tag );
-  FD_TEST( env->funk_mem );
-  FD_TEST( env->funk_locks );
-  FD_TEST( fd_funk_shmem_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
-  FD_TEST( fd_funk_locks_new( env->funk_locks, txn_max, rec_max ) );
-  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, env->funk_locks ) );
-  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem, env->funk_locks, txn_max ) );
-
-  env->pcache_mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, rec_max ), env->tag );
-  FD_TEST( env->pcache_mem );
-  FD_TEST( fd_progcache_shmem_new( env->pcache_mem, env->tag, funk_seed+1, txn_max, rec_max ) );
-  env->progcache_scratch = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT, env->tag );
-  FD_TEST( env->progcache_scratch );
-  FD_TEST( fd_progcache_join( env->progcache, env->pcache_mem, env->progcache_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
-  FD_TEST( banks_mem );
-  env->banks = fd_banks_join( fd_banks_new( banks_mem, max_total_banks, max_fork_width, 2048UL, 2048UL, 0, 8888UL ) );
-  FD_TEST( env->banks );
-  env->bank = fd_banks_init_bank( env->banks );
-  FD_TEST( env->bank );
-
-  env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
-  FD_TEST( env->runtime_stack );
-  FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) );
-
-  fd_funk_txn_xid_t root[1];
-  fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->idx } };
-  fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
-  fd_progcache_attach_child( env->progcache->join, root, &env->xid );
-
-  init_rent_sysvar( env );
-  init_epoch_schedule_sysvar( env );
-  init_stake_history_sysvar( env );
-  init_clock_sysvar( env );
-  init_blockhash_queue( env );
-
-  env->bank->f.slot = 9UL;
-  env->bank->f.epoch = 4UL;
-
-  fd_bank_top_votes_t_2_modify( env->bank );
-
+  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
   if( enable_loader_v4 ) {
     fd_features_t features = {0};
     fd_features_disable_all( &features );
     features.enable_loader_v4 = 0UL;
-    env->bank->f.features = features;
+    root_bank->f.features = features;
   }
 
-  fd_builtin_programs_init( env->bank, env->accdb, &env->xid, NULL );
-
-  env->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), env->tag );
-  uchar * acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(), fd_acc_pool_footprint( TEST_ACC_POOL_ACCOUNT_CNT ), env->tag );
-  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, TEST_ACC_POOL_ACCOUNT_CNT ) );
-  FD_TEST( acc_pool );
-
-  env->runtime->accdb                    = &env->accdb[0];
-  env->runtime->progcache                = env->progcache;
-  env->runtime->status_cache             = NULL;
-  env->runtime->acc_pool                 = acc_pool;
-  fd_log_collector_init( env->log_collector, 0 );
-  memset( &env->runtime->log, 0, sizeof(env->runtime->log) );
-  env->runtime->log.log_collector        = env->log_collector;
-
-  return env;
-}
-
-static void
-test_env_cleanup( test_env_t * env ) {
-  FD_TEST( env );
-
-  env->txn_out[0].err.is_committable = 0;
-  if( env->runtime ) {
-    fd_runtime_cancel_txn( env->runtime, &env->txn_out[0] );
-  }
-
-  fd_accdb_cancel( env->accdb_admin, &env->xid );
-  fd_progcache_cancel( env->progcache->join, &env->xid );
-
-  if( env->runtime ) {
-    if( env->runtime->acc_pool ) {
-      fd_wksp_free_laddr( env->runtime->acc_pool );
-    }
-    fd_wksp_free_laddr( env->runtime );
-  }
-
-  fd_wksp_free_laddr( env->runtime_stack );
-  fd_wksp_free_laddr( env->banks );
-
-  fd_progcache_shmem_t * shpcache = NULL;
-  fd_progcache_leave( env->progcache, &shpcache );
-  fd_wksp_free_laddr( fd_progcache_shmem_delete( shpcache ) );
-  fd_wksp_free_laddr( env->progcache_scratch );
-
-  void * accdb_shfunk = fd_accdb_admin_v1_funk( env->accdb_admin )->shmem;
-  fd_accdb_admin_fini( env->accdb_admin );
-  fd_accdb_user_fini( env->accdb );
-  fd_wksp_free_laddr( env->funk_locks );
-  fd_wksp_free_laddr( fd_funk_delete( accdb_shfunk ) );
-
-  fd_wksp_reset( env->wksp, (uint)env->tag );
-  fd_memset( env, 0, sizeof(test_env_t) );
-}
-
-static void
-process_slot( test_env_t * env, ulong slot ) {
-  fd_bank_t * parent_bank = env->bank;
-  ulong parent_slot       = parent_bank->f.slot;
-  ulong parent_bank_idx   = parent_bank->idx;
-
-  FD_TEST( parent_bank->flags & FD_BANK_FLAGS_FROZEN );
-
-  ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
-  fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
-  FD_TEST( new_bank );
-
-  new_bank->f.slot = slot;
-  new_bank->f.parent_slot = parent_slot;
-
-  fd_epoch_schedule_t const * epoch_schedule = &new_bank->f.epoch_schedule;
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  new_bank->f.epoch = epoch;
-
-  fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
-  fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
-  fd_progcache_attach_child( env->progcache->join, &parent_xid, &xid );
-
-  env->xid  = xid;
-  env->bank = new_bank;
-
-  int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( env->banks, env->bank, env->accdb, env->runtime_stack, NULL, &is_epoch_boundary );
+  ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 10UL );
+  env->bank = fd_svm_mini_bank( mini, child_idx );
+  env->xid  = fd_svm_mini_xid( mini, child_idx );
 }
 
 static void
 create_allocatable_account( test_env_t * env, fd_pubkey_t const * pubkey ) {
   fd_pubkey_t system_program = fd_solana_system_program_id;
-  create_account_raw( env->accdb, &env->xid, pubkey, TEST_LAMPORTS, 0UL, NULL, &system_program );
+  create_account_raw( env->mini->accdb, &env->xid, pubkey, TEST_LAMPORTS, 0UL, NULL, &system_program );
 }
 
 static void
@@ -279,7 +83,7 @@ create_loader_v4_program( test_env_t *        env,
                           fd_pubkey_t const * authority,
                           ulong               program_size ) {
   ulong dlen = LOADER_V4_PROGRAM_DATA_OFFSET + program_size;
-  uchar * data = fd_wksp_alloc_laddr( env->wksp, 8UL, dlen, env->tag );
+  uchar * data = fd_wksp_alloc_laddr( env->mini->wksp, 8UL, dlen, 42UL );
   FD_TEST( data );
   fd_memset( data, 0, dlen );
 
@@ -288,19 +92,19 @@ create_loader_v4_program( test_env_t *        env,
   FD_STORE( ulong, data + 40, LOADER_V4_STATUS_RETRACTED );
 
   fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, pubkey, (uint)dlen, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( env->accdb, rw, data, (uint)dlen );
+  FD_TEST( fd_accdb_open_rw( env->mini->accdb, rw, &env->xid, pubkey, (uint)dlen, FD_ACCDB_FLAG_CREATE ) );
+  fd_accdb_ref_data_set( env->mini->accdb, rw, data, (uint)dlen );
   rw->meta->lamports = TEST_LAMPORTS;
   rw->meta->slot = 10UL;
   rw->meta->executable = 1;
   fd_memcpy( rw->meta->owner, fd_solana_bpf_loader_v4_program_id.uc, 32 );
-  fd_accdb_close_rw( env->accdb, rw );
+  fd_accdb_close_rw( env->mini->accdb, rw );
   fd_wksp_free_laddr( data );
 }
 
 static void
 create_simple_account( test_env_t * env, fd_pubkey_t const * pubkey, ulong lamports ) {
-  create_account_raw( env->accdb, &env->xid, pubkey, lamports, 0UL, NULL, NULL );
+  create_account_raw( env->mini->accdb, &env->xid, pubkey, lamports, 0UL, NULL, NULL );
 }
 
 #define FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _to_add, _sz ) __extension__({ \
@@ -417,7 +221,7 @@ execute_txn( test_env_t *     env,
   env->txn_in.txn              = &txn_p;
   env->txn_in.bundle.is_bundle = 0;
 
-  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+  fd_runtime_prepare_and_execute_txn( env->mini->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
 }
 
 static int
@@ -433,10 +237,9 @@ get_resize_delta( test_env_t * env ) {
 
 /* Empty txn has delta=0 */
 static void
-test_empty_txn_delta_is_zero( fd_wksp_t * wksp ) {
+test_empty_txn_delta_is_zero( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  test_env_init( env, wksp, 0 );
-  process_slot( env, 10UL );
+  setup_test( env, mini, 0 );
 
   fd_pubkey_t acct1 = { .ul[0] = 1UL };
   fd_pubkey_t acct2 = { .ul[0] = 2UL };
@@ -449,16 +252,14 @@ test_empty_txn_delta_is_zero( fd_wksp_t * wksp ) {
   FD_TEST( txn_succeeded( env ) );
   FD_TEST( get_resize_delta( env ) == 0L );
 
-  test_env_cleanup( env );
   FD_LOG_NOTICE(( "test_empty_txn_delta_is_zero: PASSED" ));
 }
 
 /* 10+9=19 MiB under limit */
 static void
-test_allocate_19mib_succeeds( fd_wksp_t * wksp ) {
+test_allocate_19mib_succeeds( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  test_env_init( env, wksp, 0 );
-  process_slot( env, 10UL );
+  setup_test( env, mini, 0 );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA0UL };
   fd_pubkey_t acct_b = { .ul[0] = 0xB0UL };
@@ -482,16 +283,13 @@ test_allocate_19mib_succeeds( fd_wksp_t * wksp ) {
   FD_TEST( txn_succeeded( env ) );
   FD_TEST( get_resize_delta( env ) == 19L * MiB );
   FD_LOG_NOTICE(( "test_allocate_19mib_succeeds: PASSED (delta = %ld MiB)", get_resize_delta( env ) / MiB ));
-
-  test_env_cleanup( env );
 }
 
 /* 10+10=20 MiB at limit */
 static void
-test_allocate_20mib_succeeds( fd_wksp_t * wksp ) {
+test_allocate_20mib_succeeds( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  test_env_init( env, wksp, 0 );
-  process_slot( env, 10UL );
+  setup_test( env, mini, 0 );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA2UL };
   fd_pubkey_t acct_b = { .ul[0] = 0xB2UL };
@@ -515,48 +313,49 @@ test_allocate_20mib_succeeds( fd_wksp_t * wksp ) {
   FD_TEST( txn_succeeded( env ) );
   FD_TEST( get_resize_delta( env ) == 20L * MiB );
   FD_LOG_NOTICE(( "test_allocate_20mib_succeeds: PASSED (delta = %ld MiB)", get_resize_delta( env ) / MiB ));
-
-  test_env_cleanup( env );
 }
 
-/* 15+10=25 MiB exceeds limit */
+/* 7+7+7=21 MiB exceeds per-txn limit (20 MiB).
+   Each allocation is under the 10 MiB per-account limit, so this
+   exercises the MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN branch. */
 static void
-test_allocate_25mib_fails( fd_wksp_t * wksp ) {
+test_allocate_21mib_fails( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  test_env_init( env, wksp, 0 );
-  process_slot( env, 10UL );
+  setup_test( env, mini, 0 );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA1UL };
   fd_pubkey_t acct_b = { .ul[0] = 0xB1UL };
+  fd_pubkey_t acct_c = { .ul[0] = 0xC1UL };
   create_allocatable_account( env, &acct_a );
   create_allocatable_account( env, &acct_b );
+  create_allocatable_account( env, &acct_c );
 
   fd_pubkey_t system = fd_solana_system_program_id;
-  fd_pubkey_t keys[3] = { acct_a, acct_b, system };
+  fd_pubkey_t keys[4] = { acct_a, acct_b, acct_c, system };
 
-  uchar data_a[12], data_b[12];
-  build_allocate_instr( data_a, 15UL * (ulong)MiB );
-  build_allocate_instr( data_b, 10UL * (ulong)MiB );
+  uchar data_a[12], data_b[12], data_c[12];
+  build_allocate_instr( data_a, 7UL * (ulong)MiB );
+  build_allocate_instr( data_b, 7UL * (ulong)MiB );
+  build_allocate_instr( data_c, 7UL * (ulong)MiB );
 
-  uchar idx_a[1] = {0}, idx_b[1] = {1};
-  txn_instr_t instrs[2] = {
-    { .program_id_idx = 2, .account_idxs = idx_a, .account_idxs_cnt = 1, .data = data_a, .data_sz = 12 },
-    { .program_id_idx = 2, .account_idxs = idx_b, .account_idxs_cnt = 1, .data = data_b, .data_sz = 12 },
+  uchar idx_a[1] = {0}, idx_b[1] = {1}, idx_c[1] = {2};
+  txn_instr_t instrs[3] = {
+    { .program_id_idx = 3, .account_idxs = idx_a, .account_idxs_cnt = 1, .data = data_a, .data_sz = 12 },
+    { .program_id_idx = 3, .account_idxs = idx_b, .account_idxs_cnt = 1, .data = data_b, .data_sz = 12 },
+    { .program_id_idx = 3, .account_idxs = idx_c, .account_idxs_cnt = 1, .data = data_c, .data_sz = 12 },
   };
-  execute_txn( env, keys, 3, 2, 1, instrs, 2 );
+  execute_txn( env, keys, 4, 3, 1, instrs, 3 );
 
   FD_TEST( !txn_succeeded( env ) );
 
-  test_env_cleanup( env );
-  FD_LOG_NOTICE(( "test_allocate_25mib_fails: PASSED" ));
+  FD_LOG_NOTICE(( "test_allocate_21mib_fails: PASSED" ));
 }
 
 /* Shrink gives negative delta */
 static void
-test_shrink_gives_negative_delta( fd_wksp_t * wksp ) {
+test_shrink_gives_negative_delta( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  test_env_init( env, wksp, 1 );
-  process_slot( env, 10UL );
+  setup_test( env, mini, 1 );
 
   fd_pubkey_t authority  = { .ul[0] = 0xA3UL };
   fd_pubkey_t program    = { .ul[0] = 0xC3UL };
@@ -583,17 +382,14 @@ test_shrink_gives_negative_delta( fd_wksp_t * wksp ) {
   FD_TEST( get_resize_delta( env ) < 0L );
   FD_TEST( get_resize_delta( env ) <= -5L * MiB );
   FD_LOG_NOTICE(( "test_shrink_gives_negative_delta: PASSED (delta = %ld bytes)", get_resize_delta( env ) ));
-
-  test_env_cleanup( env );
 }
 
 /* Shrink enables allocation that would otherwise exceed limit.
    10+10-5+5 = 20 MiB. With unsigned arithmetic this would fail. */
 static void
-test_shrink_enables_more_allocation( fd_wksp_t * wksp ) {
+test_shrink_enables_more_allocation( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  test_env_init( env, wksp, 1 );
-  process_slot( env, 10UL );
+  setup_test( env, mini, 1 );
 
   fd_pubkey_t authority  = { .ul[0] = 0xA4UL };
   fd_pubkey_t program    = { .ul[0] = 0xC4UL };
@@ -636,38 +432,22 @@ test_shrink_enables_more_allocation( fd_wksp_t * wksp ) {
   /* Expected: 10 MiB + 10 MiB - (5 MiB + 48 bytes metadata) + 5 MiB = 20 MiB - 48 bytes */
   FD_TEST( delta == 20L * MiB - (long)LOADER_V4_PROGRAM_DATA_OFFSET );
   FD_LOG_NOTICE(( "test_shrink_enables_more_allocation: PASSED (delta = %ld bytes)", delta ));
-
-  test_env_cleanup( env );
 }
 
 int
 main( int argc, char ** argv ) {
-  fd_boot( &argc, &argv );
+  fd_svm_mini_limits_t limits[1];
+  fd_svm_mini_limits_default( limits );
+  fd_svm_mini_t * mini = fd_svm_test_boot( &argc, &argv, limits );
 
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx > fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
-  char const * _page_sz = fd_env_strip_cmdline_cstr( &argc, &argv,  "--page-sz",  NULL, "normal" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1572864UL );
-  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
-
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
-
-  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-  FD_TEST( wksp );
-
-  test_empty_txn_delta_is_zero( wksp );
-  test_allocate_19mib_succeeds( wksp );
-  test_allocate_20mib_succeeds( wksp );
-  test_allocate_25mib_fails( wksp );
-  test_shrink_gives_negative_delta( wksp );
-  test_shrink_enables_more_allocation( wksp );
-
-  fd_wksp_delete_anonymous( wksp );
+  test_empty_txn_delta_is_zero( mini );
+  test_allocate_19mib_succeeds( mini );
+  test_allocate_20mib_succeeds( mini );
+  test_allocate_21mib_fails( mini );
+  test_shrink_gives_negative_delta( mini );
+  test_shrink_enables_more_allocation( mini );
 
   FD_LOG_NOTICE(( "pass" ));
-  fd_halt();
+  fd_svm_test_halt( mini );
   return 0;
 }

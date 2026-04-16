@@ -1,3 +1,4 @@
+#include "fd_accdb_svm.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_builtin_programs.h"
@@ -5,7 +6,6 @@
 #include "fd_runtime_stack.h"
 #include "fd_pubkey_utils.h"
 #include "fd_system_ids.h"
-#include "fd_hashes.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
@@ -62,18 +62,15 @@ tmp_account_store( fd_tmp_account_t *        acc,
     FD_LOG_ERR(( "Attempted to write to the system program account" ));
   }
 
-  fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( accdb, rw, xid, &acc->addr, acc->data_sz, FD_ACCDB_FLAG_CREATE );
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( &acc->addr, rw->meta, fd_accdb_ref_data_const( rw->ro ), prev_hash );
+  fd_accdb_rw_t rw[1]; fd_accdb_svm_update_t update[1];
+  FD_TEST( fd_accdb_svm_open_rw( accdb, bank, xid, rw, update, &acc->addr, acc->data_sz, FD_ACCDB_FLAG_CREATE ) );
 
   fd_accdb_ref_exec_bit_set( rw, acc->meta.executable );
   fd_accdb_ref_owner_set   ( rw, acc->meta.owner      );
   fd_accdb_ref_lamports_set( rw, acc->meta.lamports   );
   fd_accdb_ref_data_set    ( accdb, rw, acc->data, acc->data_sz );
 
-  fd_hashes_update_lthash( &acc->addr, rw->meta, prev_hash, bank, capture_ctx );
-  fd_accdb_close_rw( accdb, rw );
+  fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L12 */
@@ -155,9 +152,8 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
       /* The program data account should not exist, but a system
          account with funded lamports is acceptable. */
       if( FD_UNLIKELY( progdata_exists ) ) {
-        if( FD_UNLIKELY( 0!=memcmp( fd_accdb_ref_owner( ro ), &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) ) {
-          /* CoreBpfMigrationError::ProgramHasDataAccount(
-               *program_address) */
+        if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_system_program_id ) ) ) {
+          /* CoreBpfMigrationError::ProgramHasDataAccount(*program_address) */
           fd_accdb_close_ro( accdb, ro );
           return NULL;
         } else {
@@ -307,7 +303,7 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
 
          https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L50-L61 */
       if( FD_UNLIKELY( progdata_exists ) ) {
-        if( FD_UNLIKELY( 0!=memcmp( fd_accdb_ref_owner( ro ), &fd_solana_system_program_id, FD_PUBKEY_FOOTPRINT ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_system_program_id ) ) ) {
           /* CoreBpfMigrationError::ProgramHasDataAccount(*program_address) */
           fd_accdb_close_ro( accdb, ro );
           return NULL;
@@ -572,39 +568,6 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   return acc;
 }
 
-/* Mimics update_captalization()
-   https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L471-L490 */
-static inline int
-fd_update_capitalization( fd_bank_t * bank,
-                          ulong       lamports_to_burn,
-                          ulong       lamports_to_fund ) {
-  if( lamports_to_burn > lamports_to_fund ) {
-    ulong diff;
-    int err = fd_ulong_checked_sub( lamports_to_burn, lamports_to_fund, &diff );
-    if( FD_UNLIKELY( err ) ) return err;
-
-    ulong capitalization = bank->f.capitalization;
-    ulong new_capitalization;
-    err = fd_ulong_checked_sub( capitalization, diff, &new_capitalization );
-    if( FD_UNLIKELY( err ) ) return err;
-
-    bank->f.capitalization = new_capitalization;
-  } else if( lamports_to_fund > lamports_to_burn ) {
-    ulong diff;
-    int err = fd_ulong_checked_sub( lamports_to_fund, lamports_to_burn, &diff );
-    if( FD_UNLIKELY( err ) ) return err;
-
-    ulong capitalization = bank->f.capitalization;
-    ulong new_capitalization;
-    err = fd_ulong_checked_add( capitalization, diff, &new_capitalization );
-    if( FD_UNLIKELY( err ) ) return err;
-
-    bank->f.capitalization = new_capitalization;
-  }
-
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
 void
 migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
                               fd_accdb_user_t *                      accdb,
@@ -670,11 +633,6 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
 
   ulong lamports_to_fund;
   if( FD_UNLIKELY( fd_ulong_checked_add( new_target_program->meta.lamports, new_target_program_data->meta.lamports, &lamports_to_fund ) ) ) return;
-
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L286-L297 */
-  if( FD_UNLIKELY( fd_update_capitalization( bank, lamports_to_burn, lamports_to_fund ) ) ) {
-    FD_LOG_ERR(( "Capitalization overflow while migrating builtin program to core BPF" ));
-  }
 
   /* Write back accounts */
   tmp_account_store( new_target_program,      accdb, xid, bank, capture_ctx );
@@ -758,21 +716,19 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
              source->data + BUFFER_METADATA_SIZE,
              program_data_len );
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L338-L342 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L339-L346 */
   ulong old_data_sz;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_data_account->data_sz, source->data_sz, &old_data_sz ) ) ) return;
   ulong new_data_sz = new_target_program_data->data_sz;
 
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.4/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L349-L355 */
+  uchar const * elf    = new_target_program_data->data + PROGRAMDATA_METADATA_SIZE;
+  ulong         elf_sz = program_data_len;
+  if( FD_UNLIKELY( fd_directly_invoke_loader_v3_deploy_checks( bank, runtime_stack, elf, elf_sz ) ) ) return;
+
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L359-L364 */
   ulong lamports_to_burn;
   if( FD_UNLIKELY( fd_ulong_checked_add( target->program_data_account->meta.lamports, source->meta.lamports, &lamports_to_burn ) ) ) return;
-  ulong lamports_to_fund = new_target_program_data->meta.lamports;
-
-  /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L364 */
-  int err = fd_update_capitalization( bank, lamports_to_burn, lamports_to_fund );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "Capitalization overflow while migrating builtin program to core BPF" ));
-  }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L366-L371 */
   fd_pubkey_t source_addr = source->addr;
@@ -872,11 +828,6 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
 
   ulong lamports_to_fund;
   if( FD_UNLIKELY( fd_ulong_checked_add( new_target_program->meta.lamports, new_target_program_data->meta.lamports, &lamports_to_fund ) ) ) return;
-
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L460 */
-  if( FD_UNLIKELY( fd_update_capitalization( bank, lamports_to_burn, lamports_to_fund ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: capitalization overflow while upgrading Loader v2 program to Loader v3" ));
-  }
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L462-L468 */
   tmp_account_store( new_target_program,      accdb, xid, bank, capture_ctx );

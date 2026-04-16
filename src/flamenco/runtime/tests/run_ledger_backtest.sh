@@ -18,7 +18,6 @@ INGEST_MODE="rocksdb"
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
-HAS_INCREMENTAL="false"
 REDOWNLOAD=1
 SKIP_CHECKSUM=1
 DEBUG=( )
@@ -95,10 +94,6 @@ while [[ $# -gt 0 ]]; do
     --tile-cpus)
         TILE_CPUS="--tile-cpus $2"
         shift
-        shift
-        ;;
-    -v|--has-incremental)
-        HAS_INCREMENTAL="$2"
         shift
         ;;
     -nr|--no-redownload)
@@ -234,16 +229,12 @@ fi
 
 chmod -R 0700 $DUMP/$LEDGER
 
-if [[ -n "$GENESIS" ]]; then
-  HAS_INCREMENTAL="false"
-fi
 
 CONFIG_FILE="$DUMP_DIR/${LEDGER}_backtest.toml"
 cat <<EOF > ${CONFIG_FILE}
 [snapshots]
     max_full_snapshots_to_keep = 5
     max_incremental_snapshots_to_keep = 5
-    incremental_snapshots = $HAS_INCREMENTAL
     [snapshots.sources]
         servers = []
         [snapshots.sources.gossip]
@@ -254,7 +245,6 @@ cat <<EOF > ${CONFIG_FILE}
     execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
     [tiles.archiver]
-        enabled = true
         end_slot = $END_SLOT
         rocksdb_path = "$DUMP/$LEDGER/rocksdb"
         shredcap_path = "$DUMP/$LEDGER/shreds.pcapng.zst"
@@ -270,6 +260,7 @@ cat <<EOF > ${CONFIG_FILE}
 [runtime]
     max_live_slots = $MAX_LIVE_SLOTS
     max_fork_width = 4
+    fixed_fec_sets = false
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
     path = "$LOG"
@@ -291,12 +282,11 @@ elif [[ "$DB" == "vinyl" ]]; then
   if [[ "$INDEX_MAX" -lt "1000000" ]]; then
     INDEX_MAX=1000000
   fi
-  INDEX_MAX=$(( INDEX_MAX * 2 ))
   cat <<EOF >> ${CONFIG_FILE}
 [accounts]
     in_memory_only = false
     max_accounts = $INDEX_MAX
-    file_size_gib = $((FUNK_PAGES * 4))
+    file_size_gib = $((FUNK_PAGES))
     max_unrooted_account_size_gib = 2
     cache_size_gib = 10
     io_provider = "io_uring"

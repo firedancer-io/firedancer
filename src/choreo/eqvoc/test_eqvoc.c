@@ -1,16 +1,13 @@
 #include "fd_eqvoc.c"
+#include "fd_eqvoc.h"
 
 FD_IMPORT_BINARY( id,       "src/choreo/eqvoc/fixtures/id.bin"       );
 FD_IMPORT_BINARY( pay1,     "src/choreo/eqvoc/fixtures/pay1.bin"     );
 FD_IMPORT_BINARY( pay2,     "src/choreo/eqvoc/fixtures/pay2.bin"     );
 FD_IMPORT_BINARY( mr1,      "src/choreo/eqvoc/fixtures/mr1.bin"      );
 FD_IMPORT_BINARY( mr2,      "src/choreo/eqvoc/fixtures/mr2.bin"      );
-FD_IMPORT_BINARY( meta1,    "src/choreo/eqvoc/fixtures/meta1.bin"    );
-FD_IMPORT_BINARY( meta2,    "src/choreo/eqvoc/fixtures/meta2.bin"    );
 FD_IMPORT_BINARY( last1,    "src/choreo/eqvoc/fixtures/last1.bin"    );
 FD_IMPORT_BINARY( last2,    "src/choreo/eqvoc/fixtures/last2.bin"    );
-FD_IMPORT_BINARY( overlap1, "src/choreo/eqvoc/fixtures/overlap1.bin" );
-FD_IMPORT_BINARY( overlap2, "src/choreo/eqvoc/fixtures/overlap2.bin" );
 FD_IMPORT_BINARY( chained1, "src/choreo/eqvoc/fixtures/chained1.bin" );
 FD_IMPORT_BINARY( chained2, "src/choreo/eqvoc/fixtures/chained2.bin" );
 
@@ -21,7 +18,6 @@ FD_IMPORT_BINARY( chained2, "src/choreo/eqvoc/fixtures/chained2.bin" );
 #define ROOT          0UL
 
 static uchar __attribute__((aligned(128UL))) eqvoc_mem [ 131072 ];
-static uchar __attribute__((aligned(128UL))) voters_mem[ 131072 ];
 
 
 static fd_pubkey_t        from [1]   = { { .uc = { 242, 97, 238, 195, 95, 84,  158, 41, 211, 104, 141, 25, 22,  233, 147, 28, 8,   50, 225, 227, 88, 116, 4,   29, 207, 7,   22,  4,  141, 136, 237, 132 } } };
@@ -67,7 +63,8 @@ test_proof( uchar const * shred1_bytes, uchar const * shred2_bytes, int err_expe
 
   /* Test verify_proof */
 
-  FD_TEST( verify_proof( eqvoc, SHRED_VERSION, &leaders, shred1, shred2 )==err_expected );
+  int err = verify_proof( eqvoc, SHRED_VERSION, &leaders, shred1, shred2 );
+  if( err!=err_expected ) { FD_LOG_CRIT(("err %d != expcted %d", err, err_expected )); }
 
   /* Test construct_proof */
 
@@ -101,15 +98,22 @@ test_proof( uchar const * shred1_bytes, uchar const * shred2_bytes, int err_expe
   /* Test shred_insert */
 
   int err_actual = FD_EQVOC_SUCCESS;
-  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, shred1, chunks_out );
+  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, shred1, chunks_out );
   FD_TEST( err_actual==FD_EQVOC_SUCCESS );
 
-  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, shred1, chunks_out );
+  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, shred1, chunks_out );
   FD_TEST( err_actual==FD_EQVOC_SUCCESS ); /* same shred twice isn't equivocating */
 
-  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, shred2, chunks_out );
+  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, shred2, chunks_out );
   FD_TEST( err_actual==err_expected );
 
+  teardown( eqvoc );
+}
+
+void
+test_chained( void ) {
+  fd_eqvoc_t * eqvoc = setup();
+  FD_TEST( verify_proof( eqvoc, SHRED_VERSION, NULL, (fd_shred_t * )chained1, (fd_shred_t *) chained2 ) == FD_EQVOC_SUCCESS_CHAINED );
   teardown( eqvoc );
 }
 
@@ -127,7 +131,7 @@ test_evict( void ) {
   for( ulong i = 0; i < FEC_MAX * k; i++ ) {
     ulong slot  = shred->slot;
     shred->slot = shred->slot + i;
-    fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, shred, chunks );
+    fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, shred, chunks );
     shred->slot = slot;
   }
   FD_TEST( fec_pool_used( eqvoc->fec_pool )==FEC_MAX );
@@ -179,10 +183,8 @@ test_update_voters( void ) {
 
   /* After update_voters with {a, b}, chunks from a and b are accepted. */
 
-  fd_tower_voters_t * tv = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv, (fd_tower_voters_t){ .id_key = a } );
-  fd_tower_voters_push_tail( tv, (fd_tower_voters_t){ .id_key = b } );
-  fd_eqvoc_update_voters( eqvoc, tv );
+  fd_pubkey_t tv[] = { a, b };
+  fd_eqvoc_update_voters( eqvoc, tv, 2UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==2 );
 
@@ -200,10 +202,8 @@ test_update_voters( void ) {
   /* Reindex with {b, c}: a should be removed (and its proof evicted),
      c should be added.  b's proof should be preserved. */
 
-  fd_tower_voters_t * tv2 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv2, (fd_tower_voters_t){ .id_key = b } );
-  fd_tower_voters_push_tail( tv2, (fd_tower_voters_t){ .id_key = c } );
-  fd_eqvoc_update_voters( eqvoc, tv2 );
+  fd_pubkey_t tv2[] = { b, c };
+  fd_eqvoc_update_voters( eqvoc, tv2, 2UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==2 );
   FD_TEST( !vtr_map_ele_query( eqvoc->vtr_map, &a, NULL, eqvoc->vtr_pool ) ); /* a removed */
@@ -219,10 +219,8 @@ test_update_voters( void ) {
 
   /* Calling update_voters with same set is a no-op (proofs preserved). */
 
-  fd_tower_voters_t * tv3 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv3, (fd_tower_voters_t){ .id_key = b } );
-  fd_tower_voters_push_tail( tv3, (fd_tower_voters_t){ .id_key = c } );
-  fd_eqvoc_update_voters( eqvoc, tv3 );
+  fd_pubkey_t tv3[] = { b, c };
+  fd_eqvoc_update_voters( eqvoc, tv3, 2UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==2 );
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==2 ); /* unchanged */
@@ -230,11 +228,8 @@ test_update_voters( void ) {
   /* Re-add a (who was removed).  a should come back with zero proofs;
      its old proof for slot 10 must not be in the map. */
 
-  fd_tower_voters_t * tv4 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv4, (fd_tower_voters_t){ .id_key = a } );
-  fd_tower_voters_push_tail( tv4, (fd_tower_voters_t){ .id_key = b } );
-  fd_tower_voters_push_tail( tv4, (fd_tower_voters_t){ .id_key = c } );
-  fd_eqvoc_update_voters( eqvoc, tv4 );
+  fd_pubkey_t tv4[] = { a, b, c };
+  fd_eqvoc_update_voters( eqvoc, tv4, 3UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==3 );
   FD_TEST( vtr_map_ele_query( eqvoc->vtr_map, &a, NULL, eqvoc->vtr_pool ) );
@@ -261,12 +256,8 @@ test_update_voters( void ) {
 
   fd_pubkey_t d = { .uc = { 4 } };
 
-  fd_tower_voters_t * tv5 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv5, (fd_tower_voters_t){ .id_key = a } );
-  fd_tower_voters_push_tail( tv5, (fd_tower_voters_t){ .id_key = b } );
-  fd_tower_voters_push_tail( tv5, (fd_tower_voters_t){ .id_key = c } );
-  fd_tower_voters_push_tail( tv5, (fd_tower_voters_t){ .id_key = d } );
-  fd_eqvoc_update_voters( eqvoc, tv5 );
+  fd_pubkey_t tv5[] = { a, b, c, d };
+  fd_eqvoc_update_voters( eqvoc, tv5, 4UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==4 );
   FD_TEST( vtr_map_ele_query( eqvoc->vtr_map, &d, NULL, eqvoc->vtr_pool ) );
@@ -282,8 +273,7 @@ test_update_voters( void ) {
 
   /* Calling update_voters with empty set removes all. */
 
-  fd_tower_voters_t * tv6 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_eqvoc_update_voters( eqvoc, tv6 );
+  fd_eqvoc_update_voters( eqvoc, NULL, 0UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==0 );
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==0 );
@@ -300,11 +290,8 @@ test_bad_actor( void ) {
   fd_pubkey_t c = { .uc = { 12 } };
   fd_pubkey_t unknown = { .uc = { 99 } };
 
-  fd_tower_voters_t * tv = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv, (fd_tower_voters_t){ .id_key = a } );
-  fd_tower_voters_push_tail( tv, (fd_tower_voters_t){ .id_key = b } );
-  fd_tower_voters_push_tail( tv, (fd_tower_voters_t){ .id_key = c } );
-  fd_eqvoc_update_voters( eqvoc, tv );
+  fd_pubkey_t tv_ba[] = { a, b, c };
+  fd_eqvoc_update_voters( eqvoc, tv_ba, 3UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==3 );
 
@@ -467,10 +454,8 @@ test_bad_actor( void ) {
 
   /* Removing voter 'a' should free all of 'a's proofs. */
 
-  fd_tower_voters_t * tv2 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv2, (fd_tower_voters_t){ .id_key = b } );
-  fd_tower_voters_push_tail( tv2, (fd_tower_voters_t){ .id_key = c } );
-  fd_eqvoc_update_voters( eqvoc, tv2 );
+  fd_pubkey_t tv2_ev[] = { b, c };
+  fd_eqvoc_update_voters( eqvoc, tv2_ev, 2UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==2 );
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==2 * SLOT_MAX );
@@ -485,8 +470,7 @@ test_bad_actor( void ) {
 
   /* Removing all voters frees everything. */
 
-  fd_tower_voters_t * tv3 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_eqvoc_update_voters( eqvoc, tv3 );
+  fd_eqvoc_update_voters( eqvoc, NULL, 0UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==0 );
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==0 );
@@ -574,12 +558,12 @@ test_ignored_slot( void ) {
 
   /* NULL leader schedule: both shred_insert and chunk_insert return ERR_IGNORED_SLOT. */
 
-  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, NULL, (fd_shred_t const *)base, chunks_out )==FD_EQVOC_ERR_IGNORED_SLOT );
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, (fd_shred_t const *)base, chunks_out )==FD_EQVOC_SUCCESS );
   FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, NULL, &any, &chunk, chunks_out )==FD_EQVOC_ERR_IGNORED_SLOT );
 
   /* Slot older than root: both return ERR_IGNORED_SLOT. */
 
-  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, 10UL, &leaders, (fd_shred_t const *)base, chunks_out )==FD_EQVOC_ERR_IGNORED_SLOT );
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, 10UL, (fd_shred_t const *)base, chunks_out )==FD_EQVOC_ERR_IGNORED_SLOT );
   FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, 10UL, &leaders, &any, &chunk, chunks_out )==FD_EQVOC_ERR_IGNORED_SLOT );
 
   teardown( eqvoc );
@@ -599,10 +583,8 @@ test_voter_removal( void ) {
 
   /* Register a and b; both hash to the same bucket so b probes to slot 1. */
 
-  fd_tower_voters_t * tv = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv, (fd_tower_voters_t){ .id_key = a } );
-  fd_tower_voters_push_tail( tv, (fd_tower_voters_t){ .id_key = b } );
-  fd_eqvoc_update_voters( eqvoc, tv );
+  fd_pubkey_t tv_vr[] = { a, b };
+  fd_eqvoc_update_voters( eqvoc, tv_vr, 2UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==2 );
 
@@ -617,9 +599,8 @@ test_voter_removal( void ) {
 
   /* Remove a: b's proofs must survive. */
 
-  fd_tower_voters_t * tv2 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv2, (fd_tower_voters_t){ .id_key = b } );
-  fd_eqvoc_update_voters( eqvoc, tv2 );
+  fd_pubkey_t tv2_vr[] = { b };
+  fd_eqvoc_update_voters( eqvoc, tv2_vr, 1UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==1 );
   FD_TEST( !vtr_map_ele_query( eqvoc->vtr_map, &a, NULL, eqvoc->vtr_pool ) );
@@ -639,10 +620,8 @@ test_voter_removal( void ) {
 
   /* Add c alongside b.  c starts with an empty prf_dlist. */
 
-  fd_tower_voters_t * tv3 = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-  fd_tower_voters_push_tail( tv3, (fd_tower_voters_t){ .id_key = b } );
-  fd_tower_voters_push_tail( tv3, (fd_tower_voters_t){ .id_key = c } );
-  fd_eqvoc_update_voters( eqvoc, tv3 );
+  fd_pubkey_t tv3_vr[] = { b, c };
+  fd_eqvoc_update_voters( eqvoc, tv3_vr, 2UL );
 
   FD_TEST( vtr_pool_used( eqvoc->vtr_pool )==2 );
   vtr_t * vtr_c = vtr_map_ele_query( eqvoc->vtr_map, &c, NULL, eqvoc->vtr_pool );
@@ -665,11 +644,9 @@ main( void ) {
   test_proof( id,       id,       FD_EQVOC_SUCCESS,         0 /* don't skip shred insert */ );
   test_proof( pay1,     pay2,     FD_EQVOC_SUCCESS_MERKLE,  0 /* don't skip shred insert */ );
   test_proof( mr1,      mr2,      FD_EQVOC_SUCCESS_MERKLE,  0 /* don't skip shred insert */ );
-  test_proof( meta1,    meta2,    FD_EQVOC_SUCCESS_META,    0 /* don't skip shred insert */ );
   test_proof( last1,    last2,    FD_EQVOC_SUCCESS_LAST,    0 /* don't skip shred insert */ );
-  test_proof( overlap1, overlap2, FD_EQVOC_SUCCESS_OVERLAP, 1 /* skip shred insert */       );
-  test_proof( chained1, chained2, FD_EQVOC_SUCCESS_CHAINED, 1 /* skip shred insert */       );
 
+  test_chained();
   test_evict();
   test_update_voters();
   test_bad_actor();
@@ -685,9 +662,8 @@ main( void ) {
     fd_eqvoc_t * eqvoc = setup();
 
     fd_pubkey_t voter = { .uc = { 77 } };
-    fd_tower_voters_t * tv = fd_tower_voters_join( fd_tower_voters_new( voters_mem, VTR_MAX ) );
-    fd_tower_voters_push_tail( tv, (fd_tower_voters_t){ .id_key = voter } );
-    fd_eqvoc_update_voters( eqvoc, tv );
+    fd_pubkey_t tv_main[] = { voter };
+    fd_eqvoc_update_voters( eqvoc, tv_main, 1UL );
 
     for( ulong round = 0; round < 3; round++ ) {
       /* Send all 3 chunks with garbage data for the same (slot, from).

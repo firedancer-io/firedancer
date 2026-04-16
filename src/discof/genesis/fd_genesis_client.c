@@ -106,7 +106,7 @@ fd_genesis_client_init( fd_genesis_client_t * client,
 
   client->peer_cnt = peer_cnt;
   client->remaining_peer_cnt = peer_cnt;
-  client->start_time_nanos = fd_log_wallclock();
+  client->start_time_nanos = LONG_MAX;
 }
 
 static void
@@ -267,7 +267,9 @@ fd_genesis_client_poll( fd_genesis_client_t * client,
                         ulong *               buffer_sz,
                         int *                 charge_busy ) {
   if( FD_UNLIKELY( !client->remaining_peer_cnt ) ) return -1;
-  if( FD_UNLIKELY( fd_log_wallclock()-client->start_time_nanos>20L*1000L*1000*1000L ) ) {
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( LONG_MAX==client->start_time_nanos ) ) client->start_time_nanos = now;
+  if( FD_UNLIKELY( now-client->start_time_nanos>20L*1000L*1000*1000L ) ) {
     close_all( client );
     return -1;
   }
@@ -277,14 +279,16 @@ fd_genesis_client_poll( fd_genesis_client_t * client,
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 1;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, strerror( errno ) ));
 
-  *charge_busy = 1;
-
   for( ulong i=0UL; i<FD_TOPO_GOSSIP_ENTRYPOINTS_MAX; i++ ) {
     if( FD_UNLIKELY( -1==client->pollfds[ i ].fd ) ) continue;
 
-    if( FD_LIKELY( client->pollfds[ i ].revents & POLLOUT ) ) write_conn( client, i );
+    if( FD_LIKELY( client->pollfds[ i ].revents & POLLOUT ) ) {
+      if( FD_UNLIKELY( client->peers[ i ].writing ) ) *charge_busy = 1;
+      write_conn( client, i );
+    }
     if( FD_UNLIKELY( -1==client->pollfds[ i ].fd ) ) continue;
     if( FD_LIKELY( client->pollfds[ i ].revents & POLLIN ) ) {
+      if( FD_UNLIKELY( !client->peers[ i ].writing ) ) *charge_busy = 1;
       if( FD_LIKELY( !read_conn( client, i, buffer, buffer_sz ) ) ) {
         close_all( client );
         *peer = client->peers[ i ].addr;

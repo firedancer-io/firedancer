@@ -3,6 +3,7 @@
 
 #include "../fd_choreo_base.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 
 #define FD_VOTE_IX_KIND_TOWER_SYNC        (14)
 #define FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH (15)
@@ -136,7 +137,7 @@ struct __attribute__((packed)) fd_vote_acc {
 };
 typedef struct fd_vote_acc fd_vote_acc_t;
 
-FD_FN_PURE ulong
+ulong
 fd_vote_acc_vote_cnt( uchar const * buf );
 
 /* fd_vote_acc_vote_slot takes a voter's vote account data and returns

@@ -311,6 +311,7 @@
 #include "../../disco/stem/fd_stem.h"
 #include "../../util/fd_util_base.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../util/clock/fd_clock.h"
 
 /* FD_POH_ALIGN is the alignment needed for a memory region to hold a
    fd_poh_t.  It is a positive integer power of 2. */
@@ -438,6 +439,13 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
 
   fd_sha256_t * sha256;
 
+  fd_clock_t clock[ 1 ];
+  long       recal_next;
+
+  fd_clock_epoch_t clock_epoch[ 1 ];
+
+  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
+
   fd_poh_out_t shred_out[ 1 ];
   fd_poh_out_t replay_out[ 1 ];
 
@@ -512,6 +520,15 @@ fd_poh1_mixin( fd_poh_t *          poh,
                uchar const *       hash,
                ulong               txn_cnt,
                fd_txn_p_t const *  txns );
+
+/* fd_poh_update_max_microblocks: Tighten the upper bound on
+   max_microblocks_per_slot using the latest bound from pack.
+   new_max is the un-inflated bound (pack's view).  PoH inflates
+   by +1 which causes it to wait for pack's slot_done message before
+   finishing a slot. */
+void
+fd_poh_update_max_microblocks( fd_poh_t * poh,
+                               ulong      new_max );
 
 FD_PROTOTYPES_END
 

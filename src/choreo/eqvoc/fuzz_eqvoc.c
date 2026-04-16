@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../tower/fd_tower.h"
 #include "fd_eqvoc.h"
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
@@ -46,10 +45,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   data += 32UL;
   size -= 32UL;
 
-  uchar voters_mem[16384] __attribute__((aligned(128)));
-  fd_tower_voters_t * tower_voters = fd_tower_voters_join( fd_tower_voters_new( voters_mem, 1 ) );
-  fd_tower_voters_push_tail( tower_voters, (fd_tower_voters_t){ .id_key = from } );
-  fd_eqvoc_update_voters( eqvoc, tower_voters );
+  fd_eqvoc_update_voters( eqvoc, &from, 1UL );
 
   while( size >= sizeof(fd_gossip_duplicate_shred_t) ) {
     fd_gossip_duplicate_shred_t chunk;

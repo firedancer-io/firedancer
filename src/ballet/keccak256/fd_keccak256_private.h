@@ -5,6 +5,19 @@
 
 FD_PROTOTYPES_BEGIN
 
+static ulong const fd_keccak256_rc[24] = {
+  0x0000000000000001UL, 0x0000000000008082UL, 0x800000000000808AUL, 0x8000000080008000UL,
+  0x000000000000808BUL, 0x0000000080000001UL, 0x8000000080008081UL, 0x8000000000008009UL,
+  0x000000000000008AUL, 0x0000000000000088UL, 0x0000000080008009UL, 0x000000008000000AUL,
+  0x000000008000808BUL, 0x800000000000008BUL, 0x8000000000008089UL, 0x8000000000008003UL,
+  0x8000000000008002UL, 0x8000000000000080UL, 0x000000000000800AUL, 0x800000008000000AUL,
+  0x8000000080008081UL, 0x8000000000008080UL, 0x0000000080000001UL, 0x8000000080008008UL
+};
+
+#if FD_HAS_S2NBIGNUM
+#include "fd_keccak256_s2n.c"
+#else
+
 /* The implementation below was derived from the original Keccak spec.
    See in particular:
 
@@ -16,15 +29,6 @@ FD_PROTOTYPES_BEGIN
 
 static inline void
 fd_keccak256_core( ulong * state ) {
- ulong const round_consts[24] = {
-    0x0000000000000001UL, 0x0000000000008082UL, 0x800000000000808AUL, 0x8000000080008000UL,
-    0x000000000000808BUL, 0x0000000080000001UL, 0x8000000080008081UL, 0x8000000000008009UL,
-    0x000000000000008AUL, 0x0000000000000088UL, 0x0000000080008009UL, 0x000000008000000AUL,
-    0x000000008000808BUL, 0x800000000000008BUL, 0x8000000000008089UL, 0x8000000000008003UL,
-    0x8000000000008002UL, 0x8000000000000080UL, 0x000000000000800AUL, 0x800000008000000AUL,
-    0x8000000080008081UL, 0x8000000000008080UL, 0x0000000080000001UL, 0x8000000080008008UL
-  };
-
   static uchar const rho_consts[24] = {
     1,  3,   6, 10,
     15, 21, 28, 36,
@@ -50,7 +54,7 @@ fd_keccak256_core( ulong * state ) {
   ulong t;
 
   for( ulong round = 0; round < NUM_ROUNDS; round++ ) {
-    // Theta step
+    /* Theta step */
     for( ulong i = 0; i < 5; i++ ) {
       b[i] = (state[i] ^ state[i+5] ^ state[i+10] ^ state[i+15] ^ state[i+20]);
     }
@@ -63,7 +67,7 @@ fd_keccak256_core( ulong * state ) {
       }
     }
 
-    // Rho and pi steps
+    /* Rho and pi steps */
     t = state[1];
     for( ulong i = 0; i < 24; i++ ) {
       ulong pi_val = pi_consts[i];
@@ -73,7 +77,7 @@ fd_keccak256_core( ulong * state ) {
       t = b[0];
     }
 
-    // Chi step
+    /* Chi step */
     for( ulong i = 0; i < 25; i += 5 ) {
       for( ulong j = 0; j < 5; j++ ) {
         b[j] = state[i+j];
@@ -83,13 +87,15 @@ fd_keccak256_core( ulong * state ) {
       }
     }
 
-    // Iota step
-    state[0] ^= round_consts[round];
+    /* Iota step */
+    state[0] ^= fd_keccak256_rc[round];
   }
 
 # undef NUM_ROUNDS
 # undef ROTATE
 }
+
+#endif /* FD_HAS_S2NBIGNUM */
 
 FD_PROTOTYPES_END
 

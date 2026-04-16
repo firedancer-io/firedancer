@@ -4,7 +4,7 @@
 
 #include "../../ballet/txn/fd_compact_u16.h"
 #include "../runtime/fd_system_ids.h"
-#include "../types/fd_types.h"
+#include "../runtime/program/vote/fd_vote_codec.h"
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/crds_data.rs#L22-L23 */
 #define WALLCLOCK_MAX_MILLIS (1000000000000000UL)
@@ -113,13 +113,8 @@
 static int
 deser_vote_instruction( uchar const * data,
                         ulong         data_len ) {
-  // TODO: NO FD TYPES
-  fd_bincode_decode_ctx_t ctx = { .data = data, .dataend = data+data_len };
-  ulong total_sz = 0UL;
-  CHECK( !fd_vote_instruction_decode_footprint( &ctx, &total_sz ) );
-  uchar * buf = fd_alloca_check( alignof(fd_vote_instruction_t), total_sz );
-  fd_vote_instruction_t * vote_instruction = fd_vote_instruction_decode( buf, &ctx );
-  CHECK( vote_instruction );
+  fd_vote_instruction_t vote_instruction[1];
+  CHECK( fd_vote_instruction_deserialize( vote_instruction, data, data_len ) );
   CHECK(
     vote_instruction->discriminant==fd_vote_instruction_enum_vote ||
     vote_instruction->discriminant==fd_vote_instruction_enum_vote_switch ||
@@ -212,9 +207,8 @@ deser_lowest_slot( fd_gossip_value_t * value,
   ulong root;
   READ_U64( root, payload, payload_sz );
   CHECK( !root );
-  ulong lowest;
-  READ_U64( lowest, payload, payload_sz );
-  CHECK( lowest<MAX_SLOT );
+  READ_U64( value->lowest_slot->lowest, payload, payload_sz );
+  CHECK( value->lowest_slot->lowest<MAX_SLOT );
   ulong slots_len;
   READ_U64( slots_len, payload, payload_sz );
   CHECK( !slots_len );

@@ -8,10 +8,10 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (268UL)
+#define FD_FEATURE_ID_CNT (271UL)
 
 /* Feature set ID calculated from all feature names */
-#define FD_FEATURE_SET_ID (1674174145U)
+#define FD_FEATURE_SET_ID (2440578458U)
 
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
@@ -225,7 +225,7 @@ union fd_features {
     /* 0xe5937c9dd5edd306 */ ulong reenable_sbpf_v0_execution;
     /* 0xefc2cb9c2b40f3ff */ ulong enable_sbpf_v1_deployment_and_execution;
     /* 0x408e6a8a269a6ad1 */ ulong enable_sbpf_v2_deployment_and_execution;
-    /* 0x66ee381e7be8bc9b */ ulong enable_sbpf_v3_deployment_and_execution;
+    /* 0x0f1fc5fdd7907244 */ ulong enable_sbpf_v3_deployment_and_execution;
     /* 0xf46b1f18665c4236 */ ulong migrate_feature_gate_program_to_core_bpf;
     /* 0xa9a90df1904da912 */ ulong migrate_config_program_to_core_bpf;
     /* 0x2434a84be5b684a5 */ ulong migrate_address_lookup_table_program_to_core_bpf;
@@ -279,10 +279,13 @@ union fd_features {
     /* 0xa5ce8f931961b80c */ ulong relax_programdata_account_check_migration;
     /* 0xf55c421c9eccc012 */ ulong remove_simple_vote_from_cost_model;
     /* 0x7428565ab3b6d152 */ ulong limit_instruction_accounts;
-    /* 0x8b0786cd93f63607 */ ulong validator_admission_ticket;
-    /* 0x6d9baef98a3cfd0c */ ulong discard_unexpected_data_complete_shreds;
+    /* 0xd2ff523ae3f23607 */ ulong validator_admission_ticket;
+    /* 0x6735cf1d3c656109 */ ulong discard_unexpected_data_complete_shreds;
     /* 0x632b9b7c9e9a3257 */ ulong create_account_allow_prefund;
     /* 0xa4c86f030ee0440c */ ulong replace_spl_token_with_p_token;
     /* 0xf5434d796d0f975a */ ulong delay_commission_updates;
+    /* 0x7f5bea39613bbc0d */ ulong validate_chained_block_id;
+    /* 0xfde26f7b21c28506 */ ulong upgrade_bpf_stake_program_to_v5;
+    /* 0x56be0396e05cdd06 */ ulong enable_sha512_syscall;
   };
 };

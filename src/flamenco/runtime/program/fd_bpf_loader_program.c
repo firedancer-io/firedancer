@@ -161,8 +161,6 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   config.sbpf_max_version = versions.max_sbpf_version;
 
   if( FD_UNLIKELY( fd_sbpf_elf_peek( elf_info, programdata, programdata_size, &config )<0 ) ) {
-    //TODO: actual log, this is a custom Firedancer msg
-    fd_log_collector_msg_literal( instr_ctx, "Failed to load or verify Elf" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -477,7 +475,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
        In this case, Agave fails the transaction but does not error out.
 
        https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1396 */
-    FD_LOG_WARNING(( "null vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
@@ -2579,7 +2576,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_funk_txn_xid_t xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
   fd_progcache_t * progcache = ctx->runtime->progcache;
   fd_progcache_rec_t * cache_entry =
-      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro );
+      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro, fd_type_pun_const( metadata->owner ) );
   if( FD_UNLIKELY( !cache_entry ) ) {
     fd_log_collector_msg_literal( ctx, "Program is not cached" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

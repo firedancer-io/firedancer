@@ -142,7 +142,7 @@ struct fd_snapshot_manifest_vote_stakes {
 
 typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes_t;
 
-#define FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN 2UL
+#define FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN 3UL
 
 struct fd_snapshot_manifest_epoch_stakes {
    /* The epoch for which these vote accounts and stakes are valid for */
@@ -468,8 +468,8 @@ struct fd_snapshot_manifest {
   fd_snapshot_manifest_stake_delegation_t stake_delegations[ 3000000UL ];
 
   /* Epoch stakes represent the exact amount staked to each vote
-     account at the beginning of the previous epoch. They are
-     primarily used to derive the leader schedule.
+     account at the beginning of a previous epoch.  They are primarily
+     used to derive the leader schedule.
 
      Let's say the manifest is at epoch E.
 
@@ -479,17 +479,23 @@ struct fd_snapshot_manifest {
 
      where <epoch> assumes these values:
 
+       E-1 - represents the stakes at the beginning of epoch E-2,
+             used to compute the leader schedule at E-1.  Also used
+             by delay_commission_updates (SIMD-0249) to determine
+             the commission rate for partitioned epoch rewards
+             recalculation at boot.
+
        E   - represents the stakes at the beginning of epoch E-1,
              used to compute the leader schedule at E.
 
        E+1 - represents the stakes at the beginning of epoch E,
              used to compute the leader schedule at E+1.
 
-     The epoch stakes are stored in an array, where epoch_stakes[0]
-     contains the data to generate the current leader schedule (i.e. E)
-     and epoch_stakes[1] contains the data to generate the next leader
-     schedule (i.e. E+1). */
-  fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ 2UL ];
+     The epoch stakes are stored in an array:
+       epoch_stakes[0] = epoch E-1
+       epoch_stakes[1] = epoch E
+       epoch_stakes[2] = epoch E+1 */
+  fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ 3UL ];
 };
 
 typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;

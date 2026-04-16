@@ -5,7 +5,6 @@
 #include "fd_progcache_rec.h"
 #include "fd_progcache_reclaim.h"
 #include "../../util/racesan/fd_racesan_target.h"
-#include "../../util/wksp/fd_wksp_private.h"
 
 /* FIXME get rid of this thread-local */
 FD_TL fd_progcache_admin_metrics_t fd_progcache_admin_metrics_g;
@@ -438,7 +437,7 @@ reset_rec_map( fd_progcache_join_t * cache ) {
 
       rec->exists = 0;
       fd_prog_clock_remove( cache->clock.bits, (ulong)( rec-rec0 ) );
-      fd_prog_recp_release( cache->rec.pool, rec, 1 );
+      fd_prog_recp_release( cache->rec.pool, rec );
       iter.ele_idx = next;
     }
   }
@@ -617,43 +616,4 @@ fd_progcache_verify( fd_progcache_join_t * join ) {
 # undef TEST
 
   return 0;
-}
-
-void
-fd_progcache_wksp_metrics_update( fd_progcache_join_t * cache ) {
-  fd_wksp_t * wksp = fd_wksp_containing( cache->shmem );
-  if( FD_UNLIKELY( !wksp ) ) return;
-  if( FD_UNLIKELY( fd_wksp_private_lock( wksp ) ) ) FD_LOG_CRIT(( "fd_wksp_private_lock failed" ));
-
-  fd_wksp_private_pinfo_t * pinfo = fd_wksp_private_pinfo( wksp );
-  ulong part_max  = wksp->part_max;
-  ulong cycle_tag = wksp->cycle_tag++;
-
-  ulong free_part_cnt    = 0UL;
-  ulong free_sz     = 0UL;
-  ulong total_sz    = 0UL;
-  ulong free_part_max = 0UL;
-
-  ulong i = fd_wksp_private_pinfo_idx( wksp->part_head_cidx );
-  while( !fd_wksp_private_pinfo_idx_is_null( i ) ) {
-    if( FD_UNLIKELY( i>=part_max ) || FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) {
-      FD_LOG_CRIT(( "corrupt wksp detected" ));
-    }
-    pinfo[ i ].cycle_tag = cycle_tag; /* mark i as visited */
-    ulong part_sz  = fd_wksp_private_pinfo_sz( pinfo + i );
-    ulong part_tag = pinfo[ i ].tag;
-    ulong free_psz = fd_ulong_if( !part_tag, part_sz, 0UL );
-    free_part_cnt  += !part_tag;
-    free_sz        += free_psz;
-    total_sz       += part_sz;
-    free_part_max   = fd_ulong_max( free_part_max, free_psz );
-    i = fd_wksp_private_pinfo_idx( pinfo[ i ].next_cidx );
-  }
-  fd_wksp_private_unlock( wksp );
-
-  fd_progcache_admin_metrics_t * m = &fd_progcache_admin_metrics_g;
-  m->wksp.free_part_cnt = free_part_cnt;
-  m->wksp.free_sz       = free_sz;
-  m->wksp.total_sz      = total_sz;
-  m->wksp.free_part_max = free_part_max;
 }

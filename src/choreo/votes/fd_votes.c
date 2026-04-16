@@ -1,4 +1,3 @@
-#include "../tower/fd_tower.h"
 #include "fd_votes.h"
 
 /* fd_votes tracks blks, vtrs, and slots.
@@ -373,8 +372,26 @@ fd_votes_blk_t *
 fd_votes_query( fd_votes_t *      votes,
                 ulong             slot,
                 fd_hash_t const * block_id ) {
-  fd_votes_blk_key_t key = { .slot = slot, .block_id = *block_id };
-  return blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
+
+  if( FD_LIKELY( block_id ) ) {
+    fd_votes_blk_key_t key = { .slot = slot, .block_id = *block_id };
+    return blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
+  }
+
+  /* NULL block_id: search all block_ids for this slot, return the one
+     with the highest forward confirmation level. */
+
+  slot_t * votes_slot = slot_map_ele_query( votes->slot_map, &slot, NULL, votes->slot_pool );
+  if( FD_UNLIKELY( !votes_slot ) ) return NULL;
+
+  blk_t * best = NULL;
+  for( blk_dlist_iter_t iter = blk_dlist_iter_fwd_init( votes_slot->blks, votes->blk_pool );
+       !blk_dlist_iter_done( iter, votes_slot->blks, votes->blk_pool );
+       iter = blk_dlist_iter_fwd_next( iter, votes_slot->blks, votes->blk_pool ) ) {
+    blk_t * blk = blk_dlist_iter_ele( iter, votes_slot->blks, votes->blk_pool );
+    if( FD_UNLIKELY( ( blk->flags >> 4 ) > ( best ? best->flags >> 4 : 0 ) ) ) best = blk;
+  }
+  return best;
 }
 
 void
@@ -398,10 +415,10 @@ fd_votes_publish( fd_votes_t * votes,
 }
 
 void
-fd_votes_update_voters( fd_votes_t *              votes,
-                        fd_tower_voters_t const * tower_voters,
-                        fd_tower_stakes_t *       tower_stakes,
-                        ulong                     root_slot ) {
+fd_votes_update_voters( fd_votes_t *        votes,
+                        fd_pubkey_t const * vote_accs,
+                        ulong const *       stakes,
+                        ulong               cnt ) {
 
   /* Mark all existing voters for removal. */
 
@@ -411,17 +428,14 @@ fd_votes_update_voters( fd_votes_t *              votes,
     votes->vtr_pool[iter].next = 1; /* mark for removal */
   }
 
-  /* Build a set of kept old bit positions.  Walk tower_voters,
+  /* Build a set of kept old bit positions.  Walk voters,
      keep/add matching voters, and update stakes.  Existing voters
      keep their old bit positions (no compaction). */
 
   slot_vtrs_null( votes->vtr_set );
 
-  for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( tower_voters );
-                                    !fd_tower_voters_iter_done( tower_voters, iter );
-                              iter = fd_tower_voters_iter_next( tower_voters, iter ) ) {
-    fd_tower_voters_t const * tower_vtr = fd_tower_voters_iter_ele_const( tower_voters, iter );
-    fd_pubkey_t const *       vote_acc  = &tower_vtr->vote_acc;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t const * vote_acc = &vote_accs[i];
     vtr_t * vtr = vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool );
     if( FD_UNLIKELY( !vtr ) ) {
       vtr           = vtr_pool_ele_acquire( votes->vtr_pool );
@@ -436,9 +450,7 @@ fd_votes_update_voters( fd_votes_t *              votes,
     vtr->next = 0; /* unmark for removal */
     vtr_dlist_ele_push_tail( votes->vtr_dlist, vtr, votes->vtr_pool );
 
-    fd_tower_stakes_vtr_xid_t stake_xid = { .addr = tower_vtr->vote_acc, .slot = root_slot };
-    fd_tower_stakes_vtr_t *   stake_vtr = fd_tower_stakes_vtr_map_ele_query( tower_stakes->vtr_map, &stake_xid, NULL, tower_stakes->vtr_pool );
-    if( FD_LIKELY( stake_vtr ) ) vtr->stake = stake_vtr->stake;
+    vtr->stake = stakes[i];
   }
 
   /* Pop unwanted voters from the head until we hit a kept voter. */

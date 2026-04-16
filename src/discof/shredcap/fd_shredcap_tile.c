@@ -1,6 +1,7 @@
 #define _GNU_SOURCE  /* Enable GNU and POSIX extensions */
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/net/fd_net_tile.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -329,7 +330,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   ctl ) {
   ctx->skip_frag = 0;
   if( ctx->in_kind[ in_idx ]==SHRED_OUT ) {
-    if( fd_disco_shred_out_msg_type( sig ) != FD_SHRED_OUT_MSG_TYPE_FEC ) {
+    if( sig != SHRED_SIG_FEC_COMPLETE && sig != SHRED_SIG_FEC_COMPLETE_LEADER ) {
       ctx->skip_frag = 1;
       return;
     }
@@ -574,8 +575,10 @@ after_frag( fd_capture_tile_ctx_t * ctx,
     /* This is a fec completes message! we can use it to check how long
        it takes to complete a fec */
 
-    fd_shred_t const * shred = (fd_shred_t *)fd_type_pun( ctx->shred_buffer );
-    uint data_cnt = fd_disco_shred_out_fec_sig_data_cnt( sig );
+    fd_fec_complete_t const * completes = (fd_fec_complete_t *)fd_type_pun( ctx->shred_buffer );
+    fd_shred_t const * shred = &completes->last_shred_hdr;
+
+    uint data_cnt = FD_FEC_SHRED_CNT;
     uint ref_tick = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     char fec_complete[1024];
     snprintf( fec_complete, sizeof(fec_complete),

@@ -28,6 +28,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_get_sysvar_syscall        = 0;
   int enable_get_epoch_stake_syscall   = 0;
   int enable_bls12_381_syscall         = 0;
+  int enable_sha512_syscall            = 0;
 
   if( slot ) {
     enable_blake3_syscall            = FD_FEATURE_ACTIVE( slot, features, blake3_syscall_enabled );
@@ -35,6 +36,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_get_sysvar_syscall        = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall   = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
     enable_bls12_381_syscall         = FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall );
+    enable_sha512_syscall            = FD_FEATURE_ACTIVE( slot, features, enable_sha512_syscall );
 
   } else { /* enable ALL */
 
@@ -43,6 +45,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_get_sysvar_syscall        = 1;
     enable_get_epoch_stake_syscall   = 1;
     enable_bls12_381_syscall         = 1;
+    enable_sha512_syscall            = 1;
 
   }
 
@@ -89,6 +92,9 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
   if( enable_blake3_syscall )
     REGISTER( "sol_blake3",                          fd_vm_syscall_sol_blake3 );
+
+  if( enable_sha512_syscall )
+    REGISTER( "sol_sha512",                          fd_vm_syscall_sol_sha512 );
 
   REGISTER( "sol_get_clock_sysvar",                  fd_vm_syscall_sol_get_clock_sysvar );
   REGISTER( "sol_get_epoch_schedule_sysvar",         fd_vm_syscall_sol_get_epoch_schedule_sysvar );

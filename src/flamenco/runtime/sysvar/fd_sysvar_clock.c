@@ -1,10 +1,10 @@
-#include "fd_sysvar.h"
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_system_ids.h"
 #include "../program/fd_program_util.h"
 #include "../program/vote/fd_vote_state_versioned.h"
+#include "../program/vote/fd_vote_codec.h"
 #include "../../accdb/fd_accdb_sync.h"
 
 /* Syvar Clock Possible Values:
@@ -56,24 +56,6 @@ unix_timestamp_from_genesis( fd_bank_t * bank ) {
       (long)( fd_uint128_sat_mul( bank->f.slot, bank->f.ns_per_slot.ud ) / NS_IN_S ) );
 }
 
-void
-fd_sysvar_clock_write( fd_bank_t *               bank,
-                       fd_accdb_user_t *         accdb,
-                       fd_funk_txn_xid_t const * xid,
-                       fd_capture_ctx_t *        capture_ctx,
-                       fd_sol_sysvar_clock_t *   clock ) {
-  uchar enc[ sizeof(fd_sol_sysvar_clock_t) ];
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = enc,
-    .dataend = enc + sizeof(fd_sol_sysvar_clock_t),
-  };
-  if( FD_UNLIKELY( fd_sol_sysvar_clock_encode( clock, &ctx ) ) ) {
-    FD_LOG_ERR(( "fd_sol_sysvar_clock_encode failed" ));
-  }
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
-}
-
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
@@ -87,17 +69,15 @@ fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
      in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro ) == 0UL ||
+                   fd_accdb_ref_data_sz ( ro ) <  sizeof(fd_sol_sysvar_clock_t) ) ) {
     fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
-  fd_sol_sysvar_clock_t * res = fd_bincode_decode_static(
-      sol_sysvar_clock, clock,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
+  fd_memcpy( clock, fd_accdb_ref_data_const( ro ), sizeof(fd_sol_sysvar_clock_t) );
   fd_accdb_close_ro( accdb, ro );
-  return res;
+  return clock;
 }
 
 void
@@ -161,11 +141,12 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
         continue;
       }
-      if( FD_UNLIKELY( !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) ) {
+      if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( ro->meta ) ) ) {
         fd_accdb_close_ro( accdb, ro );
         continue;
       }
-      fd_vote_block_timestamp_t last_vote = fd_vsv_get_vote_block_timestamp( fd_account_data( ro->meta ), ro->meta->dlen );
+      fd_vote_block_timestamp_t last_vote;
+      FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( ro->meta ), ro->meta->dlen, &last_vote ) );
       fd_accdb_close_ro( accdb, ro );
       last_vote_slot      = last_vote.slot;
       last_vote_timestamp = last_vote.timestamp;
@@ -312,7 +293,10 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
      if we are currently in epoch E. We do not count vote accounts that
      have not voted in an epoch's worth of slots (432k). */
 
-  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+  ulong curr_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.slot, NULL );
+  ulong vat_epoch  = fd_slot_to_epoch( epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+
+  if( curr_epoch>=vat_epoch+1UL ) {
     accum_vote_stakes_vat( bank, runtime_stack, &total_stake, &ts_ele_cnt );
   } else {
     accum_vote_stakes_no_vat( accdb, xid, bank, runtime_stack, &total_stake, &ts_ele_cnt );

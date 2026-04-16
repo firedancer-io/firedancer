@@ -341,17 +341,6 @@ dump_epoch_schedule( fd_bank_t *                     bank,
 }
 
 static void
-dump_rent( fd_bank_t *           bank,
-           fd_exec_test_rent_t * out ) {
-  fd_rent_t const * r = &bank->f.rent;
-  *out = (fd_exec_test_rent_t){
-    .lamports_per_byte_year = r->lamports_per_uint8_year,
-    .exemption_threshold    = r->exemption_threshold,
-    .burn_percent           = r->burn_percent,
-  };
-}
-
-static void
 dump_blockhash_queue( fd_bank_t *                             bank,
                       fd_spad_t *                             spad,
                       fd_exec_test_blockhash_queue_entry_t ** entries_out,
@@ -400,10 +389,6 @@ dump_txn_bank( fd_bank_t *                  bank,
   /* TxnBank -> epoch_schedule */
   txn_bank->has_epoch_schedule = true;
   dump_epoch_schedule( bank, &txn_bank->epoch_schedule );
-
-  /* TxnBank -> rent */
-  txn_bank->has_rent = true;
-  dump_rent( bank, &txn_bank->rent );
 
   /* TxnBank -> features */
   txn_bank->has_features = true;
@@ -675,13 +660,15 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_pubkey_t va_pubkey = FD_LOAD( fd_pubkey_t, va_t1[i].address );
     uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &va_pubkey, UINT_MAX, runtime_stack->stakes.vote_ele );
     if( idx==UINT_MAX ) continue;
-    ulong cnt = runtime_stack->stakes.epoch_credits[idx].cnt;
+    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( parent_bank )[idx];
+    ulong cnt  = ec->cnt;
+    ulong base = ec->base_credits;
     va_t1[i].epoch_credits_count = (pb_size_t)cnt;
     va_t1[i].epoch_credits = fd_spad_alloc( spad, alignof(fd_exec_test_epoch_credit_t), cnt * sizeof(fd_exec_test_epoch_credit_t) );
     for( ulong j=0; j<cnt; j++ ) {
-      va_t1[i].epoch_credits[j].epoch        = runtime_stack->stakes.epoch_credits[idx].epoch[j];
-      va_t1[i].epoch_credits[j].credits      = runtime_stack->stakes.epoch_credits[idx].credits[j];
-      va_t1[i].epoch_credits[j].prev_credits = runtime_stack->stakes.epoch_credits[idx].prev_credits[j];
+      va_t1[i].epoch_credits[j].epoch        = ec->epoch[j];
+      va_t1[i].epoch_credits[j].credits      = base + ec->credits_delta[j];
+      va_t1[i].epoch_credits[j].prev_credits = base + ec->prev_credits_delta[j];
     }
   }
 
@@ -766,10 +753,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->has_epoch_schedule = true;
   dump_epoch_schedule( parent_bank, &block_bank->epoch_schedule );
 
-  /* BlockBank -> rent */
-  block_bank->has_rent = true;
-  dump_rent( parent_bank, &block_bank->rent );
-
   /* BlockBank -> features */
   block_bank->has_features = true;
   dump_sorted_features( &parent_bank->f.features, &block_bank->features, spad );
@@ -779,8 +762,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   block_bank->vote_accounts_t_1_count = va_t1_cnt;
   block_bank->vote_accounts_t_2       = va_t2;
   block_bank->vote_accounts_t_2_count = va_t2_cnt;
-
-  /* TODO: dump stake_delegations_t_1 */
 }
 
 static void

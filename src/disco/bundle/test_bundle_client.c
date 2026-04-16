@@ -1477,6 +1477,43 @@ test_deque_overflow_guard( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
 }
 
+/* Verify that an HTTP error on each request type clears the
+   corresponding wait flag so that step_reconnect can retry. */
+
+static void
+test_request_failed_clears_wait( fd_wksp_t * wksp ) {
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * state = env->state;
+
+  fd_grpc_resp_hdrs_t hdrs = {
+    .h2_status   = 503,
+    .grpc_status = FD_GRPC_STATUS_OK
+  };
+
+  /* GetBlockBuilderFeeInfo: builder_info_wait should be cleared */
+  state->builder_info_wait = 1;
+  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, &hdrs );
+  FD_TEST( state->builder_info_wait==0 );
+
+  /* SubscribePackets: packet_subscription_wait should be cleared */
+  state->packet_subscription_wait = 1;
+  state->packet_subscription_live = 1;
+  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets, &hdrs );
+  FD_TEST( state->packet_subscription_wait==0 );
+  FD_TEST( state->packet_subscription_live==0 );
+
+  /* SubscribeBundles: bundle_subscription_wait should be cleared */
+  state->bundle_subscription_wait = 1;
+  state->bundle_subscription_live = 1;
+  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles, &hdrs );
+  FD_TEST( state->bundle_subscription_wait==0 );
+  FD_TEST( state->bundle_subscription_live==0 );
+
+  test_bundle_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1516,6 +1553,7 @@ main( int     argc,
   test_packet_drain_batch( wksp );
   test_interleaved_drain( wksp );
   test_deque_overflow_guard( wksp );
+  test_request_failed_clears_wait( wksp );
 
   /* Check for memory leaks */
   fd_wksp_usage_t wksp_usage;

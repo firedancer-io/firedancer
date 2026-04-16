@@ -155,6 +155,7 @@ fd_gui_new( void *                shmem,
   gui->summary.resolv_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolv" );
   gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
   gui->summary.execle_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execle" );
+  gui->summary.execrp_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "execrp" );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
 
   gui->summary.slot_rooted                   = ULONG_MAX;
@@ -276,6 +277,11 @@ fd_gui_ws_open( fd_gui_t * gui,
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
   for( ulong i=0UL; i<printers_len; i++ ) {
     printers[ i ]( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  }
+
+  if( FD_LIKELY( gui->summary.is_full_client ) ) {
+    fd_gui_printf_live_program_cache( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
@@ -1030,6 +1036,11 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_gui_printf_live_tile_stats( gui, gui->summary.tile_stats_reference, gui->summary.tile_stats_current );
     fd_http_server_ws_broadcast( gui->http );
 
+    if( FD_LIKELY( gui->summary.is_full_client ) ) {
+      fd_gui_printf_live_program_cache( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+
     if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {
       fd_gui_run_boot_progress( gui, now );
       fd_gui_printf_boot_progress( gui );
@@ -1426,7 +1437,7 @@ fd_gui_request_slot_transactions( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) {
-    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_transactions", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
@@ -1447,7 +1458,7 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) {
-    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_detailed", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
@@ -2490,10 +2501,11 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
 
   ulong snapshot_idx = fd_ulong_if( msg->type==FD_SNAPCT_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
 
-  char const * filename = strrchr(msg->read_path, '/');
+  char const * filename = strrchr( msg->read_path, '/' );
 
   /* Skip the '/'  */
-  if( FD_UNLIKELY( filename ) ) filename++;
+  if( FD_LIKELY( filename ) ) filename++;
+  else                        filename = msg->read_path;
 
   if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_INCREMENTAL) {
       ulong slot1, slot2;

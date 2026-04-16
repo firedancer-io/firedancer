@@ -74,19 +74,9 @@ static pid_t pid_namespace;
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
-extern int * fd_log_private_shared_lock;
-
 static void
 parent_signal( int sig ) {
   if( FD_LIKELY( pid_namespace ) ) kill( pid_namespace, SIGKILL );
-
-  /* A pretty gross hack.  For the local process, clear the lock so that
-     we can always print the messages without waiting on another process,
-     particularly if one of those processes might have just died.  The
-     signal handler is re-entrant so this also avoids a deadlock since
-     the log lock is not re-entrant. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
@@ -221,8 +211,6 @@ execve_tile( fd_topo_tile_t const * tile,
   return 0;
 }
 
-extern int * fd_log_private_shared_lock;
-
 int
 main_pid_namespace( void * _args ) {
   struct pidns_clone_args * args = _args;
@@ -261,10 +249,6 @@ main_pid_namespace( void * _args ) {
 
   int config_memfd = fd_config_to_memfd( config );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "fd_config_to_memfd() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  if( FD_UNLIKELY( config->development.debug_tile ) ) {
-    fd_log_private_shared_lock[1] = 1;
-  }
 
   ulong child_cnt = 0UL;
   if( FD_LIKELY( !config->is_firedancer && !config->development.no_agave ) ) {
@@ -331,7 +315,6 @@ main_pid_namespace( void * _args ) {
     FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( need_xdp ) {
     for( uint i=0U; i<xdp_fds_cnt; i++ ) {
       if( FD_UNLIKELY( close( xdp_fds[i].xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -377,12 +360,6 @@ main_pid_namespace( void * _args ) {
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
-
-  /* The supervsior process should not share the log lock, because a
-     child process might die while holding it and we still need to
-     reap and print errors. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
   /* Reap child process PIDs so they don't show up in `ps` etc.  All of
      these children should have exited immediately after clone(2)'ing
@@ -533,7 +510,10 @@ warn_unknown_files( config_t const * config,
   }
 
   struct dirent * entry;
-  while(( FD_LIKELY( entry = readdir( dir ) ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_UNLIKELY( !strcmp( entry->d_name, ".") || !strcmp( entry->d_name, ".." ) ) ) continue;
 
     char entry_path[ PATH_MAX ];
@@ -569,7 +549,7 @@ warn_unknown_files( config_t const * config,
     if( FD_UNLIKELY( !known_file ) ) FD_LOG_WARNING(( "unknown file `%s` found in `%s`", entry->d_name, mount_path ));
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "error reading dir `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "error reading dir `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "error closing `%s` (%i-%s)", mount_path, errno, fd_io_strerror( errno ) ));
 }
 
@@ -854,8 +834,6 @@ run_firedancer( config_t * config,
      get interleaved due to timing windows in the shutdown. */
   install_parent_signals();
 
-  if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
   struct sock_filter seccomp_filter[ 128UL ];
   populate_sock_filter_policy_main( 128UL, seccomp_filter, (uint)fd_log_private_logfile_fd(), (uint)pid_namespace );
 
@@ -887,12 +865,6 @@ run_firedancer( config_t * config,
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
-
-  /* The supervsior process should not share the log lock, because a
-     child process might die while holding it and we still need to
-     reap and print errors. */
-  int lock = 0;
-  fd_log_private_shared_lock = &lock;
 
   /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
      so if wait4() completes, it must be an error */

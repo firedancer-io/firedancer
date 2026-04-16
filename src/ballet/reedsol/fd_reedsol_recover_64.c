@@ -402,7 +402,6 @@ fd_reedsol_private_recover_var_64( ulong           shred_sz,
       FD_REEDSOL_GENERATE_FFT(  64, 128, ALL_VARS );
 
       switch( fd_ulong_min( shreds_remaining, 64UL ) ) {
-        case  7UL: STORE_COMPARE( 134, in06 ); FALLTHRU
         case  6UL: STORE_COMPARE( 133, in05 ); FALLTHRU
         case  5UL: STORE_COMPARE( 132, in04 ); FALLTHRU
         case  4UL: STORE_COMPARE( 131, in03 ); FALLTHRU
@@ -415,6 +414,9 @@ fd_reedsol_private_recover_var_64( ulong           shred_sz,
     if( FD_UNLIKELY( GF_ANY( diff ) ) ) return FD_REEDSOL_ERR_CORRUPT;
     shred_pos += GF_WIDTH;
     shred_pos = fd_ulong_if( ((shred_sz-GF_WIDTH)<shred_pos) & (shred_pos<shred_sz), shred_sz-GF_WIDTH, shred_pos );
+    #undef STORE_COMPARE_RELOAD
+    #undef STORE_COMPARE
+    #undef ALL_VARS
   }
   return FD_REEDSOL_SUCCESS;
 }

@@ -267,6 +267,17 @@ fd_poh_must_publish_skipped_tick( fd_poh_t const * poh ) {
 }
 
 void
+fd_poh_update_max_microblocks( fd_poh_t * poh,
+                               ulong      new_max ) {
+  ulong inflated = new_max + 1UL;
+
+  /* Guaranteed to be monotonically decreasing. */
+  FD_TEST( inflated <= poh->max_microblocks_per_slot );
+  poh->max_microblocks_per_slot = inflated;
+  FD_TEST( poh->max_microblocks_per_slot >= poh->microblocks_lower_bound );
+}
+
+void
 fd_poh_done_packing( fd_poh_t * poh,
                      ulong      microblocks_in_slot ) {
   FD_TEST( poh->state==STATE_LEADER );
@@ -498,7 +509,7 @@ fd_poh_advance( fd_poh_t *          poh,
   /* Now figure out how many hashes are needed to "catch up" the hash
      count to the current system clock, and clamp it to the allowed
      range. */
-  long now = fd_log_wallclock();
+  long now = fd_clock_epoch_y( poh->clock_epoch, fd_tickcount() );
   ulong target_hashcnt;
   if( FD_LIKELY( poh->state==STATE_FOLLOWER ||poh->state==STATE_WAITING_FOR_SLOT ) ) {
     target_hashcnt = (ulong)((double)(now - poh->reset_slot_start_ns) / poh->hashcnt_duration_ns) - (poh->slot-poh->reset_slot)*poh->hashcnt_per_slot;

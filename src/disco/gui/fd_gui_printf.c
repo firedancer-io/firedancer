@@ -1095,6 +1095,58 @@ fd_gui_printf_estimated_tps( fd_gui_t * gui ) {
   jsonp_close_envelope( gui->http );
 }
 
+void
+fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
+  fd_topo_t const * topo = gui->topo;
+
+  ulong hits            = 0UL;
+  ulong lookups         = 0UL;
+  ulong insertions      = 0UL;
+  ulong insertion_bytes = 0UL;
+  ulong evictions       = 0UL;
+  ulong eviction_bytes  = 0UL;
+  ulong spills          = 0UL;
+  ulong spill_bytes     = 0UL;
+
+  for( ulong i=0UL; i<gui->summary.execrp_tile_cnt; i++ ) {
+    fd_topo_tile_t const * execrp = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
+    volatile ulong const * metrics = fd_metrics_tile( execrp->metrics );
+
+    hits            += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_HITS           ) ];
+    lookups         += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_LOOKUPS        ) ];
+    insertions      += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILLS          ) ];
+    insertion_bytes += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILL_BYTES     ) ];
+    evictions       += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTIONS      ) ];
+    eviction_bytes  += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTION_BYTES ) ];
+    spills          += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILLS         ) ];
+    spill_bytes     += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILL_BYTES    ) ];
+  }
+
+  ulong free_bytes = 0UL;
+  ulong size_bytes = 0UL;
+
+  fd_topo_tile_t const * replay = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
+  volatile ulong const * replay_metrics = fd_metrics_tile( replay->metrics );
+
+  free_bytes = replay_metrics[ MIDX( GAUGE, REPLAY, PROGCACHE_FREE_BYTES ) ];
+  size_bytes = replay_metrics[ MIDX( GAUGE, REPLAY, PROGCACHE_SIZE_BYTES ) ];
+
+  jsonp_open_envelope( gui->http, "summary", "live_program_cache" );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_ulong( gui->http, "hits",            hits            );
+      jsonp_ulong( gui->http, "lookups",         lookups         );
+      jsonp_ulong( gui->http, "insertions",      insertions      );
+      jsonp_ulong( gui->http, "insertion_bytes", insertion_bytes );
+      jsonp_ulong( gui->http, "evictions",       evictions       );
+      jsonp_ulong( gui->http, "eviction_bytes",  eviction_bytes  );
+      jsonp_ulong( gui->http, "spills",          spills          );
+      jsonp_ulong( gui->http, "spill_bytes",     spill_bytes     );
+      jsonp_ulong( gui->http, "free_bytes",      free_bytes      );
+      jsonp_ulong( gui->http, "size_bytes",      size_bytes      );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
 static int
 fd_gui_gossip_contains( fd_gui_t const * gui,
                         uchar const *    pubkey ) {
@@ -1196,7 +1248,8 @@ fd_gui_printf_peer( fd_gui_t *    gui,
     }
 
     jsonp_open_array( gui->http, "vote" );
-      for( ulong i=0UL; i<vote_idx_cnt; i++ ) {
+      ulong vote_idx_cnt_bounded = fd_ulong_min( vote_idx_cnt, 5UL );
+      for( ulong i=0UL; i<vote_idx_cnt_bounded; i++ ) {
         jsonp_open_object( gui->http, NULL );
           char vote_account_base58[ FD_BASE58_ENCODED_32_SZ ];
           fd_base58_encode_32( gui->vote_account.vote_accounts[ vote_idxs[ i ] ].vote_account->uc, NULL, vote_account_base58 );
@@ -1786,7 +1839,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
     duration_nanos = slot->completed_time - parent_slot->completed_time;
   }
 
-  jsonp_open_envelope( gui->http, "slot", "query" );
+  jsonp_open_envelope( gui->http, "slot", "query_transactions" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
       fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
@@ -2063,7 +2116,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
     duration_nanos = slot->completed_time - parent_slot->completed_time;
   }
 
-  jsonp_open_envelope( gui->http, "slot", "query" );
+  jsonp_open_envelope( gui->http, "slot", "query_detailed" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
       fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );

@@ -117,7 +117,11 @@ http_init_ssl( fd_sshttp_t * http ) {
     FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d) for %s", alpn_res, http->hostname ));
   }
 
-  /* set SNI */
+  /* set SNI and hostname verification */
+  long sni_res = SSL_set_tlsext_host_name( http->ssl, http->hostname );
+  if( FD_UNLIKELY( !sni_res ) ) {
+    FD_LOG_ERR(( "SSL_set_tlsext_host_name failed (%ld) for %s", sni_res, http->hostname ));
+  }
   int set1_host_res = SSL_set1_host( http->ssl, http->hostname );
   if( FD_UNLIKELY( !set1_host_res ) ) {
     FD_LOG_ERR(( "SSL_set1_host failed (%d) for %s", set1_host_res, http->hostname ));
@@ -125,13 +129,14 @@ http_init_ssl( fd_sshttp_t * http ) {
 }
 #endif
 
-void
+int
 fd_sshttp_init( fd_sshttp_t * http,
                 fd_ip4_port_t addr,
                 char const *  hostname,
                 int           is_https,
                 char const *  path,
                 ulong         path_len,
+                ulong         hops,
                 long          now ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
@@ -146,7 +151,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 #endif
   }
 
-  http->hops         = 4UL;
+  if( hops!=ULONG_MAX ) http->hops = hops;
   http->request_sent = 0UL;
   if( FD_LIKELY( is_https ) ) {
     FD_TEST( fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
@@ -192,7 +197,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 #if FD_HAS_OPENSSL
       if( FD_LIKELY( http->ssl ) ) { SSL_free( http->ssl ); http->ssl = NULL; }
 #endif
-      return;
+      return -1;
     }
   }
 
@@ -206,6 +211,8 @@ fd_sshttp_init( fd_sshttp_t * http,
     http->state    = FD_SSHTTP_STATE_REQ;
     http->deadline = now + FD_SSHTTP_DEADLINE_NANOS;
   }
+
+  return 0;
 }
 
 #if FD_HAS_OPENSSL
@@ -311,7 +318,9 @@ static int
 setup_redirect( fd_sshttp_t * http,
               long          now ) {
   fd_sshttp_cancel( http );
-  fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, now );
+  if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, http->location, http->location_len, ULONG_MAX, now ) ) ) {
+    return FD_SSHTTP_ADVANCE_ERROR;
+  }
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
 
@@ -510,7 +519,9 @@ follow_redirect( fd_sshttp_t *        http,
   } else {
     if( FD_LIKELY( !fd_sshttp_fuzz ) ) {
       fd_sshttp_cancel( http );
-      fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, now );
+      if( FD_UNLIKELY( fd_sshttp_init( http, http->addr, http->hostname, http->is_https, location, location_len, ULONG_MAX, now ) ) ) {
+        return FD_SSHTTP_ADVANCE_ERROR;
+      }
     } else {
       http->state = FD_SSHTTP_STATE_RESP;
       http->response_len = 0UL;

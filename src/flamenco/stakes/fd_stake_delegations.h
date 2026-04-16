@@ -82,6 +82,19 @@
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025      (0.25)
 #define FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009      (0.09)
 
+/* fd_stake_warmup_cooldown_rate gives the warmup/cooldown rate enum
+   for a given epoch.  In Agave, the per-delegation warmup_cooldown_rate
+   field was deprecated (since v1.16.7) and unused in calculations.
+   The rate is always determined by the epoch. */
+
+static inline uchar
+fd_stake_warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
+  ulong activation_epoch = new_rate_activation_epoch ? *new_rate_activation_epoch : ULONG_MAX;
+  return current_epoch<activation_epoch
+    ? (uchar)FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025
+    : (uchar)FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
+}
+
 struct fd_stake_delegation {
   fd_pubkey_t stake_account;
   fd_pubkey_t vote_account;
@@ -143,16 +156,6 @@ fd_stake_delegations_warmup_cooldown_rate_to_double( uchar warmup_cooldown_rate 
   return warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 ? FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 : FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009;
 }
 
-static inline uchar
-fd_stake_delegations_warmup_cooldown_rate_enum( double warmup_cooldown_rate ) {
-  /* TODO: Replace with fd_double_eq */
-  if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_025 ) ) {
-    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025;
-  } else if( FD_LIKELY( warmup_cooldown_rate==FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_009 ) ) {
-    return FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_009;
-  }
-  FD_LOG_CRIT(( "Invalid warmup cooldown rate %f", warmup_cooldown_rate ));
-}
 
 /* fd_stake_delegations_align returns the alignment of the stake
    delegations struct. */
@@ -189,12 +192,10 @@ fd_stake_delegations_new( void * mem,
 fd_stake_delegations_t *
 fd_stake_delegations_join( void * mem );
 
-/* fd_stake_delegations_init resets the state of a valid join of a
-   stake delegations struct.  Specifically, it only resets the root
-   state, leaving the deltas intact. */
+/* fd_stake_delegations_reset resets delegations to the post-new state. */
 
 void
-fd_stake_delegations_init( fd_stake_delegations_t * stake_delegations );
+fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations );
 
 /* fd_stake_delegation_root_query looks up the stake delegation for the
    given stake account in the root map. */
@@ -216,7 +217,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    activation_epoch,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
-                                  double                   warmup_cooldown_rate );
+                                  uchar                    warmup_cooldown_rate );
 
 /* fd_stake_delegations_refresh is used to refresh the stake
    delegations stored in fd_stake_delegations_t which is owned by
@@ -273,7 +274,7 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
                                   ulong                    activation_epoch,
                                   ulong                    deactivation_epoch,
                                   ulong                    credits_observed,
-                                  double                   warmup_cooldown_rate );
+                                  uchar                    warmup_cooldown_rate );
 
 /* fd_stake_delegations_fork_remove inserts a tombstone stake delegation
    entry for the given fork.  The function will not actually remove or

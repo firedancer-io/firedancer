@@ -2,14 +2,16 @@
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../replay/fd_replay_tile.h"
-#include "generated/fd_resolv_tile_seccomp.h"
 #include "../../discof/fd_accdb_topo.h"
+#include "../../discof/fd_startup.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_alut.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../util/pod/fd_pod_format.h"
+#include <time.h>
+#include "generated/fd_resolv_tile_seccomp.h"
 
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
@@ -288,7 +290,7 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   uchar const *             txn_payload  = fd_txn_m_payload_const( txnm );
   ulong const               alut_cnt     = txn->addr_table_lookup_cnt;
   ulong const               slot         = ctx->bank->f.slot;
-  fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache; FD_TEST( sysvar_cache );
+  fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache;
   fd_slot_hash_t const *    slot_hashes  = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
 
   /* Write indirect addrs into here */
@@ -630,6 +632,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong

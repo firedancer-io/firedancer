@@ -193,16 +193,16 @@
      void * mymap_shmap( mymap_t * join );
      void * mymap_shele( mymap_t * join );
 
-     // mymap_lock_{idx,ele0,ele1} specify the mapping between map
-     // version lock indices and element store element indices.  Assumes
-     // join is a current local join and ele_idx / lock_idx is in
-     // [0,ele_max) / is in [0,lock_cnt).  mymap_lock_idx is the index
-     // of the version lock that protects element store element ele_idx,
-     // in [0,lock_cnt).  [mymap_lock_ele0,mymap_lock_ele1) is the
-     // contiguous range of elements protected by lock lock_idx.  ele0
-     // is in [0,ele_max), ele1 is in (0,ele_max], and ele0<ele1.
+     // mymap_{ele_lock,lock_ele0,lock_ele1} specify the mapping between
+     // map version lock indices and element store element indices.
+     // Assumes join is a current local join and ele_idx / lock_idx is
+     // in [0,ele_max) / is in [0,lock_cnt).  mymap_ele_lock is the
+     // index of the version lock that protects element store element
+     // ele_idx, in [0,lock_cnt).  [mymap_lock_ele0,mymap_lock_ele1) is
+     // the contiguous range of elements protected by lock lock_idx.
+     // ele0 is in [0,ele_max), ele1 is in (0,ele_max], and ele0<ele1.
 
-     ulong mymap_lock_idx ( mymap_t const * join, ulong ele_idx  );
+     ulong mymap_ele_lock ( mymap_t const * join, ulong ele_idx  );
      ulong mymap_lock_ele0( mymap_t const * join, ulong lock_idx );
      ulong mymap_lock_ele1( mymap_t const * join, ulong lock_idx );
 
