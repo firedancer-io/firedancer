@@ -19,13 +19,6 @@
 
 #define FD_FORKT_DRAIN_PAIRS_MAX (512UL)
 
-#define FD_LOG_WARN_ONCE( args ) \
-  do {                           \
-    FD_THREAD_ONCE_BEGIN {       \
-      FD_LOG_WARNING( args );    \
-    } FD_THREAD_ONCE_END;        \
-  } while(0)
-
 struct fd_forkt_drain_pair {
   fd_frag_meta_t const * mcache;
   ulong                  depth;
@@ -94,21 +87,21 @@ on_root_advanced( fd_forkt_tile_t *                 ctx,
   FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.hash, bank_hash_b58 );
   fd_backt_slot_info_t info;
   if( FD_UNLIKELY( !fd_backtest_src_slot_info( ctx->src, &info, slot ) ) ) {
-    FD_LOG_WARN_ONCE(( "cannot validate rooted slot; no slot info in input data" ));
+    FD_LOG_NOTICE(( "Bank hash (unknown): slot=%lu hash=%-44s", slot, bank_hash_b58 ));
     return;
   }
   if( FD_UNLIKELY( info.dead ) ) {
     FD_LOG_ERR(( "rooted slot %lu, but this slot is dead according to input data", slot ));
   }
   if( FD_UNLIKELY( !info.bank_hash_set ) ) {
-    FD_LOG_WARN_ONCE(( "cannot validate bank hash of rooted slot; no bank hash data in input data" ));
+    FD_LOG_NOTICE(( "Bank hash (unknown): slot=%lu hash=%-44s", slot, bank_hash_b58 ));
     return;
   }
   if( FD_UNLIKELY( memcmp( info.bank_hash.uc, msg->bank_hash.uc, 32UL ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( info.bank_hash.uc, expected_b58 );
     FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", slot, expected_b58, bank_hash_b58 ));
   }
-  FD_LOG_NOTICE(( "Bank hash matches! slot=%lu hash=%-44s", slot, bank_hash_b58 ));
+  FD_LOG_NOTICE(( "Bank hash matches!   slot=%lu hash=%-44s", slot, bank_hash_b58 ));
 }
 
 static void
