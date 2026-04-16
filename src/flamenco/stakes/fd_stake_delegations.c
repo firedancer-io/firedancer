@@ -391,6 +391,10 @@ fd_stake_delegations_fork_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
   stake_delegation->is_tombstone         = 0;
 
+  FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
+  FD_LOG_DEBUG(( "fork_update: stake_account=%s, stake=%lu, activation_epoch=%u, deactivation_epoch=%u",
+      stake_account_out, stake_delegation->stake, stake_delegation->activation_epoch, stake_delegation->deactivation_epoch ));
+
   fd_rwlock_unwrite( &stake_delegations->delta_lock );
 }
 
@@ -410,6 +414,9 @@ fd_stake_delegations_fork_remove( fd_stake_delegations_t * stake_delegations,
 
   stake_delegation->stake_account = *stake_account;
   stake_delegation->is_tombstone  = 1;
+
+  FD_BASE58_ENCODE_32_BYTES( stake_delegation->stake_account.uc, stake_account_out );
+  FD_LOG_DEBUG(( "fork_remove: stake_account=%s", stake_account_out ));
 
   fd_rwlock_unwrite( &stake_delegations->delta_lock );
 }
@@ -489,6 +496,7 @@ fd_stake_delegations_apply_fork_delta( ulong                      epoch,
       fd_stake_delegations_remove( stake_delegations, &stake_delegation->stake_account );
     }
   }
+  FD_LOG_DEBUG(( "effective_stake=%lu, activating_stake=%lu, deactivating_stake=%lu", stake_delegations->effective_stake, stake_delegations->activating_stake, stake_delegations->deactivating_stake ));
 }
 
 /* Combined base+delta iterator */
