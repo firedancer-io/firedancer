@@ -179,8 +179,13 @@ fd_vm_instr( ulong opcode, /* Assumed valid */
    instructions. */
 
 FD_FN_CONST static inline ulong fd_vm_instr_opcode( ulong instr ) { return   instr      & 255UL;       } /* In [0,256) */
+#if FD_HAS_X86 && defined(__BMI__) && defined(FD_USING_GCC)
+FD_FN_CONST static inline ulong fd_vm_instr_dst   ( ulong instr ) { return __builtin_ia32_bextr_u64( instr, 0x0408UL ); } /* In [0,16)  */
+FD_FN_CONST static inline ulong fd_vm_instr_src   ( ulong instr ) { return __builtin_ia32_bextr_u64( instr, 0x040cUL ); } /* In [0,16)  */
+#else
 FD_FN_CONST static inline ulong fd_vm_instr_dst   ( ulong instr ) { return ((instr>> 8) &  15UL);      } /* In [0,16)  */
 FD_FN_CONST static inline ulong fd_vm_instr_src   ( ulong instr ) { return ((instr>>12) &  15UL);      } /* In [0,16)  */
+#endif
 FD_FN_CONST static inline ulong fd_vm_instr_offset( ulong instr ) { return (ulong)(long)(short)(ushort)(instr>>16); }
 FD_FN_CONST static inline uint  fd_vm_instr_imm   ( ulong instr ) { return (uint)(instr>>32);          }
 
