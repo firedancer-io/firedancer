@@ -6,15 +6,6 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
-PB_BIND(FD_EXEC_TEST_GOSSIP_MESSAGE_BINARY, fd_exec_test_gossip_message_binary_t, AUTO)
-
-
-PB_BIND(FD_EXEC_TEST_ACCEPTS_GOSSIP_MESSAGE, fd_exec_test_accepts_gossip_message_t, AUTO)
-
-
-PB_BIND(FD_EXEC_TEST_GOSSIP_MESSAGE_FIXTURE, fd_exec_test_gossip_message_fixture_t, AUTO)
-
-
 PB_BIND(FD_EXEC_TEST_GOSSIP_FIXTURE, fd_exec_test_gossip_fixture_t, 2)
 
 
