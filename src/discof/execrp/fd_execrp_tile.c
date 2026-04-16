@@ -1,3 +1,4 @@
+#include "../execle/fd_execle_err.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../discof/fd_startup.h"
@@ -83,6 +84,9 @@ struct fd_execrp_tile {
   fd_runtime_t runtime[1];
 
   struct {
+    ulong sigverify_cnt;
+    ulong poh_hash_cnt;
+
     /* Ticks spent preparing a txn (database reads, account copies) */
     ulong txn_setup_cum_ticks;
 
@@ -91,6 +95,8 @@ struct fd_execrp_tile {
 
     /* Ticks spent committing a txn (database writes) */
     ulong txn_commit_cum_ticks;
+
+    ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
   } metrics;
 };
 
@@ -117,8 +123,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_execrp_tile_t * ctx ) {
-  fd_progcache_metrics_t * pm = ctx->progcache->metrics;
+  FD_MCNT_SET      ( EXECRP, SIGVERIFY_COUNT,    ctx->metrics.sigverify_cnt );
+  FD_MCNT_SET      ( EXECRP, POH_HASH_COUNT,     ctx->metrics.poh_hash_cnt  );
+  FD_MCNT_ENUM_COPY( EXECRP, TRANSACTION_RESULT, ctx->metrics.txn_result    );
 
+  fd_progcache_metrics_t * pm = ctx->progcache->metrics;
   FD_MCNT_SET( EXECRP, PROGCACHE_LOOKUPS,                pm->lookup_cnt     );
   FD_MCNT_SET( EXECRP, PROGCACHE_HITS,                   pm->hit_cnt        );
   FD_MCNT_SET( EXECRP, PROGCACHE_MISSES,                 pm->miss_cnt       );
@@ -219,6 +228,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         }
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+        ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
           fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_out );
@@ -270,6 +280,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        ctx->metrics.sigverify_cnt += TXN( msg->txn )->signature_cnt;
         break;
       }
       case FD_EXECRP_TT_POH_HASH: {
@@ -281,6 +292,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         fd_sha256_hash_32_repeated( msg->hash, out_msg->poh_hash->hash, msg->hashcnt );
         fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_POH_HASH<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        ctx->metrics.poh_hash_cnt += msg->hashcnt;
         break;
       }
       default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));

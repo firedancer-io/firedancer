@@ -570,6 +570,7 @@ metric introduced.
     <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
 </tile>
 
+<!-- Frankendancer transaction result -->
 <enum name="TransactionError">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="AccountInUse" label="An account is already being processed in another transaction in a way that does not support parallelism" />
@@ -614,6 +615,7 @@ metric introduced.
     <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed" />
 </enum>
 
+<!-- Firedancer transaction result -->
 <enum name="TransactionResult">
     <int value="0" name="Success" label="Transaction executed successfully" />
 
@@ -621,7 +623,7 @@ metric introduced.
          error, which can occur both when loading the transaction, and
          when executing it. When loading, it occurs when executing the
          compute budget program, or verifying precompiles. -->
-    <int value="1" name="InstructonError" label="An error occurred while processing an instruction" />
+    <int value="1" name="InstructionError" label="An error occurred while processing an instruction" />
 
     <!-- Preflight errors. These are errors in validation before we
          begin actually executing the transaction in the virtual
@@ -1245,6 +1247,10 @@ metric introduced.
 </enum>
 
 <tile name="execrp">
+    <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
+    <counter name="SigverifyCount" summary="Number of Ed25519 signature verification jobs executed" />
+    <counter name="PohHashCount" summary="Number of PoH SHA-256 calls executed" />
+
     <counter name="AccdbCreated" summary="Number of account database records created" />
 
     <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes" />
@@ -1253,21 +1259,21 @@ metric introduced.
     <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
     <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
 
-  <!-- extensive program cache metrics.  Useful for development, will be
-       cut down with time -->
-  <counter name="ProgcacheLookups" summary="Program cache lookup counter" />
-  <counter name="ProgcacheHits" summary="Program cache hit counter" />
-  <counter name="ProgcacheMisses" summary="Program cache miss counter" />
-  <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory event counter (heap)" />
-  <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory event counter (descriptor table)" />
-  <counter name="ProgcacheFills" summary="Number of program cache insertions" />
-  <counter name="ProgcacheFillBytes" summary="Number of bytes inserted into program cache" />
-  <counter name="ProgcacheSpills" summary="Program cache spill counter (OOM fallback mechanism)" />
-  <counter name="ProgcacheSpillBytes" summary="Number of bytes spilled from program cache (OOM fallback mechanism)" />
-  <counter name="ProgcacheEvictions" summary="Program cache eviction counter" />
-  <counter name="ProgcacheEvictionBytes" summary="Number of bytes evicted from program cache" />
-  <counter name="ProgcacheDurationTotalSeconds" converter="seconds" summary="Total time in seconds spent on program cache operations" />
-  <counter name="ProgcacheDurationLoadSeconds" converter="seconds" summary="Total time in seconds spent loading programs" />
+    <!-- extensive program cache metrics.  Useful for development, will be
+        cut down with time -->
+    <counter name="ProgcacheLookups" summary="Program cache lookup counter" />
+    <counter name="ProgcacheHits" summary="Program cache hit counter" />
+    <counter name="ProgcacheMisses" summary="Program cache miss counter" />
+    <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory event counter (heap)" />
+    <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory event counter (descriptor table)" />
+    <counter name="ProgcacheFills" summary="Number of program cache insertions" />
+    <counter name="ProgcacheFillBytes" summary="Number of bytes inserted into program cache" />
+    <counter name="ProgcacheSpills" summary="Program cache spill counter (OOM fallback mechanism)" />
+    <counter name="ProgcacheSpillBytes" summary="Number of bytes spilled from program cache (OOM fallback mechanism)" />
+    <counter name="ProgcacheEvictions" summary="Program cache eviction counter" />
+    <counter name="ProgcacheEvictionBytes" summary="Number of bytes evicted from program cache" />
+    <counter name="ProgcacheDurationTotalSeconds" converter="seconds" summary="Total time in seconds spent on program cache operations" />
+    <counter name="ProgcacheDurationLoadSeconds" converter="seconds" summary="Total time in seconds spent loading programs" />
 </tile>
 
 <tile name="benchs" telemetry="false">
