@@ -1242,7 +1242,8 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
     for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found_in_bundle; i-- ) {
       fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
       for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], address ) && prev_txn_out->accounts.is_writable[j] ) {
+        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], address ) && prev_txn_out->accounts.is_writable[j] &&
+            prev_txn_out->accounts.account[j].meta ) {
           /* Found the account in a previous transaction. Move ownership
              of reference from previous transaction to this one. */
           fd_memcpy( ref_slot, prev_txn_out->accounts.account[ j ].ref, sizeof(fd_accdb_rw_t) );
