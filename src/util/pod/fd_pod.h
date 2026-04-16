@@ -487,7 +487,7 @@ fd_pod_compact( uchar * pod,
    0:255) and on failure returns a negative value (an FD_POD_ERR_*
    code). */
 
-FD_FN_PURE int
+int
 fd_cstr_to_pod_val_type( char const * cstr );
 
 /* fd_pod_val_type_to_cstr:  Populate the buffer cstr (which has enough

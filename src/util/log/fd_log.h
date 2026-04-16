@@ -481,7 +481,7 @@ ulong fd_log_tid( void );
    typically something provided to the caller when the caller started.
    This is cheap after the first call. */
 
-FD_FN_PURE ulong fd_log_user_id( void );
+ulong fd_log_user_id( void );
 
 /* fd_log_user() returns a non-NULL pointer to a cstr describing the
    user that created the thread group to which the caller belongs.  In

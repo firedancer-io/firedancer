@@ -470,7 +470,7 @@ fd_vinyl_data_reset( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
    allocations for correctness (but could given access to the bstream,
    line and/or meta). */
 
-FD_FN_PURE int
+int
 fd_vinyl_data_verify( fd_vinyl_data_t const * data );
 
 FD_PROTOTYPES_END

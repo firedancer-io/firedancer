@@ -472,7 +472,7 @@ fd_vinyl_data_reset( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
    and FD_VINYL_ERR_CORRUPT (negative) if memory corruption was detected
    (logs details). */
 
-FD_FN_PURE static int
+static int
 fd_vinyl_data_verify_superblock( fd_vinyl_data_t     const * data,
                                  fd_vinyl_data_obj_t const * superblock ) {
 
