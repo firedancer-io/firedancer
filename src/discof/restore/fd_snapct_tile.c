@@ -667,24 +667,37 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->config.incremental_snapshots = 0;
       }
 
-      ulong       cluster_slot    = ctx->config.incremental_snapshots ? cluster.incremental : cluster.full;
-      ulong       local_slot      = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
-      ulong       local_slot_with_download = local_slot;
-      int         local_too_old   = local_slot!=ULONG_MAX && ctx->local_in.full_snapshot_slot!=ULONG_MAX && local_slot<fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age );
-      int         local_full_only = ctx->local_in.incremental_snapshot_slot==ULONG_MAX && ctx->local_in.full_snapshot_slot!=ULONG_MAX;
-      if( FD_LIKELY( (ctx->config.incremental_snapshots && local_full_only) || local_too_old ) ) {
-        fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
-        if( FD_LIKELY( best_incremental.addr.l ) ) {
-          ctx->predicted_incremental.slot = best_incremental.incr_slot;
-          local_slot_with_download = best_incremental.incr_slot;
-          ctx->local_in.incremental_snapshot_slot = ULONG_MAX; /* don't use the local incremental snapshot */
+      ulong cluster_slot = ctx->config.incremental_snapshots ? cluster.incremental : cluster.full;
+
+      /* Determine the best effective slot achievable using the local
+         full snapshot.  When incrementals are disabled, the effective
+         slot is the full snapshot slot itself.  When enabled, it is the
+         best incremental we can pair with the local full (either from
+         a local file or downloaded from a peer). */
+
+      ulong local_effective_slot = ULONG_MAX;
+      if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
+        if( FD_LIKELY( ctx->config.incremental_snapshots ) ) {
+          ulong local_incr = ctx->local_in.incremental_snapshot_slot;
+          if( local_incr!=ULONG_MAX && local_incr>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age ) ) {
+            local_effective_slot = local_incr;
+          } else {
+            fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
+            if( FD_LIKELY( best_incr.addr.l ) ) {
+              ctx->predicted_incremental.slot         = best_incr.incr_slot;
+              ctx->local_in.incremental_snapshot_slot = ULONG_MAX; /* don't use the local incremental */
+              local_effective_slot                    = best_incr.incr_slot;
+            }
+          }
+        } else {
+          local_effective_slot = ctx->local_in.full_snapshot_slot;
         }
       }
 
-      int can_use_local_full = local_slot_with_download!=ULONG_MAX && ctx->local_in.full_snapshot_slot!=ULONG_MAX &&
-                               local_slot_with_download>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_full_effective_age );
+      int can_use_local_full = local_effective_slot!=ULONG_MAX &&
+                               local_effective_slot>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_full_effective_age );
       if( FD_LIKELY( can_use_local_full ) ) {
-        send_expected_slot( ctx, stem, local_slot_with_download );
+        send_expected_slot( ctx, stem, local_effective_slot );
 
         FD_LOG_NOTICE(( "reading full snapshot at slot %lu with cluster slot %lu from local file `%s`",
                         ctx->local_in.full_snapshot_slot, cluster_slot, ctx->local_in.full_snapshot_path ));
@@ -693,18 +706,32 @@ after_credit( fd_snapct_tile_t *  ctx,
         init_load( ctx, stem, 1, 1 );
       } else {
         if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
-          FD_LOG_NOTICE(( "local snapshot at slot %lu is too old for cluster slot %lu max age %u, downloading instead",
-                          local_slot, cluster_slot, ctx->config.sources.max_local_full_effective_age ));
+          if( local_effective_slot==ULONG_MAX ) {
+            if( ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) {
+              FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because local incremental snapshot at slot %lu "
+                              "is too old and no downloadable incremental could be found (cluster slot %lu), downloading instead",
+                              ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot, cluster_slot ));
+            } else {
+              FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because no matching incremental snapshot "
+                              "could be found (cluster slot %lu), downloading instead",
+                              ctx->local_in.full_snapshot_slot, cluster_slot ));
+            }
+          } else {
+            FD_LOG_NOTICE(( "local full snapshot at slot %lu (effective slot %lu) is too old for cluster slot %lu max age %u, downloading instead",
+                            ctx->local_in.full_snapshot_slot, local_effective_slot, cluster_slot, ctx->config.sources.max_local_full_effective_age ));
+          }
         } else {
           FD_LOG_NOTICE(( "no local snapshot available, downloading from peer" ));
         }
 
-        if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) send_expected_slot( ctx, stem, best.full_slot );
-
-        fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
-        if( FD_LIKELY( best_incremental.addr.l ) ) {
-          ctx->predicted_incremental.slot = best_incremental.incr_slot;
-          send_expected_slot( ctx, stem, best_incremental.incr_slot );
+        if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
+          send_expected_slot( ctx, stem, best.full_slot );
+        } else {
+          fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
+          if( FD_LIKELY( best_incremental.addr.l ) ) {
+            ctx->predicted_incremental.slot = best_incremental.incr_slot;
+            send_expected_slot( ctx, stem, best_incremental.incr_slot );
+          }
         }
 
         ctx->peer                            = best;
