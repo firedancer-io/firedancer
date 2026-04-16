@@ -1246,6 +1246,12 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
 
+      if( txn_out->accounts.new_vote[i] &&
+          !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+        fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
+      }
+
       if( txn_out->accounts.vote_update[i] ) {
         if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_owner_and_init( account->meta ) ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
@@ -1393,6 +1399,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->accounts.rollback_fee_payer = NULL;
   memset( txn_out->accounts.stake_update, 0, sizeof(txn_out->accounts.stake_update) );
   memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
+  memset( txn_out->accounts.new_vote, 0, sizeof(txn_out->accounts.new_vote) );
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;

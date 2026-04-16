@@ -563,7 +563,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     if( FD_LIKELY( vat_in_t_3 ) ) {
       exists_t_3 = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3 );
     } else {
-      exists_t_3 = fd_vote_stakes_query( vote_stakes, parent_idx, &pubkey, NULL, NULL, NULL, NULL, NULL, &commission_t_3 );
+      exists_t_3 = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &pubkey, NULL, NULL, &commission_t_3 );
     }
 
     int   exists_t_2     = 0;
@@ -571,7 +571,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     if( FD_LIKELY( vat_in_t_2 ) ) {
       exists_t_2 = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2 );
     } else {
-      exists_t_2 = fd_vote_stakes_query( vote_stakes, parent_idx, &pubkey, NULL, NULL, NULL, NULL, NULL, &commission_t_2 );
+      exists_t_2 = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &pubkey, NULL, NULL, &commission_t_2 );
     }
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
@@ -649,6 +649,25 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
     staked_accounts++;
   }
   fd_vote_stakes_fork_iter_fini( vs );
+
+  fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+  ushort           fork_indices[ FD_RUNTIME_MAX_FORK_CNT ];
+  ulong            forks_cnt = fd_banks_new_votes_fork_indices( bank, fork_indices );
+
+  uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
+  fd_new_votes_iter_t * iter = fd_new_votes_iter_init( new_votes, fork_indices, forks_cnt, iter_mem );
+  for( ; !fd_new_votes_iter_done( iter ); fd_new_votes_iter_next( iter ) ) {
+    fd_pubkey_t const * pubkey = fd_new_votes_iter_ele( iter );
+    fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, pubkey, NULL, stake_accum_pool );
+    if( FD_LIKELY( !stake_accum ) ) {
+      fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+      sa->pubkey = *pubkey;
+      sa->stake  = 0UL;
+      fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
+      staked_accounts++;
+    }
+  }
+  fd_new_votes_iter_fini( iter );
 
   /* Now accumulate vote stakes for all stake delegations. */
 
@@ -797,6 +816,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
         &node_account_t_1, &node_account_t_2,
         stake_t_1, stake_t_2,
         commission_t_1, commission_t_2,
+        (uchar)exists_t_1, (uchar)exists_t_2,
         bank->f.epoch );
   }
   *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;

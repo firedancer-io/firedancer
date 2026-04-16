@@ -8,6 +8,8 @@
 
 FD_PROTOTYPES_BEGIN
 
+#define FD_RUNTIME_MAX_FORK_CNT (4096UL)
+
 /* FD_RUNTIME_MAX_{STAKE,VOTE}_ACCOUNTS are the maximum number of stake
    and vote accounts that the system supports: anything larger will
    result in a crash. The bounds were set with the intention of making a
