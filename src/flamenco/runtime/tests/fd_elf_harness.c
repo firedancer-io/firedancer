@@ -88,7 +88,7 @@ fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
   ulong out_text_cnt = prog->info.text_cnt;
 
   /* Text off */
-  ulong out_text_off = prog->info.text_off;
+  ulong out_text_off = fd_sbpf_enable_stricter_elf_headers_enabled( prog->info.sbpf_version ) ? 0UL : prog->info.text_off;
 
   /* Entry PC */
   ulong out_entry_pc = prog->entry_pc;
@@ -98,16 +98,18 @@ fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
   ulong * tmp_out_calldests     = fd_spad_alloc_check( spad, alignof(ulong), sizeof(ulong)*max_out_calldests_cnt );
   ulong   out_calldests_cnt     = 0UL;
 
-  /* Add the entrypoint to the calldests */
-  tmp_out_calldests[out_calldests_cnt++] = prog->entry_pc;
+  if( !fd_sbpf_enable_stricter_elf_headers_enabled( prog->info.sbpf_version ) ) {
+    /* Add the entrypoint to the calldests */
+    tmp_out_calldests[out_calldests_cnt++] = prog->entry_pc;
 
-  /* Add the rest of the calldests */
-  if( FD_LIKELY( prog->calldests ) ) {
-    for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
-                        !fd_sbpf_calldests_const_iter_done(target_pc);
-               target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
-      if( FD_LIKELY( target_pc!=prog->entry_pc ) ) {
-        tmp_out_calldests[out_calldests_cnt++] = target_pc;
+    /* Add the rest of the calldests */
+    if( FD_LIKELY( prog->calldests ) ) {
+      for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
+                          !fd_sbpf_calldests_const_iter_done(target_pc);
+                 target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
+        if( FD_LIKELY( target_pc!=prog->entry_pc ) ) {
+          tmp_out_calldests[out_calldests_cnt++] = target_pc;
+        }
       }
     }
   }
