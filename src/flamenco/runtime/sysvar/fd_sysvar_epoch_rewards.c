@@ -5,11 +5,8 @@
 
 static int
 validate( fd_sysvar_epoch_rewards_t const * epoch_rewards ) {
-  if( FD_UNLIKELY( epoch_rewards->active != !!epoch_rewards->active ) ) {
-    return 1;
-  }
+  return epoch_rewards->active!=0 && epoch_rewards->active!=1;
 
-  return 0;
 }
 
 static void

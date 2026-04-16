@@ -51,13 +51,13 @@ struct fd_sol_sysvar_clock {
 typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
 
 struct __attribute__((packed, aligned(16))) fd_sysvar_epoch_rewards {
-  ulong distribution_starting_block_height;
-  ulong num_partitions;
-  fd_hash_t parent_blockhash;
+  ulong       distribution_starting_block_height;
+  ulong       num_partitions;
+  fd_hash_t   parent_blockhash;
   fd_w_u128_t total_points;
-  ulong total_rewards;
-  ulong distributed_rewards;
-  uchar active;
+  ulong       total_rewards;
+  ulong       distributed_rewards;
+  uchar       active;
 };
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 

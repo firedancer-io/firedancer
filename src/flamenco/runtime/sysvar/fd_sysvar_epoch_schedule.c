@@ -5,13 +5,7 @@
 
 static int
 validate( fd_epoch_schedule_t const * schedule ) {
-  /* warmup is encoded as a bool and stored as a uchar.  The only
-     allowed values are 0 and 1. */
-  if( FD_UNLIKELY( schedule->warmup != !!schedule->warmup ) ) {
-    return 1;
-  }
-
-  return 0;
+  return schedule->warmup!=0 && schedule->warmup!=1;
 }
 
 fd_epoch_schedule_t *

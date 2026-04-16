@@ -62,8 +62,6 @@ struct fd_sysvar_pos {
 
   int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
   void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-  /* Optional validation for directly-stored sysvars (no decode). */
   int    (* validate)( void const * data, ulong data_sz );
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
