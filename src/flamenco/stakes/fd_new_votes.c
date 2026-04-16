@@ -278,6 +278,8 @@ fd_new_votes_insert( fd_new_votes_t *    new_votes,
 void
 fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
                           ushort           fork_idx ) {
+  if( fork_idx==USHORT_MAX ) return;
+
   fd_rwlock_write( &new_votes->lock );
 
   fd_new_vote_ele_t * pool  = get_pool( new_votes );
