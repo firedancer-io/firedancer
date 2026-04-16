@@ -8,7 +8,7 @@
 
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
-#include "fd_tower_serdes.h"
+#include "fd_tower_serde.h"
 
 int
 LLVMFuzzerInitialize( int  *   argc,
