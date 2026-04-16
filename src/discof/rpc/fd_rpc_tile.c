@@ -1500,7 +1500,119 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}\n", minimum, id_cstr );
 }
 
-UNIMPLEMENTED(getMultipleAccounts)
+static fd_http_server_response_t
+getMultipleAccounts( fd_rpc_tile_t * ctx,
+                     cJSON const *   id,
+                     cJSON const *   params ) {
+  fd_http_server_response_t response;
+  if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
+
+  cJSON const * keys_arr = cJSON_GetArrayItem( params, 0 );
+  if( FD_UNLIKELY( !keys_arr || !cJSON_IsArray( keys_arr ) ) ) {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: expected array of pubkeys\"},\"id\":%s}\n", id_cstr );
+  }
+
+  int cnt = cJSON_GetArraySize( keys_arr );
+  if( FD_UNLIKELY( cnt<0 || cnt>100 ) ) {
+    CSTR_JSON( id, id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Too many accounts provided; max 100\"},\"id\":%s}\n", id_cstr );
+  }
+
+  ulong bank_idx = ULONG_MAX;
+  char const * encoding_cstr = NULL;
+  ulong slice_length = ULONG_MAX;
+  ulong slice_offset = 0;
+  cJSON const * config = cJSON_GetArrayItem( params, 1 );
+  int config_valid = fd_rpc_validate_config( ctx, id, config, "struct RpcAccountInfoConfig",
+                                             1, 1, 1, 1,
+                                             &bank_idx, &encoding_cstr,
+                                             &slice_length, &slice_offset,
+                                             &response );
+  if( FD_UNLIKELY( !config_valid ) ) return response;
+
+  bank_info_t * info = &ctx->banks[ bank_idx ];
+  fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
+
+  int is_base58 = !strncmp( encoding_cstr, "base58", 6 );
+  int is_binary = !strncmp( encoding_cstr, "binary", 6 );
+
+  ulong ucnt = (ulong)cnt;
+
+  fd_pubkey_t addresses[ 100UL ];
+  for( ulong i=0UL; i<ucnt; i++ ) {
+    cJSON const * key_json = cJSON_GetArrayItem( keys_arr, (int)i );
+    if( FD_UNLIKELY( !fd_rpc_validate_address( ctx, id, key_json, &addresses[ i ], &response ) ) ) return response;
+  }
+
+  CSTR_JSON( id, id_cstr );
+  fd_http_server_printf( ctx->http,
+      "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":[",
+      id_cstr, FD_RPC_AGAVE_API_VERSION, info->slot );
+
+  for( ulong i=0; i<ucnt; i++ ) {
+    if( i>0 ) fd_http_server_printf( ctx->http, "," );
+
+    fd_accdb_ro_t ro[1];
+    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, addresses[i].uc ) ) ) {
+      fd_http_server_printf( ctx->http, "null" );
+      continue;
+    }
+
+    ulong data_sz = fd_accdb_ref_data_sz( ro );
+    uchar const * data = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_ulong_if( slice_offset<data_sz, slice_offset, 0UL );
+    ulong snip_sz = fd_ulong_min( fd_ulong_if( slice_offset<data_sz, data_sz-slice_offset, 0UL ), slice_length );
+    ulong out_sz = snip_sz;
+
+    if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
+      fd_accdb_close_ro( ctx->accdb, ro );
+      fd_http_server_unstage( ctx->http );
+      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than 128 bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
+    }
+
+    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
+    fd_http_server_printf( ctx->http,
+        "{\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":%lu,\"data\":",
+        fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
+        fd_accdb_ref_lamports( ro ),
+        owner_b58,
+        data_sz );
+
+    ulong encoded_sz = fd_ulong_if( is_base58 || is_binary, FD_RPC_BASE58_ENCODED_128_LEN, FD_BASE64_ENC_SZ( out_sz ) );
+    if( FD_UNLIKELY( is_binary ) ) {
+      fd_http_server_printf( ctx->http, "\"" );
+    } else {
+      fd_http_server_printf( ctx->http, "[\"" );
+    }
+
+    uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );
+    if( FD_UNLIKELY( !encoded ) ) {
+      fd_accdb_close_ro( ctx->accdb, ro );
+      fd_http_server_unstage( ctx->http );
+      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: response encoding buffer overflow (account data too large for response buffer)\"},\"id\":%s}\n", id_cstr );
+    }
+
+    if( FD_UNLIKELY( is_base58 || is_binary ) ) {
+      if( FD_UNLIKELY( !fd_rpc_base58_encode_128( (char *)encoded, &encoded_sz, data, out_sz ) ) ) {
+        fd_http_server_unstage( ctx->http );
+        fd_accdb_close_ro( ctx->accdb, ro );
+        return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: base58 encoding failed\"},\"id\":%s}\n", id_cstr );
+      }
+    } else {
+      encoded_sz = fd_base64_encode( (char *)encoded, data, out_sz );
+    }
+
+    fd_accdb_close_ro( ctx->accdb, ro );
+    fd_http_server_append_end( ctx->http, encoded_sz );
+
+    if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}" );
+    else                           fd_http_server_printf( ctx->http, "\",\"%s\"]}", encoding_cstr );
+  }
+
+  fd_http_server_printf( ctx->http, "]}}\n" );
+  return STAGE_JSON( ctx );
+}
+
 UNIMPLEMENTED(getProgramAccounts)
 UNIMPLEMENTED(getRecentPerformanceSamples)
 UNIMPLEMENTED(getRecentPrioritizationFees)
