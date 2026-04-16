@@ -260,21 +260,36 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
   fd_epoch_schedule_t const * schedule = fd_type_pun_const( &manifest->epoch_schedule_params );
   ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
 
+  /* Derive epoch_stakes array indices using the same mapping as the
+     parser (fd_ssmanifest_parser.c).  The parser stores epoch K at
+     index K - epoch_stakes_base. */
+  ulong epoch_stakes_base     = epoch>0UL ? epoch-1UL : 0UL;
+  ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( schedule, manifest->slot );
+  ulong cur_idx  = epoch     - epoch_stakes_base;
+  ulong next_idx = epoch + 1 - epoch_stakes_base;
+  FD_TEST( cur_idx <FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+  FD_TEST( next_idx<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+  FD_TEST( manifest->epoch_stakes[cur_idx].epoch==epoch );
+
   /* current epoch */
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
+  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, &manifest->epoch_stakes[cur_idx], stake_weights_msg );
   ulong stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
   FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
 
-  /* next current epoch */
-  stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
-  stake_weights_sig = 4UL;
-  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-  FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+  /* next epoch -- only publish if leader_schedule_epoch covers epoch+1,
+     meaning the parser was required to populate that entry. */
+  if( leader_schedule_epoch>=epoch+1UL ) {
+    FD_TEST( manifest->epoch_stakes[next_idx].epoch==epoch+1UL );
+    stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+    stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[next_idx], stake_weights_msg );
+    stake_weights_sig = 4UL;
+    fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+    FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+  }
 }
 
 static inline int
