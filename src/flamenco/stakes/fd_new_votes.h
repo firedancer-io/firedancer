@@ -74,15 +74,25 @@ fd_new_votes_insert( fd_new_votes_t *    new_votes,
                      ushort              fork_idx,
                      fd_pubkey_t const * pubkey );
 
+/* Drains the fork's delta dlist into the root map, deduplicating
+   against existing root entries.  Does NOT release the fork pool
+   slot -- the caller must call fd_new_votes_evict_fork afterwards
+   to return the fork index to the fork pool. */
+
 void
 fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
                           ushort           fork_idx );
 
 
-/* Iterates through all distinct pubkeys visible from a bank's
-   perspective: first every entry in the root map, then every entry
-   in the per-fork dlists (in the order given by fork_idxs), skipping
-   any pubkey already present in the root map.
+/* Iterates through pubkeys visible from a bank's perspective: first
+   every entry in the root map, then every entry in the per-fork dlists
+   (in the order given by fork_idxs), skipping any pubkey already
+   present in the root map.
+
+   NOTE: dedup is only performed against the root map.  If the same
+   pubkey appears in multiple fork dlists (but not in root), it may be
+   yielded more than once.  Callers must handle this (e.g. by querying
+   a seen-set before acting on each element).
 
    The caller provides an array of fork indices (child-to-root order)
    and a scratch buffer for the iterator state.

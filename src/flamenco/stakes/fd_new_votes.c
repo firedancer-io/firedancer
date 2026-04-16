@@ -201,6 +201,12 @@ fd_new_votes_reset_root( fd_new_votes_t * new_votes ) {
   fd_new_vote_ele_t * pool = get_pool( new_votes );
   nv_map_t *          map  = get_map( new_votes );
 
+  /* We cannot use nv_pool_reset here because the shared pool also
+     contains elements that belong to fork dlists.  Instead we walk
+     the map and release each element individually.  nv_map_iter_next
+     is called before nv_pool_ele_release so the iterator has already
+     read ele->next to advance; the subsequent clobber of ele->next
+     by the pool free-list push is therefore harmless. */
   nv_map_iter_t iter = nv_map_iter_init( map, pool );
   while( !nv_map_iter_done( iter, map, pool ) ) {
     fd_new_vote_ele_t * ele = nv_map_iter_ele( iter, map, pool );
@@ -285,27 +291,6 @@ fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
     } else {
       nv_map_ele_insert( map, ele, pool );
     }
-  }
-
-  fd_rwlock_unwrite( &new_votes->lock );
-}
-
-void
-fd_new_votes_mark_delta( fd_new_votes_t * new_votes,
-                         ushort           fork_idx ) {
-  fd_rwlock_write( &new_votes->lock );
-
-  fd_new_vote_ele_t * pool  = get_pool( new_votes );
-  nv_map_t *          map   = get_map( new_votes );
-  nv_dlist_t *        dlist = get_dlist( new_votes, fork_idx );
-
-  for( nv_dlist_iter_t iter = nv_dlist_iter_fwd_init( dlist, pool );
-       !nv_dlist_iter_done( iter, dlist, pool );
-       iter = nv_dlist_iter_fwd_next( iter, dlist, pool ) ) {
-    fd_new_vote_ele_t * ele = nv_dlist_iter_ele( iter, dlist, pool );
-    if( FD_UNLIKELY( nv_map_ele_query( map, &ele->pubkey, NULL, pool ) ) ) continue;
-
-    nv_map_ele_insert( map, ele, pool );
   }
 
   fd_rwlock_unwrite( &new_votes->lock );

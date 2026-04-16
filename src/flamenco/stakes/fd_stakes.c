@@ -630,8 +630,8 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   fd_vote_stakes_fork_iter_fini( vs );
 
   fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-  ushort fork_indices[ 4096UL ];
-  ulong  forks_cnt = fd_banks_new_votes_fork_indices( bank, fork_indices );
+  ushort           fork_indices[ FD_RUNTIME_MAX_FORK_CNT ];
+  ulong            forks_cnt = fd_banks_new_votes_fork_indices( bank, fork_indices );
 
   uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
   fd_new_votes_iter_t * iter = fd_new_votes_iter_init( new_votes, fork_indices, forks_cnt, iter_mem );
