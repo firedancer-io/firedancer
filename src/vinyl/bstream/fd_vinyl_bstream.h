@@ -478,7 +478,7 @@ fd_cstr_to_vinyl_bstream_ctl_style( char const * cstr );
    computations in parallel.  out, buf, sz point to arrays of 8 elements
    respectively. */
 
-FD_FN_PURE void
+void
 fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed,
                               ulong *                    FD_RESTRICT out,
                               void const * FD_RESTRICT * FD_RESTRICT buf,
