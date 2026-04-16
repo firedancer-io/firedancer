@@ -121,6 +121,7 @@ typedef struct {
 } fd_resolv_in_ctx_t;
 
 typedef struct {
+  ulong       out_idx;
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
@@ -227,9 +228,11 @@ during_frag( fd_resolv_ctx_t * ctx,
 
   switch( ctx->in[in_idx].kind ) {
     case IN_KIND_DEDUP: {
-      uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-      uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
-      fd_memcpy( dst, src, sz );
+      if( FD_LIKELY( ctx->out_pack->mem ) ) {
+        uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
+        uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
+        fd_memcpy( dst, src, sz );
+      }
       break;
     }
     case IN_KIND_REPLAY: {
@@ -323,6 +326,8 @@ static int
 publish_txn( fd_resolv_ctx_t *          ctx,
              fd_stem_context_t *        stem,
              fd_stashed_txn_m_t const * stashed ) {
+  if( FD_UNLIKELY( !ctx->out_pack->mem ) ) return 0;
+
   fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
   fd_memcpy( txnm, stashed->_, fd_txn_m_realized_footprint( (fd_txn_m_t *)stashed->_, 1, 0 ) );
 
@@ -341,7 +346,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_pack->chunk, realized_sz, 0UL, 0UL, tspub );
+  fd_stem_publish( stem, ctx->out_pack->out_idx, txnm->reference_slot, ctx->out_pack->chunk, realized_sz, 0UL, 0UL, tspub );
   ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, realized_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
 
   return 1;
@@ -450,7 +455,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
           fd_resolv_slot_exchanged_t * slot_exchanged =
             fd_type_pun( fd_chunk_to_laddr( ctx->out_replay->mem, ctx->out_replay->chunk ) );
           slot_exchanged->bank_idx = prev_bank->idx;
-          fd_stem_publish( stem, 1UL, 0UL, ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), 0UL, tsorig, tspub );
+          fd_stem_publish( stem, ctx->out_replay->out_idx, 0UL, ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), 0UL, tsorig, tspub );
           ctx->out_replay->chunk = fd_dcache_compact_next( ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), ctx->out_replay->chunk0, ctx->out_replay->wmark );
         }
 
@@ -460,6 +465,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
     }
     return;
   }
+
+  if( FD_UNLIKELY( !ctx->out_pack->mem ) ) return;
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
   FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
@@ -611,15 +618,26 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[i].mtu    = link->mtu;
   }
 
-  ctx->out_pack->mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_pack->chunk0 = fd_dcache_compact_chunk0( ctx->out_pack->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_pack->wmark  = fd_dcache_compact_wmark ( ctx->out_pack->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_pack->chunk  = ctx->out_pack->chunk0;
-
-  ctx->out_replay->mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_replay->chunk0 = fd_dcache_compact_chunk0( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
-  ctx->out_replay->wmark  = fd_dcache_compact_wmark ( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
-  ctx->out_replay->chunk  = ctx->out_replay->chunk0;
+  memset( ctx->out_pack,   0, sizeof( ctx->out_pack   ) );
+  memset( ctx->out_replay, 0, sizeof( ctx->out_replay ) );
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
+    if( 0==strcmp( link->name, "resolv_replay" ) ) {
+      ctx->out_replay->out_idx = i;
+      ctx->out_replay->mem     = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ i ] ].dcache_obj_id ].wksp_id ].wksp;
+      ctx->out_replay->chunk0  = fd_dcache_compact_chunk0( ctx->out_replay->mem, topo->links[ tile->out_link_id[ i ] ].dcache );
+      ctx->out_replay->wmark   = fd_dcache_compact_wmark ( ctx->out_replay->mem, topo->links[ tile->out_link_id[ i ] ].dcache, topo->links[ tile->out_link_id[ i ] ].mtu );
+      ctx->out_replay->chunk   = ctx->out_replay->chunk0;
+    } else if( 0==strcmp( link->name, "resolv_pack" ) ) {
+      ctx->out_pack->out_idx = i;
+      ctx->out_pack->mem     = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ i ] ].dcache_obj_id ].wksp_id ].wksp;
+      ctx->out_pack->chunk0  = fd_dcache_compact_chunk0( ctx->out_pack->mem, topo->links[ tile->out_link_id[ i ] ].dcache );
+      ctx->out_pack->wmark   = fd_dcache_compact_wmark ( ctx->out_pack->mem, topo->links[ tile->out_link_id[ i ] ].dcache, topo->links[ tile->out_link_id[ i ] ].mtu );
+      ctx->out_pack->chunk   = ctx->out_pack->chunk0;
+    } else {
+      FD_LOG_ERR(( "unknown out link name '%s'", link->name ));
+    }
+  }
 
   fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->resolv.accdb_max_depth );
 

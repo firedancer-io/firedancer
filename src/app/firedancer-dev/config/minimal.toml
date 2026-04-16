@@ -5,12 +5,14 @@ max_page_size = "huge"
 max_accounts = 1048576
 file_size_gib = 20
 
-[runtime.limits]
+[runtime]
 max_live_slots = 512
 max_fork_width = 16
 
 [layout]
+enable_block_production = false
 verify_tile_count = 1
+resolv_tile_count = 1
 execrp_tile_count = 1
 
 [tiles.shred]
