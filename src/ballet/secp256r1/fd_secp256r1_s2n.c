@@ -193,12 +193,39 @@ fd_secp256r1_point_eq_x( fd_secp256r1_point_t const *  p,
 
 /* Point operations in Montgomery Jacobian coordinates. */
 
-/* r = a + b */
+/* Returns 1 if two Jacobian points represent the same affine point, 0 otherwise. */
+static inline int
+fd_secp256r1_point_eq( fd_secp256r1_point_t const * a,
+                       fd_secp256r1_point_t const * b ) {
+  int a_zero = fd_uint256_eq( a->z, fd_secp256r1_const_zero );
+  int b_zero = fd_uint256_eq( b->z, fd_secp256r1_const_zero );
+  if( FD_UNLIKELY( a_zero | b_zero ) ) return a_zero & b_zero;
+  fd_secp256r1_fp_t az2[1], bz2[1], t1[1], t2[1];
+  bignum_montsqr_p256( az2->limbs, (ulong *)a->z->limbs );
+  bignum_montsqr_p256( bz2->limbs, (ulong *)b->z->limbs );
+  bignum_montmul_p256( t1->limbs, (ulong *)a->x->limbs, bz2->limbs );
+  bignum_montmul_p256( t2->limbs, (ulong *)b->x->limbs, az2->limbs );
+  if( FD_UNLIKELY( fd_uint256_eq( t1, t2 ) ) ) {
+    bignum_montmul_p256( t1->limbs, (ulong *)a->y->limbs, bz2->limbs );
+    bignum_montmul_p256( t1->limbs, t1->limbs, (ulong *)b->z->limbs );
+    bignum_montmul_p256( t2->limbs, (ulong *)b->y->limbs, az2->limbs );
+    bignum_montmul_p256( t2->limbs, t2->limbs, (ulong *)a->z->limbs );
+    return fd_uint256_eq( t1, t2 );
+  }
+  return 0;
+}
+
+/* r = a + b.
+   p256_montjadd handles identity and negation but NOT the doubling case. */
 static inline fd_secp256r1_point_t *
 fd_secp256r1_point_add( fd_secp256r1_point_t *       r,
                         fd_secp256r1_point_t const * a,
                         fd_secp256r1_point_t const * b ) {
-  p256_montjadd( (ulong *)r, (ulong const *)a, (ulong const *)b );
+  if( FD_UNLIKELY( fd_secp256r1_point_eq( a, b ) ) ) {
+    p256_montjdouble( (ulong *)r, (ulong const *)a );
+  } else {
+    p256_montjadd( (ulong *)r, (ulong const *)a, (ulong const *)b );
+  }
   return r;
 }
 
@@ -251,7 +278,8 @@ fd_secp256r1_point_eq_mixed( fd_secp256r1_point_t const * a,
 }
 
 /* Mixed addition: a (Jacobian) + b (affine xy as 8 ulongs).
-   Handles identity elements and the equal-point (doubling) case. */
+   p256_montjmixadd handles identity (a.z==0) and negation (a==-b)
+   but NOT b==0 or doubling (a==b). */
 static inline void
 fd_secp256r1_point_add_mixed( fd_secp256r1_point_t *       r,
                               fd_secp256r1_point_t const * a,

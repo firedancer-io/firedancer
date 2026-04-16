@@ -46,7 +46,7 @@ fd_secp256k1_scalar_frombytes( fd_secp256k1_scalar_t * r,
 /* r = 1 / a
    Operates on scalars NOT in the montgomery domain.
    a MUST not be 0. */
-fd_secp256k1_scalar_t *
+static inline fd_secp256k1_scalar_t *
 fd_secp256k1_scalar_invert( fd_secp256k1_scalar_t *       r,
                             fd_secp256k1_scalar_t const * a ) {
   ulong t[ 12 ];
@@ -211,9 +211,9 @@ fd_secp256k1_fp_tobytes( uchar                    r[ 32 ],
     a^((p-1)/2) = -1
   and the result will fail the final verification.
 */
-fd_secp256k1_fp_t *
-fd_secp256k1_fp_sqrt( fd_secp256k1_fp_t *       restrict r,
-                      fd_secp256k1_fp_t const * restrict a ) {
+static inline fd_secp256k1_fp_t *
+fd_secp256k1_fp_sqrt_impl( fd_secp256k1_fp_t *       restrict r,
+                           fd_secp256k1_fp_t const * restrict a ) {
   fd_secp256k1_fp_t x2;
   fd_secp256k1_fp_t x3;
 
@@ -279,12 +279,39 @@ fd_secp256k1_fp_sqrt( fd_secp256k1_fp_t *       restrict r,
 /* Point operations in plain (non-Montgomery) Jacobian coordinates.
    s2n-bignum's secp256k1 point ops work in this domain. */
 
-/* r = a + b */
+/* Returns 1 if two Jacobian points represent the same affine point, 0 otherwise. */
+static inline int
+fd_secp256k1_point_eq( fd_secp256k1_point_t const * a,
+                       fd_secp256k1_point_t const * b ) {
+  int a_zero = fd_secp256k1_fp_eq( a->z, fd_secp256k1_const_zero );
+  int b_zero = fd_secp256k1_fp_eq( b->z, fd_secp256k1_const_zero );
+  if( FD_UNLIKELY( a_zero | b_zero ) ) return a_zero & b_zero;
+  fd_secp256k1_fp_t az2[1], bz2[1], t1[1], t2[1];
+  bignum_sqr_p256k1( az2->limbs, (ulong *)a->z->limbs );
+  bignum_sqr_p256k1( bz2->limbs, (ulong *)b->z->limbs );
+  bignum_mul_p256k1( t1->limbs, (ulong *)a->x->limbs, bz2->limbs );
+  bignum_mul_p256k1( t2->limbs, (ulong *)b->x->limbs, az2->limbs );
+  if( FD_UNLIKELY( fd_secp256k1_fp_eq( t1, t2 ) ) ) {
+    bignum_mul_p256k1( t1->limbs, (ulong *)a->y->limbs, bz2->limbs );
+    bignum_mul_p256k1( t1->limbs, t1->limbs, (ulong *)b->z->limbs );
+    bignum_mul_p256k1( t2->limbs, (ulong *)b->y->limbs, az2->limbs );
+    bignum_mul_p256k1( t2->limbs, t2->limbs, (ulong *)a->z->limbs );
+    return fd_secp256k1_fp_eq( t1, t2 );
+  }
+  return 0;
+}
+
+/* r = a + b.
+   secp256k1_jadd handles identity and negation but NOT doubling. */
 static inline fd_secp256k1_point_t *
 fd_secp256k1_point_add( fd_secp256k1_point_t *       r,
                         fd_secp256k1_point_t const * a,
                         fd_secp256k1_point_t const * b ) {
-  secp256k1_jadd( (ulong *)r, (ulong const *)a, (ulong const *)b );
+  if( FD_UNLIKELY( fd_secp256k1_point_eq( a, b ) ) ) {
+    secp256k1_jdouble( (ulong *)r, (ulong const *)a );
+  } else {
+    secp256k1_jadd( (ulong *)r, (ulong const *)a, (ulong const *)b );
+  }
   return r;
 }
 
@@ -315,24 +342,54 @@ fd_secp256k1_point_sub( fd_secp256k1_point_t *       r,
   return fd_secp256k1_point_add( r, a, neg );
 }
 
-/* Mixed addition: a (Jacobian) + b (affine xy as 8 ulongs). */
+/* Returns 1 if Jacobian `a` and affine `b` represent the same point, 0 otherwise. */
+static inline int
+fd_secp256k1_point_eq_mixed( fd_secp256k1_point_t const * a,
+                             fd_secp256k1_point_t const * b ) {
+  if( FD_UNLIKELY( fd_secp256k1_fp_eq( a->z, fd_secp256k1_const_zero ) ) ) {
+    return fd_uint256_eq( b->x, fd_secp256k1_const_zero ) &
+           fd_uint256_eq( b->y, fd_secp256k1_const_zero );
+  }
+  fd_secp256k1_fp_t z1z1[1], temp[1];
+  bignum_sqr_p256k1( z1z1->limbs, (ulong *)a->z->limbs );
+  bignum_mul_p256k1( temp->limbs, (ulong *)b->x->limbs, z1z1->limbs );
+  if( FD_UNLIKELY( fd_secp256k1_fp_eq( a->x, temp ) ) ) {
+    bignum_mul_p256k1( temp->limbs, z1z1->limbs, (ulong *)a->z->limbs );
+    bignum_mul_p256k1( temp->limbs, temp->limbs, (ulong *)b->y->limbs );
+    return fd_secp256k1_fp_eq( a->y, temp );
+  }
+  return 0;
+}
+
+/* Mixed addition: a (Jacobian) + b (affine point, with z=1 or z=0).
+   secp256k1_jmixadd handles identity (a.z==0) and negation (a==-b)
+   but NOT b==0 or doubling (a==b). */
 static inline fd_secp256k1_point_t *
 fd_secp256k1_point_add_mixed( fd_secp256k1_point_t *       r,
                               fd_secp256k1_point_t const * a,
-                              ulong                const   b[ 8 ] ) {
-  secp256k1_jmixadd( (ulong *)r, (ulong const *)a, (ulong *)b );
+                              fd_secp256k1_point_t const * b ) {
+  int b_is_zero = fd_uint256_eq( b->x, fd_secp256k1_const_zero ) &
+                  fd_uint256_eq( b->y, fd_secp256k1_const_zero );
+  if( FD_UNLIKELY( b_is_zero ) ) {
+    if( r != a ) fd_memcpy( r, a, sizeof(fd_secp256k1_point_t) );
+    return r;
+  }
+  if( FD_UNLIKELY( fd_secp256k1_point_eq_mixed( a, b ) ) ) {
+    secp256k1_jdouble( (ulong *)r, (ulong const *)a );
+  } else {
+    secp256k1_jmixadd( (ulong *)r, (ulong const *)a, (ulong const *)b );
+  }
   return r;
 }
 
 static inline fd_secp256k1_point_t *
 fd_secp256k1_point_sub_mixed( fd_secp256k1_point_t *       r,
                               fd_secp256k1_point_t const * a,
-                              ulong                const   b[ 8 ] ) {
-  ulong neg[8];
-  fd_memcpy( neg, b, 64 );
-  bignum_neg_p256k1( neg+4, neg+4 );
-  secp256k1_jmixadd( (ulong *)r, (ulong const *)a, neg );
-  return r;
+                              fd_secp256k1_point_t const * b ) {
+  fd_secp256k1_point_t neg[1];
+  fd_memcpy( neg, b, sizeof(fd_secp256k1_point_t) );
+  bignum_neg_p256k1( neg->y->limbs, neg->y->limbs );
+  return fd_secp256k1_point_add_mixed( r, a, neg );
 }
 
 /* Double base multiplication */
@@ -392,9 +449,9 @@ fd_secp256k1_double_scalar_mul_base( fd_secp256k1_point_t *        r,
   for( int pos=64; ; pos-- ) {
     schar slot1 = e1[pos];
     if( slot1 > 0 ) {
-      fd_secp256k1_point_add_mixed( r, r, fd_secp256k1_base_point_table[ (ulong)slot1 ].x->limbs );
+      fd_secp256k1_point_add_mixed( r, r, &fd_secp256k1_base_point_table[ (ulong)slot1 ] );
     } else if( slot1 < 0 ) {
-      fd_secp256k1_point_sub_mixed( r, r, fd_secp256k1_base_point_table[ (ulong)(-slot1) ].x->limbs );
+      fd_secp256k1_point_sub_mixed( r, r, &fd_secp256k1_base_point_table[ (ulong)(-slot1) ] );
     }
 
     schar slot2 = e2[pos];

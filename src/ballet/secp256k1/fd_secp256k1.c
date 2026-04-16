@@ -1,5 +1,12 @@
 #include "fd_secp256k1_private.h"
 
+/* Public wrapper for fp_sqrt (internal impl is static inline). */
+fd_uint256_t *
+fd_secp256k1_fp_sqrt( fd_uint256_t *       restrict r,
+                      fd_uint256_t const * restrict a ) {
+  return (fd_uint256_t *)fd_secp256k1_fp_sqrt_impl( (fd_secp256k1_fp_t *)r,
+                                                     (fd_secp256k1_fp_t const *)a );
+}
 
 /* Given the coordinate X and the odd-ness of the Y coordinate, recovers Y and
    returns the affine group element. Returns NULL if there is no valid pair. */
@@ -13,7 +20,7 @@ fd_secp256k1_recovery_y( fd_secp256k1_point_t *r, fd_secp256k1_fp_t const *x, in
   fd_secp256k1_fp_add( x3, x3, fd_secp256k1_const_b );
 
   /* y^2 = x^3 + b <=> y = sqrt(x^3 + b) */
-  if( FD_UNLIKELY( !fd_secp256k1_fp_sqrt( r->y, x3 ) ) ) {
+  if( FD_UNLIKELY( !fd_secp256k1_fp_sqrt_impl( r->y, x3 ) ) ) {
     return NULL;
   }
 

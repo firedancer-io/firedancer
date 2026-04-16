@@ -1,5 +1,6 @@
 #include "../fd_ballet.h"
 #include "fd_secp256k1.h"
+#include "fd_secp256k1_private.h"
 #include "../hex/fd_hex.h"
 
 static void
@@ -502,6 +503,166 @@ test_recover_consistency( void ) {
 }
 
 /**********************************************************************/
+/* Test: point arithmetic edge cases                                  */
+/**********************************************************************/
+
+/* Helper: compare Jacobian result against a known affine point. */
+static int
+point_eq_affine( fd_secp256k1_point_t const * jac,
+                 fd_secp256k1_point_t const * affine ) {
+  fd_secp256k1_point_t aff[1];
+  fd_secp256k1_point_to_affine( aff, jac );
+  return fd_uint256_eq( aff->x, affine->x ) &
+         fd_uint256_eq( aff->y, affine->y );
+}
+
+static void
+test_point_add_edge_cases( void ) {
+  FD_LOG_NOTICE(( "Testing point_add edge cases" ));
+  fd_secp256k1_point_t zero[1]; fd_memset( zero, 0, sizeof(fd_secp256k1_point_t) );
+  fd_secp256k1_point_t const * G  = &fd_secp256k1_base_point_table[1];
+  fd_secp256k1_point_t const * G2 = &fd_secp256k1_base_point_table[2];
+  fd_secp256k1_point_t r[1];
+
+  /* 0 + 0 = 0 */
+  fd_secp256k1_point_add( r, zero, zero );
+  FD_TEST( fd_secp256k1_point_is_identity( r ) );
+
+  /* G + 0 = G */
+  fd_secp256k1_point_add( r, G, zero );
+  FD_TEST( point_eq_affine( r, G ) );
+
+  /* 0 + G = G */
+  fd_secp256k1_point_add( r, zero, G );
+  FD_TEST( point_eq_affine( r, G ) );
+
+  /* G + G = 2G (doubling case) */
+  fd_secp256k1_point_add( r, G, G );
+  FD_TEST( point_eq_affine( r, G2 ) );
+
+  /* G + (-G) = 0 */
+  {
+    fd_secp256k1_point_t neg_g[1];
+    fd_secp256k1_point_neg( neg_g, G );
+    fd_secp256k1_point_add( r, G, neg_g );
+    FD_TEST( fd_secp256k1_point_is_identity( r ) );
+  }
+
+  FD_LOG_NOTICE(( "point_add edge cases passed" ));
+}
+
+static void
+test_point_sub_edge_cases( void ) {
+  FD_LOG_NOTICE(( "Testing point_sub edge cases" ));
+  fd_secp256k1_point_t zero[1]; fd_memset( zero, 0, sizeof(fd_secp256k1_point_t) );
+  fd_secp256k1_point_t const * G = &fd_secp256k1_base_point_table[1];
+  fd_secp256k1_point_t r[1];
+
+  /* G - G = 0 */
+  fd_secp256k1_point_sub( r, G, G );
+  FD_TEST( fd_secp256k1_point_is_identity( r ) );
+
+  /* G - 0 = G */
+  fd_secp256k1_point_sub( r, G, zero );
+  FD_TEST( point_eq_affine( r, G ) );
+
+  /* 0 - G = -G */
+  {
+    fd_secp256k1_point_t neg_g[1];
+    fd_secp256k1_point_neg( neg_g, G );
+    fd_secp256k1_point_sub( r, zero, G );
+    FD_TEST( point_eq_affine( r, neg_g ) );
+  }
+
+  FD_LOG_NOTICE(( "point_sub edge cases passed" ));
+}
+
+static void
+test_point_add_mixed_edge_cases( void ) {
+  FD_LOG_NOTICE(( "Testing point_add_mixed edge cases" ));
+  fd_secp256k1_point_t zero[1]; fd_memset( zero, 0, sizeof(fd_secp256k1_point_t) );
+  fd_secp256k1_point_t const * G  = &fd_secp256k1_base_point_table[1];
+  fd_secp256k1_point_t const * G2 = &fd_secp256k1_base_point_table[2];
+  fd_secp256k1_point_t r[1];
+
+  /* 0 + 0 = 0 (both zero) */
+  fd_secp256k1_point_add_mixed( r, zero, zero );
+  FD_TEST( fd_secp256k1_point_is_identity( r ) );
+
+  /* G + 0 = G */
+  fd_secp256k1_point_add_mixed( r, G, zero );
+  FD_TEST( point_eq_affine( r, G ) );
+
+  /* 0 + G = G */
+  fd_secp256k1_point_add_mixed( r, zero, G );
+  FD_TEST( point_eq_affine( r, G ) );
+
+  /* G + G = 2G (doubling case) */
+  fd_secp256k1_point_add_mixed( r, G, G );
+  FD_TEST( point_eq_affine( r, G2 ) );
+
+  /* G + (-G) = 0 */
+  {
+    fd_secp256k1_point_t neg_g[1];
+    fd_secp256k1_point_neg( neg_g, G );
+    fd_secp256k1_point_add_mixed( r, G, neg_g );
+    FD_TEST( fd_secp256k1_point_is_identity( r ) );
+  }
+
+  FD_LOG_NOTICE(( "point_add_mixed edge cases passed" ));
+}
+
+static void
+test_point_sub_mixed_edge_cases( void ) {
+  FD_LOG_NOTICE(( "Testing point_sub_mixed edge cases" ));
+  fd_secp256k1_point_t zero[1]; fd_memset( zero, 0, sizeof(fd_secp256k1_point_t) );
+  fd_secp256k1_point_t const * G = &fd_secp256k1_base_point_table[1];
+  fd_secp256k1_point_t r[1];
+
+  /* G - G = 0 */
+  fd_secp256k1_point_sub_mixed( r, G, G );
+  FD_TEST( fd_secp256k1_point_is_identity( r ) );
+
+  /* G - 0 = G */
+  fd_secp256k1_point_sub_mixed( r, G, zero );
+  FD_TEST( point_eq_affine( r, G ) );
+
+  /* 0 - G = -G */
+  {
+    fd_secp256k1_point_t neg_g[1];
+    fd_secp256k1_point_neg( neg_g, G );
+    fd_secp256k1_point_sub_mixed( r, zero, G );
+    FD_TEST( point_eq_affine( r, neg_g ) );
+  }
+
+  FD_LOG_NOTICE(( "point_sub_mixed edge cases passed" ));
+}
+
+static void
+test_point_eq( void ) {
+  FD_LOG_NOTICE(( "Testing point_eq" ));
+  fd_secp256k1_point_t zero[1]; fd_memset( zero, 0, sizeof(fd_secp256k1_point_t) );
+  fd_secp256k1_point_t const * G  = &fd_secp256k1_base_point_table[1];
+  fd_secp256k1_point_t const * G2 = &fd_secp256k1_base_point_table[2];
+
+  FD_TEST( fd_secp256k1_point_eq( zero, zero ) == 1 );
+  FD_TEST( fd_secp256k1_point_eq( G, G ) == 1 );
+  FD_TEST( fd_secp256k1_point_eq( G, G2 ) == 0 );
+  FD_TEST( fd_secp256k1_point_eq( G, zero ) == 0 );
+  FD_TEST( fd_secp256k1_point_eq( zero, G ) == 0 );
+
+  /* Compare G in affine (z=1) with G in a different Jacobian representation (2G + G - 2G) */
+  {
+    fd_secp256k1_point_t g_jac[1];
+    fd_secp256k1_point_add( g_jac, G2, G );    /* 3G */
+    fd_secp256k1_point_sub( g_jac, g_jac, G2 );/* 3G - 2G = G, in non-affine Jacobian */
+    FD_TEST( fd_secp256k1_point_eq( G, g_jac ) == 1 );
+  }
+
+  FD_LOG_NOTICE(( "point_eq tests passed" ));
+}
+
+/**********************************************************************/
 /* Benches                                                            */
 /**********************************************************************/
 
@@ -512,7 +673,7 @@ bench_fp( void ) {
   a->limbs[0] = 8; a->limbs[1] = 0; a->limbs[2] = 0; a->limbs[3] = 0;
   /* No Montgomery conversion needed -- field is now plain */
 
-  FD_TEST( fd_secp256k1_fp_sqrt( r, a ) != NULL );
+  FD_TEST( fd_secp256k1_fp_sqrt_impl( r, a ) != NULL );
 
   fd_uint256_t * rp = r;
   fd_uint256_t * ap = a;
@@ -521,7 +682,7 @@ bench_fp( void ) {
   long dt = fd_log_wallclock();
   for( ulong rem=iter; rem; rem-- ) {
     FD_COMPILER_FORGET( rp ); FD_COMPILER_FORGET( ap );
-    fd_secp256k1_fp_sqrt( rp, ap );
+    fd_secp256k1_fp_sqrt_impl( rp, ap );
   }
   dt = fd_log_wallclock() - dt;
   char cstr[128];
@@ -575,6 +736,13 @@ main( int     argc,
   test_recover_extended ();
   test_recover_edge_cases();
   test_recover_consistency();
+
+  test_point_eq();
+  test_point_add_edge_cases();
+  test_point_sub_edge_cases();
+  test_point_add_mixed_edge_cases();
+  test_point_sub_mixed_edge_cases();
+
   bench_fp();
   bench_recover();
 

@@ -281,6 +281,67 @@ test_secp256r1_point_add_mixed( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
+test_secp256r1_point_add_edge_cases( FD_FN_UNUSED fd_rng_t * rng ) {
+  FD_LOG_NOTICE(( "Testing point_add edge cases" ));
+  fd_secp256r1_point_t zero[1]; fd_memset( zero, 0, sizeof(fd_secp256r1_point_t) );
+  fd_secp256r1_point_t const * G  = &fd_secp256r1_base_point_table[1];
+  fd_secp256r1_point_t const * G2 = &fd_secp256r1_base_point_table[2];
+  fd_secp256r1_point_t r[1];
+
+  /* 0 + 0 = 0 */
+  fd_secp256r1_point_add( r, zero, zero );
+  FD_TEST( fd_uint256_eq( r->z, fd_secp256r1_const_zero ) );
+
+  /* G + 0 = G */
+  fd_secp256r1_point_add( r, G, zero );
+  FD_TEST( fd_secp256r1_point_eq_mixed( r, G->x->limbs ) );
+
+  /* 0 + G = G */
+  fd_secp256r1_point_add( r, zero, G );
+  FD_TEST( fd_secp256r1_point_eq_mixed( r, G->x->limbs ) );
+
+  /* G + G = 2G */
+  fd_secp256r1_point_add( r, G, G );
+  FD_TEST( fd_secp256r1_point_eq_mixed( r, G2->x->limbs ) );
+
+  /* G + (-G) = 0 */
+  {
+    fd_secp256r1_point_t neg_g[1];
+    fd_secp256r1_point_neg( neg_g, G );
+    fd_secp256r1_point_add( r, G, neg_g );
+    FD_TEST( fd_uint256_eq( r->z, fd_secp256r1_const_zero ) );
+  }
+
+  FD_LOG_NOTICE(( "point_add edge cases passed" ));
+}
+
+static void
+test_secp256r1_point_sub_edge_cases( FD_FN_UNUSED fd_rng_t * rng ) {
+  FD_LOG_NOTICE(( "Testing point_sub edge cases" ));
+  fd_secp256r1_point_t zero[1]; fd_memset( zero, 0, sizeof(fd_secp256r1_point_t) );
+  fd_secp256r1_point_t const * G = &fd_secp256r1_base_point_table[1];
+  fd_secp256r1_point_t r[1];
+
+  /* G - G = 0 */
+  fd_secp256r1_point_sub( r, G, G );
+  FD_TEST( fd_uint256_eq( r->z, fd_secp256r1_const_zero ) );
+
+  /* G - 0 = G */
+  fd_secp256r1_point_sub( r, G, zero );
+  FD_TEST( fd_secp256r1_point_eq_mixed( r, G->x->limbs ) );
+
+  /* 0 - G = -G */
+  {
+    fd_secp256r1_point_t neg_g[1];
+    fd_secp256r1_point_neg( neg_g, G );
+    fd_secp256r1_point_sub( r, zero, G );
+    FD_TEST( fd_secp256r1_point_eq_mixed( r, neg_g->x->limbs ) );
+  }
+
+  FD_LOG_NOTICE(( "point_sub edge cases passed" ));
+}
+
+static void
 test_secp256r1_double_scalar_mul_base_equal_points( FD_FN_UNUSED fd_rng_t * rng ) {
   /* edge case in fd_secp256r1_double_scalar_mul_base where the point
      addition at the end receives equal points. without special handling,
@@ -383,6 +444,8 @@ main( int     argc,
   test_secp256r1_point_eq_x      ( rng );
 
   test_secp256r1_point_add_mixed ( rng );
+  test_secp256r1_point_add_edge_cases( rng );
+  test_secp256r1_point_sub_edge_cases( rng );
   test_secp256r1_double_scalar_mul_base_equal_points( rng );
 
   test_secp256r1_verify          ( rng );
