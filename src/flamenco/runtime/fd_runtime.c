@@ -1246,7 +1246,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
 
-      if( txn_out->accounts.new_vote[i] ) {
+      if( txn_out->accounts.new_vote[i] &&
+          !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
         fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
         fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
       }

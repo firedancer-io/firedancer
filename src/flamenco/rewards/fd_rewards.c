@@ -986,8 +986,8 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     uchar commission_t_1;
     ulong stake_t_2;
     uchar commission_t_2;
-    uchar exists_t_1;
-    uchar exists_t_2;
+    uchar exists_t_1 = 0;
+    uchar exists_t_2 = 0;
     fd_vote_stakes_query( vote_stakes, vs_fork_idx, (fd_pubkey_t *)epoch_credits->pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2, &exists_t_1, &exists_t_2 );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
