@@ -390,6 +390,7 @@ fd_config_fill( fd_config_t * config,
     if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) ) FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )  FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.disable_status_cache ) )          FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.lazy_paging ) )                         FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.lazy_paging] which is a development only feature" ));
   }
 
   /* When running a local cluster, some options are overriden by default

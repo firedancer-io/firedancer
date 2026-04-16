@@ -45,6 +45,7 @@ gossip_cmd_topo( config_t * config ) {
   fd_topo_t * topo = &config->topo;
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  topo->lazy_paging = config->development.lazy_paging;
 
   fd_core_subtopo(   config, tile_to_cpu );
   fd_gossip_subtopo( config, tile_to_cpu );

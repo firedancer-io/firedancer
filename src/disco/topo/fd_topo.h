@@ -725,6 +725,7 @@ struct fd_topo {
 
   ulong          max_page_size; /* 2^21 or 2^30 */
   ulong          gigantic_page_threshold; /* see [hugetlbfs.gigantic_page_threshold_mib]*/
+  int            lazy_paging; /* see [development.lazy_paging] */
 };
 typedef struct fd_topo fd_topo_t;
 
@@ -1073,6 +1074,20 @@ int
 fd_topo_create_workspace( fd_topo_t *      topo,
                           fd_topo_wksp_t * wksp,
                           int              update_existing );
+
+/* Lazy-paged variants of workspace create/join.  Skip mlock, mbind, and
+   NUMA validation so pages are demand-faulted.  Development only. */
+
+int
+fd_topo_create_workspace_lazy_paged( fd_topo_t *      topo,
+                                     fd_topo_wksp_t * wksp,
+                                     int              update_existing );
+
+void
+fd_topo_join_workspace_lazy_paged( fd_topo_t *      topo,
+                                   fd_topo_wksp_t * wksp,
+                                   int              mode,
+                                   int              dump );
 
 /* Join the standard IPC objects needed by the topology of this particular
    tile */

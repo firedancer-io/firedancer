@@ -1700,6 +1700,14 @@ telemetry = true
     # log the hard fork event and continue running.
     hard_fork_fatal = false
 
+    # If enabled, do not mlock workspaces.
+    # When combined with [hugetlbfs.max_page_size] "normal", causes the
+    # kernel to defer memory reservation to runtime via page faults.
+    # Greatly reduces production performance and but allows for instant
+    # startup.  Because memory is no longer reserved on startup, reduces
+    # apparent RSS usage until load increases, which risks OOM kills.
+    lazy_paging = false
+
     [development.gossip]
         # Under normal operating conditions, a validator should always
         # reach out to a host located on the public internet.  If this

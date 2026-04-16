@@ -26,6 +26,11 @@ fd_topo_join_workspace( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
                         int              mode,
                         int              dump ) {
+  if( FD_UNLIKELY( topo->lazy_paging ) ) {
+    fd_topo_join_workspace_lazy_paged( topo, wksp, mode, dump );
+    return;
+  }
+
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
@@ -91,6 +96,10 @@ int
 fd_topo_create_workspace( fd_topo_t *      topo,
                           fd_topo_wksp_t * wksp,
                           int              update_existing ) {
+  if( FD_UNLIKELY( topo->lazy_paging ) ) {
+    return fd_topo_create_workspace_lazy_paged( topo, wksp, update_existing );
+  }
+
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 

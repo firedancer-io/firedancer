@@ -31,6 +31,7 @@ fd_topob_new( void * mem,
 
   topo->max_page_size           = FD_SHMEM_GIGANTIC_PAGE_SZ;
   topo->gigantic_page_threshold = 4 * FD_SHMEM_HUGE_PAGE_SZ;
+  topo->lazy_paging             = 0;
 
   topo->agave_affinity_cnt = 0;
   topo->blocklist_cores_cnt = 0;
