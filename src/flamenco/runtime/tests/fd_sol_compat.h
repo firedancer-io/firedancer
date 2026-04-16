@@ -109,12 +109,6 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
                                   ulong         in_sz );
 
 int
-sol_compat_gossip_message_deserialize_v1( uchar *       out,
-                                          ulong *       out_sz,
-                                          uchar const * in,
-                                          ulong         in_sz );
-
-int
 sol_compat_gossip_decode_v1( uchar *       out,
                              ulong *       out_sz,
                              uchar const * in,

@@ -204,18 +204,6 @@ convert_gossip_msg( fd_spad_t *                 spad,
 }
 
 int
-fd_solfuzz_gossip_message_deserialize( uchar *       out,
-                                       ulong *       out_sz,
-                                       uchar const * in,
-                                       ulong         in_sz ) {
-  if( FD_UNLIKELY( *out_sz<1UL ) ) return 0;
-  fd_gossip_message_t msg[1] = {0};
-  out[0] = !!fd_gossip_message_deserialize( msg, in, in_sz );
-  *out_sz = 1UL;
-  return 1;
-}
-
-int
 fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
                           uchar *               out,
                           ulong *               out_sz,

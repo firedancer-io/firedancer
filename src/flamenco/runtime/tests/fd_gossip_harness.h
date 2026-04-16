@@ -5,16 +5,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_solfuzz_gossip_message_deserialize deserializes a raw gossip wire
-   message and returns a single byte: 1 if deserialization succeeded,
-   0 otherwise.  Does not require a runner. */
-
-int
-fd_solfuzz_gossip_message_deserialize( uchar *       out,
-                                       ulong *       out_sz,
-                                       uchar const * in,
-                                       ulong         in_sz );
-
 /* fd_solfuzz_gossip_decode deserializes a raw gossip wire message and
    returns protobuf-encoded GossipEffects with the full decoded message
    structure for differential comparison.  All intermediate allocations
