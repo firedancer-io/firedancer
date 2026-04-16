@@ -2081,6 +2081,19 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     return FD_SCHED_BAD_BLOCK;
   }
 
+  /* Unless increase_tx_account_lock_limit activates, a transaction must
+     have <= 64 accounts.
+
+     FIXME: The right thing to do here is for rdisp to support keeping
+     track of 128 accounts per transaction by changing the
+     interpretation of the 7 bits for edge_cnt_etc to be one less than
+     the number of accounts. */
+  ulong acct_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALL );
+  if( FD_UNLIKELY( acct_cnt>64UL ) ) {
+    FD_LOG_INFO(( "bad block: transaction wants to lock %lu accounts in slot %lu, parent slot %lu, txn_parsed_cnt %u", acct_cnt, block->slot, block->parent_slot, block->txn_parsed_cnt ));
+    return FD_SCHED_BAD_BLOCK;
+  }
+
   ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
   ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
 
