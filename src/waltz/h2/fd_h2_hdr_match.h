@@ -148,7 +148,7 @@ fd_h2_hdr_matcher_insert( fd_h2_hdr_matcher_t * matcher,
    - Positive if the entry matched a value previously added with
      fd_h2_hdr_matcher_add */
 
-FD_FN_PURE static inline int
+static inline int
 fd_h2_hdr_match( fd_h2_hdr_matcher_t const * matcher,
                  char const *                name,
                  ulong                       name_len,

@@ -1684,6 +1684,10 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L78
     rc = initialize_account( ctx, &me, target_version, &instruction->initialize_account, signers, signers_cnt, clock );
 
+    if( FD_LIKELY( !rc ) ) {
+      ctx->txn_out->accounts.new_vote[ ctx->instr->accounts[0].index_in_transaction ] = 1;
+    }
+
     break;
   }
 
@@ -2213,6 +2217,10 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     rc = initialize_account_v2( ctx, &me, target_version, &instruction->initialize_account_v2, signers, signers_cnt, clock );
+
+    if( FD_LIKELY( !rc ) ) {
+      ctx->txn_out->accounts.new_vote[ ctx->instr->accounts[0].index_in_transaction ] = 1;
+    }
 
     break;
   }

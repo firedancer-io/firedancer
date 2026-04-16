@@ -3,6 +3,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../util/pod/fd_pod.h"
@@ -282,7 +283,7 @@ after_credit( fd_backt_tile_t *   ctx,
 
   fd_store_slock_acquire( ctx->store );
   fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
-  fd_memcpy( fec->data+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
+  fd_memcpy( fd_store_fec_data( ctx->store, fec )+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
   fd_store_slock_release( ctx->store ); /* drop(fec) */
 
@@ -310,19 +311,13 @@ after_credit( fd_backt_tile_t *   ctx,
      of the shred tile.  This involves copying the data shred header and
      appending the merkle root and chained merkle root. */
 
-  int is_leader = 0;
+  fd_fec_complete_t * complete_msg = (fd_fec_complete_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ) );
+  complete_msg->last_shred_hdr = *shred;
+  memcpy( &complete_msg->merkle_root, &mr, sizeof(fd_hash_t) );
+  memcpy( &complete_msg->chained_merkle_root, &cmr, sizeof(fd_hash_t) );
 
-  uchar * out_buf = fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk );
-  memcpy( out_buf, shred, FD_SHRED_DATA_HEADER_SZ );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ, &mr, sizeof(fd_hash_t) );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t), &cmr, sizeof(fd_hash_t) );
-  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t), &is_leader, sizeof(int) );
-  ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
-
-  ulong sig = fd_disco_shred_out_fec_sig( shred->slot, shred->fec_set_idx, 32, shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
-  fd_stem_publish( stem, ctx->repair_out->idx, sig, ctx->repair_out->chunk, fec_complete_sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-
-  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, fec_complete_sz, ctx->repair_out->chunk0, ctx->repair_out->wmark );
+  fd_stem_publish( stem, ctx->repair_out->idx, SHRED_SIG_FEC_COMPLETE, ctx->repair_out->chunk, sizeof(fd_fec_complete_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_fec_complete_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
   if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
 }

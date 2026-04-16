@@ -852,6 +852,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->in.pos                  = 0UL;
       ctx->txncache_entries_len    = 0UL;
       ctx->blockhash_offsets_len   = 0UL;
       ctx->manifest_capitalization = 0UL;
@@ -1124,6 +1125,7 @@ unprivileged_init( fd_topo_t *      topo,
     ulong depth = out_link_txn->depth;
     FD_TEST( ( depth*snapin_txn.mtu )==( sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) );
     ctx->txncache_entries                 = fd_chunk_to_laddr( snapin_txn.mem, snapin_txn.chunk0 );
+    FD_TEST( fd_dcache_app_sz( out_link_txn->dcache )>=sizeof(ulong) );
     ctx->txncache_entries_len_vinyl_ptr   = (ulong*)fd_dcache_app_laddr( out_link_txn->dcache );
     memset( ctx->txncache_entries_len_vinyl_ptr, 0, sizeof(ulong) );
   } else {
@@ -1134,8 +1136,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
   ctx->lthash_disabled = tile->snapin.lthash_disabled;
-
-  ctx->boot_timestamp = fd_log_wallclock();
 
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
@@ -1221,6 +1221,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( tile->snapin.use_vinyl ) {
     ctx->use_vinyl = 1;
   }
+
+  ctx->boot_timestamp = fd_log_wallclock();
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:

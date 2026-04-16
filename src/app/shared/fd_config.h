@@ -127,6 +127,7 @@ struct fd_configf {
 
   struct {
     ulong max_live_slots;
+    int   fixed_fec_sets;
     ulong max_fork_width;
     ulong concurrent_account_limit;
 
@@ -174,6 +175,10 @@ struct fd_configf {
     struct {
       int validate_genesis_hash;
     } genesis;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+    } forktest;
   } development;
 
   struct {
@@ -184,6 +189,7 @@ struct fd_configf {
     ulong authorized_voter_paths_cnt;
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
+
 };
 
 typedef struct fd_configf fd_configf_t;
@@ -484,7 +490,6 @@ struct fd_config {
     } replay;
 
     struct {
-      int   enabled;
       int   ingest_dead_slots;
       ulong end_slot;
       ulong root_distance;

@@ -1,4 +1,3 @@
-#include "../tower/fd_tower.h"
 #include "fd_hfork.h"
 
 /* fd_hfork maintains four pools and four maps:
@@ -121,7 +120,18 @@ typedef struct bhm bhm_t;
 #define DLIST_NEXT  dlist.next
 #include "../../util/tmpl/fd_dlist.c"
 
-typedef fd_hfork_blk_t blk_t;
+struct blk {
+  fd_hash_t block_id;      /* blk_map key */
+  ulong     prev;          /* blk_map prev */
+  ulong     next;          /* pool next / blk_map next */
+  fd_hash_t our_bank_hash; /* our bank hash for this block id */
+  int       replayed;      /* whether we've replayed this block  */
+  int       dead;          /* whether we marked this block as dead */
+  int       flag;          /* -1: mismatch, 0: not compared yet, 1: match */
+  ulong     bhm_cnt;       /* number of competing bank hashes for this block id */
+  void *    bhm_dlist;     /* dlist of bank hash objects for this block id */
+};
+typedef struct blk blk_t;
 
 #define POOL_NAME blk_pool
 #define POOL_T    blk_t
@@ -523,7 +533,7 @@ fd_hfork_count_vote( fd_hfork_t *        hfork,
   return blk->flag;
 }
 
-fd_hfork_blk_t *
+int
 fd_hfork_record_our_bank_hash( fd_hfork_t *      hfork,
                                fd_hash_t const * block_id,
                                fd_hash_t const * bank_hash,
@@ -541,14 +551,15 @@ fd_hfork_record_our_bank_hash( fd_hfork_t *      hfork,
                               !bhm_dlist_iter_done( iter, blk->bhm_dlist, hfork->bhm_pool );
                         iter = bhm_dlist_iter_fwd_next( iter, blk->bhm_dlist, hfork->bhm_pool ) ) {
     bhm_t * bhm = bhm_dlist_iter_ele( iter, blk->bhm_dlist, hfork->bhm_pool );
-    blk->flag = check( blk, bhm, total_stake );
+    blk->flag   = check( blk, bhm, total_stake );
   }
-  return blk;
+  return blk->flag;
 }
 
 void
-fd_hfork_update_voters( fd_hfork_t *              hfork,
-                        fd_tower_voters_t const * tower_voters ) {
+fd_hfork_update_voters( fd_hfork_t *        hfork,
+                        fd_pubkey_t const * vote_accs,
+                        ulong               cnt ) {
 
   for( vtr_dlist_iter_t iter = vtr_dlist_iter_fwd_init( hfork->vtr_dlist, hfork->vtr_pool );
        !vtr_dlist_iter_done( iter, hfork->vtr_dlist, hfork->vtr_pool );
@@ -556,13 +567,11 @@ fd_hfork_update_voters( fd_hfork_t *              hfork,
     hfork->vtr_pool[iter].next = 1; /* mark for removal */
   }
 
-  /* Move all voters in the new tower_voters set to the back of the
+  /* Move all voters in the new voters set to the back of the
      dlist.  We mark them by setting their `next` field to null. */
 
-  for( fd_tower_voters_iter_t iter = fd_tower_voters_iter_init( tower_voters );
-                                    !fd_tower_voters_iter_done( tower_voters, iter );
-                              iter = fd_tower_voters_iter_next( tower_voters, iter ) ) {
-    fd_pubkey_t const * vote_acc = &fd_tower_voters_iter_ele_const( tower_voters, iter )->vote_acc;
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t const * vote_acc = &vote_accs[i];
     vtr_t *             vtr      = vtr_map_ele_query( hfork->vtr_map, vote_acc, NULL, hfork->vtr_pool );
     if( FD_UNLIKELY( !vtr ) ) {
       vtr          = vtr_pool_ele_acquire( hfork->vtr_pool );

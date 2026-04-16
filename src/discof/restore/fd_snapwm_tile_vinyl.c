@@ -938,9 +938,13 @@ fd_snapwm_vinyl_revert_incr( fd_snapwm_tile_t * ctx ) {
           FD_LOG_CRIT(( "element seq %lu for key %s memo %016lx not in use", seq, phdr_key_b58, memo ));
         }
 
-        /* Either free the meta map element or update it. */
+        /* Either remove the meta map element or update it.  In order
+           to preserve linear probing invariants, use remove_fast. */
         if( FD_UNLIKELY( !recovery_seq ) ) {
-          fd_vinyl_meta_private_ele_free( meta_map->ctx, ele );
+          fd_vinyl_meta_remove_fast( meta_map->ele, meta_map->ele_max,
+                                     meta_map->lock, meta_map->lock_shift,
+                                     NULL/*no dcache line*/, 0UL/*no dcache line*/,
+                                     found_ele_idx );
         } else {
           fd_vinyl_bstream_block_t * full_block = (void *)( mmio+recovery_seq );
           fd_vinyl_bstream_phdr_t    full_phdr  = FD_VOLATILE_CONST( full_block->phdr );

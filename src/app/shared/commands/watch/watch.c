@@ -386,7 +386,7 @@ write_snapshots( config_t const * config,
            " " BOLD "ACC"   UNBOLD " %3.1f M/s"
            " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
            " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
-      fd_snapct_state_str( state ),
+      fd_snapct_state_str( (int)state ),
       progress,
       megabytes_per_second,
       million_accounts_per_second,
@@ -408,7 +408,7 @@ write_snapshots( config_t const * config,
            " " BOLD "ACC"   UNBOLD " %3.1f M/s"
            " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
            " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
-      fd_snapct_state_str( state ),
+      fd_snapct_state_str( (int)state ),
       progress,
       megabytes_per_second,
       million_accounts_per_second,

@@ -439,8 +439,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
   ctx->lthash_disabled = tile->snapwm.lthash_disabled;
 
-  ctx->boot_timestamp = fd_log_wallclock();
-
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
@@ -497,6 +495,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( !!ctx->txncache_entries );
 
   fd_snapwm_vinyl_unprivileged_init( ctx, topo, tile, _io_mm, _io_wd );
+
+  ctx->boot_timestamp = fd_log_wallclock();
 }
 
 /* Only one message is expected to be sent out in any stem cycle, plus

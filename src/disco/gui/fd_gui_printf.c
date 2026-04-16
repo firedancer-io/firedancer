@@ -1248,7 +1248,8 @@ fd_gui_printf_peer( fd_gui_t *    gui,
     }
 
     jsonp_open_array( gui->http, "vote" );
-      for( ulong i=0UL; i<vote_idx_cnt; i++ ) {
+      ulong vote_idx_cnt_bounded = fd_ulong_min( vote_idx_cnt, 5UL );
+      for( ulong i=0UL; i<vote_idx_cnt_bounded; i++ ) {
         jsonp_open_object( gui->http, NULL );
           char vote_account_base58[ FD_BASE58_ENCODED_32_SZ ];
           fd_base58_encode_32( gui->vote_account.vote_accounts[ vote_idxs[ i ] ].vote_account->uc, NULL, vote_account_base58 );
@@ -1838,7 +1839,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
     duration_nanos = slot->completed_time - parent_slot->completed_time;
   }
 
-  jsonp_open_envelope( gui->http, "slot", "query" );
+  jsonp_open_envelope( gui->http, "slot", "query_transactions" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
       fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
@@ -2115,7 +2116,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
     duration_nanos = slot->completed_time - parent_slot->completed_time;
   }
 
-  jsonp_open_envelope( gui->http, "slot", "query" );
+  jsonp_open_envelope( gui->http, "slot", "query_detailed" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
       fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );

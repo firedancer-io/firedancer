@@ -274,6 +274,7 @@ struct fd_txn_out {
        or stakes caches in the commit stage of a transaction. */
     uchar         stake_update[ MAX_TX_ACCOUNT_LOCKS ];
     uchar         vote_update [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar         new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still

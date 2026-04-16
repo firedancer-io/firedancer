@@ -4,6 +4,7 @@
 #include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
+#include "../stakes/fd_new_votes.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_top_votes.h"
 #include "../stakes/fd_vote_stakes.h"
@@ -90,12 +91,10 @@ FD_PROTOTYPES_BEGIN
   modified, a new element of the pool is acquired and the data is
   copied over from the parent.
 
-  Currently, there is a delta-based field, fd_stake_delegations_t.
-  Each bank stores a delta-based representation in the form of an
-  aligned uchar buffer.  The full state is stored in fd_banks_t in
-  out-of-line memory sized using max_stake_accounts, and fd_banks_t
-  also reserves another out-of-line buffer which can store the full
-  state of the stake delegations for frontier queries.
+  Currently, there are two delta-based fields, fd_stake_delegations_t
+  and fd_new_votes_t.  The full state for these is stored in
+  fd_banks_t in out-of-line memory, with each bank carrying the fork
+  index for its delta.
 
   The cost tracker is allocated from a pool.  The lifetime of a cost
   tracker element starts when the bank is linked to a parent with a
@@ -267,6 +266,7 @@ struct fd_bank {
   ushort                vote_stakes_fork_id; /* fork id used by the vote stakes */
   uchar                 stake_rewards_fork_id; /* fork id used by stake rewards */
   ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
+  ushort                new_votes_fork_id; /* fork id used by new vote account deltas */
   ulong                 cost_tracker_pool_idx;
   ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
 
@@ -303,7 +303,8 @@ struct fd_bank {
     double                 slots_per_year;
     fd_inflation_t         inflation;
     ulong                  cluster_type;
-    ulong                  total_epoch_stake;
+    ulong                  total_epoch_stake; /* total staked to active vote accounts */
+    ulong                  total_effective_stake; /* effective stake from stake delegations */
     ulong                  total_activating_stake;
     ulong                  total_deactivating_stake;
     ulong                  warmup_cooldown_rate_epoch; /* epoch when reduce_stake_warmup_cooldown */
@@ -347,6 +348,9 @@ typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 fd_vote_stakes_t *
 fd_bank_vote_stakes( fd_bank_t const * bank );
 
+fd_new_votes_t *
+fd_bank_new_votes( fd_bank_t const * bank );
+
 fd_stake_delegations_t *
 fd_bank_stake_delegations_modify( fd_bank_t * bank );
 
@@ -389,9 +393,17 @@ struct fd_banks {
 
   ulong vote_stakes_pool_offset;
 
+  ulong new_votes_offset;
+
   ulong stake_rewards_offset;
 
   ulong dead_banks_deque_offset;
+
+  ulong epoch_credits_offset;
+  ulong epoch_credits_len;
+
+  ulong snapshot_commission_t_3_offset;
+  ulong snapshot_commission_t_3_len;
 
   /* The set of epoch leaders for the current and previous epochs is
      allocated out-of-line and tracked by epoch_leaders_offset.  Only
@@ -411,6 +423,18 @@ typedef struct fd_banks fd_banks_t;
 
 /* Bank accesssors and mutators.  Different accessors are emitted for
    different types depending on if the field has a lock or not. */
+
+fd_epoch_credits_t *
+fd_bank_epoch_credits( fd_bank_t * bank );
+
+ulong *
+fd_bank_epoch_credits_len( fd_bank_t * bank );
+
+fd_stashed_commission_t *
+fd_bank_snapshot_commission_t_3( fd_bank_t * bank );
+
+ulong *
+fd_bank_snapshot_commission_t_3_len( fd_bank_t * bank );
 
 fd_stake_rewards_t const *
 fd_bank_stake_rewards_query( fd_bank_t * bank );
@@ -488,6 +512,20 @@ fd_bank_stake_delegations_end_frontier_query( fd_banks_t * banks,
 
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks );
+
+/* fd_banks_new_votes_fork_indices collects the new_votes fork ids
+   along the ancestry chain from `bank` up to (and including) the root
+   bank.  Valid (non-USHORT_MAX) fork ids are written into
+   fork_indices_out in child-to-root order.
+
+   The caller must provide an array large enough to hold all possible
+   ancestors; banks->max_total_banks is always sufficient.
+
+   Returns the number of entries written. */
+
+ulong
+fd_banks_new_votes_fork_indices( fd_bank_t * bank,
+                                 ushort *    fork_indices_out );
 
 /* fd_banks_pool_used_cnt returns the number of bank pool elements
    currently in use. */

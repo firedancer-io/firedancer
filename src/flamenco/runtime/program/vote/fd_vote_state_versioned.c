@@ -5,6 +5,7 @@
 #include "fd_vote_state_v4.h"
 #include "fd_authorized_voters.h"
 #include "../../fd_runtime.h"
+#include "../../fd_system_ids.h"
 #include "../../../../choreo/tower/fd_tower_serdes.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42 */
@@ -730,4 +731,13 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
   }
 
   return 0;
+}
+
+int
+fd_vsv_is_correct_size_owner_and_init( fd_account_meta_t const * meta ) {
+  if( FD_UNLIKELY( memcmp( meta->owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    return 0;
+  }
+
+  return fd_vsv_is_correct_size_and_initialized( meta );
 }

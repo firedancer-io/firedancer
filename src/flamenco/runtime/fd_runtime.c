@@ -152,17 +152,20 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
-  ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
-  ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
-  ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
+  ulong epoch     = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL );
+  ulong vat_epoch = fd_slot_to_epoch ( epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+  ulong slot0     = fd_epoch_slot0   ( epoch_schedule, epoch );
+  ulong slot_cnt  = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
 
   update_next_leaders( bank, runtime_stack, vote_stakes );
 
+  int vat_in_prev = epoch>=vat_epoch+1UL ? 1 : 0;
+
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
-  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
+  ulong                    stake_weight_cnt = fd_stake_weights_by_node( top_votes_t_2, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, vat_in_prev );
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
@@ -1133,24 +1136,17 @@ fd_runtime_save_account( fd_accdb_user_t *         accdb,
   }
   int new_exist = meta->lamports!=0UL;
 
+  int save_type = (old_exist<<1) | (new_exist);
   if( FD_LIKELY( old_exist || new_exist ) ) {
     fd_hashes_update_lthash1( lthash_post, lthash_prev, pubkey, meta, bank, capture_ctx );
+    /* First 32 bytes equal BLAKE3_256 hash of the account */
+    if( 0!=memcmp( lthash_post->bytes, lthash_prev->bytes, 32UL ) ) {
+      fd_runtime_finalize_account( accdb, xid, pubkey, meta );
+    } else {
+      save_type = FD_RUNTIME_SAVE_UNCHANGED;
+    }
   }
 
-  /* The first 32 bytes of an LtHash with a single input element are
-     equal to the BLAKE3_256 hash of an account.  Therefore, comparing
-     the first 32 bytes is a cryptographically secure equality check
-     for an account. */
-  int changed = 0!=memcmp( lthash_post->bytes, lthash_prev->bytes, 32UL );
-
-  if( changed ) {
-    fd_runtime_finalize_account( accdb, xid, pubkey, meta );
-  }
-
-  int save_type = (old_exist<<1) | (new_exist);
-  if( save_type==FD_RUNTIME_SAVE_MODIFY && !changed ) {
-    save_type = FD_RUNTIME_SAVE_UNCHANGED;
-  }
   return save_type;
 }
 
@@ -1250,8 +1246,14 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
 
+      if( txn_out->accounts.new_vote[i] &&
+          !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+        fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
+      }
+
       if( txn_out->accounts.vote_update[i] ) {
-        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_and_initialized( account->meta ) ) ) {
+        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_owner_and_init( account->meta ) ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
         } else {
           fd_vote_block_timestamp_t last_vote;
@@ -1397,6 +1399,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->accounts.rollback_fee_payer = NULL;
   memset( txn_out->accounts.stake_update, 0, sizeof(txn_out->accounts.stake_update) );
   memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
+  memset( txn_out->accounts.new_vote, 0, sizeof(txn_out->accounts.new_vote) );
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
@@ -1613,12 +1616,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
       if( stake_state->stake_type!=FD_STAKE_STATE_STAKE ) continue;
       if( !stake_state->stake.stake.delegation.stake ) continue;
 
-      if( FD_UNLIKELY( stake_state->stake.stake.delegation.warmup_cooldown_rate!=0.25 &&
-                       stake_state->stake.stake.delegation.warmup_cooldown_rate!=0.09 ) ) {
-        FD_BASE58_ENCODE_32_BYTES( account->pubkey.uc, stake_b58 );
-        FD_LOG_ERR(( "Invalid warmup cooldown rate %f for stake account %s", stake_state->stake.stake.delegation.warmup_cooldown_rate, stake_b58 ));
-      }
-
       fd_stake_delegations_root_update(
           stake_delegations,
           &account->pubkey,
@@ -1627,7 +1624,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
           stake_state->stake.stake.delegation.activation_epoch,
           stake_state->stake.stake.delegation.deactivation_epoch,
           stake_state->stake.stake.credits_observed,
-          stake_state->stake.stake.delegation.warmup_cooldown_rate );
+          FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* genesis is epoch 0, always 0.25 */ );
 
     } else if( !memcmp( account->meta.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* Feature Account */

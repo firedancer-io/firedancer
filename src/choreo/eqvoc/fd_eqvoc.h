@@ -2,7 +2,6 @@
 #define HEADER_fd_src_choreo_eqvoc_fd_eqvoc_h
 
 #include "../fd_choreo_base.h"
-#include "../tower/fd_tower_voters.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
@@ -154,19 +153,17 @@ fd_eqvoc_leave( fd_eqvoc_t const * eqvoc );
 void *
 fd_eqvoc_delete( void * sheqvoc );
 
-/* fd_eqvoc_shred_insert inserts the shred into eqvoc.  Returns
-   FD_EQVOC_SUCCESS if no equivocation was detected,
-   FD_EQVOC_SUCCESS_{...} (positive) if the shred conflicts with a
-   previously inserted shred (chunks_out will be populated with a
-   DuplicateShred proof that can be sent over gossip), or
-   FD_EQVOC_ERR_IGNORED_SLOT if leader_schedule is NULL or shred->slot
-   < root. */
+/* fd_eqvoc_shred_insert inserts the shred into eqvoc.  Assumes that
+   shreds are already sig-verified.  Returns FD_EQVOC_SUCCESS if no
+   equivocation was detected, FD_EQVOC_SUCCESS_{...} (positive) if the
+   shred conflicts with a previously inserted shred (chunks_out will be
+   populated with a DuplicateShred proof that can be sent over gossip),
+   or FD_EQVOC_ERR_IGNORED_SLOT if shred->slot < root. */
 
 int
 fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
                        ushort                      shred_version,
                        ulong                       root,
-                       fd_epoch_leaders_t const *  leader_schedule,
                        fd_shred_t const *          shred,
                        fd_gossip_duplicate_shred_t chunks_out[static FD_EQVOC_CHUNK_CNT] );
 
@@ -197,13 +194,22 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
                        fd_gossip_duplicate_shred_t const * chunk,
                        fd_gossip_duplicate_shred_t         chunks_out[static FD_EQVOC_CHUNK_CNT] );
 
+/* fd_eqvoc_query returns 1 if equivocation has been detected for the
+   given slot (ie. a verified duplicate proof exists), 0 otherwise. */
+
+int
+fd_eqvoc_query( fd_eqvoc_t * eqvoc,
+                ulong        slot );
+
 /* fd_eqvoc_update_voters updates the vtr_map to match the given voter
-   set.  Removes entries not in tower_voters (and evicts their proofs),
-   adds entries in tower_voters not yet in vtr_map.  Preserves existing
-   entries that are still voters (keeping in-progress proofs intact). */
+   set.  Removes entries not in id_keys[0..cnt) (and evicts their proofs),
+   adds entries in id_keys not yet in vtr_map.  Preserves existing
+   entries that are still voters (keeping in-progress proofs intact).
+   id_keys is an array of identity pubkeys of length cnt. */
 
 void
-fd_eqvoc_update_voters( fd_eqvoc_t *              eqvoc,
-                        fd_tower_voters_t const * tower_voters );
+fd_eqvoc_update_voters( fd_eqvoc_t *        eqvoc,
+                        fd_pubkey_t const * id_keys,
+                        ulong               cnt );
 
 #endif /* HEADER_fd_src_choreo_eqvoc_fd_eqvoc_h */

@@ -245,7 +245,6 @@ cat <<EOF > ${CONFIG_FILE}
     execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
     [tiles.archiver]
-        enabled = true
         end_slot = $END_SLOT
         rocksdb_path = "$DUMP/$LEDGER/rocksdb"
         shredcap_path = "$DUMP/$LEDGER/shreds.pcapng.zst"
@@ -261,6 +260,7 @@ cat <<EOF > ${CONFIG_FILE}
 [runtime]
     max_live_slots = $MAX_LIVE_SLOTS
     max_fork_width = 4
+    fixed_fec_sets = false
 [log]
     level_stderr = "$LOG_LEVEL_STDERR"
     path = "$LOG"

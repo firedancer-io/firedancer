@@ -168,13 +168,13 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  ulong last_restart_slot = fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache );
-  if( FD_UNLIKELY( last_restart_slot==ULONG_MAX ) ) {
+  ulong const * last_restart_slot = fd_sysvar_cache_last_restart_slot_read( vm->instr_ctx->sysvar_cache );
+  if( FD_UNLIKELY( last_restart_slot==NULL ) ) {
     FD_TXN_ERR_FOR_LOG_INSTR( vm->instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR, vm->instr_ctx->txn_out->err.exec_err_idx );
     return FD_VM_ERR_INVAL;
   }
 
-  memcpy( var_query.haddr, &last_restart_slot, sizeof(ulong) );
+  memcpy( var_query.haddr, last_restart_slot, sizeof(ulong) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;

@@ -10,7 +10,6 @@ ifdef FD_HAS_ZSTD
 $(call add-objs,commands/gossip,fd_firedancer_dev)
 $(call add-objs,commands/bench,fd_firedancer_dev)
 $(call add-objs,commands/dev,fd_firedancer_dev)
-$(call add-objs,commands/sim,fd_firedancer_dev)
 $(call add-objs,commands/backtest,fd_firedancer_dev)
 $(call add-objs,commands/snapshot_load,fd_firedancer_dev)
 $(call add-objs,commands/repair,fd_firedancer_dev)
@@ -18,6 +17,10 @@ $(call add-objs,commands/tower,fd_firedancer_dev)
 $(call add-objs,commands/ipecho_server,fd_firedancer_dev)
 $(call add-objs,commands/gossip_dump,fd_firedancer_dev)
 $(call add-objs,commands/reasm,fd_firedancer_dev)
+
+ifdef FD_HAS_ROCKSDB
+$(call add-objs,commands/forktest/forktest commands/forktest/fd_forktest_tile,fd_firedancer_dev)
+endif
 
 ifdef FD_HAS_SSE
 # ifdef FD_HAS_BLST -- will be a required dependency soon

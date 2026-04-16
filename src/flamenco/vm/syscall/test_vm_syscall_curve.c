@@ -518,6 +518,79 @@ main( int     argc,
     ) );
   }
 
+  /* Test: sol_curve_pairing_map with num_pairs=0, NULL g1/g2 pointers.
+     This must succeed and write the GT identity to the result buffer.
+     Regression test for zero-pair BLS12-381 pairing divergence. */
+  {
+    ulong gt_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ; /* 576 */
+    ulong result_off = 0UL;
+    memset( &vm->heap[ result_off ], 0xAA, gt_sz );
+
+    ulong result_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + result_off;
+
+    vm->cu = FD_VM_COMPUTE_UNIT_LIMIT;
+
+    ulong ret_code = 0UL;
+    int syscall_ret = fd_vm_syscall_sol_curve_pairing_map(
+      (void *)vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_LE,
+      0UL,            /* num_pairs = 0 */
+      0UL,            /* g1_points_addr = NULL */
+      0UL,            /* g2_points_addr = NULL */
+      result_vaddr,
+      &ret_code
+    );
+    FD_TEST( syscall_ret == FD_VM_SUCCESS );
+    FD_TEST( ret_code    == 0UL );
+
+    /* Verify the GT identity was written (little-endian encoding of 1 in Fp12:
+       first 48 bytes = 1 LE, remaining 528 bytes = 0). */
+    uchar const * result_host = (uchar const *)FD_VM_MEM_HADDR_LD( vm, result_vaddr, 1, gt_sz );
+    FD_TEST( result_host[0] == 1 );
+    for( ulong i=1UL; i<gt_sz; i++ ) {
+      FD_TEST( result_host[i] == 0 );
+    }
+
+    FD_LOG_NOTICE(( "Passed test program (sol_curve_pairing_map: bls12-381 zero pairs, LE)" ));
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+  }
+
+  /* Same test but big-endian. */
+  {
+    ulong gt_sz = FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ;
+    ulong result_off = 0UL;
+    memset( &vm->heap[ result_off ], 0xAA, gt_sz );
+
+    ulong result_vaddr = FD_VM_MEM_MAP_HEAP_REGION_START + result_off;
+
+    vm->cu = FD_VM_COMPUTE_UNIT_LIMIT;
+
+    ulong ret_code = 0UL;
+    int syscall_ret = fd_vm_syscall_sol_curve_pairing_map(
+      (void *)vm,
+      FD_VM_SYSCALL_SOL_CURVE_BLS12_381_BE,
+      0UL,            /* num_pairs = 0 */
+      0UL,            /* g1_points_addr = NULL */
+      0UL,            /* g2_points_addr = NULL */
+      result_vaddr,
+      &ret_code
+    );
+    FD_TEST( syscall_ret == FD_VM_SUCCESS );
+    FD_TEST( ret_code    == 0UL );
+
+    /* Big-endian GT identity: the "1" Fp element is serialized at the
+       end of the buffer (offset 48*11), as BE Fp: 47 zero bytes then 0x01.
+       So byte [575] == 1, everything else == 0. */
+    uchar const * result_host = (uchar const *)FD_VM_MEM_HADDR_LD( vm, result_vaddr, 1, gt_sz );
+    for( ulong i=0UL; i<gt_sz-1UL; i++ ) {
+      FD_TEST( result_host[i] == 0 );
+    }
+    FD_TEST( result_host[gt_sz-1UL] == 1 );
+
+    FD_LOG_NOTICE(( "Passed test program (sol_curve_pairing_map: bls12-381 zero pairs, BE)" ));
+    test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_out );
+  }
+
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );

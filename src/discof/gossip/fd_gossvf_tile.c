@@ -647,6 +647,18 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     };
     int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
 
+    /* Sanitize sockets: zero out any with a multicast address.
+       Matches Agave, which omits bad sockets from the cache but
+       still accepts the ContactInfo into CRDS. */
+    for( ulong j=0UL; j<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT; j++ ) {
+      fd_gossip_socket_t * sock = &values[ i ].contact_info->sockets[ j ];
+      if( !sock->port || sock->is_ipv6 ) continue;
+      if( FD_UNLIKELY( fd_ip4_addr_is_mcast( sock->ip4 ) ) ) {
+        sock->ip4  = 0U;
+        sock->port = 0;
+      }
+    }
+
     if( FD_UNLIKELY( drop ) ) {
       if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ]++;

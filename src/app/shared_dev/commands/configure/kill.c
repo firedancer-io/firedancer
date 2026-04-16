@@ -148,7 +148,10 @@ init( config_t const * config ) {
   ulong wait_killed[ 1024 ] = { 0 };
 
   struct dirent * entry;
-  while(( FD_LIKELY( entry = readdir( dir ) ) )) {
+  for(;;) {
+    errno = 0;
+    entry = readdir( dir );
+    if( FD_UNLIKELY( !entry ) ) break;
     if( FD_UNLIKELY( entry->d_name[0] == '.' ) ) continue;
     char * endptr;
     ulong pid = strtoul( entry->d_name, &endptr, 10 );
@@ -162,7 +165,7 @@ init( config_t const * config ) {
     }
   }
 
-  if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir() (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( errno ) ) FD_LOG_ERR(( "readdir() (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   long started = fd_log_wallclock();

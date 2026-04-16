@@ -31,9 +31,7 @@
    last entry in the linkedlist (last voter we process for a slot) will
    have its key {vote_account, slot} put in the slot_stakes_map. This
    way on publish, we have a way to query all the stakes / voters for a
-   slot without doing a full scan of the voter_stake_map.
-
-*/
+   slot without doing a full scan of the voter_stake_map. */
 
 #include "../fd_choreo_base.h"
 
@@ -88,76 +86,9 @@ typedef struct fd_tower_stakes_slot fd_tower_stakes_slot_t;
 #define MAP_MEMOIZE        0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-struct __attribute__((aligned(128UL))) fd_tower_stakes {
-  fd_tower_stakes_vtr_map_t * vtr_map;
-  fd_tower_stakes_vtr_t *     vtr_pool;
-  fd_tower_stakes_slot_t *    slot_map;
-  fd_used_acc_scratch_t *     used_acc_scratch;
-};
-typedef struct fd_tower_stakes fd_tower_stakes_t;
+struct fd_tower;
 
 FD_PROTOTYPES_BEGIN
-
-FD_FN_CONST static inline ulong
-fd_tower_stakes_align( void ) {
-  return alignof(fd_tower_stakes_t);
-}
-
-FD_FN_CONST static inline ulong
-fd_tower_stakes_footprint( ulong slot_max,
-                           ulong vtr_max ) {
-  ulong vtr_stake_chain_cnt = fd_tower_stakes_vtr_map_chain_cnt_est( vtr_max * slot_max );
-  int lg_slot_cnt = fd_ulong_find_msb( fd_ulong_pow2_up( slot_max ) ) + 1;
-  return FD_LAYOUT_FINI(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_INIT,
-      alignof(fd_tower_stakes_t),       sizeof(fd_tower_stakes_t)                                  ),
-      fd_tower_stakes_vtr_map_align(),  fd_tower_stakes_vtr_map_footprint( vtr_stake_chain_cnt )   ),
-      fd_tower_stakes_vtr_pool_align(), fd_tower_stakes_vtr_pool_footprint( vtr_max * slot_max )   ),
-      fd_tower_stakes_slot_align(),     fd_tower_stakes_slot_footprint( lg_slot_cnt )              ),
-      fd_used_acc_scratch_align(),      fd_used_acc_scratch_footprint( vtr_max * slot_max )        ),
-    fd_tower_stakes_align() );
-}
-
-/* fd_tower_stakes_new formats an unused memory region for use as a
-   tower_stakes.  mem is a non-NULL pointer to this region in the local
-   address space with the required footprint and alignment. */
-
-void *
-fd_tower_stakes_new( void * shmem,
-                     ulong  slot_max,
-                     ulong  vtr_max,
-                     ulong  seed );
-
-/* fd_tower_stakes_join joins the caller to the tower_stakes. shstakes
-   points to the first byte of the memory region backing the shstakes in
-   the caller's address space.
-
-   Returns a pointer in the local address space to stakes on success. */
-
-fd_tower_stakes_t *
-fd_tower_stakes_join( void * shstakes );
-
-/* fd_tower_stakes_leave stakes a current local join.  Returns a pointer
-   to the underlying shared memory region on success and NULL on failure
-   (logs details).  Reasons for failure include stakes is NULL. */
-
-void *
-fd_tower_stakes_leave( fd_tower_stakes_t const * stakes );
-
-/* fd_tower_stakes_delete unformats a memory region used as a stakes.
-   Assumes only the local process is joined to the region.  Returns a
-   pointer to the underlying shared memory region or NULL if used
-   obviously in error (e.g. stakes is obviously not a stakes ...  logs
-   details).  The ownership of the memory region is transferred to the
-   caller. */
-
-void *
-fd_tower_stakes_delete( void * stakes );
 
 /* fd_tower_stakes_insert adds a new (voter, stake) pair to the epoch
    stakes for a specific slot, and returns the index of the new voter
@@ -167,19 +98,19 @@ fd_tower_stakes_delete( void * stakes );
 
    prev_voter_idx = ULONG_MAX;
    for( v : voters ) {
-     voter_idx = fd_tower_stakes_insert( tower_stakes, slot, v.vote_account, v.stake, prev_voter_idx );
+     voter_idx = fd_tower_stakes_insert( tower, slot, v.vote_account, v.stake, prev_voter_idx );
      prev_voter_idx = voter_idx;
    } */
 
 ulong
-fd_tower_stakes_insert( fd_tower_stakes_t * tower_stakes,
-                        ulong               slot,
-                        fd_hash_t const *   vote_account,
-                        ulong               stake,
-                        ulong               prev_voter_idx );
+fd_tower_stakes_insert( struct fd_tower *  tower,
+                        ulong              slot,
+                        fd_hash_t const *  vote_account,
+                        ulong              stake,
+                        ulong              prev_voter_idx );
 
 void
-fd_tower_stakes_remove( fd_tower_stakes_t * tower_stakes,
-                        ulong               slot );
+fd_tower_stakes_remove( struct fd_tower * tower,
+                        ulong             slot );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_stakes_h */

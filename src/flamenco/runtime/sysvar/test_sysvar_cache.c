@@ -155,7 +155,7 @@ test_sysvar_cache_empty( void ) {
   FD_TEST( !fd_sysvar_cache_epoch_rewards_read( cache1, &epoch_rewards ) );
   fd_epoch_schedule_t epoch_schedule;
   FD_TEST( !fd_sysvar_cache_epoch_schedule_read( cache1, &epoch_schedule ) );
-  FD_TEST( fd_sysvar_cache_last_restart_slot_read( cache1 )==ULONG_MAX );
+  FD_TEST( fd_sysvar_cache_last_restart_slot_read( cache1 )==NULL );
   fd_rent_t rent;
   FD_TEST( !fd_sysvar_cache_rent_read( cache1, &rent ) );
 

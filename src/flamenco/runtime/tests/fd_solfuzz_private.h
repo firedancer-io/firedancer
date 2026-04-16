@@ -11,7 +11,7 @@
 #include "generated/context.pb.h"
 
 #if FD_HAS_FLATCC
-#include "flatcc/flatcc_builder.h"
+#include <flatcc/flatcc_builder.h>
 #include "flatbuffers/generated/context_reader.h"
 #endif
 

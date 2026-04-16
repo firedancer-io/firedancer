@@ -56,7 +56,7 @@ fd_quic_retry_integrity_tag_sign(
   fd_aes_gcm_encrypt( aes_gcm, NULL, NULL, 0UL, retry_pseudo_pkt, retry_pseudo_pkt_len, retry_integrity_tag );
 }
 
-FD_FN_PURE static inline int
+static inline int
 fd_quic_retry_integrity_tag_verify(
     fd_aes_gcm_t * aes_gcm,
     uchar const *  retry_pseudo_pkt,

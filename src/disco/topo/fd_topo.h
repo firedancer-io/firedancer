@@ -519,6 +519,11 @@ struct fd_topo_tile {
     } backtest;
 
     struct {
+      char   rocksdb_path[ PATH_MAX ];
+      ushort shred_listen_port;
+    } forktest;
+
+    struct {
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
@@ -577,6 +582,9 @@ struct fd_topo_tile {
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
+
+      uint target_uid;
+      uint target_gid;
     } snapct;
 
     struct {

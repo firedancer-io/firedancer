@@ -37,7 +37,13 @@ fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
-                  uint         part_cnt );
+                  uint         part_cnt,
+                  ulong        fec_data_max );
+
+fd_topo_obj_t *
+setup_topo_fec_sets( fd_topo_t *  topo,
+                     char const * wksp_name,
+                     ulong        sz );
 
 fd_topo_obj_t *
 setup_topo_acc_pool( fd_topo_t * topo,

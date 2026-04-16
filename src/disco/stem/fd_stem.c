@@ -468,6 +468,11 @@ STEM_(run1)( ulong                        in_cnt,
           }
         }
 
+        /* Publish producer progress sync word */
+        for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
+          fd_mcache_seq_update( fd_mcache_seq_laddr( out_mcache[ out_idx ] ), out_seq[ out_idx ] );
+        }
+
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
         STEM_CALLBACK_DURING_HOUSEKEEPING( ctx );
 #else

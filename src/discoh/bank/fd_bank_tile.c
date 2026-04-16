@@ -102,8 +102,8 @@ before_frag( fd_bank_ctx_t * ctx,
   return 0;
 }
 
-extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
-extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus, ulong * out_timestamps, ulong * out_tips );
+extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus, ulong * out_timestamps, ulong * out_tips, int * remove_simple_vote_from_cost_model );
+extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus, ulong * out_timestamps, ulong * out_tips, int * remove_simple_vote_from_cost_model );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 
@@ -211,6 +211,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   uint consumed_acct_data_cus[   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_timestamps       [ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_tips             [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  int   remove_simple_vote_from_cost_model = 0;
 
   void * load_and_execute_output = fd_ext_bank_load_and_execute_txns( ctx->_bank,
                                                                       ctx->txn_abi_mem,
@@ -220,7 +221,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                                                                       consumed_exec_cus,
                                                                       consumed_acct_data_cus,
                                                                       out_timestamps,
-                                                                      out_tips );
+                                                                      out_tips,
+                                                                      &remove_simple_vote_from_cost_model );
 
   ulong sanitized_idx = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -251,11 +253,19 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     uint actual_execution_cus = consumed_exec_cus[ sanitized_idx-1UL ];
     uint actual_acct_data_cus = consumed_acct_data_cus[ sanitized_idx-1UL ];
 
-    /* FeesOnly transactions are transactions that failed to load
-       before they even reach the VM stage. They have zero execution
-       cost but do charge for the account data they are able to load. */
-    txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
-    txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+    int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
+    if( FD_UNLIKELY( is_simple_vote && !remove_simple_vote_from_cost_model ) ) {
+      /* TODO: remove this once remove_simple_vote_from_cost_model is
+         activated */
+      txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+      txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+    } else {
+      /* FeesOnly transactions are transactions that failed to load
+         before they even reach the VM stage. They have zero execution
+         cost but do charge for the account data they are able to load. */
+      txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
+      txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+    }
 
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
@@ -393,8 +403,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   uint consumed_cus         [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong out_timestamps      [ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
   ulong tips                [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  int   remove_simple_vote_from_cost_model = 0;
   if( FD_LIKELY( execution_success ) ) {
-    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, transaction_err, actual_execution_cus, actual_acct_data_cus, out_timestamps, tips );
+    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, transaction_err, actual_execution_cus, actual_acct_data_cus, out_timestamps, tips, &remove_simple_vote_from_cost_model );
   }
 
   if( FD_LIKELY( execution_success ) ) {
@@ -439,12 +450,12 @@ handle_bundle( fd_bank_ctx_t *     ctx,
        block, rebate the non-execution CUs too. */
     txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
 
-    /* We want to include consumed CUs for failed bundles for
-       monitoring, even though they aren't included in the block.  This
-       is safe because the poh tile first checks if a txn is included in
-       the block before counting its "actual_consumed_cus" towards the
-       block tally. */
-    txn->execle_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+    /* We want to include consumed CUs for successful txns from failed
+       bundles for monitoring, even though they aren't included in the
+       block.  This is safe because the poh tile first checks if a txn
+       is included in the block before counting its
+       "actual_consumed_cus" towards the block tally. */
+    txn->execle_cu.actual_consumed_cus = fd_uint_if( transaction_err[ i ], 0U, non_execution_cus+consumed_cus[ i ] );
 
     if( FD_LIKELY( execution_success ) ) {
       if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
@@ -452,8 +463,16 @@ handle_bundle( fd_bank_ctx_t *     ctx,
         FD_LOG_ERR(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
       }
 
-      txn->execle_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
-      txn->execle_cu.rebated_cus = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
+      int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
+      if( FD_UNLIKELY( is_simple_vote && !remove_simple_vote_from_cost_model ) ) {
+        /* TODO: remove this once remove_simple_vote_from_cost_model is
+           activated */
+        txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+        txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
+      } else {
+        txn->execle_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+        txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
+      }
     }
   }
 

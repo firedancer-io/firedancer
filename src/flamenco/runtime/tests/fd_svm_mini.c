@@ -353,7 +353,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
                                       ULONG_MAX,  /* activation_epoch (bootstrap) */
                                       ULONG_MAX,  /* deactivation_epoch */
                                       0UL,        /* credits_observed */
-                                      0.25        /* warmup_cooldown_rate */ );
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 /* warmup_cooldown_rate */ );
 
     stakes[i] = (fd_vote_stake_weight_t){
       .vote_key = vote_key,
@@ -642,7 +642,7 @@ fd_svm_mini_put_account_rooted( fd_svm_mini_t *       mini,
     memset( &old_rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
     old_rec->map_next = FD_FUNK_REC_IDX_NULL;
     fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
-    fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
+    fd_funk_rec_pool_release( funk->rec_pool, old_rec );
   }
 
   fd_accdb_rw_t rw[1];

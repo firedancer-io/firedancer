@@ -262,6 +262,7 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->full          = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->state         = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->in.pos        = 0UL;
       ctx->accounts_seen = 0UL;
       ctx->hash_account  = 0;
       ctx->acc_data_sz   = 0UL;

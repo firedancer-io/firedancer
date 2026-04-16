@@ -162,11 +162,15 @@ fd_ssresolve_init_https( fd_ssresolve_t * ssresolve,
     FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d)", alpn_res ));
   }
 
-  /* set SNI */
+  /* set SNI and hostname verification */
   FD_TEST( hostname && hostname[ 0 ]!='\0' );
+  long sni_res = SSL_set_tlsext_host_name( ssresolve->ssl, hostname );
+  if( FD_UNLIKELY( !sni_res ) ) {
+    FD_LOG_ERR(( "SSL_set_tlsext_host_name failed (%ld) for %s", sni_res, hostname ));
+  }
   int set1_host_res = SSL_set1_host( ssresolve->ssl, hostname );
   if( FD_UNLIKELY( !set1_host_res ) ) {
-    FD_LOG_ERR(( "SSL_set1_host failed (%d)", set1_host_res ));
+    FD_LOG_ERR(( "SSL_set1_host failed (%d) for %s", set1_host_res, hostname ));
   }
 
   FD_TEST( fd_openssl_ssl_set_fd( ssresolve->ssl, ssresolve->sockfd ) );

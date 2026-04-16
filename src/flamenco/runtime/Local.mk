@@ -79,10 +79,16 @@ $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_
 $(call run-unit-test,test_instr_acct_bounds,)
 $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_accounts_resize_delta)
-$(call make-unit-test,test_settle_fees,tests/test_settle_fees,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_settle_fees)
+$(call make-unit-test,test_fee_reward,tests/test_fee_reward,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_fee_reward)
+ifdef FD_HAS_DOUBLE
+$(call make-unit-test,test_inflation_rewards,tests/test_inflation_rewards,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_inflation_rewards)
+endif
 $(call make-unit-test,test_fee_calculator,tests/test_fee_calculator,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
 $(call run-unit-test,test_fee_calculator)
+$(call make-unit-test,test_cost_model,tests/test_cost_model,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco)
+$(call run-unit-test,test_cost_model)
 $(call make-unit-test,test_feature_activation,tests/test_feature_activation,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_feature_activation)
 endif

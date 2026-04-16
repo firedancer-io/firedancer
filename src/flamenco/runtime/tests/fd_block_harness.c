@@ -46,7 +46,7 @@ fd_solfuzz_block_register_vote_account( fd_top_votes_t *          top_votes,
 
   if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_vote_program_id ) ||
       fd_accdb_ref_lamports( ro )==0UL ||
-      !fd_vsv_is_correct_size_and_initialized( ro->meta ) ) {
+      !fd_vsv_is_correct_size_owner_and_init( ro->meta ) ) {
     fd_accdb_close_ro( accdb, ro );
     return;
   }
@@ -110,7 +110,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
       stake_state->stake.stake.delegation.activation_epoch,
       stake_state->stake.stake.delegation.deactivation_epoch,
       stake_state->stake.stake.credits_observed,
-      stake_state->stake.stake.delegation.warmup_cooldown_rate );
+      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   fd_accdb_close_ro( accdb, ro );
 }
 
@@ -310,20 +310,14 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   ulong chain_cnt = fd_vote_rewards_map_chain_cnt_est( runtime_stack->expected_vote_accounts );
   FD_TEST( fd_vote_rewards_map_join( fd_vote_rewards_map_new( runtime_stack->stakes.vote_map, chain_cnt, 999 ) ) );
 
-  /* Populate vote_ele and vote_ele_map for partitioned epoch rewards.
-     Use epoch_credits from the proto if available (captured at epoch
+  /* Use epoch_credits from the proto if available (captured at epoch
      boundary time), otherwise fall back to the vote account in funk. */
-  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
   for( uint i=0U; i<block_bank->vote_accounts_t_1_count; i++ ) {
     fd_exec_test_prev_vote_account_t const * prev_vote_accs = &block_bank->vote_accounts_t_1[i];
-    fd_pubkey_t                              vote_pubkey    = FD_LOAD( fd_pubkey_t, prev_vote_accs->address );
-
-    fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
-    fd_memcpy( vote_ele->pubkey.uc, &vote_pubkey, sizeof(fd_pubkey_t) );
-    vote_ele->commission_t_1 = (uchar)prev_vote_accs->commission;
 
     FD_TEST( prev_vote_accs->epoch_credits_count<=FD_EPOCH_CREDITS_MAX );
-    fd_epoch_credits_t * ec = &runtime_stack->stakes.epoch_credits[i];
+    fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[i];
+    fd_memcpy( ec->pubkey, prev_vote_accs->address, sizeof(fd_pubkey_t) );
     ec->cnt          = prev_vote_accs->epoch_credits_count;
     ec->base_credits = ec->cnt > 0UL ? prev_vote_accs->epoch_credits[0].prev_credits : 0UL;
     for( ulong j=0UL; j<prev_vote_accs->epoch_credits_count; j++ ) {
@@ -331,9 +325,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       ec->credits_delta[j]      = (uint)( prev_vote_accs->epoch_credits[j].credits      - ec->base_credits );
       ec->prev_credits_delta[j] = (uint)( prev_vote_accs->epoch_credits[j].prev_credits - ec->base_credits );
     }
-
-    fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
   }
+  *fd_bank_epoch_credits_len( bank ) = block_bank->vote_accounts_t_1_count;
 
   /* Update leader schedule */
   fd_runtime_update_leaders( bank, runtime_stack );

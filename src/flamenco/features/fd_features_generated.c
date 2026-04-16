@@ -632,7 +632,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xe0\x31\xcd\xc7\x1c\xf7\x58\x54\x9d\x9f\x58\x3b\xa5\xe4\x94\xf7\xc8\x74\xb1\xab\xcf\xed\xe9\x3b\x3b\xce\x1c\xc0\xeb\x2d\xda\xe1"},
                                  /* G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ */
     .name                      = "stake_minimum_delegation_for_rewards",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, add_set_compute_unit_price_ix)>>3,
     .id                        = {"\x78\xe2\x1a\x43\xc1\x90\x64\x60\x36\x9e\x01\x54\xad\x41\x14\x72\x2f\x6b\x2a\x43\xe7\x9b\x9a\x61\xcb\x4b\x37\xa1\x0c\x7f\x4b\xd1"},
@@ -1803,14 +1804,14 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, validator_admission_ticket)>>3,
-    .id                        = {"\x07\x36\xf6\x93\xcd\x86\x07\x8b\x03\x1c\xc1\x6f\xe8\x9a\x9e\xaf\x04\xa6\x5e\x21\xdd\xe6\xe6\x42\xfc\x5a\x4d\x39\xa9\xc6\xde\xb7"},
-                                 /* VATtb1DepUwdPh5bFVasdtkbeDNsftZSRzr2aKpKWJA */
+    .id                        = {"\x07\x36\xf2\xe3\x3a\x52\xff\xd2\x69\xb9\x98\xdc\x58\xcf\x07\xc0\x35\xc3\x8a\x0e\xab\x82\xa0\x89\xb8\xb7\x5e\xc2\x0f\xcb\x39\x97"},
+                                 /* VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ */
     .name                      = "validator_admission_ticket",
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, discard_unexpected_data_complete_shreds)>>3,
-    .id                        = {"\x0c\xfd\x3c\x8a\xf9\xae\x9b\x6d\x53\x7c\x34\xf6\x80\x27\x5a\x20\x29\x32\x9c\x18\xfc\x21\x8d\xed\x15\x85\x1d\x7b\xce\x0d\xbb\x93"},
-                                 /* shredXP8xLjJWp1AWh3gAFsFn4GSH1vohhCMDHw5koU */
+    .id                        = {"\x09\x61\x65\x3c\x1d\xcf\x35\x67\xfc\xae\x85\xb6\x34\xbc\xf9\x33\x5e\x65\xbb\x78\x7e\x95\x22\xd4\x05\xf2\x7c\x17\x95\x22\xa9\x86"},
+                                 /* dcomRRWHXP1FVWPqi9Mm4oxJhF4ehC795SvAtUdA9os */
     .name                      = "discard_unexpected_data_complete_shreds",
     .cleaned_up                = 0 },
 
@@ -1842,6 +1843,12 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x06\x85\xc2\x21\x7b\x6f\xe2\xfd\xf5\x4a\x2b\x39\xb4\x1c\xd6\x0e\xa5\x0e\xf1\x99\xf3\xb3\xfe\x13\x36\x50\x43\x15\x2c\xbb\x3d\xf3"},
                                  /* STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk */
     .name                      = "upgrade_bpf_stake_program_to_v5",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, enable_sha512_syscall)>>3,
+    .id                        = {"\x06\xdd\x5c\xe0\x96\x03\xbe\x56\xf7\xf1\x0e\xc1\xc0\x69\x70\x3e\x85\x2f\xe0\x91\x0f\x77\x8c\x22\x63\x32\x43\x00\x00\x00\x00\x00"},
+                                 /* ToDo111111111111111111111111111111111111111 */
+    .name                      = "enable_sha512_syscall",
     .cleaned_up                = 0 },
 
   { .index = ULONG_MAX }
@@ -2123,13 +2130,14 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_260 0xa5ce8f931961b80cUL, .val = &ids[260]
 #define MAP_PERFECT_261 0xf55c421c9eccc012UL, .val = &ids[261]
 #define MAP_PERFECT_262 0x7428565ab3b6d152UL, .val = &ids[262]
-#define MAP_PERFECT_263 0x8b0786cd93f63607UL, .val = &ids[263]
-#define MAP_PERFECT_264 0x6d9baef98a3cfd0cUL, .val = &ids[264]
+#define MAP_PERFECT_263 0xd2ff523ae3f23607UL, .val = &ids[263]
+#define MAP_PERFECT_264 0x6735cf1d3c656109UL, .val = &ids[264]
 #define MAP_PERFECT_265 0x632b9b7c9e9a3257UL, .val = &ids[265]
 #define MAP_PERFECT_266 0xa4c86f030ee0440cUL, .val = &ids[266]
 #define MAP_PERFECT_267 0xf5434d796d0f975aUL, .val = &ids[267]
 #define MAP_PERFECT_268 0x7f5bea39613bbc0dUL, .val = &ids[268]
 #define MAP_PERFECT_269 0xfde26f7b21c28506UL, .val = &ids[269]
+#define MAP_PERFECT_270 0x56be0396e05cdd06UL, .val = &ids[270]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2410,4 +2418,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, replace_spl_token_with_p_token       
 FD_STATIC_ASSERT( offsetof( fd_features_t, delay_commission_updates                                )>>3==267UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id                               )>>3==268UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5                         )>>3==269UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sha512_syscall                                   )>>3==270UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

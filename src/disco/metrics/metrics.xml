@@ -570,6 +570,7 @@ metric introduced.
     <counter name="DeleteHit" summary="Count of attempts to delete a transaction that was found and deleted" />
 </tile>
 
+<!-- Frankendancer transaction result -->
 <enum name="TransactionError">
     <int value="0" name="Success" label="Success" />
     <int value="1" name="AccountInUse" label="An account is already being processed in another transaction in a way that does not support parallelism" />
@@ -614,6 +615,7 @@ metric introduced.
     <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed" />
 </enum>
 
+<!-- Firedancer transaction result -->
 <enum name="TransactionResult">
     <int value="0" name="Success" label="Transaction executed successfully" />
 
@@ -621,7 +623,7 @@ metric introduced.
          error, which can occur both when loading the transaction, and
          when executing it. When loading, it occurs when executing the
          compute budget program, or verifying precompiles. -->
-    <int value="1" name="InstructonError" label="An error occurred while processing an instruction" />
+    <int value="1" name="InstructionError" label="An error occurred while processing an instruction" />
 
     <!-- Preflight errors. These are errors in validation before we
          begin actually executing the transaction in the virtual
@@ -762,7 +764,6 @@ metric introduced.
 </enum>
 
 <tile name="replay">
-
   <counter name="StoreQueryAcquire" summary="Count of store slock acquires for query" />
   <counter name="StoreQueryRelease" summary="Count of store slock releases for query" />
   <histogram name="StoreQueryWait" min="0.00000001" max="0.001" converter="seconds">
@@ -883,6 +884,8 @@ metric introduced.
   <gauge name="AccdbCacheFreePartMaxBytes" summary="Largest free heap partition in account database cache" />
   <gauge name="AccdbCacheUsedPartMedianBytes" summary="Median used heap partition size in account database cache" />
   <gauge name="AccdbCacheUsedPartMeanBytes" summary="Mean used heap partition size in account database cache" />
+
+  <gauge name="RuntimeStatus" summary="Solana runtime status (0=initializing 1=loaded)" />
 </tile>
 
 <enum name="RepairSentRequestTypes">
@@ -1244,6 +1247,10 @@ metric introduced.
 </enum>
 
 <tile name="execrp">
+    <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
+    <counter name="SigverifyCount" summary="Number of Ed25519 signature verification jobs executed" />
+    <counter name="PohHashCount" summary="Number of PoH SHA-256 calls executed" />
+
     <counter name="AccdbCreated" summary="Number of account database records created" />
 
     <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes" />
@@ -1252,21 +1259,21 @@ metric introduced.
     <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
     <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
 
-  <!-- extensive program cache metrics.  Useful for development, will be
-       cut down with time -->
-  <counter name="ProgcacheLookups" summary="Program cache lookup counter" />
-  <counter name="ProgcacheHits" summary="Program cache hit counter" />
-  <counter name="ProgcacheMisses" summary="Program cache miss counter" />
-  <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory event counter (heap)" />
-  <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory event counter (descriptor table)" />
-  <counter name="ProgcacheFills" summary="Number of program cache insertions" />
-  <counter name="ProgcacheFillBytes" summary="Number of bytes inserted into program cache" />
-  <counter name="ProgcacheSpills" summary="Program cache spill counter (OOM fallback mechanism)" />
-  <counter name="ProgcacheSpillBytes" summary="Number of bytes spilled from program cache (OOM fallback mechanism)" />
-  <counter name="ProgcacheEvictions" summary="Program cache eviction counter" />
-  <counter name="ProgcacheEvictionBytes" summary="Number of bytes evicted from program cache" />
-  <counter name="ProgcacheDurationTotalSeconds" converter="seconds" summary="Total time in seconds spent on program cache operations" />
-  <counter name="ProgcacheDurationLoadSeconds" converter="seconds" summary="Total time in seconds spent loading programs" />
+    <!-- extensive program cache metrics.  Useful for development, will be
+        cut down with time -->
+    <counter name="ProgcacheLookups" summary="Program cache lookup counter" />
+    <counter name="ProgcacheHits" summary="Program cache hit counter" />
+    <counter name="ProgcacheMisses" summary="Program cache miss counter" />
+    <counter name="ProgcacheOomHeap" summary="Program cache out-of-memory event counter (heap)" />
+    <counter name="ProgcacheOomDesc" summary="Program cache out-of-memory event counter (descriptor table)" />
+    <counter name="ProgcacheFills" summary="Number of program cache insertions" />
+    <counter name="ProgcacheFillBytes" summary="Number of bytes inserted into program cache" />
+    <counter name="ProgcacheSpills" summary="Program cache spill counter (OOM fallback mechanism)" />
+    <counter name="ProgcacheSpillBytes" summary="Number of bytes spilled from program cache (OOM fallback mechanism)" />
+    <counter name="ProgcacheEvictions" summary="Program cache eviction counter" />
+    <counter name="ProgcacheEvictionBytes" summary="Number of bytes evicted from program cache" />
+    <counter name="ProgcacheDurationTotalSeconds" converter="seconds" summary="Total time in seconds spent on program cache operations" />
+    <counter name="ProgcacheDurationLoadSeconds" converter="seconds" summary="Total time in seconds spent loading programs" />
 </tile>
 
 <tile name="benchs" telemetry="false">
@@ -1284,19 +1291,20 @@ metric introduced.
 
     <!-- Tower slot metadata -->
 
-    <gauge name="ReplaySlot" summary="Replay slot" />
-    <gauge name="VoteSlot" summary="Most recent vote slot, ULONG_MAX if no vote cast" />
-    <gauge name="ResetSlot" summary="Reset slot" />
-    <gauge name="RootSlot" summary="Root slot" />
-    <gauge name="InitSlot" summary="Init slot" />
+    <gauge name="ReplaySlot" summary="The most recently replayed slot, ULONG_MAX if nothing replayed yet. Not monotonically increasing." />
+    <gauge name="VoteSlot" summary="The highest voted slot in the local tower, ULONG_MAX if haven't voted. Monotonically increasing." />
+    <gauge name="ResetSlot" summary="The most recent reset slot, ULONG_MAX if no reset yet. Not monotonically increasing." />
+    <gauge name="RootSlot" summary="The highest rooted slot, ULONG_MAX if no root yet. Monotonically increasing." />
+    <gauge name="InitSlot" summary="Init slot. Either the snapshot or genesis slot. Set once and does not change." />
 
     <!-- Vote txn handling -->
+
+    <counter name="NotReady" summary="Frag was dropped because it arrived before tower tile was initialized" />
 
     <counter name="TxnBadDeser" summary="Vote txn failed to deserialize" />
     <counter name="TxnBadTower" summary="Vote txn deserialized but tower was invalid" />
     <counter name="TxnNotTowerSync" summary="Vote txn was not a TowerSync instruction" />
     <counter name="TxnEmptyTower" summary="Vote txn had an empty tower (validator hasn't voted)" />
-    <counter name="TxnNotReady" summary="Vote txn arrived before votes root was initialized" />
 
     <!-- Eqvoc -->
 

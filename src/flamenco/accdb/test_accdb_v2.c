@@ -110,7 +110,7 @@ add_account_funk( fd_accdb_user_t * accdb_,
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
 
-  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( rec_pool, NULL, 1, NULL );
+  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( rec_pool );
   FD_TEST( rec );
   ulong rec_idx = (ulong)( rec - rec_pool->ele );
   *rec = (fd_funk_rec_t) {

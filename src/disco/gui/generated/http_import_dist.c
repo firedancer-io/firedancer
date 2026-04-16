@@ -138,12 +138,12 @@ FD_IMPORT_BINARY( file_dev8_gzip, "src/disco/gui/dist_dev_cmp/assets/frankendanc
 FD_IMPORT_BINARY( file_dev9, "src/disco/gui/dist_dev/assets/frankendancer_logo-CHyfJ772.svg" );
 FD_IMPORT_BINARY( file_dev9_zstd, "src/disco/gui/dist_dev_cmp/assets/frankendancer_logo-CHyfJ772.svg.zst" );
 FD_IMPORT_BINARY( file_dev9_gzip, "src/disco/gui/dist_dev_cmp/assets/frankendancer_logo-CHyfJ772.svg.gz" );
-FD_IMPORT_BINARY( file_dev10, "src/disco/gui/dist_dev/assets/index-61jWJkDA.css" );
-FD_IMPORT_BINARY( file_dev10_zstd, "src/disco/gui/dist_dev_cmp/assets/index-61jWJkDA.css.zst" );
-FD_IMPORT_BINARY( file_dev10_gzip, "src/disco/gui/dist_dev_cmp/assets/index-61jWJkDA.css.gz" );
-FD_IMPORT_BINARY( file_dev11, "src/disco/gui/dist_dev/assets/index-CfYLc-RX.js" );
-FD_IMPORT_BINARY( file_dev11_zstd, "src/disco/gui/dist_dev_cmp/assets/index-CfYLc-RX.js.zst" );
-FD_IMPORT_BINARY( file_dev11_gzip, "src/disco/gui/dist_dev_cmp/assets/index-CfYLc-RX.js.gz" );
+FD_IMPORT_BINARY( file_dev10, "src/disco/gui/dist_dev/assets/index-CViZEfha.js" );
+FD_IMPORT_BINARY( file_dev10_zstd, "src/disco/gui/dist_dev_cmp/assets/index-CViZEfha.js.zst" );
+FD_IMPORT_BINARY( file_dev10_gzip, "src/disco/gui/dist_dev_cmp/assets/index-CViZEfha.js.gz" );
+FD_IMPORT_BINARY( file_dev11, "src/disco/gui/dist_dev/assets/index-DO1oAkXU.css" );
+FD_IMPORT_BINARY( file_dev11_zstd, "src/disco/gui/dist_dev_cmp/assets/index-DO1oAkXU.css.zst" );
+FD_IMPORT_BINARY( file_dev11_gzip, "src/disco/gui/dist_dev_cmp/assets/index-DO1oAkXU.css.gz" );
 FD_IMPORT_BINARY( file_dev12, "src/disco/gui/dist_dev/assets/inter-tight-latin-400-normal-BLrFJfvD.woff" );
 FD_IMPORT_BINARY( file_dev12_zstd, "src/disco/gui/dist_dev_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.zst" );
 FD_IMPORT_BINARY( file_dev12_gzip, "src/disco/gui/dist_dev_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.gz" );
@@ -159,12 +159,15 @@ FD_IMPORT_BINARY( file_dev15_gzip, "src/disco/gui/dist_dev_cmp/assets/roboto-mon
 FD_IMPORT_BINARY( file_dev16, "src/disco/gui/dist_dev/assets/roboto-mono-latin-400-normal-GekRknry.woff2" );
 FD_IMPORT_BINARY( file_dev16_zstd, "src/disco/gui/dist_dev_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.zst" );
 FD_IMPORT_BINARY( file_dev16_gzip, "src/disco/gui/dist_dev_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.gz" );
-FD_IMPORT_BINARY( file_dev17, "src/disco/gui/dist_dev/index.html" );
-FD_IMPORT_BINARY( file_dev17_zstd, "src/disco/gui/dist_dev_cmp/index.html.zst" );
-FD_IMPORT_BINARY( file_dev17_gzip, "src/disco/gui/dist_dev_cmp/index.html.gz" );
-FD_IMPORT_BINARY( file_dev18, "src/disco/gui/dist_dev/version" );
-FD_IMPORT_BINARY( file_dev18_zstd, "src/disco/gui/dist_dev_cmp/version.zst" );
-FD_IMPORT_BINARY( file_dev18_gzip, "src/disco/gui/dist_dev_cmp/version.gz" );
+FD_IMPORT_BINARY( file_dev17, "src/disco/gui/dist_dev/assets/wsWorker-hxlPjPia.js" );
+FD_IMPORT_BINARY( file_dev17_zstd, "src/disco/gui/dist_dev_cmp/assets/wsWorker-hxlPjPia.js.zst" );
+FD_IMPORT_BINARY( file_dev17_gzip, "src/disco/gui/dist_dev_cmp/assets/wsWorker-hxlPjPia.js.gz" );
+FD_IMPORT_BINARY( file_dev18, "src/disco/gui/dist_dev/index.html" );
+FD_IMPORT_BINARY( file_dev18_zstd, "src/disco/gui/dist_dev_cmp/index.html.zst" );
+FD_IMPORT_BINARY( file_dev18_gzip, "src/disco/gui/dist_dev_cmp/index.html.gz" );
+FD_IMPORT_BINARY( file_dev19, "src/disco/gui/dist_dev/version" );
+FD_IMPORT_BINARY( file_dev19_zstd, "src/disco/gui/dist_dev_cmp/version.zst" );
+FD_IMPORT_BINARY( file_dev19_gzip, "src/disco/gui/dist_dev_cmp/version.gz" );
 
 
 fd_http_static_file_t STATIC_FILES_STABLE[] = {
@@ -582,7 +585,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev9_gzip_sz,
 	},
 	{
-		.name = "/assets/index-61jWJkDA.css",
+		.name = "/assets/index-CViZEfha.js",
 		.data = file_dev10,
 		.data_len = &file_dev10_sz,
 		.zstd_data = file_dev10_zstd,
@@ -591,7 +594,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev10_gzip_sz,
 	},
 	{
-		.name = "/assets/index-CfYLc-RX.js",
+		.name = "/assets/index-DO1oAkXU.css",
 		.data = file_dev11,
 		.data_len = &file_dev11_sz,
 		.zstd_data = file_dev11_zstd,
@@ -645,7 +648,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev16_gzip_sz,
 	},
 	{
-		.name = "/index.html",
+		.name = "/assets/wsWorker-hxlPjPia.js",
 		.data = file_dev17,
 		.data_len = &file_dev17_sz,
 		.zstd_data = file_dev17_zstd,
@@ -654,13 +657,22 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev17_gzip_sz,
 	},
 	{
-		.name = "/version",
+		.name = "/index.html",
 		.data = file_dev18,
 		.data_len = &file_dev18_sz,
 		.zstd_data = file_dev18_zstd,
 		.zstd_data_len = &file_dev18_zstd_sz,
 		.gzip_data = file_dev18_gzip,
 		.gzip_data_len = &file_dev18_gzip_sz,
+	},
+	{
+		.name = "/version",
+		.data = file_dev19,
+		.data_len = &file_dev19_sz,
+		.zstd_data = file_dev19_zstd,
+		.zstd_data_len = &file_dev19_zstd_sz,
+		.gzip_data = file_dev19_gzip,
+		.gzip_data_len = &file_dev19_gzip_sz,
 	},
 	{0}
 };
