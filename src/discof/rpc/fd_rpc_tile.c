@@ -350,7 +350,7 @@ scratch_align( void ) {
   return a;
 }
 
-FD_FN_PURE static inline ulong
+static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong http_fp = fd_http_server_footprint( derive_http_params( tile ) );
   if( FD_UNLIKELY( !http_fp ) ) FD_LOG_ERR(( "Invalid [tiles.rpc] config parameters" ));

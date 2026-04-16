@@ -257,7 +257,7 @@ fd_repair_msg_t * fd_repair_orphan       ( fd_repair_t * repair, fd_pubkey_t con
 
 /* fd_repair_sz returns the bincode-serialized sz of msg. */
 
-FD_FN_PURE static inline ulong
+static inline ulong
 fd_repair_sz( fd_repair_msg_t const * msg ) {
    switch( msg->kind ) {
      case FD_REPAIR_KIND_PONG:          return sizeof(uint) + sizeof(fd_repair_pong_t);

@@ -312,7 +312,7 @@ calculate_non_vote_transaction_cost( fd_bank_t *          bank,
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L26-L42 */
-FD_FN_PURE static inline ulong
+static inline ulong
 transaction_cost_sum( fd_transaction_cost_t const * txn_cost ) {
   switch( txn_cost->type ) {
     case FD_TXN_COST_TYPE_SIMPLE_VOTE: {
@@ -338,7 +338,7 @@ transaction_cost_sum( fd_transaction_cost_t const * txn_cost ) {
   }
 }
 
-FD_FN_PURE static inline ulong
+static inline ulong
 get_allocated_accounts_data_size( fd_transaction_cost_t const * txn_cost ) {
   switch( txn_cost->type ) {
   case FD_TXN_COST_TYPE_SIMPLE_VOTE:
