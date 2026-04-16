@@ -46,26 +46,38 @@ ulong const fd_secp256k1_const_scalar_rr_mont[4] = {
   0x896cf21467d7d140UL, 0x741496c20e7cf878UL, 0xe697f5e45bcd07c6UL, 0x9d671cd581c69bc5UL,
 };
 
-/* const 1 */
-fd_secp256k1_fp_t const fd_secp256k1_const_one[1] = {{{
-  1UL, 0UL, 0UL, 0UL
+/* const 1. Montgomery. */
+fd_secp256k1_fp_t const fd_secp256k1_const_one_mont[1] = {{{
+  0x1000003d1UL, 0UL, 0UL, 0UL
 }}};
 
-/* const b = 7 */
-fd_secp256k1_fp_t const fd_secp256k1_const_b[1] = {{{
-  7UL, 0UL, 0UL, 0UL
+/* const b as field element. Montgomery. */
+fd_secp256k1_fp_t const fd_secp256k1_const_b_mont[1] = {{{
+  0x700001ab7UL, 0UL, 0UL, 0UL
 }}};
 
-/* const n as a field element, used to bump r for recovery_id & 2.
+/* const n, used to bump r for recovery_id & 2. In the field curve's montgomery domain.
    0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141 */
-fd_secp256k1_fp_t const fd_secp256k1_const_n_fp[1] = {{{
-  0xbfd25e8cd0364141UL, 0xbaaedce6af48a03bUL, 0xfffffffffffffffeUL, 0xffffffffffffffffUL
+fd_secp256k1_fp_t const fd_secp256k1_const_n_mont[1] = {{{
+  0xe21120489f1d95e1UL, 0x24a1ac9eb3fde294UL, 0xfffffffebaaed80dUL, 0xffffffffffffffffUL
 }}};
 
-/* const p, used for field operations.
+/* const p, used for field operations. NOT Montgomery.
    0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f */
 fd_secp256k1_fp_t const fd_secp256k1_const_p[1] = {{{
   0xfffffffefffffc2fUL, 0xffffffffffffffffUL, 0xffffffffffffffffUL, 0xffffffffffffffffUL
+}}};
+
+/* basepoint x coordinate. Montgomery.
+   0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798 */
+fd_secp256k1_fp_t const fd_secp256k1_const_base_x_mont[1] = {{{
+  0xd7362e5a487e2097UL, 0x231e295329bc66dbUL, 0x979f48c033fd129cUL, 0x9981e643e9089f48UL
+}}};
+
+/* basepoint y coordinate. Montgomery.
+   0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8 */
+fd_secp256k1_fp_t const fd_secp256k1_const_base_y_mont[1] = {{{
+  0xb15ea6d2d3dbabe2UL, 0x8dfc5d5d1f1dc64dUL, 0x70b6b59aac19c136UL, 0xcf3f851fd4a582d6UL
 }}};
 
 FD_PROTOTYPES_END

@@ -5,14 +5,11 @@
    s2n-bignum symbols to their _alt equivalents, which use only base
    x86-64 instructions and are functionally identical. */
 #ifndef __ADX__
-#define bignum_mul_p256k1      bignum_mul_p256k1_alt
-#define bignum_sqr_p256k1      bignum_sqr_p256k1_alt
-#define secp256k1_jadd         secp256k1_jadd_alt
-#define secp256k1_jdouble      secp256k1_jdouble_alt
-#define secp256k1_jmixadd      secp256k1_jmixadd_alt
+#define bignum_montmul_p256k1  bignum_montmul_p256k1_alt
+#define bignum_montsqr_p256k1  bignum_montsqr_p256k1_alt
+#define bignum_tomont_p256k1   bignum_tomont_p256k1_alt
+#define bignum_triple_p256k1   bignum_triple_p256k1_alt
 #endif
-
-#include "fd_secp256k1_base_table.c"
 
 /* Scalars */
 
@@ -118,12 +115,38 @@ fd_secp256k1_fp_eq( fd_secp256k1_fp_t const * a,
   return fd_uint256_eq( a, b );
 }
 
+/* r = a + b */
+static inline fd_secp256k1_fp_t *
+fd_secp256k1_fp_add( fd_secp256k1_fp_t *       r,
+                     fd_secp256k1_fp_t const * a,
+                     fd_secp256k1_fp_t const * b ) {
+  bignum_add_p256k1( r->limbs, (ulong *)a->limbs, (ulong *)b->limbs );
+  return r;
+}
+
+/* r = a - b */
+static inline fd_secp256k1_fp_t *
+fd_secp256k1_fp_sub( fd_secp256k1_fp_t *       r,
+                     fd_secp256k1_fp_t const * a,
+                     fd_secp256k1_fp_t const * b ) {
+  bignum_sub_p256k1( r->limbs, (ulong *)a->limbs, (ulong *)b->limbs );
+  return r;
+}
+
+/* r = 2 * a */
+static inline fd_secp256k1_fp_t *
+fd_secp256k1_fp_dbl( fd_secp256k1_fp_t *       r,
+                     fd_secp256k1_fp_t const * a ) {
+  bignum_double_p256k1( r->limbs, (ulong *)a->limbs );
+  return r;
+}
+
 /* r = a * b */
 static inline fd_secp256k1_fp_t *
 fd_secp256k1_fp_mul( fd_secp256k1_fp_t *       r,
                      fd_secp256k1_fp_t const * a,
                      fd_secp256k1_fp_t const * b ) {
-  bignum_mul_p256k1( r->limbs, (ulong *)a->limbs, (ulong *)b->limbs );
+  bignum_montmul_p256k1( r->limbs, (ulong *)a->limbs, (ulong *)b->limbs );
   return r;
 }
 
@@ -131,16 +154,7 @@ fd_secp256k1_fp_mul( fd_secp256k1_fp_t *       r,
 static inline fd_secp256k1_fp_t *
 fd_secp256k1_fp_sqr( fd_secp256k1_fp_t *       r,
                      fd_secp256k1_fp_t const * a ) {
-  bignum_sqr_p256k1( r->limbs, (ulong *)a->limbs );
-  return r;
-}
-
-/* r = a + b */
-static inline fd_secp256k1_fp_t *
-fd_secp256k1_fp_add( fd_secp256k1_fp_t *       r,
-                     fd_secp256k1_fp_t const * a,
-                     fd_secp256k1_fp_t const * b ) {
-  bignum_add_p256k1( r->limbs, (ulong *)a->limbs, (ulong *)b->limbs );
+  bignum_montsqr_p256k1( r->limbs, (ulong *)a->limbs );
   return r;
 }
 
@@ -154,7 +168,9 @@ fd_secp256k1_fp_negate( fd_secp256k1_fp_t *       r,
 
 static inline int
 fd_secp256k1_fp_is_odd( fd_secp256k1_fp_t const *r ) {
-  return r->limbs[ 0 ] & 1;
+  fd_secp256k1_fp_t scratch[1];
+  bignum_demont_p256k1( scratch->limbs, (ulong *)r->limbs );
+  return scratch->limbs[ 0 ] & 1;
 }
 
 /* r = 1 / a
@@ -162,8 +178,11 @@ fd_secp256k1_fp_is_odd( fd_secp256k1_fp_t const *r ) {
 static inline fd_secp256k1_fp_t *
 fd_secp256k1_fp_invert( fd_secp256k1_fp_t *       r,
                         fd_secp256k1_fp_t const * a ) {
+  fd_secp256k1_fp_t ad[1];
+  bignum_demont_p256k1( ad->limbs, (ulong *)a->limbs );
   ulong t[ 12 ];
-  bignum_modinv( 4, r->limbs, (ulong *)a->limbs, (ulong *)fd_secp256k1_const_p[0].limbs, t );
+  bignum_modinv( 4, r->limbs, (ulong *)ad->limbs, (ulong *)fd_secp256k1_const_p[0].limbs, t );
+  bignum_tomont_p256k1( r->limbs, (ulong *)r->limbs );
   return r;
 }
 
@@ -171,7 +190,7 @@ static inline uchar *
 fd_secp256k1_fp_tobytes( uchar                    r[ 32 ],
                          fd_secp256k1_fp_t const *a ) {
   fd_secp256k1_fp_t swapped[1];
-  fd_secp256k1_fp_set( swapped, a );
+  bignum_demont_p256k1( swapped->limbs, (ulong *)a->limbs );
   fd_uint256_bswap( swapped, swapped );
   memcpy( r, swapped->buf, 32 );
   return r;
@@ -196,12 +215,12 @@ fd_secp256k1_fp_tobytes( uchar                    r[ 32 ],
     x6    = a^63
     x9    = a^511
     x11   = a^2047
-    x22   = a^(2^22 - 1)
-    x44   = a^(2^44 - 1)
-    x88   = a^(2^88 - 1)
-    x176  = a^(2^176 - 1)
-    x220  = a^(2^220 - 1)
-    x223  = a^(2^223 - 1)
+    x22   = a^(2^22 − 1) # All of these are all 1s
+    x44   = a^(2^44 − 1)
+    x88   = a^(2^88 − 1)
+    x176  = a^(2^176 − 1)
+    x220  = a^(2^220 − 1)
+    x223  = a^(2^223 − 1)
 
   These "all 1s" exponents are convenient because:
     (2^k - 1)*(2^m)+(2^m - 1) = 2^(k+m) - 1
@@ -211,7 +230,7 @@ fd_secp256k1_fp_tobytes( uchar                    r[ 32 ],
     a^((p-1)/2) = -1
   and the result will fail the final verification.
 */
-fd_secp256k1_fp_t *
+static inline fd_secp256k1_fp_t *
 fd_secp256k1_fp_sqrt( fd_secp256k1_fp_t *       restrict r,
                       fd_secp256k1_fp_t const * restrict a ) {
   fd_secp256k1_fp_t x2;
@@ -276,23 +295,167 @@ fd_secp256k1_fp_sqrt( fd_secp256k1_fp_t *       restrict r,
   return r;
 }
 
-/* Point operations in plain (non-Montgomery) Jacobian coordinates.
-   s2n-bignum's secp256k1 point ops work in this domain. */
+/* Point */
 
-/* r = a + b */
+/* Sets a group element to the identity element in Jacobian coordinates */
+static inline void
+fd_secp256k1_point_set_identity( fd_secp256k1_point_t *r ) {
+  fd_secp256k1_fp_set( r->x, fd_secp256k1_const_zero );
+  fd_secp256k1_fp_set( r->y, fd_secp256k1_const_one_mont );
+  fd_secp256k1_fp_set( r->z, fd_secp256k1_const_zero );
+}
+
+/* Sets a group element to the base element in Jacobian coordinates */
+static inline void
+fd_secp256k1_point_set_base( fd_secp256k1_point_t *r ) {
+  fd_secp256k1_fp_set( r->x, fd_secp256k1_const_base_x_mont );
+  fd_secp256k1_fp_set( r->y, fd_secp256k1_const_base_y_mont );
+  fd_secp256k1_fp_set( r->z, fd_secp256k1_const_one_mont );
+}
+
+/* r = a */
+static inline void
+fd_secp256k1_point_set( fd_secp256k1_point_t *       r,
+                        fd_secp256k1_point_t const * a ) {
+  fd_secp256k1_fp_set( r->x, a->x );
+  fd_secp256k1_fp_set( r->y, a->y );
+  fd_secp256k1_fp_set( r->z, a->z );
+}
+
+/* https://eprint.iacr.org/2015/1060.pdf, Algorithm 7 */
 static inline fd_secp256k1_point_t *
 fd_secp256k1_point_add( fd_secp256k1_point_t *       r,
                         fd_secp256k1_point_t const * a,
                         fd_secp256k1_point_t const * b ) {
-  secp256k1_jadd( (ulong *)r, (ulong const *)a, (ulong const *)b );
+  fd_secp256k1_fp_t t0[ 1 ];
+  fd_secp256k1_fp_t t1[ 1 ];
+  fd_secp256k1_fp_t t2[ 1 ];
+  fd_secp256k1_fp_t t3[ 1 ];
+  fd_secp256k1_fp_t t4[ 1 ];
+
+  fd_secp256k1_fp_t X3[ 1 ];
+  fd_secp256k1_fp_t Y3[ 1 ];
+  fd_secp256k1_fp_t Z3[ 1 ];
+
+  /* t0 = X1 * X2 */
+  fd_secp256k1_fp_mul( t0, a->x, b->x );
+  /* t1 = Y1 * Y2 */
+  fd_secp256k1_fp_mul( t1, a->y, b->y );
+  /* t2 = Z1 * Z2 */
+  fd_secp256k1_fp_mul( t2, a->z, b->z );
+
+  /* t3 = (a.x + a.y) * (b.x + b.y) - (t0 + t1) */
+  fd_secp256k1_fp_add( t3, a->x, a->y );
+  fd_secp256k1_fp_add( t4, b->x, b->y );
+  fd_secp256k1_fp_mul( t3, t3, t4 );
+  fd_secp256k1_fp_add( t4, t0, t1 );
+  fd_secp256k1_fp_sub( t3, t3, t4 );
+
+  /* t4 = (a.y + a.z) * (b.y + b.z) - (t1 + t2) */
+  fd_secp256k1_fp_add( t4, a->y, a->z );
+  fd_secp256k1_fp_add( X3, b->y, b->z );
+  fd_secp256k1_fp_mul( t4, t4, X3 );
+  fd_secp256k1_fp_add( X3, t1, t2 );
+  fd_secp256k1_fp_sub( t4, t4, X3 );
+
+  /* Y3 = (a.x + a.z) * (b.x + b.z) - (t0 + t2) */
+  fd_secp256k1_fp_add( X3, a->x, a->z );
+  fd_secp256k1_fp_add( Y3, b->x, b->z );
+  fd_secp256k1_fp_mul( X3, X3, Y3 );
+  fd_secp256k1_fp_add( Y3, t0, t2 );
+  fd_secp256k1_fp_sub( Y3, X3, Y3 );
+
+  /* t0 = 3 * t0 */
+  bignum_triple_p256k1( t0->limbs, (ulong *)t0->limbs );
+
+  /* b3 = (2^2)^2 + 2^2 + 1 = 21 */
+  fd_secp256k1_fp_t t2_4[ 1 ];
+  fd_secp256k1_fp_t t5[ 1 ];
+  fd_secp256k1_fp_dbl( t2_4, t2 );
+  fd_secp256k1_fp_dbl( t2_4, t2_4 );
+  fd_secp256k1_fp_dbl( t5, t2_4 );
+  fd_secp256k1_fp_dbl( t5, t5 );
+  fd_secp256k1_fp_add( t5, t5, t2_4 );
+  fd_secp256k1_fp_add( t2, t5, t2 );
+
+  /* Z3 = t1 * t2
+     t1 = t1 - t2 */
+  fd_secp256k1_fp_add( Z3, t1, t2 );
+  fd_secp256k1_fp_sub( t1, t1, t2 );
+
+  fd_secp256k1_fp_t Y3_4[ 1 ];
+  fd_secp256k1_fp_dbl( Y3_4, Y3 );
+  fd_secp256k1_fp_dbl( Y3_4, Y3_4 );
+  fd_secp256k1_fp_dbl( t5, Y3_4 );
+  fd_secp256k1_fp_dbl( t5, t5 );
+  fd_secp256k1_fp_add( t5, t5, Y3_4 );
+  fd_secp256k1_fp_add( Y3, t5, Y3 );
+
+  fd_secp256k1_fp_mul( X3, t4, Y3 );
+  fd_secp256k1_fp_mul( t2, t3, t1 );
+  fd_secp256k1_fp_sub( r->x, t2, X3 );
+  fd_secp256k1_fp_mul( Y3, Y3, t0 );
+  fd_secp256k1_fp_mul( t1, t1, Z3 );
+  fd_secp256k1_fp_add( r->y, t1, Y3 );
+  fd_secp256k1_fp_mul( t0, t0, t3 );
+  fd_secp256k1_fp_mul( Z3, Z3, t4 );
+  fd_secp256k1_fp_add( r->z, Z3, t0 );
+
   return r;
 }
 
-/* r = 2 * a */
+/* https://eprint.iacr.org/2015/1060.pdf, Algorithm 9 */
 static inline fd_secp256k1_point_t *
 fd_secp256k1_point_dbl( fd_secp256k1_point_t *       r,
                         fd_secp256k1_point_t const * a ) {
-  secp256k1_jdouble( (ulong *)r, (ulong const *)a );
+  fd_secp256k1_fp_t t0[ 1 ];
+  fd_secp256k1_fp_t t1[ 1 ];
+  fd_secp256k1_fp_t t2[ 1 ];
+
+  fd_secp256k1_fp_t X3[ 1 ];
+  fd_secp256k1_fp_t Y3[ 1 ];
+  fd_secp256k1_fp_t Z3[ 1 ];
+
+  /* t0 = Y * Y*/
+  fd_secp256k1_fp_sqr( t0, a->y );
+  /* Z3 = 8 * t0 */
+  fd_secp256k1_fp_dbl( Z3, t0 );
+  fd_secp256k1_fp_dbl( Z3, Z3 );
+  fd_secp256k1_fp_dbl( Z3, Z3 );
+
+  /* t1 = Y * Z */
+  fd_secp256k1_fp_mul( t1, a->y, a->z );
+  /* t2 = Z * Z */
+  fd_secp256k1_fp_sqr( t2, a->z );
+
+  /* b3 = (2^2)^2 + 2^2 + 1
+     t2 = b3 * t2 */
+  fd_secp256k1_fp_t t2_4[1], t5[1];
+  fd_secp256k1_fp_dbl( t2_4, t2 );
+  fd_secp256k1_fp_dbl( t2_4, t2_4 );
+  fd_secp256k1_fp_dbl( t5, t2_4 );
+  fd_secp256k1_fp_dbl( t5, t5 );
+  fd_secp256k1_fp_add( t5, t5, t2_4 );
+  fd_secp256k1_fp_add( t2, t5, t2 );
+
+  /* X3 = t2 * Z3 */
+  fd_secp256k1_fp_mul( X3, t2, Z3 );
+  /* Y3 = t0 + t2 */
+  fd_secp256k1_fp_add( Y3, t0, t2 );
+
+  fd_secp256k1_fp_mul( r->z, t1, Z3 );
+
+  fd_secp256k1_fp_dbl( t1, t2 );
+  fd_secp256k1_fp_add( t2, t1, t2 );
+  fd_secp256k1_fp_sub( t0, t0, t2 );
+  fd_secp256k1_fp_mul( Y3, t0, Y3 );
+  /* compute t1 first, as the next add may overwrite a->y */
+  fd_secp256k1_fp_mul( t1, a->x, a->y );
+  fd_secp256k1_fp_add( r->y, X3, Y3 );
+
+  fd_secp256k1_fp_mul( X3, t0, t1 );
+  fd_secp256k1_fp_dbl( r->x, X3 );
+
   return r;
 }
 
@@ -300,8 +463,9 @@ fd_secp256k1_point_dbl( fd_secp256k1_point_t *       r,
 static inline fd_secp256k1_point_t *
 fd_secp256k1_point_neg( fd_secp256k1_point_t *       r,
                         fd_secp256k1_point_t const * a ) {
-  if( r != a ) fd_memcpy( r, a, sizeof(*r) );
-  bignum_neg_p256k1( r->y->limbs, r->y->limbs );
+  fd_secp256k1_fp_set( r->x, a->x );
+  fd_secp256k1_fp_set( r->z, a->z );
+  fd_secp256k1_fp_negate( r->y, a->y );
   return r;
 }
 
@@ -310,43 +474,24 @@ static inline fd_secp256k1_point_t *
 fd_secp256k1_point_sub( fd_secp256k1_point_t *       r,
                         fd_secp256k1_point_t const * a,
                         fd_secp256k1_point_t const * b ) {
-  fd_secp256k1_point_t neg[1];
-  fd_secp256k1_point_neg( neg, b );
-  return fd_secp256k1_point_add( r, a, neg );
-}
-
-/* Mixed addition: a (Jacobian) + b (affine xy as 8 ulongs). */
-static inline fd_secp256k1_point_t *
-fd_secp256k1_point_add_mixed( fd_secp256k1_point_t *       r,
-                              fd_secp256k1_point_t const * a,
-                              ulong                const   b[ 8 ] ) {
-  secp256k1_jmixadd( (ulong *)r, (ulong const *)a, (ulong *)b );
-  return r;
-}
-
-static inline fd_secp256k1_point_t *
-fd_secp256k1_point_sub_mixed( fd_secp256k1_point_t *       r,
-                              fd_secp256k1_point_t const * a,
-                              ulong                const   b[ 8 ] ) {
-  ulong neg[8];
-  fd_memcpy( neg, b, 64 );
-  bignum_neg_p256k1( neg+4, neg+4 );
-  secp256k1_jmixadd( (ulong *)r, (ulong const *)a, neg );
-  return r;
+  fd_secp256k1_point_t tmp[ 1 ];
+  fd_secp256k1_point_neg( tmp, b );
+  return fd_secp256k1_point_add( r, a, tmp );
 }
 
 /* Double base multiplication */
 
 static inline schar *
-fd_secp256k1_slide( schar       r[ 65 ],
+fd_secp256k1_slide( schar       r[ 2 * 32 + 1 ],
                     uchar const s[ 32 ] ) {
-  for( int i=0; i<32; i++ ) {
-    r[i*2+0] = (schar)(s[i] & 0xF);
-    r[i*2+1] = (schar)((s[i] >> 4) & 0xF);
+  for(int i = 0; i<32; i++) {
+    uchar x = s[i];
+    r[i * 2 + 0] = x & 0xF;
+    r[i * 2 + 1] = (x >> 4) & 0xF;
   }
   /* Now, r[0..63] is between 0 and 15, r[63] is between 0 and 7 */
   schar carry = 0;
-  for( int i=0; i<64; i++ ) {
+  for(int i = 0; i<64; i++) {
     r[i] += carry;
     carry = (schar)(r[i] + 8) >> 4;
     r[i] -= (schar)(carry * 16);
@@ -358,50 +503,54 @@ fd_secp256k1_slide( schar       r[ 65 ],
 }
 
 static inline fd_secp256k1_point_t *
-fd_secp256k1_precompute( fd_secp256k1_point_t         tbl[ 9 ],
+fd_secp256k1_precompute( fd_secp256k1_point_t         r[ 9 ],
                          fd_secp256k1_point_t const * a ) {
-  fd_memset( &tbl[0], 0, sizeof(fd_secp256k1_point_t) );
-  fd_memcpy( &tbl[1], a, sizeof(fd_secp256k1_point_t) );
-  for( int i=2; i<=8; i++ ) {
-    if( i & 1 ) {
-      fd_secp256k1_point_add( &tbl[i], &tbl[i-1], a );
+  fd_secp256k1_point_set_identity( &r[0] );
+  fd_secp256k1_point_set( &r[1], a );
+  for(int i = 2; i <= 8; i++) {
+    if(i % 2) {
+      fd_secp256k1_point_add( &r[i], &r[i - 1], a );
     } else {
-      fd_secp256k1_point_dbl( &tbl[i], &tbl[i/2] );
+      fd_secp256k1_point_dbl( &r[i], &r[i / 2]    );
     }
   }
-  return tbl;
+  return r;
 }
 
-/* Computes s1*G + s2*P2 in plain (non-Montgomery) Jacobian coordinates.
-   All inputs and the output are in plain Jacobian. */
+/* Computes s1*G + s2*P2, where G is the base point */
 static inline fd_secp256k1_point_t *
-fd_secp256k1_double_scalar_mul_base( fd_secp256k1_point_t *        r,
-                                     fd_secp256k1_scalar_t const * s1,
-                                     fd_secp256k1_point_t  const * p2,
-                                     fd_secp256k1_scalar_t const * s2 ) {
-  schar e1[ 65 ];
-  schar e2[ 65 ];
+fd_secp256k1_double_base_mul( fd_secp256k1_point_t *        r,
+                              fd_secp256k1_scalar_t const * s1,
+                              fd_secp256k1_point_t  const * p2,
+                              fd_secp256k1_scalar_t const * s2 ) {
+  fd_secp256k1_point_t base[ 1 ];
+  fd_secp256k1_point_set_base( base );
+
+  fd_secp256k1_point_t pc1[ 9 ];
+  fd_secp256k1_point_t pc2[ 9 ];
+  /* TODO: Precompute the basepoint table in a generated table */
+  fd_secp256k1_precompute( pc1, base );
+  fd_secp256k1_precompute( pc2, p2 );
+
+  schar e1[ 2 * 32 + 1 ];
+  schar e2[ 2 * 32 + 1 ];
   fd_secp256k1_slide( e1, s1->buf );
   fd_secp256k1_slide( e2, s2->buf );
 
-  fd_secp256k1_point_t tbl[9];
-  fd_secp256k1_precompute( tbl, p2 );
-
-  fd_memset( r, 0, sizeof(*r) );
-
-  for( int pos=64; ; pos-- ) {
+  fd_secp256k1_point_set_identity( r );
+  for( int pos = 2 * 32; ; pos -= 1 ) {
     schar slot1 = e1[pos];
     if( slot1 > 0 ) {
-      fd_secp256k1_point_add_mixed( r, r, fd_secp256k1_base_point_table[ (ulong)slot1 ].x->limbs );
+      fd_secp256k1_point_add( r, r, &pc1[(ulong)slot1] );
     } else if( slot1 < 0 ) {
-      fd_secp256k1_point_sub_mixed( r, r, fd_secp256k1_base_point_table[ (ulong)(-slot1) ].x->limbs );
+      fd_secp256k1_point_sub( r, r, &pc1[(ulong)(-slot1)] );
     }
 
     schar slot2 = e2[pos];
     if( slot2 > 0 ) {
-      fd_secp256k1_point_add( r, r, &tbl[ (ulong)slot2 ] );
+      fd_secp256k1_point_add( r, r, &pc2[(ulong)slot2] );
     } else if( slot2 < 0 ) {
-      fd_secp256k1_point_sub( r, r, &tbl[ (ulong)(-slot2) ] );
+      fd_secp256k1_point_sub( r, r, &pc2[(ulong)(-slot2)] );
     }
 
     if( pos == 0 ) break;
@@ -414,21 +563,21 @@ fd_secp256k1_double_scalar_mul_base( fd_secp256k1_point_t *        r,
   return r;
 }
 
-/* Converts plain Jacobian (X/Z^2, Y/Z^3) to plain affine. */
 static inline fd_secp256k1_point_t *
 fd_secp256k1_point_to_affine( fd_secp256k1_point_t *       r,
                               fd_secp256k1_point_t const * a ) {
-  ulong z_inv[4], z_inv2[4], z_inv3[4];
-  ulong t[12];
-  bignum_modinv( 4, z_inv, (ulong *)a->z->limbs, (ulong *)fd_secp256k1_const_p[0].limbs, t );
-  bignum_sqr_p256k1( z_inv2, z_inv );
-  bignum_mul_p256k1( z_inv3, z_inv2, z_inv );
-  bignum_mul_p256k1( r->x->limbs, (ulong *)a->x->limbs, z_inv2 );
-  bignum_mul_p256k1( r->y->limbs, (ulong *)a->y->limbs, z_inv3 );
+  fd_secp256k1_fp_t z[1];
+  fd_secp256k1_fp_invert( z, a->z );
+  fd_secp256k1_fp_mul( r->x, a->x, z );
+  fd_secp256k1_fp_mul( r->y, a->y, z );
   return r;
 }
 
 static inline int
 fd_secp256k1_point_is_identity( fd_secp256k1_point_t const *a ) {
-  return fd_secp256k1_fp_eq( a->z, fd_secp256k1_const_zero );
+  int affine =
+     fd_secp256k1_fp_eq( a->x, fd_secp256k1_const_zero ) &
+     ( fd_secp256k1_fp_eq( a->y, fd_secp256k1_const_zero     ) |
+       fd_secp256k1_fp_eq( a->y, fd_secp256k1_const_one_mont ) );
+  return fd_secp256k1_fp_eq( a->z, fd_secp256k1_const_zero ) | affine;
 }
