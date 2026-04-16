@@ -1,7 +1,7 @@
 CPPFLAGS+=-mfpmath=sse -falign-functions=32
 
 ifdef FD_USING_GCC
-CPPFLAGS+=-mbranch-cost=5 -falign-jumps=32 -falign-labels=32 -falign-loops=32
+CPPFLAGS+=-mbranch-cost=5 -falign-jumps=1 -falign-labels=1 -falign-loops=1
 endif
 
 # Don't attempt to transform vsprtps into vrsqrtps (not IEEE-compliant)
