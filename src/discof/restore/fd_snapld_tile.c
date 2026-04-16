@@ -280,9 +280,12 @@ after_credit( fd_snapld_tile_t *  ctx,
               int *               charge_busy ) {
   if( FD_UNLIKELY( ctx->pending_ctrl_sig ) ) {
     FD_TEST( !ctx->load_file && ctx->is_https );
-    if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
-                     ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
       fd_stem_publish( stem, 0UL, ctx->pending_ctrl_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+      ctx->pending_ctrl_sig = 0UL;
+      return;
+    } else if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+      /* Do not forward a deferred control message in ERROR state. */
       ctx->pending_ctrl_sig = 0UL;
       return;
     } else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
@@ -469,6 +472,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
     }
