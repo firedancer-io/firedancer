@@ -3,6 +3,15 @@
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/tests/fd_dump_pb.h"
 
+/* GCC >= 15 generates excessive NOP padding when aligning jump targets
+   to 32 bytes inside the computed-goto interpreter dispatch.  The
+   indirect branch targets are predicted by the BTB, not decoded inline,
+   so the padding only wastes I-cache capacity.  Override the
+   project-wide -falign-* flags for this translation unit. */
+#if defined(FD_USING_GCC) && (__GNUC__ >= 15)
+#pragma GCC optimize("align-jumps=1", "align-labels=1", "align-loops=1")
+#endif
+
 /* FIXME: MAKE DIFFERENT VERSIONS FOR EACH COMBO OF CHECK_ALIGN/TRACE? */
 /* TODO: factor out common unpacking code */
 
