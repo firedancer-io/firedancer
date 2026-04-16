@@ -29,6 +29,7 @@ jobs:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
       EXTRAS: ${{ inputs.extras }}
+      COMPILER_VERSION: 15.1.0
 
     steps:
     - name: Checkout current commit
@@ -36,6 +37,8 @@ jobs:
 
     - uses: ./.github/actions/deps
       with:
+        compiler: gcc
+        compiler-version: 15.1.0
         extras: +dev
 
     - uses: ./.github/actions/hugepages
@@ -45,7 +48,9 @@ jobs:
     - uses: actions/setup-node@v6
       with:
         node-version: '14'
-    - run: make -j
+    - run: |
+        source /opt/gcc/gcc-${{ env.COMPILER_VERSION }}/activate
+        make -j
     - run: echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
 
     - name: Checkout main for baseline
@@ -54,10 +59,13 @@ jobs:
         ref: main
         clean: false
 
-    - run: make -j
+    - run: |
+        source /opt/gcc/gcc-${{ env.COMPILER_VERSION }}/activate
+        make -j
 
     - name: Run baseline benchmarks
       run: |
+        source /opt/gcc/gcc-${{ env.COMPILER_VERSION }}/activate
         sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
         sudo $OBJDIR/bin/firedancer-dev configure init keys
         rm -rf baseline.log
@@ -84,10 +92,13 @@ jobs:
       with:
         clean: false
 
-    - run: make -j
+    - run: |
+        source /opt/gcc/gcc-${{ env.COMPILER_VERSION }}/activate
+        make -j
 
     - name: Run new benchmarks
       run: |
+        source /opt/gcc/gcc-${{ env.COMPILER_VERSION }}/activate
         sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
         rm -rf new.log
         sudo $OBJDIR/bin/firedancer-dev configure init keys
