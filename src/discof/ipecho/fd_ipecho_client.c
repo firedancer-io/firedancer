@@ -214,7 +214,7 @@ fd_ipecho_client_poll( fd_ipecho_client_t * client,
                        ushort *             shred_version,
                        int *                charge_busy ) {
   if( FD_UNLIKELY( !client->remaining_peer_cnt ) ) return -1;
-  if( FD_UNLIKELY( fd_log_wallclock()-client->start_time_nanos>2L*1000L*1000*1000L ) ) {
+  if( FD_UNLIKELY( fd_log_wallclock()-client->start_time_nanos>3L*1000L*1000*1000L ) ) {
     close_all( client );
     return -1;
   }
