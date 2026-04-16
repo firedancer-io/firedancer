@@ -236,6 +236,60 @@ typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
 #define FD_BANK_STATE_FROZEN     (3UL)
 #define FD_BANK_STATE_DEAD       (4UL)
 
+/* fd_bank_fixed_t contains the "simple" (non-CoW, non-locked) fields
+   of a bank that are laid out contiguously and can be copied as a unit
+   (e.g. for backup/restore during snapshot rollback). */
+
+struct fd_bank_fixed {
+  fd_lthash_value_t      lthash;
+  fd_blockhashes_t       block_hash_queue;
+  fd_fee_rate_governor_t fee_rate_governor;
+  ulong                  rbh_lamports_per_sig;
+  ulong                  slot;
+  ulong                  parent_slot;
+  ulong                  capitalization;
+  ulong                  transaction_count;
+  ulong                  parent_signature_cnt;
+  ulong                  tick_height;
+  ulong                  max_tick_height;
+  ulong                  hashes_per_tick;
+  fd_w_u128_t            ns_per_slot;
+  ulong                  ticks_per_slot;
+  ulong                  genesis_creation_time;
+  double                 slots_per_year;
+  fd_inflation_t         inflation;
+  ulong                  cluster_type;
+  ulong                  total_epoch_stake; /* total staked to active vote accounts */
+  ulong                  total_effective_stake; /* effective stake from stake delegations */
+  ulong                  total_activating_stake;
+  ulong                  total_deactivating_stake;
+  ulong                  warmup_cooldown_rate_epoch; /* epoch when reduce_stake_warmup_cooldown */
+  ulong                  block_height;
+  ulong                  execution_fees;
+  ulong                  priority_fees;
+  ulong                  tips;
+  ulong                  signature_count;
+  fd_hash_t              poh;
+  ulong                  last_restart_slot;
+  fd_hash_t              bank_hash;
+  fd_hash_t              prev_bank_hash;
+  fd_hash_t              genesis_hash;
+  fd_epoch_schedule_t    epoch_schedule;
+  fd_rent_t              rent;
+  fd_sysvar_cache_t      sysvar_cache;
+  fd_features_t          features;
+  ulong                  txn_count;
+  ulong                  nonvote_txn_count;
+  ulong                  failed_txn_count;
+  ulong                  nonvote_failed_txn_count;
+  ulong                  total_compute_units_used;
+  ulong                  slots_per_epoch;
+  ulong                  shred_cnt;
+  ulong                  epoch;
+  ulong                  identity_vote_idx;
+};
+typedef struct fd_bank_fixed fd_bank_fixed_t;
+
 /* As mentioned above, the overall layout of the bank struct:
    - Fields used for internal pool/bank management
    - Non-Cow fields
@@ -284,54 +338,7 @@ struct fd_bank {
      tiles. */
   fd_rwlock_t lthash_lock;
 
-  struct {
-    fd_lthash_value_t      lthash;
-    fd_blockhashes_t       block_hash_queue;
-    fd_fee_rate_governor_t fee_rate_governor;
-    ulong                  rbh_lamports_per_sig;
-    ulong                  slot;
-    ulong                  parent_slot;
-    ulong                  capitalization;
-    ulong                  transaction_count;
-    ulong                  parent_signature_cnt;
-    ulong                  tick_height;
-    ulong                  max_tick_height;
-    ulong                  hashes_per_tick;
-    fd_w_u128_t            ns_per_slot;
-    ulong                  ticks_per_slot;
-    ulong                  genesis_creation_time;
-    double                 slots_per_year;
-    fd_inflation_t         inflation;
-    ulong                  cluster_type;
-    ulong                  total_epoch_stake; /* total staked to active vote accounts */
-    ulong                  total_effective_stake; /* effective stake from stake delegations */
-    ulong                  total_activating_stake;
-    ulong                  total_deactivating_stake;
-    ulong                  warmup_cooldown_rate_epoch; /* epoch when reduce_stake_warmup_cooldown */
-    ulong                  block_height;
-    ulong                  execution_fees;
-    ulong                  priority_fees;
-    ulong                  tips;
-    ulong                  signature_count;
-    fd_hash_t              poh;
-    ulong                  last_restart_slot;
-    fd_hash_t              bank_hash;
-    fd_hash_t              prev_bank_hash;
-    fd_hash_t              genesis_hash;
-    fd_epoch_schedule_t    epoch_schedule;
-    fd_rent_t              rent;
-    fd_sysvar_cache_t      sysvar_cache;
-    fd_features_t          features;
-    ulong                  txn_count;
-    ulong                  nonvote_txn_count;
-    ulong                  failed_txn_count;
-    ulong                  nonvote_failed_txn_count;
-    ulong                  total_compute_units_used;
-    ulong                  slots_per_epoch;
-    ulong                  shred_cnt;
-    ulong                  epoch;
-    ulong                  identity_vote_idx;
-  } f;
+  fd_bank_fixed_t f;
 
   uchar top_votes_t_1_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));
   uchar top_votes_t_2_mem[FD_TOP_VOTES_MAX_FOOTPRINT] __attribute__((aligned(FD_TOP_VOTES_ALIGN)));

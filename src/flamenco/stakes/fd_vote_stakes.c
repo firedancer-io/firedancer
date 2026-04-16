@@ -157,7 +157,25 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
   index_map_t *       index_map       = get_index_map( vote_stakes );
   index_map_multi_t * index_map_multi = get_index_map_multi( vote_stakes );
 
-  index_ele_t * ele     = index_pool_ele_acquire( index_pool );
+  /* If an element already exists for this pubkey (e.g. created by a
+     prior root_update_meta call for T-2), update it in place rather
+     than creating a duplicate.  Since stake_t_1, node_account_t_1,
+     commission_t_1, and epoch are part of the index_key used by
+     index_map, we must remove and reinsert to maintain hash integrity. */
+  index_ele_t * ele = index_map_multi_ele_query( index_map_multi, pubkey, NULL, index_pool );
+  if( FD_UNLIKELY( ele ) ) {
+    FD_TEST( index_map_ele_remove( index_map, &ele->index_key, NULL, index_pool ) );
+    ele->stake_t_1        = (stake_t_1 & 0x7FFFFFFFFFFFFFFFUL);
+    ele->commission_t_1   = commission_t_1;
+    ele->node_account_t_1 = *node_account_t_1;
+    ele->epoch            = epoch % 2;
+    ele->exists_t_1       = 1;
+    FD_TEST( index_map_ele_insert( index_map, ele, index_pool ) );
+    fd_rwlock_unwrite( &vote_stakes->lock );
+    return;
+  }
+
+  ele                   = index_pool_ele_acquire( index_pool );
   ele->pubkey           = *pubkey;
   ele->refcnt           = 1;
   ele->stake_t_1        = (stake_t_1 & 0x7FFFFFFFFFFFFFFFUL);

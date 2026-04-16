@@ -12,6 +12,7 @@
 #include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/accdb/fd_accdb_user.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 
@@ -55,6 +56,8 @@ struct fd_snapin_tile {
   ulong seed;
   long boot_timestamp;
 
+  fd_banks_t *     banks;
+
   fd_accdb_admin_t accdb_admin[1];
   fd_accdb_user_t  accdb[1];
   fd_funk_t *      funk;
@@ -82,6 +85,16 @@ struct fd_snapin_tile {
   ulong bank_slot;
   ulong epoch;
 
+  /* Epoch stakes index mapping for on-the-fly processing.
+     T-1, T-2, T-3 refer to which epoch's stakes are being processed,
+     mapped to the parser's epoch_idx (0, 1, or 2).  ULONG_MAX means
+     that epoch index is not present. */
+  ulong t_1_epoch_idx;
+  ulong t_2_epoch_idx;
+  ulong t_3_epoch_idx;
+  int   epoch_stakes_initialized;
+  ulong epoch_stakes_vote_cnt[3]; /* count of drained vote_stakes per epoch_idx */
+
   ulong full_genesis_creation_time_seconds;
   uchar advertised_hash[ FD_HASH_FOOTPRINT ];
 
@@ -93,7 +106,19 @@ struct fd_snapin_tile {
 
   struct {
     ulong capitalization;
-  } recovery; /* stores the capitalization value from the last full snapshot */
+
+    /* Backup of bank fields populated at CTRL_NEXT (full snapshot
+       completion) for rollback during incremental snapshot CTRL_FAIL.
+       This ensures the bank state can be properly reverted to the full
+       snapshot's values if an incremental snapshot fails at any point
+       after its manifest has been processed. */
+    fd_bank_fixed_t bank_f;
+    fd_txncache_fork_id_t txncache_fork_id;
+    uchar top_votes_t_1[ FD_TOP_VOTES_MAX_FOOTPRINT ];
+    uchar top_votes_t_2[ FD_TOP_VOTES_MAX_FOOTPRINT ];
+    ulong epoch_credits_len;
+    ulong snapshot_commission_t_3_len;
+  } recovery;
 
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;

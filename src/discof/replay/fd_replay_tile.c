@@ -9,7 +9,7 @@
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../resolv/fd_resolv_tile.h"
-#include "../restore/utils/fd_ssload.h"
+#include "../restore/utils/fd_ssmsg.h"
 
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
@@ -624,7 +624,7 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt , epoch_info_msg->staked_id_cnt );
 
-  ulong epoch_info_sig = 4UL;
+  ulong epoch_info_sig = FD_EPOCH_OUT_SIG;
   fd_stem_publish( stem, ctx->epoch_out->idx, epoch_info_sig, ctx->epoch_out->chunk, epoch_info_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->epoch_out->chunk = fd_dcache_compact_next( ctx->epoch_out->chunk, epoch_info_sz, ctx->epoch_out->chunk0, ctx->epoch_out->wmark );
 
@@ -1634,17 +1634,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
   switch( msg ) {
     case FD_SSMSG_MANIFEST_FULL:
     case FD_SSMSG_MANIFEST_INCREMENTAL: {
-      /* We may either receive a full snapshot manifest or an
-         incremental snapshot manifest.  Note that this external message
-         id is only used temporarily because replay cannot yet receive
-         the firedancer-internal snapshot manifest message. */
+      /* Bank recovery (fd_ssload_recover) is now done by snapin before
+         the manifest is published.  Replay only needs to read the
+         manifest fields it uses directly. */
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
         FD_LOG_ERR(( "chunk %lu from in %d corrupt, not in range [%lu,%lu]", chunk, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-      fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
-                         ctx->banks,
-                         fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
-                         msg==FD_SSMSG_MANIFEST_INCREMENTAL );
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
       ctx->hard_forks_cnt = manifest->hard_forks_len;

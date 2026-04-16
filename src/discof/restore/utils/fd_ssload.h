@@ -14,9 +14,7 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 
 void
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
-                   fd_banks_t *             banks,
-                   fd_bank_t *              bank,
-                   int                      is_incremental );
+                   fd_bank_t *              bank );
 
 FD_PROTOTYPES_END
 
