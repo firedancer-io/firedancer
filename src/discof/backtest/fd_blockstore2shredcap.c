@@ -62,6 +62,21 @@ write_bank_hash( FILE *      pcap,
 }
 
 static void
+write_rooted_slot( FILE * pcap,
+                   ulong  slot ) {
+  struct __attribute__((packed)) {
+    uint type;
+    fd_shredcap_root_slot_v0_t root_slot_rec;
+  } packet;
+  memset( &packet, 0, sizeof(packet) );
+
+  packet.type               = FD_SHREDCAP_TYPE_ROOT_SLOT_V0;
+  packet.root_slot_rec.slot = slot;
+
+  fd_pcapng_fwrite_pkt1( pcap, &packet, sizeof(packet), NULL, 0UL, IF_IDX_SHREDCAP, 0L );
+}
+
+static void
 maybe_write_bank_hash( FILE *           pcap,
                        fd_backt_src_t * src,
                        ulong            slot,
@@ -70,6 +85,7 @@ maybe_write_bank_hash( FILE *           pcap,
   if( FD_UNLIKELY( !fd_backtest_src_slot_info( src, &info, slot ) ) ) return;
   if( FD_UNLIKELY( !info.bank_hash_set ) ) return;
   write_bank_hash( pcap, slot, shred_cnt, info.bank_hash.uc );
+  if( info.rooted ) write_rooted_slot( pcap, slot );
 }
 
 static void

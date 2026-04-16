@@ -91,10 +91,6 @@ struct fd_backt_tile {
 
   ulong fec_set_idxs[ OUT_FECS_BUFFER_LEN ];
 
-  ulong bank_hash_idx;
-  ulong bank_hash_cnt;
-  uchar bank_hashes[ BANK_HASH_BUFFER_LEN ][ 32UL ];
-
   ulong * rooted_slots;
   fd_hash_t rooted_slots_block_id[ BANK_HASH_BUFFER_LEN ];
 
@@ -159,18 +155,8 @@ before_credit( fd_backt_tile_t *   ctx,
 
   /* Handle slot transition */
   if( FD_UNLIKELY( shred->slot!=ctx->reading_slot || !ctx->reading_slot_cnt ) ) {
-    if( FD_UNLIKELY( ctx->bank_hash_cnt==BANK_HASH_BUFFER_LEN ) ) return; /* out of space, retry next tick */
-    if( FD_UNLIKELY( rooted_slots_full( ctx->rooted_slots ) ) ) return; /* out of space, retry next tick */
-
     ctx->reading_slot = shred->slot;
     ctx->reading_slot_cnt++;
-
-    fd_backt_slot_info_t info;
-    if( fd_backtest_src_slot_info( ctx->src, &info, shred->slot ) && info.rooted && info.bank_hash_set ) {
-      fd_memcpy( ctx->bank_hashes[ (ctx->bank_hash_idx+ctx->bank_hash_cnt)%BANK_HASH_BUFFER_LEN ], info.bank_hash.uc, 32UL );
-      ctx->bank_hash_cnt++;
-      rooted_slots_push_tail( ctx->rooted_slots, shred->slot );
-    }
   }
 
   fd_memcpy( ctx->shreds[ (ctx->shreds_idx+ctx->shreds_cnt)%SHRED_BUFFER_LEN ], ctx->pending, ctx->pending_sz );
@@ -343,9 +329,12 @@ returnable_frag( fd_backt_tile_t *   ctx,
 
       long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
 
+      fd_backt_slot_info_t slot_info;
       FD_BASE58_ENCODE_32_BYTES( msg->bank_hash.uc, bh_got_b58 );
-      if( FD_LIKELY( !memcmp( msg->bank_hash.uc, ctx->bank_hashes[ ctx->bank_hash_idx ], 32UL ) ) ) {
-
+      if( FD_UNLIKELY( !fd_backtest_src_slot_info( ctx->src, &slot_info, msg->slot ) || !slot_info.bank_hash_set ) ) {
+        FD_LOG_ERR(( "No bank hash available for slot %lu", msg->slot ));
+      }
+      if( FD_LIKELY( !memcmp( msg->bank_hash.uc, slot_info.bank_hash.uc, 32UL ) ) ) {
         FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%-44s (switch %.2f ms, begin %.2f ms, exec %6.2f ms, finish %.2f ms)", msg->slot, bh_got_b58,
           (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
           (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
@@ -353,8 +342,12 @@ returnable_frag( fd_backt_tile_t *   ctx,
           (double)(msg->completion_time_nanos-msg->last_transaction_finished_nanos)/1e6 ));
       } else {
         /* Do not change this log as it is used in offline replay */
-        FD_BASE58_ENCODE_32_BYTES( ctx->bank_hashes[ ctx->bank_hash_idx ], bh_exp_b58 );
+        FD_BASE58_ENCODE_32_BYTES( slot_info.bank_hash.uc, bh_exp_b58 );
         FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, bh_exp_b58, bh_got_b58 ));
+      }
+      if( slot_info.rooted ) {
+        FD_TEST( !rooted_slots_full( ctx->rooted_slots ) );
+        rooted_slots_push_tail( ctx->rooted_slots, msg->slot );
       }
 
       ulong root_slot;
@@ -364,8 +357,6 @@ returnable_frag( fd_backt_tile_t *   ctx,
         root_slot = ctx->prev_root;
       }
 
-      ctx->bank_hash_idx = (ctx->bank_hash_idx+1UL)%(sizeof(ctx->bank_hashes)/sizeof(ctx->bank_hashes[0]));
-      ctx->bank_hash_cnt--;
       ctx->slot_cnt++;
 
       ctx->prior_completion_timestamp = msg->completion_time_nanos;
@@ -450,9 +441,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->shreds_idx = 0UL;
   ctx->shreds_cnt = 0UL;
-
-  ctx->bank_hash_cnt = 0UL;
-  ctx->bank_hash_idx = 0UL;
 
   ctx->rooted_slots = rooted_slots_join( rooted_slots_new( _rooted_slots, BANK_HASH_BUFFER_LEN ) );
   FD_TEST( ctx->rooted_slots );
