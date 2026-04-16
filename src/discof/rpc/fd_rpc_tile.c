@@ -1537,13 +1537,13 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   int is_base58 = !strncmp( encoding_cstr, "base58", 6 );
   int is_binary = !strncmp( encoding_cstr, "binary", 6 );
 
-  fd_pubkey_t addresses[100];
-  for( int i=0; i<cnt; i++ ) {
-    cJSON const * key_json = cJSON_GetArrayItem( keys_arr, i );
-    if( FD_UNLIKELY( !fd_rpc_validate_address( ctx, id, key_json, &addresses[i], &response ) ) ) return response;
-  }
-
   ulong ucnt = (ulong)cnt;
+
+  fd_pubkey_t addresses[ 100UL ];
+  for( ulong i=0UL; i<ucnt; i++ ) {
+    cJSON const * key_json = cJSON_GetArrayItem( keys_arr, (int)i );
+    if( FD_UNLIKELY( !fd_rpc_validate_address( ctx, id, key_json, &addresses[ i ], &response ) ) ) return response;
+  }
 
   CSTR_JSON( id, id_cstr );
   fd_http_server_printf( ctx->http,
@@ -1570,7 +1570,7 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
       return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than 128 bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
     }
 
-    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro ), owner_b58 );
+    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
     fd_http_server_printf( ctx->http,
         "{\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":%lu,\"data\":",
         fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
