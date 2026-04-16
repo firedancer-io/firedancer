@@ -406,6 +406,13 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
+
+    uchar * signature = (uchar *)txn->payload + TXN( txn )->signature_off;
+    FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
+    FD_LOG_NOTICE(( "bundle txn executed slot=%lu pack_idx=%lu bundle_txn_idx=%lu/%lu sig=%s is_committable=%d txn_err=%d",
+                    slot, ctx->_pack_idx, i, txn_cnt, signature_b58,
+                    txn_out->err.is_committable, txn_out->err.txn_err ));
+
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       execution_success = 0;
       failed_idx = i;

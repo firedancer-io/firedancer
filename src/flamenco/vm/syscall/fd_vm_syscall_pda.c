@@ -185,6 +185,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                           /**/            ulong * _ret )  {
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_create_program_address" );
 
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );
 
@@ -250,6 +251,8 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
                                             ulong   out_bump_seed_vaddr,
                                             ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_try_find_program_address" );
 
   /* Costs the same as a create_program_address call.. weird but that is the protocol. */
   FD_VM_CU_UPDATE( vm, FD_VM_CREATE_PROGRAM_ADDRESS_UNITS );

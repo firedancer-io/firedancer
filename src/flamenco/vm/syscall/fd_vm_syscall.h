@@ -7,8 +7,50 @@
 #include "../../runtime/fd_runtime.h" /* FIXME: REFINE THIS MORE */
 #include "../../runtime/context/fd_exec_instr_ctx.h"
 #include "../../log_collector/fd_log_collector.h"
+#include "../../../ballet/base58/fd_base58.h"
+#include "../../../disco/fd_txn_p.h"
 
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
+
+/* FD_VM_LOG_CRYPTO_SYSCALL emits an FD_LOG_DEBUG line every time a
+   crypto-related syscall is invoked, tagging it with the first (fee
+   payer) signature of the containing transaction (base58 encoded).
+
+   It is intended to be called at the very top of each crypto syscall
+   handler, so the diagnostic covers every attempted invocation before
+   any compute-unit / validation bookkeeping has a chance to error out.
+
+   The log is gated on the currently-executing program id matching
+   FD_VM_LOG_CRYPTO_SYSCALL_PROGRAM_ID_B58 so that we only observe
+   activity from a specific program.  The comparison uses the cached
+   program_id_base58 in fd_exec_instr_ctx_t, which is populated when
+   the instruction is pushed onto the stack in fd_executor.c.
+
+   The transaction signature is looked up through
+   vm->instr_ctx->txn_in->txn.  Some unit-test harnesses build a minimal
+   fd_exec_instr_ctx_t with txn_in==NULL (see test_vm_minimal_exec_instr_ctx);
+   in that case we skip the log entirely since we cannot determine the
+   program id in that configuration either. */
+
+#define FD_VM_LOG_CRYPTO_SYSCALL_PROGRAM_ID_B58 "EE6eyUYuXPR9YHH4GwX5YAkBVFLyztSSNGRuBqoe36ky"
+
+#define FD_VM_LOG_CRYPTO_SYSCALL( vm, syscall_name ) do {                       \
+    fd_exec_instr_ctx_t const * _fd_vm_log_ictx = (vm)->instr_ctx;              \
+    if( _fd_vm_log_ictx &&                                                      \
+        0==strcmp( _fd_vm_log_ictx->program_id_base58,                          \
+                   FD_VM_LOG_CRYPTO_SYSCALL_PROGRAM_ID_B58 ) ) {                \
+      char _fd_vm_log_sig_cstr[ FD_BASE58_ENCODED_64_SZ ];                      \
+      if( _fd_vm_log_ictx->txn_in && _fd_vm_log_ictx->txn_in->txn ) {           \
+        fd_txn_p_t const * _fd_vm_log_txnp = _fd_vm_log_ictx->txn_in->txn;      \
+        fd_ed25519_sig_t const * _fd_vm_log_sigs =                              \
+          fd_txn_get_signatures( TXN( _fd_vm_log_txnp ), _fd_vm_log_txnp->payload ); \
+        fd_base58_encode_64( _fd_vm_log_sigs[0], NULL, _fd_vm_log_sig_cstr );   \
+      } else {                                                                   \
+        memcpy( _fd_vm_log_sig_cstr, "<no-txn>", 9UL );                          \
+      }                                                                          \
+      FD_LOG_DEBUG(( "crypto syscall %s txn=%s", (syscall_name), _fd_vm_log_sig_cstr )); \
+    }                                                                            \
+  } while( 0 )
 
 /* The maximum number of seeds a PDA can have
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L21 */

@@ -35,6 +35,8 @@ fd_vm_syscall_sol_sha256( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1897 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_sha256" );
+
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1911-L1920 */
   if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
     /* Max msg_sz = 61 - 8 + 6 + 20 + 20 = 99 < 127 => we can use printf */
@@ -89,6 +91,8 @@ fd_vm_syscall_sol_blake3( /**/            void *  _vm,
                           /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1897 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_blake3" );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1911-L1920 */
   if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
@@ -145,6 +149,8 @@ fd_vm_syscall_sol_keccak256( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1897 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_keccak256" );
+
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1911-L1920 */
   if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
     /* Max msg_sz = 61 - 8 + 9 + 20 + 20 = 102 < 127 => we can use printf */
@@ -198,6 +204,8 @@ fd_vm_syscall_sol_sha512( /**/            void *  _vm,
                           FD_PARAM_UNUSED ulong   r5,
                           /**/            ulong * _ret ) {
   fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_sha512" );
 
   if( FD_UNLIKELY( FD_VM_SHA256_MAX_SLICES < vals_len ) ) {
     fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,

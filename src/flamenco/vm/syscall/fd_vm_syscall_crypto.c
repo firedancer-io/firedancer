@@ -17,6 +17,8 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_alt_bn128_group_op" );
+
   /* G1/pairing little endian syscalls are under feature gate alt_bn128_little_endian.
      To clean up the feature gate after activation, just remove this block
      (the rest of the function will behave correctly). */
@@ -166,6 +168,8 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_alt_bn128_compression" );
+
   /* G1/G2 little endian syscalls are under feature gate alt_bn128_little_endian.
      To clean up the feature gate after activation, just remove this block
      (the rest of the function will behave correctly). */
@@ -290,6 +294,8 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
   fd_vm_t * vm  = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_poseidon" );
+
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1688 */
 
   if( FD_UNLIKELY( params!=0UL ) ) {
@@ -400,6 +406,8 @@ fd_vm_syscall_sol_secp256k1_recover( /**/            void *  _vm,
                                      /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L810 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_secp256k1_recover" );
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L820-L821 */
 

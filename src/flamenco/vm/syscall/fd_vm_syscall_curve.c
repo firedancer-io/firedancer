@@ -16,6 +16,8 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_curve_validate_point" );
+
   /* BLS12-381 syscalls are under feature gate enable_bls12_381_syscall.
      To clean up the feature gate after activation, just remove this block
      (the rest of the function will behave correctly). */
@@ -90,6 +92,8 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L928 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
+
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_curve_group_op" );
 
   /* BLS12-381 syscalls are under feature gate enable_bls12_381_syscall.
      To clean up the feature gate after activation, just remove this block
@@ -552,6 +556,8 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_curve_multiscalar_mul" );
+
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1143-L1151 */
   if( FD_UNLIKELY( points_len > 512 ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
@@ -656,6 +662,8 @@ fd_vm_syscall_sol_curve_decompress( /**/            void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
 
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_curve_decompress" );
+
   int big_endian = ( curve_id & 0x80 ) ? 1 : 0;
 
   uchar const * point = NULL;
@@ -708,6 +716,8 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1804 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
   ulong     ret = 1UL; /* by default return Ok(1) == error */
+
+  FD_VM_LOG_CRYPTO_SYSCALL( vm, "sol_curve_pairing_map" );
 
   int big_endian = ( curve_id & 0x80 ) ? 1 : 0;
 
