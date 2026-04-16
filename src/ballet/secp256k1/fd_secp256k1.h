@@ -4,17 +4,8 @@
 /* fd_secp256k1 provides APIs for secp256K1 signature computations. */
 
 #include "../fd_ballet_base.h"
-#include "../bigint/fd_uint256.h"
 
 FD_PROTOTYPES_BEGIN
-
-/* fd_secp256k1_fp_sqrt computes r = sqrt(a) mod p.
-   Returns r on success, NULL if a is not a quadratic residue.
-   r may NOT alias a. */
-
-fd_uint256_t *
-fd_secp256k1_fp_sqrt( fd_uint256_t *       restrict r,
-                      fd_uint256_t const * restrict a );
 
 /* fd_secp256k1_recover recovers a public key from a recoverable SECP256K1 signature.
 
