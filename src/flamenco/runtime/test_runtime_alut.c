@@ -10,7 +10,6 @@
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_txn.h"
 #include "../../funk/fd_funk_rec.h"
-#include "../types/fd_types.h"
 #include <string.h>
 
 /* Test configuration */
@@ -468,35 +467,18 @@ test_alt_data_too_small( fd_wksp_t * wksp ) {
 /* Helper to create valid ALT account data */
 static void
 create_valid_alt_data( uchar * data, ulong num_addresses ) {
-  /* Create a valid ALT with proper discriminant and metadata */
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = ULONG_MAX,  /* Not deactivated */
-          .last_extended_slot             = TEST_SLOT - 1,
-          .last_extended_slot_start_index = 0,
-          .authority                      = {{0}}, /* Zero authority */
-          .has_authority                  = 0,
-        }
-      }
-    }
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT - 1,
+    .last_extended_slot_start_index = 0,
+    .has_authority                  = 0,
   };
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, data, FD_LOOKUP_TABLE_META_SIZE );
 
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = data,
-    .dataend = data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
-
-  /* Add addresses after the metadata */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(data + FD_LOOKUP_TABLE_META_SIZE);
   for( ulong i = 0; i < num_addresses; i++ ) {
-    /* Generate unique addresses */
     memset( addrs[i].b, 0, 32 );
-    addrs[i].b[0] = (uchar)(0xA0 + i);  /* Make each address unique */
+    addrs[i].b[0] = (uchar)(0xA0 + i);
     addrs[i].b[1] = (uchar)(0xB0 + i);
   }
 }
@@ -621,28 +603,14 @@ test_deactivated_alt( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create ALT data with deactivated state */
-  uchar                            alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];  /* Space for metadata + 5 addresses */
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = TEST_SLOT - 1000,  /* Old deactivation slot */
-          .last_extended_slot             = TEST_SLOT - 1,
-          .last_extended_slot_start_index = 5,
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = TEST_SLOT - 1000,
+    .last_extended_slot             = TEST_SLOT - 1,
+    .last_extended_slot_start_index = 5,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add some addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -700,28 +668,14 @@ test_invalid_writable_index( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create valid ALT data with only 3 active addresses */
-  uchar                            alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];  /* Space for metadata + 10 addresses */
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = ULONG_MAX,  /* Not deactivated */
-          .last_extended_slot             = TEST_SLOT,  /* Same as current slot */
-          .last_extended_slot_start_index = 3,  /* Only 3 addresses active */
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT,
+    .last_extended_slot_start_index = 3,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 10 addresses (but only 3 will be active) */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -979,28 +933,14 @@ test_partial_activation( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create ALT with partial activation: 10 total addresses, only 5 active */
-  uchar                            alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = ULONG_MAX,  /* Not deactivated */
-          .last_extended_slot             = TEST_SLOT - 1,  /* Recent extension */
-          .last_extended_slot_start_index = 5,  /* Only first 5 addresses active */
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT - 1,
+    .last_extended_slot_start_index = 5,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 10 addresses but only 5 will be active */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1062,28 +1002,14 @@ test_deactivating_alt( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create ALT in deactivating state (deactivation slot in recent history) */
-  uchar                            alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = TEST_SLOT - 5,  /* Deactivating 5 slots ago */
-          .last_extended_slot             = TEST_SLOT - 10,
-          .last_extended_slot_start_index = 5,
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = TEST_SLOT - 5,
+    .last_extended_slot             = TEST_SLOT - 10,
+    .last_extended_slot_start_index = 5,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1194,28 +1120,14 @@ test_alt_just_activated( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create ALT just activated in the current slot */
-  uchar                            alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = ULONG_MAX,  /* Not deactivated */
-          .last_extended_slot             = TEST_SLOT,  /* Same as current slot */
-          .last_extended_slot_start_index = 10,  /* All 10 addresses just became active */
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT,
+    .last_extended_slot_start_index = 10,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 10 addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1285,28 +1197,14 @@ test_growing_alt( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create ALT with 20 total addresses but only 15 active */
-  uchar                            alt_data[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = ULONG_MAX,  /* Not deactivated */
-          .last_extended_slot             = TEST_SLOT - 1,  /* Extended one slot ago */
-          .last_extended_slot_start_index = 15,  /* Only first 15 are active */
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT - 1,
+    .last_extended_slot_start_index = 15,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 20 addresses (but only 15 will be active) */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1369,28 +1267,14 @@ test_alt_deactivating_current_slot( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create ALT deactivating at current slot */
-  uchar                           alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = TEST_SLOT,  /* Deactivating at current slot */
-          .last_extended_slot             = TEST_SLOT - 10,
-          .last_extended_slot_start_index = 5,
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = TEST_SLOT,
+    .last_extended_slot             = TEST_SLOT - 10,
+    .last_extended_slot_start_index = 5,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1522,28 +1406,14 @@ test_alt_no_authority( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create ALT with no authority */
-  uchar                            alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = ULONG_MAX,
-          .last_extended_slot             = TEST_SLOT - 1,
-          .last_extended_slot_start_index = 10,
-          .authority                      = {{0}},
-          .has_authority                  = 0,  /* No authority set */
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT - 1,
+    .last_extended_slot_start_index = 10,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1608,28 +1478,14 @@ test_alt_future_extension( fd_wksp_t * wksp ) {
   fd_pubkey_t *            alt_addr = (fd_pubkey_t *)(payload + lut->addr_off);
 
   /* Create ALT with future extension not yet visible */
-  uchar                            alt_data[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = ULONG_MAX,
-          .last_extended_slot             = TEST_SLOT + 100,  /* Future slot */
-          .last_extended_slot_start_index = 10,   /* Only 10 active now */
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT + 100,
+    .last_extended_slot_start_index = 10,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 20 addresses (but only 10 are active) */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1696,27 +1552,15 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
                        alt_data1, sizeof(alt_data1), 1000000, 0 );
 
   /* ALT 2: Partially active (20 addresses but only 10 active) */
-  fd_pubkey_t *                    alt_addr2  = (fd_pubkey_t *)(payload + luts[1].addr_off);
-  uchar                            alt_data2[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
-  fd_address_lookup_table_state_t alt_state2 = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = ULONG_MAX,
-          .last_extended_slot             = TEST_SLOT - 1,
-          .last_extended_slot_start_index = 10,  /* Only first 10 active */
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  fd_pubkey_t * alt_addr2 = (fd_pubkey_t *)(payload + luts[1].addr_off);
+  uchar         alt_data2[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
+  fd_alut_meta_t meta2 = {
+    .deactivation_slot              = ULONG_MAX,
+    .last_extended_slot             = TEST_SLOT - 1,
+    .last_extended_slot_start_index = 10,
+    .has_authority                  = 0,
   };
-  fd_bincode_encode_ctx_t encode_ctx2 = {
-    .data    = alt_data2,
-    .dataend = alt_data2 + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state2, &encode_ctx2 );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta2, alt_data2, FD_LOOKUP_TABLE_META_SIZE );
   fd_acct_addr_t * addrs2 = (fd_acct_addr_t *)(alt_data2 + FD_LOOKUP_TABLE_META_SIZE);
   for( ulong i = 0; i < 20; i++ ) {
     addrs2[i].b[0] = (uchar)(0x30 + i);
@@ -1726,27 +1570,15 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
                        alt_data2, sizeof(alt_data2), 1000000, 0 );
 
   /* ALT 3: Deactivating but still in slot_hashes */
-  fd_pubkey_t *                    alt_addr3 = (fd_pubkey_t *)(payload + luts[2].addr_off);
-  uchar alt_data3[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
-  fd_address_lookup_table_state_t alt_state3 = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = TEST_SLOT - 5,  /* Deactivating */
-          .last_extended_slot             = TEST_SLOT - 10,
-          .last_extended_slot_start_index = 5,
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  fd_pubkey_t * alt_addr3 = (fd_pubkey_t *)(payload + luts[2].addr_off);
+  uchar         alt_data3[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
+  fd_alut_meta_t meta3 = {
+    .deactivation_slot              = TEST_SLOT - 5,
+    .last_extended_slot             = TEST_SLOT - 10,
+    .last_extended_slot_start_index = 5,
+    .has_authority                  = 0,
   };
-  fd_bincode_encode_ctx_t encode_ctx3 = {
-    .data    = alt_data3,
-    .dataend = alt_data3 + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state3, &encode_ctx3 );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta3, alt_data3, FD_LOOKUP_TABLE_META_SIZE );
   fd_acct_addr_t * addrs3 = (fd_acct_addr_t *)(alt_data3 + FD_LOOKUP_TABLE_META_SIZE);
   for( ulong i = 0; i < 5; i++ ) {
     addrs3[i].b[0] = (uchar)(0x50 + i);
@@ -2063,27 +1895,13 @@ test_alt_deactivation_boundary( fd_wksp_t * wksp ) {
 
   /* Create ALT at exact deactivation boundary (oldest slot in slot_hashes) */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
-  fd_address_lookup_table_state_t alt_state = {
-    .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-    .inner = {
-      .lookup_table = {
-        .meta = {
-          .deactivation_slot              = TEST_SLOT - 9,  /* Exactly at boundary (10 slot hashes) */
-          .last_extended_slot             = TEST_SLOT - 20,
-          .last_extended_slot_start_index = 5,
-          .authority                      = {{0}},
-          .has_authority                  = 0,
-        }
-      }
-    }
+  fd_alut_meta_t meta = {
+    .deactivation_slot              = TEST_SLOT - 9,
+    .last_extended_slot             = TEST_SLOT - 20,
+    .last_extended_slot_start_index = 5,
+    .has_authority                  = 0,
   };
-
-  /* Encode the metadata */
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = alt_data,
-    .dataend = alt_data + FD_LOOKUP_TABLE_META_SIZE
-  };
-  fd_address_lookup_table_state_encode( &alt_state, &encode_ctx );
+  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);

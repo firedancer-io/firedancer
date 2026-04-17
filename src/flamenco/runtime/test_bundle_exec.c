@@ -914,7 +914,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
        last_extended_slot_start_index == 2).
 
        The on-disk format is:
-         [56 bytes]  fd_address_lookup_table_state_t (bincode-encoded)
+         [56 bytes]  ALUT state header (bincode-encoded)
          [N * 32 bytes]  addresses */
 
     fd_pubkey_t alut_key = { .ul[0] = 0xA107UL };
@@ -923,21 +923,13 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     ulong alut_data_sz   = FD_LOOKUP_TABLE_META_SIZE + num_alut_addrs * 32UL;
     uchar alut_data[ FD_LOOKUP_TABLE_META_SIZE + 4 * 32 ];
 
-    fd_address_lookup_table_state_t alut_state = {
-      .discriminant = fd_address_lookup_table_state_enum_lookup_table,
-      .inner = { .lookup_table = { .meta = {
-        .deactivation_slot              = ULONG_MAX,
-        .last_extended_slot             = 10UL,
-        .last_extended_slot_start_index = 2,
-        .authority                      = {{0}},
-        .has_authority                  = 0,
-      } } }
+    fd_alut_meta_t alut_meta = {
+      .deactivation_slot              = ULONG_MAX,
+      .last_extended_slot             = 10UL,
+      .last_extended_slot_start_index = 2,
+      .has_authority                  = 0,
     };
-    fd_bincode_encode_ctx_t enc_ctx = {
-      .data    = alut_data,
-      .dataend = alut_data + FD_LOOKUP_TABLE_META_SIZE
-    };
-    FD_TEST( fd_address_lookup_table_state_encode( &alut_state, &enc_ctx ) == FD_BINCODE_SUCCESS );
+    FD_TEST( fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &alut_meta, alut_data, FD_LOOKUP_TABLE_META_SIZE ) == 0 );
 
     fd_acct_addr_t * alut_addrs = (fd_acct_addr_t *)( alut_data + FD_LOOKUP_TABLE_META_SIZE );
     for( ulong i = 0UL; i < num_alut_addrs; i++ ) {
@@ -985,14 +977,9 @@ test_execute_bundles( fd_wksp_t * wksp ) {
        from 2 to 4 so that all 4 addresses become active. */
     uchar * alut_out_data = fd_account_data(
         env->txn_out[0].accounts.account[ alut_idx ].meta );
-    fd_address_lookup_table_state_t extended_state = alut_state;
-    extended_state.inner.lookup_table.meta.last_extended_slot_start_index = 4;
-    fd_bincode_encode_ctx_t enc_ctx2 = {
-      .data    = alut_out_data,
-      .dataend = alut_out_data + FD_LOOKUP_TABLE_META_SIZE
-    };
-    FD_TEST( fd_address_lookup_table_state_encode( &extended_state, &enc_ctx2 )
-             == FD_BINCODE_SUCCESS );
+    fd_alut_meta_t extended_meta = alut_meta;
+    extended_meta.last_extended_slot_start_index = 4;
+    FD_TEST( fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &extended_meta, alut_out_data, FD_LOOKUP_TABLE_META_SIZE ) == 0 );
 
     /* ------------------------------------------------------------------
        Txn1: a V0 transaction that uses the ALT to resolve address at

@@ -441,32 +441,6 @@
         { "name": "status", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L33-L43"
-    },
-    {
-      "name": "lookup_table_meta",
-      "type": "struct",
-      "fields": [
-        { "name": "deactivation_slot", "type": "ulong" },
-        { "name": "last_extended_slot", "type": "ulong" },
-        { "name": "last_extended_slot_start_index", "type": "uchar" },
-        { "name": "authority", "type": "option", "element": "pubkey", "flat": true },
-        { "name": "_padding", "type": "ushort" }
-      ]
-    },
-    {
-      "name": "address_lookup_table",
-      "type": "struct",
-      "fields": [
-        { "name": "meta", "type": "lookup_table_meta" }
-      ]
-    },
-    {
-      "name": "address_lookup_table_state",
-      "type": "enum",
-      "variants": [
-        { "name": "uninitialized" },
-        { "name": "lookup_table", "type": "address_lookup_table" }
-      ]
     }
   ]
 }
