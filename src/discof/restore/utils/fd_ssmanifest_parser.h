@@ -33,7 +33,51 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               uchar const *            buf,
                               ulong                    bufsz,
                               acc_vec_map_t *          acc_vec_map,
-                              acc_vec_t *              acc_vec_pool );
+                              acc_vec_t *              acc_vec_pool,
+                              ulong *                  opt_bytes_consumed );
+
+/* On-the-fly stake delegation polling interface.  After each
+   fd_ssmanifest_parser_consume() call, the consumer checks
+   fd_ssmanifest_parser_delegation_ready().  If it returns non-zero,
+   a complete stake delegation entry is available in staging and should
+   be drained.  The consumer must call
+   fd_ssmanifest_parser_delegation_done() after processing. */
+
+int
+fd_ssmanifest_parser_delegation_ready( fd_ssmanifest_parser_t const * parser );
+
+fd_snapshot_manifest_stake_delegation_t const *
+fd_ssmanifest_parser_delegation_peek( fd_ssmanifest_parser_t const * parser );
+
+void
+fd_ssmanifest_parser_delegation_done( fd_ssmanifest_parser_t * parser );
+
+/* On-the-fly epoch stakes vote_stakes polling interface.  After each
+   fd_ssmanifest_parser_consume() call, the consumer checks
+   fd_ssmanifest_parser_vote_stakes_ready().  If it returns non-zero,
+   a complete vote_stakes entry is available in staging and should
+   be drained.  epoch_idx identifies which epoch_stakes array index
+   (0, 1, or 2) the entry belongs to.  The consumer must call
+   fd_ssmanifest_parser_vote_stakes_done() after processing. */
+
+int
+fd_ssmanifest_parser_vote_stakes_ready( fd_ssmanifest_parser_t const * parser );
+
+fd_snapshot_manifest_vote_stakes_t const *
+fd_ssmanifest_parser_vote_stakes_peek( fd_ssmanifest_parser_t const * parser );
+
+ulong
+fd_ssmanifest_parser_vote_stakes_epoch_idx( fd_ssmanifest_parser_t const * parser );
+
+void
+fd_ssmanifest_parser_vote_stakes_done( fd_ssmanifest_parser_t * parser );
+
+/* Returns the number of epoch_stakes entries in the manifest (the
+   outer map length).  This value is available after the parser has
+   processed the epoch_stakes length field. */
+
+ulong
+fd_ssmanifest_parser_epoch_stakes_len( fd_ssmanifest_parser_t const * parser );
 
 FD_PROTOTYPES_END
 

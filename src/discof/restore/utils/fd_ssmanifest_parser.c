@@ -402,6 +402,25 @@ struct fd_ssmanifest_parser_private {
 
   ulong   account_data_start;
 
+  /* Staging for vote_account epoch_credits_history_len (field removed
+     from struct but parser needs it to compute EPOCH_CREDITS size). */
+  ulong   va_epoch_credits_history_len;
+
+  /* Staging for stake delegation entries processed on-the-fly.
+     After each complete delegation entry is parsed, delegation_ready
+     is set to 1.  The consumer (snapin) checks this flag after each
+     fd_ssmanifest_parser_consume() call and drains the entry. */
+  fd_snapshot_manifest_stake_delegation_t staging_delegation;
+  int    delegation_ready;
+
+  /* Staging for epoch stakes vote_stakes entries processed on-the-fly.
+     After each complete vote_stakes entry is parsed, vote_stakes_ready
+     is set to 1.  vote_stakes_epoch_idx identifies which epoch_stakes
+     array index (0, 1, or 2) the entry belongs to. */
+  fd_snapshot_manifest_vote_stakes_t staging_vote_stakes;
+  int    vote_stakes_ready;
+  ulong  vote_stakes_epoch_idx;
+
   ulong acc_vec_slot;
   ulong acc_vec_id;
   ulong acc_vec_file_sz;
@@ -504,7 +523,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:                                   return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS:                                          return 40UL*length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                                       return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                              return 24UL*parser->manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                              return 24UL*parser->va_epoch_credits_history_len;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                        return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                                   return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                                return 32UL        ;
@@ -518,7 +537,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS:                                          return 40UL*length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS:                                               return 9UL+48UL*32UL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                                       return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                              return 24UL*parser->manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                              return 24UL*parser->va_epoch_credits_history_len;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                        return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                                   return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                            return 32UL        ;
@@ -532,7 +551,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS:                                      return 40UL*length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS:                                           return 9UL+48UL*32UL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:                                   return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                          return 24UL*parser->manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                          return 24UL*parser->va_epoch_credits_history_len;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                                    return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                               return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                             return 32UL        ;
@@ -546,7 +565,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION:                                        return 1UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT:                                               return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:                                    return 8UL         ;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                           return 24UL*parser->manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                           return 24UL*parser->va_epoch_credits_history_len;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:                                     return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                                return 8UL         ;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                                         return parser->length2-(parser->off-parser->account_data_start);
@@ -594,7 +613,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:                             return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS:                                    return 40UL*length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                                 return 8UL         ;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                        return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : length4 );
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                        return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : length4);
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                  return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                             return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                          return 32UL        ;
@@ -608,7 +627,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS:                                    return 40UL*length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS:                                         return 9UL+48UL*32UL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                                 return 8UL         ;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                        return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : length4 );
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                        return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : length4);
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                  return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                             return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                      return 32UL        ;
@@ -622,7 +641,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS:                                return 40UL*length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS:                                     return 9UL+48UL*32UL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:                             return 8UL         ;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                    return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : length4 );
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                    return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : length4);
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                              return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                         return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                       return 32UL        ;
@@ -636,7 +655,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION:                                  return 1UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT:                                         return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:                              return 8UL         ;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                     return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : length4 );
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                     return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : length4);
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:                               return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                          return 8UL         ;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                                   return parser->length3-(parser->off-parser->account_data_start);
@@ -716,7 +735,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:            return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS:                   return 40UL*length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                return 8UL         ;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                       return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : length4 );
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                       return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : length4);
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                 return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:            return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                         return 32UL        ;
@@ -730,7 +749,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS:                   return 40UL*length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS:                        return 9UL+48UL*32UL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                return 8UL         ;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                       return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : length4 );
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                       return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : length4);
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                 return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:            return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                     return 32UL        ;
@@ -744,7 +763,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS:               return 40UL*length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS:                    return 9UL+48UL*32UL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:            return 8UL         ;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                   return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : length4 );
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                   return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : length4);
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:             return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:        return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                      return 32UL        ;
@@ -758,7 +777,7 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION:                 return 1UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT:                        return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:             return 8UL         ;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                    return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : length4 );;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                    return 24UL*(parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : length4);;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:              return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:         return 8UL         ;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                  return parser->length3-(parser->off-parser->account_data_start);
@@ -795,7 +814,6 @@ state_size( fd_ssmanifest_parser_t * parser ) {
 static inline uchar *
 state_dst( fd_ssmanifest_parser_t * parser ) {
   ulong idx1 = parser->idx1;
-  ulong idx2 = parser->idx2;
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
   switch( parser->state ) {
@@ -872,7 +890,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER:                                      return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR:                                return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR:                                    return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:                           return (uchar*)&manifest->vote_accounts[ idx1 ].commission;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:                           return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS:                               return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS:                                  return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION:                               return &parser->option;
@@ -883,13 +901,13 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT:                                                  return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:                                   return (uchar*)&parser->length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS:                                          return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                                       return (uchar*)&manifest->vote_accounts[ idx1 ].epoch_credits_history_len;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                              return (uchar*)manifest->vote_accounts[ idx1 ].epoch_credits;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                        return (uchar*)&manifest->vote_accounts[ idx1 ].last_slot;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                                   return (uchar*)&manifest->vote_accounts[ idx1 ].last_timestamp;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                                       return (uchar*)&parser->va_epoch_credits_history_len;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                              return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                        return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                                   return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                                return (uchar*)&manifest->vote_accounts[ idx1 ].node_account_pubkey;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER:                                      return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                                                 return (uchar*)&manifest->vote_accounts[ idx1 ].commission;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                                                 return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH:                                               return (uchar*)&parser->length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES:                                                      return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION:                                           return &parser->option;
@@ -897,13 +915,13 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:                                   return (uchar*)&parser->length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS:                                          return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS:                                               return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                                       return (uchar*)&manifest->vote_accounts[ idx1 ].epoch_credits_history_len;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                              return (uchar*)manifest->vote_accounts[ idx1 ].epoch_credits;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                        return (uchar*)&manifest->vote_accounts[ idx1 ].last_slot;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                                   return (uchar*)&manifest->vote_accounts[ idx1 ].last_timestamp;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                                       return (uchar*)&parser->va_epoch_credits_history_len;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                              return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                        return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                                   return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                            return (uchar*)&manifest->vote_accounts[ idx1 ].node_account_pubkey;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER:                                  return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                                             return (uchar*)&manifest->vote_accounts[ idx1 ].commission;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                                             return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH:                                           return (uchar*)&parser->length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES:                                                  return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION:                                       return &parser->option;
@@ -911,35 +929,35 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:                               return (uchar*)&parser->length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS:                                      return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS:                                           return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:                                   return (uchar*)&manifest->vote_accounts[ idx1 ].epoch_credits_history_len;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                          return (uchar*)manifest->vote_accounts[ idx1 ].epoch_credits;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                                    return (uchar*)&manifest->vote_accounts[ idx1 ].last_slot;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                               return (uchar*)&manifest->vote_accounts[ idx1 ].last_timestamp;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:                                   return (uchar*)&parser->va_epoch_credits_history_len;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                          return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                                    return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                               return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                             return (uchar*)&manifest->vote_accounts[ idx1 ].node_account_pubkey;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER:                                        return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH:                                  return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS:                                            return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER:                                   return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:                                              return (uchar*)&manifest->vote_accounts[ idx1 ].commission;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:                                              return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH:                                            return (uchar*)&parser->length3;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES:                                                   return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION:                                        return &parser->option;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT:                                               return NULL;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:                                    return (uchar*)&manifest->vote_accounts[ idx1 ].epoch_credits_history_len;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                           return (uchar*)manifest->vote_accounts[ idx1 ].epoch_credits;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:                                     return (uchar*)&manifest->vote_accounts[ idx1 ].last_slot;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                                return (uchar*)&manifest->vote_accounts[ idx1 ].last_timestamp;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:                                    return (uchar*)&parser->va_epoch_credits_history_len;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                           return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:                                     return NULL;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                                return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                                         return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_OWNER:                                                              return NULL;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                                         return (uchar*)&parser->option;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                                                         return NULL;
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH:                                                               return (uchar*)&manifest->stake_delegations_len;
-    case STATE_STAKES_STAKE_DELEGATIONS_KEY:                                                                  return (uchar*)&manifest->stake_delegations[ idx1 ].stake_pubkey;
-    case STATE_STAKES_STAKE_DELEGATIONS_VOTER_PUBKEY:                                                         return (uchar*)&manifest->stake_delegations[ idx1 ].vote_pubkey;
-    case STATE_STAKES_STAKE_DELEGATIONS_STAKE:                                                                return (uchar*)&manifest->stake_delegations[ idx1 ].stake_delegation;
-    case STATE_STAKES_STAKE_DELEGATIONS_ACTIVATION_EPOCH:                                                     return (uchar*)&manifest->stake_delegations[ idx1 ].activation_epoch;
-    case STATE_STAKES_STAKE_DELEGATIONS_DEACTIVATION_EPOCH:                                                   return (uchar*)&manifest->stake_delegations[ idx1 ].deactivation_epoch;
-    case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:                                                 return (uchar*)&manifest->stake_delegations[ idx1 ].warmup_cooldown_rate;
+    case STATE_STAKES_STAKE_DELEGATIONS_KEY:                                                                  return (uchar*)&parser->staging_delegation.stake_pubkey;
+    case STATE_STAKES_STAKE_DELEGATIONS_VOTER_PUBKEY:                                                         return (uchar*)&parser->staging_delegation.vote_pubkey;
+    case STATE_STAKES_STAKE_DELEGATIONS_STAKE:                                                                return (uchar*)&parser->staging_delegation.stake_delegation;
+    case STATE_STAKES_STAKE_DELEGATIONS_ACTIVATION_EPOCH:                                                     return (uchar*)&parser->staging_delegation.activation_epoch;
+    case STATE_STAKES_STAKE_DELEGATIONS_DEACTIVATION_EPOCH:                                                   return (uchar*)&parser->staging_delegation.deactivation_epoch;
+    case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:                                                 return (uchar*)&parser->staging_delegation.warmup_cooldown_rate;
     case STATE_STAKES_UNUSED:                                                                                 return NULL;
     case STATE_STAKES_EPOCH:                                                                                  return NULL;
     case STATE_STAKES_STAKE_HISTORY_LENGTH:                                                                   return (uchar*)&parser->length1;
@@ -952,34 +970,34 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_UNUSED_ACCOUNTS3_UNUSED:                                                                       return NULL;
     case STATE_EPOCH_STAKES_LENGTH:                                                                           return (uchar*)&parser->epoch_stakes_len;
     case STATE_EPOCH_STAKES_KEY:                                                                              return (uchar*)&parser->epoch_stakes_epoch;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH:                                                             return parser->epoch_idx!=ULONG_MAX ? (uchar*)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : (uchar*)&parser->length2;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_KEY:                                                                return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].vote : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_STAKE:                                                              return parser->epoch_idx!=ULONG_MAX ? (uchar*)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].stake : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH:                                                             return (uchar*)&parser->length2;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_KEY:                                                                return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.vote : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_STAKE:                                                              return parser->epoch_idx!=ULONG_MAX ? (uchar*)&parser->staging_vote_stakes.stake : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS:                                                     return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                                                  return (uchar*)&parser->length3;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:                                                 return (uchar*)&parser->variant;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY:                                          return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY:                                          return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.identity : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER:                                return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR:                          return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR:                              return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:                     return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].commission : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:                     return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.commission : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS:                         return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS:                            return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION:                         return &parser->option;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED:                                return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity_bls : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED:                                return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH:                                         return (uchar*)&parser->length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES:                                                return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION:                                     return &parser->option;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT:                                            return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:                             return (uchar*)&parser->length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS:                                    return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                                 return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits_history_len : (uchar*)&parser->length4;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                        return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                  return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].slot : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                             return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                          return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                                 return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.epoch_credits_history_len : (uchar*)&parser->length4;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                                        return parser->epoch_idx!=ULONG_MAX ? (uchar *)parser->staging_vote_stakes.epoch_credits : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                                  return NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:                             return NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                                          return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.identity : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER:                                return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                                           return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].commission : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                                           return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.commission : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH:                                         return (uchar*)&parser->length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES:                                                return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION:                                     return &parser->option;
@@ -987,13 +1005,13 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:                             return (uchar*)&parser->length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS:                                    return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS:                                         return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                                 return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits_history_len : (uchar*)&parser->length4;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                        return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                  return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].slot : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                             return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                      return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                                 return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.epoch_credits_history_len : (uchar*)&parser->length4;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                                        return parser->epoch_idx!=ULONG_MAX ? (uchar *)parser->staging_vote_stakes.epoch_credits : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                                  return NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:                             return NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                                      return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.identity : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER:                            return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                                       return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].commission : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                                       return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.commission : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH:                                     return (uchar*)&parser->length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES:                                            return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION:                                 return &parser->option;
@@ -1001,24 +1019,24 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:                         return (uchar*)&parser->length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS:                                return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS:                                     return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:                             return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits_history_len : (uchar*)&parser->length4;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                    return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                              return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].slot : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                         return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                       return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:                             return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.epoch_credits_history_len : (uchar*)&parser->length4;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                                    return parser->epoch_idx!=ULONG_MAX ? (uchar *)parser->staging_vote_stakes.epoch_credits : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:                              return NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:                         return NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                                       return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.identity : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER:                                  return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH:                            return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS:                                      return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER:                             return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:                                        return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].commission : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:                                        return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.commission : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH:                                      return (uchar*)&parser->length4;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES:                                             return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION:                                  return &parser->option;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT:                                         return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:                              return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits_history_len : (uchar*)&parser->length4;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                     return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:                               return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].slot : NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                          return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:                              return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.epoch_credits_history_len : (uchar*)&parser->length4;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                                     return parser->epoch_idx!=ULONG_MAX ? (uchar *)parser->staging_vote_stakes.epoch_credits : NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:                               return NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                          return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                                   return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_OWNER:                                                        return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                                   return NULL;
@@ -1074,34 +1092,34 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_LENGTH:                                                                 return (uchar*)&parser->epoch_stakes_len;
     case STATE_VERSIONED_EPOCH_STAKES_EPOCH:                                                                  return (uchar*)&parser->epoch_stakes_epoch;
     case STATE_VERSIONED_EPOCH_STAKES_VARIANT:                                                                return (uchar*)&parser->variant;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH:                                            return parser->epoch_idx!=ULONG_MAX ? (uchar*)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : (uchar*)&parser->length2;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_KEY:                                               return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].vote : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_STAKE:                                             return parser->epoch_idx!=ULONG_MAX ? (uchar*)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].stake : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH:                                            return (uchar*)&parser->length2;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_KEY:                                               return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.vote : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_STAKE:                                             return parser->epoch_idx!=ULONG_MAX ? (uchar*)&parser->staging_vote_stakes.stake : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_LAMPORTS:                                    return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                                 return (uchar*)&parser->length3;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:                                return (uchar*)&parser->variant;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY:                         return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_NODE_PUBKEY:                         return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.identity : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_WITHDRAWER:               return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COLLECTOR:         return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COLLECTOR:             return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:    return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].commission : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS:    return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.commission : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLOCK_REVENUE_COMMISSION_BPS:        return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_PENDING_DELEGATOR_REWARDS:           return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION:        return &parser->option;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED:               return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity_bls : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED:               return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES_LENGTH:                        return (uchar*)&parser->length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_VOTES:                               return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION:                    return &parser->option;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT:                           return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:            return (uchar*)&parser->length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS:                   return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits_history_len : (uchar*)&parser->length4;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                       return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                 return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].slot : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:            return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                         return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS_LENGTH:                return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.epoch_credits_history_len : (uchar*)&parser->length4;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_EPOCH_CREDITS:                       return parser->epoch_idx!=ULONG_MAX ? (uchar *)parser->staging_vote_stakes.epoch_credits : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_SLOT:                 return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_LAST_TIMESTAMP_TIMESTAMP:            return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_NODE_PUBKEY:                         return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.identity : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_WITHDRAWER:               return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                          return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].commission : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION:                          return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.commission : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES_LENGTH:                        return (uchar*)&parser->length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_VOTES:                               return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION:                    return &parser->option;
@@ -1109,13 +1127,13 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:            return (uchar*)&parser->length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS:                   return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_PRIOR_VOTERS:                        return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits_history_len : (uchar*)&parser->length4;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                       return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                 return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].slot : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:            return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                     return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:                return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.epoch_credits_history_len : (uchar*)&parser->length4;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS:                       return parser->epoch_idx!=ULONG_MAX ? (uchar *)parser->staging_vote_stakes.epoch_credits : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_SLOT:                 return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:            return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_NODE_PUBKEY:                     return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.identity : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_WITHDRAWER:           return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                      return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].commission : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION:                      return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.commission : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES_LENGTH:                    return (uchar*)&parser->length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_VOTES:                           return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION:                return &parser->option;
@@ -1123,24 +1141,24 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:        return (uchar*)&parser->length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS:               return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_PRIOR_VOTERS:                    return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:            return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits_history_len : (uchar*)&parser->length4;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                   return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:             return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].slot : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:        return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                      return parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].identity : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:            return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.epoch_credits_history_len : (uchar*)&parser->length4;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS:                   return parser->epoch_idx!=ULONG_MAX ? (uchar *)parser->staging_vote_stakes.epoch_credits : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:             return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:        return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_NODE_PUBKEY:                      return parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.identity : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER:                 return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_VOTER_EPOCH:           return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_PRIOR_VOTERS:                     return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_AUTHORIZED_WITHDRAWER:            return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:                       return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].commission : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION:                       return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.commission : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES_LENGTH:                     return (uchar*)&parser->length4;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_VOTES:                            return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION:                 return &parser->option;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT:                        return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:             return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits_history_len : (uchar*)&parser->length4;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                    return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].epoch_credits : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:              return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].slot : NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:         return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH:             return parser->epoch_idx!=ULONG_MAX ? (uchar *)&parser->staging_vote_stakes.epoch_credits_history_len : (uchar*)&parser->length4;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS:                    return parser->epoch_idx!=ULONG_MAX ? (uchar *)parser->staging_vote_stakes.epoch_credits : NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_SLOT:              return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:         return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                  return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_OWNER:                                       return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                  return NULL;
@@ -1215,9 +1233,9 @@ state_log( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                           FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:                           %lu", parser->length2 ));                                             break;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:      FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:      %lu", parser->length3 ));                                             break;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:  FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:  %lu", parser->length3 ));                                             break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:      FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:      %lu", manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len )); break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:       FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:       %lu", manifest->vote_accounts[ parser->idx1 ].last_slot ));           break;
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:  FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:  %ld", manifest->vote_accounts[ parser->idx1 ].last_timestamp ));      break;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:      FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:      %lu", parser->va_epoch_credits_history_len )); break;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:       FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_SLOT:       (discarded)" )); break;
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:  FD_LOG_NOTICE(( "STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:  (discarded)" )); break;
     default: break;
   }
 }
@@ -1401,8 +1419,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE: {
-      if( FD_UNLIKELY( manifest->stake_delegations[ parser->idx1 ].warmup_cooldown_rate>1.0 ) ) {
-        FD_LOG_WARNING(( "invalid stakes_stake_delegations warmup cooldown rate %f", manifest->stake_delegations[ parser->idx1 ].warmup_cooldown_rate ));
+      if( FD_UNLIKELY( parser->staging_delegation.warmup_cooldown_rate>1.0 ) ) {
+        FD_LOG_WARNING(( "invalid stakes_stake_delegations warmup cooldown rate %f", parser->staging_delegation.warmup_cooldown_rate ));
         return -1;
       }
       break;
@@ -1411,8 +1429,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH: {
-      if( FD_UNLIKELY( manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len>64UL ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data current epoch credits length %lu", manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len ));
+      if( FD_UNLIKELY( parser->va_epoch_credits_history_len>64UL ) ) {
+        FD_LOG_WARNING(( "invalid vote_accounts value data current epoch credits length %lu", parser->va_epoch_credits_history_len ));
         return -1;
       }
       break;
@@ -1477,9 +1495,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     }
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH: {
-      ulong stakes_len = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2;
-      ulong stakes_cap = sizeof(manifest->epoch_stakes[ 0UL ].vote_stakes)/sizeof(manifest->epoch_stakes[ 0UL ].vote_stakes[ 0UL ]);
-      if( FD_UNLIKELY( stakes_len>stakes_cap ) ) {
+      ulong stakes_len = parser->length2;
+      if( FD_UNLIKELY( stakes_len>FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ) ) {
         FD_LOG_WARNING(( "invalid versioned epoch stakes vote accounts length %lu", stakes_len ));
         return -1;
       }
@@ -1515,7 +1532,7 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH: {
-      ulong length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : parser->length4;
+      ulong length = parser->epoch_idx!=ULONG_MAX ? parser->staging_vote_stakes.epoch_credits_history_len : parser->length4;
       if( FD_UNLIKELY( length>64UL ) ) {
         FD_LOG_WARNING(( "invalid version_epoch_stakes.vote_accounts value data current epoch credits length %lu", length ));
         return -1;
@@ -1651,23 +1668,15 @@ state_process( fd_ssmanifest_parser_t * parser,
 
   /* Vote state v4 commission is stored in bps, and needs to be
      converted to a percentage for commission calculations. */
-  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
-    parser->manifest->vote_accounts[ parser->idx1 ].commission /= 100;
-  }
   if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
-    parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission /= 100;
+    parser->staging_vote_stakes.commission /= 100;
   }
   if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
-    parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission /= 100;
+    parser->staging_vote_stakes.commission /= 100;
   }
 
   /* Older vote states only populate bottom 8 bytes of the commission
      field, upper bytes should be cleared */
-  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION
-                || parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION
-                || parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION) ) {
-    parser->manifest->vote_accounts[ parser->idx1 ].commission &= 0xFF;
-  }
   if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX &&
       (  parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION
       || parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION
@@ -1675,7 +1684,7 @@ state_process( fd_ssmanifest_parser_t * parser,
       || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION
       || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION
       || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION ) ) ) {
-    parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission &= 0xFF;
+    parser->staging_vote_stakes.commission &= 0xFF;
   }
 
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) parser->account_data_start = parser->off;
@@ -1710,14 +1719,11 @@ state_process( fd_ssmanifest_parser_t * parser,
 
 
   if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_OWNER && parser->epoch_idx!=ULONG_MAX ) ) {
-    /* We're only interested in vote accounts with stakes>0 that have
-       valid epoch credits.  If these conditions are not met, we
-       decrement the counters so that we store all vote/stakes in a
-       compact array. */
-    fd_snapshot_manifest_vote_stakes_t * vote_stakes = &parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ];
-    if( vote_stakes->stake==0UL && vote_stakes->epoch_credits_history_len==0UL ) {
-      parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len--;
-      parser->idx2--;
+    /* Signal that a complete vote_stakes entry has been parsed.
+       Skip entries with zero stake and no epoch credits history. */
+    if( parser->staging_vote_stakes.stake!=0UL || parser->staging_vote_stakes.epoch_credits_history_len!=0UL ) {
+      parser->vote_stakes_ready     = 1;
+      parser->vote_stakes_epoch_idx = parser->epoch_idx;
     }
   }
 
@@ -1750,13 +1756,11 @@ state_process( fd_ssmanifest_parser_t * parser,
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) parser->account_data_start = parser->off;
 
   if( FD_UNLIKELY( parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_OWNER && parser->epoch_idx!=ULONG_MAX ) ) {
-    /* We're only interested in vote accounts with stakes>0. When
-       stakes==0 and there is no epoch credit history, we decrement the
-       counters so that we store all vote/stakes in a compact array. */
-    fd_snapshot_manifest_vote_stakes_t * vote_stakes = &parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ];
-    if( vote_stakes->stake==0UL && vote_stakes->epoch_credits_history_len==0UL ) {
-      parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len--;
-      parser->idx2--;
+    /* Signal that a complete vote_stakes entry has been parsed.
+       Skip entries with zero stake and no epoch credits history. */
+    if( parser->staging_vote_stakes.stake!=0UL || parser->staging_vote_stakes.epoch_credits_history_len!=0UL ) {
+      parser->vote_stakes_ready     = 1;
+      parser->vote_stakes_epoch_idx = parser->epoch_idx;
     }
   }
 
@@ -1784,13 +1788,13 @@ state_process( fd_ssmanifest_parser_t * parser,
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_LTHASH_OPTION:             manifest->has_accounts_lthash    = !!parser->option; parser->state += 2-!!parser->option; return 0;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: if( parser->epoch_idx!=ULONG_MAX ) manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].has_identity_bls = !!parser->option; parser->state += 2-!!parser->option; return 0;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: if( parser->epoch_idx!=ULONG_MAX ) parser->staging_vote_stakes.has_identity_bls = !!parser->option; parser->state += 2-!!parser->option; return 0;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
 
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: if( parser->epoch_idx!=ULONG_MAX ) manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].has_identity_bls = !!parser->option; parser->state += 2-!!parser->option; return 0;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: if( parser->epoch_idx!=ULONG_MAX ) parser->staging_vote_stakes.has_identity_bls = !!parser->option; parser->state += 2-!!parser->option; return 0;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
@@ -1808,13 +1812,13 @@ state_process( fd_ssmanifest_parser_t * parser,
     case STATE_STAKES_VOTE_ACCOUNTS_LENGTH:                            length = manifest->vote_accounts_len; idx = &parser->idx1; next_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH;                        break;
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH:                        length = manifest->stake_delegations_len;        idx = &parser->idx1; next_target = STATE_STAKES_UNUSED;                                          break;
     case STATE_EPOCH_STAKES_LENGTH:                                    length = parser->epoch_stakes_len;    idx = &parser->idx1; next_target = STATE_IS_DELTA;                                               break;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH:                      length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH;                  break;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH:                      length = parser->length2; idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH;                  break;
     case STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH:                  length = parser->length2;             idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_UNUSED;                                    break;
     case STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH:           length = parser->length2;             idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH;            break;
     case STATE_ACCOUNTS_DB_STORAGES_LENGTH:                            length = parser->length1;             idx = &parser->idx1; next_target = STATE_ACCOUNTS_DB_VERSION;                                    break;
     case STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_LENGTH:               length = parser->length2;             idx = &parser->idx2; next_target = STATE_ACCOUNTS_DB_STORAGES_DUMMY;                             break;
     case STATE_VERSIONED_EPOCH_STAKES_LENGTH:                          length = parser->epoch_stakes_len;    idx = &parser->idx1; next_target = STATE_LTHASH_OPTION;                                          break;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH:     length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH; break;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH:     length = parser->length2; idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH; break;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH: length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_UNUSED;                   break;
     case STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH: length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH;  break;
     default: break;
@@ -1835,13 +1839,13 @@ state_process( fd_ssmanifest_parser_t * parser,
     case STATE_HARD_FORKS_VAL:                                                   length = manifest->hard_forks_len;        idx = &parser->idx1; next_target = STATE_TRANSACTION_COUNT;                                      iter_target = STATE_HARD_FORKS_LENGTH+1UL;                                      break;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                            length = manifest->vote_accounts_len;     idx = &parser->idx1; next_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH;                        iter_target = STATE_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;                            break;
     case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:                    length = manifest->stake_delegations_len; idx = &parser->idx1; next_target = STATE_STAKES_UNUSED;                                          iter_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH+1UL;                        break;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                      length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH;                  iter_target = STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;                      break;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                      length = parser->length2; idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH;                  iter_target = STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;                      break;
     case STATE_EPOCH_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:              length = parser->length2;                 idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_UNUSED;                                    iter_target = STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH+1UL;                  break;
     case STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_TOTAL_STAKE:                length = parser->length2;                 idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH;            iter_target = STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH+1UL;           break;
     case STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS:                             length = parser->epoch_stakes_len;        idx = &parser->idx1; next_target = STATE_IS_DELTA;                                               iter_target = STATE_EPOCH_STAKES_LENGTH+1UL;                                    break;
     case STATE_ACCOUNTS_DB_STORAGES_DUMMY:                                       length = parser->length1;                 idx = &parser->idx1; next_target = STATE_ACCOUNTS_DB_VERSION;                                    iter_target = STATE_ACCOUNTS_DB_STORAGES_LENGTH+1UL;                            break;
     case STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ:                        length = parser->length2;                 idx = &parser->idx2; next_target = STATE_ACCOUNTS_DB_STORAGES_DUMMY;                             iter_target = STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_LENGTH+1UL;               break;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:     length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH; iter_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;     break;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:     length = parser->length2; idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH; iter_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;     break;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_CREDITS_OBSERVED: length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_UNUSED;                   iter_target = STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH+1UL; break;
     case STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_TOTAL_STAKE:      length = parser->length2;             idx = &parser->idx2; next_target = STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH;  iter_target = STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_LENGTH+1UL; break;
     case STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS:                   length = parser->epoch_stakes_len;    idx = &parser->idx1; next_target = STATE_LTHASH_OPTION;                                          iter_target = STATE_VERSIONED_EPOCH_STAKES_LENGTH+1UL;                          break;
@@ -1849,6 +1853,11 @@ state_process( fd_ssmanifest_parser_t * parser,
   }
 
   if( FD_UNLIKELY( iter_target!=INT_MAX ) ) {
+    /* Signal that a complete stake delegation entry has been parsed
+       and is ready for on-the-fly processing by the consumer. */
+    if( FD_UNLIKELY( parser->state==STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE ) ) {
+      parser->delegation_ready = 1;
+    }
     *idx += 1UL;
     if( FD_LIKELY( *idx<length ) ) parser->state = iter_target;
     else                           parser->state = next_target;
@@ -1903,10 +1912,11 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   parser->dst_sz   = state_size( parser );
   parser->dst_cur  = 0UL;
   parser->manifest = manifest;
-
-  manifest->epoch_stakes[0].vote_stakes_len = 0UL;
-  manifest->epoch_stakes[1].vote_stakes_len = 0UL;
-  manifest->epoch_stakes[2].vote_stakes_len = 0UL;
+  parser->delegation_ready = 0;
+  fd_memset( &parser->staging_delegation, 0, sizeof(parser->staging_delegation) );
+  parser->vote_stakes_ready = 0;
+  parser->vote_stakes_epoch_idx = ULONG_MAX;
+  fd_memset( &parser->staging_vote_stakes, 0, sizeof(parser->staging_vote_stakes) );
 
   FD_SCRATCH_ALLOC_INIT( l, parser );
                          FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );
@@ -1917,7 +1927,9 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               uchar const *            buf,
                               ulong                    bufsz,
                               acc_vec_map_t *          acc_vec_map,
-                              acc_vec_t *              acc_vec_pool ) {
+                              acc_vec_t *              acc_vec_pool,
+                              ulong *                  opt_bytes_consumed ) {
+  uchar const * buf0 = buf;
 #if SSMANIFEST_DEBUG
   int state = parser->state;
 #endif
@@ -1949,10 +1961,12 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
 #endif
       if( FD_UNLIKELY( -1==state_validate( parser ) ) ) {
         FD_LOG_WARNING(("state_validate failed"));
+        if( opt_bytes_consumed ) *opt_bytes_consumed = (ulong)(buf - buf0);
         return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
       }
       if( FD_UNLIKELY( -1==state_process( parser, acc_vec_map, acc_vec_pool ) ) ) {
         FD_LOG_WARNING(("state_process failed"));
+        if( opt_bytes_consumed ) *opt_bytes_consumed = (ulong)(buf - buf0);
         return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
       }
       parser->dst     = state_dst( parser );
@@ -1961,14 +1975,72 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
     }
 
     if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
-    if( FD_UNLIKELY( !bufsz ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
+
+    /* Yield back to the caller when a staged entry is ready for
+       on-the-fly processing.  This ensures the caller can drain the
+       entry before the parser overwrites staging with the next entry.
+       The caller must re-invoke consume with the remaining bytes. */
+    if( FD_UNLIKELY( parser->delegation_ready || parser->vote_stakes_ready ) ) {
+      if( opt_bytes_consumed ) *opt_bytes_consumed = (ulong)(buf - buf0);
+      return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
+    }
+
+    if( FD_UNLIKELY( !bufsz ) ) {
+      if( opt_bytes_consumed ) *opt_bytes_consumed = (ulong)(buf - buf0);
+      return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
+    }
   }
 
   if( FD_UNLIKELY( bufsz ) ) {
     FD_LOG_WARNING(( "excess data in buffer" ));
+    if( opt_bytes_consumed ) *opt_bytes_consumed = (ulong)(buf - buf0);
     return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
   }
 
+  if( opt_bytes_consumed ) *opt_bytes_consumed = (ulong)(buf - buf0);
+  if( FD_UNLIKELY( parser->state!=STATE_DONE ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
   return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
+}
+
+int
+fd_ssmanifest_parser_delegation_ready( fd_ssmanifest_parser_t const * parser ) {
+  return parser->delegation_ready;
+}
+
+fd_snapshot_manifest_stake_delegation_t const *
+fd_ssmanifest_parser_delegation_peek( fd_ssmanifest_parser_t const * parser ) {
+  return &parser->staging_delegation;
+}
+
+void
+fd_ssmanifest_parser_delegation_done( fd_ssmanifest_parser_t * parser ) {
+  parser->delegation_ready = 0;
+  fd_memset( &parser->staging_delegation, 0, sizeof(parser->staging_delegation) );
+}
+
+int
+fd_ssmanifest_parser_vote_stakes_ready( fd_ssmanifest_parser_t const * parser ) {
+  return parser->vote_stakes_ready;
+}
+
+fd_snapshot_manifest_vote_stakes_t const *
+fd_ssmanifest_parser_vote_stakes_peek( fd_ssmanifest_parser_t const * parser ) {
+  return &parser->staging_vote_stakes;
+}
+
+ulong
+fd_ssmanifest_parser_vote_stakes_epoch_idx( fd_ssmanifest_parser_t const * parser ) {
+  return parser->vote_stakes_epoch_idx;
+}
+
+void
+fd_ssmanifest_parser_vote_stakes_done( fd_ssmanifest_parser_t * parser ) {
+  parser->vote_stakes_ready = 0;
+  fd_memset( &parser->staging_vote_stakes, 0, sizeof(parser->staging_vote_stakes) );
+}
+
+ulong
+fd_ssmanifest_parser_epoch_stakes_len( fd_ssmanifest_parser_t const * parser ) {
+  return parser->epoch_stakes_len;
 }
 
