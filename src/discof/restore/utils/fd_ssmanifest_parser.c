@@ -1904,9 +1904,11 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   parser->dst_cur  = 0UL;
   parser->manifest = manifest;
 
-  manifest->epoch_stakes[0].vote_stakes_len = 0UL;
-  manifest->epoch_stakes[1].vote_stakes_len = 0UL;
-  manifest->epoch_stakes[2].vote_stakes_len = 0UL;
+  for( ulong i=0UL; i<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+    manifest->epoch_stakes[i].epoch           = ULONG_MAX;  /* sentinel: not populated */
+    manifest->epoch_stakes[i].total_stake     = 0UL;
+    manifest->epoch_stakes[i].vote_stakes_len = 0UL;
+  }
 
   FD_SCRATCH_ALLOC_INIT( l, parser );
                          FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );
