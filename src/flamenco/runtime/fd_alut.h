@@ -97,8 +97,6 @@ fd_alut_state_encode( fd_alut_meta_t const * meta,
     if( meta->has_authority ) {
       fd_memcpy( p, meta->authority.key, 32 );
       p += 32;
-    } else {
-      p += 32;
     }
 
     FD_STORE( ushort, p, (ushort)0 );
@@ -143,9 +141,11 @@ fd_alut_state_decode( uchar const *    data,
   out->last_extended_slot_start_index = *p;
   p += 1;
 
+  /* Option<Pubkey> tag: bincode rejects any byte outside {0,1}. */
   if( FD_UNLIKELY( p + 1 > end ) ) return -1;
   uchar has_auth = *p;
   p += 1;
+  if( FD_UNLIKELY( has_auth & (uchar)~1U ) ) return -1;
   out->has_authority = has_auth;
 
   if( has_auth ) {
@@ -154,8 +154,11 @@ fd_alut_state_decode( uchar const *    data,
     p += 32;
   } else {
     fd_memset( out->authority.key, 0, 32 );
-    p += fd_ulong_min( 32, (ulong)(end - p) );
   }
+
+  /* u16 _padding.  Value is ignored but the 2 bytes must be present. */
+  if( FD_UNLIKELY( p + 2 > end ) ) return -1;
+  p += 2;
 
   (void)p;
   return 0;
