@@ -1,6 +1,4 @@
 $(call add-hdrs,fd_alut.h)
-$(call make-unit-test,test_alut_wire,test_alut_wire,fd_flamenco fd_ballet fd_util)
-$(call run-unit-test,test_alut_wire)
 
 $(call add-hdrs,fd_acc_mgr.h)
 $(call add-hdrs,fd_accdb_svm.h)

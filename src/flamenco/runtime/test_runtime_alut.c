@@ -2037,9 +2037,211 @@ test_max_transaction_alts( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( txn );
 }
 
+/* -----------------------------------------------------------------------
+   Wire-format tests for fd_alut_state_encode / fd_alut_state_decode.
+
+   Reference:
+     https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/address_lookup_table/state.rs
+
+   Layout (little-endian throughout):
+     - u32 discriminant (0=Uninitialized, 1=LookupTable)
+     - if LookupTable:
+       - u64 deactivation_slot
+       - u64 last_extended_slot
+       - u8  last_extended_slot_start_index
+       - u8  authority tag (0=None, 1=Some)    [bincode Option tag]
+       - if Some: [u8; 32] authority_pubkey
+       - u16 _padding
+
+   Agave's test_lookup_table_meta_size asserts serialized size is 56 when
+   authority=Some and 24 when authority=None.  The on-disk representation
+   zero-pads the None case up to 56 bytes. */
+
+/* Build a bincode-compatible "LookupTable(None)" buffer of the given
+   size (>= 24).  Bytes beyond offset 24 are zero-filled. */
+static void
+build_none_authority_buf( uchar * buf,
+                          ulong   size,
+                          ulong   deactivation_slot,
+                          ulong   last_extended_slot,
+                          uchar   last_extended_slot_start_index,
+                          ushort  padding ) {
+  FD_TEST( size >= 24UL );
+  fd_memset( buf, 0, size );
+  uchar * p = buf;
+  FD_STORE( uint,   p, FD_ALUT_STATE_DISC_LOOKUP_TABLE ); p += 4;
+  FD_STORE( ulong,  p, deactivation_slot              ); p += 8;
+  FD_STORE( ulong,  p, last_extended_slot             ); p += 8;
+  *p = last_extended_slot_start_index;                    p += 1;
+  *p = 0;                                                 p += 1;
+  FD_STORE( ushort, p, padding                        ); p += 2;
+  (void)p;
+}
+
+/* Build a bincode-compatible "LookupTable(Some(pubkey))" 56-byte buffer. */
+static void
+build_some_authority_buf( uchar *             buf,
+                          ulong               deactivation_slot,
+                          ulong               last_extended_slot,
+                          uchar               last_extended_slot_start_index,
+                          fd_pubkey_t const * authority,
+                          ushort              padding ) {
+  fd_memset( buf, 0, FD_LOOKUP_TABLE_META_SIZE );
+  uchar * p = buf;
+  FD_STORE( uint,   p, FD_ALUT_STATE_DISC_LOOKUP_TABLE ); p += 4;
+  FD_STORE( ulong,  p, deactivation_slot              ); p += 8;
+  FD_STORE( ulong,  p, last_extended_slot             ); p += 8;
+  *p = last_extended_slot_start_index;                    p += 1;
+  *p = 1;                                                 p += 1;
+  fd_memcpy( p, authority->key, 32 );                     p += 32;
+  FD_STORE( ushort, p, padding                        ); p += 2;
+  (void)p;
+}
+
+/* Bincode Option tag MUST be exactly 0 or 1; any other byte is a decode
+   error and must be rejected consensus-equivalent to Agave. */
+static void
+test_wire_rejects_invalid_authority_tag( void ) {
+  FD_LOG_NOTICE(( "Wire test: reject invalid authority tag" ));
+  uchar const bad_tags[] = { 0x02, 0x03, 0x7F, 0x80, 0xFE, 0xFF };
+  for( ulong i=0UL; i<sizeof(bad_tags); i++ ) {
+    uchar buf[ FD_LOOKUP_TABLE_META_SIZE ];
+    fd_memset( buf, 0, sizeof(buf) );
+    uchar * p = buf;
+    FD_STORE( uint,  p, FD_ALUT_STATE_DISC_LOOKUP_TABLE ); p += 4;
+    FD_STORE( ulong, p, ULONG_MAX                       ); p += 8;
+    FD_STORE( ulong, p, 0UL                             ); p += 8;
+    *p = 0;                                                p += 1;
+    *p = bad_tags[i];                                      p += 1;
+
+    fd_alut_meta_t meta[1];
+    FD_TEST( fd_alut_state_decode( buf, sizeof(buf), meta ) != 0 );
+  }
+}
+
+/* A 24-byte None-authority bincode buffer decodes cleanly. */
+static void
+test_wire_decode_24_byte_none_payload( void ) {
+  FD_LOG_NOTICE(( "Wire test: decode 24-byte None payload" ));
+  uchar buf[ 24 ];
+  build_none_authority_buf( buf, sizeof(buf), ULONG_MAX, 42UL, 7, 0x1234 );
+
+  fd_alut_meta_t meta[1];
+  FD_TEST( fd_alut_state_decode( buf, sizeof(buf), meta ) == 0 );
+  FD_TEST( meta->discriminant                   == FD_ALUT_STATE_DISC_LOOKUP_TABLE );
+  FD_TEST( meta->deactivation_slot              == ULONG_MAX );
+  FD_TEST( meta->last_extended_slot             == 42UL      );
+  FD_TEST( meta->last_extended_slot_start_index == 7         );
+  FD_TEST( meta->has_authority                  == 0         );
+}
+
+/* Encoded None-authority output is byte-for-byte identical to Agave's
+   zero-padded 56-byte wire layout. */
+static void
+test_wire_encode_none_matches_agave( void ) {
+  FD_LOG_NOTICE(( "Wire test: encode None matches Agave layout" ));
+  uchar expected[ FD_LOOKUP_TABLE_META_SIZE ];
+  build_none_authority_buf( expected, sizeof(expected), 1234UL, 5678UL, 9, 0 );
+
+  fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
+    .deactivation_slot              = 1234UL,
+    .last_extended_slot             = 5678UL,
+    .last_extended_slot_start_index = 9,
+    .has_authority                  = 0,
+  };
+  uchar actual[ FD_LOOKUP_TABLE_META_SIZE ];
+  FD_TEST( fd_alut_state_encode( &meta, actual, sizeof(actual) ) == 0 );
+  FD_TEST( fd_memeq( actual, expected, sizeof(expected) ) );
+}
+
+/* Encoded Some-authority output matches Agave layout byte-for-byte, and
+   round-trips through decode. */
+static void
+test_wire_encode_some_matches_agave( void ) {
+  FD_LOG_NOTICE(( "Wire test: encode Some matches Agave layout" ));
+  fd_pubkey_t auth = {{0}};
+  for( ulong i=0UL; i<32UL; i++ ) auth.key[i] = (uchar)(0xA0 + i);
+
+  uchar expected[ FD_LOOKUP_TABLE_META_SIZE ];
+  build_some_authority_buf( expected, 111UL, 222UL, 33, &auth, 0 );
+
+  fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
+    .deactivation_slot              = 111UL,
+    .last_extended_slot             = 222UL,
+    .last_extended_slot_start_index = 33,
+    .has_authority                  = 1,
+    .authority                      = auth,
+  };
+  uchar actual[ FD_LOOKUP_TABLE_META_SIZE ];
+  FD_TEST( fd_alut_state_encode( &meta, actual, sizeof(actual) ) == 0 );
+  FD_TEST( fd_memeq( actual, expected, sizeof(expected) ) );
+
+  fd_alut_meta_t decoded[1];
+  FD_TEST( fd_alut_state_decode( actual, sizeof(actual), decoded ) == 0 );
+  FD_TEST( decoded->discriminant                   == FD_ALUT_STATE_DISC_LOOKUP_TABLE );
+  FD_TEST( decoded->deactivation_slot              == 111UL );
+  FD_TEST( decoded->last_extended_slot             == 222UL );
+  FD_TEST( decoded->last_extended_slot_start_index == 33    );
+  FD_TEST( decoded->has_authority                  == 1     );
+  FD_TEST( fd_memeq( decoded->authority.key, auth.key, 32 ) );
+}
+
+/* Truncated buffers that don't contain the full 2-byte _padding must be
+   rejected (Agave returns FD_BINCODE_ERR_UNDERFLOW). */
+static void
+test_wire_rejects_truncated_padding( void ) {
+  FD_LOG_NOTICE(( "Wire test: reject buffers missing _padding" ));
+  for( ulong sz=22UL; sz<=23UL; sz++ ) {
+    uchar buf[ 23 ];
+    fd_memset( buf, 0, sizeof(buf) );
+    uchar * p = buf;
+    FD_STORE( uint,  p, FD_ALUT_STATE_DISC_LOOKUP_TABLE ); p += 4;
+    FD_STORE( ulong, p, ULONG_MAX                       ); p += 8;
+    FD_STORE( ulong, p, 0UL                             ); p += 8;
+    *p = 0;                                                p += 1;
+    *p = 0;                                                p += 1;
+
+    fd_alut_meta_t meta[1];
+    FD_TEST( fd_alut_state_decode( buf, sz, meta ) != 0 );
+  }
+}
+
+/* Document the exact byte offsets of every field in the encoded output
+   for the None-authority case.  Catches silent offset drift. */
+static void
+test_wire_encoded_field_offsets( void ) {
+  FD_LOG_NOTICE(( "Wire test: encoded field offsets" ));
+  fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
+    .deactivation_slot              = 0x1122334455667788UL,
+    .last_extended_slot             = 0x99AABBCCDDEEFF00UL,
+    .last_extended_slot_start_index = 0x42,
+    .has_authority                  = 0,
+  };
+  uchar buf[ FD_LOOKUP_TABLE_META_SIZE ];
+  FD_TEST( fd_alut_state_encode( &meta, buf, sizeof(buf) ) == 0 );
+  FD_TEST( FD_LOAD( uint,   buf +  0 ) == FD_ALUT_STATE_DISC_LOOKUP_TABLE );
+  FD_TEST( FD_LOAD( ulong,  buf +  4 ) == 0x1122334455667788UL            );
+  FD_TEST( FD_LOAD( ulong,  buf + 12 ) == 0x99AABBCCDDEEFF00UL            );
+  FD_TEST( buf[20] == 0x42 );
+  FD_TEST( buf[21] == 0    );
+  FD_TEST( FD_LOAD( ushort, buf + 22 ) == 0 );
+  for( ulong i=24UL; i<FD_LOOKUP_TABLE_META_SIZE; i++ ) FD_TEST( buf[i] == 0 );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+
+  /* Wire-format tests (no workspace needed). */
+  test_wire_rejects_invalid_authority_tag();
+  test_wire_decode_24_byte_none_payload();
+  test_wire_encode_none_matches_agave();
+  test_wire_encode_some_matches_agave();
+  test_wire_rejects_truncated_padding();
+  test_wire_encoded_field_offsets();
 
   /* Create workspace */
   char * _page_sz = "gigantic";

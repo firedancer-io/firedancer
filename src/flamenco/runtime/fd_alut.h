@@ -91,7 +91,7 @@ fd_alut_state_encode( fd_alut_meta_t const * meta,
     *p = meta->last_extended_slot_start_index;
     p += 1;
 
-    *p = (uchar)meta->has_authority;
+    *p = (uchar)!!meta->has_authority;
     p += 1;
 
     if( meta->has_authority ) {
@@ -160,7 +160,6 @@ fd_alut_state_decode( uchar const *    data,
   if( FD_UNLIKELY( p + 2 > end ) ) return -1;
   p += 2;
 
-  (void)p;
   return 0;
 }
 
