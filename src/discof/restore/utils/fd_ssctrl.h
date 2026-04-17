@@ -44,25 +44,53 @@
         will not be in an ERROR state and will continue producing frags.
         When snapct receives the ERROR message, it will send a FAIL
         message.  snapct then waits for this FAIL message to be
-        progagated through the pipeline and received back.  snapct
+        propagated through the pipeline and received back.  snapct
         also guarantees to flush any pending load data in the
         pipeline.  It then knows that all tiles are synchronized back
         in an IDLE state and it can try again with a new INIT.
-     4. Once snapct detects that the processing is finished, it sends
-        a DONE message through the pipeline and waits for it to be
-        received back.  We then either move on to the incremental
-        snapshot, or shut down the whole pipeline.
+     4. Once all snapshot data has entered the pipeline, snapct sends
+        a FINI message through the pipeline and waits for it to be
+        received back.  This synchronizes tiles to finish any
+        remaining in-flight work.  It then sends either a NEXT or a
+        DONE message through the pipeline, again waiting for it to be
+        received back.  NEXT means another snapshot follows, whereas
+        DONE means a shutdown will follow.
 
-   The keeps the tiles in lockstep, and simplifies the state machine to
-   a manageable level.
+   That keeps the tiles in lockstep, and simplifies the state machine
+   to a manageable level.
 
-   It is a strict requirement that all tiles in the pipeline eventually
-   forward all control messages they receive.  Each control message is
-   only generated once in snapct and will not be re-sent.  The pipeline
-   will be locked on flushing that control message until all tiles
-   forward it on. If a control message is dropped, the pipeline will
-   deadlock.  Note that a tile can choose to hold onto a control message
-   and forward it later after performing some asynchronous routine.  */
+   In more detail, all tiles in the feedback loop of the pipeline must
+   comply with the following rules; snapct enforces them; tiles outside
+   of the feedback loop may support a subset of these:
+     - Allowed state transitions on given control message:
+        IDLE       to PROCESSING: on INIT_FULL / INIT_INCR ctrl msg.
+        PROCESSING to FINISHING : on FINI ctrl msg (*).
+        FINISHING  to IDLE      : on NEXT / DONE ctrl msg.
+        IDLE       to SHUTDOWN  : on SHUTDOWN ctrl msg.
+     - Control messages that apply to all states (except SHUTDOWN):
+        On ERROR msg, always transition to ERROR.
+        On FAIL msg, always transition to IDLE.
+     - When in SHUTDOWN state, no data or control message is allowed.
+     - Error handling:
+        A tile that enters ERROR state on its own must forward an
+        ERROR control message and discard any incoming message.  When
+        in ERROR state, data is discarded, and only a FAIL control
+        message is processed and forwarded (all others are discarded).
+        As a result, only one ERROR message can propagate through the
+        pipeline at any given time.
+     - Holding onto a control message:
+        A tile may hold onto a control message and forward it later
+        after performing some asynchronous routine.  The tile's state
+        transition may also be deferred until that control message is
+        forwarded.
+     - (*) A tile may self-transition from PROCESSING to FINISHING
+        early, if it can detect end-of-stream.  The FINI message is
+        used to synchronize the transition.
+
+   Each non-ERROR control message is only generated once in snapct
+   and will not be re-sent.  The pipeline will be locked on flushing
+   that control message until all tiles forward it on, or an ERROR
+   message is triggered by any of the tiles and forwarded. */
 
 #define FD_SNAPSHOT_STATE_IDLE                 (0UL) /* Performing no work and should receive no data frags */
 #define FD_SNAPSHOT_STATE_PROCESSING           (1UL) /* Performing usual work, no errors / EoF condition encountered */
