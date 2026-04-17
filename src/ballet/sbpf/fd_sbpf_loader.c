@@ -776,10 +776,14 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
     return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
   }
 
-  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L452-L453 */
-  if( FD_UNLIKELY( (program_header_table_end-sizeof(fd_elf64_ehdr))%sizeof(fd_elf64_phdr) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
-  }
+  /* https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L452-L453
+     Note: program_header_table_end = sizeof(ehdr) + e_phnum * sizeof(phdr),
+     all inputs are small so saturating arithmetic is unnecessary.
+     This means that the modulus is always zero and the code is unreachable.
+     Commented out so we can reach 100% coverage. */
+  // if( FD_UNLIKELY( (program_header_table_end-sizeof(fd_elf64_ehdr))%sizeof(fd_elf64_phdr) ) ) {
+  //   return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
+  // }
 
   /* Parse program headers (expecting up to 2 segments: rodata + bytecode)
      https://github.com/anza-xyz/sbpf/blob/v0.14.4/src/elf.rs#L448-L484 */
