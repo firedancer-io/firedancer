@@ -359,12 +359,11 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
 
     if( FD_UNLIKELY( (data_sz<56UL) | (data_sz>(56UL+256UL*32UL)) ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 
-    uint disc;
     fd_alut_meta_t meta;
-    result = fd_alut_state_decode( data, data_sz, &disc, &meta );
+    result = fd_alut_state_decode( data, data_sz, &meta );
     if( FD_UNLIKELY( result ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 
-    if( FD_UNLIKELY( disc!=FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_UNINITIALIZED;
+    if( FD_UNLIKELY( meta.discriminant!=FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_UNINITIALIZED;
 
     if( FD_UNLIKELY( (data_sz-56UL)%32UL ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 

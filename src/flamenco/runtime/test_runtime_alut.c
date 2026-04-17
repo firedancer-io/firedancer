@@ -468,12 +468,13 @@ test_alt_data_too_small( fd_wksp_t * wksp ) {
 static void
 create_valid_alt_data( uchar * data, ulong num_addresses ) {
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = ULONG_MAX,
     .last_extended_slot             = TEST_SLOT - 1,
     .last_extended_slot_start_index = 0,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, data, FD_LOOKUP_TABLE_META_SIZE );
 
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(data + FD_LOOKUP_TABLE_META_SIZE);
   for( ulong i = 0; i < num_addresses; i++ ) {
@@ -605,12 +606,13 @@ test_deactivated_alt( fd_wksp_t * wksp ) {
   /* Create ALT data with deactivated state */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = TEST_SLOT - 1000,
     .last_extended_slot             = TEST_SLOT - 1,
     .last_extended_slot_start_index = 5,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add some addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -670,12 +672,13 @@ test_invalid_writable_index( fd_wksp_t * wksp ) {
   /* Create valid ALT data with only 3 active addresses */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = ULONG_MAX,
     .last_extended_slot             = TEST_SLOT,
     .last_extended_slot_start_index = 3,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 10 addresses (but only 3 will be active) */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -935,12 +938,13 @@ test_partial_activation( fd_wksp_t * wksp ) {
   /* Create ALT with partial activation: 10 total addresses, only 5 active */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = ULONG_MAX,
     .last_extended_slot             = TEST_SLOT - 1,
     .last_extended_slot_start_index = 5,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 10 addresses but only 5 will be active */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1004,12 +1008,13 @@ test_deactivating_alt( fd_wksp_t * wksp ) {
   /* Create ALT in deactivating state (deactivation slot in recent history) */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = TEST_SLOT - 5,
     .last_extended_slot             = TEST_SLOT - 10,
     .last_extended_slot_start_index = 5,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1122,12 +1127,13 @@ test_alt_just_activated( fd_wksp_t * wksp ) {
   /* Create ALT just activated in the current slot */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = ULONG_MAX,
     .last_extended_slot             = TEST_SLOT,
     .last_extended_slot_start_index = 10,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 10 addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1199,12 +1205,13 @@ test_growing_alt( fd_wksp_t * wksp ) {
   /* Create ALT with 20 total addresses but only 15 active */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = ULONG_MAX,
     .last_extended_slot             = TEST_SLOT - 1,
     .last_extended_slot_start_index = 15,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 20 addresses (but only 15 will be active) */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1269,12 +1276,13 @@ test_alt_deactivating_current_slot( fd_wksp_t * wksp ) {
   /* Create ALT deactivating at current slot */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = TEST_SLOT,
     .last_extended_slot             = TEST_SLOT - 10,
     .last_extended_slot_start_index = 5,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1408,12 +1416,13 @@ test_alt_no_authority( fd_wksp_t * wksp ) {
   /* Create ALT with no authority */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 10 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = ULONG_MAX,
     .last_extended_slot             = TEST_SLOT - 1,
     .last_extended_slot_start_index = 10,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1480,12 +1489,13 @@ test_alt_future_extension( fd_wksp_t * wksp ) {
   /* Create ALT with future extension not yet visible */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = ULONG_MAX,
     .last_extended_slot             = TEST_SLOT + 100,
     .last_extended_slot_start_index = 10,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add 20 addresses (but only 10 are active) */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);
@@ -1555,12 +1565,13 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
   fd_pubkey_t * alt_addr2 = (fd_pubkey_t *)(payload + luts[1].addr_off);
   uchar         alt_data2[FD_LOOKUP_TABLE_META_SIZE + 20 * 32];
   fd_alut_meta_t meta2 = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = ULONG_MAX,
     .last_extended_slot             = TEST_SLOT - 1,
     .last_extended_slot_start_index = 10,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta2, alt_data2, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta2, alt_data2, FD_LOOKUP_TABLE_META_SIZE );
   fd_acct_addr_t * addrs2 = (fd_acct_addr_t *)(alt_data2 + FD_LOOKUP_TABLE_META_SIZE);
   for( ulong i = 0; i < 20; i++ ) {
     addrs2[i].b[0] = (uchar)(0x30 + i);
@@ -1573,12 +1584,13 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
   fd_pubkey_t * alt_addr3 = (fd_pubkey_t *)(payload + luts[2].addr_off);
   uchar         alt_data3[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
   fd_alut_meta_t meta3 = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = TEST_SLOT - 5,
     .last_extended_slot             = TEST_SLOT - 10,
     .last_extended_slot_start_index = 5,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta3, alt_data3, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta3, alt_data3, FD_LOOKUP_TABLE_META_SIZE );
   fd_acct_addr_t * addrs3 = (fd_acct_addr_t *)(alt_data3 + FD_LOOKUP_TABLE_META_SIZE);
   for( ulong i = 0; i < 5; i++ ) {
     addrs3[i].b[0] = (uchar)(0x50 + i);
@@ -1896,12 +1908,13 @@ test_alt_deactivation_boundary( fd_wksp_t * wksp ) {
   /* Create ALT at exact deactivation boundary (oldest slot in slot_hashes) */
   uchar alt_data[FD_LOOKUP_TABLE_META_SIZE + 5 * 32];
   fd_alut_meta_t meta = {
+    .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
     .deactivation_slot              = TEST_SLOT - 9,
     .last_extended_slot             = TEST_SLOT - 20,
     .last_extended_slot_start_index = 5,
     .has_authority                  = 0,
   };
-  fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
+  fd_alut_state_encode( &meta, alt_data, FD_LOOKUP_TABLE_META_SIZE );
 
   /* Add addresses */
   fd_acct_addr_t * addrs = (fd_acct_addr_t *)(alt_data + FD_LOOKUP_TABLE_META_SIZE);

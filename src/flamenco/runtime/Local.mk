@@ -1,5 +1,4 @@
 $(call add-hdrs,fd_alut.h)
-$(call add-objs,fd_alut,fd_flamenco)
 
 $(call add-hdrs,fd_acc_mgr.h)
 $(call add-hdrs,fd_accdb_svm.h)

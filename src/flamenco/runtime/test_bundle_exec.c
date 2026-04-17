@@ -924,12 +924,13 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     uchar alut_data[ FD_LOOKUP_TABLE_META_SIZE + 4 * 32 ];
 
     fd_alut_meta_t alut_meta = {
+      .discriminant                   = FD_ALUT_STATE_DISC_LOOKUP_TABLE,
       .deactivation_slot              = ULONG_MAX,
       .last_extended_slot             = 10UL,
       .last_extended_slot_start_index = 2,
       .has_authority                  = 0,
     };
-    FD_TEST( fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &alut_meta, alut_data, FD_LOOKUP_TABLE_META_SIZE ) == 0 );
+    FD_TEST( fd_alut_state_encode( &alut_meta, alut_data, FD_LOOKUP_TABLE_META_SIZE ) == 0 );
 
     fd_acct_addr_t * alut_addrs = (fd_acct_addr_t *)( alut_data + FD_LOOKUP_TABLE_META_SIZE );
     for( ulong i = 0UL; i < num_alut_addrs; i++ ) {
@@ -979,7 +980,7 @@ test_execute_bundles( fd_wksp_t * wksp ) {
         env->txn_out[0].accounts.account[ alut_idx ].meta );
     fd_alut_meta_t extended_meta = alut_meta;
     extended_meta.last_extended_slot_start_index = 4;
-    FD_TEST( fd_alut_state_encode( FD_ALUT_STATE_DISC_LOOKUP_TABLE, &extended_meta, alut_out_data, FD_LOOKUP_TABLE_META_SIZE ) == 0 );
+    FD_TEST( fd_alut_state_encode( &extended_meta, alut_out_data, FD_LOOKUP_TABLE_META_SIZE ) == 0 );
 
     /* ------------------------------------------------------------------
        Txn1: a V0 transaction that uses the ALT to resolve address at

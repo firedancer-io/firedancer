@@ -27,12 +27,15 @@
 #define FD_ALUT_STATE_DISC_LOOKUP_TABLE  (1U)
 
 /* fd_alut_meta_t is the in-memory representation of address lookup
-   table metadata (LookupTableMeta in Agave).  The on-disk format is
-   56 bytes: u32 discriminant, u64 deactivation_slot,
-   u64 last_extended_slot, u8 last_extended_slot_start_index,
-   Option<Pubkey> authority (1-byte tag + 32 bytes), u16 _padding. */
+   table account state (ProgramState + LookupTableMeta in Agave).
+   The on-disk format is 56 bytes: u32 discriminant,
+   u64 deactivation_slot, u64 last_extended_slot,
+   u8 last_extended_slot_start_index, Option<Pubkey> authority
+   (1-byte tag + 32 bytes), u16 _padding.  When discriminant is
+   FD_ALUT_STATE_DISC_UNINITIALIZED the remaining fields are ignored. */
 
 struct fd_alut_meta {
+  uint        discriminant;
   ulong       deactivation_slot;
   ulong       last_extended_slot;
   uchar       last_extended_slot_start_index;
@@ -61,26 +64,102 @@ typedef struct fd_alut_interp fd_alut_interp_t;
 FD_PROTOTYPES_BEGIN
 
 /* fd_alut_state_encode writes a 56-byte zero-padded ALUT state header
-   into [buf, buf+bufsz).  meta is ignored when discriminant ==
-   FD_ALUT_STATE_DISC_UNINITIALIZED.  Returns 0 on success, -1 on
-   short buffer. */
+   into [buf, buf+bufsz).  Uses meta->discriminant to decide the
+   variant; fields other than discriminant are ignored when
+   discriminant == FD_ALUT_STATE_DISC_UNINITIALIZED.  Returns 0 on
+   success, -1 on short buffer. */
 
-int
-fd_alut_state_encode( uint                   discriminant,
-                      fd_alut_meta_t const * meta,
+static inline int
+fd_alut_state_encode( fd_alut_meta_t const * meta,
                       uchar *                buf,
-                      ulong                  bufsz );
+                      ulong                  bufsz ) {
+  if( FD_UNLIKELY( bufsz<FD_LOOKUP_TABLE_META_SIZE ) ) return -1;
+
+  fd_memset( buf, 0, FD_LOOKUP_TABLE_META_SIZE );
+  uchar * p = buf;
+
+  FD_STORE( uint, p, meta->discriminant );
+  p += sizeof(uint);
+
+  if( meta->discriminant==FD_ALUT_STATE_DISC_LOOKUP_TABLE ) {
+    FD_STORE( ulong, p, meta->deactivation_slot );
+    p += sizeof(ulong);
+
+    FD_STORE( ulong, p, meta->last_extended_slot );
+    p += sizeof(ulong);
+
+    *p = meta->last_extended_slot_start_index;
+    p += 1;
+
+    *p = (uchar)meta->has_authority;
+    p += 1;
+
+    if( meta->has_authority ) {
+      fd_memcpy( p, meta->authority.key, 32 );
+      p += 32;
+    } else {
+      p += 32;
+    }
+
+    FD_STORE( ushort, p, (ushort)0 );
+  }
+
+  return 0;
+}
 
 /* fd_alut_state_decode reads an ALUT state header from
-   [data, data+data_sz).  On success writes *out_discriminant and
-   (if LOOKUP_TABLE) *out_meta, returns 0.  Returns -1 on decode
-   failure (short buffer or unknown discriminant). */
+   [data, data+data_sz).  On success populates *out (including
+   out->discriminant) and returns 0.  Returns -1 on decode failure
+   (short buffer or unknown discriminant). */
 
-int
+static inline int
 fd_alut_state_decode( uchar const *    data,
                       ulong            data_sz,
-                      uint *           out_discriminant,
-                      fd_alut_meta_t * out_meta );
+                      fd_alut_meta_t * out ) {
+  if( FD_UNLIKELY( data_sz<sizeof(uint) ) ) return -1;
+
+  uchar const * p   = data;
+  uchar const * end = data + data_sz;
+
+  uint disc = FD_LOAD( uint, p );
+  p += sizeof(uint);
+  out->discriminant = disc;
+
+  if( disc==FD_ALUT_STATE_DISC_UNINITIALIZED ) {
+    return 0;
+  }
+
+  if( FD_UNLIKELY( disc!=FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) return -1;
+
+  if( FD_UNLIKELY( p + 8 > end ) ) return -1;
+  out->deactivation_slot = FD_LOAD( ulong, p );
+  p += sizeof(ulong);
+
+  if( FD_UNLIKELY( p + 8 > end ) ) return -1;
+  out->last_extended_slot = FD_LOAD( ulong, p );
+  p += sizeof(ulong);
+
+  if( FD_UNLIKELY( p + 1 > end ) ) return -1;
+  out->last_extended_slot_start_index = *p;
+  p += 1;
+
+  if( FD_UNLIKELY( p + 1 > end ) ) return -1;
+  uchar has_auth = *p;
+  p += 1;
+  out->has_authority = has_auth;
+
+  if( has_auth ) {
+    if( FD_UNLIKELY( p + 32 > end ) ) return -1;
+    fd_memcpy( out->authority.key, p, 32 );
+    p += 32;
+  } else {
+    fd_memset( out->authority.key, 0, 32 );
+    p += fd_ulong_min( 32, (ulong)(end - p) );
+  }
+
+  (void)p;
+  return 0;
+}
 
 /* fd_alut_slot_hashes_position, fd_alut_status, and fd_alut_is_active
    are all helper methods for determining the number of active addresses
@@ -245,14 +324,13 @@ fd_alut_interp_next( fd_alut_interp_t * interp,
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/accounts-db/src/accounts.rs#L141-L142 */
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
-  uint disc;
   fd_alut_meta_t meta;
-  if( FD_UNLIKELY( fd_alut_state_decode( alut_data, FD_LOOKUP_TABLE_META_SIZE, &disc, &meta ) ) ) {
+  if( FD_UNLIKELY( fd_alut_state_decode( alut_data, FD_LOOKUP_TABLE_META_SIZE, &meta ) ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
-  if( FD_UNLIKELY( disc != FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) {
+  if( FD_UNLIKELY( meta.discriminant != FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 
