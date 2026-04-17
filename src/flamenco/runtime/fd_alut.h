@@ -129,27 +129,27 @@ fd_alut_state_decode( uchar const *    data,
 
   if( FD_UNLIKELY( disc!=FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) return -1;
 
-  if( FD_UNLIKELY( p + 8 > end ) ) return -1;
+  if( FD_UNLIKELY( (ulong)(end - p) < 8UL ) ) return -1;
   out->deactivation_slot = FD_LOAD( ulong, p );
   p += sizeof(ulong);
 
-  if( FD_UNLIKELY( p + 8 > end ) ) return -1;
+  if( FD_UNLIKELY( (ulong)(end - p) < 8UL ) ) return -1;
   out->last_extended_slot = FD_LOAD( ulong, p );
   p += sizeof(ulong);
 
-  if( FD_UNLIKELY( p + 1 > end ) ) return -1;
+  if( FD_UNLIKELY( (ulong)(end - p) < 1UL ) ) return -1;
   out->last_extended_slot_start_index = *p;
   p += 1;
 
   /* Option<Pubkey> tag: bincode rejects any byte outside {0,1}. */
-  if( FD_UNLIKELY( p + 1 > end ) ) return -1;
+  if( FD_UNLIKELY( (ulong)(end - p) < 1UL ) ) return -1;
   uchar has_auth = *p;
   p += 1;
   if( FD_UNLIKELY( has_auth & (uchar)~1U ) ) return -1;
   out->has_authority = has_auth;
 
   if( has_auth ) {
-    if( FD_UNLIKELY( p + 32 > end ) ) return -1;
+    if( FD_UNLIKELY( (ulong)(end - p) < 32UL ) ) return -1;
     fd_memcpy( out->authority.key, p, 32 );
     p += 32;
   } else {
@@ -157,7 +157,7 @@ fd_alut_state_decode( uchar const *    data,
   }
 
   /* u16 _padding.  Value is ignored but the 2 bytes must be present. */
-  if( FD_UNLIKELY( p + 2 > end ) ) return -1;
+  if( FD_UNLIKELY( (ulong)(end - p) < 2UL ) ) return -1;
   p += 2;
 
   return 0;
