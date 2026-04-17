@@ -4,44 +4,44 @@
 #include "../program/fd_bpf_loader_program.h"
 #include "../../vm/fd_vm_base.h"
 #include "../../progcache/fd_prog_load.h"
-
-#if FD_HAS_FLATCC
-#include "flatbuffers/generated/flatbuffers_common_builder.h"
-#include "flatbuffers/generated/flatbuffers_common_reader.h"
-#include "flatbuffers/generated/elf_reader.h"
-#include "flatbuffers/generated/elf_builder.h"
-#endif
+#include "generated/elf.pb.h"
 
 #define SORT_NAME        sort_ulong
 #define SORT_KEY_T       ulong
 #define SORT_BEFORE(a,b) (a)<(b)
 #include "../../../util/tmpl/fd_sort.c"
 
-#if FD_HAS_FLATCC
+ulong
+fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
+                              void const *          input_,
+                              void **               output_,
+                              void *                output_buf,
+                              ulong                 output_bufsz ) {
+  fd_exec_test_elf_loader_ctx_t const * input  = fd_type_pun_const( input_ );
+  fd_exec_test_elf_loader_effects_t **  output = fd_type_pun( output_ );
 
-void
-fd_solfuzz_fb_elf_loader_build_err_effects( fd_solfuzz_runner_t * runner, int err ) {
-  FD_TEST( !SOL_COMPAT_NS(ELFLoaderEffects_start_as_root)( runner->fb_builder ) );
-  FD_TEST( !SOL_COMPAT_NS(ELFLoaderEffects_err_code_add)( runner->fb_builder, (uchar)(-err) ) );
-  FD_TEST( SOL_COMPAT_NS(ELFLoaderEffects_end_as_root)( runner->fb_builder ) );
-}
+  fd_spad_t *   spad    = runner->spad;
+  uchar const * elf_bin = input->elf_data ? input->elf_data->bytes : NULL;
+  ulong         elf_sz  = input->elf_data ? input->elf_data->size  : 0UL;
 
-int
-fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
-                              void const *          input_ ) {
-  SOL_COMPAT_NS(ELFLoaderCtx_table_t) input = fd_type_pun_const( input_ );
-
-  fd_spad_t *             spad     = runner->spad;
-  flatbuffers_uint8_vec_t elf_bin_ = SOL_COMPAT_NS(ELFLoaderCtx_elf_data( input ));
-  uchar const *           elf_bin  = (uchar const*)elf_bin_;
-  ulong                   elf_sz   = flatbuffers_uint8_vec_len( elf_bin_ );
+  /* Allocate effects struct out of the caller's output buffer */
+  ulong output_end = (ulong)output_buf + output_bufsz;
+  FD_SCRATCH_ALLOC_INIT( l, output_buf );
+  fd_exec_test_elf_loader_effects_t * effects =
+    FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_elf_loader_effects_t),
+                                sizeof (fd_exec_test_elf_loader_effects_t) );
+  if( FD_UNLIKELY( _l > output_end ) ) return 0UL;
+  fd_memset( effects, 0, sizeof(fd_exec_test_elf_loader_effects_t) );
 
   /* Restore feature set */
   fd_features_t feature_set = {0};
-  fd_solfuzz_fb_restore_features( &feature_set, SOL_COMPAT_NS(ELFLoaderCtx_features( input )));
+  if( FD_UNLIKELY( input->has_features &&
+                   !fd_solfuzz_pb_restore_features( &feature_set, &input->features ) ) ) {
+    return 0UL;
+  }
 
   fd_sbpf_loader_config_t config = {
-    .elf_deploy_checks = SOL_COMPAT_NS(ELFLoaderCtx_deploy_checks( input )),
+    .elf_deploy_checks = input->deploy_checks,
   };
 
   fd_prog_versions_t versions = fd_prog_versions( &feature_set, UINT_MAX );
@@ -52,8 +52,9 @@ fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
   fd_sbpf_elf_info_t info;
   int err = fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config );
   if( err ) {
-    fd_solfuzz_fb_elf_loader_build_err_effects( runner, err );
-    return SOL_COMPAT_V2_SUCCESS;
+    effects->err_code = (uint)(-err);
+    *output = effects;
+    return FD_SCRATCH_ALLOC_FINI( l, 1UL ) - (ulong)output_buf;
   }
 
   /* Set up loading context */
@@ -70,28 +71,18 @@ fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
   /* Load */
   err = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config, rodata_scratch, elf_sz );
   if( err ) {
-    fd_solfuzz_fb_elf_loader_build_err_effects( runner, err );
-    return SOL_COMPAT_V2_SUCCESS;
+    effects->err_code = (uint)(-err);
+    *output = effects;
+    return FD_SCRATCH_ALLOC_FINI( l, 1UL ) - (ulong)output_buf;
   }
 
   /**** Capture effects ****/
 
-  /* Error code */
-  uchar out_err_code = FD_SBPF_ELF_SUCCESS;
-
-  /* Rodata */
-  ulong out_rodata_hash_u64 = fd_hash( 0UL, prog->rodata, prog->rodata_sz );
-  SOL_COMPAT_NS(XXHash_t) out_rodata_hash;
-  fd_memcpy( out_rodata_hash.hash, &out_rodata_hash_u64, sizeof(ulong) );
-
-  /* Text count */
-  ulong out_text_cnt = prog->info.text_cnt;
-
-  /* Text off */
-  ulong out_text_off = fd_sbpf_enable_stricter_elf_headers_enabled( prog->info.sbpf_version ) ? 0UL : prog->info.text_off;
-
-  /* Entry PC */
-  ulong out_entry_pc = prog->entry_pc;
+  effects->err_code    = FD_SBPF_ELF_SUCCESS;
+  effects->rodata_hash = fd_hash( 0UL, prog->rodata, prog->rodata_sz );
+  effects->text_cnt    = prog->info.text_cnt;
+  effects->text_off    = fd_sbpf_enable_stricter_elf_headers_enabled( prog->info.sbpf_version ) ? 0UL : prog->info.text_off;
+  effects->entry_pc    = prog->entry_pc;
 
   /* Calldests */
   ulong   max_out_calldests_cnt = 1UL + ( prog->calldests ? fd_sbpf_calldests_cnt( prog->calldests ) : 0UL );
@@ -104,9 +95,9 @@ fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
 
     /* Add the rest of the calldests */
     if( FD_LIKELY( prog->calldests ) ) {
-      for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
-                          !fd_sbpf_calldests_const_iter_done(target_pc);
-                 target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
+      for( ulong target_pc=fd_sbpf_calldests_const_iter_init( prog->calldests );
+                          !fd_sbpf_calldests_const_iter_done( target_pc );
+                 target_pc=fd_sbpf_calldests_const_iter_next( prog->calldests, target_pc ) ) {
         if( FD_LIKELY( target_pc!=prog->entry_pc ) ) {
           tmp_out_calldests[out_calldests_cnt++] = target_pc;
         }
@@ -117,15 +108,9 @@ fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
   /* Sort the calldests in ascending order */
   sort_ulong_inplace( tmp_out_calldests, out_calldests_cnt );
 
-  /* Create output calldests vector */
-  ulong out_calldests_hash_u64 = fd_hash( 0UL, tmp_out_calldests, sizeof(ulong) * out_calldests_cnt );
-  SOL_COMPAT_NS(XXHash_t) out_calldests_hash;
-  fd_memcpy( out_calldests_hash.hash, &out_calldests_hash_u64, sizeof(ulong) );
+  /* Compute calldests hash */
+  effects->calldests_hash = fd_hash( 0UL, tmp_out_calldests, sizeof(ulong) * out_calldests_cnt );
 
-  /* Build effects */
-  SOL_COMPAT_NS(ELFLoaderEffects_create_as_root)( runner->fb_builder, out_err_code, &out_rodata_hash, out_text_cnt, out_text_off, out_entry_pc, &out_calldests_hash );
-
-  return SOL_COMPAT_V2_SUCCESS;
+  *output = effects;
+  return FD_SCRATCH_ALLOC_FINI( l, 1UL ) - (ulong)output_buf;
 }
-
-#endif /* FD_HAS_FLATCC */

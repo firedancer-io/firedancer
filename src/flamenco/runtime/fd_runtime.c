@@ -1425,7 +1425,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
      dumping. */
   fd_executor_setup_txn_account_keys( txn_in, txn_out );
 
-# if FD_HAS_FLATCC
   uchar dump_txn = !!( runtime->log.dump_proto_ctx &&
                        bank->f.slot >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
                        runtime->log.dump_proto_ctx->dump_txn_to_pb );
@@ -1438,7 +1437,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
       fd_dump_txn_to_protobuf( runtime, bank, txn_in, txn_out );
     }
   }
-# endif
 
   /* Transaction sanitization.  If a transaction can't be commited or is
      fees-only, we return early. */
@@ -1455,13 +1453,11 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   ulong cu_after = txn_out->details.compute_budget.compute_meter;
   runtime->metrics.cu_cum += fd_ulong_sat_sub( cu_before, cu_after );
 
-# if FD_HAS_FLATCC
   /* Phase 2: Capture TxnResult after execution and write to disk. */
   if( FD_UNLIKELY( dump_txn && runtime->log.txn_dump_ctx ) ) {
     fd_dump_txn_result_to_protobuf( runtime->log.txn_dump_ctx, txn_in, txn_out, txn_out->err.txn_err );
     fd_dump_txn_fixture_to_file( runtime->log.txn_dump_ctx, runtime->log.dump_proto_ctx, txn_in );
   }
-# endif
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble

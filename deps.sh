@@ -151,7 +151,6 @@ fetch () {
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.0.4"
     checkout_repo snappy  https://github.com/google/snappy            "1.2.2"
-    checkout_repo flatcc  https://github.com/dvidelabs/flatcc         "" "3ae5eda"
   fi
 }
 
@@ -604,21 +603,6 @@ install_snappy () {
   echo "[+] Successfully installed snappy"
 }
 
-install_flatcc () {
-  echo "[+] Installing flatcc"
-  cd "$PREFIX/git/flatcc"
-  cmake -B build \
-    -DCMAKE_INSTALL_PREFIX=$PREFIX \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DFLATCC_INSTALL=ON \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_CXX_FLAGS="$EXTRA_CXXFLAGS" \
-    -DCMAKE_EXE_LINKER_FLAGS="$EXTRA_LDFLAGS"
-  cmake --build build -j
-  cmake --install build
-  echo "[+] Successfully installed flatcc"
-}
-
 install () {
   CC="$(command -v $_CC)"
   cc="$CC"
@@ -645,7 +629,6 @@ install () {
   if [[ $DEVMODE == 1 ]]; then
     ( install_snappy    )
     ( install_rocksdb   )
-    ( install_flatcc    )
   fi
 
   # Merge lib64 with lib

@@ -10,11 +10,7 @@
 #include "generated/vm.pb.h"
 #include "generated/txn.pb.h"
 #include "generated/cost.pb.h"
-
-#if FD_HAS_FLATCC
-#include "flatbuffers/generated/elf_reader.h"
-#include "flatbuffers/generated/flatbuffers_common_reader.h"
-#endif
+#include "generated/elf.pb.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -265,43 +261,25 @@ sol_compat_gossip_decode_v1( uchar *       out,
   return ok;
 }
 
-/*
- * execute_v2
-   Unlike sol_compat_execute_v1 APIs, v2 APIs use flatbuffers for
-   zero-copy decoding. Returns SOL_COMPAT_V2_SUCCESS on success and
-   SOL_COMPAT_V2_FAILURE on failure.
-
-   out: output buffer
-   out_sz: output buffer size
-   in: input buffer
-   in_sz: input buffer size (unused)
-
-   Since flatbuffers utilizes zero-copy decoding, the v2 API does not
-   require an input buffer size. Therefore, it is the caller's
-   responsibility to ensure the input buffer is well-formed (preferably
-   using a call to _verify_as_root) to avoid any OOB reads.
-
-   TODO: Make sol_compat_v2 APIs infallible???
- */
-
-#if FD_HAS_FLATCC
-
 int
-sol_compat_elf_loader_v2( uchar *            out,
-                          ulong *            out_sz,
-                          uchar const *      in,
-                          ulong FD_FN_UNUSED in_sz ) {
-  SOL_COMPAT_NS(ELFLoaderCtx_table_t) input = SOL_COMPAT_NS(ELFLoaderCtx_as_root( in ));
-  if( FD_UNLIKELY( !input ) ) return 0;
+sol_compat_elf_loader_v1( uchar *       out,
+                          ulong *       out_sz,
+                          uchar const * in,
+                          ulong         in_sz ) {
+  fd_exec_test_elf_loader_ctx_t input[1] = {0};
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_elf_loader_ctx_t_msg );
+  if( FD_UNLIKELY( !res ) ) return 0;
 
-  int err = fd_solfuzz_fb_execute_wrapper( runner, input, fd_solfuzz_fb_elf_loader_run );
-  if( FD_UNLIKELY( err==SOL_COMPAT_V2_FAILURE ) ) return err;
+  int ok = 0;
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_elf_loader_run );
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_elf_loader_effects_t_msg );
+  }
+  fd_spad_pop( runner->spad );
 
-  ulong buffer_sz = flatcc_builder_get_buffer_size( runner->fb_builder );
-  flatcc_builder_copy_buffer( runner->fb_builder, out, buffer_sz );
-  *out_sz = buffer_sz;
-
-  return SOL_COMPAT_V2_SUCCESS;
+  pb_release( &fd_exec_test_elf_loader_ctx_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
 }
-
-#endif /* FD_HAS_FLATCC */
