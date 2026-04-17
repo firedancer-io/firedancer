@@ -20,6 +20,8 @@ uint  verify_scratch[ 512UL ];
 static inline FD_RDISP_BLOCK_TAG_T tag( ulong x ) { return x; }
 static inline int tag_eq( FD_RDISP_BLOCK_TAG_T t1, ulong t2 ) { return t1==t2; }
 
+static ulong signer_idx = 0UL;
+
 static ulong
 add_txn( fd_rdisp_t *         rdisp,
          fd_rng_t   *         rng,
@@ -39,16 +41,16 @@ add_txn( fd_rdisp_t *         rdisp,
     }
   }
 
-  FD_TEST( cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]<=38UL );
+  FD_TEST( 1+cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]<=1232UL/32UL );
 
   uchar _txn[ sizeof(fd_txn_t) ] __attribute__((aligned(alignof(fd_txn_t)))) = { 0 };
 
   fd_txn_t * txn = (fd_txn_t *)fd_type_pun( _txn );
   txn->transaction_version = FD_TXN_V0;
-  txn->signature_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]);
+  txn->signature_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]+1);
   txn->readonly_signed_cnt = (uchar)cat_cnts[0][1];
   txn->readonly_unsigned_cnt = (uchar)cat_cnts[1][1];
-  txn->acct_addr_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]);
+  txn->acct_addr_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]+1);
   txn->acct_addr_off = 0;
   txn->addr_table_lookup_cnt = 1;
   txn->addr_table_adtl_writable_cnt = (uchar)cat_cnts[2][0];
@@ -56,6 +58,9 @@ add_txn( fd_rdisp_t *         rdisp,
 
   uchar payload[ 1232 ];
   fd_acct_addr_t * acct = (fd_acct_addr_t *)fd_type_pun( payload );
+
+  memset( acct, '\0', 32UL ); FD_STORE( ulong, acct++, signer_idx++ );
+
   for( ulong i=0UL; i<4UL; i++ ) for( ulong j=0UL; j<cat_cnts[i>>1][i&1]; j++ ) memset( acct++, categorized[i>>1][i&1][j], 32UL );
   fd_acct_addr_t alt[ 128 ];
   acct = alt;
@@ -76,23 +81,25 @@ add_txn2( fd_rdisp_t *         rdisp,
           ulong                acct_cnt ) {
   ushort categorized[3][2][128]; /* (signer, nonsigner, alt) x (writeble, readonly) x accts */
   ulong  cat_cnts[3][2] = { 0 };
+  ulong  imm_cnt = 0UL;
 
   for( ulong i=0UL; i<acct_cnt; i++ ) {
-    ulong cat = fd_rng_uint_roll( rng, 3UL );
+    ulong cat = fd_ulong_if( imm_cnt<30UL, fd_rng_uint_roll( rng, 3UL ), 2UL );
     ushort a = accts[i];
     categorized[cat][1-(a>>15)][ cat_cnts[cat][1-(a>>15)]++ ] = a&0x7FFF;
+    imm_cnt += (ulong)(cat!=2);
   }
 
-  FD_TEST( cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]<=38UL );
+  FD_TEST( 1+cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]<=1232UL/32UL );
 
   uchar _txn[ sizeof(fd_txn_t) ] __attribute__((aligned(alignof(fd_txn_t)))) = { 0 };
 
   fd_txn_t * txn = (fd_txn_t *)fd_type_pun( _txn );
   txn->transaction_version = FD_TXN_V0;
-  txn->signature_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]);
+  txn->signature_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]+1);
   txn->readonly_signed_cnt = (uchar)cat_cnts[0][1];
   txn->readonly_unsigned_cnt = (uchar)cat_cnts[1][1];
-  txn->acct_addr_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]);
+  txn->acct_addr_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]+1);
   txn->acct_addr_off = 0;
   txn->addr_table_lookup_cnt = 1;
   txn->addr_table_adtl_writable_cnt = (uchar)cat_cnts[2][0];
@@ -100,6 +107,9 @@ add_txn2( fd_rdisp_t *         rdisp,
 
   uchar payload[ 1232 ];
   fd_acct_addr_t * acct = (fd_acct_addr_t *)fd_type_pun( payload );
+
+  memset( acct, '\0', 32UL ); FD_STORE( ulong, acct++, signer_idx++ );
+
   for( ulong i=0UL; i<4UL; i++ ) for( ulong j=0UL; j<cat_cnts[i>>1][i&1]; j++ ) ushort_to_acct( acct++, categorized[i>>1][i&1][j] );
   fd_acct_addr_t alt[ 128 ];
   acct = alt;
@@ -565,6 +575,7 @@ main( int     argc,
   FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2], 1 );
 
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 2UL ) ) );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 3UL ) ) );
 
   ulong t4[5];
   FD_TEST( 0==fd_rdisp_add_block( disp, tag( 4UL ), 1UL ) );
@@ -655,14 +666,56 @@ main( int     argc,
     FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 1UL ) ) );
   }
 
+  ulong txn_idxs[100];
+
+  /* Test transactions with 128 accounts */
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), 1UL ) );
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 1UL ), FD_RDISP_UNSTAGED ) );
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 2UL ), FD_RDISP_UNSTAGED ) );
+  for( ulong block_tag=0UL; block_tag<=2UL; block_tag++ ) {
+    for( ulong i=0UL; i<depth; i++ ) {
+      ushort accts[128];
+      ushort acct_idx = 0;
+      for( ulong j=0UL; j<127UL; j++ ) {
+        acct_idx += (ushort)(fd_rng_ushort_roll( rng, 5 ) + 1); /* no duplicate accounts possible */
+        accts[j] = (ushort)((ulong)acct_idx | (((i|j)&1UL)<<15));
+      }
+      add_txn2( disp, rng, tag( block_tag ), accts, 127UL ); /* fee payer added */
+    }
+    fd_rdisp_verify( disp, verify_scratch );
+
+    if( block_tag==2UL ) {
+      FD_TEST( 0==fd_rdisp_promote_block( disp, tag( 2UL ), 2UL ) );
+      fd_rdisp_verify( disp, verify_scratch );
+    }
+
+    ulong disp_cnt = 0UL;
+    ulong done_cnt = 0UL;
+    while( done_cnt<100UL ) {
+      ulong txn_idx = fd_rdisp_get_next_ready( disp, tag( block_tag ) );
+      if( FD_LIKELY( txn_idx==0UL ) ) {
+        FD_TEST( disp_cnt );
+        ulong compl_i = fd_rng_uint_roll( rng, (uint)disp_cnt );
+        fd_rdisp_complete_txn( disp, txn_idxs[compl_i], 1 );
+        txn_idxs[compl_i] = txn_idxs[--disp_cnt];
+        done_cnt++;
+      } else {
+        txn_idxs[disp_cnt++] = txn_idx;
+      }
+    }
+    FD_TEST(  0==fd_rdisp_remove_block( disp, tag( block_tag ) ) );
+  }
+
+
+  ulong txn_cnt=0UL;
   /* Thrash the account map */
   FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), 1UL ) );
   ushort accts[38];
-  ulong txn_idxs[100];
-  ulong txn_cnt=0UL;
-  for( ulong iter=0UL; iter<USHORT_MAX/38UL; iter++ ) {
-    for( ulong j=0UL; j<38UL; j++ ) accts[j] = (ushort)(38UL*iter + j);
-    ulong txn_idx = add_txn2( disp, rng, tag( 0UL ), accts, 38UL );
+  /* 37 accounts will definitely fit in the transaction payload, even if
+     we get unlucky and they are all immediate. */
+  for( ulong iter=0UL; iter<USHORT_MAX/37UL; iter++ ) {
+    for( ulong j=0UL; j<37UL; j++ ) accts[j] = (ushort)(37UL*iter + j);
+    ulong txn_idx = add_txn2( disp, rng, tag( 0UL ), accts, 37UL );
     FD_TEST( txn_idx==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
     txn_idxs[txn_cnt++] = txn_idx;
     if( FD_UNLIKELY( txn_cnt==100UL ) ) while( txn_cnt ) fd_rdisp_complete_txn( disp, txn_idxs[--txn_cnt], 1 );
