@@ -192,9 +192,23 @@ union fd_replay_message {
   fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
-  fd_replay_fec_evicted_t          reasm_evicted;
+  fd_replay_fec_evicted_t     reasm_evicted;
 };
 
 typedef union fd_replay_message fd_replay_message_t;
+
+/* admin cmd discriminators, stored in frag_meta.ctl.orig */
+#define REPLAY_ADMIN_CMD_SNAP_CREATE 1
+
+/* admin rsp err discriminators, stored in frag_meta.sig */
+#define REPLAY_ADMIN_SUCCESS         0
+#define REPLAY_ADMIN_ERR_UNSUPPORTED 1
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST char const *
+fd_replay_admin_strerror( ulong err );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_replay_fd_replay_tile_h */
