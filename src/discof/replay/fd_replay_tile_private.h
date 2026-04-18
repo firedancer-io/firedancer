@@ -338,11 +338,10 @@ struct fd_replay_tile {
   int in_kind[ 128 ];
   fd_replay_in_link_t in[ 128 ];
 
-  fd_replay_out_link_t exec_out[ 1 ];
-
+  fd_replay_out_link_t exec_out[1];
   fd_replay_out_link_t replay_out[1];
-
   fd_replay_out_link_t epoch_out[1];
+  ulong                admin_out_idx;
 
   /* The rpc tile needs to occasionally own a reference to a live bank.
      Replay needs to know if the rpc as a consumer is enabled so it can
