@@ -69,10 +69,10 @@ fd_compute_budget_instr_decode( uchar const *               data,
       CHECK_LEFT( 8UL );
       break;
     case FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_HEAP_FRAME:
-      CHECK_LEFT( 4UL ); out->request_heap_frame = FD_LOAD( uint,  CURSOR ); INC( 4UL );
+      CHECK_LEFT( 4UL ); out->request_heap_frame = FD_LOAD( uint, CURSOR ); INC( 4UL );
       break;
     case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_LIMIT:
-      CHECK_LEFT( 4UL ); out->set_compute_unit_limit = FD_LOAD( uint,  CURSOR ); INC( 4UL );
+      CHECK_LEFT( 4UL ); out->set_compute_unit_limit = FD_LOAD( uint, CURSOR ); INC( 4UL );
       break;
     case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_PRICE:
       CHECK_LEFT( 8UL ); out->set_compute_unit_price = FD_LOAD( ulong, CURSOR ); INC( 8UL );
