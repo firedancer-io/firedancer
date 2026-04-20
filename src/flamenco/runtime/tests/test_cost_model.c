@@ -6,6 +6,7 @@
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../program/fd_compute_budget_program.h"
+#include "../program/fd_system_program.h"
 #include "../../features/fd_features.h"
 #include "../../types/fd_types.h"
 #include "../../../ballet/txn/fd_txn.h"
@@ -48,10 +49,10 @@ static ushort
 encode_system_instruction( fd_system_program_instruction_t const * instr,
                            uchar *                                 buf,
                            ushort                                  buf_sz ) {
-  fd_bincode_encode_ctx_t ctx = { .data = buf, .dataend = buf + buf_sz };
-  int err = fd_system_program_instruction_encode( instr, &ctx );
+  ulong out_sz;
+  int err = fd_system_program_instruction_encode( instr, buf, (ulong)buf_sz, &out_sz );
   FD_TEST( !err );
-  return (ushort)((uchar *)ctx.data - buf);
+  return (ushort)out_sz;
 }
 
 static void
@@ -148,7 +149,7 @@ run_allocated_data_size( fd_bank_t * bank, test_ix_t * ixs, ushort ix_cnt ) {
 static void
 test_calculate_allocated_accounts_data_size_no_allocation( fd_bank_t * bank ) {
   fd_system_program_instruction_t instr = {0};
-  instr.discriminant = fd_system_program_instruction_enum_transfer;
+  instr.discriminant = FD_SYSTEM_PROGRAM_INSTR_TRANSFER;
   instr.inner.transfer = 1UL;
 
   uchar data[64];
@@ -162,11 +163,11 @@ test_calculate_allocated_accounts_data_size_no_allocation( fd_bank_t * bank ) {
 static void
 test_calculate_allocated_accounts_data_size_multiple_allocations( fd_bank_t * bank ) {
   fd_system_program_instruction_t create_instr = {0};
-  create_instr.discriminant = fd_system_program_instruction_enum_create_account;
+  create_instr.discriminant = FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT;
   create_instr.inner.create_account.space = 100UL;
 
   fd_system_program_instruction_t alloc_instr = {0};
-  alloc_instr.discriminant = fd_system_program_instruction_enum_allocate;
+  alloc_instr.discriminant = FD_SYSTEM_PROGRAM_INSTR_ALLOCATE;
   alloc_instr.inner.allocate = 200UL;
 
   uchar data1[64];
@@ -190,7 +191,7 @@ test_calculate_allocated_accounts_data_size_max_limit( fd_bank_t * bank ) {
 
   fd_system_program_instruction_t instrs[3] = {0};
   for( int i=0; i<3; i++ ) {
-    instrs[i].discriminant = fd_system_program_instruction_enum_create_account;
+    instrs[i].discriminant = FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT;
     instrs[i].inner.create_account.space = spaces[i];
   }
 
@@ -214,11 +215,11 @@ test_calculate_allocated_accounts_data_size_max_limit( fd_bank_t * bank ) {
 static void
 test_calculate_allocated_accounts_data_size_overflow( fd_bank_t * bank ) {
   fd_system_program_instruction_t create_instr = {0};
-  create_instr.discriminant = fd_system_program_instruction_enum_create_account;
+  create_instr.discriminant = FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT;
   create_instr.inner.create_account.space = 100UL;
 
   fd_system_program_instruction_t alloc_instr = {0};
-  alloc_instr.discriminant = fd_system_program_instruction_enum_allocate;
+  alloc_instr.discriminant = FD_SYSTEM_PROGRAM_INSTR_ALLOCATE;
   alloc_instr.inner.allocate = ULONG_MAX;
 
   uchar data1[64];
@@ -238,7 +239,7 @@ test_calculate_allocated_accounts_data_size_overflow( fd_bank_t * bank ) {
 static void
 test_calculate_allocated_accounts_data_size_invalid_ix( fd_bank_t * bank ) {
   fd_system_program_instruction_t alloc_instr = {0};
-  alloc_instr.discriminant = fd_system_program_instruction_enum_allocate;
+  alloc_instr.discriminant = FD_SYSTEM_PROGRAM_INSTR_ALLOCATE;
   alloc_instr.inner.allocate = 100UL;
 
   uchar data1[64];

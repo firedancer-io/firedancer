@@ -1,4 +1,5 @@
 #include "fd_bpf_loader_program.h"
+#include "fd_system_program.h"
 
 /* For additional context see https://solana.com/docs/programs/deploying#state-accounts */
 
@@ -829,29 +830,22 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1498-L1501 */
     uchar instr_data[FD_TXN_MTU];
     fd_system_program_instruction_t instr = {
-      .discriminant = fd_system_program_instruction_enum_transfer,
+      .discriminant = FD_SYSTEM_PROGRAM_INSTR_TRANSFER,
       .inner = {
         .transfer = required_payment
       }
     };
 
-    fd_bincode_encode_ctx_t encode_ctx = {
-      .data    = instr_data,
-      .dataend = instr_data + FD_TXN_MTU
-    };
-
-    // This should never fail.
-    int err = fd_system_program_instruction_encode( &instr, &encode_ctx );
+    ulong instr_data_sz;
+    int err = fd_system_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz );
     if( FD_UNLIKELY( err ) ) {
       return FD_EXECUTOR_INSTR_ERR_FATAL;
     }
-
 
     fd_vm_rust_account_meta_t acct_metas[ 2UL ];
     fd_native_cpi_create_account_meta( payer_key,       1UL, 1UL, &acct_metas[ 0UL ] );
     fd_native_cpi_create_account_meta( programdata_key, 0UL, 1UL, &acct_metas[ 1UL ] );
 
-    ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
     err = fd_native_cpi_native_invoke( instr_ctx,
                                        &fd_solana_system_program_id,
                                        instr_data,
@@ -1237,7 +1231,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Pass an extra account to avoid the overly strict unbalanced instruction error */
       /* Invoke the system program to create the new account */
       uchar instr_data[FD_TXN_MTU];
-      fd_system_program_instruction_create_account_t create_acct = {
+      create_account_t create_acct = {
         .lamports = fd_rent_exempt_minimum_balance( rent, programdata_len ),
         .space    = programdata_len,
         .owner    = *program_id,
@@ -1247,19 +1241,14 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       fd_system_program_instruction_t instr = {
-        .discriminant = fd_system_program_instruction_enum_create_account,
+        .discriminant = FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT,
         .inner = {
           .create_account = create_acct,
         }
       };
 
-      fd_bincode_encode_ctx_t encode_ctx = {
-        .data    = instr_data,
-        .dataend = instr_data + FD_TXN_MTU
-      };
-
-      // This should never fail.
-      err = fd_system_program_instruction_encode( &instr, &encode_ctx );
+      ulong instr_data_sz;
+      err = fd_system_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz );
       if( FD_UNLIKELY( err ) ) {
         return FD_EXECUTOR_INSTR_ERR_FATAL;
       }
@@ -1275,7 +1264,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
-      ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
       err = fd_native_cpi_native_invoke( instr_ctx,
                                          &fd_solana_system_program_id,
                                          instr_data,
