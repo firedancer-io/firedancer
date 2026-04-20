@@ -86,6 +86,8 @@ snapshot_create_cmd_fn( args_t *   args,
   ulong volatile * mk_tile_metrics    = fd_metrics_tile( snapmk_metrics_obj );
   ulong volatile * zp_in_metrics      = fd_metrics_link_in( snapzp_metrics_obj, 0UL );
 
+  ulong accounts_before = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
+
   /* Send snapshot create command */
   ulong err = send_admin_cmd( admin_cmd_mcache, admin_rsp_mcache, REPLAY_ADMIN_CMD_SNAP_CREATE );
   switch( err ) {
@@ -107,20 +109,22 @@ snapshot_create_cmd_fn( args_t *   args,
 
   /* Wait for snapshot load to complete */
   fd_log_sleep( (long)1e8 );
-  ulong accounts_processed_prev = 0UL;
-  ulong tot_sz_prev = 0UL;
+  ulong accounts_processed_prev = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
+  ulong tot_sz_prev             = zp_in_metrics  [ MIDX( COUNTER, LINK,   CONSUMED_SIZE_BYTES ) ];
   while( mk_tile_metrics[ MIDX( GAUGE, SNAPMK, ACTIVE ) ] ) {
     fd_log_sleep( (long)1e8 );
     ulong accounts_processed = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED  ) ];
     ulong tot_sz             = zp_in_metrics  [ MIDX( COUNTER, LINK,   CONSUMED_SIZE_BYTES ) ];
     char buf[ 64 ];
-    FD_LOG_NOTICE(( "  accounts=%.2g/s  data=%s",
+    FD_LOG_NOTICE(( "  accounts=%7.2g/s  data=%s",
       (double)(accounts_processed - accounts_processed_prev)*10,
       fmt_bytes( buf, sizeof(buf), (double)(tot_sz - tot_sz_prev)*10 ) ));
     accounts_processed_prev = accounts_processed;
     tot_sz_prev = tot_sz;
   }
-  FD_LOG_NOTICE(( "Done" ));
+
+  ulong accounts_after = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
+  FD_LOG_NOTICE(( "Done (%lu accounts)", accounts_after - accounts_before ));
 }
 
 action_t fd_action_snapshot_create = {

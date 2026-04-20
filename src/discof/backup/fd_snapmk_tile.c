@@ -4,6 +4,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/pod/fd_pod.h"
+#include "fd_funk_scan.h"
 //#include "../../util/archive/fd_tar.h"
 
 union __attribute__((packed)) snap_acc_hdr {
@@ -26,88 +27,6 @@ typedef union snap_acc_hdr snap_acc_hdr_t;
 /* Funk rooted record iterator (thread-safe) */
 
 #define CHAIN_MAX (4096UL) /* ought to be enough */
-
-struct rec_iter {
-  fd_funk_rec_t const *     rec0;
-  fd_funk_rec_map_t const * rec_map;
-  ulong chain_i;
-  ulong chain_j;
-  ulong chain_len;
-  ulong ele_max;
-  fd_funk_rec_t const * chain_ele[ CHAIN_MAX ];
-};
-typedef struct rec_iter rec_iter_t;
-
-static _Bool
-rec_iter_next_chain( rec_iter_t * iter ) {
-  if( FD_UNLIKELY( iter->chain_i >= iter->rec_map->map->chain_cnt ) ) {
-    iter->chain_i = ULONG_MAX;
-    return 0;
-  }
-  ulong chain_idx = iter->chain_i++;
-  /* "atomically" fetch all record pointers in a hash map bucket,
-     protected by a seqlock */
-  ulong ele_max = iter->ele_max;
-  fd_funk_rec_map_shmem_private_chain_t const * chain = fd_funk_rec_map_shmem_private_chain_const( iter->rec_map->map, chain_idx );
-  for(;;) {
-    ulong ver_cnt = __atomic_load_n( &chain->ver_cnt, __ATOMIC_ACQUIRE );
-    if( FD_UNLIKELY( fd_funk_rec_map_private_vcnt_ver( ver_cnt )&1 ) ) goto fail; /* locked */
-    ulong cnt = fd_funk_rec_map_private_vcnt_cnt( ver_cnt );
-    if( FD_UNLIKELY( cnt>CHAIN_MAX ) ) FD_LOG_CRIT(( "too many elements (%lu) in funk chain[%lu]", cnt, chain_idx ));
-    uint ele_idx = chain->head_cidx;
-    for( ulong i=0UL; i<cnt; i++ ) {
-      if( FD_UNLIKELY( ele_idx>=ele_max ) ) goto fail;
-      fd_funk_rec_t const * rec = &iter->rec0[ ele_idx ];
-      iter->chain_ele[ i ] = rec;
-      ele_idx = rec->map_next;
-    }
-    if( FD_LIKELY( ver_cnt==__atomic_load_n( &chain->ver_cnt, __ATOMIC_ACQUIRE ) ) ) {
-      if( FD_UNLIKELY( ele_idx!=UINT_MAX ) ) FD_LOG_CRIT(( "funk chain[%lu] with length %lu is corrupt", chain_idx, cnt ));
-      iter->chain_j   = 0UL;
-      iter->chain_len = cnt;
-      break;
-    }
-  fail:
-    FD_SPIN_PAUSE();
-  }
-  return 1;
-}
-
-static inline rec_iter_t *
-rec_iter_init( rec_iter_t *      iter,
-               fd_funk_t const * funk ) {
-  *iter = (rec_iter_t){
-    .rec0      = funk->rec_pool->ele,
-    .rec_map   = funk->rec_map,
-    .chain_i   = 0UL,
-    .chain_j   = ULONG_MAX,
-    .chain_len = 0UL,
-    .ele_max   = funk->rec_pool->ele_max
-  };
-  return iter;
-}
-
-static inline fd_funk_rec_t const *
-rec_iter_next( rec_iter_t * iter ) {
-  if( FD_UNLIKELY( iter->chain_i==ULONG_MAX ) ) return NULL;
-  if( FD_UNLIKELY( iter->chain_j >= iter->chain_len ) ) {
-    for(;;) {
-      if( FD_UNLIKELY( !rec_iter_next_chain( iter ) ) ) return NULL;
-      if( iter->chain_len > 0 ) break;
-    }
-  }
-  return iter->chain_ele[ iter->chain_j++ ];
-}
-
-static inline fd_funk_rec_t const *
-rec_iter_next_root( rec_iter_t * iter ) {
-  for(;;) {
-    fd_funk_rec_t const * rec = rec_iter_next( iter );
-    if( FD_UNLIKELY( !rec ) ) return NULL;
-    fd_xid_t xid; fd_funk_txn_xid_ld_atomic( &xid, rec->pair.xid );
-    if( FD_LIKELY( fd_funk_txn_xid_eq_root( &xid ) ) ) return rec;
-  }
-}
 
 /* Output link */
 
@@ -134,7 +53,7 @@ struct fd_snapmk {
   fd_funk_t funk[1];
 
   uint state;
-  rec_iter_t rec_iter[1];
+  fd_funk_scan_t scan[1];
 
   ulong out_meta_idx;
   ulong out_cnt;
@@ -310,14 +229,16 @@ send_account_frags( fd_snapmk_t *       ctx,
     fd_account_meta_t const * val;
     if( !out->rec ) {
       if( FD_UNLIKELY( buf_rem < sizeof(snap_acc_hdr_t) ) ) break;
-      out->rec = rec_iter_next_root( ctx->rec_iter );
-      if( FD_UNLIKELY( !out->rec ) ) {
+      ulong rec_idx = fd_funk_scan_next_rooted( ctx->scan );
+      if( FD_UNLIKELY( rec_idx==ULONG_MAX ) ) {
+        FD_LOG_NOTICE(( "chain=%lu rec_cnt=%lu", ctx->scan->chain, ctx->scan->rec_tot ));
         ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
         FD_LOG_NOTICE(( "DONE" ));
         break;
       }
+      out->rec = ctx->scan->rec[ rec_idx ];
       ctx->metrics.accounts_processed++;
-      val = fd_funk_val( out->rec, ctx->funk->wksp );
+      val = ctx->scan->val[ rec_idx ];
       snap_acc_hdr_t hdr = {
         .slot       = val->slot,
         .data_len   = val->dlen,
@@ -388,7 +309,7 @@ snap_begin( fd_snapmk_t * ctx ) {
     return;
   }
   ctx->state = SNAPMK_STATE_ACCOUNTS;
-  rec_iter_init( ctx->rec_iter, ctx->funk );
+  fd_funk_scan_init( ctx->scan, ctx->funk, 0UL, ULONG_MAX );
   FD_LOG_NOTICE(( "START" ));
 }
 
