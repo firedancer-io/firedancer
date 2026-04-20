@@ -50,3 +50,6 @@ $(call run-unit-test,test_create_account_allow_prefund)
 endif
 endif
 endif
+
+$(call make-unit-test,test_compute_budget_decode,test_compute_budget_decode,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_compute_budget_decode)

@@ -18,6 +18,67 @@
 #define FD_PROGRAM_KIND_BUILTIN           (1)
 #define FD_PROGRAM_KIND_MIGRATING_BUILTIN (2)
 
+/* Borsh-encoded ComputeBudgetInstruction discriminants.
+   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/sdk/src/compute_budget.rs */
+
+#define FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_UNITS_DEPRECATED            (0U)
+#define FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_HEAP_FRAME                  (1U)
+#define FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_LIMIT              (2U)
+#define FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_PRICE              (3U)
+#define FD_COMPUTE_BUDGET_INSTR_DISC_SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT (4U)
+
+/* fd_compute_budget_instr_t is the in-memory representation of a
+   decoded ComputeBudgetInstruction.  Agave uses borsh with a 1-byte
+   u8 discriminant.  Trailing bytes are allowed (try_from_slice_unchecked). */
+
+struct fd_compute_budget_instr {
+  uchar discriminant;
+  union {
+    uint  request_heap_frame;
+    uint  set_compute_unit_limit;
+    ulong set_compute_unit_price;
+    uint  set_loaded_accounts_data_size_limit;
+  };
+};
+typedef struct fd_compute_budget_instr fd_compute_budget_instr_t;
+
+/* fd_compute_budget_instr_decode decodes a borsh-serialized
+   ComputeBudgetInstruction from [data, data+data_sz).
+   Returns 0 on success, -1 on decode failure. */
+
+static inline int
+fd_compute_budget_instr_decode( uchar const *               data,
+                                ulong                       data_sz,
+                                fd_compute_budget_instr_t * out ) {
+  if( FD_UNLIKELY( data_sz<1UL ) ) return -1;
+  out->discriminant = data[0];
+  uchar const * p   = data + 1;
+  ulong         rem = data_sz - 1;
+  switch( out->discriminant ) {
+    case FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_UNITS_DEPRECATED:
+      if( FD_UNLIKELY( rem<8UL ) ) return -1;
+      return 0;
+    case FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_HEAP_FRAME:
+      if( FD_UNLIKELY( rem<4UL ) ) return -1;
+      out->request_heap_frame = FD_LOAD( uint, p );
+      return 0;
+    case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_LIMIT:
+      if( FD_UNLIKELY( rem<4UL ) ) return -1;
+      out->set_compute_unit_limit = FD_LOAD( uint, p );
+      return 0;
+    case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_PRICE:
+      if( FD_UNLIKELY( rem<8UL ) ) return -1;
+      out->set_compute_unit_price = FD_LOAD( ulong, p );
+      return 0;
+    case FD_COMPUTE_BUDGET_INSTR_DISC_SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT:
+      if( FD_UNLIKELY( rem<4UL ) ) return -1;
+      out->set_loaded_accounts_data_size_limit = FD_LOAD( uint, p );
+      return 0;
+    default:
+      return -1;
+  }
+}
+
 FD_PROTOTYPES_BEGIN
 
 /* Validates the requested compute budget limits. Returns an error if
