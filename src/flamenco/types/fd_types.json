@@ -203,28 +203,6 @@
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/mod.rs#L9"
     },
     {
-      "name": "compute_budget_program_instruction_request_units_deprecated",
-      "type": "struct",
-      "fields": [
-        { "name": "units", "type": "uint" },
-        { "name": "additional_fee", "type": "uint" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/6c520396cd76807f6227a7973f7373b37894251c/sdk/src/compute_budget.rs#L28"
-    },
-    {
-      "name": "compute_budget_program_instruction",
-      "type": "enum",
-      "compact": true,
-      "variants": [
-        { "name": "request_units_deprecated", "type": "compute_budget_program_instruction_request_units_deprecated" },
-        { "name": "request_heap_frame", "type": "uint" },
-        { "name": "set_compute_unit_limit", "type": "uint" },
-        { "name": "set_compute_unit_price", "type": "ulong" },
-        { "name": "set_loaded_accounts_data_size_limit", "type": "uint" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/6c520396cd76807f6227a7973f7373b37894251c/sdk/src/compute_budget.rs#L25"
-    },
-    {
       "name": "bpf_loader_program_instruction_write",
       "type": "struct",
       "fields": [
@@ -367,32 +345,6 @@
         { "name": "status", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.1.4/sdk/program/src/loader_v4.rs#L33-L43"
-    },
-    {
-      "name": "lookup_table_meta",
-      "type": "struct",
-      "fields": [
-        { "name": "deactivation_slot", "type": "ulong" },
-        { "name": "last_extended_slot", "type": "ulong" },
-        { "name": "last_extended_slot_start_index", "type": "uchar" },
-        { "name": "authority", "type": "option", "element": "pubkey", "flat": true },
-        { "name": "_padding", "type": "ushort" }
-      ]
-    },
-    {
-      "name": "address_lookup_table",
-      "type": "struct",
-      "fields": [
-        { "name": "meta", "type": "lookup_table_meta" }
-      ]
-    },
-    {
-      "name": "address_lookup_table_state",
-      "type": "enum",
-      "variants": [
-        { "name": "uninitialized" },
-        { "name": "lookup_table", "type": "address_lookup_table" }
-      ]
     }
   ]
 }

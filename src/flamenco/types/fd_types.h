@@ -270,32 +270,6 @@ struct fd_nonce_state_versions {
 typedef struct fd_nonce_state_versions fd_nonce_state_versions_t;
 #define FD_NONCE_STATE_VERSIONS_ALIGN alignof(fd_nonce_state_versions_t)
 
-/* https://github.com/solana-labs/solana/blob/6c520396cd76807f6227a7973f7373b37894251c/sdk/src/compute_budget.rs#L28 */
-/* Encoded Size: Fixed (8 bytes) */
-struct fd_compute_budget_program_instruction_request_units_deprecated {
-  uint units;
-  uint additional_fee;
-};
-typedef struct fd_compute_budget_program_instruction_request_units_deprecated fd_compute_budget_program_instruction_request_units_deprecated_t;
-#define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_ALIGN alignof(fd_compute_budget_program_instruction_request_units_deprecated_t)
-
-union fd_compute_budget_program_instruction_inner {
-  fd_compute_budget_program_instruction_request_units_deprecated_t request_units_deprecated;
-  uint request_heap_frame;
-  uint set_compute_unit_limit;
-  ulong set_compute_unit_price;
-  uint set_loaded_accounts_data_size_limit;
-};
-typedef union fd_compute_budget_program_instruction_inner fd_compute_budget_program_instruction_inner_t;
-
-/* https://github.com/solana-labs/solana/blob/6c520396cd76807f6227a7973f7373b37894251c/sdk/src/compute_budget.rs#L25 */
-struct fd_compute_budget_program_instruction {
-  uint discriminant;
-  fd_compute_budget_program_instruction_inner_t inner;
-};
-typedef struct fd_compute_budget_program_instruction fd_compute_budget_program_instruction_t;
-#define FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN alignof(fd_compute_budget_program_instruction_t)
-
 /* Encoded Size: Dynamic */
 struct fd_bpf_loader_program_instruction_write {
   uint offset;
@@ -452,37 +426,6 @@ struct fd_loader_v4_state {
 };
 typedef struct fd_loader_v4_state fd_loader_v4_state_t;
 #define FD_LOADER_V4_STATE_ALIGN alignof(fd_loader_v4_state_t)
-
-/* Encoded Size: Dynamic */
-struct fd_lookup_table_meta {
-  ulong deactivation_slot;
-  ulong last_extended_slot;
-  uchar last_extended_slot_start_index;
-  fd_pubkey_t authority;
-  uchar has_authority;
-  ushort _padding;
-};
-typedef struct fd_lookup_table_meta fd_lookup_table_meta_t;
-#define FD_LOOKUP_TABLE_META_ALIGN alignof(fd_lookup_table_meta_t)
-
-/* Encoded Size: Dynamic */
-struct fd_address_lookup_table {
-  fd_lookup_table_meta_t meta;
-};
-typedef struct fd_address_lookup_table fd_address_lookup_table_t;
-#define FD_ADDRESS_LOOKUP_TABLE_ALIGN alignof(fd_address_lookup_table_t)
-
-union fd_address_lookup_table_state_inner {
-  fd_address_lookup_table_t lookup_table;
-};
-typedef union fd_address_lookup_table_state_inner fd_address_lookup_table_state_inner_t;
-
-struct fd_address_lookup_table_state {
-  uint discriminant;
-  fd_address_lookup_table_state_inner_t inner;
-};
-typedef struct fd_address_lookup_table_state fd_address_lookup_table_state_t;
-#define FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN alignof(fd_address_lookup_table_state_t)
 
 
 FD_PROTOTYPES_BEGIN
@@ -682,37 +625,6 @@ enum {
 fd_nonce_state_versions_enum_legacy = 0,
 fd_nonce_state_versions_enum_current = 1,
 };
-static inline void fd_compute_budget_program_instruction_request_units_deprecated_new( fd_compute_budget_program_instruction_request_units_deprecated_t * self ) { fd_memset( self, 0, sizeof(fd_compute_budget_program_instruction_request_units_deprecated_t) ); }
-int fd_compute_budget_program_instruction_request_units_deprecated_encode( fd_compute_budget_program_instruction_request_units_deprecated_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_compute_budget_program_instruction_request_units_deprecated_size( fd_compute_budget_program_instruction_request_units_deprecated_t const * self ) { (void)self; return 8UL; }
-static inline ulong fd_compute_budget_program_instruction_request_units_deprecated_align( void ) { return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_REQUEST_UNITS_DEPRECATED_ALIGN; }
-static inline int fd_compute_budget_program_instruction_request_units_deprecated_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_compute_budget_program_instruction_request_units_deprecated_t);
-  if( (ulong)ctx->data + 8UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_compute_budget_program_instruction_request_units_deprecated_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_compute_budget_program_instruction_new_disc( fd_compute_budget_program_instruction_t * self, uint discriminant );
-void fd_compute_budget_program_instruction_new( fd_compute_budget_program_instruction_t * self );
-int fd_compute_budget_program_instruction_encode( fd_compute_budget_program_instruction_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_compute_budget_program_instruction_size( fd_compute_budget_program_instruction_t const * self );
-static inline ulong fd_compute_budget_program_instruction_align( void ) { return FD_COMPUTE_BUDGET_PROGRAM_INSTRUCTION_ALIGN; }
-int fd_compute_budget_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_compute_budget_program_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_units_deprecated( fd_compute_budget_program_instruction_t const * self );
-FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_heap_frame( fd_compute_budget_program_instruction_t const * self );
-FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_limit( fd_compute_budget_program_instruction_t const * self );
-FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_compute_unit_price( fd_compute_budget_program_instruction_t const * self );
-FD_FN_PURE uchar fd_compute_budget_program_instruction_is_set_loaded_accounts_data_size_limit( fd_compute_budget_program_instruction_t const * self );
-enum {
-fd_compute_budget_program_instruction_enum_request_units_deprecated = 0,
-fd_compute_budget_program_instruction_enum_request_heap_frame = 1,
-fd_compute_budget_program_instruction_enum_set_compute_unit_limit = 2,
-fd_compute_budget_program_instruction_enum_set_compute_unit_price = 3,
-fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit = 4,
-};
 void fd_bpf_loader_program_instruction_write_new( fd_bpf_loader_program_instruction_write_t * self );
 int fd_bpf_loader_program_instruction_write_encode( fd_bpf_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_bpf_loader_program_instruction_write_size( fd_bpf_loader_program_instruction_write_t const * self );
@@ -911,34 +823,6 @@ static inline int fd_loader_v4_state_decode_footprint( fd_bincode_decode_ctx_t *
 }
 void * fd_loader_v4_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_lookup_table_meta_new( fd_lookup_table_meta_t * self );
-int fd_lookup_table_meta_encode( fd_lookup_table_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_lookup_table_meta_size( fd_lookup_table_meta_t const * self );
-static inline ulong fd_lookup_table_meta_align( void ) { return FD_LOOKUP_TABLE_META_ALIGN; }
-int fd_lookup_table_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_lookup_table_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_address_lookup_table_new( fd_address_lookup_table_t * self );
-int fd_address_lookup_table_encode( fd_address_lookup_table_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_address_lookup_table_size( fd_address_lookup_table_t const * self );
-static inline ulong fd_address_lookup_table_align( void ) { return FD_ADDRESS_LOOKUP_TABLE_ALIGN; }
-int fd_address_lookup_table_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_address_lookup_table_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_address_lookup_table_state_new_disc( fd_address_lookup_table_state_t * self, uint discriminant );
-void fd_address_lookup_table_state_new( fd_address_lookup_table_state_t * self );
-int fd_address_lookup_table_state_encode( fd_address_lookup_table_state_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_address_lookup_table_state_size( fd_address_lookup_table_state_t const * self );
-static inline ulong fd_address_lookup_table_state_align( void ) { return FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN; }
-int fd_address_lookup_table_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_address_lookup_table_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_address_lookup_table_state_is_uninitialized( fd_address_lookup_table_state_t const * self );
-FD_FN_PURE uchar fd_address_lookup_table_state_is_lookup_table( fd_address_lookup_table_state_t const * self );
-enum {
-fd_address_lookup_table_state_enum_uninitialized = 0,
-fd_address_lookup_table_state_enum_lookup_table = 1,
-};
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES

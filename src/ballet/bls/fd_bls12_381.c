@@ -388,23 +388,32 @@ fd_bls12_381_pairing_syscall( uchar       _r[ 48*12 ],
   fd_bls12_381_g2aff_t b[ FD_BLS12_381_PAIRING_BATCH_SZ ];
   fd_bls12_381_g1aff_t const * aptr[ FD_BLS12_381_PAIRING_BATCH_SZ ];
   fd_bls12_381_g2aff_t const * bptr[ FD_BLS12_381_PAIRING_BATCH_SZ ];
+  /* skip pairs where either side is the point at infinity.
+     this is important because blst otherwise produces an invalid result. */
+  ulong m = 0UL;
   for( ulong j=0; j<_n; j++ ) {
-    if( FD_UNLIKELY( fd_bls12_381_g1_frombytes( &a[ j ], _a+96*j, big_endian )==NULL ) ) {
+    fd_bls12_381_g1aff_t * aj = &a[ m ];
+    fd_bls12_381_g2aff_t * bj = &b[ m ];
+    if( FD_UNLIKELY( fd_bls12_381_g1_frombytes( aj, _a+96*j, big_endian )==NULL ) ) {
       return -1;
     }
-    if( FD_UNLIKELY( fd_bls12_381_g2_frombytes( &b[ j ], _b+96*2*j, big_endian )==NULL ) ) {
+    if( FD_UNLIKELY( fd_bls12_381_g2_frombytes( bj, _b+96*2*j, big_endian )==NULL ) ) {
       return -1;
+    }
+    if( FD_UNLIKELY( blst_p1_affine_is_inf( aj ) || blst_p2_affine_is_inf( bj ) ) ) {
+      continue;
     }
     /* blst wants an array of pointers (not necessarily a compact array) */
-    aptr[ j ] = &a[ j ];
-    bptr[ j ] = &b[ j ];
+    aptr[ m ] = aj;
+    bptr[ m ] = bj;
+    m++;
   }
 
   blst_fp12 r[1];
   memcpy( r, blst_fp12_one(), sizeof(blst_fp12) );
 
-  if( FD_LIKELY ( _n>0 ) ) {
-    blst_miller_loop_n( r, bptr, aptr, _n );
+  if( FD_LIKELY ( m>0 ) ) {
+    blst_miller_loop_n( r, bptr, aptr, m );
     blst_final_exp( r, r );
   }
 
