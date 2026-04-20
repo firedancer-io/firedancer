@@ -282,12 +282,17 @@ fd_wksp_delete( void * shwksp );
    Assumes wksp is a current local join.
 
    fd_wksp_{part_max,data_max} returns {part_max,data_max} used at
-   creation.  Assumes wksp is a current local join. */
+   creation.  Assumes wksp is a current local join.
+
+   [fd_wksp_gaddr_lo,fd_wksp_gaddr_hi) is the range of valid wksp gaddr.
+   lo is guaranteed to be non-zero.  hi = lo + data_max.  */
 
 FD_FN_CONST char const * fd_wksp_name    ( fd_wksp_t const * wksp );
 FD_FN_PURE  uint         fd_wksp_seed    ( fd_wksp_t const * wksp );
 FD_FN_PURE  ulong        fd_wksp_part_max( fd_wksp_t const * wksp );
 FD_FN_PURE  ulong        fd_wksp_data_max( fd_wksp_t const * wksp );
+FD_FN_PURE  ulong        fd_wksp_gaddr_lo( fd_wksp_t const * wksp );
+FD_FN_PURE  ulong        fd_wksp_gaddr_hi( fd_wksp_t const * wksp );
 
 /* fd_wksp_owner returns the id of the thread group that was currently
    in a wksp operation (0 indicates the wksp was in the process of being
