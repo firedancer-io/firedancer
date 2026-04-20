@@ -29,6 +29,34 @@
 
 #define FD_SYSTEM_PROGRAM_NONCE_DLEN (80UL)
 
+/* Nonce account state bincode wire format (must match Agave byte-for-byte).
+
+   https://github.com/anza-xyz/solana-sdk/blob/nonce%40v3.0.0/nonce/src/versions.rs
+   https://github.com/anza-xyz/solana-sdk/blob/nonce%40v3.0.0/nonce/src/state.rs
+
+   Outer enum `Versions` (4-byte u32 LE discriminant):
+     0 = Legacy(Box<State>)
+     1 = Current(Box<State>)
+   Inner enum `State` (4-byte u32 LE discriminant):
+     0 = Uninitialized       (no payload; total wire size = 8)
+     1 = Initialized(Data)   (payload = 72 bytes; total wire size = 80)
+   Data struct (72 bytes fixed):
+     pubkey authority[32] | hash durable_nonce[32] | u64 lamports_per_signature
+
+   Agave uses bincode 1.3.3 `DefaultOptions::with_fixint_encoding().
+   allow_trailing_bytes()` via the top-level `bincode::deserialize` helper
+   (TransactionContext::get_state).  Decoders must therefore accept trailing
+   bytes beyond the parsed region. */
+
+#define FD_NONCE_VERSION_LEGACY         (0U)
+#define FD_NONCE_VERSION_CURRENT        (1U)
+
+#define FD_NONCE_STATE_UNINITIALIZED    (0U)
+#define FD_NONCE_STATE_INITIALIZED      (1U)
+
+#define FD_NONCE_STATE_UNINITIALIZED_SZ (8UL)
+#define FD_NONCE_STATE_INITIALIZED_SZ   (80UL)
+
 /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L49-L53 */
 #define FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN (-1)
 #define FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_SYSTEM  (0)
@@ -399,6 +427,119 @@ fd_system_program_instruction_encode( fd_system_program_instruction_t const * in
 
   *out_sz = _i;
 
+# undef CHECK_LEFT
+# undef INC
+# undef CURSOR
+
+  return 0;
+}
+
+/* fd_nonce_state_versions_t is the in-memory representation of a decoded
+   nonce account state.  Mirrors Agave's `Versions(Box<State>)` wrapper
+   flattened into a single struct with an explicit `version`/`kind`
+   discriminant pair.  When `kind == FD_NONCE_STATE_UNINITIALIZED` the
+   `authority`, `durable_nonce`, and `lamports_per_signature` fields are
+   ignored on both encode and decode. */
+
+struct fd_nonce_state_versions {
+  uint        version;
+  uint        kind;
+  fd_pubkey_t authority;
+  fd_hash_t   durable_nonce;
+  ulong       lamports_per_signature;
+};
+typedef struct fd_nonce_state_versions fd_nonce_state_versions_t;
+
+/* fd_nonce_state_versions_size returns the bincode-exact wire size of the
+   given nonce state.  Matches Agave's `bincode::serialized_size` for
+   `nonce::versions::Versions`. */
+
+static inline ulong
+fd_nonce_state_versions_size( fd_nonce_state_versions_t const * in ) {
+  return ( in->kind==FD_NONCE_STATE_INITIALIZED )
+    ? FD_NONCE_STATE_INITIALIZED_SZ
+    : FD_NONCE_STATE_UNINITIALIZED_SZ;
+}
+
+/* fd_nonce_state_versions_decode reads a bincode-encoded
+   `nonce::versions::Versions` from [data, data+data_sz).  Trailing bytes
+   beyond the parsed region are accepted (matches Agave's top-level
+   `bincode::deserialize` which uses `allow_trailing_bytes()`).  Returns 0
+   on success, -1 on any decode failure (short buffer, unknown
+   discriminant).  Callers should map -1 to
+   `FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA`. */
+
+static inline int
+fd_nonce_state_versions_decode( fd_nonce_state_versions_t * out,
+                                uchar const *               data,
+                                ulong                       data_sz ) {
+  uchar const * _payload    = data;
+  ulong const   _payload_sz = data_sz;
+  ulong         _i          = 0UL;
+
+# define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }
+# define CHECK_LEFT( n ) CHECK( (n)<=(_payload_sz-_i) )
+# define INC( n )        (_i += (ulong)(n))
+# define CURSOR          (_payload+_i)
+
+  CHECK_LEFT( 4UL ); uint version = FD_LOAD( uint, CURSOR ); INC( 4UL );
+  CHECK( version<=FD_NONCE_VERSION_CURRENT );
+  out->version = version;
+
+  CHECK_LEFT( 4UL ); uint kind = FD_LOAD( uint, CURSOR ); INC( 4UL );
+  CHECK( kind<=FD_NONCE_STATE_INITIALIZED );
+  out->kind = kind;
+
+  if( kind==FD_NONCE_STATE_INITIALIZED ) {
+    CHECK_LEFT( 72UL );
+    fd_memcpy( out->authority.key,     CURSOR, 32UL ); INC( 32UL );
+    fd_memcpy( out->durable_nonce.hash, CURSOR, 32UL ); INC( 32UL );
+    out->lamports_per_signature = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+  }
+
+# undef CHECK
+# undef CHECK_LEFT
+# undef INC
+# undef CURSOR
+
+  return 0;
+}
+
+/* fd_nonce_state_versions_encode writes a bincode-encoded
+   `nonce::versions::Versions` into [buf, buf+bufsz).  On success stores
+   the number of bytes written to *out_sz and returns 0.  Returns -1 on
+   short buffer or invalid discriminant. */
+
+static inline int
+fd_nonce_state_versions_encode( fd_nonce_state_versions_t const * in,
+                                uchar *                           buf,
+                                ulong                             bufsz,
+                                ulong *                           out_sz ) {
+  uchar * const _payload    = buf;
+  ulong const   _payload_sz = bufsz;
+  ulong         _i          = 0UL;
+
+# define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }
+# define CHECK_LEFT( n ) CHECK( (n)<=(_payload_sz-_i) )
+# define INC( n )        (_i += (ulong)(n))
+# define CURSOR          (_payload+_i)
+
+  CHECK( in->version<=FD_NONCE_VERSION_CURRENT );
+  CHECK( in->kind   <=FD_NONCE_STATE_INITIALIZED );
+
+  CHECK_LEFT( 4UL ); FD_STORE( uint, CURSOR, in->version ); INC( 4UL );
+  CHECK_LEFT( 4UL ); FD_STORE( uint, CURSOR, in->kind    ); INC( 4UL );
+
+  if( in->kind==FD_NONCE_STATE_INITIALIZED ) {
+    CHECK_LEFT( 72UL );
+    fd_memcpy( CURSOR, in->authority.key,      32UL ); INC( 32UL );
+    fd_memcpy( CURSOR, in->durable_nonce.hash, 32UL ); INC( 32UL );
+    FD_STORE( ulong, CURSOR, in->lamports_per_signature ); INC( 8UL );
+  }
+
+  *out_sz = _i;
+
+# undef CHECK
 # undef CHECK_LEFT
 # undef INC
 # undef CURSOR

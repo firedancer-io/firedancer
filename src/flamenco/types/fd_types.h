@@ -233,43 +233,6 @@ struct fd_sysvar_epoch_rewards {
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 #define FD_SYSVAR_EPOCH_REWARDS_ALIGN alignof(fd_sysvar_epoch_rewards_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L17 */
-/* Encoded Size: Fixed (72 bytes) */
-struct fd_nonce_data {
-  fd_pubkey_t authority;
-  fd_hash_t durable_nonce;
-  fd_fee_calculator_t fee_calculator;
-};
-typedef struct fd_nonce_data fd_nonce_data_t;
-#define FD_NONCE_DATA_ALIGN alignof(fd_nonce_data_t)
-
-union fd_nonce_state_inner {
-  fd_nonce_data_t initialized;
-};
-typedef union fd_nonce_state_inner fd_nonce_state_inner_t;
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/current.rs#L65 */
-struct fd_nonce_state {
-  uint discriminant;
-  fd_nonce_state_inner_t inner;
-};
-typedef struct fd_nonce_state fd_nonce_state_t;
-#define FD_NONCE_STATE_ALIGN alignof(fd_nonce_state_t)
-
-union fd_nonce_state_versions_inner {
-  fd_nonce_state_t legacy;
-  fd_nonce_state_t current;
-};
-typedef union fd_nonce_state_versions_inner fd_nonce_state_versions_inner_t;
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/nonce/state/mod.rs#L9 */
-struct fd_nonce_state_versions {
-  uint discriminant;
-  fd_nonce_state_versions_inner_t inner;
-};
-typedef struct fd_nonce_state_versions fd_nonce_state_versions_t;
-#define FD_NONCE_STATE_VERSIONS_ALIGN alignof(fd_nonce_state_versions_t)
-
 /* Encoded Size: Dynamic */
 struct fd_bpf_loader_program_instruction_write {
   uint offset;
@@ -586,45 +549,6 @@ static inline ulong fd_sysvar_epoch_rewards_align( void ) { return FD_SYSVAR_EPO
 int fd_sysvar_epoch_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_sysvar_epoch_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-static inline void fd_nonce_data_new( fd_nonce_data_t * self ) { fd_memset( self, 0, sizeof(fd_nonce_data_t) ); }
-int fd_nonce_data_encode( fd_nonce_data_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_nonce_data_size( fd_nonce_data_t const * self ) { (void)self; return 72UL; }
-static inline ulong fd_nonce_data_align( void ) { return FD_NONCE_DATA_ALIGN; }
-static inline int fd_nonce_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_nonce_data_t);
-  if( (ulong)ctx->data + 72UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_nonce_data_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_nonce_state_new_disc( fd_nonce_state_t * self, uint discriminant );
-void fd_nonce_state_new( fd_nonce_state_t * self );
-int fd_nonce_state_encode( fd_nonce_state_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_nonce_state_size( fd_nonce_state_t const * self );
-static inline ulong fd_nonce_state_align( void ) { return FD_NONCE_STATE_ALIGN; }
-int fd_nonce_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_nonce_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_nonce_state_is_uninitialized( fd_nonce_state_t const * self );
-FD_FN_PURE uchar fd_nonce_state_is_initialized( fd_nonce_state_t const * self );
-enum {
-fd_nonce_state_enum_uninitialized = 0,
-fd_nonce_state_enum_initialized = 1,
-};
-void fd_nonce_state_versions_new_disc( fd_nonce_state_versions_t * self, uint discriminant );
-void fd_nonce_state_versions_new( fd_nonce_state_versions_t * self );
-int fd_nonce_state_versions_encode( fd_nonce_state_versions_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_nonce_state_versions_size( fd_nonce_state_versions_t const * self );
-static inline ulong fd_nonce_state_versions_align( void ) { return FD_NONCE_STATE_VERSIONS_ALIGN; }
-int fd_nonce_state_versions_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_nonce_state_versions_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_nonce_state_versions_is_legacy( fd_nonce_state_versions_t const * self );
-FD_FN_PURE uchar fd_nonce_state_versions_is_current( fd_nonce_state_versions_t const * self );
-enum {
-fd_nonce_state_versions_enum_legacy = 0,
-fd_nonce_state_versions_enum_current = 1,
-};
 void fd_bpf_loader_program_instruction_write_new( fd_bpf_loader_program_instruction_write_t * self );
 int fd_bpf_loader_program_instruction_write_encode( fd_bpf_loader_program_instruction_write_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_bpf_loader_program_instruction_write_size( fd_bpf_loader_program_instruction_write_t const * self );

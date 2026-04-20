@@ -761,22 +761,12 @@ fd_get_system_account_kind( fd_account_meta_t const * meta ) {
   }
 
   /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L60-L64 */
-  fd_nonce_state_versions_t versions[1];
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      nonce_state_versions, versions,
-      fd_account_data( meta ),
-      meta->dlen ) ) ) {
+  fd_nonce_state_versions_t state[1];
+  if( FD_UNLIKELY( fd_nonce_state_versions_decode( state, fd_account_data( meta ), meta->dlen ) ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
   }
 
-  fd_nonce_state_t * state = NULL;
-  if( fd_nonce_state_versions_is_current( versions ) ) {
-    state = &versions->inner.current;
-  } else {
-    state = &versions->inner.legacy;
-  }
-
-  if( FD_LIKELY( fd_nonce_state_is_initialized( state ) ) ) {
+  if( FD_LIKELY( state->kind==FD_NONCE_STATE_INITIALIZED ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE;
   }
 
