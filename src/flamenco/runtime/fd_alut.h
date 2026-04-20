@@ -63,44 +63,46 @@ typedef struct fd_alut_interp fd_alut_interp_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_alut_state_encode writes a 56-byte zero-padded ALUT state header
-   into [buf, buf+bufsz).  Uses meta->discriminant to decide the
-   variant; fields other than discriminant are ignored when
-   discriminant == FD_ALUT_STATE_DISC_UNINITIALIZED.  Returns 0 on
-   success, -1 on short buffer. */
+/* fd_alut_state_encode writes a 56-byte ALUT state header into
+   [buf, buf+bufsz).  Uses meta->discriminant to decide the variant;
+   fields other than discriminant are ignored when discriminant ==
+   FD_ALUT_STATE_DISC_UNINITIALIZED.  Returns 0 on success, -1 on short
+   buffer. */
 
 static inline int
 fd_alut_state_encode( fd_alut_meta_t const * meta,
                       uchar *                buf,
                       ulong                  bufsz ) {
-  if( FD_UNLIKELY( bufsz<FD_LOOKUP_TABLE_META_SIZE ) ) return -1;
+  uchar * const _payload    = buf;
+  ulong const   _payload_sz = bufsz;
+  ulong         _i          = 0UL;
 
-  fd_memset( buf, 0, FD_LOOKUP_TABLE_META_SIZE );
-  uchar * p = buf;
+# define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }
+# define CHECK_LEFT( n ) CHECK( (n)<=(_payload_sz-_i) )
+# define INC( n )        (_i += (ulong)(n))
+# define CURSOR          (_payload+_i)
 
-  FD_STORE( uint, p, meta->discriminant );
-  p += sizeof(uint);
+  CHECK_LEFT( 4UL ); FD_STORE( uint, CURSOR, meta->discriminant ); INC( 4UL );
 
   if( meta->discriminant==FD_ALUT_STATE_DISC_LOOKUP_TABLE ) {
-    FD_STORE( ulong, p, meta->deactivation_slot );
-    p += sizeof(ulong);
+    CHECK_LEFT( 8UL ); FD_STORE( ulong, CURSOR, meta->deactivation_slot              ); INC( 8UL );
+    CHECK_LEFT( 8UL ); FD_STORE( ulong, CURSOR, meta->last_extended_slot             ); INC( 8UL );
+    CHECK_LEFT( 1UL ); FD_STORE( uchar, CURSOR, meta->last_extended_slot_start_index ); INC( 1UL );
 
-    FD_STORE( ulong, p, meta->last_extended_slot );
-    p += sizeof(ulong);
-
-    *p = meta->last_extended_slot_start_index;
-    p += 1;
-
-    *p = (uchar)!!meta->has_authority;
-    p += 1;
+    CHECK_LEFT( 1UL ); FD_STORE( uchar, CURSOR, (uchar)!!meta->has_authority ); INC( 1UL );
 
     if( meta->has_authority ) {
-      fd_memcpy( p, meta->authority.key, 32 );
-      p += 32;
+      CHECK_LEFT( 32UL ); fd_memcpy( CURSOR, meta->authority.key, 32UL ); INC( 32UL );
     }
 
-    FD_STORE( ushort, p, (ushort)0 );
+    /* u16 _padding (always 0 on the wire). */
+    CHECK_LEFT( 2UL ); FD_STORE( ushort, CURSOR, (ushort)0 ); INC( 2UL );
   }
+
+# undef CHECK
+# undef CHECK_LEFT
+# undef INC
+# undef CURSOR
 
   return 0;
 }
@@ -114,51 +116,40 @@ static inline int
 fd_alut_state_decode( uchar const *    data,
                       ulong            data_sz,
                       fd_alut_meta_t * out ) {
-  if( FD_UNLIKELY( data_sz<sizeof(uint) ) ) return -1;
+  uchar const * _payload    = data;
+  ulong const   _payload_sz = data_sz;
+  ulong         _i          = 0UL;
 
-  uchar const * p   = data;
-  uchar const * end = data + data_sz;
+# define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }
+# define CHECK_LEFT( n ) CHECK( (n)<=(_payload_sz-_i) )
+# define INC( n )        (_i += (ulong)(n))
+# define CURSOR          (_payload+_i)
 
-  uint disc = FD_LOAD( uint, p );
-  p += sizeof(uint);
+  CHECK_LEFT( 4UL ); uint disc = FD_LOAD( uint, CURSOR ); INC( 4UL );
   out->discriminant = disc;
 
-  if( disc==FD_ALUT_STATE_DISC_UNINITIALIZED ) {
-    return 0;
-  }
+  if( disc==FD_ALUT_STATE_DISC_UNINITIALIZED ) return 0;
 
-  if( FD_UNLIKELY( disc!=FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) return -1;
+  CHECK( disc==FD_ALUT_STATE_DISC_LOOKUP_TABLE );
 
-  if( FD_UNLIKELY( (ulong)(end - p) < 8UL ) ) return -1;
-  out->deactivation_slot = FD_LOAD( ulong, p );
-  p += sizeof(ulong);
-
-  if( FD_UNLIKELY( (ulong)(end - p) < 8UL ) ) return -1;
-  out->last_extended_slot = FD_LOAD( ulong, p );
-  p += sizeof(ulong);
-
-  if( FD_UNLIKELY( (ulong)(end - p) < 1UL ) ) return -1;
-  out->last_extended_slot_start_index = *p;
-  p += 1;
+  CHECK_LEFT( 8UL ); out->deactivation_slot              = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+  CHECK_LEFT( 8UL ); out->last_extended_slot             = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+  CHECK_LEFT( 1UL ); out->last_extended_slot_start_index = FD_LOAD( uchar, CURSOR ); INC( 1UL );
 
   /* Option<Pubkey> tag: bincode rejects any byte outside {0,1}. */
-  if( FD_UNLIKELY( (ulong)(end - p) < 1UL ) ) return -1;
-  uchar has_auth = *p;
-  p += 1;
-  if( FD_UNLIKELY( has_auth & (uchar)~1U ) ) return -1;
+  CHECK_LEFT( 1UL ); uchar has_auth = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+  CHECK( !(has_auth & (uchar)~1U) );
   out->has_authority = has_auth;
 
-  if( has_auth ) {
-    if( FD_UNLIKELY( (ulong)(end - p) < 32UL ) ) return -1;
-    fd_memcpy( out->authority.key, p, 32 );
-    p += 32;
-  } else {
-    fd_memset( out->authority.key, 0, 32 );
-  }
+  if( has_auth ) CHECK_LEFT( 32UL ); fd_memcpy( out->authority.key, CURSOR, 32UL ); INC( 32UL );
 
   /* u16 _padding.  Value is ignored but the 2 bytes must be present. */
-  if( FD_UNLIKELY( (ulong)(end - p) < 2UL ) ) return -1;
-  p += 2;
+  CHECK_LEFT( 2UL ); INC( 2UL );
+
+# undef CHECK
+# undef CHECK_LEFT
+# undef INC
+# undef CURSOR
 
   return 0;
 }
