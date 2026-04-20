@@ -534,37 +534,6 @@ struct fd_loader_v4_state {
 typedef struct fd_loader_v4_state fd_loader_v4_state_t;
 #define FD_LOADER_V4_STATE_ALIGN alignof(fd_loader_v4_state_t)
 
-/* Encoded Size: Dynamic */
-struct fd_lookup_table_meta {
-  ulong deactivation_slot;
-  ulong last_extended_slot;
-  uchar last_extended_slot_start_index;
-  fd_pubkey_t authority;
-  uchar has_authority;
-  ushort _padding;
-};
-typedef struct fd_lookup_table_meta fd_lookup_table_meta_t;
-#define FD_LOOKUP_TABLE_META_ALIGN alignof(fd_lookup_table_meta_t)
-
-/* Encoded Size: Dynamic */
-struct fd_address_lookup_table {
-  fd_lookup_table_meta_t meta;
-};
-typedef struct fd_address_lookup_table fd_address_lookup_table_t;
-#define FD_ADDRESS_LOOKUP_TABLE_ALIGN alignof(fd_address_lookup_table_t)
-
-union fd_address_lookup_table_state_inner {
-  fd_address_lookup_table_t lookup_table;
-};
-typedef union fd_address_lookup_table_state_inner fd_address_lookup_table_state_inner_t;
-
-struct fd_address_lookup_table_state {
-  uint discriminant;
-  fd_address_lookup_table_state_inner_t inner;
-};
-typedef struct fd_address_lookup_table_state fd_address_lookup_table_state_t;
-#define FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN alignof(fd_address_lookup_table_state_t)
-
 
 FD_PROTOTYPES_BEGIN
 
@@ -1069,34 +1038,6 @@ static inline int fd_loader_v4_state_decode_footprint( fd_bincode_decode_ctx_t *
 }
 void * fd_loader_v4_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_lookup_table_meta_new( fd_lookup_table_meta_t * self );
-int fd_lookup_table_meta_encode( fd_lookup_table_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_lookup_table_meta_size( fd_lookup_table_meta_t const * self );
-static inline ulong fd_lookup_table_meta_align( void ) { return FD_LOOKUP_TABLE_META_ALIGN; }
-int fd_lookup_table_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_lookup_table_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_address_lookup_table_new( fd_address_lookup_table_t * self );
-int fd_address_lookup_table_encode( fd_address_lookup_table_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_address_lookup_table_size( fd_address_lookup_table_t const * self );
-static inline ulong fd_address_lookup_table_align( void ) { return FD_ADDRESS_LOOKUP_TABLE_ALIGN; }
-int fd_address_lookup_table_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_address_lookup_table_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_address_lookup_table_state_new_disc( fd_address_lookup_table_state_t * self, uint discriminant );
-void fd_address_lookup_table_state_new( fd_address_lookup_table_state_t * self );
-int fd_address_lookup_table_state_encode( fd_address_lookup_table_state_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_address_lookup_table_state_size( fd_address_lookup_table_state_t const * self );
-static inline ulong fd_address_lookup_table_state_align( void ) { return FD_ADDRESS_LOOKUP_TABLE_STATE_ALIGN; }
-int fd_address_lookup_table_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_address_lookup_table_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-FD_FN_PURE uchar fd_address_lookup_table_state_is_uninitialized( fd_address_lookup_table_state_t const * self );
-FD_FN_PURE uchar fd_address_lookup_table_state_is_lookup_table( fd_address_lookup_table_state_t const * self );
-enum {
-fd_address_lookup_table_state_enum_uninitialized = 0,
-fd_address_lookup_table_state_enum_lookup_table = 1,
-};
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES
