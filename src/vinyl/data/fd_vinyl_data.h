@@ -344,6 +344,7 @@ struct __attribute((aligned(FD_VINYL_DATA_ALIGN))) fd_vinyl_data {
   fd_vinyl_data_vol_t * vol;             /* Vols, indexed [0,vol_cnt), in raw shared memory region */
   ulong                 vol_cnt;         /* Num vols, in [0,FD_VINYL_DATA_VOL_MAX) */
   ulong                 vol_idx_free;    /* Idx of first free volume if in [0,vol_cnt), no free volumes o.w. */
+  ulong                 inactive_stack_max; /* Upper bound on inactive stack depth for any szc (cycle detection in free) */
   struct {
     fd_vinyl_data_obj_t * active;        /* active superblock for this size class */
     fd_vinyl_data_obj_t * inactive_top;  /* top of the inactive superblock stack for this size class */
