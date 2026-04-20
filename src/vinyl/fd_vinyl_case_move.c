@@ -126,8 +126,9 @@
         FD_CRIT( (style==FD_VINYL_BSTREAM_CTL_STYLE_RAW) | (style==FD_VINYL_BSTREAM_CTL_STYLE_LZ4), "corruption detected" );
         FD_CRIT( val_esz<=FD_VINYL_VAL_MAX,                                                         "corruption detected" );
 
-        fd_vinyl_data_obj_t * cobj = fd_vinyl_data_alloc( data, fd_vinyl_data_szc( val_esz ) );
-        if( FD_UNLIKELY( !cobj ) ) FD_LOG_CRIT(( "increase data cache size" ));
+        ulong cszc_move = fd_vinyl_data_szc( val_esz );
+        fd_vinyl_data_obj_t * cobj = fd_vinyl_data_alloc( data, cszc_move );
+        if( FD_UNLIKELY( !cobj ) ) { fd_vinyl_data_diag_log( data, cszc_move, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (move read szc=%lu)", cszc_move )); }
 
         fd_vinyl_bstream_phdr_t * cphdr    = fd_vinyl_data_obj_phdr( cobj );
         ulong                     cpair_sz = fd_vinyl_bstream_pair_sz( val_esz );
@@ -151,8 +152,9 @@
 
         } else {
 
-          obj_src = fd_vinyl_data_alloc( data, fd_vinyl_data_szc( val_sz ) );
-          if( FD_UNLIKELY( !obj_src ) ) FD_LOG_CRIT(( "increase data cache size" ));
+          ulong dszc_move = fd_vinyl_data_szc( val_sz );
+          obj_src = fd_vinyl_data_alloc( data, dszc_move );
+          if( FD_UNLIKELY( !obj_src ) ) { fd_vinyl_data_diag_log( data, dszc_move, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (move decompress szc=%lu)", dszc_move )); }
 
           char const * cval = (char const *)fd_vinyl_data_obj_val( cobj    );
           char *       val  = (char *)      fd_vinyl_data_obj_val( obj_src );
