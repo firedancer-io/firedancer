@@ -138,6 +138,17 @@ fd_vinyl_data_init( void * lmem,
   data->vol      = (fd_vinyl_data_vol_t *)_vol0;
   data->vol_cnt  = vol_cnt;
 
+  /* Precompute the max possible inactive stack depth for any szc.
+     Used for cycle detection in the free path stack walk.  This is
+     shmem_sz / min_superblock_footprint across all szcs. */
+
+  ulong min_sb_fp = ULONG_MAX;
+  for( ulong s=0UL; s<FD_VINYL_DATA_SZC_CNT; s++ )
+    min_sb_fp = fd_ulong_min( min_sb_fp, sizeof(fd_vinyl_data_obj_t)
+                + (ulong)fd_vinyl_data_szc_cfg[ s ].obj_cnt * fd_vinyl_data_szc_obj_footprint( s ) );
+  FD_TEST( min_sb_fp );
+  data->inactive_stack_max = shmem_sz / min_sb_fp;
+
   return data;
 }
 
@@ -358,16 +369,11 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
      it to circulation as szc's active superblock, pushing any displaced
      superblock onto the szc's inactive superblock stack.
 
-     Otherwise, if this free made the superblock totally empty, we check
-     if the szc'c inactive superblock top is also totally empty.  If so,
-     we pop the inactive stack and free that.
-
-     This keeps a small bounded supply empty superblocks around for fast
-     future allocations in this szc while allowing memory to reclaimed
-     for different szc objs.  Note that we can't just free superblock if
-     it is totally empty fast O(1) because we don't know where it is in
-     circulation (and, even if we did, this is a bad idea).  Other
-     strategies are possible, see fd_alloc for discussion of tradeoffs. */
+     Otherwise, if this free made the superblock totally empty, we
+     unlink it from circulation (active or inactive stack) and free it
+     back to the parent szc.  This enables cascading coalescence up
+     the full hierarchy to the volume level, allowing volumes committed
+     to one size class to be reclaimed for a different size class. */
 
   if( FD_UNLIKELY( free_blocks==block ) ) {
 
@@ -389,18 +395,51 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
     if( FD_UNLIKELY( free_blocks==all_blocks ) ) {
 
-      fd_vinyl_data_obj_t * candidate_superblock = data->superblock[ szc ].inactive_top;
+      /* Superblock is now fully empty.  If it is the active
+         superblock for this szc, remove it from active and coalesce
+         it to its parent.  This enables volume reclamation when an
+         entire volume's worth of objects have been freed (e.g. via
+         LRU eviction).  At spine levels (obj_cnt==2), the second
+         child free typically finds the parent still active, allowing
+         coalescence to cascade up the full hierarchy to the volume. */
 
-      if( FD_UNLIKELY( candidate_superblock ) ) {
+      if( FD_LIKELY( data->superblock[ szc ].active == superblock ) ) {
 
-        FD_ALERT( !fd_vinyl_data_superblock_test( data, candidate_superblock, szc ), "corruption detected" );
+        data->superblock[ szc ].active = NULL;
 
-        if( FD_UNLIKELY( candidate_superblock->free_blocks==all_blocks ) ) {
+        fd_vinyl_data_free( data, superblock );
 
-          data->superblock[ szc ].inactive_top = fd_vinyl_data_obj_ptr( data->laddr0, candidate_superblock->next_off );
+      } else {
 
-          fd_vinyl_data_free( data, candidate_superblock );
+        /* Not the active superblock -- it is on the inactive stack.
+           Walk the stack to find and unlink it, then coalesce. */
+
+        void * laddr0 = data->laddr0;
+
+        if( FD_LIKELY( data->superblock[ szc ].inactive_top == superblock ) ) {
+
+          data->superblock[ szc ].inactive_top = fd_vinyl_data_obj_ptr( laddr0, superblock->next_off );
+
+        } else {
+
+          fd_vinyl_data_obj_t * prev = data->superblock[ szc ].inactive_top;
+          ulong rem = data->inactive_stack_max;
+
+          for(;;) {
+            FD_CRIT( prev, "corruption detected" );
+            FD_CRIT( rem,  "corruption detected" ); rem--;
+
+            fd_vinyl_data_obj_t * next = fd_vinyl_data_obj_ptr( laddr0, prev->next_off );
+            if( next == superblock ) {
+              prev->next_off = superblock->next_off;
+              break;
+            }
+            prev = next;
+          }
+
         }
+
+        fd_vinyl_data_free( data, superblock );
 
       }
 
@@ -522,6 +561,8 @@ fd_vinyl_data_verify( fd_vinyl_data_t const * data ) {
 
   TEST( (laddr0<shmem0) & (shmem0<=vol0) & (vol0<vol1) & (vol1<=shmem1) );
 
+  TEST( data->inactive_stack_max );
+
   /* Verify free volume stack */
 
   ulong vol_free_cnt = 0UL;
@@ -559,7 +600,7 @@ fd_vinyl_data_verify( fd_vinyl_data_t const * data ) {
     }
 
     TEST( vol_used_rem );
-    TEST( !fd_vinyl_data_verify_superblock( data, vol->obj ) );
+    TEST( !fd_vinyl_data_verify_superblock( data, vol[ vol_idx ].obj ) );
     vol_used_rem--;
   }
 
@@ -573,6 +614,7 @@ fd_vinyl_data_verify( fd_vinyl_data_t const * data ) {
     if( active ) {
       TEST( !fd_vinyl_data_superblock_test( data, active, szc ) );
       TEST( active->free_blocks );
+      TEST( active->free_blocks != fd_vinyl_data_szc_all_blocks( szc ) );
     }
 
     ulong obj_footprint        = fd_vinyl_data_szc_obj_footprint( szc );
@@ -586,6 +628,7 @@ fd_vinyl_data_verify( fd_vinyl_data_t const * data ) {
       TEST( superblock!=active );
       TEST( !fd_vinyl_data_superblock_test( data, superblock, szc ) );
       TEST( superblock->free_blocks );
+      TEST( superblock->free_blocks != fd_vinyl_data_szc_all_blocks( szc ) );
       superblock = fd_vinyl_data_obj_ptr( (void *)laddr0, superblock->next_off );
     }
   }

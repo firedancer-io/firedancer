@@ -547,7 +547,7 @@ telemetry = true
 
     # Keep frequently accessed accounts in memory to improve
     # performance.
-    cache_size_gib = 4
+    cache_size_gib = 8
 
     # Delay writing of accounts to disk by a number of slots to reduce
     # disk write rate.
@@ -579,7 +579,7 @@ telemetry = true
     # The expected mean size of recently accessed accounts.
     #
     # This heuristic is used to pack accounts into caches optimally.
-    mean_account_footprint = 256
+    mean_account_footprint = 1024
 
     # io_uring specific options
     #

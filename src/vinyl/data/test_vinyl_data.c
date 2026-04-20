@@ -258,6 +258,109 @@ main( int     argc,
 
   FD_TEST( !fd_vinyl_data_verify( data ) );
 
+  FD_LOG_NOTICE(( "Testing coalescence and volume reclamation" ));
+
+  fd_vinyl_data_reset( tpool,0UL,thread_cnt, level, data );
+  FD_TEST( !fd_vinyl_data_verify( data ) );
+
+  /* Allocate objects of a large szc (few objects per volume, fits in
+     ALLOC_MAX) until the cache is full, consuming all available
+     volumes.  Then free them all and verify that coalescence returns
+     the volumes.  Finally, allocate an object of a different szc to
+     confirm volume reclamation. */
+
+  ulong fill_szc = FD_VINYL_DATA_SZC_CNT - 1UL; /* largest szc, fewest objects */
+
+  ulong coalesce_cnt = 0UL;
+  for(;;) {
+    fd_vinyl_data_obj_t * obj = fd_vinyl_data_alloc( data, fill_szc );
+    if( !obj ) break;
+    FD_TEST( coalesce_cnt<ALLOC_MAX );
+    alloc[ coalesce_cnt++ ] = obj;
+  }
+
+  FD_TEST( coalesce_cnt ); /* At least one allocation succeeded */
+
+  /* Free all -- should trigger cascading coalescence back to volumes */
+
+  for( ulong i=0UL; i<coalesce_cnt; i++ ) {
+    fd_vinyl_data_free( data, alloc[ i ] );
+    alloc[ i ] = NULL;
+  }
+
+  FD_TEST( !fd_vinyl_data_verify( data ) );
+
+  /* All volumes should now be free; allocating a different szc should
+     succeed because volumes were reclaimed. */
+
+  ulong other_szc = 0UL;
+  fd_vinyl_data_obj_t * reclaimed = fd_vinyl_data_alloc( data, other_szc );
+  FD_TEST( reclaimed ); /* Volume reclamation worked */
+  fd_vinyl_data_free( data, reclaimed );
+
+  FD_TEST( !fd_vinyl_data_verify( data ) );
+
+  FD_LOG_NOTICE(( "Testing inactive stack middle-unlink coalescence" ));
+
+  fd_vinyl_data_reset( tpool,0UL,thread_cnt, level, data );
+  FD_TEST( !fd_vinyl_data_verify( data ) );
+
+  /* Build 3 fully-used superblocks for the largest szc, then
+     selectively free to construct an inactive stack with a fully-empty
+     superblock at the bottom (not the top), exercising the O(n) unlink
+     path in fd_vinyl_data_free. */
+
+  ulong mid_szc     = FD_VINYL_DATA_SZC_CNT - 1UL;
+  ulong mid_obj_cnt = (ulong)fd_vinyl_data_szc_cfg[ mid_szc ].obj_cnt;
+  ulong mid_total   = 3UL * mid_obj_cnt;
+  FD_TEST( mid_total<=ALLOC_MAX );
+
+  for( ulong i=0UL; i<mid_total; i++ ) {
+    alloc[ i ] = fd_vinyl_data_alloc( data, mid_szc );
+    FD_TEST( alloc[ i ] );
+  }
+
+  /* alloc layout: [0,obj_cnt) in SB0, [obj_cnt,2*obj_cnt) in SB1,
+     [2*obj_cnt,3*obj_cnt) in SB2.  All superblocks fully used, none
+     in circulation. */
+
+  FD_TEST( !fd_vinyl_data_verify( data ) );
+
+  /* Free one object from each SB in order to build inactive stack:
+       free from SB0 -> SB0 becomes active
+       free from SB1 -> SB1 becomes active, SB0 pushed to inactive
+       free from SB2 -> SB2 becomes active, SB1 pushed to inactive
+     Result: active=SB2, inactive stack: SB1 -> SB0 */
+
+  fd_vinyl_data_free( data, alloc[ 0UL ] );
+  alloc[ 0UL ] = NULL;
+  fd_vinyl_data_free( data, alloc[ mid_obj_cnt ] );
+  alloc[ mid_obj_cnt ] = NULL;
+  fd_vinyl_data_free( data, alloc[ 2UL*mid_obj_cnt ] );
+  alloc[ 2UL*mid_obj_cnt ] = NULL;
+
+  FD_TEST( !fd_vinyl_data_verify( data ) );
+
+  /* Free remaining objects in SB0 (bottom of inactive stack).
+     The last free makes SB0 fully empty, triggering the stack walk
+     to find and unlink SB0 from the middle of the inactive stack. */
+
+  for( ulong i=1UL; i<mid_obj_cnt; i++ ) {
+    fd_vinyl_data_free( data, alloc[ i ] );
+    alloc[ i ] = NULL;
+  }
+
+  FD_TEST( !fd_vinyl_data_verify( data ) );
+
+  /* Clean up remaining allocations in SB1 and SB2 */
+
+  for( ulong i=mid_obj_cnt+1UL; i<mid_total; i++ ) {
+    fd_vinyl_data_free( data, alloc[ i ] );
+    alloc[ i ] = NULL;
+  }
+
+  FD_TEST( !fd_vinyl_data_verify( data ) );
+
   FD_LOG_NOTICE(( "Testing fd_vinyl_data_t destruction" ));
 
   FD_TEST( !fd_vinyl_data_fini( NULL ) );
