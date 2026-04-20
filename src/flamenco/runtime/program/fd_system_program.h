@@ -228,7 +228,7 @@ fd_system_program_instruction_decode( fd_system_program_instruction_t * out,
   }
 
   case FD_SYSTEM_PROGRAM_INSTR_ASSIGN_WITH_SEED: {
-assign_with_seed_t * aw = &out->inner.assign_with_seed;
+    assign_with_seed_t * aw = &out->inner.assign_with_seed;
     CHECK_LEFT( 32UL ); fd_memcpy( aw->base.key, CURSOR, 32UL ); INC( 32UL );
     CHECK_LEFT( 8UL );  aw->seed_len = FD_LOAD( ulong, CURSOR ); INC( 8UL );
     CHECK_LEFT( aw->seed_len );
