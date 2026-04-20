@@ -42,11 +42,11 @@ struct fd_funk_scan {
   ulong                       rec_tot;
 
   /* Cache */
-  fd_funk_rec_chain_t       heads[ FUNK_SCAN_PARA ];
-  fd_funk_rec_t const *     rec  [ FUNK_SCAN_PARA ];
-  fd_account_meta_t const * val  [ FUNK_SCAN_PARA ];
-  ulong rec_idx;
-  ulong rec_cnt;
+  fd_funk_rec_chain_t heads    [ FUNK_SCAN_PARA ];
+  uint                rec_idx  [ FUNK_SCAN_PARA ];
+  ulong               val_gaddr[ FUNK_SCAN_PARA ];
+  ulong batch_idx;
+  ulong batch_cnt;
 };
 typedef struct fd_funk_scan fd_funk_scan_t;
 
@@ -61,21 +61,21 @@ fd_funk_scan_refill( fd_funk_scan_t * scan );
 
 static inline ulong
 fd_funk_scan_next( fd_funk_scan_t * scan ) {
-  if( FD_UNLIKELY( scan->rec_idx>=scan->rec_cnt ) ) {
+  if( FD_UNLIKELY( scan->batch_idx>=scan->batch_cnt ) ) {
     fd_funk_scan_refill( scan );
-    if( FD_UNLIKELY( scan->rec_idx>=scan->rec_cnt ) ) return ULONG_MAX;
+    if( FD_UNLIKELY( scan->batch_idx>=scan->batch_cnt ) ) return ULONG_MAX;
   }
-  return scan->rec_idx++;
+  return scan->batch_idx++;
 }
 
 static inline ulong
 fd_funk_scan_next_rooted( fd_funk_scan_t * scan ) {
   for(;;) {
-    ulong rec_idx = fd_funk_scan_next( scan );
-    if( FD_UNLIKELY( rec_idx==ULONG_MAX ) ) return ULONG_MAX;
-    fd_funk_rec_t const * rec = scan->rec[ rec_idx ];
+    ulong batch_idx = fd_funk_scan_next( scan );
+    if( FD_UNLIKELY( batch_idx==ULONG_MAX ) ) return ULONG_MAX;
+    fd_funk_rec_t const * rec = &scan->rec_tbl[ scan->rec_idx[ batch_idx ] ];
     fd_xid_t xid; fd_funk_txn_xid_ld_atomic( &xid, rec->pair.xid );
-    if( FD_LIKELY( fd_funk_txn_xid_eq_root( &xid ) ) ) return rec_idx;
+    if( FD_LIKELY( fd_funk_txn_xid_eq_root( &xid ) ) ) return batch_idx;
   }
 }
 

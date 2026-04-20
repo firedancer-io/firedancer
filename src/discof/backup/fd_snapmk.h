@@ -49,9 +49,9 @@
 
 /* snapmk message types (frag_meta orig field) */
 
-#define SNAPMK_ORIG_DATA        0 /* data frag */
-#define SNAPMK_ORIG_CREATE_FULL 1 /* create a full snapshot */
-#define SNAPMK_ORIG_DONE        2 /* done */
-#define SNAPMK_ORIG_ERROR       3 /* error */
+#define SNAPMK_ORIG_ACCOUNT     1 /* account frag */
+#define SNAPMK_ORIG_CREATE_FULL 2 /* create a full snapshot */
+#define SNAPMK_ORIG_DONE        3 /* done */
+#define SNAPMK_ORIG_ERROR       4 /* error */
 
 #endif /* HEADER_fd_src_discof_backup_fd_snapmk_h */

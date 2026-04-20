@@ -7,47 +7,9 @@
 #include "fd_funk_scan.h"
 //#include "../../util/archive/fd_tar.h"
 
-union __attribute__((packed)) snap_acc_hdr {
-  struct __attribute__((packed)) {
-    /* 0x00 */ ulong       slot;
-    /* 0x08 */ ulong       data_len;
-    /* 0x10 */ fd_pubkey_t pubkey;
-    /* 0x30 */ ulong       lamports;
-    /* 0x38 */ ulong       rent_epoch;
-    /* 0x40 */ fd_pubkey_t owner;
-    /* 0x60 */ uchar       executable;
-    /* 0x61 */ uchar       padding[7];
-    /* 0x68 */ fd_hash_t   hash;
-    /* 0x88 */
-  };
-  uchar raw[ 0x88 ];
-};
-typedef union snap_acc_hdr snap_acc_hdr_t;
-
 /* Funk rooted record iterator (thread-safe) */
 
 #define CHAIN_MAX (4096UL) /* ought to be enough */
-
-/* Output link */
-
-struct fd_snapmk_out {
-  /* Out frag flow */
-  ulong   out_idx;
-  ulong * fseq;
-  ulong   seq_cons;
-  ulong   burst_max;
-
-  /* Out data allocator */
-  fd_wksp_t * base;
-  ulong       chunk0;
-  ulong       chunk;
-  ulong       wmark;
-
-  /* Out state */
-  fd_funk_rec_t const * rec;
-  ulong                 rec_off;
-};
-typedef struct fd_snapmk_out fd_snapmk_out_t;
 
 struct fd_snapmk {
   fd_funk_t funk[1];
@@ -65,8 +27,7 @@ struct fd_snapmk {
     ulong accounts_processed;
   } metrics;
 
-  fd_snapmk_out_t out    [ SNAPZP_TILE_MAX ];
-  ushort          in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
+  ushort in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
 };
 typedef struct fd_snapmk fd_snapmk_t;
 
@@ -101,16 +62,7 @@ unprivileged_init( fd_topo_t *      topo,
     if( 0!=strcmp( link->name, "snapmk_zp" ) ) {
       FD_LOG_ERR(( "Unexpected output link \"%s\"", link->name ));
     }
-    FD_TEST( link->mcache && link->dcache );
-    fd_wksp_t * link_base = fd_wksp_containing( link );
-    ctx->out[ i ] = (fd_snapmk_out_t) {
-      .out_idx = i,
-      .base    = link_base,
-      .chunk0  = fd_dcache_compact_chunk0( link_base, link->dcache ),
-      .chunk   = fd_dcache_compact_chunk0( link_base, link->dcache ),
-      .wmark   = fd_dcache_compact_wmark ( link_base, link->dcache, link->mtu )
-    };
-    FD_TEST( fd_topo_find_reliable_consumers( topo, link, &ctx->out[ i ].fseq, 1UL )==1UL );
+    FD_TEST( link->mcache );
   }
   ctx->out_meta_idx = tile->out_cnt - 1UL;
   if( 0!=strcmp( topo->links[ tile->out_link_id[ ctx->out_meta_idx ] ].name, "snapmk_replay" ) ) {
@@ -204,78 +156,23 @@ __attribute__((noinline)) static void
 send_account_frags( fd_snapmk_t *       ctx,
                     fd_stem_context_t * stem ) {
   ctx->out_ready = 1;
-  ulong             out_idx = (ulong)fd_ulong_find_lsb( ctx->out_ready );
-  fd_snapmk_out_t * out     = &ctx->out[ out_idx ];
-
-  /* Concatenate accounts together into a frag burst
-     FIXME: Burst more than one frag at a time */
-  ulong   chunk   = out->chunk;
-  uchar * buf     = fd_chunk_to_laddr( out->base, chunk );
-  ulong   buf_max = 65536UL;
-  ulong   buf_rem = buf_max;
-# define BUF_APPEND( p, sz )    \
-   do {                         \
-    ulong sz_ = (sz);           \
-    fd_memcpy( buf, (p), sz_ ); \
-    buf     += sz_;             \
-    buf_rem -= sz_;             \
-  } while(0)
-
-  do {
-    /* Advance to new account, write account header */
-    fd_account_meta_t const * val;
-    if( !out->rec ) {
-      if( FD_UNLIKELY( buf_rem < sizeof(snap_acc_hdr_t) ) ) break;
-      ulong rec_idx = fd_funk_scan_next_rooted( ctx->scan );
-      if( FD_UNLIKELY( rec_idx==ULONG_MAX ) ) {
-        FD_LOG_NOTICE(( "chain=%lu rec_cnt=%lu", ctx->scan->chain, ctx->scan->rec_tot ));
-        ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
-        FD_LOG_NOTICE(( "DONE" ));
-        break;
-      }
-      out->rec = ctx->scan->rec[ rec_idx ];
-      ctx->metrics.accounts_processed++;
-      val = ctx->scan->val[ rec_idx ];
-      BUF_APPEND( &val, sizeof(ulong) );
-      // snap_acc_hdr_t hdr = {
-      //   .slot       = val->slot,
-      //   .data_len   = val->dlen,
-      //   .pubkey     = FD_LOAD( fd_pubkey_t, out->rec->pair.key ),
-      //   .lamports   = val->lamports,
-      //   .rent_epoch = ULONG_MAX,
-      //   .owner      = FD_LOAD( fd_pubkey_t, val->owner ),
-      //   .executable = !!val->executable,
-      //   .padding    = {0},
-      //   .hash       = {{0}} /* FIXME? */
-      // };
-      // BUF_APPEND( hdr.raw, sizeof(snap_acc_hdr_t) );
-      out->rec_off = 0UL;
-    } else {
-      val = fd_funk_val( out->rec, ctx->funk->wksp );
+  ulong out_idx = (ulong)fd_ulong_find_lsb( ctx->out_ready );
+  while( stem->cr_avail[ out_idx ] ) {
+    ulong scan_idx = fd_funk_scan_next_rooted( ctx->scan );
+    if( FD_UNLIKELY( scan_idx==ULONG_MAX ) ) {
+      FD_LOG_NOTICE(( "chain=%lu rec_cnt=%lu", ctx->scan->chain, ctx->scan->rec_tot ));
+      ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
+      FD_LOG_NOTICE(( "DONE" ));
+      break;
     }
-    FD_TEST( val );
+    ulong rec_idx = ctx->scan->rec_idx[ scan_idx ];
+    ctx->metrics.accounts_processed++;
+    ulong val_gaddr = ctx->scan->val_gaddr[ scan_idx ];
 
-    /* Write account data
-       FIXME: Consider using non-temporal memcpy for large accounts */
-    uchar const * data     = fd_account_data( val );
-    ulong         data_rem = val->dlen - out->rec_off;
-    data_rem = 0UL;
-    ulong data_chunk_sz = fd_ulong_min( buf_rem, data_rem );
-    if( data_chunk_sz ) {
-      BUF_APPEND( data+out->rec_off, data_chunk_sz );
-      out->rec_off += data_chunk_sz;
-      data_rem     -= data_chunk_sz;
-    }
-    if( !data_rem ) out->rec = NULL;
-  } while( buf_rem );
-
-  /* Send frag */
-  ulong sz   = buf_max - buf_rem;
-  ulong orig = SNAPMK_ORIG_DATA;
-  int   som  = 0; /* FIXME */
-  int   eom  = 0; /* FIXME */
-  ulong ctl = fd_frag_meta_ctl( orig, som, eom, 0 );
-  fd_stem_publish( stem, out_idx, 0UL, chunk, sz, ctl, 0UL, 0UL );
+    /* Send frag */
+    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 );
+    fd_stem_publish( stem, out_idx, val_gaddr, 0UL, 0UL, ctl, (uint)rec_idx, 0UL );
+  }
 }
 
 /* after_credit is called if we can publish at least one frag */

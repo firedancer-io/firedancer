@@ -32,7 +32,6 @@ restart:
 
   fd_funk_rec_chain_t const * chain_tbl = scan->chain_tbl;
   fd_funk_rec_t const *       rec_tbl   = scan->rec_tbl;
-  fd_wksp_t const *           val_base  = scan->val_base;
 
   /* Scan map chain descriptors */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
@@ -41,39 +40,37 @@ restart:
 
   /* Locate map heads */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    fd_funk_rec_t const * rec;
+    uint rec_idx;
     ulong chain_cnt = fd_funk_rec_map_private_vcnt_cnt( scan->heads[ i ].ver_cnt );
     scan->rec_tot += chain_cnt;
-    if( chain_cnt ) rec = &rec_tbl[ scan->heads[ i ].head_cidx ];
-    else            rec = &rec_sentinel;
-    scan->rec[ i ] = rec;
+    if( chain_cnt ) rec_idx = scan->heads[ i ].head_cidx;
+    else            rec_idx = UINT_MAX;
+    scan->rec_idx[ i ] = rec_idx;
   }
   scan->chain += FUNK_SCAN_PARA;
 
   /* Gather map recs */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    _mm_prefetch( (char const *)&scan->rec[ i ]->pair.xid,  _MM_HINT_T1 );
-    _mm_prefetch( (char const *)&scan->rec[ i ]->val_gaddr, _MM_HINT_T1 );
+    _mm_prefetch( (char const *)&rec_tbl[ scan->rec_idx[ i ] ].pair.xid,  _MM_HINT_T1 );
+    _mm_prefetch( (char const *)&rec_tbl[ scan->rec_idx[ i ] ].val_gaddr, _MM_HINT_T1 );
   }
 
   /* Locate rec vals */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    fd_funk_rec_t const * rec       = scan->rec[ i ];
-    ulong                 val_gaddr = rec->val_gaddr;
-    if( val_gaddr==ULONG_MAX ) scan->val[ i ] = NULL;
-    else                       scan->val[ i ] = fd_wksp_laddr( val_base, val_gaddr );
+    uint rec_idx = scan->rec_idx[ i ];
+    fd_funk_rec_t const * rec = rec_idx!=UINT_MAX ? &scan->rec_tbl[ rec_idx ] : &rec_sentinel;
+    scan->val_gaddr[ i ] = rec->val_gaddr;
   }
 
   /* Filter */
   ulong rec_cnt = 0UL;
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    fd_funk_rec_t const * rec = scan->rec[ i ];
-    if( rec->val_gaddr==ULONG_MAX ) continue;
-    scan->rec[ rec_cnt ] = rec;
-    scan->val[ rec_cnt ] = fd_wksp_laddr( val_base, rec->val_gaddr );
+    if( scan->val_gaddr[ i ]==ULONG_MAX ) continue;
+    scan->rec_idx  [ rec_cnt ] = scan->rec_idx[ i ];
+    scan->val_gaddr[ rec_cnt ] = scan->val_gaddr[ i ];
     rec_cnt++;
   }
-  scan->rec_idx = 0UL;
-  scan->rec_cnt = rec_cnt;
+  scan->batch_idx = 0UL;
+  scan->batch_cnt = rec_cnt;
   if( !rec_cnt ) goto restart;
 }
