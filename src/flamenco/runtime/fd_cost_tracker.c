@@ -4,6 +4,7 @@
 #include "fd_runtime.h"
 #include "../features/fd_features.h"
 #include "../vm/fd_vm_base.h"
+#include "program/fd_system_program.h"
 
 struct account_cost {
   fd_pubkey_t account;
@@ -221,48 +222,38 @@ calculate_allocated_accounts_data_size( fd_bank_t * bank, fd_txn_in_t const * tx
 
     if( !fd_memeq( prog_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) continue;
 
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L266-L275
-       FIXME use limited_deserialize */
-    fd_bincode_decode_ctx_t ctx = {
-      .data    = instr_data,
-      .dataend = instr_data + instr->data_sz,
-    };
-    ulong total_sz = 0UL;
-    int err = fd_system_program_instruction_decode_footprint( &ctx, &total_sz );
-    if( FD_UNLIKELY( err ) ) return 0UL;
-    uchar buf[total_sz];
-    fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( buf, &ctx );
-    if( FD_UNLIKELY( !instruction ) ) return 0UL;
+    fd_system_program_instruction_t instruction;
+    if( FD_UNLIKELY( fd_system_program_instruction_decode( &instruction, instr_data, instr->data_sz ) ) ) return 0UL;
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L330-L346 */
     ulong space = 0UL;
-    switch( instruction->discriminant ) {
+    switch( instruction.discriminant ) {
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L234 */
-      case fd_system_program_instruction_enum_create_account: {
-        space = instruction->inner.create_account.space;
+      case FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT: {
+        space = instruction.inner.create_account.space;
         break;
       }
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L235 */
-      case fd_system_program_instruction_enum_create_account_with_seed: {
-        space = instruction->inner.create_account_with_seed.space;
+      case FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT_WITH_SEED: {
+        space = instruction.inner.create_account_with_seed.space;
         break;
       }
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L236 */
-      case fd_system_program_instruction_enum_allocate: {
-        space = instruction->inner.allocate;
+      case FD_SYSTEM_PROGRAM_INSTR_ALLOCATE: {
+        space = instruction.inner.allocate;
         break;
       }
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L237 */
-      case fd_system_program_instruction_enum_allocate_with_seed: {
-        space = instruction->inner.allocate_with_seed.space;
+      case FD_SYSTEM_PROGRAM_INSTR_ALLOCATE_WITH_SEED: {
+        space = instruction.inner.allocate_with_seed.space;
         break;
       }
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/cost-model/src/cost_model.rs#L238-L243 */
-      case fd_system_program_instruction_enum_create_account_allow_prefund: {
+      case FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT_ALLOW_PREFUND: {
         if( !FD_FEATURE_ACTIVE_BANK( bank, create_account_allow_prefund ) ) {
           return 0UL;
         }
-        space = instruction->inner.create_account_allow_prefund.space;
+        space = instruction.inner.create_account_allow_prefund.space;
         break;
       }
     }

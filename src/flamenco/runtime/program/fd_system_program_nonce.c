@@ -934,7 +934,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L99-L105 */
   if( FD_UNLIKELY( txn_instr->data_sz<4UL || FD_LOAD( uint, instr_data ) !=
-                   (uint)fd_system_program_instruction_enum_advance_nonce_account ) ) {
+                   (uint)FD_SYSTEM_PROGRAM_INSTR_ADVANCE_NONCE_ACCOUNT ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
