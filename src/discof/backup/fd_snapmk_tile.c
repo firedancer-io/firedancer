@@ -59,6 +59,8 @@ struct fd_snapmk {
   ulong out_cnt;
   ulong out_ready; /* bit set */
 
+  ulong in_idle_cnt;
+
   struct {
     ulong accounts_processed;
   } metrics;
@@ -165,11 +167,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
 static void
 update_flow_control( fd_snapmk_t *             ctx,
                      fd_stem_context_t const * stem ) {
-  // for( ulong i=0UL; i < ctx->out_cnt; i++ ) {
-  //   ulong cons_cr_avail = (ulong)fd_long_max( (long)stem->depths[ i ]-fd_long_max( fd_seq_diff( stem->seqs[ i ], fd_fseq_query( ctx->out[ i ].fseq ) ), 0L ), 0L );
-  //   stem->cr_avail[ i ] = cons_cr_avail;
-  //   stem->out_reliable[ i ] = 0;
-  // }
   ulong out_ready = 0UL;
   for( ulong i=0UL; i < ctx->out_cnt; i++ ) {
     out_ready |= fd_ulong_if( !!stem->cr_avail[ i ], 1UL<<i, 0UL );
@@ -187,7 +184,7 @@ check_credit( fd_snapmk_t *       ctx,
   (void)stem; (void)is_backpressured;
   switch( ctx->state ) {
   case SNAPMK_STATE_IDLE:
-    fd_log_sleep( (long)1e6 );
+    if( ctx->in_idle_cnt++ > 128 ) fd_log_sleep( (long)1e6 );
     *charge_busy = 0;
     break;
   case SNAPMK_STATE_ACCOUNTS:
@@ -239,18 +236,19 @@ send_account_frags( fd_snapmk_t *       ctx,
       out->rec = ctx->scan->rec[ rec_idx ];
       ctx->metrics.accounts_processed++;
       val = ctx->scan->val[ rec_idx ];
-      snap_acc_hdr_t hdr = {
-        .slot       = val->slot,
-        .data_len   = val->dlen,
-        .pubkey     = FD_LOAD( fd_pubkey_t, out->rec->pair.key ),
-        .lamports   = val->lamports,
-        .rent_epoch = ULONG_MAX,
-        .owner      = FD_LOAD( fd_pubkey_t, val->owner ),
-        .executable = !!val->executable,
-        .padding    = {0},
-        .hash       = {{0}} /* FIXME? */
-      };
-      BUF_APPEND( hdr.raw, sizeof(snap_acc_hdr_t) );
+      BUF_APPEND( &val, sizeof(ulong) );
+      // snap_acc_hdr_t hdr = {
+      //   .slot       = val->slot,
+      //   .data_len   = val->dlen,
+      //   .pubkey     = FD_LOAD( fd_pubkey_t, out->rec->pair.key ),
+      //   .lamports   = val->lamports,
+      //   .rent_epoch = ULONG_MAX,
+      //   .owner      = FD_LOAD( fd_pubkey_t, val->owner ),
+      //   .executable = !!val->executable,
+      //   .padding    = {0},
+      //   .hash       = {{0}} /* FIXME? */
+      // };
+      // BUF_APPEND( hdr.raw, sizeof(snap_acc_hdr_t) );
       out->rec_off = 0UL;
     } else {
       val = fd_funk_val( out->rec, ctx->funk->wksp );
@@ -261,6 +259,7 @@ send_account_frags( fd_snapmk_t *       ctx,
        FIXME: Consider using non-temporal memcpy for large accounts */
     uchar const * data     = fd_account_data( val );
     ulong         data_rem = val->dlen - out->rec_off;
+    data_rem = 0UL;
     ulong data_chunk_sz = fd_ulong_min( buf_rem, data_rem );
     if( data_chunk_sz ) {
       BUF_APPEND( data+out->rec_off, data_chunk_sz );
@@ -325,6 +324,7 @@ returnable_frag( fd_snapmk_t *       ctx,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
   (void)seq; (void)chunk; (void)sz; (void)ctl; (void)tsorig; (void)tspub; (void)stem;
+  ctx->in_idle_cnt = 0UL;
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_REPLAY:
     switch( sig ) {

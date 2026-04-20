@@ -108,17 +108,18 @@ snapshot_create_cmd_fn( args_t *   args,
   }
 
   /* Wait for snapshot load to complete */
-  fd_log_sleep( (long)1e8 );
+  fd_log_sleep( (long)5e6 );
   ulong accounts_processed_prev = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
   ulong tot_sz_prev             = zp_in_metrics  [ MIDX( COUNTER, LINK,   CONSUMED_SIZE_BYTES ) ];
+  long period = (long)2e7;
   while( mk_tile_metrics[ MIDX( GAUGE, SNAPMK, ACTIVE ) ] ) {
-    fd_log_sleep( (long)1e8 );
+    fd_log_sleep( period );
     ulong accounts_processed = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED  ) ];
     ulong tot_sz             = zp_in_metrics  [ MIDX( COUNTER, LINK,   CONSUMED_SIZE_BYTES ) ];
     char buf[ 64 ];
     FD_LOG_NOTICE(( "  accounts=%7.2g/s  data=%s",
-      (double)(accounts_processed - accounts_processed_prev)*10,
-      fmt_bytes( buf, sizeof(buf), (double)(tot_sz - tot_sz_prev)*10 ) ));
+      (double)(accounts_processed - accounts_processed_prev) * (1e9/(double)period),
+      fmt_bytes( buf, sizeof(buf), (double)(tot_sz - tot_sz_prev) * (1e9/(double)period) ) ));
     accounts_processed_prev = accounts_processed;
     tot_sz_prev = tot_sz;
   }

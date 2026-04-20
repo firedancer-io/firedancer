@@ -62,7 +62,6 @@ restart:
     ulong                 val_gaddr = rec->val_gaddr;
     if( val_gaddr==ULONG_MAX ) scan->val[ i ] = NULL;
     else                       scan->val[ i ] = fd_wksp_laddr( val_base, val_gaddr );
-    _mm_prefetch( (char const *)scan->val[ i ], _MM_HINT_T1 );
   }
 
   /* Filter */
