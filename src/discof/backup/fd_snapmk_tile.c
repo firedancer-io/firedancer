@@ -155,24 +155,37 @@ check_credit( fd_snapmk_t *       ctx,
 __attribute__((noinline)) static void
 send_account_frags( fd_snapmk_t *       ctx,
                     fd_stem_context_t * stem ) {
-  ctx->out_ready = 1;
-  ulong out_idx = (ulong)fd_ulong_find_lsb( ctx->out_ready );
-  while( stem->cr_avail[ out_idx ] ) {
-    ulong scan_idx = fd_funk_scan_next_rooted( ctx->scan );
+  int out_idx = fd_ulong_find_lsb( ctx->out_ready );
+  ulong burst_max = stem->cr_avail[ out_idx ];
+  if( FD_UNLIKELY( !burst_max ) ) {
+    ctx->out_ready = fd_ulong_clear_bit( ctx->out_ready, out_idx );
+    return;
+  };
+  fd_frag_meta_t * mcache = stem->mcaches[ out_idx ];
+  ulong depth = stem->depths[ out_idx ];
+  ulong seq = stem->seqs[ out_idx ];
+  ulong * cr_availp = &stem->cr_avail[ out_idx ];
+  ulong pub_cnt = 0UL;
+  while( burst_max-- ) {
+    ulong scan_idx = fd_funk_scan_next( ctx->scan );
     if( FD_UNLIKELY( scan_idx==ULONG_MAX ) ) {
-      FD_LOG_NOTICE(( "chain=%lu rec_cnt=%lu", ctx->scan->chain, ctx->scan->rec_tot ));
       ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
       FD_LOG_NOTICE(( "DONE" ));
       break;
     }
     ulong rec_idx = ctx->scan->rec_idx[ scan_idx ];
-    ctx->metrics.accounts_processed++;
     ulong val_gaddr = ctx->scan->val_gaddr[ scan_idx ];
 
     /* Send frag */
     ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 );
-    fd_stem_publish( stem, out_idx, val_gaddr, 0UL, 0UL, ctl, (uint)rec_idx, 0UL );
+    fd_mcache_publish( mcache, depth, seq, val_gaddr, 0UL, 0UL, ctl, (uint)rec_idx, 0UL );
+    pub_cnt++;
+    seq = fd_seq_inc( seq, 1UL );
   }
+  *cr_availp -= pub_cnt;
+  *stem->min_cr_avail = fd_ulong_min( *cr_availp, *stem->min_cr_avail );
+  stem->seqs[ out_idx ] = seq;
+  ctx->metrics.accounts_processed += pub_cnt;
 }
 
 /* after_credit is called if we can publish at least one frag */
@@ -245,7 +258,7 @@ metrics_write( fd_snapmk_t * ctx ) {
 }
 
 #define STEM_BURST 1UL
-#define STEM_LAZY  10000UL
+#define STEM_LAZY  8700UL
 #define STEM_CALLBACK_CONTEXT_TYPE    fd_snapmk_t
 #define STEM_CALLBACK_CONTEXT_ALIGN   alignof(fd_snapmk_t)
 #define STEM_CALLBACK_CHECK_CREDIT    check_credit

@@ -35,7 +35,8 @@ restart:
 
   /* Scan map chain descriptors */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    scan->heads[ i ] = chain_tbl[ scan->chain+i ];
+    __m128i chain_sse = _mm_load_si128( (void const *)( &chain_tbl[ scan->chain+i ] ) );
+    memcpy( &scan->heads[ i ], &chain_sse, sizeof(__m128i) );
   }
 
   /* Locate map heads */
@@ -51,14 +52,9 @@ restart:
 
   /* Gather map recs */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    _mm_prefetch( (char const *)&rec_tbl[ scan->rec_idx[ i ] ].pair.xid,  _MM_HINT_T1 );
-    _mm_prefetch( (char const *)&rec_tbl[ scan->rec_idx[ i ] ].val_gaddr, _MM_HINT_T1 );
-  }
-
-  /* Locate rec vals */
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
     uint rec_idx = scan->rec_idx[ i ];
-    fd_funk_rec_t const * rec = rec_idx!=UINT_MAX ? &scan->rec_tbl[ rec_idx ] : &rec_sentinel;
+    fd_funk_rec_t const * rec = rec_idx!=UINT_MAX ? &rec_tbl[ rec_idx ] : &rec_sentinel;
+    _mm_prefetch( (char const *)&rec->pair.xid,  _MM_HINT_T1 );
     scan->val_gaddr[ i ] = rec->val_gaddr;
   }
 
@@ -68,6 +64,7 @@ restart:
     if( scan->val_gaddr[ i ]==ULONG_MAX ) continue;
     scan->rec_idx  [ rec_cnt ] = scan->rec_idx[ i ];
     scan->val_gaddr[ rec_cnt ] = scan->val_gaddr[ i ];
+    /* FIXME filter by XID */
     rec_cnt++;
   }
   scan->batch_idx = 0UL;

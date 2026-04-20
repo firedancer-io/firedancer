@@ -68,15 +68,4 @@ fd_funk_scan_next( fd_funk_scan_t * scan ) {
   return scan->batch_idx++;
 }
 
-static inline ulong
-fd_funk_scan_next_rooted( fd_funk_scan_t * scan ) {
-  for(;;) {
-    ulong batch_idx = fd_funk_scan_next( scan );
-    if( FD_UNLIKELY( batch_idx==ULONG_MAX ) ) return ULONG_MAX;
-    fd_funk_rec_t const * rec = &scan->rec_tbl[ scan->rec_idx[ batch_idx ] ];
-    fd_xid_t xid; fd_funk_txn_xid_ld_atomic( &xid, rec->pair.xid );
-    if( FD_LIKELY( fd_funk_txn_xid_eq_root( &xid ) ) ) return batch_idx;
-  }
-}
-
 #endif /* HEADER_fd_src_discof_backup_fd_funk_scan_h */

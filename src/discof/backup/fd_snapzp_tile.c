@@ -1,20 +1,26 @@
 #include "fd_snapmk.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../funk/fd_funk.h"
+#include "../../util/pod/fd_pod.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 
 struct fd_snapzp {
-  uint    state;
-  ulong * fseq;
+  fd_funk_t funk[1];
+
+  fd_pubkey_t account;
+  uchar       data[ FD_RUNTIME_ACC_SZ_MAX ];
 };
 typedef struct fd_snapzp fd_snapzp_t;
 
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  fd_snapzp_t * snapzp = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  memset( snapzp, 0, sizeof(fd_snapzp_t) );
-  snapzp->state = SNAPMK_STATE_IDLE;
-  snapzp->fseq  = fd_fseq_join( fd_topo_obj_laddr( topo, tile->in_link_fseq_obj_id[ 0 ] ) );
-  FD_TEST( snapzp->fseq );
+  fd_snapzp_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  memset( ctx, 0, sizeof(fd_snapzp_t) );
+
+  ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
+  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, locks_obj_id ) ) );
 }
 
 FD_FN_CONST static inline ulong
@@ -44,18 +50,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-static void
-before_credit( fd_snapzp_t *       ctx,
-               fd_stem_context_t * stem,
-               int *               charge_busy ) {
-  (void)ctx; (void)stem; (void)charge_busy;
-
-  // if( ctx->state == SNAPMK_STATE_IDLE ) {
-  //   fd_log_sleep( (long)1e6 );
-  //   return;
-  // }
-}
-
 static int
 returnable_frag( fd_snapzp_t *       ctx,
                  ulong               in_idx,
@@ -68,15 +62,22 @@ returnable_frag( fd_snapzp_t *       ctx,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
   (void)ctx; (void)in_idx; (void)seq; (void)sig; (void)chunk; (void)sz; (void)ctl; (void)tsorig; (void)tspub; (void)stem;
-  fd_fseq_update( ctx->fseq, seq );
+  ulong rec_idx   = tsorig;
+  ulong val_gaddr = sig;
+
+  fd_funk_rec_t const *     rec = &ctx->funk->rec_pool->ele[ rec_idx ];
+  fd_account_meta_t const * val = fd_wksp_laddr_fast( ctx->funk->wksp, val_gaddr );
+  ulong data_sz = val->dlen;
+  fd_memcpy( ctx->account.key, rec->pair.key, sizeof(fd_pubkey_t) );
+  fd_memcpy( ctx->data, fd_account_data( val ), data_sz );
+
   return 0;
 }
 
 #define STEM_BURST 1UL
-#define STEM_LAZY  10000UL
+#define STEM_LAZY  9400UL
 #define STEM_CALLBACK_CONTEXT_TYPE    fd_snapzp_t
 #define STEM_CALLBACK_CONTEXT_ALIGN   alignof(fd_snapzp_t)
-#define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 #include "../../disco/stem/fd_stem.c"
 
