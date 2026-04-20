@@ -155,56 +155,51 @@ fd_executor_compute_budget_program_execute_instructions( fd_bank_t const *   ban
       continue;
     }
 
-    /* Deserialize the ComputeBudgetInstruction enum */
-    uchar * data = (uchar *)txn_in->txn->payload + instr->data_off;
+    uchar const * data = (uchar const *)txn_in->txn->payload + instr->data_off;
 
-    fd_compute_budget_program_instruction_t instruction[1];
-    if( FD_UNLIKELY( !fd_bincode_decode_static(
-        compute_budget_program_instruction,
-        instruction,
-        data,
-        instr->data_sz ) ) ) {
+    fd_compute_budget_instr_t instruction[1];
+    if( FD_UNLIKELY( fd_compute_budget_instr_decode( data, instr->data_sz, instruction ) ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( txn_out, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
 
     switch( instruction->discriminant ) {
-      case fd_compute_budget_program_instruction_enum_request_heap_frame: {
+      case FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_HEAP_FRAME: {
         if( FD_UNLIKELY( details->has_requested_heap_size ) ) {
           return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
         }
 
         details->has_requested_heap_size         = 1;
-        details->heap_size                       = instruction->inner.request_heap_frame;
+        details->heap_size                       = instruction->request_heap_frame;
         details->requested_heap_size_instr_index = i;
         break;
       }
-      case fd_compute_budget_program_instruction_enum_set_compute_unit_limit: {
+      case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_LIMIT: {
         if( FD_UNLIKELY( details->has_compute_units_limit_update ) ) {
           return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
         }
 
         details->has_compute_units_limit_update = 1;
-        details->compute_unit_limit             = instruction->inner.set_compute_unit_limit;
+        details->compute_unit_limit             = instruction->set_compute_unit_limit;
         break;
       }
-      case fd_compute_budget_program_instruction_enum_set_compute_unit_price: {
+      case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_PRICE: {
         if( FD_UNLIKELY( details->has_compute_units_price_update ) ) {
           return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
         }
 
         details->has_compute_units_price_update = 1;
-        details->compute_unit_price             = instruction->inner.set_compute_unit_price;
+        details->compute_unit_price             = instruction->set_compute_unit_price;
         break;
       }
-      case fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit: {
-          if( FD_UNLIKELY( details->has_loaded_accounts_data_size_limit_update ) ) {
-            return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
-          }
+      case FD_COMPUTE_BUDGET_INSTR_DISC_SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT: {
+        if( FD_UNLIKELY( details->has_loaded_accounts_data_size_limit_update ) ) {
+          return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
+        }
 
-          details->has_loaded_accounts_data_size_limit_update = 1;
-          details->loaded_accounts_data_size_limit            = instruction->inner.set_loaded_accounts_data_size_limit;
-          break;
+        details->has_loaded_accounts_data_size_limit_update = 1;
+        details->loaded_accounts_data_size_limit            = instruction->set_loaded_accounts_data_size_limit;
+        break;
       }
       default: {
         FD_TXN_ERR_FOR_LOG_INSTR( txn_out, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );

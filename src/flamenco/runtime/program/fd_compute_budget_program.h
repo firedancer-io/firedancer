@@ -18,6 +18,80 @@
 #define FD_PROGRAM_KIND_BUILTIN           (1)
 #define FD_PROGRAM_KIND_MIGRATING_BUILTIN (2)
 
+/* Borsh-encoded ComputeBudgetInstruction discriminants.
+   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/sdk/src/compute_budget.rs */
+
+#define FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_UNITS_DEPRECATED            (0U)
+#define FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_HEAP_FRAME                  (1U)
+#define FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_LIMIT              (2U)
+#define FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_PRICE              (3U)
+#define FD_COMPUTE_BUDGET_INSTR_DISC_SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT (4U)
+
+/* fd_compute_budget_instr_t is the in-memory representation of a
+   decoded ComputeBudgetInstruction.  Agave uses borsh with a 1-byte
+   u8 discriminant.  Trailing bytes are allowed (try_from_slice_unchecked). */
+
+struct fd_compute_budget_instr {
+  uchar discriminant;
+  union {
+    uint  request_heap_frame;
+    uint  set_compute_unit_limit;
+    ulong set_compute_unit_price;
+    uint  set_loaded_accounts_data_size_limit;
+  };
+};
+typedef struct fd_compute_budget_instr fd_compute_budget_instr_t;
+
+/* fd_compute_budget_instr_decode decodes a borsh-serialized
+   ComputeBudgetInstruction from [data, data+data_sz).
+   Returns 0 on success, -1 on decode failure.  On an unknown
+   discriminant, out->discriminant is still populated before -1 is
+   returned. */
+
+static inline int
+fd_compute_budget_instr_decode( uchar const *               data,
+                                ulong                       data_sz,
+                                fd_compute_budget_instr_t * out ) {
+  uchar const * _payload    = data;
+  ulong const   _payload_sz = data_sz;
+  ulong         _i          = 0UL;
+
+# define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }
+# define CHECK_LEFT( n ) CHECK( (n)<=(_payload_sz-_i) )
+# define INC( n )        (_i += (ulong)(n))
+# define CURSOR          (_payload+_i)
+
+  CHECK_LEFT( 1UL ); uchar disc = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+  out->discriminant = disc;
+
+  switch( disc ) {
+    case FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_UNITS_DEPRECATED:
+      CHECK_LEFT( 8UL );
+      break;
+    case FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_HEAP_FRAME:
+      CHECK_LEFT( 4UL ); out->request_heap_frame = FD_LOAD( uint, CURSOR ); INC( 4UL );
+      break;
+    case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_LIMIT:
+      CHECK_LEFT( 4UL ); out->set_compute_unit_limit = FD_LOAD( uint, CURSOR ); INC( 4UL );
+      break;
+    case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_PRICE:
+      CHECK_LEFT( 8UL ); out->set_compute_unit_price = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+      break;
+    case FD_COMPUTE_BUDGET_INSTR_DISC_SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT:
+      CHECK_LEFT( 4UL ); out->set_loaded_accounts_data_size_limit = FD_LOAD( uint,  CURSOR ); INC( 4UL );
+      break;
+    default:
+      return -1;
+  }
+
+# undef CHECK
+# undef CHECK_LEFT
+# undef INC
+# undef CURSOR
+
+  return 0;
+}
+
 FD_PROTOTYPES_BEGIN
 
 /* Validates the requested compute budget limits. Returns an error if
