@@ -2123,8 +2123,8 @@ test_wire_rejects_invalid_authority_tag( void ) {
 static void
 test_wire_decode_24_byte_none_payload( void ) {
   FD_LOG_NOTICE(( "Wire test: decode 24-byte None payload" ));
-  uchar buf[ 24 ];
-  build_none_authority_buf( buf, sizeof(buf), ULONG_MAX, 42UL, 7, 0x1234 );
+  uchar buf[ 1024 ];
+  build_none_authority_buf( buf, 24UL, ULONG_MAX, 42UL, 7, 0x1234 );
 
   fd_alut_meta_t meta[1];
   FD_TEST( fd_alut_state_decode( buf, sizeof(buf), meta ) == 0 );
