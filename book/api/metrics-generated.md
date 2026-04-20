@@ -1339,6 +1339,17 @@
 
 </div>
 
+## Snapmk Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapmk_&#8203;active</span> | gauge | State of the tile. 0=IDLE 1=ACTIVE |
+| <span class="metrics-name">snapmk_&#8203;accounts_&#8203;processed</span> | counter | Number of accounts processed |
+
+</div>
+
 ## Resolh Tile
 
 <div class="metrics">

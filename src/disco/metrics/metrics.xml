@@ -1192,6 +1192,11 @@ metric introduced.
     <gauge name="IncrementalDuplicateAccountsHashed" summary="Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
+<tile name="snapmk">
+    <gauge name="Active" summary="State of the tile. 0=IDLE 1=ACTIVE" />
+    <counter name="AccountsProcessed" summary="Number of accounts processed" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 

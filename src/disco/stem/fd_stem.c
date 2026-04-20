@@ -531,8 +531,12 @@ STEM_(run1)( ulong                        in_cnt,
 #endif
 
     int charge_busy_before = 0;
+    int is_backpressured   = min_cr_avail<burst;
 #ifdef STEM_CALLBACK_BEFORE_CREDIT
     STEM_CALLBACK_BEFORE_CREDIT( ctx, &stem, &charge_busy_before );
+#endif
+#ifdef STEM_CALLBACK_CHECK_CREDIT
+    STEM_CALLBACK_CHECK_CREDIT( ctx, &stem, &charge_busy_before, &is_backpressured );
 #endif
 
   /* Check if we are backpressured.  If so, count any transition into
@@ -543,7 +547,7 @@ STEM_(run1)( ulong                        in_cnt,
      different threads of execution.  We only count the transition
      from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( min_cr_avail<burst ) ) {
+    if( FD_UNLIKELY( is_backpressured ) ) {
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();

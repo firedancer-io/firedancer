@@ -466,8 +466,10 @@ fd_topo_print_log( int         stdout,
   for( ulong i=0UL; i<topo->link_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ i ];
 
+    ulong dcache_sz = fd_dcache_footprint( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), 0UL );
+    ulong mcache_sz = fd_mcache_footprint( link->depth, 0UL );
     char size[ 24 ];
-    fd_topo_mem_sz_string( fd_dcache_req_data_sz( link->mtu, link->depth, link->burst, 1 ), size );
+    fd_topo_mem_sz_string( mcache_sz+dcache_sz, size );
     PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  depth=%-5lu  mtu=%-9lu  burst=%lu\n", i, size, link->name, link->kind_id, topo->objs[ link->dcache_obj_id ].wksp_id, link->depth, link->mtu, link->burst );
   }
 

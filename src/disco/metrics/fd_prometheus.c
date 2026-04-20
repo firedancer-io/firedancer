@@ -122,6 +122,9 @@ render_counter( fd_prom_render_t *        r,
   case FD_METRICS_CONVERTER_NONE:
     fd_http_server_printf( r->http, "} %lu\n", raw_value );
     break;
+  case FD_METRICS_CONVERTER_DOUBLE:
+    fd_http_server_printf( r->http, "} %g\n", FD_LOAD( double, &raw_value ) );
+    break;
   default:
     FD_LOG_ERR(( "unknown converter %i", metric->converter ));
   }
