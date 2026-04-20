@@ -177,6 +177,17 @@ struct fd_configf {
     } genesis;
 
     struct {
+      char  format[ 16 ];
+      char  path[ PATH_MAX ];
+      ulong end_slot;
+    } ledger_input;
+
+    struct {
+      char  affinity[ AFFINITY_SZ ];
+      ulong root_distance;
+    } backtest;
+
+    struct {
       char affinity[ AFFINITY_SZ ];
     } forktest;
   } development;
@@ -488,15 +499,6 @@ struct fd_config {
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
-
-    struct {
-      int   ingest_dead_slots;
-      ulong end_slot;
-      ulong root_distance;
-      char  rocksdb_path[ PATH_MAX ];
-      char  shredcap_path[ PATH_MAX ];
-      char  ingest_mode[ 32 ];
-    } archiver;
 
     struct {
       int   enabled;

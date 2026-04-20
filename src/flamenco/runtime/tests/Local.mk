@@ -15,16 +15,14 @@ $(call add-objs,fd_block_harness,fd_flamenco_test)
 endif
 $(call add-objs,fd_sol_compat,fd_flamenco_test)
 
-$(call add-hdrs,generated/context.pb.h generated/invoke.pb.h generated/txn.pb.h generated/block.pb.h generated/vm.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h)
-$(call add-objs,generated/context.pb generated/invoke.pb generated/txn.pb generated/block.pb generated/vm.pb generated/metadata.pb generated/gossip.pb generated/cost.pb,fd_flamenco)
-
-$(call add-hdrs,flatbuffers/generated/elf_builder.h,flatbuffers/generated/elf_reader.h)
+$(call add-hdrs,generated/context.pb.h generated/invoke.pb.h generated/txn.pb.h generated/block.pb.h generated/vm.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h generated/elf.pb.h)
+$(call add-objs,generated/context.pb generated/invoke.pb generated/txn.pb generated/block.pb generated/vm.pb generated/metadata.pb generated/gossip.pb generated/cost.pb generated/elf.pb,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128
 SOL_COMPAT_FLAGS:=-Wl,--undefined=fd_types_vt_by_name -Wl,--version-script=src/flamenco/runtime/tests/libfd_exec_sol_compat.map
-$(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_flamenco fd_tango fd_funk fd_ballet fd_util fd_disco,$(FLATCC_LIBS))
-$(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(FLATCC_LIBS) $(SOL_COMPAT_FLAGS))
+$(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_flamenco fd_tango fd_funk fd_ballet fd_util fd_disco)
+$(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SOL_COMPAT_FLAGS))
 $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)
 endif
 endif

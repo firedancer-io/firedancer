@@ -1,12 +1,6 @@
 [layout]
     shred_tile_count = 4
 [tiles]
-    [tiles.archiver]
-        end_slot = {end_slot}
-        ingest_mode = "rocksdb"
-        rocksdb_path = "{ledger}/rocksdb"
-        root_distance = 32
-        ingest_dead_slots = false
     [tiles.gui]
         enabled = false
     [tiles.rpc]
@@ -39,3 +33,9 @@
             allow_list = []
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
+[development.ledger_input]
+    format = "rocksdb"
+    path = "{ledger}/rocksdb"
+    end_slot = {end_slot}
+[development.backtest]
+    root_distance = 32
