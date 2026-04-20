@@ -1,4 +1,4 @@
-#include "fd_backtest_rocksdb.h"
+#include "fd_backtest_src.h"
 #include "fd_shredcap.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../ballet/shred/fd_shred.h"
@@ -10,7 +10,6 @@
 
 #include <errno.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <fcntl.h>
 
 /* Hardcoded constants */
@@ -60,6 +59,33 @@ write_bank_hash( FILE *      pcap,
   memcpy( bank_hash_rec->bank_hash, bank_hash, 32UL );
 
   fd_pcapng_fwrite_pkt1( pcap, &packet, sizeof(packet), NULL, 0UL, IF_IDX_SHREDCAP, 0L );
+}
+
+static void
+write_rooted_slot( FILE * pcap,
+                   ulong  slot ) {
+  struct __attribute__((packed)) {
+    uint type;
+    fd_shredcap_root_slot_v0_t root_slot_rec;
+  } packet;
+  memset( &packet, 0, sizeof(packet) );
+
+  packet.type               = FD_SHREDCAP_TYPE_ROOT_SLOT_V0;
+  packet.root_slot_rec.slot = slot;
+
+  fd_pcapng_fwrite_pkt1( pcap, &packet, sizeof(packet), NULL, 0UL, IF_IDX_SHREDCAP, 0L );
+}
+
+static void
+maybe_write_bank_hash( FILE *           pcap,
+                       fd_backt_src_t * src,
+                       ulong            slot,
+                       ulong            shred_cnt ) {
+  fd_backt_slot_info_t info;
+  if( FD_UNLIKELY( !fd_backtest_src_slot_info( src, &info, slot ) ) ) return;
+  if( FD_UNLIKELY( !info.bank_hash_set ) ) return;
+  write_bank_hash( pcap, slot, shred_cnt, info.bank_hash.uc );
+  if( info.rooted ) write_rooted_slot( pcap, slot );
 }
 
 static void
@@ -144,11 +170,14 @@ main( int     argc,
 
   fd_boot( &argc, &argv );
 
-  void * rocks_mem = aligned_alloc( fd_backtest_rocksdb_align(), fd_backtest_rocksdb_footprint() );
-  if( FD_UNLIKELY( !rocks_mem ) ) FD_LOG_ERR(( "out of memory" ));
-  fd_backtest_rocksdb_t * rocksdb = fd_backtest_rocksdb_join( fd_backtest_rocksdb_new( rocks_mem, rocksdb_path ) );
-  if( FD_UNLIKELY( !rocksdb ) ) FD_LOG_ERR(( "failed to open RocksDB at %s", rocksdb_path ));
-  fd_backtest_rocksdb_init( rocksdb, start_slot );
+  fd_backtest_src_opts_t src_opts = {
+    .format      = "rocksdb",
+    .path        = rocksdb_path,
+    .rooted_only = 1,
+    .code_shreds = 0,
+  };
+  fd_backt_src_t * src = fd_backtest_src_create( &src_opts );
+  if( FD_UNLIKELY( !src ) ) FD_LOG_ERR(( "failed to open RocksDB at %s", rocksdb_path ));
 
   int out_fd = open( out_path, O_WRONLY|O_CREAT|O_EXCL, 0644 );
   if( FD_UNLIKELY( out_fd<0 ) ) FD_LOG_ERR(( "failed to create file %s (%i-%s)", out_path, errno, fd_io_strerror( errno ) ));
@@ -185,37 +214,53 @@ main( int     argc,
     FD_TEST( idb_cnt++==IF_IDX_SHREDCAP );
   }
 
-  ulong slot_cnt = 0UL;
-  for( ;; slot_cnt++ ) {
-    ulong root_slot;
-    ulong shred_cnt;
-    int root_ok = fd_backtest_rocksdb_next_root_slot( rocksdb, &root_slot, &shred_cnt );
-    if( !root_ok ) break;
-    uchar const * bank_hash = fd_backtest_rocksdb_bank_hash( rocksdb, root_slot );
-    if( FD_UNLIKELY( !bank_hash ) ) FD_LOG_ERR(( "failed to extract bank hash for root slot %lu", root_slot ));
-    if( root_slot>end_slot ) break;
+  ulong slot_cnt  = 0UL;
+  ulong cur_slot  = ULONG_MAX;
+  ulong buf_cnt   = 0UL;
+  uchar raw[ FD_SHRED_MAX_SZ ];
 
-    write_bank_hash( out, root_slot, shred_cnt, bank_hash );
+  for(;;) {
+    ulong sz = fd_backtest_src_shred( src, raw, sizeof(raw) );
+    if( FD_UNLIKELY( sz==ULONG_MAX ) ) break;
+    if( FD_UNLIKELY( sz==0UL      ) ) continue;
 
-    for( ulong i=0UL; i<shred_cnt; i++ ) {
-      void const * shred = fd_backtest_rocksdb_shred( rocksdb, root_slot, i );
-      if( FD_UNLIKELY( !shred ) ) {
-        FD_LOG_WARNING(( "missing shred %lu for slot %lu", i, root_slot ));
-        break;
-      }
-      write_shred( out, shred );
+    fd_shred_t const * shred = fd_shred_parse( raw, sz );
+    if( FD_UNLIKELY( !shred ) ) {
+      FD_LOG_WARNING(( "skipping unparseable shred" ));
+      continue;
     }
 
+    ulong slot = shred->slot;
+
+    if( FD_UNLIKELY( slot!=cur_slot ) ) {
+      if( cur_slot!=ULONG_MAX && cur_slot>=start_slot && cur_slot<=end_slot && buf_cnt>0UL ) {
+        maybe_write_bank_hash( out, src, cur_slot, buf_cnt );
+        slot_cnt++;
+      }
+      cur_slot = slot;
+      buf_cnt  = 0UL;
+    }
+
+    if( slot>end_slot ) break;
+    if( slot<start_slot ) continue;
+
+    write_shred( out, raw );
+    buf_cnt++;
+  }
+
+  /* Write bank hash for last slot */
+  if( cur_slot!=ULONG_MAX && cur_slot>=start_slot && cur_slot<=end_slot && buf_cnt>0UL ) {
+    maybe_write_bank_hash( out, src, cur_slot, buf_cnt );
+    slot_cnt++;
   }
 
   long off = ftell( out );
   FD_LOG_NOTICE(( "%s: wrote %lu slots, %ld bytes", out_path, slot_cnt, off ));
 
-  /* FIXME missing destructor for backtest_rocksdb */
+  fd_backtest_src_destroy( src );
   if( FD_UNLIKELY( 0!=fclose( out ) ) ) {
     FD_LOG_ERR(( "fclose failed on %s (%i-%s), output file may be corrupt", out_path, errno, fd_io_strerror( errno ) ));
   }
-  free( rocks_mem );
 
   fd_halt();
   return 0;

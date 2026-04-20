@@ -15,9 +15,6 @@
 #include "../../accdb/fd_accdb_user.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../fd_bank.h"
-#if FD_HAS_FLATCC
-#include <flatcc/flatcc_builder.h>
-#endif
 
 /* A fd_solfuzz_runner_t object processes solfuzz inputs.  Can be reused
    for different inputs, even of different types.  Single-thread per
@@ -45,10 +42,6 @@ struct fd_solfuzz_runner {
   void *               solcap_file; /* FILE * */
 
   fd_runtime_stack_t * runtime_stack;
-
-# if FD_HAS_FLATCC
-  flatcc_builder_t     fb_builder[1]; /* Persistent flatbuffers builder */
-# endif
 
   int enable_vm_tracing;
 };
@@ -165,11 +158,17 @@ fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
 
 /* SVM Program Loading */
 
-#if FD_HAS_FLATCC
+ulong
+fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
+                              void const *          input_,
+                              void **               output_,
+                              void *                output_buf,
+                              ulong                 output_bufsz );
+
 int
-fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
-                              void const *          input_ );
-#endif
+fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
+                                  uchar const *         in,
+                                  ulong                 in_sz );
 
 /* SVM sBPF Syscall Handling */
 
@@ -184,11 +183,6 @@ int
 fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
                                uchar const *         in,
                                ulong                 in_sz );
-
-/* Flatbuffers */
-int
-fd_solfuzz_fb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
-                                  uchar const *         in );
 
 FD_PROTOTYPES_END
 

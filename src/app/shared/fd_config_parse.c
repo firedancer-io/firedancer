@@ -127,7 +127,17 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.min_download_speed_mibs                   );
 
   CFG_POP      ( bool,   development.hard_fork_fatal                         );
+
   CFG_POP      ( bool,   development.genesis.validate_genesis_hash           );
+
+  CFG_POP      ( cstr,   development.ledger_input.format                     );
+  CFG_POP      ( cstr,   development.ledger_input.path                       );
+  CFG_POP      ( ulong,  development.ledger_input.end_slot                   );
+
+  CFG_POP      ( cstr,   development.backtest.affinity                       );
+  CFG_POP      ( ulong,  development.backtest.root_distance                  );
+
+  CFG_POP      ( cstr,   development.forktest.affinity                       );
 
   return config;
 }
@@ -277,13 +287,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 
   CFG_POP      ( ushort, tiles.txsend.txsend_src_port                     );
-
-  CFG_POP      ( bool,   tiles.archiver.ingest_dead_slots                 );
-  CFG_POP      ( ulong,  tiles.archiver.end_slot                          );
-  CFG_POP      ( ulong,  tiles.archiver.root_distance                     );
-  CFG_POP      ( cstr,   tiles.archiver.rocksdb_path                      );
-  CFG_POP      ( cstr,   tiles.archiver.shredcap_path                     );
-  CFG_POP      ( cstr,   tiles.archiver.ingest_mode                       );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     CFG_POP      ( bool,    tiles.shredcap.enabled                        );
