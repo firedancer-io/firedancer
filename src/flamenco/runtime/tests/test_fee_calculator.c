@@ -158,16 +158,16 @@ read_nonce_fee( fd_svm_mini_t *     mini,
   fd_accdb_ro_t ro[1];
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, xid, nonce_pubkey ) );
 
-  fd_nonce_state_versions_t state[1];
+  fd_nonce_state_versions_t state = {0};
   FD_TEST( fd_nonce_state_versions_decode(
-      state,
+      &state,
       fd_accdb_ref_data_const( ro ),
       fd_accdb_ref_data_sz( ro ) )==0 );
   fd_accdb_close_ro( mini->accdb, ro );
 
-  FD_TEST( state->version == FD_NONCE_VERSION_CURRENT );
-  FD_TEST( state->kind    == FD_NONCE_STATE_INITIALIZED );
-  return state->lamports_per_signature;
+  FD_TEST( state.version == FD_NONCE_VERSION_CURRENT );
+  FD_TEST( state.kind    == FD_NONCE_STATE_INITIALIZED );
+  return state.lamports_per_signature;
 }
 
 static ulong
