@@ -44,39 +44,52 @@ typedef struct fd_compute_budget_instr fd_compute_budget_instr_t;
 
 /* fd_compute_budget_instr_decode decodes a borsh-serialized
    ComputeBudgetInstruction from [data, data+data_sz).
-   Returns 0 on success, -1 on decode failure. */
+   Returns 0 on success, -1 on decode failure.  On an unknown
+   discriminant, out->discriminant is still populated before -1 is
+   returned. */
 
 static inline int
 fd_compute_budget_instr_decode( uchar const *               data,
                                 ulong                       data_sz,
                                 fd_compute_budget_instr_t * out ) {
-  if( FD_UNLIKELY( data_sz<1UL ) ) return -1;
-  out->discriminant = data[0];
-  uchar const * p   = data + 1;
-  ulong         rem = data_sz - 1;
-  switch( out->discriminant ) {
+  uchar const * _payload    = data;
+  ulong const   _payload_sz = data_sz;
+  ulong         _i          = 0UL;
+
+# define CHECK( cond )   { if( FD_UNLIKELY( !(cond) ) ) { return -1; } }
+# define CHECK_LEFT( n ) CHECK( (n)<=(_payload_sz-_i) )
+# define INC( n )        (_i += (ulong)(n))
+# define CURSOR          (_payload+_i)
+
+  CHECK_LEFT( 1UL ); uchar disc = FD_LOAD( uchar, CURSOR ); INC( 1UL );
+  out->discriminant = disc;
+
+  switch( disc ) {
     case FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_UNITS_DEPRECATED:
-      if( FD_UNLIKELY( rem<8UL ) ) return -1;
-      return 0;
+      CHECK_LEFT( 8UL );
+      break;
     case FD_COMPUTE_BUDGET_INSTR_DISC_REQUEST_HEAP_FRAME:
-      if( FD_UNLIKELY( rem<4UL ) ) return -1;
-      out->request_heap_frame = FD_LOAD( uint, p );
-      return 0;
+      CHECK_LEFT( 4UL ); out->request_heap_frame = FD_LOAD( uint,  CURSOR ); INC( 4UL );
+      break;
     case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_LIMIT:
-      if( FD_UNLIKELY( rem<4UL ) ) return -1;
-      out->set_compute_unit_limit = FD_LOAD( uint, p );
-      return 0;
+      CHECK_LEFT( 4UL ); out->set_compute_unit_limit = FD_LOAD( uint,  CURSOR ); INC( 4UL );
+      break;
     case FD_COMPUTE_BUDGET_INSTR_DISC_SET_COMPUTE_UNIT_PRICE:
-      if( FD_UNLIKELY( rem<8UL ) ) return -1;
-      out->set_compute_unit_price = FD_LOAD( ulong, p );
-      return 0;
+      CHECK_LEFT( 8UL ); out->set_compute_unit_price = FD_LOAD( ulong, CURSOR ); INC( 8UL );
+      break;
     case FD_COMPUTE_BUDGET_INSTR_DISC_SET_LOADED_ACCOUNTS_DATA_SIZE_LIMIT:
-      if( FD_UNLIKELY( rem<4UL ) ) return -1;
-      out->set_loaded_accounts_data_size_limit = FD_LOAD( uint, p );
-      return 0;
+      CHECK_LEFT( 4UL ); out->set_loaded_accounts_data_size_limit = FD_LOAD( uint,  CURSOR ); INC( 4UL );
+      break;
     default:
       return -1;
   }
+
+# undef CHECK
+# undef CHECK_LEFT
+# undef INC
+# undef CURSOR
+
+  return 0;
 }
 
 FD_PROTOTYPES_BEGIN
