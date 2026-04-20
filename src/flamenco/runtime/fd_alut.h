@@ -141,7 +141,11 @@ fd_alut_state_decode( uchar const *    data,
   CHECK( !(has_auth & (uchar)~1U) );
   out->has_authority = has_auth;
 
-  if( has_auth ) CHECK_LEFT( 32UL ); fd_memcpy( out->authority.key, CURSOR, 32UL ); INC( 32UL );
+  if( has_auth ) {
+    CHECK_LEFT( 32UL );
+    fd_memcpy( out->authority.key, CURSOR, 32UL );
+    INC( 32UL );
+  }
 
   /* u16 _padding.  Value is ignored but the 2 bytes must be present. */
   CHECK_LEFT( 2UL ); INC( 2UL );
