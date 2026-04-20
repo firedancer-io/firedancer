@@ -162,7 +162,7 @@
           FD_CRIT( szc_after<szc_before, "corruption detected" );
 
           fd_vinyl_data_obj_t * obj_after = fd_vinyl_data_alloc( data, szc_after );
-          if( FD_UNLIKELY( !obj_after ) ) FD_LOG_CRIT(( "increase data cache size" ));
+          if( FD_UNLIKELY( !obj_after ) ) { fd_vinyl_data_diag_log( data, szc_after, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (release downsize szc=%lu)", szc_after )); }
 
           fd_vinyl_bstream_phdr_t * phdr_after = fd_vinyl_data_obj_phdr( obj_after );
 
@@ -265,7 +265,7 @@
           FD_CRIT( szc_before<szc_after, "corruption detected" );
 
           fd_vinyl_data_obj_t * obj_before = fd_vinyl_data_alloc( data, szc_before );
-          if( FD_UNLIKELY( !obj_before ) ) FD_LOG_CRIT(( "increase data cache size" ));
+          if( FD_UNLIKELY( !obj_before ) ) { fd_vinyl_data_diag_log( data, szc_before, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (release cancel-revert szc=%lu)", szc_before )); }
 
           fd_vinyl_bstream_phdr_t * phdr_before = fd_vinyl_data_obj_phdr( obj_before );
 

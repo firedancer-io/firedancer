@@ -196,6 +196,8 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
     *_active = NULL;
 
+    data->diag.alloc_from_active_cnt++;
+
   } else {
 
     superblock = *_inactive_top;
@@ -206,6 +208,8 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
       *_inactive_top = fd_vinyl_data_obj_ptr( laddr0, superblock->next_off );
 
+      data->diag.alloc_from_inactive_cnt++;
+
     } else {
 
       ulong parent_szc = (ulong)fd_vinyl_data_szc_cfg[ szc ].parent_szc;
@@ -213,6 +217,8 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 
         superblock = fd_vinyl_data_alloc( data, parent_szc );
         if( FD_UNLIKELY( !superblock ) ) return NULL;
+
+        data->diag.alloc_from_parent_cnt++;
 
         /* superblock->type        init by obj_alloc to ALLOC, reset below */
         /* superblock->szc         init by obj_alloc */
@@ -226,6 +232,8 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
         ulong vol_idx = data->vol_idx_free;
         if( FD_UNLIKELY( vol_idx >= data->vol_cnt ) ) return NULL;
         data->vol_idx_free = vol[ vol_idx ].obj->idx;
+
+        data->diag.alloc_from_volume_cnt++;
 
         superblock = vol[ vol_idx ].obj;
 
@@ -309,6 +317,8 @@ fd_vinyl_data_alloc( fd_vinyl_data_t * data,
 //obj->free_blocks = ... d/c (not a superblock)
 //obj->next_off    = ... d/c (not a superblock)
 
+  data->diag.alloc_cnt++;
+
   return obj;
 }
 
@@ -319,6 +329,8 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
   FD_CRIT( data, "NULL data" );
 
   if( FD_UNLIKELY( !obj ) ) return;
+
+  data->diag.free_cnt++;
 
   FD_CRIT( fd_ulong_is_aligned( (ulong)obj, FD_VINYL_BSTREAM_BLOCK_SZ ),                               "obj misaligned"        );
   FD_CRIT( ((ulong)data->vol<=(ulong)obj) & ((ulong)obj<(ulong)(data->vol+data->vol_cnt)),             "obj not in data cache" );
@@ -339,6 +351,8 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
     obj->type          = FD_VINYL_DATA_OBJ_TYPE_FREEVOL; /* Mark as on the free stack */
     obj->idx           = data->vol_idx_free;
     data->vol_idx_free = idx;
+
+    data->diag.free_volume_reclaim_cnt++;
 
     return;
   }
@@ -395,6 +409,8 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
     if( FD_UNLIKELY( free_blocks==all_blocks ) ) {
 
+      data->diag.free_coalesce_cnt++;
+
       /* Superblock is now fully empty.  If it is the active
          superblock for this szc, remove it from active and coalesce
          it to its parent.  This enables volume reclamation when an
@@ -449,6 +465,100 @@ fd_vinyl_data_free( fd_vinyl_data_t *     data,
 
 }
 
+#include "../line/fd_vinyl_line.h"
+
+void
+fd_vinyl_data_diag_log( fd_vinyl_data_t const *      data,
+                        ulong                        szc_req,
+                        struct fd_vinyl_line const * line,
+                        ulong                        line_cnt ) {
+
+  /* Volume state */
+
+  ulong vol_cnt      = data->vol_cnt;
+  ulong free_vol_cnt = 0UL;
+
+  for( ulong idx=data->vol_idx_free; idx<vol_cnt; free_vol_cnt++, idx=data->vol[ idx ].obj->idx )
+    if( free_vol_cnt>=vol_cnt ) break; /* safety */
+
+  FD_LOG_WARNING(( "DIAG alloc failed szc=%lu (obj_fp=%lu val_max=%u)",
+                   szc_req, fd_vinyl_data_szc_obj_footprint( szc_req ), fd_vinyl_data_szc_cfg[ szc_req ].val_max ));
+  FD_LOG_WARNING(( "DIAG volumes: total=%lu free=%lu used=%lu shmem_sz=%lu",
+                   vol_cnt, free_vol_cnt, vol_cnt-free_vol_cnt, data->shmem_sz ));
+
+  /* Allocator counters */
+
+  FD_LOG_WARNING(( "DIAG alloc: total=%lu active=%lu inactive=%lu parent=%lu volume=%lu",
+                   data->diag.alloc_cnt, data->diag.alloc_from_active_cnt,
+                   data->diag.alloc_from_inactive_cnt, data->diag.alloc_from_parent_cnt,
+                   data->diag.alloc_from_volume_cnt ));
+  FD_LOG_WARNING(( "DIAG free: total=%lu coalesce=%lu vol_reclaim=%lu",
+                   data->diag.free_cnt, data->diag.free_coalesce_cnt,
+                   data->diag.free_volume_reclaim_cnt ));
+
+  /* Per-szc superblock state (non-empty only) */
+
+  for( ulong s=0UL; s<FD_VINYL_DATA_SZC_CNT; s++ ) {
+    int has_active   = !!data->superblock[s].active;
+    int has_inactive = !!data->superblock[s].inactive_top;
+    if( !has_active && !has_inactive ) continue;
+
+    ulong active_free  = has_active ? (ulong)fd_ulong_popcnt( data->superblock[s].active->free_blocks ) : 0UL;
+    ulong inactive_cnt = 0UL, inactive_free = 0UL;
+
+    fd_vinyl_data_obj_t * sb = data->superblock[s].inactive_top;
+    for( ulong rem=data->inactive_stack_max; sb && rem; rem--, inactive_cnt++ ) {
+      inactive_free += (ulong)fd_ulong_popcnt( sb->free_blocks );
+      sb = fd_vinyl_data_obj_ptr( data->laddr0, sb->next_off );
+    }
+
+    FD_LOG_WARNING(( "DIAG   szc %3lu: val_max=%7u obj_fp=%7lu obj_cnt=%2u active_free=%lu inactive_sbs=%lu inactive_free=%lu%s",
+                     s, fd_vinyl_data_szc_cfg[s].val_max, fd_vinyl_data_szc_obj_footprint(s),
+                     fd_vinyl_data_szc_cfg[s].obj_cnt, active_free, inactive_cnt, inactive_free,
+                     sb ? " (truncated)" : "" ));
+  }
+
+  /* Per-volume child_szc histogram */
+
+  ulong vol_szc_hist[ FD_VINYL_DATA_SZC_CNT+1 ];
+  memset( vol_szc_hist, 0, sizeof(vol_szc_hist) );
+
+  for( ulong v=0UL; v<vol_cnt; v++ ) {
+    fd_vinyl_data_obj_t * vobj = data->vol[v].obj;
+    if( vobj->type==FD_VINYL_DATA_OBJ_TYPE_FREEVOL ) continue;
+    ulong cs = (ulong)vobj->child_szc;
+    vol_szc_hist[ fd_ulong_min( cs, FD_VINYL_DATA_SZC_CNT ) ]++;
+  }
+
+  for( ulong s=0UL; s<=FD_VINYL_DATA_SZC_CNT; s++ ) {
+    if( !vol_szc_hist[s] ) continue;
+    if( s<FD_VINYL_DATA_SZC_CNT )
+      FD_LOG_WARNING(( "DIAG   %lu vols child_szc=%lu (val_max=%u obj_fp=%lu)",
+                       vol_szc_hist[s], s, fd_vinyl_data_szc_cfg[s].val_max, fd_vinyl_data_szc_obj_footprint(s) ));
+    else
+      FD_LOG_WARNING(( "DIAG   %lu vols child_szc>=SZC_CNT", vol_szc_hist[s] ));
+  }
+
+  /* Cache line utilization */
+
+  if( line && line_cnt ) {
+    ulong lines_empty = 0UL, lines_cached = 0UL, lines_pinned = 0UL, footprint = 0UL;
+
+    for( ulong i=0UL; i<line_cnt; i++ ) {
+      fd_vinyl_data_obj_t * obj = line[i].obj;
+      if( !obj ) { lines_empty++; continue; }
+      long ref = fd_vinyl_line_ctl_ref( line[i].ctl );
+      if( ref ) lines_pinned++; else lines_cached++;
+      ulong s = (ulong)obj->szc;
+      if( s<FD_VINYL_DATA_SZC_CNT ) footprint += fd_vinyl_data_szc_obj_footprint( s );
+    }
+
+    FD_LOG_WARNING(( "DIAG lines: total=%lu empty=%lu cached=%lu pinned=%lu footprint=%lu (%.1f%% of shmem)",
+                     line_cnt, lines_empty, lines_cached, lines_pinned,
+                     footprint, 100.0*(double)footprint/(double)fd_ulong_max( data->shmem_sz, 1UL ) ));
+  }
+}
+
 static FD_FOR_ALL_BEGIN( fd_vinyl_data_reset_task, 1L ) {
   fd_vinyl_data_t * data  = (fd_vinyl_data_t *)arg[0];
   int               level = (int)              arg[1];
@@ -498,6 +608,8 @@ fd_vinyl_data_reset( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
     data->superblock[ szc ].active       = NULL;
     data->superblock[ szc ].inactive_top = NULL;
   }
+
+  memset( &data->diag, 0, sizeof(data->diag) );
 
 }
 
