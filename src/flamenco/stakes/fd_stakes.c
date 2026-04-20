@@ -804,9 +804,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
       vote_reward_cnt++;
 
-      if( FD_LIKELY( fd_vote_account_is_v4_with_bls_pubkey( fd_account_data( vote_ro->meta ), vote_ro->meta->dlen ) ) ) {
-        fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
-      }
+      fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
       fd_accdb_close_ro( accdb, vote_ro );
     }
 
