@@ -222,7 +222,7 @@ calculate_allocated_accounts_data_size( fd_bank_t * bank, fd_txn_in_t const * tx
 
     if( !fd_memeq( prog_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) continue;
 
-    fd_system_program_instruction_t instruction;
+    fd_system_program_instruction_t instruction = {0};
     if( FD_UNLIKELY( fd_system_program_instruction_decode( &instruction, instr_data, instr->data_sz ) ) ) return 0UL;
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L330-L346 */
