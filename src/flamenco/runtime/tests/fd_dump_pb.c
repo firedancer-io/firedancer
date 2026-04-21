@@ -173,8 +173,7 @@ dump_executable_account_if_exists( fd_accdb_user_t *                 accdb,
   }
 
   fd_bpf_upgradeable_loader_state_t program_loader_state[1];
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      bpf_upgradeable_loader_state,
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode(
       program_loader_state,
       program_account->data->bytes,
       program_account->data->size ) ) ) {
@@ -451,8 +450,7 @@ add_account_and_programdata_to_dumped_accounts( fd_accdb_user_t *             ac
 
   /* Get the program account state */
   fd_bpf_upgradeable_loader_state_t program_account_state[1];
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      bpf_upgradeable_loader_state,
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode(
       program_account_state,
       fd_accdb_ref_data_const( program_account ),
       fd_accdb_ref_data_sz   ( program_account ) ) ) ) {

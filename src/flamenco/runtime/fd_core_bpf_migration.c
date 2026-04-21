@@ -444,9 +444,7 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
   }
 
   fd_bpf_upgradeable_loader_state_t state[1];
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      bpf_upgradeable_loader_state, state,
-      acc->data, BUFFER_METADATA_SIZE ) ) ) {
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( state, acc->data, BUFFER_METADATA_SIZE ) ) ) {
     return NULL;
   }
 
@@ -499,8 +497,8 @@ new_target_program_account( fd_tmp_account_t *        acc,
   acc->meta.executable = 1;
   memcpy( acc->meta.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) );
 
-  fd_bincode_encode_ctx_t ctx = { .data=acc->data, .dataend=(uchar *)acc->data+state_sz };
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &state, &ctx )!=FD_BINCODE_SUCCESS ) ) {
+  ulong out_sz = 0UL;
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &state, acc->data, state_sz, &out_sz ) ) ) {
     FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_encode failed" ));
   }
 
@@ -520,12 +518,9 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
 
   fd_bpf_upgradeable_loader_state_t state;
-  if( !fd_bincode_decode_static(
-      bpf_upgradeable_loader_state,
-      &state,
-      source->data,
-      buffer_metadata_sz ) )
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &state, source->data, buffer_metadata_sz ) ) ) {
     return NULL;
+  }
 
   if( FD_UNLIKELY( state.discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) )
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
@@ -559,8 +554,8 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   tmp_account_new( acc, space );
   acc->meta.lamports = lamports;
   memcpy( acc->meta.owner, owner.uc, sizeof(fd_pubkey_t) );
-  fd_bincode_encode_ctx_t ctx = { .data=acc->data, .dataend=(uchar *)acc->data+PROGRAMDATA_METADATA_SIZE };
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &programdata_meta, &ctx )!=FD_BINCODE_SUCCESS ) ) {
+  ulong out_sz = 0UL;
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &programdata_meta, acc->data, PROGRAMDATA_METADATA_SIZE, &out_sz ) ) ) {
     FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_encode failed" ));
   }
   fd_memcpy( (uchar *)acc->data+PROGRAMDATA_METADATA_SIZE, elf, elf_sz );
@@ -704,11 +699,8 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
     }}
   }};
 
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = new_target_program_data->data,
-    .dataend = new_target_program_data->data + PROGRAMDATA_METADATA_SIZE
-  };
-  if( FD_UNLIKELY( FD_BINCODE_SUCCESS!=fd_bpf_upgradeable_loader_state_encode( programdata_state, &encode_ctx ) ) ) {
+  ulong out_sz = 0UL;
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( programdata_state, new_target_program_data->data, PROGRAMDATA_METADATA_SIZE, &out_sz ) ) ) {
     return;
   }
 

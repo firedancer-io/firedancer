@@ -4,19 +4,6 @@
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 
-/* The loader v4 program instruction can correspond to one of three
-   instruction types: write, copy, set_program_length.  Only the write
-   instruction is dynamically sized.  We can derive a reasonably tight
-   bound for the decoded footprint of the worst case loader v4
-   instruction based off of the transaction MTU (1232) bytes.  Let's
-   assume the entire MTU is used to repesent the char vector for the
-   write instruction: then we can have a vector of length 1232.  So,
-   the worst case footprint for the loader v4 program instruction is
-   the size of the instruction struct and the size of the worst case
-   char vector.*/
-
-#define FD_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT (sizeof(fd_loader_v4_program_instruction_t) + FD_TXN_MTU)
-
 /* Helper functions that would normally be provided by fd_types. */
 FD_FN_PURE uchar
 fd_loader_v4_status_is_deployed( fd_loader_v4_state_t const * state ) {
@@ -824,14 +811,12 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     FD_EXEC_CU_UPDATE( instr_ctx, LOADER_V4_DEFAULT_COMPUTE_UNITS );
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L497 */
-    uchar __attribute__((aligned(FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN))) instruction_mem[ FD_LOADER_V4_PROGRAM_INSTRUCTION_FOOTPRINT ] = {0};
-    fd_loader_v4_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
-        loader_v4_program_instruction,
-        instruction_mem,
+    fd_loader_v4_program_instruction_t instruction_buf[1];
+    fd_loader_v4_program_instruction_t * instruction = instruction_buf;
+    if( FD_UNLIKELY( fd_loader_v4_program_instruction_decode(
+        instruction,
         instr_ctx->instr->data,
-        instr_ctx->instr->data_sz,
-        FD_TXN_MTU );
-    if( FD_UNLIKELY( !instruction ) ) {
+        fd_ulong_min( instr_ctx->instr->data_sz, FD_TXN_MTU ) ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 

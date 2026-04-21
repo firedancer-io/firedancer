@@ -1,6 +1,7 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/fd_borrowed_account.h"
 #include "../../runtime/fd_system_ids.h"
+#include "../../runtime/program/fd_bpf_loader_program.h"
 
 /* FIXME: ALGO EFFICIENCY */
 static inline int

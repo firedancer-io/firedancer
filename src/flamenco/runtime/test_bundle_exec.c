@@ -725,8 +725,8 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     fd_memset( &state, 0, sizeof(state) );
     state.discriminant                    = fd_bpf_upgradeable_loader_state_enum_program;
     state.inner.program.programdata_address = programdata_key;
-    fd_bincode_encode_ctx_t ctx = { .data = program_data_buf, .dataend = program_data_buf + SIZE_OF_PROGRAM };
-    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &ctx ) == FD_BINCODE_SUCCESS );
+    ulong out_sz = 0UL;
+    FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &state, program_data_buf, SIZE_OF_PROGRAM, &out_sz ) );
   }
   create_test_account( env->accdb, &env->xid, &program_key, 1000000UL,
                       SIZE_OF_PROGRAM, program_data_buf, 5UL,
@@ -742,8 +742,8 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     state.inner.program_data.slot                        = 5UL;
     state.inner.program_data.upgrade_authority_address   = authority_key;
     state.inner.program_data.has_upgrade_authority_address = 1;
-    fd_bincode_encode_ctx_t ctx = { .data = programdata_data_buf, .dataend = programdata_data_buf + PROGRAMDATA_METADATA_SIZE };
-    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &ctx ) == FD_BINCODE_SUCCESS );
+    ulong out_sz = 0UL;
+    FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &state, programdata_data_buf, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   }
   create_test_account( env->accdb, &env->xid, &programdata_key, 1000000UL,
                       PROGRAMDATA_METADATA_SIZE, programdata_data_buf, 5UL,
@@ -810,8 +810,8 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     upgraded.inner.program_data.slot                        = 10UL; /* now equals current slot */
     upgraded.inner.program_data.upgrade_authority_address   = authority_key;
     upgraded.inner.program_data.has_upgrade_authority_address = 1;
-    fd_bincode_encode_ctx_t ctx = { .data = pd_out_data, .dataend = pd_out_data + PROGRAMDATA_METADATA_SIZE };
-    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &upgraded, &ctx ) == FD_BINCODE_SUCCESS );
+    ulong out_sz = 0UL;
+    FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &upgraded, pd_out_data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   }
 
   /* Transaction 2: invoke the program WITHOUT listing programdata in the account set.

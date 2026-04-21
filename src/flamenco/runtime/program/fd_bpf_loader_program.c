@@ -1,4 +1,5 @@
 #include "fd_bpf_loader_program.h"
+#include "fd_loader_v4_program.h"
 #include "fd_system_program.h"
 
 /* For additional context see https://solana.com/docs/programs/deploying#state-accounts */
@@ -14,16 +15,6 @@
 #include "fd_bpf_loader_serialization.h"
 #include "fd_builtin_programs.h"
 #include "fd_native_cpi.h"
-
-/* The only dynamically sized bpf loader instruction is the write
-   instruction which contains a byte vector.  A reasonable bound is that
-   the byte vector takes up the entire transaction MTU.  So the worst
-   case bound is 128 bytes.  So the footprint of the bpf loader
-   instruction is the size of the instruction struct plus the size of
-   the byte vector. */
-
-#define FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT \
-  (sizeof(fd_bpf_upgradeable_loader_program_instruction_t) + FD_TXN_MTU)
 
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
 static inline int
@@ -232,7 +223,7 @@ static int
 write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
                     ushort                  instr_acc_idx,
                     ulong                   program_data_offset,
-                    uchar *                 bytes,
+                    uchar const *           bytes,
                     ulong                   bytes_len ) {
   int err;
 
@@ -270,9 +261,8 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
 int
 fd_bpf_loader_program_get_state( fd_account_meta_t const *           meta,
                                  fd_bpf_upgradeable_loader_state_t * state ) {
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      bpf_upgradeable_loader_state, state,
-      fd_account_data( meta ), meta->dlen ) ) ) {
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode(
+      state, fd_account_data( meta ), meta->dlen ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -297,13 +287,8 @@ fd_bpf_loader_v3_program_set_state( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = data,
-    .dataend = data + state_size
-  };
-
-  err = fd_bpf_upgradeable_loader_state_encode( state, &ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+  ulong out_sz = 0UL;
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( state, data, state_size, &out_sz ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
@@ -923,14 +908,12 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L566-L1444 */
 static int
 process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
-  uchar __attribute__((aligned(FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_ALIGN))) instruction_mem[ FD_BPF_UPGRADEABLE_LOADER_PROGRAM_INSTRUCTION_FOOTPRINT ] = {0};
-  fd_bpf_upgradeable_loader_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
-      bpf_upgradeable_loader_program_instruction,
-      instruction_mem,
+  fd_bpf_upgradeable_loader_program_instruction_t instruction_buf[1];
+  fd_bpf_upgradeable_loader_program_instruction_t * instruction = instruction_buf;
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_program_instruction_decode(
+      instruction,
       instr_ctx->instr->data,
-      instr_ctx->instr->data_sz,
-      FD_TXN_MTU );
-  if( FD_UNLIKELY( !instruction ) ) {
+      fd_ulong_min( instr_ctx->instr->data_sz, FD_TXN_MTU ) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/lib.rs#L510 */
@@ -2208,8 +2191,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_drop( &programdata );
 
       uchar                              instr_data[FD_TXN_MTU];
-      fd_loader_v4_program_instruction_t instr      = {0};
-      fd_bincode_encode_ctx_t            encode_ctx = {0};
+      ulong                              instr_data_sz = 0UL;
+      fd_loader_v4_program_instruction_t instr         = {0};
       fd_vm_rust_account_meta_t          acct_metas[ 3UL ];
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1441-L1484 */
@@ -2230,18 +2213,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           }
         };
 
-        encode_ctx = (fd_bincode_encode_ctx_t) {
-          .data    = instr_data,
-          .dataend = instr_data + FD_TXN_MTU
-        };
-
         // This should never fail.
-        err = fd_loader_v4_program_instruction_encode( &instr, &encode_ctx );
-        if( FD_UNLIKELY( err ) ) {
+        if( FD_UNLIKELY( fd_loader_v4_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_FATAL;
         }
 
-        ulong instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
         err = fd_native_cpi_native_invoke( instr_ctx,
                                            &fd_solana_bpf_loader_v4_program_id,
                                            instr_data,
@@ -2271,18 +2247,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           }
         };
 
-        encode_ctx = (fd_bincode_encode_ctx_t) {
-          .data    = instr_data,
-          .dataend = instr_data + FD_TXN_MTU
-        };
-
         // This should never fail.
-        err = fd_loader_v4_program_instruction_encode( &instr, &encode_ctx );
-        if( FD_UNLIKELY( err ) ) {
+        if( FD_UNLIKELY( fd_loader_v4_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_FATAL;
         }
 
-        instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
         err = fd_native_cpi_native_invoke( instr_ctx,
                                            &fd_solana_bpf_loader_v4_program_id,
                                            instr_data,
@@ -2304,18 +2273,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           .discriminant = fd_loader_v4_program_instruction_enum_deploy,
         };
 
-        encode_ctx = (fd_bincode_encode_ctx_t) {
-          .data    = instr_data,
-          .dataend = instr_data + FD_TXN_MTU
-        };
-
         // This should never fail.
-        err = fd_loader_v4_program_instruction_encode( &instr, &encode_ctx );
-        if( FD_UNLIKELY( err ) ) {
+        if( FD_UNLIKELY( fd_loader_v4_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz ) ) ) {
           return FD_EXECUTOR_INSTR_ERR_FATAL;
         }
 
-        instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
         err = fd_native_cpi_native_invoke( instr_ctx,
                                            &fd_solana_bpf_loader_v4_program_id,
                                            instr_data,
@@ -2339,18 +2301,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
             .discriminant = fd_loader_v4_program_instruction_enum_finalize,
           };
 
-          encode_ctx = (fd_bincode_encode_ctx_t) {
-            .data    = instr_data,
-            .dataend = instr_data + FD_TXN_MTU
-          };
-
           // This should never fail.
-          err = fd_loader_v4_program_instruction_encode( &instr, &encode_ctx );
-          if( FD_UNLIKELY( err ) ) {
+          if( FD_UNLIKELY( fd_loader_v4_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz ) ) ) {
             return FD_EXECUTOR_INSTR_ERR_FATAL;
           }
 
-          instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
           err = fd_native_cpi_native_invoke( instr_ctx,
                                              &fd_solana_bpf_loader_v4_program_id,
                                              instr_data,
@@ -2374,18 +2329,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
             .discriminant = fd_loader_v4_program_instruction_enum_transfer_authority,
           };
 
-          encode_ctx = (fd_bincode_encode_ctx_t) {
-            .data    = instr_data,
-            .dataend = instr_data + FD_TXN_MTU
-          };
-
           // This should never fail.
-          err = fd_loader_v4_program_instruction_encode( &instr, &encode_ctx );
-          if( FD_UNLIKELY( err ) ) {
+          if( FD_UNLIKELY( fd_loader_v4_program_instruction_encode( &instr, instr_data, FD_TXN_MTU, &instr_data_sz ) ) ) {
             return FD_EXECUTOR_INSTR_ERR_FATAL;
           }
 
-          instr_data_sz = (ulong)( (uchar *)encode_ctx.data - instr_data );
           err = fd_native_cpi_native_invoke( instr_ctx,
                                              &fd_solana_bpf_loader_v4_program_id,
                                              instr_data,

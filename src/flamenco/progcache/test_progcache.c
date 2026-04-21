@@ -754,8 +754,8 @@ test_loader_v3_ok( fd_wksp_t * wksp ) {
       }
     }
   };
-  fd_bincode_encode_ctx_t encode = { .data=data, .dataend=data+PROGRAMDATA_METADATA_SIZE };
-  FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &encode )==FD_BINCODE_SUCCESS );
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   fd_memcpy( data+PROGRAMDATA_METADATA_SIZE, valid_program_data, valid_program_data_sz );
 
   fd_pubkey_t key = test_key( 1UL );
@@ -793,8 +793,8 @@ test_loader_v3_wrong_account_type( fd_wksp_t * wksp ) {
     .discriminant = fd_bpf_upgradeable_loader_state_enum_buffer,
     .inner = { .buffer = { .has_authority_address = 0, .authority_address = {{0}} } }
   };
-  fd_bincode_encode_ctx_t encode = { .data=data, .dataend=data+PROGRAMDATA_METADATA_SIZE };
-  FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &encode )==FD_BINCODE_SUCCESS );
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   fd_memcpy( data+PROGRAMDATA_METADATA_SIZE, valid_program_data, valid_program_data_sz );
 
   fd_pubkey_t key = test_key( 1UL );
@@ -886,8 +886,8 @@ test_loader_v3_epoch_boundary( fd_wksp_t * wksp ) {
       }
     }
   };
-  fd_bincode_encode_ctx_t encode = { .data=data, .dataend=data+PROGRAMDATA_METADATA_SIZE };
-  FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &encode )==FD_BINCODE_SUCCESS );
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   fd_memcpy( data+PROGRAMDATA_METADATA_SIZE, valid_program_data, valid_program_data_sz );
 
   fd_pubkey_t key = test_key( 1UL );

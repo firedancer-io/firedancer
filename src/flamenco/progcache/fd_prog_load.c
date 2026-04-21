@@ -33,18 +33,15 @@ fd_prog_info_v3( fd_prog_info_t *      out,
                  fd_accdb_ro_t const * ro ) {
 
   ulong data_sz = fd_accdb_ref_data_sz( ro );
-  fd_bincode_decode_ctx_t decode = fd_bincode_decode_ctx( fd_accdb_ref_data_const( ro ), data_sz );
-  ulong total_sz = 0UL;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &decode, &total_sz )!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_WARNING(( "program data account is invalid" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )<PROGRAMDATA_METADATA_SIZE ) ) {
+  if( FD_UNLIKELY( data_sz<PROGRAMDATA_METADATA_SIZE ) ) {
     FD_LOG_WARNING(( "program data account is too small" ));
     return NULL;
   }
   fd_bpf_upgradeable_loader_state_t state;
-  fd_bpf_upgradeable_loader_state_decode( &state, &decode );
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &state, fd_accdb_ref_data_const( ro ), data_sz ) ) ) {
+    FD_LOG_WARNING(( "program data account is invalid" ));
+    return NULL;
+  }
   if( FD_UNLIKELY( state.discriminant!=fd_bpf_upgradeable_loader_state_enum_program_data ) ) {
     FD_LOG_WARNING(( "loader v3 account is not a program data account" ));
     return NULL;
