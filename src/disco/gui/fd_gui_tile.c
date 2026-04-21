@@ -251,16 +251,16 @@ during_frag( fd_gui_ctx_t * ctx,
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
     /* ... todo... sigh, sz is not correct since it's too big */
     if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
-      ulong peer_cnt = ((ulong *)src)[ 0 ];
+      ulong peer_cnt = FD_LOAD( ulong, src );
       FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
       sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
     } else if( FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
-      ulong peer_cnt = ((ulong *)src)[ 0 ];
+      ulong peer_cnt = FD_LOAD( ulong, src );
       FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
       sz = 8UL + peer_cnt*112UL;
     } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
-      ulong staked_vote_cnt = ((ulong *)src)[ 1 ];
-      ulong staked_id_cnt   = ((ulong *)src)[ 2 ];
+      ulong staked_vote_cnt = FD_LOAD( ulong, src+8UL );
+      ulong staked_id_cnt   = FD_LOAD( ulong, src+16UL );
       FD_TEST( staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
       FD_TEST( staked_id_cnt<=MAX_SHRED_DESTS );
       sz = fd_stake_weight_msg_sz( staked_vote_cnt, staked_id_cnt );
@@ -481,7 +481,8 @@ after_frag( fd_gui_ctx_t *      ctx,
       FD_TEST( (sz-sizeof(fd_microblock_execle_trailer_t))%sizeof(fd_txn_e_t)==0UL );
 
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-        fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
+        fd_microblock_execle_trailer_t trailer[1];
+        fd_memcpy( trailer, src+sz-sizeof(fd_microblock_execle_trailer_t), sizeof(fd_microblock_execle_trailer_t) );
         long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
         fd_gui_microblock_execution_begin( ctx->gui,
                                           now,
@@ -499,7 +500,8 @@ after_frag( fd_gui_ctx_t *      ctx,
       FD_TEST( sz>=sizeof(fd_microblock_trailer_t) );
       FD_TEST( (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
 
-      fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( src+sz-sizeof( fd_microblock_trailer_t ) );
+      fd_microblock_trailer_t trailer[1];
+      fd_memcpy( trailer, src+sz-sizeof(fd_microblock_trailer_t), sizeof(fd_microblock_trailer_t) );
       long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
       ulong txn_cnt = (sz-sizeof( fd_microblock_trailer_t ))/sizeof(fd_txn_p_t);
       fd_gui_microblock_execution_end( ctx->gui,
