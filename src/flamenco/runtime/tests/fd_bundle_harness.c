@@ -6,8 +6,6 @@
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../accdb/fd_accdb_admin_v1.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"  /* IWYU pragma: keep */
 #include "../../stakes/fd_stakes.h"
@@ -20,11 +18,9 @@ fd_solfuzz_bundle_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   }
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
-  fd_accdb_v1_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache->join );
 
   /* Keep the runner reusable across many bundle inputs. */
-  fd_alloc_compact( fd_accdb_user_v1_funk( runner->accdb )->alloc );
   fd_alloc_compact( runner->progcache->join->alloc );
 }
 
@@ -35,15 +31,15 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   ulong txn_cnt = (ulong)test_ctx->txns_count;
   FD_TEST( txn_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE );
 
-  fd_accdb_user_t * accdb = runner->accdb;
+  fd_accdb_t * accdb = runner->accdb;
 
-  fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
-  ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
+  ulong              slot    = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
+  fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, runner->root_fork_id );
+
   runner->bank->f.slot = slot;
-
-  fd_funk_txn_xid_t xid = fd_bank_xid( runner->bank );
-  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
+  runner->bank->bank_seq = runner->bank->idx;
+  fd_progcache_xid_t xid = fd_bank_xid( runner->bank );
+  fd_progcache_xid_t parent_xid; fd_progcache_txn_xid_set_root( &parent_xid );
   fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
 
   FD_TEST( test_ctx->has_bank );
@@ -71,13 +67,13 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->f.epoch = fd_slot_to_epoch( &runner->bank->f.epoch_schedule, slot, NULL );
 
   for( ulong i=0UL; i<test_ctx->account_shared_data_count; i++ ) {
-    fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], i );
+    fd_solfuzz_pb_load_account( runner->runtime, accdb, fork_id, &test_ctx->account_shared_data[i], i );
   }
 
   runner->bank->f.ticks_per_slot = 64;
   runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
 
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );
+  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
   FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
 
   fd_txn_p_t * txns = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt*sizeof(fd_txn_p_t) );
@@ -168,7 +164,6 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
     int exec_res = 0;
     runtime->log.log_collector = &logs[i];
-    runtime->acc_pool          = runner->acc_pool;
     fd_solfuzz_txn_ctx_exec( runner, runtime, &txn_in, &exec_res, &txn_outs[i], 1 );
     ran_cnt = i+1UL;
 
@@ -198,7 +193,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
         fd_memcpy( stake_delta->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
         stake_delta->delta = 0UL;
 
-        fd_stake_state_t const * stake_state = fd_stakes_get_state( txn_outs[i].accounts.account[j].meta );
+        fd_stake_state_t const * stake_state = fd_stakes_get_state( &txn_outs[i].accounts.account[j] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
           stake_delta->delta = stake_state->stake.stake.delegation.stake;
         }
@@ -206,8 +201,8 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
       if( txn_outs[i].accounts.vote_update[j] ) {
         fd_vote_block_timestamp_t last_vote;
-        if( !fd_vote_account_last_timestamp( fd_account_data( txn_outs[i].accounts.account[j].meta ),
-                                             txn_outs[i].accounts.account[j].meta->dlen,
+        if( !fd_vote_account_last_timestamp( txn_outs[i].accounts.account[j].data,
+                                             txn_outs[i].accounts.account[j].data_len,
                                              &last_vote ) ) {
           fd_exec_test_vote_update_t * vote_update = &effects->vote_updates[effects->vote_updates_count++];
           fd_memcpy( vote_update->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );

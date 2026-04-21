@@ -6,7 +6,6 @@
 [consensus]
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
 [accounts]
-    file_size_gib = 40
     max_accounts = 200_000_000
 [snapshots]
     [snapshots.sources]

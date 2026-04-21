@@ -62,7 +62,6 @@ jobs:
         if: always()
         run: |
           sudo rm -rf /data/svc_firedancer/shredcap_testnet.blockstore
-          sudo rm -rf /data/svc_firedancer/shredcap_testnet.funk
           sudo rm -rf fd-identity-keypair.json
           sudo rm -rf fd-vote-keypair.json
           sudo rm -rf fd_shredcap.toml

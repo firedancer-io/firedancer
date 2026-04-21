@@ -8,6 +8,11 @@ This repo contains two validator clients:
 Unless prompted, only focus on Firedancer and avoid Frankendancer-specific parts (fdctl, fddev, discoh).
 focus on Firedancer equivalents (firedancer-dev, discof).
 
+Firedancer only supports x64 on Linux, other targets are not correct for
+example ARM due to TSO assumptions.
+
+## Topologies
+
 Topology: `src/app/firedancer/topology.c`.
 Tiles: `src/disco`, `src/discof`.
 

@@ -969,6 +969,16 @@
 #define MAP_ELE_MOVE(ctx,dst,src) do { MAP_ELE_T * _src = (src); (*(dst)) = *_src; _src->MAP_KEY = (MAP_KEY_T)0; } while(0)
 #endif
 
+/* MAP_KEY_FROM_ELE returns a MAP_KEY_T const * to the key for element
+   ele.  The join ctx is provided to facilitate indirect key lookups
+   (e.g. the key data lives in an external pool, and the element
+   stores an index into that pool).  The default returns the address
+   of the MAP_KEY field in the element. */
+
+#ifndef MAP_KEY_FROM_ELE
+#define MAP_KEY_FROM_ELE(ctx,ele) (&(ele)->MAP_KEY)
+#endif
+
 /* MAP_CTX_MAX specifies the maximum number of bytes of user context
    for use in MAP_ELE above (e.g. custom allocators / workspaces / local
    pointers to additional value arrays / etc).  This context will be
@@ -1118,6 +1128,7 @@ struct MAP_(iter_private) {
   ulong           ele_rem;                 /* Number of elements remaining to probe, in [0,probe_max] */
   ulong           version_lock0;           /* Index of first lock used by this iter, in [0,lock_cnt] */
   ulong           version_cnt;             /* Number of locks used by this iter, in [0,lock_cnt] (typically 1) */
+  uchar           ctx[ MAP_CTX_MAX ];      /* User context for MAP_KEY_FROM_ELE */
   MAP_VERSION_T   version[ MAP_LOCK_MAX ]; /* Direct mapped cache of version numbers for unlock */
 };
 
@@ -1690,7 +1701,7 @@ MAP_(prepare)( MAP_(t) *         join,
   #         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
             FD_LIKELY( ele->MAP_MEMO==memo                ) &&
   #         endif
-            FD_LIKELY( MAP_(key_eq)( &ele->MAP_KEY, key ) ) /* opt for already in map */
+            FD_LIKELY( MAP_(key_eq)( MAP_KEY_FROM_ELE( ctx, ele ), key ) ) /* opt for already in map */
           ) ) {
 
         lock_idx = ele_idx >> lock_shift;
@@ -1840,7 +1851,7 @@ MAP_(remove)( MAP_(t) *             join,
   #       if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
           FD_LIKELY( ele->MAP_MEMO==memo ) &&
   #       endif
-          MAP_(key_eq)( &ele->MAP_KEY, key );
+          MAP_(key_eq)( MAP_KEY_FROM_ELE( ctx, ele ), key );
         if( found ) hole_idx = ele_idx; /* cmov */
       }
 
@@ -1952,7 +1963,7 @@ MAP_(remove)( MAP_(t) *             join,
   #   if MAP_MEMOIZE
       memo      = ele->MAP_MEMO;
   #   else
-      memo      = MAP_(key_hash)( &ele->MAP_KEY, seed );
+      memo      = MAP_(key_hash)( MAP_KEY_FROM_ELE( ctx, ele ), seed );
   #   endif
       start_idx = memo & (ele_max-1UL);
 
@@ -2058,7 +2069,7 @@ MAP_(query_try)( MAP_(t) const *   join,
 #         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
           FD_LIKELY( ele->MAP_MEMO==memo                ) &&
 #         endif
-          FD_LIKELY( MAP_(key_eq)( &ele->MAP_KEY, key ) ) /* opt for found */
+          FD_LIKELY( MAP_(key_eq)( MAP_KEY_FROM_ELE( ctx, ele ), key ) ) /* opt for found */
         ) {
 
         lock_idx = ele_idx >> lock_shift;
@@ -2223,7 +2234,7 @@ MAP_(iter_init)( MAP_(t) *      join,
 #     if MAP_MEMOIZE
       iter_cnt += (ulong)(ele->MAP_MEMO==memo);
 #     else
-      iter_cnt += (ulong)(MAP_(key_hash)( &ele->MAP_KEY, seed )==memo);
+      iter_cnt += (ulong)(MAP_(key_hash)( MAP_KEY_FROM_ELE( ctx, ele ), seed )==memo);
 #     endif
 
       /* Continue probing, locking as necessary.  If we can't acquire a
@@ -2259,6 +2270,7 @@ MAP_(iter_init)( MAP_(t) *      join,
     iter->ele_idx       = iter_start;
     iter->version_lock0 = version_lock0;
     iter->version_cnt   = version_cnt;
+    fd_memcpy( iter->ctx, ctx, MAP_CTX_MAX );
     /* iter->version initialized above */
 
     return FD_MAP_SUCCESS;
@@ -2297,6 +2309,7 @@ MAP_(iter_next)( MAP_(iter_t) * iter ) {
     ulong       ele_max = iter->ele_max;
     ulong       seed    = iter->seed; (void)seed;
     ulong       memo    = iter->memo;
+    void *      ctx     = iter->ctx;  (void)ctx;
 
     for(;;) {
       ele_idx = (ele_idx+1UL) & (ele_max-1UL);
@@ -2304,7 +2317,7 @@ MAP_(iter_next)( MAP_(iter_t) * iter ) {
 #     if MAP_MEMOIZE
       if( FD_LIKELY( ele->MAP_MEMO==memo ) ) break;
 #     else
-      if( FD_LIKELY( MAP_(key_hash)( &ele->MAP_KEY, seed )==memo ) ) break;
+      if( FD_LIKELY( MAP_(key_hash)( MAP_KEY_FROM_ELE( ctx, ele ), seed )==memo ) ) break;
 #     endif
     }
   }
@@ -2365,7 +2378,7 @@ MAP_(verify)( MAP_(t) const * join ) {
     MAP_ELE_T const * ele = ele0 + ele_idx;
     if( FD_LIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) continue; /* opt for sparse */
 
-    ulong memo = MAP_(key_hash)( &ele->MAP_KEY, seed );
+    ulong memo = MAP_(key_hash)( MAP_KEY_FROM_ELE( ctx, ele ), seed );
 
 #   if MAP_MEMOIZE
     MAP_TEST( ele->MAP_MEMO==memo );
@@ -2383,7 +2396,7 @@ MAP_(verify)( MAP_(t) const * join ) {
 #       if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
         FD_LIKELY( probe->MAP_MEMO == ele->MAP_MEMO ) &&
 #       endif
-        MAP_(key_eq)( &probe->MAP_KEY, &ele->MAP_KEY );
+        MAP_(key_eq)( MAP_KEY_FROM_ELE( ctx, probe ), MAP_KEY_FROM_ELE( ctx, ele ) );
 
       MAP_TEST( (probe_rem==1UL) ? found : !found );
 
@@ -2432,6 +2445,7 @@ MAP_(strerror)( int err ) {
 #undef MAP_MEMO
 #undef MAP_MEMOIZE
 #undef MAP_KEY_HASH
+#undef MAP_KEY_FROM_ELE
 #undef MAP_KEY_EQ
 #undef MAP_KEY
 #undef MAP_KEY_T

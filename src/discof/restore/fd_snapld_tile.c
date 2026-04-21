@@ -294,7 +294,7 @@ after_credit( fd_snapld_tile_t *  ctx,
     long result = read( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, out, ctx->out_dc.mtu );
     if( FD_UNLIKELY( result<=0L ) ) {
       if( result==0L ) {
-        FD_LOG_NOTICE(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
+        FD_LOG_INFO(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
       } else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
@@ -503,7 +503,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 /* Up to two frags from after_credit plus one from returnable_frag */
 #define STEM_BURST 3UL
 
-#define STEM_LAZY 1000L
+#define STEM_LAZY (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapld_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapld_tile_t)

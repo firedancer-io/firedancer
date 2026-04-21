@@ -12,8 +12,7 @@
    situation, precompiles are resolved at runtime (as opposed to
    compile-time). */
 
-#include "../fd_runtime.h"
-#include "../context/fd_exec_instr_ctx.h"
+#include "../fd_executor.h"
 
 /* PrecompileError
    https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/precompiles.rs#L16
