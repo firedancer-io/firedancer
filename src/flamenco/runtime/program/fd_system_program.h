@@ -13,6 +13,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../../ballet/utf8/fd_utf8.h"
+#include "../../accdb/fd_accdb.h"
 
 /* Custom error types */
 
@@ -591,7 +592,7 @@ fd_check_transaction_age( fd_bank_t *         bank,
    https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L55-L71 */
 
 int
-fd_get_system_account_kind( fd_account_meta_t const * meta );
+fd_get_system_account_kind( fd_acc_t const * acc );
 
 FD_PROTOTYPES_END
 

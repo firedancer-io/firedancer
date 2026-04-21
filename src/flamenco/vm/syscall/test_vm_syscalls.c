@@ -266,10 +266,10 @@ main( int     argc,
   input_mem_regions[2] = (fd_vm_input_region_t){ .haddr = (ulong)input + 101UL, .region_sz = 400UL, .address_space_reserved = 400UL, .is_writable = 1, .vaddr_offset = 101UL };
   input_mem_regions[3] = (fd_vm_input_region_t){ .haddr = (ulong)input + 501UL, .region_sz = 499UL, .address_space_reserved = 499UL, .is_writable = 1, .vaddr_offset = 501UL };
 
-  fd_exec_instr_ctx_t instr_ctx[1];
-  fd_bank_t           bank[1];
-  fd_txn_out_t        txn_out[1];
-  fd_log_collector_t  log_collector[1];
+  static fd_exec_instr_ctx_t instr_ctx[1];
+  static fd_bank_t           bank[1];
+  static fd_txn_out_t        txn_out[1];
+  static fd_log_collector_t  log_collector[1];
   runtime->log.log_collector = log_collector;
   test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 

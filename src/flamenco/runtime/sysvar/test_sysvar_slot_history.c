@@ -139,8 +139,8 @@ test_sysvar_slot_history_init( fd_wksp_t * wksp ) {
   env->bank->f.rent = rent;
   env->bank->f.slot = 1234UL;
 
-  fd_sysvar_slot_history_init( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_slot_history_init( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
   FD_TEST( fd_sysvar_cache_slot_history_is_valid( env->sysvar_cache ) );
 
   ulong sz = 0UL;
@@ -170,14 +170,14 @@ test_sysvar_slot_history_update( fd_wksp_t * wksp ) {
   env->bank->f.rent = rent;
 
   env->bank->f.slot = 100UL;
-  fd_sysvar_slot_history_init  ( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_slot_history_update( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_slot_history_init  ( env->bank, env->accdb, NULL );
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
   env->bank->f.slot = 101UL;
-  fd_sysvar_slot_history_update( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
   env->bank->f.slot = 105UL;
-  fd_sysvar_slot_history_update( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
 
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
   FD_TEST( fd_sysvar_cache_slot_history_is_valid( env->sysvar_cache ) );
 
   ulong sz = 0UL;
@@ -212,13 +212,13 @@ test_sysvar_slot_history_update_large_gap( fd_wksp_t * wksp ) {
   env->bank->f.rent = rent;
 
   env->bank->f.slot = 100UL;
-  fd_sysvar_slot_history_init  ( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_slot_history_update( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_slot_history_init  ( env->bank, env->accdb, NULL );
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
 
   ulong new_slot = 100UL + FD_SLOT_HISTORY_MAX_ENTRIES + 500UL;
   env->bank->f.slot = new_slot;
-  fd_sysvar_slot_history_update( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
 
   ulong sz = 0UL;
   uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_history_id, &sz );
@@ -258,14 +258,14 @@ test_sysvar_slot_history_update_zero_blocks( fd_wksp_t * wksp ) {
     /* bits_len   */ 0,0,0,0,0,0,0,0,
     /* next_slot  */ 1,0,0,0,0,0,0,0,
   };
-  fd_sysvar_account_update( env->bank, env->accdb, &env->xid, NULL,
+  fd_sysvar_account_update( env->bank, env->accdb, NULL,
                             &fd_sysvar_slot_history_id, data, sizeof(data) );
 
   env->bank->f.slot = 42UL;
-  fd_sysvar_slot_history_update( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_slot_history_update( env->bank, env->accdb, NULL );
 
   /* Verify data unchanged (update was a no-op) */
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
   ulong sz = 0UL;
   uchar const * out = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_slot_history_id, &sz );
   FD_TEST( out && sz==sizeof(data) );

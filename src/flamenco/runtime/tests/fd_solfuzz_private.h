@@ -12,13 +12,13 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Creates / overwrites an account in funk given an input account state.
-   On success, loads the account into acc.  Optionally, reject any
-   zero-lamport accounts from being loaded in. */
+/* Creates / overwrites an account in the accdb given an input account
+   state.  On success, loads the account into acc.  Optionally, reject
+   any zero-lamport accounts from being loaded in. */
 int
 fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
-                            fd_accdb_user_t *                 accdb,
-                            fd_funk_txn_xid_t const *         xid,
+                            fd_accdb_t *                      accdb,
+                            fd_accdb_fork_id_t                fork_id,
                             fd_exec_test_acct_state_t const * state,
                             ulong                             acc_idx );
 
@@ -71,8 +71,8 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
    already appears in acct_states so the caller-supplied state wins
    (matches solfuzz-agave's accounts_to_store filter). */
 void
-fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
-                                       fd_funk_txn_xid_t const *          xid,
+fd_solfuzz_pb_create_feature_accounts( fd_accdb_t *                       accdb,
+                                       fd_accdb_fork_id_t                 fork_id,
                                        fd_exec_test_feature_set_t const * feature_set,
                                        fd_exec_test_acct_state_t const *  acct_states,
                                        pb_size_t                          acct_states_count );

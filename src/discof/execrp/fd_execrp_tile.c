@@ -1,33 +1,29 @@
 #include "../execle/fd_execle_err.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "../../disco/fd_txn_p.h"
-#include "../../discof/fd_startup.h"
+#include "../../disco/metrics/fd_metrics.h"
 
-#include "../../ballet/sha256/fd_sha256.h" /* fd_sha256_hash_32_repeated */
 #include "../../choreo/tower/fd_tower_serdes.h"
-#include "../../discof/fd_accdb_topo.h"
+#include "../../discof/fd_startup.h"
 #include "../../discof/replay/fd_execrp.h"
-#include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/runtime/fd_executor.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
-#include "../../disco/metrics/fd_metrics.h"
-#include "../../util/sandbox/fd_pkeys.h"
-#include "../../util/sandbox/fd_sandbox.h"
+
 #include <time.h>
-#include <errno.h>
+
 #include "generated/fd_execrp_tile_seccomp.h"
 
-/* The exec tile is responsible for executing single transactions. The
+/* The exec tile is responsible for executing single transactions.  The
    tile receives a parsed transaction (fd_txn_p_t) and an identifier to
-   which bank to execute against (index into the bank pool). With this,
-   the exec tile is able to identify the correct bank and accounts db
-   handle (funk_txn) to execute the transaction against.  The exec tile
-   then commits the results of the transaction to the accounts db and
-   makes any necessary updates to the bank. */
+   which bank to execute against (index into the bank pool).  With this,
+   the exec tile is able to identify the correct bank and accounts
+   database fork to execute the transaction against.  The exec tile then
+   commits the results of the transaction to the accounts db and makes
+   any necessary updates to the bank. */
 
 typedef struct link_ctx {
   ulong       idx;
@@ -39,8 +35,6 @@ typedef struct link_ctx {
 
 struct fd_execrp_tile {
   ulong tile_idx;
-
-  int funk_pkey; /* memory protection key, -1 if unsupported */
 
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
@@ -58,33 +52,27 @@ struct fd_execrp_tile {
   fd_dump_proto_ctx_t * dump_proto_ctx;
   fd_txn_dump_ctx_t *   txn_dump_ctx;
 
-  /* A transaction can be executed as long as there is a valid handle to
-     a funk_txn and a bank. These are queried from fd_banks_t and
-     fd_funk_t. */
-  fd_banks_t *          banks;
-  fd_bank_t *           bank;
-  fd_accdb_user_t       accdb[1];
-  fd_progcache_t        progcache[1];
+  fd_banks_t *    banks;
+  fd_bank_t *     bank;
+  fd_accdb_t *    accdb;
+  fd_txncache_t * txncache;
+  fd_progcache_t  progcache[1];
 
-  fd_txncache_t *       txncache;
+  ulong txn_idx;
+  ulong slot;
+  ulong dispatch_time_comp;
 
-  ulong                 txn_idx;
-  ulong                 slot;
-  ulong                 dispatch_time_comp;
+  fd_log_collector_t log_collector;
 
-  fd_log_collector_t    log_collector;
-
-  fd_acc_pool_t *       acc_pool;
-
-  fd_txn_in_t           txn_in;
-  fd_txn_out_t          txn_out;
+  fd_txn_in_t  txn_in;
+  fd_txn_out_t txn_out;
 
   /* tracing_mem is staging memory to dump instructions/transactions
      into protobuf files.  tracing_mem is staging memory to output vm
      execution traces.
      TODO: This should not be compiled in prod. */
-  uchar                 dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
-  uchar                 tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
+  uchar dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
+  uchar tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
 
   fd_runtime_t runtime[1];
 
@@ -125,6 +113,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_txn_dump_context_align(),  fd_txn_dump_context_footprint()                      );
   }
   l = FD_LAYOUT_APPEND(   l, fd_txncache_align(),          fd_txncache_footprint( tile->execrp.max_live_slots ) );
+  l = FD_LAYOUT_APPEND(   l, fd_accdb_align(),             fd_accdb_footprint( tile->execrp.max_live_slots )    );
   l = FD_LAYOUT_APPEND(   l, FD_PROGCACHE_SCRATCH_ALIGN,   FD_PROGCACHE_SCRATCH_FOOTPRINT                       );
   return FD_LAYOUT_FINI(  l, scratch_align() );
 }
@@ -164,13 +153,9 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, VM_REGIME_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
   FD_MCNT_SET( EXECRP, VM_REGIME_INTERPRETER, exec_ticks                            );
 
-  fd_accdb_user_t * accdb = ctx->accdb;
-  FD_MCNT_SET( EXECRP, ACCDB_CREATED, accdb->base.created_cnt );
-
-  FD_STATIC_ASSERT( sizeof(runtime->metrics.txn_account_save)/sizeof(ulong)==FD_METRICS_ENUM_ACCOUNT_CHANGE_CNT, enum );
-  FD_MCNT_ENUM_COPY( EXECRP, TXN_ACCOUNT_CHANGES, runtime->metrics.txn_account_save );
-
   FD_MCNT_SET( EXECRP, COMPUTE_UNITS_TOTAL, runtime->metrics.cu_cum );
+
+  FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
 
 static void
@@ -202,23 +187,6 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
 
   ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
 }
-
-/* funk_mprotect makes the funk wksp read-only / writable
-   (cheaply, using userland protection keys) */
-
-static inline void
-funk_mprotect( fd_execrp_tile_t * ctx,
-               int                writable ) {
-  (void)ctx; (void)writable;
-#if defined(__linux__) && defined(__x86_64__)
-  if( FD_LIKELY( ctx->funk_pkey>=0 ) ) {
-    fd_x86_pkey_update( ctx->funk_pkey, 0, !writable );
-  }
-#endif
-}
-
-static inline void funk_mprotect_readonly( fd_execrp_tile_t * ctx ) { funk_mprotect( ctx, 0 ); }
-static inline void funk_mprotect_writable( fd_execrp_tile_t * ctx ) { funk_mprotect( ctx, 1 ); }
 
 static inline int
 returnable_frag( fd_execrp_tile_t *  ctx,
@@ -256,23 +224,12 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          funk_mprotect_writable( ctx );
           fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_out );
-          funk_mprotect_readonly( ctx );
         } else {
           fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out );
         }
 
         long const txn_end_ticks = fd_tickcount();
-
-        if( FD_UNLIKELY( ctx->accdb->base.ro_active ||
-                         ctx->accdb->base.rw_active ) ) {
-          FD_LOG_HEXDUMP_NOTICE(( "txn", msg->txn->payload, msg->txn->payload_sz ));
-          FD_BASE58_ENCODE_64_BYTES( fd_txn_get_signatures( TXN( msg->txn ), msg->txn->payload )[0], txn_b58 );
-          FD_LOG_CRIT(( "detected account leaks after executing txn=%s (commit=%d ro_active=%lu rw_active=%lu)",
-                        txn_b58, ctx->txn_out.err.is_committable,
-                        ctx->accdb->base.ro_active, ctx->accdb->base.rw_active ));
-        }
 
         /* Notify replay. */
         ctx->txn_idx = msg->txn_idx;
@@ -327,42 +284,6 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 extern FD_TL int fd_wksp_oom_silent;
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
-  fd_execrp_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  ctx->funk_pkey = -1;
-
-  ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
-  FD_TEST( funk_obj_id!=ULONG_MAX );
-  fd_wksp_t * funk_wksp = fd_wksp_containing( fd_topo_obj_laddr( topo, funk_obj_id ) );
-  FD_TEST( funk_wksp );
-
-#if defined(__linux__) && defined(__x86_64__)
-  if( FD_UNLIKELY( fd_sandbox_getpid()!=fd_sandbox_gettid() ) ) {
-    FD_LOG_INFO(( "userland memory protection disabled: not compatible with single-process mode" ));
-    return;
-  }
-
-  int pkey = fd_syscall_pkey_alloc( 0, 0 );
-  if( FD_UNLIKELY( pkey<0 ) ) {
-    FD_LOG_INFO(( "userland memory protection disabled: pkey_alloc(0,0) failed (%i-%s)",
-                  errno, fd_io_strerror( errno ) ));
-    return;
-  }
-
-  int err = fd_wksp_pkey_install( funk_wksp, pkey );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "error while setting up userland memory protection: fd_wksp_pkey_install(funk_wksp,pkey=%d) failed (%i-%s)",
-                 pkey, err, fd_io_strerror( err ) ));
-  }
-
-  ctx->funk_pkey = pkey;
-  funk_mprotect_readonly( ctx );
-  FD_LOG_INFO(( "userland memory protection enabled (pkey=%d)", pkey ));
-# endif /* defined(__linux__) && defined(__x86_64__) */
-}
-
-static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -376,6 +297,7 @@ unprivileged_init( fd_topo_t *      topo,
     txn_dump_ctx_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_dump_context_align(), fd_txn_dump_context_footprint() );
   }
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execrp.max_live_slots ) );
+  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),           fd_accdb_footprint( tile->execrp.max_live_slots ) );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -411,23 +333,15 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->execrp_replay_out->chunk  = ctx->execrp_replay_out->chunk0;
   }
 
-  /********************************************************************/
-  /* banks                                                            */
-  /********************************************************************/
-
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
-  if( FD_UNLIKELY( banks_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "Could not find topology object for banks" ));
-  }
+  FD_TEST( banks_obj_id!=ULONG_MAX );
 
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
-  if( FD_UNLIKELY( !ctx->banks ) ) {
-    FD_LOG_ERR(( "Failed to join banks" ));
-  }
+  FD_TEST( ctx->banks );
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile->execrp.accdb_max_depth );
-
-  fd_progcache_init_from_topo( ctx->progcache, topo, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  FD_TEST( fd_progcache_join( ctx->progcache,
+      fd_topo_obj_laddr( topo, tile->execrp.progcache_obj_id ),
+      pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execrp.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -435,20 +349,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( ctx->txncache );
 
+  void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->execrp.accdb_obj_id );
+  fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
+  FD_TEST( accdb_shmem );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+  FD_TEST( ctx->accdb );
+
   ctx->txn_in.bundle.is_bundle = 0;
-
-  /********************************************************************/
-  /* Accounts pool                                                     */
-  /********************************************************************/
-
-  ctx->acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->execrp.acc_pool_obj_id ) );
-  if( FD_UNLIKELY( !ctx->acc_pool ) ) {
-    FD_LOG_CRIT(( "Failed to join acc pool" ));
-  }
-
-  /********************************************************************/
-  /* Capture context                                                 */
-  /********************************************************************/
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
@@ -521,14 +428,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->txn_dump_ctx = fd_txn_dump_context_join( fd_txn_dump_context_new( txn_dump_ctx_mem ) );
   }
 
-  /********************************************************************/
-  /* Runtime                                                          */
-  /********************************************************************/
-
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = ctx->txncache;
-  ctx->runtime->acc_pool                 = ctx->acc_pool;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = &ctx->log_collector;
   ctx->runtime->log.dumping_mem          = ctx->dumping_mem;
@@ -553,7 +455,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  populate_sock_filter_policy_fd_execrp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_fd_execrp_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RW );
   return sock_filter_policy_fd_execrp_tile_instr_cnt;
 }
 
@@ -563,12 +465,15 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
-  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  }
+  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+
   return out_cnt;
 }
 
@@ -582,8 +487,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_execrp_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_execrp_tile_t)
 
-#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 
@@ -594,7 +499,6 @@ fd_topo_run_tile_t fd_tile_execrp = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

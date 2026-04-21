@@ -10,6 +10,7 @@
 #include "fd_progcache_xid.h"
 #include "../fd_rwlock.h"
 #include "../runtime/fd_runtime_const.h"
+#include "fd_progcache_xid.h"
 
 /* fd_progcache_shmem_t is the top-level shared memory data structure
    of the progcache. */
