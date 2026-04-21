@@ -494,35 +494,6 @@ fd_vm_exec( fd_vm_t * vm ) {
   else                           return fd_vm_exec_notrace( vm );
 }
 
-/* fd_vm_mark_all_pages_initialized sets all bitmap bits for both
-   stack and heap, effectively disabling lazy zeroing.  Useful in test
-   harnesses that directly populate vm->heap/stack via memcpy. */
-
-static inline void
-fd_vm_mark_all_pages_initialized( fd_vm_t * vm ) {
-  vm->stack_zero_bitmap[0] = ~0UL; vm->stack_zero_bitmap[1] = ~0UL;
-  vm->heap_zero_bitmap [0] = ~0UL; vm->heap_zero_bitmap [1] = ~0UL;
-}
-
-/* fd_vm_zero_uninitialized_pages zeros every page whose bitmap bit is
-   still clear (never accessed through fd_vm_mem_haddr during execution).
-   Call after execution but before reading heap/stack for deterministic
-   comparison. */
-
-static inline void
-fd_vm_zero_uninitialized_pages( ulong * bitmap,
-                                uchar * region_base,
-                                ulong   region_sz ) {
-  ulong page_cnt = region_sz >> FD_VM_LAZY_PAGE_LG_SZ;
-  for( ulong p = 0; p < page_cnt; p++ ) {
-    ulong w = p >> 6;
-    ulong b = 1UL << (p & 63UL);
-    if( FD_UNLIKELY( !(bitmap[w] & b) ) ) {
-      fd_memset( region_base + (p << FD_VM_LAZY_PAGE_LG_SZ), 0, FD_VM_LAZY_PAGE_SZ );
-    }
-  }
-}
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_vm_fd_vm_h */
