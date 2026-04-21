@@ -654,7 +654,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
-    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) ) ) {
+    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) || (shred->slot % 2 == 0 || shred->slot % 7 == 0 ) ) ) {
       ctx_list_ele_push_head( free_list, ctx, ctx_pool );
       resolver->free_list_cnt++;
       FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
