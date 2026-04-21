@@ -908,7 +908,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L566-L1444 */
 static int
 process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
-  fd_bpf_upgradeable_loader_program_instruction_t instruction_buf[1];
+  fd_bpf_upgradeable_loader_program_instruction_t instruction_buf[1] = {0};
   fd_bpf_upgradeable_loader_program_instruction_t * instruction = instruction_buf;
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_program_instruction_decode(
       instruction,
