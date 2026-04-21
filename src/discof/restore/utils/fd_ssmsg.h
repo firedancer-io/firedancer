@@ -373,8 +373,8 @@ struct fd_snapshot_manifest {
   ulong blockhashes_len;
   fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ];
 
-  /* The fork_id in the status cache for the root slot. */
-  ushort txncache_fork_id;
+  ushort accdb_fork_id; /* The fork_id in the account database for the root slot. */
+  ushort txncache_fork_id; /* The fork_id in the status cache for the root slot. */
 
   /* A list of ancestor slots has been deprecated.  Agave's bank now
      creates an ancestor set with a single entry (the current slot):

@@ -6,6 +6,7 @@
 #include "../fd_executor.h"
 #include "fd_builtin_programs.h"
 #include "../fd_compute_budget_details.h"
+#include "../../vm/fd_vm_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/execution_budget.rs#L44 */
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT (200000UL)

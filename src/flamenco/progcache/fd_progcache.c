@@ -31,8 +31,8 @@
 #define  MAP_ELE_T             fd_progcache_txn_t
 #define  MAP_KEY_T             fd_progcache_xid_t
 #define  MAP_KEY               xid
-#define  MAP_KEY_EQ(k0,k1)     fd_progcache_txn_xid_eq((k0),(k1))
-#define  MAP_KEY_HASH(k0,seed) fd_progcache_txn_xid_hash((k0),(seed))
+#define  MAP_KEY_EQ(k0,k1)     fd_progcache_xid_eq((k0),(k1))
+#define  MAP_KEY_HASH(k0,seed) fd_progcache_xid_hash((k0),(seed))
 #define  MAP_IDX_T             uint
 #define  MAP_NEXT              map_next
 #define  MAP_MAGIC             (0xf173da2ce77ecdb9UL)

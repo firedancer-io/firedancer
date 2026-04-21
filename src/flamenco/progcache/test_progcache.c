@@ -3,6 +3,7 @@
 
 #include "test_progcache_common.c"
 #include "fd_progcache_reclaim.h"
+#include "fd_progcache_clock.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/program/fd_bpf_loader_program.h"
 #include "../features/fd_features.h"
@@ -56,7 +57,7 @@ test_env_destroy( test_env_t * env ) {
    parent with the given xid, in both accdb and progcache. */
 
 static void
-test_env_txn_prepare( test_env_t *               env,
+test_env_txn_prepare( test_env_t *     env,
                       fd_progcache_xid_t const * parent,
                       fd_progcache_xid_t const * xid ) {
   fd_progcache_xid_t root[1];
@@ -71,7 +72,7 @@ test_env_txn_prepare( test_env_t *               env,
    with root 'xid', in both accdb and progcache. */
 
 static void
-test_env_txn_cancel( test_env_t *               env,
+test_env_txn_cancel( test_env_t *     env,
                      fd_progcache_xid_t const * xid ) {
   fd_progcache_cancel( env->progcache->join, xid );
 }
@@ -80,7 +81,7 @@ test_env_txn_cancel( test_env_t *               env,
    transactions with root 'xid', in both accdb and progcache. */
 
 static void
-test_env_txn_publish( test_env_t *               env,
+test_env_txn_publish( test_env_t *     env,
                       fd_progcache_xid_t const * xid ) {
   fd_progcache_advance_root( env->progcache->join, xid );
 }
@@ -92,9 +93,9 @@ FD_IMPORT_BINARY( invalid_program_data,      "src/ballet/sbpf/fixtures/malformed
 /* query_rec_exact fetches a funk record at a precise xid:key pair. */
 
 static fd_progcache_rec_t const *
-query_rec_exact( test_env_t *               env,
-                 fd_progcache_xid_t const * xid,
-                 fd_pubkey_t const *        key ) {
+query_rec_exact( test_env_t *           env,
+                 fd_progcache_xid_t const *       xid,
+                 fd_pubkey_t const *    key ) {
   fd_progcache_xid_key_pair_t pair[1];
   fd_progcache_txn_xid_copy( pair->xid, xid );
   memcpy( pair->key, key, 32 );
@@ -125,10 +126,10 @@ test_peek1( fd_progcache_t *           cache,
 }
 
 static fd_progcache_rec_t *
-test_peek( fd_progcache_t *           cache,
-           fd_progcache_xid_t const * xid,
-           fd_pubkey_t const *        prog_addr,
-           ulong                      epoch_slot0 ) {
+test_peek( fd_progcache_t *            cache,
+            fd_progcache_xid_t const * xid,
+           fd_pubkey_t const *         prog_addr,
+           ulong                       epoch_slot0 ) {
   ulong key = fd_progcache_revision_key( epoch_slot0, 0UL );
   fd_progcache_rec_t * rec = fd_progcache_peek( cache, xid, prog_addr, key );
   if( rec ) fd_progcache_rec_close( cache, rec );
@@ -137,7 +138,7 @@ test_peek( fd_progcache_t *           cache,
 
 static fd_progcache_rec_t *
 test_pull( fd_progcache_t *           cache,
-           fd_accdb_ro_t *            prog_ro,
+           fd_acc_t *                 prog_ro,
            fd_progcache_xid_t const * xid,
            fd_pubkey_t const *        prog_addr,
            fd_prog_load_env_t const * env ) {
@@ -179,7 +180,7 @@ test_invalid_owner( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  FD_TEST( !test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env ) );
+  FD_TEST( !test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env ) );
 
   test_env_txn_cancel( env, &fork_a );
   test_env_destroy( env );
@@ -207,7 +208,7 @@ test_invalid_program( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( !rec->data_gaddr );
   FD_TEST( test_peek( env->progcache, &fork_a, &key, load_env.epoch_slot0 )==rec );
@@ -238,7 +239,7 @@ test_valid_program( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->data_gaddr );
   FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
@@ -251,7 +252,7 @@ test_valid_program( fd_wksp_t * wksp ) {
 
   load_env.epoch       = 0UL;
   load_env.epoch_slot0 = 0UL;
-  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.ro, &fork_b, &key, &load_env );
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.entry, &fork_b, &key, &load_env );
   FD_TEST( rec==rec2 );
   FD_TEST( test_peek( env->progcache, &fork_b, &key, 0UL )==rec );
 
@@ -282,7 +283,7 @@ test_epoch_boundary( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->data_gaddr );
   FD_TEST( test_peek( env->progcache, &fork_a, &key, 0UL )==rec );
@@ -291,7 +292,7 @@ test_epoch_boundary( fd_wksp_t * wksp ) {
   test_env_txn_prepare( env, &fork_a, &fork_b );
   load_env.epoch       =  1UL;
   load_env.epoch_slot0 = 64UL;
-  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.ro, &fork_b, &key, &load_env );
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.entry, &fork_b, &key, &load_env );
   FD_TEST( rec2 );
   FD_TEST( rec!=rec2 );
   FD_TEST( rec2->data_gaddr );
@@ -331,7 +332,7 @@ test_epoch_boundary2( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, prog0_data.ro, &fork_a, &prog_key, &load_env );
+  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, prog0_data.entry, &fork_a, &prog_key, &load_env );
   FD_TEST( rec1 );
   FD_TEST( test_peek1( env->progcache, &fork_a, &prog_key, 0UL, 1UL )==rec1 );
 
@@ -343,7 +344,7 @@ test_epoch_boundary2( fd_wksp_t * wksp ) {
   };
   fd_progcache_xid_t fork_b = { .ul = { 64UL, 2UL } };
   test_env_txn_prepare( env, &fork_a, &fork_b );
-  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, prog0_data.ro, &fork_b, &prog_key, &load_env2 );
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, prog0_data.entry, &fork_b, &prog_key, &load_env2 );
   FD_TEST( rec1!=rec2 );
   FD_TEST( query_rec_exact( env, &fork_b, &prog_key )==rec2 );
 
@@ -358,7 +359,7 @@ test_epoch_boundary2( fd_wksp_t * wksp ) {
   );
   fd_progcache_xid_t fork_c = { .ul = { 65UL, 2UL } };
   test_env_txn_prepare( env, &fork_b, &fork_c );
-  fd_progcache_rec_t const * rec3 = test_pull( env->progcache, prog1_data.ro, &fork_c, &prog_key, &load_env2 );
+  fd_progcache_rec_t const * rec3 = test_pull( env->progcache, prog1_data.entry, &fork_c, &prog_key, &load_env2 );
   FD_TEST( rec3!=rec1 && rec3!=rec2 );
   FD_TEST( query_rec_exact( env, &fork_c, &prog_key )==rec3 );
 
@@ -387,7 +388,7 @@ test_publish_gc( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 1UL
   };
-  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env_a );
+  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env_a );
   FD_TEST( rec_a );
   FD_TEST( rec_a->data_gaddr );
 
@@ -398,7 +399,7 @@ test_publish_gc( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 2UL
   };
-  fd_progcache_rec_t const * rec_b = test_pull( env->progcache, acc.ro, &fork_b, &key, &load_env_b );
+  fd_progcache_rec_t const * rec_b = test_pull( env->progcache, acc.entry, &fork_b, &key, &load_env_b );
   FD_TEST( rec_b );
   FD_TEST( rec_b->data_gaddr );
 
@@ -409,7 +410,7 @@ test_publish_gc( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 3UL
   };
-  fd_progcache_rec_t const * rec_c = test_pull( env->progcache, acc.ro, &fork_c, &key, &load_env_c );
+  fd_progcache_rec_t const * rec_c = test_pull( env->progcache, acc.entry, &fork_c, &key, &load_env_c );
   FD_TEST( rec_c );
   FD_TEST( rec_c->data_gaddr );
 
@@ -495,7 +496,7 @@ test_root_nonroot_prio( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 1UL
   };
-  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, acc.ro, &fork_2, &key, &load_env1 );
+  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, acc.entry, &fork_2, &key, &load_env1 );
   FD_TEST( rec1 );
   FD_TEST( fd_progcache_revision_key_slot( rec1->revision_key )==1UL );
   test_env_txn_publish( env, &fork_2 );
@@ -505,7 +506,7 @@ test_root_nonroot_prio( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 4UL
   };
-  fd_progcache_rec_t const * rec4 = test_pull( env->progcache, acc.ro, &fork_4, &key, &load_env4 );
+  fd_progcache_rec_t const * rec4 = test_pull( env->progcache, acc.entry, &fork_4, &key, &load_env4 );
   FD_TEST( rec4 );
   FD_TEST( fd_progcache_revision_key_slot( rec4->revision_key )==4UL );
 
@@ -595,7 +596,7 @@ test_reclaim_no_readers( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t * rec = test_pull( env->progcache, acc.ro, &xid, &key, &load_env );
+  fd_progcache_rec_t * rec = test_pull( env->progcache, acc.entry, &xid, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->exists );
 
@@ -629,7 +630,7 @@ test_reclaim_active_reader( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  FD_TEST( test_pull( env->progcache, acc.ro, &xid, &key, &load_env ) );
+  FD_TEST( test_pull( env->progcache, acc.entry, &xid, &key, &load_env ) );
 
   fd_progcache_rec_t * rec = fd_progcache_peek( env->progcache, &xid, &key, fd_progcache_revision_key( 0UL, 0UL ) );
   FD_TEST( rec );
@@ -665,7 +666,7 @@ test_reclaim_txn_unlink( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 1UL
   };
-  fd_progcache_rec_t * rec = test_pull( env->progcache, acc.ro, &xid, &key, &load_env );
+  fd_progcache_rec_t * rec = test_pull( env->progcache, acc.entry, &xid, &key, &load_env );
   FD_TEST( rec );
 
   uint txn_idx = atomic_load_explicit( &rec->txn_idx, memory_order_relaxed );
@@ -756,7 +757,7 @@ test_shmem_delete_fast( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t * rec = test_pull( cache, acc.ro, &fork, &key, &load_env );
+  fd_progcache_rec_t * rec = test_pull( cache, acc.entry, &fork, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->data_gaddr );
 
@@ -789,8 +790,8 @@ test_reclaim_mixed( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  FD_TEST( test_pull( env->progcache, acc1.ro, &xid, &key1, &load_env ) );
-  FD_TEST( test_pull( env->progcache, acc2.ro, &xid, &key2, &load_env ) );
+  FD_TEST( test_pull( env->progcache, acc1.entry, &xid, &key1, &load_env ) );
+  FD_TEST( test_pull( env->progcache, acc2.entry, &xid, &key2, &load_env ) );
 
   fd_progcache_rec_t * rec1 = fd_progcache_peek( env->progcache, &xid, &key1, fd_progcache_revision_key( 0UL, 0UL ) );
   FD_TEST( rec1 );
@@ -835,7 +836,7 @@ test_loader_v3_ok( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env );
   FD_TEST( rec );
   FD_TEST( rec->data_gaddr );
 
@@ -874,7 +875,7 @@ test_loader_v3_wrong_account_type( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env );
   FD_TEST( !rec );
 
   test_env_txn_cancel( env, &fork_a );
@@ -900,7 +901,7 @@ test_loader_v3_undersize( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env );
   FD_TEST( !rec );
 
   test_env_txn_cancel( env, &fork_a );
@@ -926,7 +927,7 @@ test_loader_v3_corrupt( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env );
   FD_TEST( !rec );
 
   test_env_txn_cancel( env, &fork_a );
@@ -955,7 +956,7 @@ test_loader_v3_epoch_boundary( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, acc.ro, &fork_a, &key, &load_env );
+  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, acc.entry, &fork_a, &key, &load_env );
   FD_TEST( rec1 );
   FD_TEST( rec1->data_gaddr );
   FD_TEST( fd_progcache_revision_key_slot( rec1->revision_key )==42UL );
@@ -965,7 +966,7 @@ test_loader_v3_epoch_boundary( fd_wksp_t * wksp ) {
 
   load_env.epoch       = 1UL;
   load_env.epoch_slot0 = 100UL;
-  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.ro, &fork_b, &key, &load_env );
+  fd_progcache_rec_t const * rec2 = test_pull( env->progcache, acc.entry, &fork_b, &key, &load_env );
   FD_TEST( rec2 );
   FD_TEST( rec2->data_gaddr );
   FD_TEST( fd_progcache_revision_key_slot( rec2->revision_key )==100UL );
@@ -1008,7 +1009,7 @@ test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
       valid_program_data, valid_program_data_sz,
       1UL
   );
-  FD_TEST( fork_a_acc.meta->dlen!=fork_b_acc.meta->dlen );
+  FD_TEST( fork_a_acc.entry->data_len!=fork_b_acc.entry->data_len );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -1025,7 +1026,7 @@ test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
   fd_progcache_xid_t fork_a_invoke = { .ul = { e0+1UL, 2UL } };
   test_env_txn_prepare( env, &fork_a_deploy, &fork_a_invoke );
 
-  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, fork_a_acc.ro, &fork_a_invoke, &key, &load_env );
+  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, fork_a_acc.entry, &fork_a_invoke, &key, &load_env );
   FD_TEST( rec_a );
   FD_TEST( rec_a->data_gaddr );
   FD_TEST( fd_progcache_revision_key_slot( rec_a->revision_key )==e0 );
@@ -1039,7 +1040,7 @@ test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
   fd_progcache_xid_t fork_b_invoke = { .ul = { e0+1UL, 3UL } };
   test_env_txn_prepare( env, NULL, &fork_b_invoke );
 
-  fd_progcache_rec_t const * rec_b = test_pull( env->progcache, fork_b_acc.ro, &fork_b_invoke, &key, &load_env );
+  fd_progcache_rec_t const * rec_b = test_pull( env->progcache, fork_b_acc.entry, &fork_b_invoke, &key, &load_env );
   FD_TEST( rec_b );
   FD_TEST( rec_b!=rec_a );
   FD_TEST( query_rec_exact( env, &fork_a_invoke, &key )==rec_a );
@@ -1078,9 +1079,9 @@ test_clock_evict_all_visited( fd_wksp_t * wksp ) {
     .epoch_slot0 = 0UL
   };
 
-  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.ro, &xid, &key1, &load_env );
-  fd_progcache_rec_t * rec2 = test_pull( env->progcache, acc2.ro, &xid, &key2, &load_env );
-  fd_progcache_rec_t * rec3 = test_pull( env->progcache, acc3.ro, &xid, &key3, &load_env );
+  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, &xid, &key1, &load_env );
+  fd_progcache_rec_t * rec2 = test_pull( env->progcache, acc2.entry, &xid, &key2, &load_env );
+  fd_progcache_rec_t * rec3 = test_pull( env->progcache, acc3.entry, &xid, &key3, &load_env );
   FD_TEST( rec1 && rec2 && rec3 );
 
   /* Ensure visited bits are set */
@@ -1123,7 +1124,7 @@ test_clock_evict_wraps_around( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.ro, &xid, &key1, &load_env );
+  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, &xid, &key1, &load_env );
   FD_TEST( rec1 );
 
   ulong rec_max = env->progcache->join->rec.pool->ele_max;
@@ -1185,8 +1186,8 @@ test_clock_evict_delete_fails( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.ro, &xid, &key1, &load_env );
-  fd_progcache_rec_t * rec2 = test_pull( env->progcache, acc2.ro, &xid, &key2, &load_env );
+  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, &xid, &key1, &load_env );
+  fd_progcache_rec_t * rec2 = test_pull( env->progcache, acc2.entry, &xid, &key2, &load_env );
   FD_TEST( rec1 && rec2 );
 
   ulong rec1_idx = (ulong)( rec1 - env->progcache->join->rec.pool->ele );
@@ -1240,7 +1241,7 @@ test_clock_evict_heap_only( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 0UL
   };
-  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.ro, &xid, &key1, &load_env );
+  fd_progcache_rec_t * rec1 = test_pull( env->progcache, acc1.entry, &xid, &key1, &load_env );
   FD_TEST( rec1 );
   FD_TEST( rec1->data_gaddr );
 

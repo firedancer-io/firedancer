@@ -1,3 +1,4 @@
+#include "fd_replay_tile.h"
 #include "fd_replay_tile_private.h"
 #include "fd_sched.h"
 #include "fd_execrp.h"
@@ -13,19 +14,18 @@
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/shred/fd_fec_set.h"
-#include "../../discof/fd_accdb_topo.h"
+#include "../../disco/shred/fd_shred_tile.h"
+#include "../../disco/pack/fd_pack.h"
+#include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
-#include "../../flamenco/accdb/fd_accdb_admin_v1.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
-#include "../../flamenco/accdb/fd_accdb_sync.h"
+#include "../../flamenco/rewards/fd_rewards.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../disco/shred/fd_shred_tile.h"
-#include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
@@ -108,6 +108,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),             fd_accdb_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
@@ -165,17 +166,6 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, BANKS_FULL,          ctx->metrics.banks_full );
   FD_MCNT_SET( REPLAY, STORAGE_ROOT_BEHIND, ctx->metrics.storage_root_behind );
 
-  FD_MCNT_SET( REPLAY, ACCDB_CREATED,      ctx->accdb->base.created_cnt       );
-  FD_MCNT_SET( REPLAY, ACCDB_REVERTED,     ctx->accdb_admin->base.revert_cnt  );
-  FD_MCNT_SET( REPLAY, ACCDB_ROOTED,       ctx->accdb_admin->base.root_cnt    );
-  FD_MCNT_SET( REPLAY, ACCDB_ROOTED_BYTES, ctx->accdb_admin->base.root_tot_sz );
-  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,      ctx->accdb_admin->base.gc_root_cnt );
-  FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED,    ctx->accdb_admin->base.reclaim_cnt );
-  FD_MHIST_COPY( REPLAY, ROOT_SLOT_DURATION_SECONDS,    ctx->metrics.root_slot_dur    );
-  FD_MHIST_COPY( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS, ctx->metrics.root_account_dur );
-  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_COPY, (ulong)ctx->accdb_admin->base.dt_copy  );
-  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
-
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  pcm->root_cnt    );
   FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, pcm->gc_root_cnt );
@@ -188,13 +178,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PART_MEDIAN_BYTES, wm->part_median_sz );
   FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PART_MEAN_BYTES,   wm->part_mean_sz   );
 
-  fd_wksp_mon_t * am = fd_wksp_mon_tick( ctx->accdb_cache_wksp_mon, fd_tickcount() );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_PARTS,             am->free_cnt       );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_BYTES,             am->free_sz        );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_SIZE_BYTES,             am->wksp->data_max );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_PART_MAX_BYTES,    am->free_max_sz    );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_USED_PART_MEDIAN_BYTES, am->part_median_sz );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_USED_PART_MEAN_BYTES,   am->part_mean_sz   );
+  FD_ACCDB_METRICS_WRITE( REPLAY, fd_accdb_metrics( ctx->accdb ) );
 }
 
 static void
@@ -270,15 +254,13 @@ replay_block_start( fd_replay_tile_t *  ctx,
   }
   bank->f.slot = slot;
   bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
+  bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, parent_bank->accdb_fork_id );
 
-  /* Create a new funk txn for the block. */
+  /* Create a new progcache txn for the block. */
 
-  fd_funk_txn_xid_t xid        = fd_bank_xid( bank        );
-  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
-  fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
-  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_attach_child( ctx->progcache,   &pc_parent_xid, &pc_xid );
+  fd_progcache_xid_t xid        = fd_bank_xid( bank        );
+  fd_progcache_xid_t parent_xid = fd_bank_xid( parent_bank );
+  fd_progcache_attach_child( ctx->progcache,   &parent_xid, &xid );
 
   /* Update required runtime state and handle potential boundary. */
 
@@ -313,17 +295,6 @@ cost_tracker_snap( fd_bank_t * bank, fd_replay_slot_completed_t * slot_info ) {
   } else {
     memset( &slot_info->cost_tracker, -1 /* ULONG_MAX */, sizeof(slot_info->cost_tracker) );
   }
-}
-
-static ulong
-get_identity_balance( fd_replay_tile_t * ctx, fd_funk_txn_xid_t xid ) {
-  ulong identity_balance = ULONG_MAX;
-  fd_accdb_ro_t identity_acc[1];
-  if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, identity_acc, &xid, ctx->identity_pubkey ) ) ) {
-    identity_balance = identity_acc->meta->lamports;
-    fd_accdb_close_ro( ctx->accdb, identity_acc );
-  }
-  return identity_balance;
 }
 
 static void
@@ -401,7 +372,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
-  slot_info->xid      = fd_bank_xid( bank );
+  slot_info->accdb_fork_id = bank->accdb_fork_id;
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc", bank->idx, slot, bank->refcnt ));
 
   fd_bank_t * parent_bank = fd_banks_get_parent( ctx->banks, bank );
@@ -505,9 +476,10 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   cost_tracker_snap( bank, slot_info );
 
   /* fetch identity / vote balance updates infrequently */
-  ulong slot = bank->f.slot;
-  fd_funk_txn_xid_t xid = fd_bank_xid( bank );
-  slot_info->identity_balance = FD_UNLIKELY( slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
+  slot_info->identity_balance = ULONG_MAX;
+  if( FD_UNLIKELY( bank->f.slot%4096==0UL ) ) {
+    slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
+  }
 
   /* Mark the bank as frozen. */
   fd_banks_mark_bank_frozen( bank );
@@ -571,13 +543,12 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
 
   ctx->leader_bank->f.slot = slot;
   ctx->leader_bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
-  /* prepare the funk transaction for the leader bank */
-  fd_funk_txn_xid_t xid        = fd_bank_xid( ctx->leader_bank );
-  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank      );
-  fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
-  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_attach_child( ctx->progcache,   &pc_parent_xid, &pc_xid );
+  ctx->leader_bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, parent_bank->accdb_fork_id );
+
+  /* prepare the progcache transaction for the leader bank */
+  fd_progcache_xid_t xid        = fd_bank_xid( ctx->leader_bank );
+  fd_progcache_xid_t parent_xid = fd_bank_xid( parent_bank      );
+  fd_progcache_attach_child( ctx->progcache,   &parent_xid, &xid );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
@@ -646,8 +617,10 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
-  fd_funk_txn_xid_t xid = fd_bank_xid( ctx->leader_bank );
-  slot_info->identity_balance = FD_UNLIKELY( curr_slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
+  slot_info->identity_balance = ULONG_MAX;
+  if( FD_UNLIKELY( curr_slot%4096==0UL ) ) {
+    slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, ctx->leader_bank->accdb_fork_id, ctx->identity_pubkey->uc );
+  }
 
   fd_banks_mark_bank_frozen( ctx->leader_bank );
   ctx->leader_bank->block_completed_nanos = fd_log_wallclock();
@@ -700,32 +673,9 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
-/* init_funk performs pre-flight checks for the account database and
-   program cache.  Ensures that the account database was set up
-   correctly by bootstrap components (e.g. genesis or snapshot loader).
-   Mirrors the account database's fork tree down to the program cache. */
-
 static void
-init_funk( fd_replay_tile_t * ctx,
-           ulong              bank_slot ) {
-  /* Ensure that the loaded bank root corresponds to the account
-     database's root. */
-  fd_funk_t * funk = fd_accdb_user_v1_funk( ctx->accdb );
-  if( FD_UNLIKELY( !funk->shmem ) ) {
-    FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to database shared memory objects" ));
-  }
-  fd_funk_txn_xid_t const * accdb_pub = fd_funk_last_publish( funk );
-  if( FD_UNLIKELY( accdb_pub->ul[0]!=bank_slot ) ) {
-    FD_LOG_CRIT(( "failed to initialize account database: accdb is at slot %lu, but chain state is at slot %lu\n"
-                  "This is a bug in startup components.",
-                  accdb_pub->ul[0], bank_slot ));
-  }
-  if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
-    FD_LOG_CRIT(( "failed to initialize account database: accdb fork graph is not clean.\n"
-                  "The account database should only contain state for the root slot at this point,\n"
-                  "but there are incomplete database transactions leftover.\n"
-                  "This is a bug in startup components."  ));
-  }
+init_progcache( fd_replay_tile_t * ctx,
+                ulong              bank_slot ) {
 
   /* The program cache tracks the account database's fork graph at all
      times.  Perform initial synchronization: pivot from funk 'root' (a
@@ -735,12 +685,10 @@ init_funk( fd_replay_tile_t * ctx,
   }
   fd_progcache_clear( ctx->progcache );
 
-  fd_funk_txn_xid_t last_publish = fd_accdb_root_get( ctx->accdb_admin );
-  fd_funk_txn_xid_t root = { .ul = { ULONG_MAX, ULONG_MAX } };
-  fd_progcache_xid_t pc_root         = fd_progcache_xid_from_funk( &root );
-  fd_progcache_xid_t pc_last_publish = fd_progcache_xid_from_funk( &last_publish );
-  fd_progcache_attach_child( ctx->progcache, &pc_root, &pc_last_publish );
-  fd_progcache_advance_root( ctx->progcache,           &pc_last_publish );
+  fd_progcache_xid_t last_publish = { .ul = { bank_slot, 0UL } };
+  fd_progcache_xid_t root = { .ul = { ULONG_MAX, ULONG_MAX } };
+  fd_progcache_attach_child( ctx->progcache, &root, &last_publish );
+  fd_progcache_advance_root( ctx->progcache,        &last_publish );
 }
 
 static void
@@ -750,7 +698,6 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      stake delegations since the manifest does not contain the full set
      of data required for the stake delegations. See
      fd_stake_delegations.h for why this is required. */
-
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
@@ -768,8 +715,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   publish_epoch_info( ctx, stem, bank, 0 );
   publish_epoch_info( ctx, stem, bank, 1 );
 
-  fd_funk_txn_xid_t xid = fd_bank_xid( bank );
-  init_funk( ctx, bank->f.slot );
+  init_progcache( ctx, bank->f.slot );
 
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
@@ -781,18 +727,18 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
       stake_history, /* may be NULL */
       &bank->f.warmup_cooldown_rate_epoch,
       ctx->accdb,
-      &xid );
+      bank->accdb_fork_id );
   bank->f.total_effective_stake    = root_delegations->effective_stake;
   bank->f.total_activating_stake   = root_delegations->activating_stake;
   bank->f.total_deactivating_stake = root_delegations->deactivating_stake;
 
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
-  fd_top_votes_refresh( top_votes_t_2, ctx->accdb, &xid );
+  fd_top_votes_refresh( top_votes_t_2, ctx->accdb, bank->accdb_fork_id );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb, &xid, ctx->runtime_stack, ctx->capture_ctx );
+  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx );
 
   ulong snapshot_slot = bank->f.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
@@ -894,9 +840,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
   FD_LOG_INFO(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
-  /* Acquires bank, sets up initial state, and refcnts it. */
-  fd_bank_t *       bank = prepare_leader_bank( ctx, stem, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id );
-  fd_funk_txn_xid_t xid  = fd_bank_xid( ctx->leader_bank );
+  fd_bank_t * bank = prepare_leader_bank( ctx, stem, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id );
 
   fd_bundle_crank_tip_payment_config_t config[1] = { 0 };
   fd_pubkey_t tip_receiver_owner = {0};
@@ -906,24 +850,24 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     fd_acct_addr_t tip_receiver[1];
     fd_bundle_crank_get_addresses( ctx->bundle.gen, bank->f.epoch, tip_payment_config, tip_receiver );
 
-    fd_accdb_ro_t tip_config_acc[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, tip_config_acc, &xid, tip_payment_config ) ) ) {
+    fd_acc_t tip_config_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_payment_config->b );
+    if( FD_UNLIKELY( !tip_config_acc.lamports ) ) {
       FD_BASE58_ENCODE_32_BYTES( tip_payment_config->b, tip_config_acc_b58 );
       FD_LOG_WARNING(( "tip payment config account %s does not exist", tip_config_acc_b58 ));
-    } else if( FD_UNLIKELY( fd_accdb_ref_data_sz( tip_config_acc )<sizeof(fd_bundle_crank_tip_payment_config_t) ) ) {
-      FD_LOG_HEXDUMP_WARNING(( "invalid tip payment config account data", fd_accdb_ref_data_const( tip_config_acc ), fd_accdb_ref_data_sz( tip_config_acc ) ));
-      fd_accdb_close_ro( ctx->accdb, tip_config_acc );
+    } else if( FD_UNLIKELY( tip_config_acc.data_len<sizeof(fd_bundle_crank_tip_payment_config_t) ) ) {
+      FD_LOG_HEXDUMP_WARNING(( "invalid tip payment config account data", tip_config_acc.data, tip_config_acc.data_len ));
+      fd_accdb_unread_one( ctx->accdb, &tip_config_acc );
     } else {
-      memcpy( config, fd_accdb_ref_data_const( tip_config_acc ), sizeof(fd_bundle_crank_tip_payment_config_t) );
-      fd_accdb_close_ro( ctx->accdb, tip_config_acc );
+      memcpy( config, tip_config_acc.data, sizeof(fd_bundle_crank_tip_payment_config_t) );
+      fd_accdb_unread_one( ctx->accdb, &tip_config_acc );
     }
 
     /* It is possible that the tip receiver account does not exist yet
        if it is the first time in an epoch. */
-    fd_accdb_ro_t tip_receiver_acc[1];
-    if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, tip_receiver_acc, &xid, tip_receiver ) ) ) {
-      tip_receiver_owner = *fd_accdb_ref_owner( tip_receiver_acc );
-      fd_accdb_close_ro( ctx->accdb, tip_receiver_acc );
+    fd_acc_t tip_receiver_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_receiver->b );
+    if( FD_LIKELY( tip_receiver_acc.lamports ) ) {
+      fd_memcpy( tip_receiver_owner.uc, tip_receiver_acc.owner, 32UL );
+      fd_accdb_unread_one( ctx->accdb, &tip_receiver_acc );
     }
   }
 
@@ -1063,14 +1007,11 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
   FD_TEST( bank );
-  fd_funk_txn_xid_t xid = fd_bank_xid( bank );
 
-  /* Do genesis-related processing in a non-rooted transaction */
-  fd_funk_txn_xid_t root_xid = { .ul = { LONG_MAX, LONG_MAX } };
-  fd_funk_txn_xid_t target_xid = { .ul = { 0UL, 0UL } };
-  fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &target_xid );
-  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &xid, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
-  fd_accdb_advance_root( ctx->accdb_admin, &target_xid );
+  static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
+  bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
+
+  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
 
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
   bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );
@@ -1121,7 +1062,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
-  slot_info->identity_balance = get_identity_balance( ctx, xid );
+
+  slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
 
   publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
   publish_root_advanced( ctx, stem );
@@ -1175,6 +1117,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
     }
 
+    static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
+    bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
+
     ulong snapshot_slot = bank->f.slot;
 
     fd_hash_t bank_hash = bank->f.bank_hash;
@@ -1200,10 +1145,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        from repair. */
     fd_hash_t manifest_block_id = ctx->has_manifest_block_id ? ctx->manifest_block_id : ctx->initial_block_id;
 
-    fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_SEQ } };
-    fd_features_restore( bank, ctx->accdb, &xid );
+    fd_features_restore( bank, ctx->accdb );
 
-    FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb, &xid ) );
+    FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb ) );
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
@@ -1238,7 +1182,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
     cost_tracker_snap( bank, slot_info );
-    slot_info->identity_balance = get_identity_balance( ctx, xid );
+
+    slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
 
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
     publish_root_advanced( ctx, stem );
@@ -1571,18 +1516,17 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, key_b58, cmr_b58 ));
 # endif
 
-  sched_fec->shred_cnt              = reasm_fec->data_cnt;
-  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
-  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
-  sched_fec->bank_idx               = reasm_fec->bank_idx;
-  sched_fec->parent_bank_idx        = reasm_fec->parent_bank_idx;
-  sched_fec->slot                   = reasm_fec->slot;
-  sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
-  sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
-  fd_funk_txn_xid_t const root = fd_accdb_root_get( ctx->accdb_admin );
-  fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, &root );
-  sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
-  sched_fec->alut_ctx->els          = ctx->published_root_slot;
+  sched_fec->shred_cnt         = reasm_fec->data_cnt;
+  sched_fec->is_last_in_batch  = !!reasm_fec->data_complete;
+  sched_fec->is_last_in_block  = !!reasm_fec->slot_complete;
+  sched_fec->bank_idx          = reasm_fec->bank_idx;
+  sched_fec->parent_bank_idx   = reasm_fec->parent_bank_idx;
+  sched_fec->slot              = reasm_fec->slot;
+  sched_fec->parent_slot       = reasm_fec->slot - reasm_fec->parent_off;
+  sched_fec->is_first_in_block = reasm_fec->fec_set_idx==0U;
+  sched_fec->alut_ctx->fork_id = fd_banks_bank_query( ctx->banks, ctx->consensus_root_bank_idx )->accdb_fork_id;
+  sched_fec->alut_ctx->accdb   = ctx->accdb;
+  sched_fec->alut_ctx->els     = ctx->published_root_slot;
 
   /* Read FEC set from the store.  This should happen before we try to
      ingest the FEC set.  This allows us to filter out frags that were
@@ -1730,35 +1674,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
   }
 }
 
-/* accdb_advance_root moves account records from the unrooted to the
-   rooted database. */
-
-static inline ulong
-accdb_root_op_total( fd_replay_tile_t const * ctx ) {
-  return ctx->accdb_admin->base.root_cnt +
-         ctx->accdb_admin->base.reclaim_cnt;
-}
-
-static void
-accdb_advance_root( fd_replay_tile_t * ctx,
-                    fd_xid_t const *   xid ) {
-  FD_LOG_DEBUG(( "advancing root to slot=%lu", xid->ul[0] ));
-
-  long rooted_accounts   = -(long)accdb_root_op_total( ctx );
-  long t0                = fd_tickcount();
-  fd_accdb_advance_root( ctx->accdb_admin, xid );
-  rooted_accounts       += (long)accdb_root_op_total( ctx );
-  long t1                = fd_tickcount();
-  long root_accounts_dt  = t1 - t0;
-  fd_histf_sample( ctx->metrics.root_slot_dur,    (ulong)root_accounts_dt );
-  fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
-
-  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( xid );
-  fd_progcache_advance_root( ctx->progcache, &pc_xid );
-  long t2 = fd_tickcount();
-  FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
-}
-
 static int
 advance_published_root( fd_replay_tile_t * ctx ) {
 
@@ -1792,9 +1707,12 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
   ulong advanceable_root_slot = bank->f.slot;
-  fd_xid_t const xid = fd_bank_xid( bank );
-  accdb_advance_root( ctx, &xid );
-
+  fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
+  long t1 = fd_tickcount();
+  fd_progcache_xid_t xid = fd_bank_xid( bank );
+  fd_progcache_advance_root( ctx->progcache, &xid );
+  long t2 = fd_tickcount();
+  FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
@@ -1857,10 +1775,9 @@ after_credit( fd_replay_tile_t *  ctx,
   int pruned = fd_banks_prune_one_dead_bank( ctx->banks, cancel_info );
   if( FD_UNLIKELY( pruned==2 ) ) {
     fd_txncache_cancel_fork( ctx->txncache, cancel_info->txncache_fork_id );
-    fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_seq } };
-    fd_accdb_cancel    ( ctx->accdb_admin, &xid );
-    fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
-    fd_progcache_cancel( ctx->progcache,   &pc_xid );
+    fd_accdb_purge( ctx->accdb, cancel_info->accdb_fork_id );
+    fd_progcache_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_seq } };
+    fd_progcache_cancel( ctx->progcache, &xid );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -2455,31 +2372,13 @@ privileged_init( fd_topo_t *      topo,
     }
   }
 
-  FD_TEST( fd_rng_secure( &ctx->rng_seed, sizeof(ctx->rng_seed) ) );
-
-  if( FD_UNLIKELY( !fd_rng_secure( &ctx->blockhash_seed, sizeof(ulong) ) ) ) {
-    FD_LOG_CRIT(( "fd_rng_secure failed" ));
-  }
-
-  if( FD_UNLIKELY( !fd_rng_secure( &ctx->reasm_seed, sizeof(ulong) ) ) ) {
-    FD_LOG_CRIT(( "fd_rng_secure failed" ));
-  }
-
-  if( FD_UNLIKELY( !fd_rng_secure( &ctx->vote_tracker_seed, sizeof(ulong) ) ) ) {
-    FD_LOG_CRIT(( "fd_rng_secure failed" ));
-  }
-
-  if( FD_UNLIKELY( !fd_rng_secure( &ctx->block_id_map_seed, sizeof(ulong) ) ) ) {
-    FD_LOG_CRIT(( "fd_rng_secure failed" ));
-  }
-
-  if( FD_UNLIKELY( !fd_rng_secure( &ctx->initial_block_id, sizeof(fd_hash_t) ) ) ) {
-    FD_LOG_CRIT(( "fd_rng_secure failed" ));
-  }
-
-  if( FD_UNLIKELY( !fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) ) ) ) {
-    FD_LOG_CRIT(( "fd_rng_secure failed" ));
-  }
+  FD_TEST( fd_rng_secure( &ctx->rng_seed,           sizeof(ctx->rng_seed) ) );
+  FD_TEST( fd_rng_secure( &ctx->blockhash_seed,     sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->reasm_seed,         sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->vote_tracker_seed,  sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->block_id_map_seed,  sizeof(ulong) )         );
+  FD_TEST( fd_rng_secure( &ctx->initial_block_id,   sizeof(fd_hash_t) )     );
+  FD_TEST( fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) )         );
 }
 
 static void
@@ -2495,6 +2394,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
+  void * _accdb             = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),            fd_accdb_footprint( tile->replay.max_live_slots ) );
   void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
   void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
@@ -2565,30 +2465,24 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<tile->replay.enable_features_cnt; i++ ) one_off_features[ i ] = tile->replay.enable_features[i];
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
-  ulong progcache_obj_id; FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
+  ulong progcache_obj_id; FD_TEST( (progcache_obj_id = fd_pod_query_ulong( topo->props, "progcache", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id       ) ) );
 
   fd_wksp_t * progcache_wksp = fd_wksp_containing( ctx->progcache->shmem );
   FD_TEST( progcache_wksp );
   fd_wksp_mon_init( ctx->progcache_wksp_mon, progcache_wksp, FD_WKSP_MON_DEFAULT_RATE, fd_tickcount() );
 
-  ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
-  ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
-  ulong max_depth = tile->replay.max_live_slots;
-  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin,
-      fd_topo_obj_laddr( topo, funk_obj_id       ),
-      fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
-  fd_accdb_init_from_topo( ctx->accdb, topo, max_depth );
-
-  fd_wksp_t * funk_wksp = fd_wksp_containing( fd_topo_obj_laddr( topo, funk_obj_id ) );
-  FD_TEST( funk_wksp );
-  fd_wksp_mon_init( ctx->accdb_cache_wksp_mon, funk_wksp, FD_WKSP_MON_DEFAULT_RATE, fd_tickcount() );
-
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
   ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( ctx->txncache );
+
+  void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->replay.accdb_obj_id );
+  fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
+  FD_TEST( accdb_shmem );
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, 0UL, NULL ) );
+  FD_TEST( ctx->accdb );
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
@@ -2740,11 +2634,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->metrics.store_query_work,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WORK ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WORK ) ) );
 
-  fd_histf_join( fd_histf_new( ctx->metrics.root_slot_dur,      FD_MHIST_SECONDS_MIN( REPLAY, ROOT_SLOT_DURATION_SECONDS ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, ROOT_SLOT_DURATION_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics.root_account_dur,   FD_MHIST_SECONDS_MIN( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS ) ) );
-
   /* Ensure precompiles are available, crash fast otherwise */
   fd_precompiles();
 
@@ -2759,7 +2648,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_FN_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
 
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), FD_ACCDB_FD_RW );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
@@ -2769,12 +2658,14 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
+
   return out_cnt;
 }
 

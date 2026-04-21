@@ -7,10 +7,8 @@
    global txn lock, txn lock, clock lock, recm chain_lock, rec.lock */
 
 #include "fd_progcache_rec.h" /* includes fd_progcache_base.h */
-#include "fd_progcache_xid.h"
-#include "fd_progcache_clock.h"
-#include "../fd_rwlock.h"
 #include "../runtime/fd_runtime_const.h"
+#include "fd_progcache_xid.h"
 
 /* fd_progcache_shmem_t is the top-level shared memory data structure
    of the progcache. */
