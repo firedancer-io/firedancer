@@ -6,7 +6,6 @@
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_program.h"
-#include "../program/fd_loader_v4_program.h"
 #include "../program/fd_precompiles.h"
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
@@ -207,18 +206,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       runtime->accounts.executable_cnt++;
     } else if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
                             !memcmp( meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      meta = txn_out->accounts.account[i].meta;
-    } else if( !memcmp( owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      int err;
-      fd_loader_v4_state_t const * state = fd_loader_v4_get_state( fd_account_data( meta ), meta->dlen, &err );
-      if( FD_UNLIKELY( err ) ) {
-        continue;
-      }
-
-      /* The program must be deployed or finalized. */
-      if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( state ) ) ) {
-        continue;
-      }
       meta = txn_out->accounts.account[i].meta;
     }
   }

@@ -1,32 +1,7 @@
 #include "fd_prog_load.h"
 #include "../runtime/program/fd_bpf_loader_program.h"
-#include "../runtime/program/fd_loader_v4_program.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/fd_system_ids.h"
-
-static fd_prog_info_t *
-fd_prog_info_v4( fd_prog_info_t *      out,
-                 fd_accdb_ro_t const * ro ) {
-
-  ulong data_sz = fd_accdb_ref_data_sz( ro );
-  if( FD_UNLIKELY( data_sz<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
-    FD_LOG_WARNING(( "program data account is invalid" ));
-    return NULL;
-  }
-
-  fd_loader_v4_state_t state = FD_LOAD( fd_loader_v4_state_t, fd_accdb_ref_data_const( ro ) );
-  if( FD_UNLIKELY( state.status==FD_LOADER_V4_STATUS_ENUM_RETRACTED ) ) {
-    FD_LOG_WARNING(( "program data account is not executable" ));
-    return NULL;
-  }
-
-  *out = (fd_prog_info_t) {
-    .elf_off = LOADER_V4_PROGRAM_DATA_OFFSET,
-    .elf_sz  = data_sz - LOADER_V4_PROGRAM_DATA_OFFSET,
-    .deploy_slot = state.slot
-  };
-  return out;
-}
 
 static fd_prog_info_t *
 fd_prog_info_v3( fd_prog_info_t *      out,
@@ -75,8 +50,6 @@ fd_prog_info( fd_prog_info_t     * out,
               fd_pubkey_t const  * program_owner ){
   if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_upgradeable_program_id ) ) {
     return fd_prog_info_v3( out, ro );
-  } else if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_v4_program_id ) ) {
-    return fd_prog_info_v4( out, ro );
   } else if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_program_id ) ||
              fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_deprecated_program_id ) ) {
     return fd_prog_info_v1( out, ro );

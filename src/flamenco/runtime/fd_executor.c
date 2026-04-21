@@ -6,7 +6,6 @@
 
 #include "fd_system_ids.h"
 #include "program/fd_bpf_loader_program.h"
-#include "program/fd_loader_v4_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_precompiles.h"
 #include "program/fd_system_program.h"
@@ -70,7 +69,6 @@ typedef struct fd_rent_state fd_rent_state_t;
 #define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
 #define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
 #define MAP_PERFECT_6  ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
-#define MAP_PERFECT_7  ( LOADER_V4_PROG_ID       ), .fn = fd_loader_v4_program_execute,                 .is_bpf_loader = 1, .feature_enable_offset = offsetof( fd_features_t, enable_loader_v4 )
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
