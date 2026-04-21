@@ -56,14 +56,16 @@ restart:
     fd_funk_rec_t const * rec = rec_idx!=UINT_MAX ? &rec_tbl[ rec_idx ] : &rec_sentinel;
     _mm_prefetch( (char const *)&rec->pair.xid,  _MM_HINT_T1 );
     scan->val_gaddr[ i ] = rec->val_gaddr;
+    scan->data_sz  [ i ] = (uint)( rec->val_sz - sizeof(fd_account_meta_t) );
   }
 
   /* Filter */
   ulong rec_cnt = 0UL;
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
     if( scan->val_gaddr[ i ]==ULONG_MAX ) continue;
-    scan->rec_idx  [ rec_cnt ] = scan->rec_idx[ i ];
+    scan->rec_idx  [ rec_cnt ] = scan->rec_idx  [ i ];
     scan->val_gaddr[ rec_cnt ] = scan->val_gaddr[ i ];
+    scan->data_sz  [ rec_cnt ] = scan->data_sz  [ i ];
     /* FIXME filter by XID */
     rec_cnt++;
   }

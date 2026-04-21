@@ -122,14 +122,14 @@ returnable_frag( fd_snapzp_t *       ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)in_idx; (void)seq; (void)chunk; (void)sz; (void)ctl; (void)tspub; (void)stem;
+  (void)in_idx; (void)seq; (void)chunk; (void)sz; (void)ctl; (void)stem;
   ctx->idle_cnt = 0UL;
   ulong rec_idx   = tsorig;
+  ulong data_sz   = tspub;
   ulong val_gaddr = sig;
 
   fd_funk_rec_t const *     rec       = &ctx->funk->rec_pool->ele[ rec_idx ];
   fd_account_meta_t const * val       = fd_wksp_laddr_fast( ctx->funk->wksp, val_gaddr );
-  ulong                     data_sz   = val->dlen;
   ulong                     raw_chunk = sizeof(snap_acc_hdr_t) + data_sz;
   ctx->metrics.accounts_compressed++;
   ctx->metrics.bytes_compressed += raw_chunk;

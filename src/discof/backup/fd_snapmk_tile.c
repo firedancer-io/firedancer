@@ -173,12 +173,13 @@ send_account_frags( fd_snapmk_t *       ctx,
       FD_LOG_NOTICE(( "DONE" ));
       break;
     }
-    ulong rec_idx = ctx->scan->rec_idx[ scan_idx ];
+    ulong rec_idx   = ctx->scan->rec_idx  [ scan_idx ];
     ulong val_gaddr = ctx->scan->val_gaddr[ scan_idx ];
+    uint  data_sz   = ctx->scan->data_sz  [ scan_idx ];
 
     /* Send frag */
     ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 );
-    fd_mcache_publish( mcache, depth, seq, val_gaddr, 0UL, 0UL, ctl, (uint)rec_idx, 0UL );
+    fd_mcache_publish( mcache, depth, seq, val_gaddr, 0UL, 0UL, ctl, rec_idx, data_sz );
     pub_cnt++;
     seq = fd_seq_inc( seq, 1UL );
   }

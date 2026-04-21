@@ -45,6 +45,7 @@ struct fd_funk_scan {
   fd_funk_rec_chain_t heads    [ FUNK_SCAN_PARA ];
   uint                rec_idx  [ FUNK_SCAN_PARA ];
   ulong               val_gaddr[ FUNK_SCAN_PARA ];
+  uint                data_sz  [ FUNK_SCAN_PARA ];
   ulong batch_idx;
   ulong batch_cnt;
 };

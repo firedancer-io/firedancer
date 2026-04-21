@@ -86,10 +86,10 @@ snapshot_create_cmd_fn( args_t *   args,
   ulong snapzp_cnt = fd_topo_tile_name_cnt( topo, "snapzp" );
   ulong volatile * zp_in_metrics[ FD_TOPO_MAX_TILE_IN_LINKS ];
   for( ulong i=0UL; i<snapzp_cnt; i++ ) {
-    ulong snapzp_tile_id = fd_topo_find_tile( topo, "snapzp", 0UL ); FD_TEST( snapzp_tile_id!=ULONG_MAX );
+    ulong snapzp_tile_id = fd_topo_find_tile( topo, "snapzp", i ); FD_TEST( snapzp_tile_id!=ULONG_MAX );
     fd_topo_tile_t const * snapzp_tile = &topo->tiles[ snapzp_tile_id ];
     ulong *         snapzp_metrics_obj = snapzp_tile->metrics;
-    zp_in_metrics[ i ] = fd_metrics_link_in( snapzp_metrics_obj, i );
+    zp_in_metrics[ i ] = fd_metrics_tile( snapzp_metrics_obj );
   }
 
   ulong accounts_before = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
@@ -118,6 +118,7 @@ snapshot_create_cmd_fn( args_t *   args,
   fd_log_sleep( (long)5e6 );
   ulong accounts_processed_prev = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
   ulong tot_sz_prev = 0UL; for( ulong i=0UL; i<snapzp_cnt; i++ ) tot_sz_prev += zp_in_metrics[ i ][ MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) ];
+  ulong tot_sz_before = tot_sz_prev;
   long period = (long)2e7;
   while( mk_tile_metrics[ MIDX( GAUGE, SNAPMK, ACTIVE ) ] ) {
     fd_log_sleep( period );
@@ -135,11 +136,14 @@ snapshot_create_cmd_fn( args_t *   args,
 
   dt += fd_log_wallclock();
   ulong accounts_after = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
+  ulong tot_sz_after = 0UL; for( ulong i=0UL; i<snapzp_cnt; i++ ) tot_sz_after += zp_in_metrics[ i ][ MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) ];
   ulong account_cnt = accounts_after - accounts_before;
-  FD_LOG_NOTICE(( "Done: %lu accounts in %.1f seconds (%g accounts/s)",
+  char buf[ 64 ];
+  FD_LOG_NOTICE(( "Done: %lu accounts in %.1f seconds (%g accounts/s, %s compress input)",
                   account_cnt,
                   (double)dt/1e9,
-                  (double)account_cnt / ((double)dt/1e9) ));
+                  (double)account_cnt / ((double)dt/1e9),
+                  fmt_bytes( buf, sizeof(buf), (double)(tot_sz_after - tot_sz_before) / ((double)dt/1e9) ) ) );
 }
 
 action_t fd_action_snapshot_create = {
