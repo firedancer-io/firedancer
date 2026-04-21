@@ -65,6 +65,7 @@ enum {
 #include "fd_metrics_poh.h"
 #include "fd_metrics_shred.h"
 #include "fd_metrics_store.h"
+#include "fd_metrics_accdb.h"
 #include "fd_metrics_replay.h"
 #include "fd_metrics_repair.h"
 #include "fd_metrics_gossip.h"
@@ -75,13 +76,6 @@ enum {
 #include "fd_metrics_snapld.h"
 #include "fd_metrics_snapdc.h"
 #include "fd_metrics_snapin.h"
-#include "fd_metrics_snapwm.h"
-#include "fd_metrics_snapwr.h"
-#include "fd_metrics_snapwh.h"
-#include "fd_metrics_snapla.h"
-#include "fd_metrics_snapls.h"
-#include "fd_metrics_snaplh.h"
-#include "fd_metrics_snaplv.h"
 #include "fd_metrics_metric.h"
 #include "fd_metrics_rpc.h"
 #include "fd_metrics_diag.h"
@@ -93,7 +87,6 @@ enum {
 #include "fd_metrics_tower.h"
 #include "fd_metrics_gui.h"
 #include "fd_metrics_event.h"
-#include "fd_metrics_accdb.h"
 
 /* LINK IN metric properties */
 
@@ -220,7 +213,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 
 #define FD_METRICS_TOTAL_SZ (8UL*263UL)
 
-#define FD_METRICS_TILE_KIND_CNT 45
+#define FD_METRICS_TILE_KIND_CNT 38
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

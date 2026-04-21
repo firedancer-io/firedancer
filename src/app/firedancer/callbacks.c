@@ -3,10 +3,8 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
-#include "../../funk/fd_funk.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 
 #define VAL(name) (__extension__({                                                             \
@@ -39,60 +37,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_banks = {
   .footprint = banks_footprint,
   .align     = banks_align,
   .new       = banks_new,
-};
-
-static ulong
-funk_align( fd_topo_t const *     topo,
-            fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_funk_align();
-}
-
-static ulong
-funk_footprint( fd_topo_t const *     topo,
-                fd_topo_obj_t const * obj ) {
-  return fd_funk_shmem_footprint( VAL("txn_max"), VAL("rec_max") );
-}
-
-static ulong
-funk_loose( fd_topo_t const *     topo,
-            fd_topo_obj_t const * obj ) {
-  return VAL("heap_max");
-}
-
-static void
-funk_new( fd_topo_t const *     topo,
-          fd_topo_obj_t const * obj ) {
-  ulong funk_seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
-  if( !funk_seed ) FD_TEST( fd_rng_secure( &funk_seed, sizeof(ulong) ) );
-  FD_TEST( fd_funk_shmem_new( fd_topo_obj_laddr( topo, obj->id ), 2UL, funk_seed, VAL("txn_max"), VAL("rec_max") ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_funk = {
-  .name      = "funk",
-  .footprint = funk_footprint,
-  .loose     = funk_loose,
-  .align     = funk_align,
-  .new       = funk_new,
-};
-
-static ulong
-funk_locks_footprint( fd_topo_t const *     topo,
-                      fd_topo_obj_t const * obj ) {
-  return fd_funk_locks_footprint( VAL("txn_max"), VAL("rec_max") );
-}
-
-static void
-funk_locks_new( fd_topo_t const *     topo,
-                fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_funk_locks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("txn_max"), VAL("rec_max") ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_funk_locks = {
-  .name      = "funk_locks",
-  .footprint = funk_locks_footprint,
-  .align     = funk_align,
-  .new       = funk_locks_new,
 };
 
 static ulong
@@ -209,6 +153,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_store = {
 };
 
 static ulong
+accdb_footprint( fd_topo_t const *     topo,
+                 fd_topo_obj_t const * obj ) {
+  return fd_accdb_shmem_footprint( VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("cache_footprint"), VAL("joiner_cnt") );
+}
+
+static ulong
+accdb_align( fd_topo_t const *     topo FD_FN_UNUSED,
+             fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_accdb_shmem_align();
+}
+
+static void
+accdb_new( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_accdb_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("partition_sz"), VAL("cache_footprint"), VAL("seed"), VAL("joiner_cnt") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_accdb = {
+  .name      = "accdb",
+  .footprint = accdb_footprint,
+  .align     = accdb_align,
+  .new       = accdb_new,
+};
+
+static ulong
 txncache_footprint( fd_topo_t const *     topo,
                     fd_topo_obj_t const * obj ) {
   return fd_txncache_shmem_footprint( VAL("max_live_slots"), VAL("max_txn_per_slot") );
@@ -232,32 +201,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
   .align     = txncache_align,
   .new       = txncache_new,
 };
-
-static ulong
-acc_pool_footprint( fd_topo_t const *     topo,
-                    fd_topo_obj_t const * obj ) {
-  return fd_acc_pool_footprint( VAL("concurrent_account_limit") );
-}
-
-static ulong
-acc_pool_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_acc_pool_align();
-}
-
-static void
-acc_pool_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_acc_pool_new( fd_topo_obj_laddr( topo, obj->id ), VAL("concurrent_account_limit") ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_acc_pool = {
-  .name      = "acc_pool",
-  .footprint = acc_pool_footprint,
-  .align     = acc_pool_align,
-  .new       = acc_pool_new,
-};
-
 
 static ulong
 rnonce_ss_footprint( fd_topo_t const *     topo FD_FN_UNUSED,

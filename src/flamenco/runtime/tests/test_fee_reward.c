@@ -7,24 +7,20 @@
    - Fee collector not owned by system program */
 
 #include "fd_svm_mini.h"
-#include "../../accdb/fd_accdb_sync.h"
 #include "../fd_system_ids.h"
 #include "../../leaders/fd_leaders.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 
-/* Read the lamport balance of an account at a given xid.
+/* Read the lamport balance of an account at a given fork.
    Returns 0 if the account does not exist. */
 
 static ulong
-read_lamports( fd_svm_mini_t *     mini,
-               fd_xid_t const *    xid,
-               fd_pubkey_t const * pubkey ) {
-  fd_accdb_ro_t ro[1];
-  if( !fd_accdb_open_ro( mini->accdb, ro, xid, pubkey ) ) return 0UL;
-  ulong lamports = fd_accdb_ref_lamports( ro );
-  fd_accdb_close_ro( mini->accdb, ro );
-  return lamports;
+read_lamports( fd_svm_mini_t *        mini,
+               fd_accdb_fork_id_t     fork_id,
+               fd_pubkey_t const *    pubkey ) {
+  ulong l = fd_accdb_lamports( mini->runtime->accdb, fork_id, pubkey->key );
+  return l==ULONG_MAX ? 0UL : l;
 }
 
 /* Helper: look up the leader pubkey for a given bank. */
@@ -49,8 +45,8 @@ test_no_fees( fd_svm_mini_t * mini ) {
 
   ulong child_slot = 2UL;
   ulong child_idx  = fd_svm_mini_attach_child( mini, root_idx, child_slot );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
-  fd_xid_t    xid  = fd_svm_mini_xid( mini, child_idx );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
   /* Verify no fees accumulated */
   FD_TEST( bank->f.execution_fees == 0UL );
@@ -59,12 +55,12 @@ test_no_fees( fd_svm_mini_t * mini ) {
   /* Record pre-freeze state */
   fd_pubkey_t const * leader = get_leader( bank );
   ulong cap_before = bank->f.capitalization;
-  ulong bal_before = read_lamports( mini, &xid, leader );
+  ulong bal_before = read_lamports( mini, fork_id, leader );
 
   fd_svm_mini_freeze( mini, child_idx );
 
   /* Leader balance unchanged, capitalization unchanged */
-  ulong bal_after = read_lamports( mini, &xid, leader );
+  ulong bal_after = read_lamports( mini, fork_id, leader );
   FD_TEST( bal_after == bal_before );
   FD_TEST( bank->f.capitalization == cap_before );
 
@@ -82,13 +78,13 @@ test_fees_credited_to_leader( fd_svm_mini_t * mini ) {
 
   ulong child_slot = 2UL;
   ulong child_idx  = fd_svm_mini_attach_child( mini, root_idx, child_slot );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
-  fd_xid_t    xid  = fd_svm_mini_xid( mini, child_idx );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
   fd_pubkey_t const * leader = get_leader( bank );
 
   /* Ensure leader has enough lamports to be rent-exempt after payout */
-  fd_svm_mini_add_lamports( mini, &xid, leader, 1000000000UL /* 1 SOL */ );
+  fd_svm_mini_add_lamports( mini, fork_id, leader, 1000000000UL /* 1 SOL */ );
 
   /* Set fees */
   ulong exec_fees = 10000UL;
@@ -96,7 +92,7 @@ test_fees_credited_to_leader( fd_svm_mini_t * mini ) {
   bank->f.execution_fees = exec_fees;
   bank->f.priority_fees  = prio_fees;
 
-  ulong bal_before = read_lamports( mini, &xid, leader );
+  ulong bal_before = read_lamports( mini, fork_id, leader );
   ulong cap_before = bank->f.capitalization;
 
   fd_svm_mini_freeze( mini, child_idx );
@@ -104,7 +100,7 @@ test_fees_credited_to_leader( fd_svm_mini_t * mini ) {
   ulong burn     = exec_fees / 2;
   ulong credited = prio_fees + (exec_fees - burn);
 
-  ulong bal_after = read_lamports( mini, &xid, leader );
+  ulong bal_after = read_lamports( mini, fork_id, leader );
   FD_TEST( bal_after == bal_before + credited );
   FD_TEST( bank->f.capitalization == cap_before - burn );
 
@@ -126,8 +122,8 @@ test_leader_does_not_exist( fd_svm_mini_t * mini ) {
 
   ulong child_slot = 2UL;
   ulong child_idx  = fd_svm_mini_attach_child( mini, root_idx, child_slot );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
-  fd_xid_t    xid  = fd_svm_mini_xid( mini, child_idx );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
   /* We need a leader schedule even with 0 mock validators.
      Create one manually. */
@@ -146,7 +142,7 @@ test_leader_does_not_exist( fd_svm_mini_t * mini ) {
       leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0UL ) ) );
 
   /* Verify the leader account does NOT exist */
-  FD_TEST( read_lamports( mini, &xid, &leader_key ) == 0UL );
+  FD_TEST( read_lamports( mini, fork_id, &leader_key ) == 0UL );
 
   /* Set fees high enough to pass rent exemption for a 0-data account */
   ulong minbal = fd_rent_exempt_minimum_balance( &bank->f.rent, 0UL );
@@ -160,7 +156,7 @@ test_leader_does_not_exist( fd_svm_mini_t * mini ) {
   fd_svm_mini_freeze( mini, child_idx );
 
   /* Leader should now exist with minbal lamports */
-  ulong bal_after = read_lamports( mini, &xid, &leader_key );
+  ulong bal_after = read_lamports( mini, fork_id, &leader_key );
   FD_TEST( bal_after == minbal );
   /* No burn (execution_fees == 0) */
   FD_TEST( bank->f.capitalization == cap_before );
@@ -181,8 +177,8 @@ test_payout_below_rent_exempt( fd_svm_mini_t * mini ) {
 
   ulong child_slot = 2UL;
   ulong child_idx  = fd_svm_mini_attach_child( mini, root_idx, child_slot );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
-  fd_xid_t    xid  = fd_svm_mini_xid( mini, child_idx );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
   /* Set up leader schedule */
   fd_pubkey_t leader_key = { .ul[0] = 0xBEEFUL };
@@ -209,7 +205,7 @@ test_payout_below_rent_exempt( fd_svm_mini_t * mini ) {
   fd_svm_mini_freeze( mini, child_idx );
 
   /* Leader should NOT receive the fee (validation fails => burn) */
-  ulong bal_after = read_lamports( mini, &xid, &leader_key );
+  ulong bal_after = read_lamports( mini, fork_id, &leader_key );
   FD_TEST( bal_after == 0UL );
   /* All fees burned */
   FD_TEST( bank->f.capitalization == cap_before - 1UL );
@@ -230,8 +226,8 @@ test_leader_not_system_owned( fd_svm_mini_t * mini ) {
 
   ulong child_slot = 2UL;
   ulong child_idx  = fd_svm_mini_attach_child( mini, root_idx, child_slot );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
-  fd_xid_t    xid  = fd_svm_mini_xid( mini, child_idx );
+  fd_bank_t *        bank    = fd_svm_mini_bank   ( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
   /* Set up leader schedule */
   fd_pubkey_t leader_key = { .ul[0] = 0xCAFEUL };
@@ -250,12 +246,12 @@ test_leader_not_system_owned( fd_svm_mini_t * mini ) {
 
   /* Create the leader account owned by the vote program (not system) */
   {
-    fd_accdb_rw_t rw[1];
-    FD_TEST( fd_accdb_open_rw( mini->accdb, rw, &xid, &leader_key, 0UL, FD_ACCDB_FLAG_CREATE ) );
-    rw->meta->lamports = 1000000000UL;  /* plenty for rent exemption */
-    rw->meta->slot     = 1UL;
-    memcpy( rw->meta->owner, fd_solana_vote_program_id.uc, 32UL );
-    fd_accdb_close_rw( mini->accdb, rw );
+    fd_accdb_t * accdb = mini->runtime->accdb;
+    fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, leader_key.uc, 1, 0 );
+    entry.lamports = 1000000000UL;  /* plenty for rent exemption */
+    fd_memcpy( entry.owner, fd_solana_vote_program_id.uc, 32UL );
+    entry.commit = 1;
+    fd_accdb_unwrite_one( accdb, &entry );
   }
 
   /* Set fees */
@@ -263,13 +259,13 @@ test_leader_not_system_owned( fd_svm_mini_t * mini ) {
   bank->f.execution_fees = 0UL;
   bank->f.priority_fees  = prio_fees;
 
-  ulong bal_before = read_lamports( mini, &xid, &leader_key );
+  ulong bal_before = read_lamports( mini, fork_id, &leader_key );
   ulong cap_before = bank->f.capitalization;
 
   fd_svm_mini_freeze( mini, child_idx );
 
   /* Leader balance should NOT increase (fees burned) */
-  ulong bal_after = read_lamports( mini, &xid, &leader_key );
+  ulong bal_after = read_lamports( mini, fork_id, &leader_key );
   FD_TEST( bal_after == bal_before );
   /* All fees burned */
   FD_TEST( bank->f.capitalization == cap_before - prio_fees );

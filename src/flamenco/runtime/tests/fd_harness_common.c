@@ -4,7 +4,6 @@
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
 #include "../../features/fd_features.h"
-#include "../../accdb/fd_accdb_sync.h"
 #include <assert.h>
 
 void
@@ -64,10 +63,11 @@ fd_solfuzz_pb_get_slot( fd_exec_test_acct_state_t const * acct_states,
 
 int
 fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
-                            fd_accdb_user_t *                 accdb,
-                            fd_funk_txn_xid_t const *         xid,
+                            fd_accdb_t *                      accdb,
+                            fd_accdb_fork_id_t                fork_id,
                             fd_exec_test_acct_state_t const * state,
                             ulong                             acc_idx ) {
+  (void)runtime; (void)acc_idx;
   if( state->lamports==0UL ) return 0;
 
   ulong size = 0UL;
@@ -76,23 +76,20 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) {
-    fd_accdb_close_ro( accdb, ro );
+  if( FD_UNLIKELY( fd_accdb_exists( accdb, fork_id, pubkey->key ) ) ) {
     return 0;
   }
 
-  fd_accdb_rw_t rw[1];
-  fd_accdb_open_rw( accdb, rw, xid, pubkey, size, FD_ACCDB_FLAG_CREATE );
-  if( state->data ) {
-    fd_accdb_ref_data_set( accdb, rw, state->data->bytes, size );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key, 1, 1 );
+  if( state->data && size ) {
+    fd_memcpy( entry.data, state->data->bytes, size );
   }
-  runtime->accounts.starting_lamports[ acc_idx ] = state->lamports;
-  runtime->accounts.starting_dlen    [ acc_idx ] = size;
-  fd_accdb_ref_lamports_set( rw, state->lamports   );
-  fd_accdb_ref_exec_bit_set( rw, state->executable );
-  fd_accdb_ref_owner_set   ( rw, state->owner      );
-  fd_accdb_close_rw( accdb, rw );
+  entry.data_len   = size;
+  entry.lamports   = state->lamports;
+  entry.executable = state->executable;
+  fd_memcpy( entry.owner, state->owner, 32UL );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
 
   return 1;
 }

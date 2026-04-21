@@ -9,16 +9,13 @@
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../choreo/tower/fd_tower_stakes.h"
 #include "../../disco/fd_txn_p.h"
+#include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
-#include "../../disco/shred/fd_shred_tile.h"
-#include "../../discof/fd_accdb_topo.h"
 #include "../../discof/replay/fd_replay_tile.h"
-#include "../../flamenco/accdb/fd_accdb_sync.h"
-#include "../../flamenco/accdb/fd_accdb_pipe.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
@@ -235,8 +232,8 @@ struct fd_tower_tile {
 
   /* borrowed joins */
 
-  fd_banks_t *    banks;
-  fd_accdb_user_t accdb[1];
+  fd_banks_t * banks;
+  fd_accdb_t * accdb;
 
   /* static structures */
 
@@ -907,66 +904,44 @@ query_vote_accs( fd_tower_tile_t *            ctx,
 
   ulong total_stake    = 0UL;
   ulong prev_voter_idx = ULONG_MAX;
-  ulong pending_cnt    = 0UL;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, slot_completed->bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank %lu is missing", slot_completed->bank_idx ));
+
   fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
-  fd_top_votes_iter_t *  iter          = fd_top_votes_iter_init( top_votes_t_2, ctx->iter_mem );
+  uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
 
-  fd_accdb_ro_pipe_t ro_pipe[1];
-  fd_funk_txn_xid_t  xid = { .ul = { slot_completed->slot, slot_completed->bank_idx } };
-  fd_accdb_ro_pipe_init( ro_pipe, ctx->accdb, &xid );
+  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, iter_mem );
+       !fd_top_votes_iter_done( top_votes_t_2, iter );
+       fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
+    fd_pubkey_t vote_acc;
+    ulong stake;
+    int is_valid = fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL );
+    if( FD_UNLIKELY( !is_valid ) ) continue;
 
-  for(;;) {
-    if( FD_UNLIKELY( fd_top_votes_iter_done( top_votes_t_2, iter ) ) ) {
-      if( !pending_cnt ) break;
-      fd_accdb_ro_pipe_flush( ro_pipe );
-    } else {
-      fd_pubkey_t vote_acc;
-      ulong       stake;
-      int         is_valid = fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL );
-      fd_top_votes_iter_next( top_votes_t_2, iter );
-      if( FD_UNLIKELY( !is_valid ) ) continue;
+    fd_accdb_entry_t entry = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, vote_acc.uc );
+    if( FD_UNLIKELY( !entry.lamports ) ) continue;
 
-      fd_accdb_ro_pipe_enqueue( ro_pipe, vote_acc.key );
-      pending_cnt++;
-    }
+    FD_TEST( fd_vsv_is_correct_size_owner_and_init( entry.owner, entry.data, entry.data_len ) );
+    count_vote_acc( ctx, slot_completed, ghost_blk, &vote_acc, stake, entry.data, entry.data_len );
 
-    fd_accdb_ro_t * ro;
-    while( FD_LIKELY( ro = fd_accdb_ro_pipe_poll( ro_pipe ) ) ) {
-      pending_cnt--;
-      fd_pubkey_t const * vote_acc = fd_accdb_ref_address( ro );
-
-      ulong stake;
-      int   is_valid = fd_top_votes_query( top_votes_t_2, vote_acc, NULL, &stake, NULL, NULL, NULL );
-      if( FD_UNLIKELY( !is_valid ) ) continue;
-
-      FD_TEST( fd_accdb_ref_lamports( ro ) && fd_vsv_is_correct_size_owner_and_init( ro->meta ) );
-
-      uchar const * data = fd_accdb_ref_data_const( ro );
-
-      count_vote_acc( ctx, slot_completed, ghost_blk, vote_acc, stake, data, ro->meta->dlen );
-
-      total_stake += stake;
-      prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, vote_acc, stake, prev_voter_idx );
-    }
+    total_stake += stake;
+    prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_acc, stake, prev_voter_idx );
+    fd_accdb_unread_one( ctx->accdb, &entry );
   }
-  fd_accdb_ro_pipe_fini( ro_pipe );
 
   /* Reconcile our local tower with the on-chain tower (stored inside
      our vote account). */
 
-  *our_vote_acct_bal    = ULONG_MAX;
-  *found_our_vote_acct  = 0;
-  fd_funk_txn_xid_t reconcile_xid = { .ul = { slot_completed->slot, slot_completed->bank_idx } };
-  fd_accdb_ro_t reconcile_ro[1];
-  if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, reconcile_ro, &reconcile_xid, ctx->vote_account ) ) ) {
+  *our_vote_acct_bal   = ULONG_MAX;
+  *found_our_vote_acct = 0;
+  fd_accdb_entry_t entry = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
+  if( FD_LIKELY( entry.lamports ) ) {
     *found_our_vote_acct = 1;
-    ctx->our_vote_acct_sz = fd_ulong_min( fd_accdb_ref_data_sz( reconcile_ro ), FD_VOTE_STATE_DATA_MAX );
-    *our_vote_acct_bal = fd_accdb_ref_lamports( reconcile_ro );
-    fd_memcpy( ctx->our_vote_acct, fd_accdb_ref_data_const( reconcile_ro ), ctx->our_vote_acct_sz );
-    fd_accdb_close_ro( ctx->accdb, reconcile_ro );
+    ctx->our_vote_acct_sz = fd_ulong_min( entry.data_len, FD_VOTE_STATE_DATA_MAX );
+    *our_vote_acct_bal = entry.lamports;
+    fd_memcpy( ctx->our_vote_acct, entry.data, ctx->our_vote_acct_sz );
+    fd_accdb_unread_one( ctx->accdb, &entry );
     fd_tower_reconcile( ctx->tower, ctx->our_vote_acct );
   }
 
@@ -1618,8 +1593,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
-
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->tower.accdb_max_depth );
 
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

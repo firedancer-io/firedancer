@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 
-#include "../../../flamenco/types/fd_types.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
@@ -373,8 +372,8 @@ struct fd_snapshot_manifest {
   ulong blockhashes_len;
   fd_snapshot_manifest_blockhash_t blockhashes[ 301UL ];
 
-  /* The fork_id in the status cache for the root slot. */
-  ushort txncache_fork_id;
+  ushort accdb_fork_id; /* The fork_id in the account database for the root slot. */
+  ushort txncache_fork_id; /* The fork_id in the status cache for the root slot. */
 
   /* A list of ancestor slots has been deprecated.  Agave's bank now
      creates an ancestor set with a single entry (the current slot):

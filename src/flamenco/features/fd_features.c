@@ -1,8 +1,6 @@
 #include "fd_features.h"
-#include "../runtime/fd_bank.h"
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../accdb/fd_accdb_sync.h"
 
 FD_STATIC_ASSERT( sizeof  ( fd_feature_t                  )==9UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_feature_t, is_active       )==0UL, layout );
@@ -66,11 +64,10 @@ fd_features_enable_one_offs( fd_features_t * f, char const * * one_offs, uint on
 }
 
 static void
-fd_feature_restore( fd_bank_t *               bank,
-                    fd_accdb_user_t *         accdb,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_feature_id_t const *   id,
-                    fd_pubkey_t const *       addr ) {
+fd_feature_restore( fd_bank_t *             bank,
+                    fd_accdb_t *            accdb,
+                    fd_feature_id_t const * id,
+                    fd_pubkey_t const *     addr ) {
 
   fd_features_t *             features       = &bank->f.features;
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
@@ -79,36 +76,31 @@ fd_feature_restore( fd_bank_t *               bank,
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;
 
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, addr ) ) )  {
-    return;
-  }
+  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, bank->accdb_fork_id, addr->uc );
+  if( FD_UNLIKELY( !entry.lamports ) ) return;
 
   /* Skip accounts that are not owned by the feature program
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L42-L44 */
-  if( FD_UNLIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_feature_program_id ) ) ) {
-    fd_accdb_close_ro( accdb, ro );
+  if( FD_UNLIKELY( memcmp( entry.owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
+    fd_accdb_unread_one( accdb, &entry );
     return;
   }
 
   /* Account data size must be >= FD_FEATURE_SIZEOF (9 bytes)
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L45-L47 */
-  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro ) < sizeof(fd_feature_t) ) ) {
-    fd_accdb_close_ro( accdb, ro );
+  if( FD_UNLIKELY( entry.data_len<sizeof(fd_feature_t) ) ) {
+    fd_accdb_unread_one( accdb, &entry );
     return;
   }
 
   /* Deserialize the feature account data
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L48-L50 */
   fd_feature_t feature[1];
-  if( FD_UNLIKELY( !fd_feature_decode(
-      feature,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) ) ) ) {
-    fd_accdb_close_ro( accdb, ro );
+  if( FD_UNLIKELY( !fd_feature_decode( feature, entry.data, entry.data_len ) ) ) {
+    fd_accdb_unread_one( accdb, &entry );
     return;
   }
-  fd_accdb_close_ro( accdb, ro );
+  fd_accdb_unread_one( accdb, &entry );
 
   FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
   if( feature->is_active ) {
@@ -124,13 +116,11 @@ fd_feature_restore( fd_bank_t *               bank,
 }
 
 void
-fd_features_restore( fd_bank_t *               bank,
-                     fd_accdb_user_t *         accdb,
-                     fd_funk_txn_xid_t const * xid ) {
-
+fd_features_restore( fd_bank_t *  bank,
+                     fd_accdb_t * accdb ) {
   for( fd_feature_id_t const * id = fd_feature_iter_init();
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
-    fd_feature_restore( bank, accdb, xid, id, &id->id );
+    fd_feature_restore( bank, accdb, id, &id->id );
   }
 }

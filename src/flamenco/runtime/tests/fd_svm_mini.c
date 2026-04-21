@@ -1,9 +1,5 @@
 #define _GNU_SOURCE
 #include "fd_svm_mini.h"
-#include "../../accdb/fd_accdb_admin_v1.h"
-#include "../../accdb/fd_accdb_sync.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
-#include "../../accdb/fd_accdb_funk.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../../runtime/fd_bank.h"
@@ -24,6 +20,16 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+#include <unistd.h>
+
+/* Cache footprint for tests: must be large enough to cover the
+   minimum 1300 slots per class (class 7 is 10 MiB each). */
+#define TEST_CACHE_FOOTPRINT   (16UL<<30UL)
+#define TEST_PARTITION_CNT     (8192UL)
+#define TEST_PARTITION_SZ      (1UL<<30UL)
+#define TEST_WRITES_PER_SLOT   (8192UL)
+
+#define SENTINEL ((fd_accdb_fork_id_t){ .val = USHORT_MAX })
 
 static fd_wksp_t *
 fd_wksp_new_lazy( ulong footprint ) {
@@ -94,29 +100,27 @@ fd_svm_test_halt( fd_svm_mini_t * mini ) {
 ulong
 fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong txn_max = limits->max_live_slots;
-  ulong rec_max = limits->max_accounts;
 
-  ulong acc_pool_cnt     = fd_ulong_max( limits->max_txn_write_locks + 2UL, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX );
-  ulong funk_sz           = fd_funk_shmem_footprint( txn_max, rec_max );
-  ulong funk_lock_sz      = fd_funk_locks_footprint( txn_max, rec_max );
-  ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
-  ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts );
-  ulong acc_pool_sz       = fd_acc_pool_footprint( acc_pool_cnt );
-  ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
+  ulong pcache_sz        = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
+  ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts );
+  ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
+
+  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
+                                                    TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
+                                                    TEST_CACHE_FOOTPRINT, 1UL );
+  ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
 
 # define WKSP_ALLOC(a,s) fd_ulong_align_up( fd_ulong_max((s),1UL), fd_ulong_max((a),FD_WKSP_ALIGN_DEFAULT) )
   ulong sz = 0UL;
   sz += WKSP_ALLOC( alignof(fd_svm_mini_t),     sizeof(fd_svm_mini_t)            );
-  sz += WKSP_ALLOC( fd_funk_align(),            funk_sz                          );
-  sz += WKSP_ALLOC( fd_funk_align(),            funk_lock_sz                     );
+  sz += WKSP_ALLOC( fd_accdb_shmem_align(),     accdb_shmem_sz                   );
+  sz += WKSP_ALLOC( fd_accdb_align(),           accdb_join_sz                    );
   sz += WKSP_ALLOC( fd_progcache_shmem_align(), pcache_sz                        );
   sz += WKSP_ALLOC( FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT   );
   sz += WKSP_ALLOC( fd_banks_align(),           banks_sz                         );
-  sz += WKSP_ALLOC( fd_acc_pool_align(),        acc_pool_sz                      );
   sz += WKSP_ALLOC( alignof(fd_runtime_t),      sizeof(fd_runtime_t)             );
   sz += WKSP_ALLOC( fd_runtime_stack_align(),   runtime_stack_sz                 );
   sz += WKSP_ALLOC( fd_vm_align(),              fd_vm_footprint()                );
-  sz += WKSP_ALLOC( 16UL,                       limits->max_account_space_bytes  );
   sz += WKSP_ALLOC( 1UL,                        limits->max_progcache_heap_bytes );
 # undef WKSP_ALLOC
 
@@ -129,43 +133,55 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   ulong const wksp_tag = limits->wksp_tag ? limits->wksp_tag : 42UL;
   ulong const txn_max  = limits->max_live_slots;
-  ulong const rec_max  = limits->max_accounts;
 
-  ulong acc_pool_cnt     = fd_ulong_max( limits->max_txn_write_locks + 2UL, FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_TX );
-  ulong funk_sz          = fd_funk_shmem_footprint( txn_max, rec_max );
-  ulong funk_lock_sz     = fd_funk_locks_footprint( txn_max, rec_max );
   ulong pcache_sz        = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
   ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
                                                limits->max_stake_accounts, limits->max_vote_accounts );
-  ulong acc_pool_sz      = fd_acc_pool_footprint( acc_pool_cnt );
   ulong runtime_stack_sz = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
+
+  ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
+                                                    TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
+                                                    TEST_CACHE_FOOTPRINT, 1UL );
+  ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
 
   /* Allocate objects */
 
-  fd_svm_mini_t * mini;          FD_TEST( (mini         = fd_wksp_alloc_laddr( wksp, alignof(fd_svm_mini_t),     sizeof(fd_svm_mini_t),          wksp_tag )) );
-  void *          funk_mem;      FD_TEST( (funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(),            funk_sz,                        wksp_tag )) );
-  void *          funk_locks;    FD_TEST( (funk_locks   = fd_wksp_alloc_laddr( wksp, fd_funk_align(),            funk_lock_sz,                   wksp_tag )) );
-  void *          pcache_mem;    FD_TEST( (pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), pcache_sz,                      wksp_tag )) );
-  uchar *         scratch;       FD_TEST( (scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT, wksp_tag )) );
-  void *          banks_mem;     FD_TEST( (banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),           banks_sz,                       wksp_tag )) );
-  void *          acc_pool_mem;  FD_TEST( (acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(),        acc_pool_sz,                    wksp_tag )) );
-  fd_runtime_t *  runtime;       FD_TEST( (runtime      = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t),      sizeof(fd_runtime_t),           wksp_tag )) );
-  void *          rstack_mem;    FD_TEST( (rstack_mem   = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(),   runtime_stack_sz,               wksp_tag )) );
-  void *          vm_mem;        FD_TEST( (vm_mem       = fd_wksp_alloc_laddr( wksp, fd_vm_align(),              fd_vm_footprint(),              wksp_tag )) );
+  fd_svm_mini_t * mini;          FD_TEST( (mini          = fd_wksp_alloc_laddr( wksp, alignof(fd_svm_mini_t),     sizeof(fd_svm_mini_t),          wksp_tag )) );
+  void *          accdb_shmem;   FD_TEST( (accdb_shmem   = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(),     accdb_shmem_sz,                 wksp_tag )) );
+  void *          accdb_join;    FD_TEST( (accdb_join     = fd_wksp_alloc_laddr( wksp, fd_accdb_align(),           accdb_join_sz,                  wksp_tag )) );
+  void *          pcache_mem;    FD_TEST( (pcache_mem     = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), pcache_sz,                      wksp_tag )) );
+  uchar *         scratch;       FD_TEST( (scratch        = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT, wksp_tag )) );
+  void *          banks_mem;     FD_TEST( (banks_mem      = fd_wksp_alloc_laddr( wksp, fd_banks_align(),           banks_sz,                       wksp_tag )) );
+  fd_runtime_t *  runtime;       FD_TEST( (runtime        = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t),      sizeof(fd_runtime_t),           wksp_tag )) );
+  void *          rstack_mem;    FD_TEST( (rstack_mem     = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(),   runtime_stack_sz,               wksp_tag )) );
+  void *          vm_mem;        FD_TEST( (vm_mem         = fd_wksp_alloc_laddr( wksp, fd_vm_align(),              fd_vm_footprint(),              wksp_tag )) );
 
   /* Initialize objects */
 
   fd_memset( mini, 0, sizeof(fd_svm_mini_t) );
   mini->wksp = wksp;
 
-  void * shfunk   = fd_funk_shmem_new     ( funk_mem,   wksp_tag, 1UL, txn_max, rec_max );
-  void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, limits->max_progcache_recs );
-  if( FD_UNLIKELY( !shfunk   ) ) FD_LOG_ERR(( "fd_funk_shmem_new failed"      ));
-  if( FD_UNLIKELY( !shpcache ) ) FD_LOG_ERR(( "fd_progcache_shmem_new failed" ));
-  FD_TEST( fd_funk_locks_new( funk_locks, txn_max, rec_max ) );
+  /* Create accdb backed by memfd */
+  int accdb_fd = memfd_create( "accdb_test", 0 );
+  if( FD_UNLIKELY( accdb_fd<0 ) ) FD_LOG_ERR(( "memfd_create failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  FD_TEST( fd_accdb_admin_v1_init( mini->accdb_admin, funk_mem, funk_locks ) );
-  FD_TEST( fd_accdb_user_v1_init ( mini->accdb,       funk_mem, funk_locks, txn_max ) );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( accdb_shmem, limits->max_accounts, limits->max_live_slots,
+                          TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
+                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 42UL, 1UL ) );
+  FD_TEST( shmem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd ) );
+  FD_TEST( accdb );
+
+  /* Save accdb init params for reset */
+  mini->accdb_fd             = accdb_fd;
+  mini->accdb_shmem_mem      = accdb_shmem;
+  mini->accdb_join_mem       = accdb_join;
+  mini->accdb_max_accounts   = limits->max_accounts;
+  mini->accdb_max_live_slots = limits->max_live_slots;
+
+  void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, limits->max_progcache_recs );
+  if( FD_UNLIKELY( !shpcache ) ) FD_LOG_ERR(( "fd_progcache_shmem_new failed" ));
 
   FD_TEST( fd_progcache_join( mini->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
 
@@ -173,15 +189,11 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
                                limits->max_stake_accounts, limits->max_vote_accounts, 0, 8888UL ) );
   FD_TEST( mini->banks );
 
-  mini->acc_pool = fd_acc_pool_join( fd_acc_pool_new( acc_pool_mem, acc_pool_cnt ) );
-  FD_TEST( mini->acc_pool );
-
   mini->runtime = runtime;
 
-  runtime->accdb        = mini->accdb;
+  runtime->accdb        = accdb;
   runtime->status_cache = NULL;
   runtime->progcache    = mini->progcache;
-  runtime->acc_pool     = mini->acc_pool;
 
   runtime->instr.stack_sz          = 0;
   runtime->instr.trace_length      = 0;
@@ -217,7 +229,6 @@ fd_svm_mini_destroy( fd_svm_mini_t * mini ) {
   if( mini->vm ) fd_wksp_free_laddr( fd_vm_delete( fd_vm_leave( mini->vm ) ) );
   if( mini->runtime_stack ) fd_wksp_free_laddr( mini->runtime_stack );
   if( mini->runtime ) fd_wksp_free_laddr( mini->runtime );
-  if( mini->acc_pool ) fd_wksp_free_laddr( mini->acc_pool );
   if( mini->banks ) fd_wksp_free_laddr( mini->banks );
 
   uchar * scratch = mini->progcache->scratch;
@@ -226,14 +237,15 @@ fd_svm_mini_destroy( fd_svm_mini_t * mini ) {
   if( scratch  ) fd_wksp_free_laddr( scratch );
   if( shpcache ) fd_wksp_free_laddr( fd_progcache_shmem_delete( shpcache ) );
 
-  void * shfunk      = fd_accdb_user_v1_funk( mini->accdb )->shmem;
-  void * shfunk_lock = (void *)fd_accdb_user_v1_funk( mini->accdb )->txn_lock;
-  fd_accdb_user_fini ( mini->accdb );
-  fd_accdb_admin_fini( mini->accdb_admin );
-  fd_wksp_free_laddr( shfunk_lock );
-  fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
+  /* accdb shmem and join are workspace allocations, freed with mini */
 
   fd_wksp_free_laddr( mini );
+}
+
+static void
+drain_background( fd_accdb_t * accdb ) {
+  int charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
 }
 
 static void
@@ -261,6 +273,9 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
 
   fd_rng_t rng[1];
   fd_rng_join( fd_rng_new( rng, (uint)params->hash_seed, 0UL ) );
+
+  fd_accdb_t *       accdb   = mini->runtime->accdb;
+  fd_accdb_fork_id_t root_fk = fd_banks_root( mini->banks )->accdb_fork_id;
 
   for( ulong i=0UL; i<N; i++ ) {
 
@@ -297,11 +312,13 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
       fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
       FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
-      fd_account_meta_t meta = { .lamports = vote_min_bal, .dlen = FD_VOTE_STATE_V3_SZ };
-      memcpy( meta.owner, fd_solana_vote_program_id.uc, 32UL );
-      fd_accdb_ro_t ro[1];
-      fd_accdb_ro_init_nodb_oob( ro, &vote_key, &meta, vote_state_data );
-      fd_svm_mini_put_account_rooted( mini, ro );
+      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fk, vote_key.uc, 1, 0 );
+      entry.lamports = vote_min_bal;
+      fd_memcpy( entry.owner, fd_solana_vote_program_id.uc, 32UL );
+      fd_memcpy( entry.data, vote_state_data, FD_VOTE_STATE_V3_SZ );
+      entry.data_len = FD_VOTE_STATE_V3_SZ;
+      entry.commit = 1;
+      fd_accdb_unwrite_one( accdb, &entry );
     }
 
     /* Stake account */
@@ -329,14 +346,13 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
         },
       }) );
 
-      fd_account_meta_t meta = {
-        .lamports = fd_ulong_max( stake_min_bal, uniform_stake ),
-        .dlen     = FD_STAKE_STATE_SZ,
-      };
-      memcpy( meta.owner, fd_solana_stake_program_id.uc, 32UL );
-      fd_accdb_ro_t ro[1];
-      fd_accdb_ro_init_nodb_oob( ro, &stake_key, &meta, stake_data );
-      fd_svm_mini_put_account_rooted( mini, ro );
+      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fk, stake_key.uc, 1, 0 );
+      entry.lamports = fd_ulong_max( stake_min_bal, uniform_stake );
+      fd_memcpy( entry.owner, fd_solana_stake_program_id.uc, 32UL );
+      fd_memcpy( entry.data, stake_data, FD_STAKE_STATE_SZ );
+      entry.data_len = FD_STAKE_STATE_SZ;
+      entry.commit = 1;
+      fd_accdb_unwrite_one( accdb, &entry );
     }
 
     /* Populate bank structures */
@@ -378,11 +394,39 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   free( stakes );
 }
 
+/* Progcache XID from slot + bank_idx (same layout as old fd_xid_t) */
+static fd_progcache_xid_t
+make_pcache_xid( ulong slot, ulong bank_idx ) {
+  fd_progcache_xid_t xid = {0};
+  xid.ul[0] = slot;
+  xid.ul[1] = bank_idx;
+  return xid;
+}
+
 ulong
 fd_svm_mini_reset( fd_svm_mini_t *        mini,
                    fd_svm_mini_params_t * params ) {
 
-  fd_accdb_v1_clear ( mini->accdb_admin     );
+  /* Reset accdb: destroy and recreate shmem + join.
+     The accdb shmem and join memory are wksp allocations that remain
+     valid; we just re-initialize them in place. */
+  int accdb_fd = mini->accdb_fd;
+
+  /* Re-initialize shmem in place */
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( mini->accdb_shmem_mem, mini->accdb_max_accounts, mini->accdb_max_live_slots,
+                          TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
+                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 42UL, 1UL ) );
+  FD_TEST( shmem );
+
+  /* Re-truncate memfd */
+  FD_TEST( 0==ftruncate( accdb_fd, 0 ) );
+
+  /* Re-initialize accdb join in place */
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( mini->accdb_join_mem, shmem, accdb_fd ) );
+  FD_TEST( accdb );
+  mini->runtime->accdb = accdb;
+
   fd_progcache_clear( mini->progcache->join );
   fd_banks_clear    ( mini->banks           );
 
@@ -392,10 +436,18 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   bank->f.slot = params->root_slot;
 
-  fd_xid_t root_xid = { .ul = { params->root_slot, bank_idx } };
-  fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
-  fd_funk_txn_xid_copy( funk->shmem->last_publish, &root_xid );
-  fd_funk_txn_xid_copy( mini->progcache->join->shmem->txn.last_publish, &root_xid );
+  /* Create the root fork in accdb */
+  fd_accdb_fork_id_t root_fork_id = fd_accdb_attach_child( accdb, SENTINEL );
+  bank->accdb_fork_id = root_fork_id;
+
+  /* Create the root fork in progcache */
+  fd_progcache_xid_t root_xid = make_pcache_xid( params->root_slot, bank_idx );
+  fd_progcache_xid_t sentinel_xid = {0};
+  sentinel_xid.ul[0] = ULONG_MAX;
+  sentinel_xid.ul[1] = ULONG_MAX;
+  fd_progcache_txn_xid_copy( mini->progcache->join->shmem->txn.last_publish, &sentinel_xid );
+  fd_progcache_attach_child( mini->progcache->join, &sentinel_xid, &root_xid );
+  fd_progcache_advance_root( mini->progcache->join, &root_xid );
 
   if( params->clock ) {
     bank->f.slot  = params->clock->slot;
@@ -436,11 +488,15 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
       char const * data = builtins[i].data;
       ulong        sz   = strlen( data );
-      fd_account_meta_t meta = { .lamports = 1UL, .dlen = (uint)sz, .executable = 1 };
-      memcpy( meta.owner, fd_solana_native_loader_id.uc, 32UL );
-      fd_accdb_ro_t ro[1];
-      fd_accdb_ro_init_nodb_oob( ro, builtins[i].pubkey, &meta, data );
-      fd_svm_mini_put_account_rooted( mini, ro );
+      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fork_id, builtins[i].pubkey->uc, 1, 0 );
+      entry.lamports = 1UL;
+      fd_memcpy( entry.owner, fd_solana_native_loader_id.uc, 32UL );
+      if( sz ) fd_memcpy( entry.data, data, sz );
+      entry.data_len   = sz;
+      entry.executable = 1;
+      entry.commit     = 1;
+      fd_accdb_unwrite_one( accdb, &entry );
+      bank->f.capitalization += entry.lamports;
     }
 
     fd_pubkey_t const * precompiles[] = {
@@ -449,11 +505,14 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
       &fd_solana_secp256r1_program_id,
     };
     for( ulong i=0UL; i<3UL; i++ ) {
-      fd_account_meta_t meta = { .lamports = 1UL, .dlen = 0, .executable = 1 };
-      memcpy( meta.owner, fd_solana_native_loader_id.uc, 32UL );
-      fd_accdb_ro_t ro[1];
-      fd_accdb_ro_init_nodb_oob( ro, precompiles[i], &meta, NULL );
-      fd_svm_mini_put_account_rooted( mini, ro );
+      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fork_id, precompiles[i]->uc, 1, 0 );
+      entry.lamports   = 1UL;
+      fd_memcpy( entry.owner, fd_solana_native_loader_id.uc, 32UL );
+      entry.data_len   = 0;
+      entry.executable = 1;
+      entry.commit     = 1;
+      fd_accdb_unwrite_one( accdb, &entry );
+      bank->f.capitalization += entry.lamports;
     }
   }
 
@@ -465,11 +524,14 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
       if( activation_slot==FD_FEATURE_DISABLED ) continue;
 
       fd_feature_t feature = { .is_active = 1, .activation_slot = activation_slot };
-      fd_account_meta_t meta = { .lamports = 1UL, .dlen = sizeof(fd_feature_t) };
-      memcpy( meta.owner, fd_solana_feature_program_id.uc, 32UL );
-      fd_accdb_ro_t ro[1];
-      fd_accdb_ro_init_nodb_oob( ro, &id->id, &meta, &feature );
-      fd_svm_mini_put_account_rooted( mini, ro );
+      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fork_id, id->id.uc, 1, 0 );
+      entry.lamports = 1UL;
+      fd_memcpy( entry.owner, fd_solana_feature_program_id.uc, 32UL );
+      fd_memcpy( entry.data, &feature, sizeof(fd_feature_t) );
+      entry.data_len = sizeof(fd_feature_t);
+      entry.commit   = 1;
+      fd_accdb_unwrite_one( accdb, &entry );
+      bank->f.capitalization += entry.lamports;
     }
   }
 
@@ -531,19 +593,19 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
       { &fd_sysvar_stake_history_id,       stake_history_enc,  sizeof(stake_history_enc)         },
     };
     for( ulong i=0UL; i<8UL; i++ ) {
-      fd_account_meta_t meta = {
-        .lamports = fd_rent_exempt_minimum_balance( &bank->f.rent, sysvars[i].sz ),
-        .dlen     = (uint)sysvars[i].sz,
-      };
-      memcpy( meta.owner, fd_sysvar_owner_id.uc, 32UL );
-      fd_accdb_ro_t ro[1];
-      fd_accdb_ro_init_nodb_oob( ro, sysvars[i].addr, &meta, sysvars[i].data );
-      fd_svm_mini_put_account_rooted( mini, ro );
+      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fork_id, sysvars[i].addr->uc, 1, 0 );
+      entry.lamports = fd_rent_exempt_minimum_balance( &bank->f.rent, sysvars[i].sz );
+      fd_memcpy( entry.owner, fd_sysvar_owner_id.uc, 32UL );
+      if( sysvars[i].sz ) fd_memcpy( entry.data, sysvars[i].data, sysvars[i].sz );
+      entry.data_len = sysvars[i].sz;
+      entry.commit   = 1;
+      fd_accdb_unwrite_one( accdb, &entry );
+      bank->f.capitalization += entry.lamports;
     }
 
     free( slot_history_enc );
 
-    fd_sysvar_cache_restore( bank, mini->accdb, &root_xid );
+    FD_TEST( fd_sysvar_cache_restore( bank, accdb ) );
   }
 
   if( params->mock_validator_cnt ) {
@@ -562,7 +624,8 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   if( FD_UNLIKELY( !parent_bank ) ) FD_LOG_ERR(( "invalid parent_bank_idx" ));
   ulong parent_slot = parent_bank->f.slot;
   if( FD_UNLIKELY( child_slot<=parent_slot ) ) FD_LOG_ERR(( "child_slot (%lu) <= parent_slot (%lu)", child_slot, parent_slot ));
-  fd_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+
+  fd_accdb_t * accdb = mini->runtime->accdb;
 
   fd_bank_t * bank = fd_banks_new_bank( mini->banks, parent_bank_idx, 0L );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "fd_banks_new_bank failed" ));
@@ -570,13 +633,18 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "fd_banks_clone_from_parent failed" ));
   ulong bank_idx = bank->idx;
   bank->f.slot = child_slot;
-  fd_xid_t xid = { .ul = { child_slot, bank_idx } };
 
-  fd_accdb_attach_child    ( mini->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_attach_child( mini->progcache->join, &parent_xid, &xid );
+  /* Create child fork in accdb */
+  fd_accdb_fork_id_t child_fork_id = fd_accdb_attach_child( accdb, parent_bank->accdb_fork_id );
+  bank->accdb_fork_id = child_fork_id;
+
+  /* Create child fork in progcache */
+  fd_progcache_xid_t parent_xid = make_pcache_xid( parent_slot, parent_bank_idx );
+  fd_progcache_xid_t child_xid  = make_pcache_xid( child_slot, bank_idx );
+  fd_progcache_attach_child( mini->progcache->join, &parent_xid, &child_xid );
 
   int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( mini->banks, bank, mini->accdb, mini->runtime_stack, NULL, &is_epoch_boundary );
+  fd_runtime_block_execute_prepare( mini->banks, bank, accdb, mini->runtime_stack, NULL, &is_epoch_boundary );
 
   return bank_idx;
 }
@@ -589,7 +657,7 @@ fd_svm_mini_freeze( fd_svm_mini_t * mini,
   /* Derive a mock POH hash so each frozen slot registers a unique
      blockhash.  (Real POH is computed by the PoH tile.) */
   fd_sha256_hash( bank->f.poh.hash, 32UL, bank->f.poh.hash );
-  fd_runtime_block_execute_finalize( bank, mini->accdb, NULL );
+  fd_runtime_block_execute_finalize( bank, mini->runtime->accdb, NULL );
 }
 
 void
@@ -598,9 +666,11 @@ fd_svm_mini_cancel_fork( fd_svm_mini_t * mini,
 
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  fd_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
 
-  fd_accdb_cancel    ( mini->accdb_admin,     &xid );
+  fd_accdb_purge( mini->runtime->accdb, bank->accdb_fork_id );
+  drain_background( mini->runtime->accdb );
+
+  fd_progcache_xid_t xid = make_pcache_xid( bank->f.slot, bank->idx );
   fd_progcache_cancel( mini->progcache->join, &xid );
 }
 
@@ -610,10 +680,11 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
 
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  ulong slot = bank->f.slot;
-  fd_xid_t xid = { .ul = { slot, bank_idx } };
 
-  fd_accdb_advance_root    ( mini->accdb_admin,     &xid );
+  fd_accdb_advance_root( mini->runtime->accdb, bank->accdb_fork_id );
+  drain_background( mini->runtime->accdb );
+
+  fd_progcache_xid_t xid = make_pcache_xid( bank->f.slot, bank_idx );
   fd_progcache_advance_root( mini->progcache->join, &xid );
   fd_banks_advance_root    ( mini->banks, bank_idx );
 }
@@ -627,53 +698,38 @@ fd_svm_mini_bank( fd_svm_mini_t * mini,
   return bank;
 }
 
-fd_xid_t
-fd_svm_mini_xid( fd_svm_mini_t * mini,
-                 ulong           bank_idx ) {
+fd_accdb_fork_id_t
+fd_svm_mini_fork_id( fd_svm_mini_t * mini,
+                     ulong           bank_idx ) {
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  return (fd_xid_t){ .ul = { bank->f.slot, bank->idx } };
+  return bank->accdb_fork_id;
 }
 
 void
-fd_svm_mini_put_account_rooted( fd_svm_mini_t *       mini,
-                                fd_accdb_ro_t const * ro ) {
-  fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
-  fd_funk_xid_key_pair_t pair = { .xid = {{ .ul = { ULONG_MAX, ULONG_MAX } }} };
-  memcpy( pair.key, ro->ref->address, sizeof(fd_funk_rec_key_t) );
-  fd_funk_rec_map_query_t query[1];
-  int remove_err = fd_funk_rec_map_remove( funk->rec_map, &pair, NULL, query, 0 );
-  FD_TEST( remove_err==FD_MAP_SUCCESS || remove_err==FD_MAP_ERR_KEY );
-  ulong old_lamports = 0UL;
-  if( remove_err==FD_MAP_SUCCESS ) {
-    fd_funk_rec_t * old_rec = query->ele;
-    fd_account_meta_t const * old_meta = fd_funk_val_const( old_rec, funk->wksp );
-    if( old_meta ) old_lamports = old_meta->lamports;
-    memset( &old_rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
-    old_rec->map_next = FD_FUNK_REC_IDX_NULL;
-    fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
-    fd_funk_rec_pool_release( funk->rec_pool, old_rec );
-  }
+fd_svm_mini_put_account_rooted( fd_svm_mini_t *          mini,
+                                fd_accdb_entry_t const * ro ) {
+  fd_accdb_t *       accdb   = mini->runtime->accdb;
+  fd_bank_t *        root    = fd_banks_root( mini->banks );
+  fd_accdb_fork_id_t root_fk = root->accdb_fork_id;
 
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_funk_create( funk, rw, NULL, ro->ref->address, fd_accdb_ref_data_sz( ro ) ) );
-  fd_accdb_ref_lamports_set( rw, fd_accdb_ref_lamports( ro ) );
-  fd_accdb_ref_owner_set   ( rw, fd_accdb_ref_owner   ( ro ) );
-  fd_accdb_ref_exec_bit_set( rw, fd_accdb_ref_exec_bit( ro ) );
-  fd_accdb_ref_slot_set    ( rw, fd_accdb_ref_slot    ( ro ) );
-  fd_accdb_ref_data_set( mini->accdb, rw, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) );
-  fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->ref->user_data;
-  fd_funk_rec_prepare_t prepare = { .rec = rec, .rec_head_idx = NULL, .rec_tail_idx = NULL };
-  fd_funk_rec_publish( funk, &prepare );
-  memset( rw, 0, sizeof(fd_accdb_rw_t) );
+  ulong old_lamports = fd_accdb_lamports( accdb, root_fk, ro->pubkey );
+  if( old_lamports==ULONG_MAX ) old_lamports = 0UL;
 
-  fd_bank_t * root = fd_banks_root( mini->banks );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fk, ro->pubkey, 1, 1 );
+  entry.lamports   = ro->lamports;
+  fd_memcpy( entry.owner, ro->owner, 32UL );
+  entry.executable = ro->executable;
+  entry.data_len   = ro->data_len;
+  if( ro->data_len && ro->data ) fd_memcpy( entry.data, ro->data, ro->data_len );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
+
   if( root ) {
-    ulong new_lamports = fd_accdb_ref_lamports( ro );
-    if( new_lamports >= old_lamports )
-      root->f.capitalization += new_lamports - old_lamports;
+    if( ro->lamports >= old_lamports )
+      root->f.capitalization += ro->lamports - old_lamports;
     else
-      root->f.capitalization -= old_lamports - new_lamports;
+      root->f.capitalization -= old_lamports - ro->lamports;
   }
 }
 
@@ -681,49 +737,41 @@ void
 fd_svm_mini_add_lamports_rooted( fd_svm_mini_t *     mini,
                                  fd_pubkey_t const * pubkey,
                                  ulong               lamports ) {
-  fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
-  fd_funk_xid_key_pair_t pair = { .xid = {{ .ul = { ULONG_MAX, ULONG_MAX } }} };
-  memcpy( pair.key, pubkey, sizeof(fd_funk_rec_key_t) );
-  fd_funk_rec_map_query_t query[1];
-  int query_err = fd_funk_rec_map_query_try( funk->rec_map, &pair, NULL, query, 0 );
-  FD_TEST( query_err==FD_MAP_SUCCESS || query_err==FD_MAP_ERR_KEY );
-  if( query_err==FD_MAP_SUCCESS ) {
-    fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
-    fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
-    ulong balance = meta->lamports;
-    FD_TEST( !__builtin_uaddl_overflow( balance, lamports, &balance ) );
-    meta->lamports = balance;
-    FD_TEST( !fd_funk_rec_map_query_test( query ) );
-  } else if( query_err==FD_MAP_ERR_KEY ) {
-    fd_accdb_rw_t rw[1];
-    FD_TEST( fd_accdb_funk_create( funk, rw, NULL, pubkey, 0UL ) );
-    fd_accdb_ref_lamports_set( rw, lamports );
-    fd_funk_rec_t * rec = (fd_funk_rec_t *)rw->ref->user_data;
-    fd_funk_rec_prepare_t prepare = { .rec = rec, .rec_head_idx = NULL, .rec_tail_idx = NULL };
-    fd_funk_rec_publish( funk, &prepare );
-    memset( rw, 0, sizeof(fd_accdb_rw_t) );
-  } else {
-    FD_LOG_ERR(( "fd_funk_rec_map_query_try failed (%i-%s)", query_err, fd_map_strerror( query_err ) ));
-  }
+  fd_accdb_t *       accdb   = mini->runtime->accdb;
+  fd_bank_t *        root    = fd_banks_root( mini->banks );
+  fd_accdb_fork_id_t root_fk = root->accdb_fork_id;
 
-  fd_bank_t * root = fd_banks_root( mini->banks );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fk, pubkey->uc, 1, 0 );
+  ulong balance = entry.lamports;
+  FD_TEST( !__builtin_uaddl_overflow( balance, lamports, &balance ) );
+  entry.lamports = balance;
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
+
   if( root ) root->f.capitalization += lamports;
 }
 
 void
 fd_svm_mini_add_lamports( fd_svm_mini_t *     mini,
-                          fd_xid_t const *    xid,
+                          fd_accdb_fork_id_t  fork_id,
                           fd_pubkey_t const * pubkey,
                           ulong               lamports ) {
-  fd_accdb_user_t * accdb = mini->accdb;
+  fd_accdb_t * accdb = mini->runtime->accdb;
 
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( accdb, rw, xid, pubkey, 0UL, FD_ACCDB_FLAG_CREATE ) );
-  ulong balance = fd_accdb_ref_lamports( rw->ro );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->uc, 1, 0 );
+  ulong balance = entry.lamports;
   FD_TEST( !__builtin_uaddl_overflow( balance, lamports, &balance ) );
-  fd_accdb_ref_lamports_set( rw, balance );
-  fd_accdb_close_rw( accdb, rw );
+  entry.lamports = balance;
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
 
-  fd_bank_t * bank = fd_svm_mini_bank( mini, xid->ul[1] );
-  if( bank ) bank->f.capitalization += lamports;
+  /* Find the bank with this fork_id to update capitalization.
+     Linear scan is fine for test code. */
+  for( ulong i=0UL; i<fd_banks_pool_max_cnt( mini->banks ); i++ ) {
+    fd_bank_t * bank = fd_banks_bank_query( mini->banks, i );
+    if( bank && bank->accdb_fork_id.val==fork_id.val ) {
+      bank->f.capitalization += lamports;
+      break;
+    }
+  }
 }

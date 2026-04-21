@@ -1909,9 +1909,6 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
     manifest->epoch_stakes[i].total_stake     = 0UL;
     manifest->epoch_stakes[i].vote_stakes_len = 0UL;
   }
-
-  FD_SCRATCH_ALLOC_INIT( l, parser );
-                         FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );
 }
 
 int

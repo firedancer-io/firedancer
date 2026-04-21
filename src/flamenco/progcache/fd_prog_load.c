@@ -3,18 +3,18 @@
 #include "../runtime/program/fd_loader_v4_program.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/fd_system_ids.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 static fd_prog_info_t *
-fd_prog_info_v4( fd_prog_info_t *      out,
-                 fd_accdb_ro_t const * ro ) {
+fd_prog_info_v4( fd_prog_info_t *         out,
+                 fd_accdb_entry_t const * entry ) {
 
-  ulong data_sz = fd_accdb_ref_data_sz( ro );
-  if( FD_UNLIKELY( data_sz<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
+  if( FD_UNLIKELY( entry->data_len<LOADER_V4_PROGRAM_DATA_OFFSET ) ) {
     FD_LOG_WARNING(( "program data account is invalid" ));
     return NULL;
   }
 
-  fd_loader_v4_state_t state = FD_LOAD( fd_loader_v4_state_t, fd_accdb_ref_data_const( ro ) );
+  fd_loader_v4_state_t state = FD_LOAD( fd_loader_v4_state_t, entry->data );
   if( FD_UNLIKELY( state.status==FD_LOADER_V4_STATUS_ENUM_RETRACTED ) ) {
     FD_LOG_WARNING(( "program data account is not executable" ));
     return NULL;
@@ -22,24 +22,23 @@ fd_prog_info_v4( fd_prog_info_t *      out,
 
   *out = (fd_prog_info_t) {
     .elf_off = LOADER_V4_PROGRAM_DATA_OFFSET,
-    .elf_sz  = data_sz - LOADER_V4_PROGRAM_DATA_OFFSET,
+    .elf_sz  = entry->data_len - LOADER_V4_PROGRAM_DATA_OFFSET,
     .deploy_slot = state.slot
   };
   return out;
 }
 
 static fd_prog_info_t *
-fd_prog_info_v3( fd_prog_info_t *      out,
-                 fd_accdb_ro_t const * ro ) {
+fd_prog_info_v3( fd_prog_info_t *         out,
+                 fd_accdb_entry_t const * entry ) {
 
-  ulong data_sz = fd_accdb_ref_data_sz( ro );
-  fd_bincode_decode_ctx_t decode = fd_bincode_decode_ctx( fd_accdb_ref_data_const( ro ), data_sz );
+  fd_bincode_decode_ctx_t decode = fd_bincode_decode_ctx( entry->data, entry->data_len );
   ulong total_sz = 0UL;
   if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &decode, &total_sz )!=FD_BINCODE_SUCCESS ) ) {
     FD_LOG_WARNING(( "program data account is invalid" ));
     return NULL;
   }
-  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )<PROGRAMDATA_METADATA_SIZE ) ) {
+  if( FD_UNLIKELY( entry->data_len<PROGRAMDATA_METADATA_SIZE ) ) {
     FD_LOG_WARNING(( "program data account is too small" ));
     return NULL;
   }
@@ -52,18 +51,18 @@ fd_prog_info_v3( fd_prog_info_t *      out,
 
   *out = (fd_prog_info_t) {
     .elf_off = PROGRAMDATA_METADATA_SIZE,
-    .elf_sz  = data_sz - PROGRAMDATA_METADATA_SIZE,
+    .elf_sz  = entry->data_len - PROGRAMDATA_METADATA_SIZE,
     .deploy_slot = state.inner.program_data.slot
   };
   return out;
 }
 
 static fd_prog_info_t *
-fd_prog_info_v1( fd_prog_info_t *      out,
-                 fd_accdb_ro_t const * ro ) {
+fd_prog_info_v1( fd_prog_info_t *         out,
+                 fd_accdb_entry_t const * entry ) {
   *out = (fd_prog_info_t) {
     .elf_off = 0UL,
-    .elf_sz  = fd_accdb_ref_data_sz( ro ),
+    .elf_sz  = entry->data_len,
     .deploy_slot = 0UL
   };
   return out;
@@ -73,19 +72,19 @@ fd_prog_info_v1( fd_prog_info_t *      out,
    instead of the programdata owner.
    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.5/svm/src/program_loader.rs#L29 */
 fd_prog_info_t *
-fd_prog_info( fd_prog_info_t     * out,
-              fd_accdb_ro_t      * ro,
-              fd_pubkey_t const  * program_owner ){
+fd_prog_info( fd_prog_info_t *         out,
+              fd_accdb_entry_t const * entry,
+              fd_pubkey_t const  *     program_owner ){
   if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_upgradeable_program_id ) ) {
-    return fd_prog_info_v3( out, ro );
+    return fd_prog_info_v3( out, entry );
   } else if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_v4_program_id ) ) {
-    return fd_prog_info_v4( out, ro );
+    return fd_prog_info_v4( out, entry );
   } else if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_program_id ) ||
              fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_deprecated_program_id ) ) {
-    return fd_prog_info_v1( out, ro );
+    return fd_prog_info_v1( out, entry );
   } else {
-    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_address( ro ),  addr_b58  );
-    FD_BASE58_ENCODE_32_BYTES( program_owner->key,          owner_b58 );
+    FD_BASE58_ENCODE_32_BYTES( entry->pubkey, addr_b58  );
+    FD_BASE58_ENCODE_32_BYTES( program_owner->key, owner_b58 );
     FD_LOG_WARNING(( "unsupported program data account (address=%s program_owner=%s)", addr_b58, owner_b58 ));
     return NULL;
   }

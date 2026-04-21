@@ -30,7 +30,6 @@
    The epoch schedule sysvar contains epoch scheduling constants used to
    make various epoch-related calculations. */
 
-#include "../../fd_flamenco_base.h"
 #include "../fd_bank.h"
 
 /* FD_EPOCH_LEN_MIN is a protocol constant specifying the smallest
@@ -58,48 +57,18 @@ FD_PROTOTYPES_BEGIN
    account.  FIXME document what this actually does. */
 
 void
-fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
-                               fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_capture_ctx_t *        capture_ctx );
-
-/* fd_sysvar_epoch_schedule_read reads the current value of the rent
-   sysvar from funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
-
-fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_epoch_schedule_t *     out );
+fd_sysvar_epoch_schedule_init( fd_bank_t *        bank,
+                               fd_accdb_t *       accdb,
+                               fd_capture_ctx_t * capture_ctx );
 
 /* fd_sysvar_epoch_schedule_write writes the current value of the epoch
-   schedule sysvar to funk. */
+   schedule sysvar to the accounts database. */
 
 void
 fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
-                                fd_accdb_user_t *           accdb,
-                                fd_funk_txn_xid_t const *   xid,
+                                fd_accdb_t *                accdb,
                                 fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule );
-
-/* fd_epoch_schedule_derive derives an epoch schedule config from the
-   given parameters.  New epoch schedule configurations should only be
-   created using this function.  Returns schedule on success.
-   On failure, returns NULL and logs reason.
-
-   - schedule points to the epoch schedule struct to be initialized.
-   - epoch_len configures the target slot count per epoch (>0)
-   - leader_schedule_slot_offset configures when to generate the leader
-     schedule for an epoch, measured in number of slots before the start
-     of that epoch.
-   - warmup controls whether to set a warmup period  (0 if disabled,
-     1 if enabled). */
-
-fd_epoch_schedule_t *
-fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
-                          ulong                 epoch_len,
-                          ulong                 leader_schedule_slot_offset,
-                          int                   warmup );
 
 /* fd_epoch_slot_cnt returns the number of slots in an epoch given an
    epoch schedule config and an epoch number.  Return value > 0 */

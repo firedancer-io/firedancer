@@ -17,8 +17,8 @@ FD_PROTOTYPES_BEGIN
    zero-lamport accounts from being loaded in. */
 int
 fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
-                            fd_accdb_user_t *                 accdb,
-                            fd_funk_txn_xid_t const *         xid,
+                            fd_accdb_t *                      accdb,
+                            fd_accdb_fork_id_t                fork_id,
                             fd_exec_test_acct_state_t const * state,
                             ulong                             acc_idx );
 

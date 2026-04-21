@@ -19,13 +19,10 @@
    - memory 4K paged by default (simplify startup)
    - avoids use of privileged kernel calls */
 
-#include "../../accdb/fd_accdb_admin.h"
-#include "../../accdb/fd_accdb_user.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../../log_collector/fd_log_collector_base.h"
 #include "../fd_runtime.h"
 #include "../fd_runtime_stack.h"
-#include "../fd_acc_pool.h"
 #include "../../vm/fd_vm.h"
 
 /* fd_svm_mini_t holds handles to all relevant Firedancer runtime
@@ -36,15 +33,19 @@ struct fd_svm_mini {
   fd_banks_t *         banks;
   fd_runtime_t *       runtime;
   fd_runtime_stack_t * runtime_stack;
-  fd_acc_pool_t *      acc_pool;
   fd_vm_t *            vm;
 
-  fd_accdb_user_t    accdb[1];
-  fd_accdb_admin_t   accdb_admin[1];
   fd_progcache_t     progcache[1];
   fd_log_collector_t log_collector[1];
   fd_features_t      features[1];
   fd_sha256_t        sha256[1]; /* FIXME this should not be separate */
+
+  /* Saved accdb init params for reset */
+  int                  accdb_fd;
+  void *               accdb_shmem_mem;
+  void *               accdb_join_mem;
+  ulong                accdb_max_accounts;
+  ulong                accdb_max_live_slots;
 };
 
 typedef struct fd_svm_mini fd_svm_mini_t;
@@ -246,9 +247,9 @@ fd_bank_t *
 fd_svm_mini_bank( fd_svm_mini_t * mini,
                   ulong           bank_idx );
 
-fd_xid_t
-fd_svm_mini_xid( fd_svm_mini_t * mini,
-                 ulong           bank_idx );
+fd_accdb_fork_id_t
+fd_svm_mini_fork_id( fd_svm_mini_t * mini,
+                     ulong           bank_idx );
 
 /* Mock/inject API */
 
@@ -256,8 +257,8 @@ fd_svm_mini_xid( fd_svm_mini_t * mini,
    into the rooted state. */
 
 void
-fd_svm_mini_put_account_rooted( fd_svm_mini_t *       mini,
-                                fd_accdb_ro_t const * ro );
+fd_svm_mini_put_account_rooted( fd_svm_mini_t *          mini,
+                                fd_accdb_entry_t const * ro );
 
 /* fd_svm_mini_add_lamports_rooted increases the lamport balance of a
    rooted accounts. */
@@ -271,7 +272,7 @@ fd_svm_mini_add_lamports_rooted( fd_svm_mini_t *     mini,
 
 void
 fd_svm_mini_add_lamports( fd_svm_mini_t *     mini,
-                          fd_xid_t const *    xid,
+                          fd_accdb_fork_id_t  fork_id,
                           fd_pubkey_t const * pubkey,
                           ulong               lamports );
 

@@ -1,7 +1,6 @@
 /* Test accounts_resize_delta tracking with signed arithmetic. */
 
 #include "fd_svm_mini.h"
-#include "../../accdb/fd_accdb_sync.h"
 #include "../fd_system_ids.h"
 #include "../../features/fd_features.h"
 #include "../../../disco/fd_txn_p.h"
@@ -20,32 +19,32 @@
 struct test_env {
   fd_svm_mini_t * mini;
   fd_bank_t *     bank;
-  fd_xid_t        xid;
+  fd_accdb_fork_id_t fork_id;
   fd_txn_in_t     txn_in;
   fd_txn_out_t    txn_out[1];
 };
 typedef struct test_env test_env_t;
 
 static void
-create_account_raw( fd_accdb_user_t *   user,
-                    fd_xid_t const *    xid,
+create_account_raw( fd_accdb_t *        accdb,
+                    fd_accdb_fork_id_t  fork_id,
                     fd_pubkey_t const * pubkey,
                     ulong               lamports,
                     uint                dlen,
                     uchar *             data,
                     fd_pubkey_t const * owner ) {
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( user, rw, xid, pubkey, dlen, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( user, rw, data, dlen );
-  rw->meta->lamports = lamports;
-  rw->meta->slot = 10UL;
-  rw->meta->executable = 0;
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key, 1, 1 );
+  if( data && dlen ) fd_memcpy( entry.data, data, dlen );
+  entry.data_len   = dlen;
+  entry.lamports   = lamports;
+  entry.executable = 0;
   if( owner ) {
-    memcpy( rw->meta->owner, owner->key, 32UL );
+    memcpy( entry.owner, owner->key, 32UL );
   } else {
-    memset( rw->meta->owner, 0UL, 32UL );
+    memset( entry.owner, 0UL, 32UL );
   }
-  fd_accdb_close_rw( user, rw );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
 }
 
 static void
@@ -67,14 +66,14 @@ setup_test( test_env_t * env, fd_svm_mini_t * mini, int enable_loader_v4 ) {
   }
 
   ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 10UL );
-  env->bank = fd_svm_mini_bank( mini, child_idx );
-  env->xid  = fd_svm_mini_xid( mini, child_idx );
+  env->bank    = fd_svm_mini_bank( mini, child_idx );
+  env->fork_id = fd_svm_mini_fork_id( mini, child_idx );
 }
 
 static void
 create_allocatable_account( test_env_t * env, fd_pubkey_t const * pubkey ) {
   fd_pubkey_t system_program = fd_solana_system_program_id;
-  create_account_raw( env->mini->accdb, &env->xid, pubkey, TEST_LAMPORTS, 0UL, NULL, &system_program );
+  create_account_raw( env->mini->runtime->accdb, env->fork_id, pubkey, TEST_LAMPORTS, 0UL, NULL, &system_program );
 }
 
 static void
@@ -83,28 +82,23 @@ create_loader_v4_program( test_env_t *        env,
                           fd_pubkey_t const * authority,
                           ulong               program_size ) {
   ulong dlen = LOADER_V4_PROGRAM_DATA_OFFSET + program_size;
-  uchar * data = fd_wksp_alloc_laddr( env->mini->wksp, 8UL, dlen, 42UL );
-  FD_TEST( data );
-  fd_memset( data, 0, dlen );
 
-  FD_STORE( ulong, data, 0UL );
-  fd_memcpy( data + 8, authority->uc, 32 );
-  FD_STORE( ulong, data + 40, LOADER_V4_STATUS_RETRACTED );
-
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->mini->accdb, rw, &env->xid, pubkey, (uint)dlen, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( env->mini->accdb, rw, data, (uint)dlen );
-  rw->meta->lamports = TEST_LAMPORTS;
-  rw->meta->slot = 10UL;
-  rw->meta->executable = 1;
-  fd_memcpy( rw->meta->owner, fd_solana_bpf_loader_v4_program_id.uc, 32 );
-  fd_accdb_close_rw( env->mini->accdb, rw );
-  fd_wksp_free_laddr( data );
+  fd_accdb_entry_t entry = fd_accdb_write_one( env->mini->runtime->accdb, env->fork_id, pubkey->key, 1, 1 );
+  fd_memset( entry.data, 0, dlen );
+  FD_STORE( ulong, entry.data, 0UL );
+  fd_memcpy( entry.data + 8, authority->uc, 32 );
+  FD_STORE( ulong, entry.data + 40, LOADER_V4_STATUS_RETRACTED );
+  entry.data_len   = dlen;
+  entry.lamports   = TEST_LAMPORTS;
+  entry.executable = 1;
+  fd_memcpy( entry.owner, fd_solana_bpf_loader_v4_program_id.uc, 32 );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( env->mini->runtime->accdb, &entry );
 }
 
 static void
 create_simple_account( test_env_t * env, fd_pubkey_t const * pubkey, ulong lamports ) {
-  create_account_raw( env->mini->accdb, &env->xid, pubkey, lamports, 0UL, NULL, NULL );
+  create_account_raw( env->mini->runtime->accdb, env->fork_id, pubkey, lamports, 0UL, NULL, NULL );
 }
 
 #define FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _to_add, _sz ) __extension__({ \

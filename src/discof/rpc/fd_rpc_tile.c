@@ -1,6 +1,5 @@
 #include "../replay/fd_replay_tile.h"
 #include "../genesis/fd_genesi_tile.h"
-#include "../fd_accdb_topo.h"
 
 #include "../../ballet/json/cJSON_alloc.h"
 #include "../../ballet/base64/fd_base64.h"
@@ -8,7 +7,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
@@ -178,6 +176,7 @@ typedef struct fd_rpc_out fd_rpc_out_t;
 struct bank_info {
   ulong slot; /* default ULONG_MAX */
   ulong bank_idx;
+  fd_accdb_fork_id_t accdb_fork_id;
   ulong epoch;
   ulong slot_in_epoch;
   ulong slots_per_epoch;
@@ -229,6 +228,8 @@ struct fd_rpc_tile {
   bank_info_t * banks;
   ulong         max_live_slots;
 
+  fd_accdb_t * accdb;
+
   ulong cluster_confirmed_slot;
 
   ulong processed_idx;
@@ -257,8 +258,6 @@ struct fd_rpc_tile {
   fd_rpc_in_t in[ 64UL ];
 
   fd_rpc_out_t replay_out[1];
-
-  fd_accdb_user_t accdb[1];
 
 # if FD_HAS_ZSTD
   uchar compress_buf[ ZSTD_COMPRESSBOUND( FD_RUNTIME_ACC_SZ_MAX ) ];
@@ -427,6 +426,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         FD_TEST( slot_completed->bank_idx<ctx->max_live_slots );
         bank_info_t * bank = &ctx->banks[ slot_completed->bank_idx ];
         bank->slot = slot_completed->slot;
+        bank->accdb_fork_id = slot_completed->accdb_fork_id;
         bank->epoch = slot_completed->epoch;
         bank->slot_in_epoch = slot_completed->slot_in_epoch;
         bank->slots_per_epoch = slot_completed->slots_per_epoch;
@@ -1016,23 +1016,21 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   bank_info_t * info = &ctx->banks[ bank_idx ];
-  fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, address.uc ) ) ) {
+  fd_accdb_entry_t entry = fd_accdb_read_one( ctx->accdb, info->accdb_fork_id, address.uc );
+  if( FD_UNLIKELY( !entry.lamports ) ) {
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, id_cstr );
   }
 
-  ulong const data_sz   = fd_accdb_ref_data_sz( ro );
-  uchar const * out     = (uchar const *)fd_accdb_ref_data_const( ro )+fd_ulong_if(slice_offset<data_sz, slice_offset, 0UL );
-  ulong         snip_sz = fd_ulong_min( fd_ulong_if( slice_offset<data_sz, data_sz-slice_offset, 0UL ), slice_length );
+  uchar const * out     = entry.data+fd_ulong_if(slice_offset<entry.data_len, slice_offset, 0UL );
+  ulong         snip_sz = fd_ulong_min( fd_ulong_if( slice_offset<entry.data_len, entry.data_len-slice_offset, 0UL ), slice_length );
   ulong         out_sz  = snip_sz;
 
   int is_binary = !strncmp( encoding_cstr, "binary", strlen("binary") );
   int is_base58 = !strncmp( encoding_cstr, "base58", strlen("base58") );
   int is_zstd   = !strncmp( encoding_cstr, "base64+zstd", strlen("base64+zstd") );
   if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
-    fd_accdb_close_ro( ctx->accdb, ro );
+    fd_accdb_unread_one( ctx->accdb, &entry );
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
   }
@@ -1041,7 +1039,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   if( is_zstd ) {
     ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, 0 );
     if( ZSTD_isError( zstd_res ) ) {
-      fd_accdb_close_ro( ctx->accdb, ro );
+      fd_accdb_unread_one( ctx->accdb, &entry );
       CSTR_JSON( id, id_cstr );
       return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (%s)\"},\"id\":%s}\n", ZSTD_getErrorName( zstd_res ), id_cstr );
     }
@@ -1050,13 +1048,13 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   }
 # else
   if( is_zstd ) {
-    fd_accdb_close_ro( ctx->accdb, ro );
+    fd_accdb_unread_one( ctx->accdb, &entry );
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", id_cstr );
   }
 # endif
 
-  FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
+  FD_BASE58_ENCODE_32_BYTES( entry.owner, owner_b58 );
   CSTR_JSON( id, id_cstr );
   fd_http_server_printf( ctx->http,
       "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":{"
@@ -1069,10 +1067,10 @@ getAccountInfo( fd_rpc_tile_t * ctx,
       id_cstr,
       FD_RPC_AGAVE_API_VERSION,
       info->slot,
-      fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
-      fd_accdb_ref_lamports( ro ),
+      entry.executable ? "true" : "false",
+      entry.lamports,
       owner_b58,
-      data_sz );
+      entry.data_len );
 
   ulong encoded_sz = fd_ulong_if( is_base58 || is_binary, FD_RPC_BASE58_ENCODED_128_LEN, FD_BASE64_ENC_SZ( out_sz ) );
   if( FD_UNLIKELY( is_binary ) ) {
@@ -1084,7 +1082,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );;
   if( FD_UNLIKELY( !encoded ) ) {
     fd_http_server_unstage( ctx->http );
-    fd_accdb_close_ro( ctx->accdb, ro );
+    fd_accdb_unread_one( ctx->accdb, &entry );
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: large accounts unsupported\"},\"id\":%s}\n", id_cstr );
   }
@@ -1092,7 +1090,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( is_base58 || is_binary ) ) {
     if( FD_UNLIKELY( !fd_rpc_base58_encode_128( (char *)encoded, &encoded_sz, out, out_sz ) ) ) {
       fd_http_server_unstage( ctx->http );
-      fd_accdb_close_ro( ctx->accdb, ro );
+      fd_accdb_unread_one( ctx->accdb, &entry );
       FD_LOG_WARNING(( "base58 encode failed out_sz=%lu", out_sz ));
       return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: base58 encode failed\"},\"id\":%s}\n", id_cstr );
     }
@@ -1100,7 +1098,7 @@ getAccountInfo( fd_rpc_tile_t * ctx,
     encoded_sz = fd_base64_encode( (char *)encoded, out, out_sz );
   }
 
-  fd_accdb_close_ro( ctx->accdb, ro );
+  fd_accdb_unread_one( ctx->accdb, &entry );
 
   fd_http_server_append_end( ctx->http, encoded_sz );
 
@@ -1136,11 +1134,10 @@ getBalance( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   ulong balance = 0UL;
-  fd_funk_txn_xid_t xid = { .ul={ ctx->banks[ bank_idx ].slot, bank_idx } };
-  fd_accdb_ro_t ro[ 1 ];
-  if( FD_UNLIKELY( fd_accdb_open_ro( ctx->accdb, ro, &xid, address.uc ) ) ) {
-    balance = fd_accdb_ref_lamports( ro );
-    fd_accdb_close_ro( ctx->accdb, ro );
+  fd_accdb_entry_t entry = fd_accdb_read_one( ctx->accdb, ctx->banks[ bank_idx ].accdb_fork_id, address.uc );
+  if( FD_UNLIKELY( entry.lamports ) ) {
+    balance = entry.lamports;
+    fd_accdb_unread_one( ctx->accdb, &entry );
   }
 
   CSTR_JSON( id, id_cstr );
@@ -1532,7 +1529,6 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   bank_info_t * info = &ctx->banks[ bank_idx ];
-  fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
 
   int is_base58 = !strncmp( encoding_cstr, "base58", 6 );
   int is_binary = !strncmp( encoding_cstr, "binary", 6 );
@@ -1553,28 +1549,28 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   for( ulong i=0; i<ucnt; i++ ) {
     if( i>0 ) fd_http_server_printf( ctx->http, "," );
 
-    fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, addresses[i].uc ) ) ) {
+    fd_accdb_entry_t entry = fd_accdb_read_one( ctx->accdb, info->accdb_fork_id, addresses[i].uc );
+    if( FD_UNLIKELY( !entry.lamports ) ) {
       fd_http_server_printf( ctx->http, "null" );
       continue;
     }
 
-    ulong data_sz = fd_accdb_ref_data_sz( ro );
-    uchar const * data = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_ulong_if( slice_offset<data_sz, slice_offset, 0UL );
+    ulong data_sz = entry.data_len;
+    uchar const * data = entry.data + fd_ulong_if( slice_offset<data_sz, slice_offset, 0UL );
     ulong snip_sz = fd_ulong_min( fd_ulong_if( slice_offset<data_sz, data_sz-slice_offset, 0UL ), slice_length );
     ulong out_sz = snip_sz;
 
     if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
-      fd_accdb_close_ro( ctx->accdb, ro );
+      fd_accdb_unread_one( ctx->accdb, &entry );
       fd_http_server_unstage( ctx->http );
       return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than 128 bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
     }
 
-    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
+    FD_BASE58_ENCODE_32_BYTES( entry.owner, owner_b58 );
     fd_http_server_printf( ctx->http,
         "{\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":%lu,\"data\":",
-        fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
-        fd_accdb_ref_lamports( ro ),
+        entry.executable ? "true" : "false",
+        entry.lamports,
         owner_b58,
         data_sz );
 
@@ -1587,7 +1583,7 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
 
     uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );
     if( FD_UNLIKELY( !encoded ) ) {
-      fd_accdb_close_ro( ctx->accdb, ro );
+      fd_accdb_unread_one( ctx->accdb, &entry );
       fd_http_server_unstage( ctx->http );
       return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: response encoding buffer overflow (account data too large for response buffer)\"},\"id\":%s}\n", id_cstr );
     }
@@ -1595,14 +1591,14 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
     if( FD_UNLIKELY( is_base58 || is_binary ) ) {
       if( FD_UNLIKELY( !fd_rpc_base58_encode_128( (char *)encoded, &encoded_sz, data, out_sz ) ) ) {
         fd_http_server_unstage( ctx->http );
-        fd_accdb_close_ro( ctx->accdb, ro );
+        fd_accdb_unread_one( ctx->accdb, &entry );
         return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: base58 encoding failed\"},\"id\":%s}\n", id_cstr );
       }
     } else {
       encoded_sz = fd_base64_encode( (char *)encoded, data, out_sz );
     }
 
-    fd_accdb_close_ro( ctx->accdb, ro );
+    fd_accdb_unread_one( ctx->accdb, &entry );
     fd_http_server_append_end( ctx->http, encoded_sz );
 
     if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}" );
@@ -1999,8 +1995,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   *ctx->replay_out = out1( topo, tile, "rpc_replay" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
-
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->rpc.accdb_max_depth );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

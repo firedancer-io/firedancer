@@ -84,16 +84,19 @@ struct fd_genesis {
 typedef struct fd_genesis fd_genesis_t;
 
 struct fd_genesis_account {
-  fd_pubkey_t       pubkey;
-  fd_account_meta_t meta; /* do not use fd_account_data() */
-  uchar const *     data;
+  fd_pubkey_t   pubkey;
+  int           executable;
+  ulong         lamports;
+  fd_pubkey_t   owner;
+  ulong         data_len;
+  uchar const * data;
 };
 
 typedef struct fd_genesis_account fd_genesis_account_t;
 
 struct fd_genesis_builtin {
   fd_pubkey_t   pubkey;
-  ulong         dlen;
+  ulong         data_len;
   uchar const * data;
 };
 

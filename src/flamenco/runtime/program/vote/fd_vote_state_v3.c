@@ -87,7 +87,7 @@ fd_vote_state_v3_deserialize( fd_borrowed_account_t const * vote_account,
      try_convert_to_v3. It's written a little more verbosely in Agave
      as they try to optimize the decoding steps.
      https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_v3.rs#L162-L202 */
-  int rc = fd_vsv_get_state( vote_account->meta, versioned );
+  int rc = fd_vsv_get_state( vote_account->entry, versioned );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* Unlike vote states v4 decoding, vote state v3 decoding will only

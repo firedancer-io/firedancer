@@ -14,6 +14,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
 #include "../../../ballet/utf8/fd_utf8.h"
+#include "../../accdb/fd_accdb.h"
 
 /* Custom error types */
 
@@ -578,8 +579,7 @@ int fd_system_program_exec_create_account_allow_prefund( fd_exec_instr_ctx_t * c
    the nonce provided in the transaction. */
 
 int
-fd_check_transaction_age( fd_runtime_t *      runtime,
-                          fd_bank_t *         bank,
+fd_check_transaction_age( fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out );
 
@@ -593,7 +593,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
    https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L55-L71 */
 
 int
-fd_get_system_account_kind( fd_account_meta_t const * meta );
+fd_get_system_account_kind( fd_accdb_entry_t const * entry );
 
 FD_PROTOTYPES_END
 

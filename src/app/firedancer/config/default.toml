@@ -82,7 +82,7 @@ telemetry = true
     # is present it will be replaced with the user running Firedancer,
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
-    base = "/home/{user}/.firedancer/{name}"
+    base = "/data/fd1"
 
     # Absolute path to a `keypair.json` file containing the identity of
     # the validator.  When connecting to a non-local cluster it is
@@ -179,9 +179,7 @@ telemetry = true
     # File path to account database file.
     #
     # The account database contains a copy of all accounts on the
-    # network.  The validator preallocates the entire database on
-    # startup (see [accounts.file_size_gib], often several hundred
-    # gigabytes and growing).
+    # network.
     #
     # The account DB file should be backed by fast local storage, e.g.
     # NVMe.  Validator performance is sensitive to disk latency.
@@ -425,8 +423,8 @@ telemetry = true
         # set higher than the incremental age because, as full snapshots
         # are much larger than incremental snapshots, the time penalty
         # for downloading a full snapshot is much higher.
-        max_local_full_effective_age = 1000
-        max_local_incremental_age = 50
+        max_local_full_effective_age = 100000000
+        max_local_incremental_age = 100000000
 
         # If any HTTP server URLs are listed, the following paths will be
         # fetched from these servers to determine if they have a snapshot
@@ -532,72 +530,11 @@ telemetry = true
     #
     # The account index is stored in memory and preallocated.  A limit
     # of 1 billion accounts requires approx 100 GB index space.
-    max_accounts = 30_000_000
-
-    # File size of the account database file (see [paths.accounts]).
-    # The entire account database is physically preallocated.
-    file_size_gib = 16
-
-    # The validator keeps account changes that have not yet been
-    # finalized (rooted) by consensus in memory.  This setting controls
-    # how much memory is reserved for such account changes.
-    # If the amount of inflight account changes exceeds this limit, the
-    # validator will crash.
-    max_unrooted_account_size_gib = 16
+    max_accounts = 1_300_000_000
 
     # Keep frequently accessed accounts in memory to improve
     # performance.
-    cache_size_gib = 4
-
-    # Delay writing of accounts to disk by a number of slots to reduce
-    # disk write rate.
-    #
-    # An account only gets written to disk when it is unchanged for more
-    # or equal the specified number of slots.
-    write_delay_slots = 64
-
-    # Keep all accounts in memory and ignore [paths.accounts].
-    #
-    # If enabled, allocates [accounts.file_size_gib] memory and ignores
-    # [accounts.{cache_size_gib,max_unrooted_account_size_gib}].
-    in_memory_only = true
-
-    # The provider determines which Linux I/O API is used.
-    # Possible values for the option are:
-    #
-    #  "io_uring" (default)
-    #   The fastest and recommended mode, but requires a recent Linux
-    #   kernel version.  Under the hood, does asynchronous parallel
-    #   accesses to disk.  [paths.accounts] should be backed by an ext4
-    #   or XFS file system, or be a block device when using this mode.
-    #
-    #  "portable"
-    #   This is the slowest mode, but it supports any kernel version
-    #   and any file system.
-    io_provider = "io_uring"
-
-    # The expected mean size of recently accessed accounts.
-    #
-    # This heuristic is used to pack accounts into caches optimally.
-    mean_account_footprint = 256
-
-    # io_uring specific options
-    #
-    # io_uring requires a recent kernel (Linux 6.5 feature equivalent).
-    # Popular OS distributions (e.g. Ubuntu or RHEL) backport newer
-    # io_uring features to older kernel versions.
-    # FIXME Add a link to a book page with further kernel requirements,
-    #       and known working distros (e.g. RHEL 9 kernel 5.14).
-    #
-    # Firedancer uses the following io_uring extensions:
-    # - IORING_SETUP_COOP_TASKRUN (Linux 5.19)
-    # - IORING_SETUP_DEFER_TASKRUN (Linux 6.1)
-    # - IORING_SETUP_CQSIZE (Linux 5.5)
-    # - IORING_SETUP_NO_MMAP (Linux 6.5)
-    # - IORING_REGISTER_RESTRICTIONS (Linux 5.16)
-    [accounts.io_uring]
-        # Pipeline depth for parallel I/O operations.
-        queue_depth = 2048
+    cache_size_gib = 15
 
 [runtime]
     # max_live_slots and max_fork_width are parameters used to size
@@ -624,15 +561,6 @@ telemetry = true
     # of forks that play through the epoch boundary is greater than
     # max_fork_width, the client will crash.
     max_fork_width = 32
-
-    # concurrent_account_limit is used to size out the amount of memory
-    # used by accounts for transaction execution. The memory for these
-    # accounts are shared across execution: both for replaying blocks
-    # and while the leader. Increasing this parameter will allow the
-    # executors to harness more parallelism if it exists on the network.
-    # The minimum amount of accounts is 130 if bundles are disabled and
-    # is 650 if bundles are enabled.
-    concurrent_account_limit = 1024
 
     # The program cache pre-loads frequently executed programs for
     # faster transaction execution.
@@ -908,21 +836,6 @@ telemetry = true
     # The remaining tiles distribute the workload of signing repair
     # requests.
     sign_tile_count = 2
-
-    # How many snapshot lthash add/sub (vinyl) or add (funk) tiles to
-    # run. Snapshot lthash tiles compute the lthash of all accounts in
-    # the loaded snapshot in parallel. Too few and snapshot loading
-    # might be delayed.  Once the lthash of the accounts in a snapshot
-    # is calculated, if it does not match the validator will abort with
-    # an error.  Preferably a power of two.
-    snapshot_hash_tile_count = 8
-
-    # How many snapshot vinyl-based write tiles to run.  Depending on
-    # the specific hardware configuration, multiple snapwr tiles may
-    # be required to achieve high throughput.  It is also possible to
-    # tradeoff throughput and tile count.  This value is only valid
-    # when vinyl is enabled.
-    snapwr_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
@@ -1907,16 +1820,6 @@ telemetry = true
     # production networking stack.
     [development.udpecho]
         affinity = "auto"
-
-    # Set to true to disable verification of the lthash in the
-    # snapshot loader.  This is not safe or supported in production
-    # and should only be used for development and testing purposes.
-    #
-    # If lthash verification is disabled, the validator will not start
-    # any lthash tiles and the value of `snapshot_hash_tile_count` in
-    # the layout will be ignored.
-    [development.snapshots]
-        disable_lthash_verification = false
 
     # Inject shreds (block data) into the system to replay.
     # Used by 'firedancer-dev {backtest,forktest}'.

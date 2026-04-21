@@ -757,6 +757,22 @@ metric introduced.
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<tile name="accdb">
+    <gauge name="AccountsTotal" summary="Total number of accounts currently in the account database" />
+    <gauge name="AccountsCapacity" summary="Total capacity of accounts that can be stored in the account database" />
+    <counter name="BytesRead" summary="Total number of bytes read from the account database" />
+    <counter name="BytesWritten" summary="Total number of bytes written to the account database" />
+    <counter name="AccountsRead" summary="Total number of accounts read from the account database" />
+    <counter name="AccountsWritten" summary="Total number of accounts written to the account database" />
+    <counter name="AccountsRelocated" summary="Total number of accounts moved in the account database during compaction" />
+    <gauge name="DiskAllocatedBytes" summary="Total allocated size of the account database on disk" />
+    <gauge name="DiskUsedBytes" summary="Total size of the account database on disk that is currently used" />
+    <gauge name="InCompaction" summary="1 if a compaction is currently in progress, 0 if not" />
+    <counter name="CompactionsRequested" summary="Total number of compactions requested on the account database" />
+    <counter name="CompactionsCompleted" summary="Total number of compactions fully completed on the account database, less than or equal to the requested amount" />
+    <counter name="AccountsRelocatedBytes" summary="Total number of bytes moved in the account database during compaction" />
+</tile>
+
 <enum name="RootPhase">
     <int value="0" name="Db" label="Waiting on database server" />
     <int value="1" name="Copy" label="Copying account data" />
@@ -849,23 +865,6 @@ metric introduced.
   <counter name="BanksFull" summary="Times where banks are full and a FEC set can't be processed" />
   <counter name="StorageRootBehind" summary="Times where the storage root is behind the consensus root and can't be advanced" />
 
-  <counter name="AccdbCreated" summary="Number of account database records created" />
-  <counter name="AccdbReverted" summary="Number of account database records reverted" />
-  <counter name="AccdbRooted" summary="Number of account database entries rooted" />
-  <counter name="AccdbRootedBytes" summary="Number of bytes in account database entries rooted (including overhead)" />
-  <counter name="AccdbGcRoot" summary="Number of account database entries garbage collected" />
-  <counter name="AccdbReclaimed" summary="Number of account database entries reclaimed (deletion rooted)" />
-
-  <histogram name="RootSlotDurationSeconds" min="0.0005" max="1.0" converter="seconds">
-    <summary>Time in seconds spent updating the rooted account store (one sample per block)</summary>
-  </histogram>
-
-  <histogram name="RootAccountDurationSeconds" min="0.0000001" max="0.1" converter="seconds">
-    <summary>Time in seconds spent updating the rooted account store (one sample per block, normalized by account count)</summary>
-  </histogram>
-
-  <counter name="RootElapsedSeconds" enum="RootPhase" converter="seconds" summary="Total time in seconds spent rooting accounts" />
-
   <!-- extensive program cache metrics.  Useful for development, will be
        cut down with time -->
   <counter name="ProgcacheRooted" summary="Number of program cache entries rooted" />
@@ -877,13 +876,6 @@ metric introduced.
   <gauge name="ProgcacheUsedPartMedianBytes" summary="Median used heap partition size in program cache" />
   <gauge name="ProgcacheUsedPartMeanBytes" summary="Mean used heap partition size in program cache" />
   <counter name="ProgcacheTimeSeconds" converter="seconds" summary="Total time in seconds spent doing program cache tasks" />
-
-  <gauge name="AccdbCacheFreeParts" summary="Number of account database cache heap partitions free (indicates fragmentation)" />
-  <gauge name="AccdbCacheFreeBytes" summary="Account database cache heap utilization (free bytes)" />
-  <gauge name="AccdbCacheSizeBytes" summary="Account database cache heap utilization (total size)" />
-  <gauge name="AccdbCacheFreePartMaxBytes" summary="Largest free heap partition in account database cache" />
-  <gauge name="AccdbCacheUsedPartMedianBytes" summary="Median used heap partition size in account database cache" />
-  <gauge name="AccdbCacheUsedPartMeanBytes" summary="Mean used heap partition size in account database cache" />
 
   <gauge name="RuntimeStatus" summary="Solana runtime status (0=initializing 1=loaded)" />
 </tile>
@@ -1150,48 +1142,6 @@ metric introduced.
     <gauge name="AccountsIgnored" summary="Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />
 </tile>
 
-<tile name="snapwm">
-    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
-    <gauge name="AccountsLoaded" summary="Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts" />
-    <gauge name="AccountsReplaced" summary="Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts" />
-    <gauge name="AccountsIgnored" summary="Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />
-    <gauge name="AccountsActive" summary="Current number of accounts in index. Resets if snapshot load restarts" />
-</tile>
-
-<tile name="snapwr">
-    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" />
-    <gauge name="FileCapacityBytes" summary="Account database file capacity in bytes" />
-    <gauge name="FileUsedBytes" summary="Current number of bytes used in the account database file" />
-</tile>
-
-<tile name="snapwh">
-    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" />
-</tile>
-
-<tile name="snapla">
-    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
-    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
-</tile>
-
-<tile name="snapls">
-    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
-    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
-</tile>
-
-<tile name="snaplh">
-    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
-    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
-</tile>
-
-<tile name="snaplv">
-    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
-    <gauge name="FullDuplicateAccountsHashed" summary="Number of duplicate accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
-    <gauge name="IncrementalDuplicateAccountsHashed" summary="Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
-</tile>
-
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 
@@ -1241,25 +1191,14 @@ metric introduced.
     <int value="4" name="Interpreter" label="VM interpreter execution" />
 </enum>
 
-<enum name="AccountChange">
-    <int value="0" name="UnchangedNonexist" label="Account did not exist before and still does not" />
-    <int value="1" name="Created" label="Account created" />
-    <int value="2" name="Delete" label="Account deleted" />
-    <int value="3" name="Modify" label="Account modified" />
-    <int value="4" name="Unchanged" label="Account unchanged" />
-</enum>
-
 <tile name="execrp">
     <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
     <counter name="SigverifyCount" summary="Number of Ed25519 signature verification jobs executed" />
     <counter name="PohHashCount" summary="Number of PoH SHA-256 calls executed" />
 
-    <counter name="AccdbCreated" summary="Number of account database records created" />
-
     <counter name="TxnRegime" converter="nanoseconds" enum="TxnRegime" summary="Mutually exclusive and exhaustive duration of time spent in transaction execution regimes" />
     <counter name="VmRegime" converter="nanoseconds" enum="VmRegime" summary="Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes" />
 
-    <counter name="TxnAccountChanges" enum="AccountChange" summary="Transaction account change event counters" />
     <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
 
     <!-- extensive program cache metrics.  Useful for development, will be
@@ -1394,51 +1333,6 @@ metric introduced.
 
     <counter name="BytesWritten" summary="The total number of bytes written to the event service" />
     <counter name="BytesRead" summary="The total number of bytes read from the event service" />
-</tile>
-
-<enum name="VinylRequest">
-    <int value="0" name="Acquire" label="Acquire record" />
-    <int value="1" name="Release" label="Release record" />
-    <int value="2" name="Erase" label="Erase record" />
-</enum>
-
-<enum name="VinylBlocks">
-    <int value="0" name="Pair" label="Record" />
-    <int value="1" name="Dead" label="Record deletion" />
-    <int value="2" name="Part" label="Partition/divider" />
-</enum>
-
-<enum name="BstreamSeq">
-    <int value="0" name="Ancient" label="Blocks between ancient and past have been written and forgotten (no read, no write)" />
-    <int value="1" name="Past" label="Blocks between past and present have been written (read only)" />
-    <int value="2" name="Present" label="Blocks between present and future are being written (write only)" />
-    <int value="3" name="Future" label="Blocks between future and ancient have not been written (no read, no write)" />
-</enum>
-
-<enum name="StorageType">
-    <int value="0" name="SharedCache" label="Record cache" />
-    <int value="1" name="IoCache" label="I/O layer cache" />
-    <int value="2" name="File" label="File access" />
-</enum>
-
-<tile name="accdb">
-    <!-- user friendly metrics -->
-    <gauge name="Accounts" summary="Current number of accounts" />
-    <counter name="ReadOps" enum="StorageType" summary="Total number of read operations" />
-    <counter name="ReadBytes" enum="StorageType" summary="Total number of bytes read" />
-    <counter name="WriteOps" enum="StorageType" summary="Total number of write operations" />
-    <counter name="WriteBytes" enum="StorageType" summary="Total number of bytes written" />
-    <gauge name="FileCapacityBytes" summary="Account database file capacity in bytes" />
-    <gauge name="FileUsedBytes" summary="Current number of bytes used in account database file" />
-
-    <!-- developer metrics -->
-    <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
-    <counter name="RequestBatches" summary="Number of request batches processed" />
-    <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
-    <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
-    <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
-    <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
-    <gauge name="AccountIndexRemainingFree" summary="Remaining free slots in the account database index (validator crashes when this number reaches zero)" />
 </tile>
 
 </metrics>

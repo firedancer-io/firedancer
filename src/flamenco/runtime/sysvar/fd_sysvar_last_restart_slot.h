@@ -1,9 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_last_restart_slot_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_last_restart_slot_h
 
-#include "fd_sysvar_base.h"
-#include "../../types/fd_types.h"
-#include "../../accdb/fd_accdb_user.h"
+#include "../fd_bank.h"
 
 typedef struct fd_hard_forks_global fd_hard_forks_global_t;
 
@@ -14,17 +12,9 @@ FD_PROTOTYPES_BEGIN
    state. */
 
 void
-fd_sysvar_last_restart_slot_init( fd_bank_t *               bank,
-                                  fd_accdb_user_t *         accdb,
-                                  fd_funk_txn_xid_t const * xid,
-                                  fd_capture_ctx_t *        capture_ctx );
-
-void
-fd_sysvar_last_restart_slot_write( fd_bank_t *               bank,
-                                   fd_accdb_user_t *         accdb,
-                                   fd_funk_txn_xid_t const * xid,
-                                   fd_capture_ctx_t *        capture_ctx,
-                                   ulong                     slot );
+fd_sysvar_last_restart_slot_init( fd_bank_t *        bank,
+                                  fd_accdb_t *       accdb,
+                                  fd_capture_ctx_t * capture_ctx );
 
 /* fd_sysvar_last_restart_slot_update ensures the "last restart slot"
    sysvar contains the given slot number, writing to the sysvar account
@@ -32,27 +22,10 @@ fd_sysvar_last_restart_slot_write( fd_bank_t *               bank,
    See Agave's solana_runtime::bank::Bank::update_last_restart_slot */
 
 void
-fd_sysvar_last_restart_slot_update( fd_bank_t *               bank,
-                                    fd_accdb_user_t *         accdb,
-                                    fd_funk_txn_xid_t const * xid,
-                                    fd_capture_ctx_t *        capture_ctx,
-                                    ulong                     last_restart_slot );
-
-/* fd_sysvar_last_restart_slot_read queries the last restart slot sysvar
-   from the given funk. If the account doesn't exist in funk or if the
-   account has zero lamports, this function returns sentinel. */
-
-ulong
-fd_sysvar_last_restart_slot_read( fd_accdb_user_t *         accdb,
-                                  fd_funk_txn_xid_t const * xid,
-                                  ulong                     sentinel );
-
-/* fd_sysvar_last_restart_slot_derive derives the "last restart slot"
-   value (return value) from a bank's "hard forks" list. */
-
-ulong
-fd_sysvar_last_restart_slot_derive( fd_hard_forks_global_t const * hard_forks,
-                                    ulong                          current_slot );
+fd_sysvar_last_restart_slot_update( fd_bank_t *        bank,
+                                    fd_accdb_t *       accdb,
+                                    fd_capture_ctx_t * capture_ctx,
+                                    ulong              last_restart_slot );
 
 FD_PROTOTYPES_END
 

@@ -27,7 +27,9 @@
    - An additional "exists" bit is interleaved with the "visited" bit,
      to disambiguate an existing idle entry from a free entry */
 
+#include "../../util/bits/fd_bits.h"
 #include "fd_progcache_base.h"
+
 #include <stdatomic.h>
 
 FD_PROTOTYPES_BEGIN

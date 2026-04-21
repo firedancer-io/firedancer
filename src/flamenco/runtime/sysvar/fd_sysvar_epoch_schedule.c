@@ -1,89 +1,28 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../../accdb/fd_accdb_sync.h"
-
-fd_epoch_schedule_t *
-fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
-                          ulong                 epoch_len,
-                          ulong                 leader_schedule_slot_offset,
-                          int                   warmup ) {
-
-  if( FD_UNLIKELY( epoch_len < FD_EPOCH_LEN_MIN ) ) {
-    FD_LOG_WARNING(( "epoch_len too small" ));
-    return NULL;
-  }
-
-  *schedule = (fd_epoch_schedule_t) {
-    .slots_per_epoch             = epoch_len,
-    .leader_schedule_slot_offset = leader_schedule_slot_offset,
-    .warmup                      = !!warmup
-  };
-
-  if( warmup ) {
-    ulong ceil_log2_epoch   = (ulong)fd_ulong_find_msb( epoch_len-1UL ) + 1UL;
-    ulong ceil_log2_len_min = (ulong)fd_ulong_find_msb( FD_EPOCH_LEN_MIN );
-
-    schedule->first_normal_epoch = fd_ulong_sat_sub( ceil_log2_epoch, ceil_log2_len_min );
-    schedule->first_normal_slot  = (1UL << ceil_log2_epoch) - FD_EPOCH_LEN_MIN;
-  }
-
-  return schedule;
-}
 
 void
 fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
-                                fd_accdb_user_t *           accdb,
-                                fd_funk_txn_xid_t const *   xid,
+                                fd_accdb_t *                accdb,
                                 fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
-
   uchar enc[ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ] = {0};
-
   fd_bincode_encode_ctx_t ctx = {
     .data    = enc,
     .dataend = enc + FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ
   };
-  if( FD_UNLIKELY( fd_epoch_schedule_encode( epoch_schedule, &ctx ) ) ) {
-    FD_LOG_ERR(( "fd_epoch_schedule_encode failed" ));
-  }
+  FD_TEST( !fd_epoch_schedule_encode( epoch_schedule, &ctx ) );
 
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_schedule_id, enc, FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ );
-}
-
-fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_epoch_schedule_t *     out ) {
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_epoch_schedule_id ) ) ) {
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  fd_epoch_schedule_t * rc = fd_bincode_decode_static(
-      epoch_schedule, out,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
-  fd_accdb_close_ro( accdb, ro );
-  return rc;
+  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_epoch_schedule_id, enc, FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ );
 }
 
 void
-fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
-                               fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_capture_ctx_t *        capture_ctx ) {
+fd_sysvar_epoch_schedule_init( fd_bank_t *        bank,
+                               fd_accdb_t *       accdb,
+                               fd_capture_ctx_t * capture_ctx ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  fd_sysvar_epoch_schedule_write( bank, accdb, xid, capture_ctx, epoch_schedule );
+  fd_sysvar_epoch_schedule_write( bank, accdb, capture_ctx, epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */
@@ -91,7 +30,6 @@ fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
 ulong
 fd_epoch_slot_cnt( fd_epoch_schedule_t const * schedule,
                    ulong                       epoch ) {
-
   if( FD_UNLIKELY( epoch < schedule->first_normal_epoch ) ) {
     ulong exp = fd_ulong_sat_add( epoch, (ulong)fd_ulong_find_lsb( FD_EPOCH_LEN_MIN ) );
     return ( exp<64UL ? 1UL<<exp : ULONG_MAX ); // saturating_pow

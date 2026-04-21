@@ -1,17 +1,7 @@
-#include "fd_runtime_err.h"
-#include "fd_rocksdb.h"
-#include "fd_acc_mgr.h"
-#include "fd_hashes.h"
-#include "fd_txncache.h"
-#include "fd_compute_budget_details.h"
-#include "fd_cost_tracker.h"
-#include "context/fd_exec_instr_ctx.h"
-#include "info/fd_instr_info.h"
-#include "../features/fd_features.h"
 #include "../capture/fd_capture_ctx.h"
-#include "../../disco/pack/fd_pack.h"
-#include "../../ballet/sbpf/fd_sbpf_loader.h"
-#include "program/vote/fd_vote_codec.h"
+#include "../accdb/fd_accdb.h"
+#include "../../ballet/txn/fd_txn.h"
+#include "../../ballet/lthash/fd_lthash.h"
 
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
@@ -44,8 +34,8 @@ int
 fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
                                            fd_txn_t const *          txn,
                                            uchar const *             payload,
-                                           fd_accdb_user_t *         accdb,
-                                           fd_funk_txn_xid_t const * xid,
+                                           fd_accdb_t *              accdb,
+                                           fd_accdb_fork_id_t        fork_id,
                                            ulong                     slot,
                                            fd_slot_hash_t const *    hashes, /* deque */
                                            fd_acct_addr_t *          out_accts_alt );
@@ -77,8 +67,7 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 void
 fd_runtime_read_genesis( fd_banks_t *              banks,
                          fd_bank_t *               bank,
-                         fd_accdb_user_t *         accdb,
-                         fd_funk_txn_xid_t const * xid,
+                         fd_accdb_t *              accdb,
                          fd_capture_ctx_t *        capture_ctx,
                          fd_hash_t const *         genesis_hash,
                          fd_lthash_value_t const * genesis_lthash,
@@ -116,7 +105,7 @@ fd_runtime_read_genesis( fd_banks_t *              banks,
     txn_out->err.exec_err_idx = idx;                                    \
   }))
 
-int
+ulong
 fd_runtime_find_index_of_account( fd_txn_out_t const * txn_out,
                                   fd_pubkey_t const *  pubkey );
 
@@ -124,35 +113,25 @@ typedef int fd_txn_account_condition_fn_t ( fd_txn_in_t const * txn_in,
                                             fd_txn_out_t *      txn_out,
                                             ushort              idx );
 
-/* Mirrors Agave function solana_sdk::transaction_context::get_account_at_index
+/* Mirrors Agave function
+   solana_sdk::transaction_context::get_account_at_index
 
-   Takes a function pointer to a condition function to check pre-conditions on the
-   obtained account. If the condition function is NULL, the account is returned without
-   any pre-condition checks.
+   Takes a function pointer to a condition function to check
+   pre-conditions on the obtained account.  If the condition function is
+   NULL, the account is returned without any pre-condition checks.
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L223-L230 */
 
-fd_accdb_ref_t *
+fd_accdb_entry_t *
 fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_out_t *                  txn_out,
                                  ushort                          idx,
                                  fd_txn_account_condition_fn_t * condition );
 
-/* A wrapper around fd_exec_txn_ctx_get_account_at_index that obtains an
-   account from the transaction context by its pubkey. */
-
-fd_accdb_ref_t *
-fd_runtime_get_account_with_key( fd_txn_in_t const *             txn_in,
-                                 fd_txn_out_t *                  txn_out,
-                                 fd_pubkey_t const *             pubkey,
-                                 int *                           index_out,
-                                 fd_txn_account_condition_fn_t * condition );
-
 /* Gets an executable (program data) account via its pubkey. */
 
-fd_accdb_ro_t *
+fd_accdb_entry_t *
 fd_runtime_get_executable_account( fd_runtime_t *      runtime,
-                                   fd_txn_in_t const * txn_in,
                                    fd_txn_out_t *      txn_out,
                                    fd_pubkey_t const * pubkey );
 
@@ -161,9 +140,9 @@ fd_runtime_get_executable_account( fd_runtime_t *      runtime,
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L212 */
 
 int
-fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
-                                        ushort                idx,
-                                        fd_pubkey_t const * * key );
+fd_runtime_get_key_of_account_at_index( fd_txn_out_t *       txn_out,
+                                        ushort               idx,
+                                        fd_pubkey_t const ** key );
 
 /* In agave, the writable accounts cache is populated by this below function.
    This cache is then referenced to determine if a transaction account is
@@ -205,18 +184,8 @@ fd_runtime_account_check_fee_payer_writable( fd_txn_in_t const * txn_in,
                                              ushort              idx );
 
 int
-fd_account_meta_checked_sub_lamports( fd_account_meta_t * meta,
-                                      ulong               lamports );
-
-FD_FN_UNUSED static void
-fd_account_meta_resize( fd_account_meta_t * meta,
-                        ulong               dlen ) {
-  ulong old_sz    = meta->dlen;
-  ulong new_sz    = dlen;
-  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
-  fd_memset( fd_account_data( meta ) + old_sz, 0, memset_sz );
-  meta->dlen = (uint)dlen;
-}
+fd_account_meta_checked_sub_lamports( fd_accdb_entry_t * entry,
+                                      ulong              lamports );
 
 FD_PROTOTYPES_END
 

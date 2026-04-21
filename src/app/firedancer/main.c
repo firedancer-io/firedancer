@@ -18,20 +18,10 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
+extern fd_topo_obj_callbacks_t fd_obj_cb_accdb;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
-extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
-extern fd_topo_obj_callbacks_t fd_obj_cb_funk_locks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
-extern fd_topo_obj_callbacks_t fd_obj_cb_acc_pool;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
-
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_req_pool;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_rq;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_cq;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_admin;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -46,19 +36,9 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_store,
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
+  &fd_obj_cb_accdb,
   &fd_obj_cb_banks,
-  &fd_obj_cb_funk,
-  &fd_obj_cb_funk_locks,
   &fd_obj_cb_progcache,
-  &fd_obj_cb_acc_pool,
-  &fd_obj_cb_vinyl_meta,
-  &fd_obj_cb_vinyl_meta_ele,
-  &fd_obj_cb_vinyl_data,
-  &fd_obj_cb_acc_pool,
-  &fd_obj_cb_vinyl_req_pool,
-  &fd_obj_cb_vinyl_rq,
-  &fd_obj_cb_vinyl_cq,
-  &fd_obj_cb_vinyl_admin,
   &fd_obj_cb_rnonce_ss,
   NULL,
 };
@@ -109,20 +89,14 @@ extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execrp;
 extern fd_topo_run_tile_t fd_tile_txsend;
 extern fd_topo_run_tile_t fd_tile_tower;
-extern fd_topo_run_tile_t fd_tile_vinyl;
+extern fd_topo_run_tile_t fd_tile_accdb;
 extern fd_topo_run_tile_t fd_tile_solcap;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
-extern fd_topo_run_tile_t fd_tile_snapwm;
-extern fd_topo_run_tile_t fd_tile_snapwh;
 extern fd_topo_run_tile_t fd_tile_snapwr;
-extern fd_topo_run_tile_t fd_tile_snapla;
-extern fd_topo_run_tile_t fd_tile_snapls;
-extern fd_topo_run_tile_t fd_tile_snaplh;
-extern fd_topo_run_tile_t fd_tile_snaplv;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -151,22 +125,16 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_poh,
   &fd_tile_txsend,
   &fd_tile_tower,
+  &fd_tile_accdb,
   &fd_tile_snapct,
   &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
-  &fd_tile_snapwm,
-  &fd_tile_snapwh,
   &fd_tile_snapwr,
-  &fd_tile_snapla,
-  &fd_tile_snapls,
-  &fd_tile_snaplh,
-  &fd_tile_snaplv,
 # if FD_HAS_BZIP2
   &fd_tile_genesi,
 # endif
   &fd_tile_ipecho,
-  &fd_tile_vinyl,
   &fd_tile_solcap,
   NULL,
 };

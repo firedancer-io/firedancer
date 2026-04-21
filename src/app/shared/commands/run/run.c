@@ -275,6 +275,8 @@ main_pid_namespace( void * _args ) {
     fd_topo_install_xdp( &config->topo, xdp_fds, &xdp_fds_cnt, config->net.bind_address_parsed, 0 );
   }
 
+  int accounts_fd = initialize_accdb_fd( config );
+
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
@@ -292,6 +294,21 @@ main_pid_namespace( void * _args ) {
           if( FD_UNLIKELY( -1==fcntl( xdp_fds[i].prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
         }
       }
+    }
+
+    int tile_uses_accdb = 0;
+    for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
+      fd_topo_obj_t const * obj = &config->topo.objs[ tile->uses_obj_id[ i ] ];
+      if( FD_UNLIKELY( !strcmp( obj->name, "accdb" ) ) ) {
+        tile_uses_accdb = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( tile_uses_accdb ) ) {
+      if( FD_UNLIKELY( -1==fcntl( accounts_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    } else {
+      if( FD_UNLIKELY( -1==fcntl( accounts_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
 
     int pipefd[ 2 ];
@@ -321,6 +338,8 @@ main_pid_namespace( void * _args ) {
       if( FD_UNLIKELY( close( xdp_fds[i].prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
   }
+
+  if( FD_UNLIKELY( -1==close( accounts_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
@@ -758,6 +777,15 @@ run_firedancer_init( config_t * config,
   if( check_configure ) fdctl_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
+}
+
+int
+initialize_accdb_fd( config_t const * config ) {
+  int accounts_fd = open( config->paths.accounts, O_RDWR|O_CREAT|O_NOATIME, S_IRUSR|S_IWUSR ); /* TODO: O_TRUNC BUT IT REQUIRES WRITING EXTENTS AND SLOWS THINGS DOWN, TBD */
+  if( FD_UNLIKELY( -1==accounts_fd ) ) FD_LOG_ERR(( "failed to open accounts.db (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( accounts_fd, 123461 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( accounts_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return 123461;
 }
 
 /* The boot sequence is a little bit involved...
