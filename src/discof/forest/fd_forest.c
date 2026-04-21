@@ -1238,7 +1238,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
 
   fd_forest_blk_idxs_insert( ele->idxs, shred_idx );
-  while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) {
+  while( ele->buffered_idx + 1 < FD_SHRED_BLK_MAX && fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) {
     ele->buffered_idx++;
     ele->est_buffered_tick_recv = ref_tick;
     /* If the buffered_idx increases, this means the
