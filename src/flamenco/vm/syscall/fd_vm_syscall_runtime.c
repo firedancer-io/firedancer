@@ -12,25 +12,45 @@ struct fd_vm_epoch_schedule {
   ulong slots_per_epoch;
   ulong leader_schedule_slot_offset;
   uchar warmup; /* 0 or 1 */
+  uchar padding_[7];
   ulong first_normal_epoch;
   ulong first_normal_slot;
 };
 typedef struct fd_vm_epoch_schedule fd_vm_epoch_schedule_t;
+FD_STATIC_ASSERT( sizeof(fd_vm_epoch_schedule_t) == 40UL, "vm epoch schedule size mismatch" );
 FD_STATIC_ASSERT( alignof(fd_vm_epoch_schedule_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE, "vm epoch schedule alignment mismatch" );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, slots_per_epoch            ) == 0UL,      "vm epoch schedule layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, leader_schedule_slot_offset) == 8UL,      "vm epoch schedule layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, warmup                     ) == 16UL,     "vm epoch schedule layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, first_normal_epoch         ) == 24UL,     "vm epoch schedule layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, first_normal_slot          ) == 32UL,     "vm epoch schedule layout mismatch"    );
 
-struct fd_vm_rent {
-  ulong  lamports_per_uint8_year;
-  double exemption_threshold;
-  uchar  burn_percent;
-};
-typedef struct fd_vm_rent fd_vm_rent_t;
-FD_STATIC_ASSERT( alignof(fd_vm_rent_t) == FD_VM_ALIGN_RUST_SYSVAR_RENT, "vm rent alignment mismatch" );
+typedef fd_rent_t fd_vm_rent_t;
+FD_STATIC_ASSERT( sizeof(fd_vm_rent_t) == 24UL, "vm rent size mismatch" );
+FD_STATIC_ASSERT( alignof(fd_vm_rent_t) == FD_VM_ALIGN_RUST_SYSVAR_RENT,   "vm rent alignment mismatch" );
+FD_STATIC_ASSERT( offsetof(fd_vm_rent_t, lamports_per_uint8_year) == 0UL,  "vm rent layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_rent_t, exemption_threshold    ) == 8UL,  "vm rent layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_rent_t, burn_percent           ) == 16UL, "vm rent layout mismatch"    );
 
 typedef fd_sol_sysvar_clock_t fd_vm_clock_t;
+FD_STATIC_ASSERT( sizeof(fd_vm_clock_t) == 40UL, "vm clock size mismatch" );
 FD_STATIC_ASSERT( alignof(fd_vm_clock_t) == FD_VM_ALIGN_RUST_SYSVAR_CLOCK, "vm clock alignment mismatch" );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, slot                 ) == 0UL,   "vm clock layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, epoch_start_timestamp) == 8UL,   "vm clock layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, epoch                ) == 16UL,  "vm clock layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, leader_schedule_epoch) == 24UL,  "vm clock layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, unix_timestamp       ) == 32UL,  "vm clock layout mismatch"    );
 
 typedef fd_sysvar_epoch_rewards_t fd_vm_epoch_rewards_t;
-FD_STATIC_ASSERT( alignof(fd_vm_epoch_rewards_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, "vm epoch rewards alignment mismatch" );
+FD_STATIC_ASSERT( sizeof(fd_vm_epoch_rewards_t) == 96UL, "vm epoch rewards size mismatch" );
+FD_STATIC_ASSERT( alignof(fd_vm_epoch_rewards_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS,     "vm epoch rewards alignment mismatch" );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, distribution_starting_block_height) == 0UL,  "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, num_partitions                    ) == 8UL,  "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, parent_blockhash                  ) == 16UL, "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, total_points                      ) == 48UL, "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, total_rewards                     ) == 64UL, "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, distributed_rewards               ) == 72UL, "vm epoch rewards layout mismatch"    );
+FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, active                            ) == 80UL, "vm epoch rewards layout mismatch"    );
 
 /* FIXME: In the original version of this code, there was an FD_TEST
    to check if the VM was attached to an instruction context (that
@@ -113,12 +133,13 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   /* Returned value has padding which must be zeroed out. */
   uchar * dst = var_query.haddr;
   fd_vm_epoch_schedule_t * vm_schedule = (fd_vm_epoch_schedule_t *)dst;
-  memset( vm_schedule, 0, sizeof(fd_vm_epoch_schedule_t) );
-  vm_schedule->slots_per_epoch             = schedule.slots_per_epoch;
-  vm_schedule->leader_schedule_slot_offset = schedule.leader_schedule_slot_offset;
-  vm_schedule->warmup                      = schedule.warmup;
-  vm_schedule->first_normal_epoch          = schedule.first_normal_epoch;
-  vm_schedule->first_normal_slot           = schedule.first_normal_slot;
+  *vm_schedule = (fd_vm_epoch_schedule_t){
+    .slots_per_epoch             = schedule.slots_per_epoch,
+    .leader_schedule_slot_offset = schedule.leader_schedule_slot_offset,
+    .warmup                      = schedule.warmup,
+    .first_normal_epoch          = schedule.first_normal_epoch,
+    .first_normal_slot           = schedule.first_normal_slot,
+  };
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -161,10 +182,11 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   /* The returned value has padding which must be zeroed out. */
   uchar * dst = var_query.haddr;
   fd_vm_rent_t * vm_rent = (fd_vm_rent_t *)dst;
-  memset( vm_rent, 0, sizeof(fd_vm_rent_t) );
-  vm_rent->lamports_per_uint8_year = rent.lamports_per_uint8_year;
-  vm_rent->exemption_threshold     = rent.exemption_threshold;
-  vm_rent->burn_percent            = rent.burn_percent;
+  *vm_rent = (fd_vm_rent_t){
+    .lamports_per_uint8_year = rent.lamports_per_uint8_year,
+    .exemption_threshold     = rent.exemption_threshold,
+    .burn_percent            = rent.burn_percent,
+  };
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -650,8 +672,6 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
   }
 
   uchar * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_vm_epoch_rewards_t) );
-  fd_vm_epoch_rewards_t * vm_epoch_rewards = (fd_vm_epoch_rewards_t *)out;
-  memset( vm_epoch_rewards, 0, sizeof(fd_vm_epoch_rewards_t) );
 
   fd_sysvar_epoch_rewards_t epoch_rewards;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_rewards_read( instr_ctx->sysvar_cache, &epoch_rewards ) ) ) {
@@ -659,13 +679,16 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
     return FD_VM_ERR_INVAL;
   }
 
-  vm_epoch_rewards->distribution_starting_block_height = epoch_rewards.distribution_starting_block_height;
-  vm_epoch_rewards->num_partitions                     = epoch_rewards.num_partitions;
-  vm_epoch_rewards->parent_blockhash                   = epoch_rewards.parent_blockhash;
-  vm_epoch_rewards->total_points                       = epoch_rewards.total_points;
-  vm_epoch_rewards->total_rewards                      = epoch_rewards.total_rewards;
-  vm_epoch_rewards->distributed_rewards                = epoch_rewards.distributed_rewards;
-  vm_epoch_rewards->active                             = epoch_rewards.active;
+  fd_vm_epoch_rewards_t * vm_epoch_rewards = (fd_vm_epoch_rewards_t *)out;
+  *vm_epoch_rewards = (fd_vm_epoch_rewards_t){
+    .distribution_starting_block_height = epoch_rewards.distribution_starting_block_height,
+    .num_partitions                     = epoch_rewards.num_partitions,
+    .parent_blockhash                   = epoch_rewards.parent_blockhash,
+    .total_points                       = epoch_rewards.total_points,
+    .total_rewards                      = epoch_rewards.total_rewards,
+    .distributed_rewards                = epoch_rewards.distributed_rewards,
+    .active                             = epoch_rewards.active,
+  };
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
