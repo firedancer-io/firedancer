@@ -1955,7 +1955,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
 
-          fd_bpf_state_t program_state[1];
+        fd_bpf_state_t program_state[1];
         err = fd_bpf_loader_program_get_state( program_account.meta, program_state );
         if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
