@@ -290,6 +290,12 @@ random_test( fd_rng_t * rng,
   for( ulong test_outer=0UL; test_outer<iterations; test_outer+=100UL ) {
     FD_LOG_NOTICE(( "iteration %lu/%lu. RNG at (%u, %lu)", test_outer, iterations, fd_rng_seq( rng ), fd_rng_idx( rng ) ));
     for( ulong test=test_outer; test<test_outer+100UL; test++ ) {
+      /* If we don't reset the signer idx, the free_acct_map starts
+         getting really big since it holds all the cached unique signer
+         accounts, and fd_rdisp_verify gets really slow.  We can't reset
+         it to 0, or it will conflict with ushort_to_acct(0), so just
+         reset it to 1. */
+      signer_idx = 1UL;
       struct {
         ulong  adj_matrix[64]; /* bit s of adj_matrix[d] is 1 if there's an edge from s to d */
         ushort acct_cnt[64];
