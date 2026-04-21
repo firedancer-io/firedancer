@@ -656,8 +656,8 @@ fd_vm_init(
 
   /* Reset lazy page zeroing bitmaps so stack/heap pages are lazily
      zeroed on first access during this invocation. */
-  vm->stack_zero_bitmap[0] = 0UL; vm->stack_zero_bitmap[1] = 0UL;
-  vm->heap_zero_bitmap [0] = 0UL; vm->heap_zero_bitmap [1] = 0UL;
+  memset( vm->stack_zero_bitmap, 0, FD_VM_LAZY_BITMAP_WORDS * sizeof(ulong) );
+  memset( vm->heap_zero_bitmap,  0, FD_VM_LAZY_BITMAP_WORDS * sizeof(ulong) );
 
   /* Unpack input and rodata */
   fd_vm_mem_cfg( vm );
