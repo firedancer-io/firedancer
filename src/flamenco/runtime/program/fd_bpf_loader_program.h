@@ -304,7 +304,7 @@ fd_bpf_instruction_encode( fd_bpf_instruction_t const * in,
   return 0;
 }
 
-/* fd_bpf_upgradeable_loader_state_decode parses a bincode-encoded
+/* fd_bpf_state_decode parses a bincode-encoded
    UpgradeableLoaderState from [data, data+data_sz).  The output struct
    has no variable-length fields, so the decoder performs a fixed-size
    copy and does not retain any pointer into `data`.  Trailing bytes
