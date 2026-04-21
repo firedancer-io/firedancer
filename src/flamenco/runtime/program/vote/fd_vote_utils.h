@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_utils_h
 
 #include "fd_vote_codec.h"
-#include "../../fd_executor.h"
+#include "../../../../ballet/txn/fd_txn.h"
 
 /* Vote utility functions shared across vote program logic.
    Merged from the former fd_vote_common.h and fd_vote_lockout.h. */

@@ -1,12 +1,12 @@
 /* Test for SIMD-0312: create_account_allow_prefund */
 
 #include "../tests/fd_svm_mini.h"
-#include "../../accdb/fd_accdb_sync.h"
+#include "../../accdb/fd_accdb.h"
 #include "../fd_system_ids.h"
 #include "../../features/fd_features.h"
 #include "../../../disco/fd_txn_p.h"
 
-#define TEST_SLOTS_PER_EPOCH      (3UL)
+#define TEST_SLOTS_PER_EPOCH      (32UL)
 #define TEST_SLOT                 (10UL)
 #define TEST_LAMPORTS             (100000000000UL)
 
@@ -32,35 +32,32 @@ static fd_pubkey_t const OWNER_PUBKEY = {{
 }};
 
 struct test_env {
-  fd_svm_mini_t * mini;
-  fd_bank_t *     bank;
-  fd_xid_t        xid;
-  fd_txn_p_t      txn_p[1];
-  fd_txn_in_t     txn_in[1];
-  fd_txn_out_t    txn_out[1];
+  fd_svm_mini_t *    mini;
+  fd_bank_t *        bank;
+  fd_accdb_fork_id_t fork_id;
+  fd_txn_p_t         txn_p[1];
+  fd_txn_in_t        txn_in[1];
+  fd_txn_out_t       txn_out[1];
 };
 typedef struct test_env test_env_t;
 
 static void
-create_account_raw( fd_accdb_user_t *   user,
-                    fd_xid_t const *    xid,
+create_account_raw( fd_accdb_t *        accdb,
+                    fd_accdb_fork_id_t  fork_id,
                     fd_pubkey_t const * pubkey,
                     ulong               lamports,
                     uint                dlen,
                     uchar *             data,
                     fd_pubkey_t const * owner ) {
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( user, rw, xid, pubkey, dlen, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( user, rw, data, dlen );
-  rw->meta->lamports = lamports;
-  rw->meta->slot = TEST_SLOT;
-  rw->meta->executable = 0;
-  if( owner ) {
-    memcpy( rw->meta->owner, owner->key, 32UL );
-  } else {
-    memset( rw->meta->owner, 0UL, 32UL );
-  }
-  fd_accdb_close_rw( user, rw );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key );
+  if( data && dlen ) memcpy( entry.data, data, dlen );
+  entry.data_len   = dlen;
+  entry.lamports   = lamports;
+  entry.executable = 0;
+  if( owner ) memcpy( entry.owner, owner->key, 32UL );
+  else        memset( entry.owner, 0,          32UL );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
 }
 
 static void
@@ -75,7 +72,7 @@ setup_test( test_env_t * env, fd_svm_mini_t * mini, int enable_feature ) {
 
   ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, TEST_SLOT );
   env->bank = fd_svm_mini_bank( mini, child_idx );
-  env->xid  = fd_svm_mini_xid( mini, child_idx );
+  env->fork_id = fd_svm_mini_fork_id( mini, child_idx );
 
   fd_features_enable_cleaned_up( &env->bank->f.features );
   if( enable_feature ) {
@@ -212,14 +209,14 @@ typedef struct test_case test_case_t;
 
 static void
 run_test( fd_svm_mini_t * mini, test_case_t const * tc ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   setup_test( env, mini, tc->enable_feature );
 
   fd_pubkey_t const * effective_to_owner = tc->to_owner ? tc->to_owner : &fd_solana_system_program_id;
-  create_account_raw( mini->accdb, &env->xid, &TO_PUBKEY, tc->to_lamports, tc->to_dlen, tc->to_data, effective_to_owner );
+  create_account_raw( env->mini->runtime->accdb, env->fork_id, &TO_PUBKEY, tc->to_lamports, tc->to_dlen, tc->to_data, effective_to_owner );
 
   if( tc->from ) {
-    create_account_raw( mini->accdb, &env->xid, &FROM_PUBKEY, tc->from_lamports, tc->from_dlen, tc->from_data, &fd_solana_system_program_id );
+    create_account_raw( env->mini->runtime->accdb, env->fork_id, &FROM_PUBKEY, tc->from_lamports, tc->from_dlen, tc->from_data, &fd_solana_system_program_id );
   }
 
   build_txn( env, tc->ix_lamports, tc->ix_space, tc->ix_owner,

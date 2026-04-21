@@ -4,34 +4,32 @@
 #include "../fd_accdb_svm.h"
 
 void
-fd_sysvar_slot_hashes_init( fd_bank_t *               bank,
-                            fd_accdb_user_t *         accdb,
-                            fd_funk_txn_xid_t const * xid,
-                            fd_capture_ctx_t *        capture_ctx ) {
+fd_sysvar_slot_hashes_init( fd_bank_t *        bank,
+                            fd_accdb_t *       accdb,
+                            fd_capture_ctx_t * capture_ctx ) {
   uchar data[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ] = {0};
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_slot_hashes_id, data, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ );
+  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_slot_hashes_id, data, FD_SYSVAR_SLOT_HASHES_BINCODE_SZ );
 }
 
 void
-fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
-                              fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_capture_ctx_t *        capture_ctx ) {
-
-  fd_accdb_rw_t rw[1];
+fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
+                              fd_accdb_t *       accdb,
+                              fd_capture_ctx_t * capture_ctx ) {
   fd_accdb_svm_update_t update[1];
-  if( FD_UNLIKELY( !fd_accdb_svm_open_rw( accdb, bank, xid, rw, update, &fd_sysvar_slot_hashes_id, 0UL, 0 ) ) ) {
+  fd_accdb_entry_t entry = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_hashes_id, 0 );
+  if( FD_UNLIKELY( !entry.lamports ) ) {
     /* Agave initializes a new empty slot_hashes if it doesn't exist */
-    fd_sysvar_slot_hashes_init( bank, accdb, xid, capture_ctx );
-    if( FD_UNLIKELY( !fd_accdb_svm_open_rw( accdb, bank, xid, rw, update, &fd_sysvar_slot_hashes_id, 0UL, 0 ) ) ) {
+    fd_sysvar_slot_hashes_init( bank, accdb, capture_ctx );
+    entry = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_hashes_id, 0 );
+    if( FD_UNLIKELY( !entry.lamports ) ) {
       FD_LOG_ERR(( "state is missing slot hashes sysvar" ));
     }
   }
-  if( FD_UNLIKELY( 0!=memcmp( fd_accdb_ref_owner( rw->ro ), &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( 0!=memcmp( entry.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
     FD_LOG_ERR(( "slot hashes sysvar not owned by sysvar owner" ));
   }
-  uchar * data    = fd_accdb_ref_data   ( rw );
-  ulong   data_sz = fd_accdb_ref_data_sz( rw->ro );
+  uchar * data    = entry.data;
+  ulong   data_sz = entry.data_len;
   if( FD_UNLIKELY( data_sz < FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
     FD_LOG_HEXDUMP_ERR(( "invalid slot hashes sysvar", data, data_sz ));
   }
@@ -60,7 +58,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
     FD_STORE( ulong, data, keep + 1UL );
   }
 
-  fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
+  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &entry, update );
 }
 
 int

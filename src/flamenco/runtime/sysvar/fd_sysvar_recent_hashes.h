@@ -4,9 +4,7 @@
 /* fd_sysvar_recent_hashes.h manages the "recent block hashes" sysvar
    account (address SysvarRecentB1ockHashes11111111111111111111).  */
 
-#include "../../fd_flamenco_base.h"
-#include "../../accdb/fd_accdb_user.h"
-#include "fd_sysvar_base.h"
+#include "../fd_bank.h"
 
 /* FD_SYSVAR_RECENT_HASHES_CAP is the max number of block hash entries
    the recent blockhashes sysvar will include.
@@ -18,21 +16,20 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* The recent hashes sysvar */
-
 /* Initialize the recent hashes sysvar account. */
-void
-fd_sysvar_recent_hashes_init( fd_bank_t *               bank,
-                              fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_capture_ctx_t *        capture_ctx );
 
-/* Update the recent hashes sysvar account. This should be called at the start of every slot, before execution commences. */
 void
-fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
-                                fd_accdb_user_t *         accdb,
-                                fd_funk_txn_xid_t const * xid,
-                                fd_capture_ctx_t *        capture_ctx );
+fd_sysvar_recent_hashes_init( fd_bank_t *        bank,
+                              fd_accdb_t *       accdb,
+                              fd_capture_ctx_t * capture_ctx );
+
+/* Update the recent hashes sysvar account. This should be called at the
+   start of every slot, before execution commences. */
+
+void
+fd_sysvar_recent_hashes_update( fd_bank_t *        bank,
+                                fd_accdb_t *       accdb,
+                                fd_capture_ctx_t * capture_ctx );
 
 /* Validate recent hashes sysvar account data.  Returns 1 if content is
    valid, 0 if not. */

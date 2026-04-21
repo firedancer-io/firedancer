@@ -368,7 +368,7 @@ unprivileged_init( fd_topo_t *      topo,
 /* handle_data_frag can publish one data frag plus an error frag */
 #define STEM_BURST 2UL
 
-#define STEM_LAZY  1000L
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapdc_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapdc_tile_t)

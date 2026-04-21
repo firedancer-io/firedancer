@@ -163,7 +163,7 @@ write_account( fd_borrowed_account_t *   account,
   ulong         dlen = account ? fd_borrowed_account_get_data_len( account ) : 0UL;
 
   acc_region_metas[instr_acc_idx].original_data_len = dlen;
-  acc_region_metas[instr_acc_idx].meta              = account->meta;
+  acc_region_metas[instr_acc_idx].entry             = account->entry;
 
   /* Legacy behavior: no virtual_address_space_adjustments (also implies no direct mapping)
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L132-L142 */
@@ -265,8 +265,6 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
                                          int                       direct_mapping,
                                          ulong *                   instr_data_offset,
                                          ulong *                   serialized_bytes_written ) {
-  fd_pubkey_t * txn_accs = ctx->txn_out->accounts.keys;
-
   /* Transaction sanitisation limits the number of instruction accounts to
      FD_TXN_ACCT_ADDR_MAX. */
   uchar  acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
@@ -287,7 +285,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L540-L570 */
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     uchar         acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
-    fd_pubkey_t * acc     = &txn_accs[acc_idx];
+    fd_pubkey_t * acc     = &ctx->txn_out->accounts.keys[acc_idx];
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       /* Duplicate. Store 8 byte buffer to maintain alignment but store the
@@ -317,9 +315,6 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
         return err;
       }
 
-      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L542 */
-      fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &view_acc );
-
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L544 */
       uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx->instr, (uchar)i, NULL );
       FD_STORE( uchar, serialized_params, is_signer );
@@ -331,7 +326,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
       serialized_params += sizeof(uchar);
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L546-L547 */
-      uchar is_executable = (uchar)metadata->executable;
+      uchar is_executable = (uchar)view_acc.entry->executable;
       FD_STORE( uchar, serialized_params, is_executable );
       serialized_params += sizeof(uchar);
 
@@ -349,20 +344,20 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
       serialized_params += sizeof(fd_pubkey_t);
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L550 */
-      fd_pubkey_t owner = *(fd_pubkey_t *)&metadata->owner;
+      fd_pubkey_t owner = *(fd_pubkey_t *)&view_acc.entry->owner;
       acc_region_metas[i].vm_owner_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
         (ulong)(serialized_params - curr_serialized_params_start);
       FD_STORE( fd_pubkey_t, serialized_params, owner );
       serialized_params += sizeof(fd_pubkey_t);
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L551 */
-      ulong lamports = metadata->lamports;
+      ulong lamports = view_acc.entry->lamports;
       acc_region_metas[i].vm_lamports_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
         (ulong)(serialized_params - curr_serialized_params_start);
       FD_STORE( ulong, serialized_params, lamports );
       serialized_params += sizeof(ulong);
 
-      ulong acc_data_len = metadata->dlen;
+      ulong acc_data_len = view_acc.entry->data_len;
       pre_lens[i] = acc_data_len;
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L552 */
@@ -413,7 +408,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
   serialized_params += instr_data_len;
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L400 */
-  FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx->instr->program_id] );
+  FD_STORE( fd_pubkey_t, serialized_params, ctx->txn_out->accounts.keys[ctx->instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
 
   /* Write out the final region. */
@@ -565,8 +560,6 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
                                          int                       direct_mapping,
                                          ulong *                   instr_data_offset,
                                          ulong *                   serialized_bytes_written ) {
-  fd_pubkey_t const * txn_accs = ctx->txn_out->accounts.keys;
-
   /* Transaction sanitisation limits the number of instruction accounts to
      FD_TXN_ACCT_ADDR_MAX. */
   uchar  acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
@@ -584,7 +577,7 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
 
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     uchar               acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
-    fd_pubkey_t const * acc     = &txn_accs[acc_idx];
+    fd_pubkey_t const * acc     = &ctx->txn_out->accounts.keys[acc_idx];
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       // Duplicate
@@ -609,9 +602,7 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
         return err;
       }
 
-      fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &view_acc );
-
-      pre_lens[i] = metadata->dlen;
+      pre_lens[ i ] = view_acc.entry->data_len;
 
       uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx->instr, (uchar)i, NULL );
       FD_STORE( uchar, serialized_params, is_signer );
@@ -627,13 +618,13 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( fd_pubkey_t, serialized_params, key );
       serialized_params += sizeof(fd_pubkey_t);
 
-      ulong lamports = metadata->lamports;
+      ulong lamports = view_acc.entry->lamports;
       acc_region_metas[i].vm_lamports_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
         (ulong)(serialized_params - curr_serialized_params_start);
       FD_STORE( ulong, serialized_params, lamports );
       serialized_params += sizeof(ulong);
 
-      ulong acc_data_len = metadata->dlen;
+      ulong acc_data_len = view_acc.entry->data_len;
       FD_STORE( ulong, serialized_params, acc_data_len );
       serialized_params += sizeof(ulong);
 
@@ -651,13 +642,13 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
         input_mem_regions[*input_mem_regions_cnt-1U].vaddr_offset +
         input_mem_regions[*input_mem_regions_cnt-1U].address_space_reserved;
 
-      fd_pubkey_t owner = *(fd_pubkey_t *)&metadata->owner;
+      fd_pubkey_t owner = *(fd_pubkey_t *)&view_acc.entry->owner;
       acc_region_metas[i].vm_owner_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
         (ulong)(serialized_params - curr_serialized_params_start);
       FD_STORE( fd_pubkey_t, serialized_params, owner );
       serialized_params += sizeof(fd_pubkey_t);
 
-      uchar is_executable = (uchar)metadata->executable;
+      uchar is_executable = (uchar)view_acc.entry->executable;
       FD_STORE( uchar, serialized_params, is_executable );
       serialized_params += sizeof(uchar);
 
@@ -677,7 +668,7 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
   fd_memcpy( serialized_params, ctx->instr->data, instr_data_len );
   serialized_params += instr_data_len;
 
-  FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx->instr->program_id] );
+  FD_STORE( fd_pubkey_t, serialized_params, ctx->txn_out->accounts.keys[ctx->instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
 
   *serialized_bytes_written = (ulong)(serialized_params - serialized_params_start);
@@ -719,7 +710,7 @@ fd_bpf_loader_input_deserialize_for_abiv0( fd_exec_instr_ctx_t * ctx,
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, i, &view_acc );
 
       ulong lamports = FD_LOAD( ulong, input_cursor );
-      if( fd_borrowed_account_get_acc_meta( &view_acc ) && fd_borrowed_account_get_lamports( &view_acc )!=lamports ) {
+      if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &view_acc )!=lamports ) ) {
         int err = fd_borrowed_account_set_lamports( &view_acc, lamports );
         if( FD_UNLIKELY( err ) ) {
           return err;

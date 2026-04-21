@@ -4,7 +4,7 @@
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
 #include "../fd_accdb_svm.h"
-#include "../../accdb/fd_accdb_sync.h"
+#include "../../accdb/fd_accdb.h"
 #include "fd_sysvar_rent.h"
 
 FD_IMPORT_BINARY( example_stake_history, "src/flamenco/runtime/sysvar/test_sysvar_stake_history.bin" );
@@ -50,15 +50,14 @@ write_stake_history_account( test_sysvar_cache_env_t * env,
                              void const *              data,
                              ulong                     data_sz,
                              ulong                     lamports ) {
-  fd_accdb_svm_write( env->accdb, env->bank, &env->xid, NULL,
+  fd_accdb_svm_write( env->bank, env->accdb, NULL,
                       &fd_sysvar_stake_history_id, &fd_sysvar_owner_id,
-                      data, data_sz, lamports, 0,
-                      FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE );
+                      data, data_sz, lamports, 0 );
 }
 
 static void
 read_stake_history_view( test_sysvar_cache_env_t * env,
-                         fd_accdb_ro_t *           ro,
+                         fd_accdb_entry_t *        ro,
                          fd_stake_history_t *      view ) {
   FD_TEST( fd_accdb_open_ro( env->accdb, ro, &env->xid, &fd_sysvar_stake_history_id ) );
   FD_TEST( fd_accdb_ref_data_sz( ro )==FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
@@ -77,9 +76,15 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
     .activating   = 0x222UL,
     .deactivating = 0x333UL,
   };
-  fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_stake_history_update( env->bank, env->accdb, &env->xid, NULL, &entry0 );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_stake_history_init( env->bank, env->accdb, NULL );
+  fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry0 );
+  FD_TEST( fd_sysvar_cache_restore( env->bank, env->accdb ) );
+  FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
+
+  env->bank->f.slot = 432000UL;
+  env->bank->f.parent_slot = 431999UL;
+  fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry0 );
+  FD_TEST( fd_sysvar_cache_restore( env->bank, env->accdb ) );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
 
   {

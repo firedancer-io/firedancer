@@ -1083,6 +1083,7 @@ fd_banks_prune_one_dead_bank( fd_banks_t *                   banks,
 
     if( FD_LIKELY( started_replaying ) ) {
       cancel->txncache_fork_id = bank->txncache_fork_id;
+      cancel->accdb_fork_id     = bank->accdb_fork_id;
       cancel->slot             = bank->f.slot;
       cancel->bank_seq         = bank->bank_seq;
       cancel->bank_idx         = bank->idx;

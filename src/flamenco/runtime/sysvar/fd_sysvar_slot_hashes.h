@@ -8,14 +8,12 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_sysvar_slot_hashes_init( fd_bank_t *               bank,
-                            fd_accdb_user_t *         accdb,
-                            fd_funk_txn_xid_t const * xid,
+                            fd_accdb_t *              accdb,
                             fd_capture_ctx_t *        capture_ctx );
 
 void
 fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
-                              fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
+                              fd_accdb_t *              accdb,
                               fd_capture_ctx_t *        capture_ctx );
 
 int

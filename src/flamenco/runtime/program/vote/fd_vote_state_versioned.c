@@ -1,12 +1,11 @@
-#include "../fd_vote_program.h"
 #include "fd_vote_state_versioned.h"
 #include "fd_vote_utils.h"
 #include "fd_vote_state_v3.h"
 #include "fd_vote_state_v4.h"
 #include "fd_authorized_voters.h"
+#include "../fd_vote_program.h"
 #include "../../fd_runtime.h"
 #include "../../fd_system_ids.h"
-#include "../../../../choreo/tower/fd_tower_serdes.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L42 */
 #define DEFAULT_PRIOR_VOTERS_OFFSET 114
@@ -48,9 +47,9 @@ last_lockout( fd_vote_state_versioned_t * self ) {
 /**********************************************************************/
 
 int
-fd_vsv_get_state( fd_account_meta_t const *   meta,
+fd_vsv_get_state( fd_accdb_entry_t const *    entry,
                   fd_vote_state_versioned_t * versioned ) {
-  if( FD_UNLIKELY( !fd_vote_state_versioned_deserialize( versioned, fd_account_data( meta ), meta->dlen ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_state_versioned_deserialize( versioned, entry->data, entry->data_len ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -58,12 +57,10 @@ fd_vsv_get_state( fd_account_meta_t const *   meta,
 }
 
 int
-fd_vsv_deserialize( fd_account_meta_t const *   meta,
+fd_vsv_deserialize( fd_accdb_entry_t const *    entry,
                     fd_vote_state_versioned_t * versioned ) {
-  int rc = fd_vsv_get_state( meta, versioned );
-  if( FD_UNLIKELY( rc ) ) {
-    return rc;
-  }
+  int rc = fd_vsv_get_state( entry, versioned );
+  if( FD_UNLIKELY( rc ) ) return rc;
 
   if( FD_UNLIKELY( versioned->kind==fd_vote_state_versioned_enum_uninitialized ) ) {
     // FIXME: update back to INVALID_ACC_DATA once agave uses vote-interface@v6.0.0
@@ -706,9 +703,8 @@ fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self ) {
 }
 
 int
-fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
-  uchar const * data     = fd_account_data( meta );
-  ulong         data_len = meta->dlen;
+fd_vsv_is_correct_size_and_initialized( uchar const * data,
+                                        ulong         data_len ) {
   uint const *  disc_ptr = (uint const *)data; // NOT SAFE TO ACCESS YET!
 
   /* VoteStateV4::is_correct_size_and_initialized
@@ -735,10 +731,12 @@ fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta ) {
 }
 
 int
-fd_vsv_is_correct_size_owner_and_init( fd_account_meta_t const * meta ) {
-  if( FD_UNLIKELY( memcmp( meta->owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+fd_vsv_is_correct_size_owner_and_init( uchar const * owner,
+                                       uchar const * data,
+                                       ulong         data_len ) {
+  if( FD_UNLIKELY( memcmp( owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return 0;
   }
 
-  return fd_vsv_is_correct_size_and_initialized( meta );
+  return fd_vsv_is_correct_size_and_initialized( data, data_len );
 }
