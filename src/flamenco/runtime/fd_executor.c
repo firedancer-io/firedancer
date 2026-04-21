@@ -1537,12 +1537,10 @@ fd_execute_txn( fd_runtime_t *      runtime,
         &txn->instr[i]
     );
 
-#   if FD_HAS_FLATCC
     if( FD_UNLIKELY( dump_insn ) ) {
       // Capture the input and convert it into a Protobuf message
       fd_dump_instr_to_protobuf( runtime, bank, txn_in, txn_out, instr_info, i );
     }
-#   endif
 
     /* Update the current executing instruction index */
     runtime->instr.current_idx = i;

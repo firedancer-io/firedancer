@@ -272,6 +272,8 @@ fd_new_votes_insert( fd_new_votes_t *    new_votes,
   ele->pubkey = *pubkey;
   nv_dlist_ele_push_tail( dlist, ele, pool );
 
+  FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_out );
+  FD_LOG_DEBUG(( "insert: pubkey=%s", pubkey_out ));
   fd_rwlock_unwrite( &new_votes->lock );
 }
 

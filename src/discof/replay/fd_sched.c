@@ -1456,6 +1456,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
     }
     FD_LOG_DEBUG(( "dying block %lu drained", block->slot ));
     subtree_abandon( sched, block );
+    try_activate_block( sched );
     return 0;
   }
 
@@ -2328,6 +2329,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 static void
 try_activate_block( fd_sched_t * sched ) {
+  /* Early return if there's already an active block. */
+  if( FD_LIKELY( sched->active_bank_idx!=ULONG_MAX ) ) return;
 
   /* See if there are any allocated staging lanes that we can activate
      for scheduling ... */
@@ -2420,15 +2423,25 @@ try_activate_block( fd_sched_t * sched ) {
          This invariant, by induction, gives us the guarantee that at
          least one of the lanes can be activated. */
       for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
-        if( FD_UNLIKELY( !lane_is_demotable( sched, l ) ) ) {
-          FD_LOG_CRIT(( "invariant violation: lane %d is not demotable", l ));
-        }
+        /* We would be able to assert that all lanes are demotable,
+           except that abandoned blocks are given no grace period for
+           deactivation.  So there could be lanes transiently occupied
+           by dying blocks that are neither demotable (due to in-flight
+           tasks) nor activatable (due to being dying).  If
+           rdisp_demote() supported non-empty blocks, then we could
+           probably restore the assertion. */
+        if( FD_UNLIKELY( !lane_is_demotable( sched, l ) ) ) continue;
         ulong demoted_cnt = demote_lane( sched, l );
         if( FD_UNLIKELY( demoted_cnt!=1UL ) ) {
           FD_LOG_CRIT(( "invariant violation: %lu blocks demoted from lane %d, expected 1 demotion", demoted_cnt, l ));
         }
         sched->metrics->lane_demoted_cnt++;
       }
+      /* We weren't able to successfully demote anything.  This is
+         likely because all lanes are occupied by dying blocks with
+         in-flight tasks.  We would get another chance to try to demote
+         when the last in-flight task on any lane completes. */
+      if( FD_UNLIKELY( sched->staged_bitset==fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) ) ) return;
     }
     FD_TEST( sched->staged_bitset!=fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) );
     int lane_idx = fd_ulong_find_lsb( ~sched->staged_bitset );

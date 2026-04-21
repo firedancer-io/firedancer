@@ -1825,24 +1825,22 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
-    tile->backtest.end_slot          = config->tiles.archiver.end_slot;
-    tile->backtest.ingest_dead_slots = config->tiles.archiver.ingest_dead_slots;
-    tile->backtest.root_distance     = config->tiles.archiver.root_distance;
-
-    /* Validate arguments based on the ingest mode */
-    if( !strcmp( config->tiles.archiver.ingest_mode, "rocksdb" ) ) {
-      fd_cstr_ncpy( tile->backtest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->backtest.rocksdb_path ) ) ) {
-        FD_LOG_ERR(( "`archiver.rocksdb_path` not specified in toml" ));
-      }
-    } else if( !strcmp( config->tiles.archiver.ingest_mode, "shredcap" ) ) {
-      fd_cstr_ncpy( tile->backtest.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->backtest.shredcap_path ) ) ) {
-        FD_LOG_ERR(( "`archiver.shredcap_path` not specified in toml" ));
-      }
-    } else {
-      FD_LOG_ERR(( "Invalid ingest mode: %s", config->tiles.archiver.ingest_mode ));
+    tile->backtest.root_distance = config->firedancer.development.backtest.root_distance;
+    fd_cstr_ncpy( tile->backtest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->backtest.ledger_format) );
+    fd_cstr_ncpy( tile->backtest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
+    if( FD_UNLIKELY( 0==strlen( tile->backtest.ledger_path ) ) ) {
+      FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
     }
+    tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "forkt" ) ) ) {
+
+    fd_cstr_ncpy( tile->forktest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->forktest.ledger_format) );
+    fd_cstr_ncpy( tile->forktest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
+    if( FD_UNLIKELY( 0==strlen( tile->forktest.ledger_path ) ) ) {
+      FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
+    }
+    tile->forktest.end_slot = config->firedancer.development.ledger_input.end_slot;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
 
@@ -1898,11 +1896,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->solcap.solcap_capture, config->capture.solcap_capture, sizeof(tile->solcap.solcap_capture) );
     tile->solcap.recent_only = config->capture.recent_only;
     tile->solcap.recent_slots_per_file = config->capture.recent_slots_per_file;
-
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "forkt" ) ) ) {
-
-    fd_cstr_ncpy( tile->forktest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
-    tile->forktest.shred_listen_port = config->tiles.shred.shred_listen_port;
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

@@ -31,10 +31,7 @@ Constructed using a full topology which is pruned down. */
 #include "../../../../flamenco/runtime/fd_acc_pool.h"
 #include "../../../../flamenco/accdb/fd_accdb_lineage.h"
 #include "../../../../ballet/shred/fd_shred.h"
-
-#if FD_HAS_ROCKSDB
-#include <rocksdb/c.h>
-#endif
+#include "../../../../discof/backtest/fd_backtest_src.h"
 
 #include <errno.h>
 #include <unistd.h> /* pause(2) */
@@ -72,61 +69,28 @@ forktest_perm( args_t *         args FD_PARAM_UNUSED,
 }
 
 static ushort
-forktest_recover_expected_shred_version( char const * rocksdb_path ) {
+forktest_recover_expected_shred_version( config_t const * config ) {
+  fd_backtest_src_opts_t opts = {
+    .path   = config->firedancer.development.ledger_input.path,
+    .format = config->firedancer.development.ledger_input.format,
+  };
 
-  rocksdb_options_t * opts = rocksdb_options_create(); FD_TEST( opts );
-  char const *                     cf_names[2] = { "default", "data_shred" };
-  rocksdb_column_family_handle_t * cf      [2] = {0};
-  rocksdb_options_t const *        cf_opts[2] = { opts, opts };
-  char * err = NULL;
-  rocksdb_t * db = rocksdb_open_for_read_only_column_families(
-      opts,
-      rocksdb_path,
-      2,
-      cf_names,
-      cf_opts,
-      cf,
-      0,
-      &err );
-  rocksdb_options_destroy( opts );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to open RocksDB at `%s`: %s", rocksdb_path, err ));
-  if( FD_UNLIKELY( !db ) ) FD_LOG_ERR(( "failed to open RocksDB at `%s`", rocksdb_path ));
+  uchar buf[ FD_SHRED_MAX_SZ ];
+  ulong shred_sz = fd_backtest_src_first_shred( &opts, buf, sizeof(buf) );
+  if( FD_UNLIKELY( !shred_sz ) ) FD_LOG_ERR(( "unable to recover shred version from `%s`", opts.path ));
 
-  ushort recovered_shred_version = 0U;
-  rocksdb_readoptions_t * ro = rocksdb_readoptions_create(); FD_TEST( ro );
-  rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( db, ro, cf[1] );
-  rocksdb_readoptions_destroy( ro );
-  if( FD_UNLIKELY( !iter ) ) FD_LOG_ERR(( "rocksdb_create_iterator_cf(data_shred) failed for `%s`", rocksdb_path ));
+  fd_shred_t const * shred = fd_shred_parse( buf, shred_sz );
+  if( FD_UNLIKELY( !shred ) ) FD_LOG_ERR(( "unable to parse first shred from `%s`", opts.path ));
 
-  rocksdb_iter_seek_to_first( iter );
-  for( ; rocksdb_iter_valid( iter ) && !recovered_shred_version; rocksdb_iter_next( iter ) ) {
-    size_t vlen = 0UL;
-    char const * value = rocksdb_iter_value( iter, &vlen );
-    if( FD_UNLIKELY( !value ) ) continue;
-
-    fd_shred_t const * shred = fd_shred_parse( (uchar const *)value, (ulong)vlen );
-    if( FD_UNLIKELY( !shred ) ) continue;
-    recovered_shred_version = shred->version;
-  }
-
-  rocksdb_iter_destroy( iter );
-  rocksdb_column_family_handle_destroy( cf[0] );
-  rocksdb_column_family_handle_destroy( cf[1] );
-  rocksdb_close( db );
-
-  if( FD_UNLIKELY( !recovered_shred_version ) ) {
-    FD_LOG_ERR(( "unable to recover shred version from RocksDB at `%s`", rocksdb_path ));
-  }
-
-  FD_LOG_INFO(( "Recovered expected shred version %hu", recovered_shred_version ));
-  return recovered_shred_version;
+  FD_LOG_INFO(( "Recovered expected shred version %hu", shred->version ));
+  return shred->version;
 }
 
 static void
 forktest_topo( config_t * config ) {
 
   if( FD_UNLIKELY( !config->consensus.expected_shred_version ) ) {
-    config->consensus.expected_shred_version = forktest_recover_expected_shred_version( config->tiles.archiver.rocksdb_path );
+    config->consensus.expected_shred_version = forktest_recover_expected_shred_version( config );
   }
 
   config->development.sandbox  = 0;
@@ -429,6 +393,7 @@ forktest_topo( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "forkt", 0UL,            "metric_in", "replay_epoch",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "forkt", 0UL,                         "gossip_out",    0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "forkt", 0UL,            "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "forkt", 0UL,            "metric_in", "replay_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   if( FD_LIKELY( snapshots_enabled ) ) {
                       fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapld_dc",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -540,12 +505,12 @@ forktest_topo( config_t * config ) {
 
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
-      FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] only provides for %lu cores. "
+      FD_LOG_ERR(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [development.forktest.affinity] only provides for %lu cores. "
                    "You should either increase the number of cores dedicated to Firedancer in the affinity string, or decrease the number of cores needed by reducing "
                    "the total tile count. You can reduce the tile count by decreasing individual tile counts in the [layout] section of the configuration file.",
                    topo->tile_cnt, affinity_tile_cnt ));
     if( FD_UNLIKELY( affinity_tile_cnt>topo->tile_cnt ) )
-      FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [layout.affinity] provides for %lu cores. "
+      FD_LOG_WARNING(( "The topology you are using has %lu tiles, but the CPU affinity specified in the config tile as [development.forktest.affinity] provides for %lu cores. "
                        "Not all cores in the affinity will be used by Firedancer. You may wish to increase the number of tiles in the system by increasing "
                        "individual tile counts in the [layout] section of the configuration file.",
                        topo->tile_cnt, affinity_tile_cnt ));
@@ -736,5 +701,6 @@ action_t fd_action_forktest = {
   .args = forktest_cmd_args,
   .fn   = forktest_fn,
   .perm = forktest_perm,
-  .topo = forktest_topo
+  .topo = forktest_topo,
+  .is_local_cluster = 1
 };

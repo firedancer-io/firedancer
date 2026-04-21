@@ -5,13 +5,6 @@
 #include "../fd_pubkey_utils.h"
 #include "../../log_collector/fd_log_collector.h"
 
-/* The dynamically sized portion of the system program instruction only
-   comes from the seed.  This means in the worst case assuming that the
-   seed takes up the entire transaction MTU, the worst case footprint
-   is the sum of the size of the instruction and the transaction MTU.
-   This is not the tightest bound, but it's a reasonable bound. */
-
-#define FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT (FD_TXN_MTU + sizeof(fd_system_program_instruction_t))
 
 #define FD_FMT_ADDRESS(account_b58, base, out_fmt)                                                 \
   char out_fmt[ 128UL ];                                                                           \
@@ -347,8 +340,8 @@ fd_system_program_create_account_allow_prefund( fd_exec_instr_ctx_t * ctx,
    Matches Solana Labs system_processor SystemInstruction::CreateAccount { ... } => { ... } */
 
 int
-fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                                  ctx,
-                                       fd_system_program_instruction_create_account_t const * create_acc ) {
+fd_system_program_exec_create_account( fd_exec_instr_ctx_t *    ctx,
+                                       create_account_t const * create_acc ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L332 */
 
@@ -380,8 +373,8 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                    
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L530-L563 */
 
 int
-fd_system_program_exec_create_account_allow_prefund( fd_exec_instr_ctx_t *                                  ctx,
-                                                     fd_system_program_instruction_create_account_t const * args ) {
+fd_system_program_exec_create_account_allow_prefund( fd_exec_instr_ctx_t *    ctx,
+                                                     create_account_t const * args ) {
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L535-L540 */
   if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( ctx->bank, create_account_allow_prefund ) ) ) {
@@ -467,8 +460,8 @@ fd_system_program_exec_transfer( fd_exec_instr_ctx_t * ctx,
    Matches Solana Labs system_processor SystemInstruction::CreateAccountWithSeed { ... } => { ... } */
 
 int
-fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *                                            ctx,
-                                                 fd_system_program_instruction_create_account_with_seed_t const * args ) {
+fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *              ctx,
+                                                 create_account_with_seed_t const * args ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L360 */
 
@@ -544,8 +537,8 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
    Matches Solana Labs system_processor SystemInstruction::AllocateWithSeed { ... } => { ... } */
 
 int
-fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                                      ctx,
-                                           fd_system_program_instruction_allocate_with_seed_t const * args ) {
+fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *        ctx,
+                                           allocate_with_seed_t const * args ) {
   int err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L523 */
@@ -591,8 +584,8 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
    Matches Solana Labs system_processor SystemInstruction::AssignWithSeed { ... } => { ... } */
 
 int
-fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                                    ctx,
-                                         fd_system_program_instruction_assign_with_seed_t const * args ) {
+fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *      ctx,
+                                         assign_with_seed_t const * args ) {
   int err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#543 */
@@ -632,8 +625,8 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
    Matches Solana Labs system_processor SystemInstruction::TransferWithSeed { ... } => { ... } */
 
 int
-fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                                      ctx,
-                                           fd_system_program_instruction_transfer_with_seed_t const * args ) {
+fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *        ctx,
+                                           transfer_with_seed_t const * args ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L410 */
 
@@ -703,97 +696,47 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
 int
 fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, 150UL );
-  uchar instr_mem[ FD_SYSTEM_PROGRAM_INSTR_FOOTPRINT ] __attribute__((aligned(alignof(fd_system_program_instruction_t))));
 
-  fd_system_program_instruction_t * instruction = fd_bincode_decode_static_limited_deserialize(
-      system_program_instruction,
-      instr_mem,
-      ctx->instr->data,
-      ctx->instr->data_sz,
-      FD_TXN_MTU
-  );
-  if( FD_UNLIKELY( !instruction ) ) {
+  fd_system_program_instruction_t instruction;
+  ulong limited_sz = fd_ulong_min( ctx->instr->data_sz, FD_TXN_MTU );
+  if( FD_UNLIKELY( fd_system_program_instruction_decode( &instruction,
+                                                         ctx->instr->data,
+                                                         limited_sz ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  int result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-
-  switch( instruction->discriminant ) {
-  case fd_system_program_instruction_enum_create_account: {
-    result = fd_system_program_exec_create_account(
-        ctx, &instruction->inner.create_account );
-    break;
+  switch( instruction.discriminant ) {
+  case FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT:
+    return fd_system_program_exec_create_account( ctx, &instruction.inner.create_account );
+  case FD_SYSTEM_PROGRAM_INSTR_ASSIGN:
+    return fd_system_program_exec_assign( ctx, &instruction.inner.assign );
+  case FD_SYSTEM_PROGRAM_INSTR_TRANSFER:
+    return fd_system_program_exec_transfer( ctx, instruction.inner.transfer );
+  case FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT_WITH_SEED:
+    return fd_system_program_exec_create_account_with_seed( ctx, &instruction.inner.create_account_with_seed );
+  case FD_SYSTEM_PROGRAM_INSTR_ADVANCE_NONCE_ACCOUNT:
+    return fd_system_program_exec_advance_nonce_account( ctx );
+  case FD_SYSTEM_PROGRAM_INSTR_WITHDRAW_NONCE_ACCOUNT:
+    return fd_system_program_exec_withdraw_nonce_account( ctx, instruction.inner.withdraw_nonce_account );
+  case FD_SYSTEM_PROGRAM_INSTR_INITIALIZE_NONCE_ACCOUNT:
+    return fd_system_program_exec_initialize_nonce_account( ctx, &instruction.inner.initialize_nonce_account );
+  case FD_SYSTEM_PROGRAM_INSTR_AUTHORIZE_NONCE_ACCOUNT:
+    return fd_system_program_exec_authorize_nonce_account( ctx, &instruction.inner.authorize_nonce_account );
+  case FD_SYSTEM_PROGRAM_INSTR_ALLOCATE:
+    return fd_system_program_exec_allocate( ctx, instruction.inner.allocate );
+  case FD_SYSTEM_PROGRAM_INSTR_ALLOCATE_WITH_SEED:
+    return fd_system_program_exec_allocate_with_seed( ctx, &instruction.inner.allocate_with_seed );
+  case FD_SYSTEM_PROGRAM_INSTR_ASSIGN_WITH_SEED:
+    return fd_system_program_exec_assign_with_seed( ctx, &instruction.inner.assign_with_seed );
+  case FD_SYSTEM_PROGRAM_INSTR_TRANSFER_WITH_SEED:
+    return fd_system_program_exec_transfer_with_seed( ctx, &instruction.inner.transfer_with_seed );
+  case FD_SYSTEM_PROGRAM_INSTR_UPGRADE_NONCE_ACCOUNT:
+    return fd_system_program_exec_upgrade_nonce_account( ctx );
+  case FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT_ALLOW_PREFUND:
+    return fd_system_program_exec_create_account_allow_prefund( ctx, &instruction.inner.create_account_allow_prefund );
+  default:
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
-  case fd_system_program_instruction_enum_assign: {
-    result = fd_system_program_exec_assign(
-        ctx, &instruction->inner.assign );
-    break;
-  }
-  case fd_system_program_instruction_enum_transfer: {
-    result = fd_system_program_exec_transfer(
-        ctx, instruction->inner.transfer );
-    break;
-  }
-  case fd_system_program_instruction_enum_create_account_with_seed: {
-    result = fd_system_program_exec_create_account_with_seed(
-        ctx, &instruction->inner.create_account_with_seed );
-    break;
-  }
-  case fd_system_program_instruction_enum_advance_nonce_account: {
-    result = fd_system_program_exec_advance_nonce_account( ctx );
-    break;
-  }
-  case fd_system_program_instruction_enum_withdraw_nonce_account: {
-    result = fd_system_program_exec_withdraw_nonce_account(
-        ctx, instruction->inner.withdraw_nonce_account );
-    break;
-  }
-  case fd_system_program_instruction_enum_initialize_nonce_account: {
-    result = fd_system_program_exec_initialize_nonce_account(
-        ctx, &instruction->inner.initialize_nonce_account );
-    break;
-  }
-  case fd_system_program_instruction_enum_authorize_nonce_account: {
-    result = fd_system_program_exec_authorize_nonce_account(
-        ctx, &instruction->inner.authorize_nonce_account );
-    break;
-  }
-  case fd_system_program_instruction_enum_allocate: {
-    result = fd_system_program_exec_allocate( ctx, instruction->inner.allocate );
-    break;
-  }
-  case fd_system_program_instruction_enum_allocate_with_seed: {
-    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
-    result = fd_system_program_exec_allocate_with_seed(
-        ctx, &instruction->inner.allocate_with_seed );
-    break;
-  }
-  case fd_system_program_instruction_enum_assign_with_seed: {
-    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
-    result = fd_system_program_exec_assign_with_seed(
-        ctx, &instruction->inner.assign_with_seed );
-    break;
-  }
-  case fd_system_program_instruction_enum_transfer_with_seed: {
-    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L412
-    result = fd_system_program_exec_transfer_with_seed(
-        ctx, &instruction->inner.transfer_with_seed );
-    break;
-  }
-  case fd_system_program_instruction_enum_upgrade_nonce_account: {
-    // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L491
-    result = fd_system_program_exec_upgrade_nonce_account( ctx );
-    break;
-  }
-  case fd_system_program_instruction_enum_create_account_allow_prefund: {
-    // https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/programs/system/src/system_processor.rs#L530-L563
-    result = fd_system_program_exec_create_account_allow_prefund(
-        ctx, &instruction->inner.create_account_allow_prefund );
-    break;
-  }
-  }
-
-  return result;
 }
 
 /**********************************************************************/
@@ -818,22 +761,12 @@ fd_get_system_account_kind( fd_account_meta_t const * meta ) {
   }
 
   /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L60-L64 */
-  fd_nonce_state_versions_t versions[1];
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      nonce_state_versions, versions,
-      fd_account_data( meta ),
-      meta->dlen ) ) ) {
+  fd_nonce_state_versions_t state[1];
+  if( FD_UNLIKELY( fd_nonce_state_versions_decode( state, fd_account_data( meta ), meta->dlen ) ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
   }
 
-  fd_nonce_state_t * state = NULL;
-  if( fd_nonce_state_versions_is_current( versions ) ) {
-    state = &versions->inner.current;
-  } else {
-    state = &versions->inner.legacy;
-  }
-
-  if( FD_LIKELY( fd_nonce_state_is_initialized( state ) ) ) {
+  if( FD_LIKELY( state->kind==FD_NONCE_STATE_INITIALIZED ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_NONCE;
   }
 

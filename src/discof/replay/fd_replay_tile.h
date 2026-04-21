@@ -168,7 +168,9 @@ struct fd_replay_oc_advanced {
 typedef struct fd_replay_oc_advanced fd_replay_oc_advanced_t;
 
 struct fd_replay_root_advanced {
-  ulong bank_idx;
+  ulong     bank_idx;
+  ulong     slot;
+  fd_hash_t bank_hash;
 };
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 

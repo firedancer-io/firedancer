@@ -4,8 +4,7 @@ set -euo pipefail
 PROJECT_ROOT=../../../..
 
 # Allow overriding proto version; default pinned
-PROTO_VERSION="${PROTO_VERSION:-v5.6.0}"
-FLATCC="${FLATCC:-${PROJECT_ROOT}/opt/bin/flatcc}"
+PROTO_VERSION="${PROTO_VERSION:-v6.0.0}"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/ballet/nanopb/nanopb_tag.txt)
@@ -41,8 +40,3 @@ fi
 
 rm -rf generated/*
 ./nanopb/generator/nanopb_generator.py -I ./protosol/proto -L "" -C ./protosol/proto/*.proto -D generated
-
-# Generate flatbuffer headers
-rm -rf flatbuffers/generated/*
-$FLATCC --prefix=fd_ -a -I protosol/flatbuffers -r -o flatbuffers/generated/ protosol/flatbuffers/*.fbs
-python3 fixup_flatbuffers.py

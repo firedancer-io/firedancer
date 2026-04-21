@@ -1006,6 +1006,88 @@ test_pairing( FD_FN_UNUSED fd_rng_t * rng ) {
     dt = fd_log_wallclock() - dt;
     log_bench( "fd_bls12_381_pairing_syscall", iter, dt );
   }
+
+  /* Regression: identity-point handling must match blstrs::multi_miller_loop,
+     which substitutes Fp12::ONE for any pair where either side is the point
+     at infinity. A bare blst_miller_loop_n() does NOT, so each identity pair
+     must be filtered out before the Miller loop.
+     https://github.com/filecoin-project/blstrs/blob/v0.7.1/src/lib.rs#L238-L273 */
+  {
+    /* Uncompressed infinity: `0x40` high-flag in X's most-significant byte,
+       all other bytes zero. In LE the flag lands at the last byte of the X
+       field (48 bytes for G1, 96 bytes for G2) after per-field byte reversal. */
+    uchar g1_inf_be[ 96   ] = { 0 }; g1_inf_be[ 0] = 0x40;
+    uchar g2_inf_be[ 96*2 ] = { 0 }; g2_inf_be[ 0] = 0x40;
+    uchar g1_inf_le[ 96   ] = { 0 }; g1_inf_le[47] = 0x40;
+    uchar g2_inf_le[ 96*2 ] = { 0 }; g2_inf_le[95] = 0x40;
+
+    /* Gt::identity = Fp12::ONE. BE puts the `1` at the last byte; LE at byte 0. */
+    uchar gt_id_be[ 48*12 ] = { 0 }; gt_id_be[ 48*12-1 ] = 0x01;
+    uchar gt_id_le[ 48*12 ] = { 0 }; gt_id_le[ 0       ] = 0x01;
+
+    /* A known valid G1 and G2 point (reused from test 1 above, BE). */
+    uchar g1_be[ 96   ];
+    uchar g2_be[ 96*2 ];
+    fd_hex_decode( g1_be,
+      "03a16836f27410320f712a266c0b7f402bf93285690885ee2206bd7799244b41"
+      "57f95a6d85c8cb197f44fbf30ed2cc23127c950544b239e6fd9ac0a305929064"
+      "0766094c43fb932d1b6fccd5db8d3a0beb6406dc4de6e8c8d2c803b80a5017a4",
+      96 );
+    fd_hex_decode( g2_be,
+      "08f9da9ae87dfab9993c849bbc7732cd204cb8b5a49e400cb3b5965fe209af33"
+      "a9b922b2f9a11ba4d26babcbf60b9e560e87c5e1072c5ef3d8c864c7760e6ab5"
+      "58cacf9ce3657eec2ebdee49dc769749fff96767ffb95b52d4946e13d46fc7c5"
+      "04901991c48ecdfc555530f3d13e39d42c955171ab3cc149280b2478133e0219"
+      "16e8e332234baccd02251b41b6064a2b01ef6981b862d7510f13ab27fc39b0ab"
+      "b5477cfb35cad5213aaf342959e6d9b1201852a6f0e8df188d46791933ad1e06",
+      192 );
+
+    /* Single pair with both identities. */
+    FD_TEST( fd_bls12_381_pairing_syscall( r, g1_inf_be, g2_inf_be, 1, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_be, 48*12 ) );
+    FD_TEST( fd_bls12_381_pairing_syscall( r, g1_inf_le, g2_inf_le, 1, 0 /*LE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_le, 48*12 ) );
+
+    /* Single pair, identity G1 + valid G2 ⇒ Gt::identity. */
+    FD_TEST( fd_bls12_381_pairing_syscall( r, g1_inf_be, g2_be, 1, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_be, 48*12 ) );
+
+    /* Single pair, valid G1 + identity G2 ⇒ Gt::identity. */
+    FD_TEST( fd_bls12_381_pairing_syscall( r, g1_be, g2_inf_be, 1, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_be, 48*12 ) );
+
+    /* Reference: e(G1, G2) with both valid — non-identity Gt value. */
+    uchar e_valid[ 48*12 ];
+    FD_TEST( fd_bls12_381_pairing_syscall( e_valid, g1_be, g2_be, 1, 1 /*BE*/ )==0 );
+    FD_TEST( !fd_memeq( e_valid, gt_id_be, 48*12 ) );
+
+    /* 2-pair batch. Adding an identity pair (in either position) must not
+       change the result. Regression for compact-array indexing. */
+    uchar a_buf[ 96*2 ];
+    uchar b_buf[ 96*2*2 ];
+
+    memcpy( a_buf,       g1_be,     96  );
+    memcpy( a_buf+96,    g1_inf_be, 96  );
+    memcpy( b_buf,       g2_be,     192 );
+    memcpy( b_buf+192,   g2_inf_be, 192 );
+    FD_TEST( fd_bls12_381_pairing_syscall( r, a_buf, b_buf, 2, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, e_valid, 48*12 ) );
+
+    memcpy( a_buf,       g1_inf_be, 96  );
+    memcpy( a_buf+96,    g1_be,     96  );
+    memcpy( b_buf,       g2_inf_be, 192 );
+    memcpy( b_buf+192,   g2_be,     192 );
+    FD_TEST( fd_bls12_381_pairing_syscall( r, a_buf, b_buf, 2, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, e_valid, 48*12 ) );
+
+    /* 2-pair batch, both identities ⇒ Gt::identity. */
+    memcpy( a_buf,       g1_inf_be, 96  );
+    memcpy( a_buf+96,    g1_inf_be, 96  );
+    memcpy( b_buf,       g2_inf_be, 192 );
+    memcpy( b_buf+192,   g2_inf_be, 192 );
+    FD_TEST( fd_bls12_381_pairing_syscall( r, a_buf, b_buf, 2, 1 /*BE*/ )==0 );
+    FD_TEST( fd_memeq( r, gt_id_be, 48*12 ) );
+  }
 }
 
 static void

@@ -380,9 +380,9 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
               for( ulong req_id=req_head; req_id<req_tail; req_id++ ) {
                 ulong req_idx = req_id & (FD_VINYL_REQ_MAX-1UL);
-                int   discard = (_req[ req_idx ].link_id == client_idx); /* Note: link_id remapped while pending */
+                int   keep = (_req[ req_idx ].link_id != client_idx); /* Note: link_id remapped while pending */
                 _req[ req_tail_new & (FD_VINYL_REQ_MAX-1UL) ] = _req[ req_idx ];
-                req_tail_new += (ulong)discard;
+                req_tail_new += (ulong)keep;
               }
 
               ulong discard_cnt = req_tail - req_tail_new;
@@ -397,7 +397,16 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
               quota_free += _client[ client_idx ].quota_max;
               burst_free += _client[ client_idx ].burst_max;
 
-              _client[ client_idx ] = _client[ --client_cnt ];
+              ulong last_idx = --client_cnt;
+              _client[ client_idx ] = _client[ last_idx ];
+
+              /* Remap pending requests from the swapped client to its
+                 new index. */
+
+              for( ulong req_id=req_head; req_id<req_tail; req_id++ ) {
+                ulong req_idx = req_id & (FD_VINYL_REQ_MAX-1UL);
+                if( _req[ req_idx ].link_id == last_idx ) _req[ req_idx ].link_id = client_idx;
+              }
 
               exec_max = client_cnt ? ((FD_VINYL_REQ_MAX - burst_free + client_cnt - 1UL) / client_cnt) : 0UL;
 

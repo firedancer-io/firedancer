@@ -107,23 +107,16 @@ create_nonce_account_initialized( fd_svm_mini_t *     mini,
                                   fd_hash_t const *   durable_nonce,
                                   ulong               fee_lamports_per_sig ) {
   fd_nonce_state_versions_t state = {
-    .discriminant = fd_nonce_state_versions_enum_current,
-    .inner = { .current = {
-      .discriminant = fd_nonce_state_enum_initialized,
-      .inner = { .initialized = {
-        .authority      = *authority,
-        .durable_nonce  = *durable_nonce,
-        .fee_calculator = { .lamports_per_signature = fee_lamports_per_sig }
-      } }
-    } }
+    .version                = FD_NONCE_VERSION_CURRENT,
+    .kind                   = FD_NONCE_STATE_INITIALIZED,
+    .authority              = *authority,
+    .durable_nonce          = *durable_nonce,
+    .lamports_per_signature = fee_lamports_per_sig
   };
 
   uchar nonce_data[ FD_SYSTEM_PROGRAM_NONCE_DLEN ] = {0};
-  fd_bincode_encode_ctx_t enc = {
-    .data    = nonce_data,
-    .dataend = nonce_data + FD_SYSTEM_PROGRAM_NONCE_DLEN
-  };
-  FD_TEST( fd_nonce_state_versions_encode( &state, &enc )==0 );
+  ulong written = 0UL;
+  FD_TEST( fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written )==0 );
 
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( mini->accdb, rw, xid, nonce_pubkey,
@@ -140,18 +133,13 @@ create_nonce_account_uninitialized( fd_svm_mini_t *     mini,
                                     fd_xid_t const *    xid,
                                     fd_pubkey_t const * nonce_pubkey ) {
   fd_nonce_state_versions_t state = {
-    .discriminant = fd_nonce_state_versions_enum_current,
-    .inner = { .current = {
-      .discriminant = fd_nonce_state_enum_uninitialized,
-    } }
+    .version = FD_NONCE_VERSION_CURRENT,
+    .kind    = FD_NONCE_STATE_UNINITIALIZED
   };
 
   uchar nonce_data[ FD_SYSTEM_PROGRAM_NONCE_DLEN ] = {0};
-  fd_bincode_encode_ctx_t enc = {
-    .data    = nonce_data,
-    .dataend = nonce_data + FD_SYSTEM_PROGRAM_NONCE_DLEN
-  };
-  FD_TEST( fd_nonce_state_versions_encode( &state, &enc )==0 );
+  ulong written = 0UL;
+  FD_TEST( fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written )==0 );
 
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( mini->accdb, rw, xid, nonce_pubkey,
@@ -170,16 +158,16 @@ read_nonce_fee( fd_svm_mini_t *     mini,
   fd_accdb_ro_t ro[1];
   FD_TEST( fd_accdb_open_ro( mini->accdb, ro, xid, nonce_pubkey ) );
 
-  fd_nonce_state_versions_t state[1];
-  FD_TEST( fd_bincode_decode_static(
-      nonce_state_versions, state,
+  fd_nonce_state_versions_t state = {0};
+  FD_TEST( fd_nonce_state_versions_decode(
+      &state,
       fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz( ro ) ) );
+      fd_accdb_ref_data_sz( ro ) )==0 );
   fd_accdb_close_ro( mini->accdb, ro );
 
-  FD_TEST( state->discriminant == fd_nonce_state_versions_enum_current );
-  FD_TEST( state->inner.current.discriminant == fd_nonce_state_enum_initialized );
-  return state->inner.current.inner.initialized.fee_calculator.lamports_per_signature;
+  FD_TEST( state.version == FD_NONCE_VERSION_CURRENT );
+  FD_TEST( state.kind    == FD_NONCE_STATE_INITIALIZED );
+  return state.lamports_per_signature;
 }
 
 static ulong
