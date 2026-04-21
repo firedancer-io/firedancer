@@ -157,10 +157,10 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
-  uchar               program_id_idx = ctx->instr->program_id;
-  fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
-  uchar               is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
-                                      ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar      program_id_idx = ctx->instr->program_id;
+  fd_acc_t * program_acc    = &ctx->txn_out->accounts.account[program_id_idx];
+  uchar      is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
+                              ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
   int stack_push_err = fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr );
@@ -408,10 +408,10 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   int virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
   int direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
-  uchar               program_id_idx = ctx->instr->program_id;
-  fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
-  uchar               is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
-                                       ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar      program_id_idx = ctx->instr->program_id;
+  fd_acc_t * program_acc    = &ctx->txn_out->accounts.account[program_id_idx];
+  uchar      is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
+                              ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack */
   FD_TEST( !fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr ) );

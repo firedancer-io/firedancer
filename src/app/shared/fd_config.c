@@ -472,9 +472,8 @@ fd_config_validatef( fd_configf_t const * config ) {
     }
   }
 
-  CFG_HAS_NON_ZERO( accounts.max_accounts           );
-  CFG_HAS_NON_ZERO( accounts.file_size_gib          );
-  CFG_HAS_NON_ZERO( accounts.mean_account_footprint );
+  CFG_HAS_NON_ZERO( accounts.max_accounts   );
+  CFG_HAS_NON_ZERO( accounts.cache_size_gib );
 
   CFG_HAS_NON_ZERO( runtime.program_cache.mean_cache_entry_size );
   CFG_HAS_NON_ZERO( runtime.program_cache.heap_size_mib );

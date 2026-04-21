@@ -33,8 +33,8 @@ FD_PROTOTYPES_BEGIN
    241,000,000 * 0.000005 = 1,205 SOL.
    This brings our total cost to 550,685 SOL. */
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (241000000UL)
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000UL)
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2410000UL)
 
 /* The expected stake and vote account values are based on observed
    values on mainnet and testnet allowing for some growth.  These are
@@ -240,6 +240,19 @@ FD_PROTOTYPES_BEGIN
 #define BPF_LOADER_SERIALIZATION_FOOTPRINT (671764016UL)
 FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
 
+/* FD_SYSVAR_INSTRUCTIONS_FOOTPRINT bounds the worst-case serialized
+   size of the sysvar instructions account.  See
+   fd_sysvar_instructions.c for the format.  Worst case:
+     - 2 bytes header (num_instructions)
+     - FD_TXN_INSTR_MAX * 2 = 128 bytes (instruction offsets)
+     - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
+       = 36 bytes * FD_TXN_INSTR_MAX (64) = 2304 bytes
+     - per-acct ref: 33 bytes * FD_INSTR_ACCT_MAX (1094) = 36102 bytes
+     - instr data total: bounded by FD_TXN_MTU (1232 bytes)
+     - 2 bytes tail (current_instr_idx)
+   Total: 39770 bytes, rounded up to 40960. */
+#define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (40960UL)
+
 #define FD_HARD_FORKS_MAX (64UL)
 
 /* Snapshot manifest array bounds.  They are used to size arrays and
@@ -250,7 +263,6 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
 #define FD_EPOCH_STAKES_LEN      (3UL)
 #define FD_EPOCH_VOTE_STAKES_MAX (40200UL)
 
-static const FD_FN_UNUSED fd_account_meta_t FD_ACCOUNT_META_DEFAULT = {0};
 
 FD_PROTOTYPES_END
 

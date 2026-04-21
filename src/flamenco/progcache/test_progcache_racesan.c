@@ -1,6 +1,7 @@
 #include "fd_progcache_admin.h"
 #include "fd_progcache_user.h"
 #include "fd_progcache_reclaim.h"
+#include "fd_progcache_clock.h"
 #include "test_progcache_common.c"
 #include "fd_prog_load.h"
 #include "../runtime/fd_system_ids.h"
@@ -38,7 +39,7 @@ struct fiber {
       fd_progcache_fork_id_t fork_id;
       fd_pubkey_t            prog_addr;
       fd_prog_load_env_t     load_env;
-      fd_accdb_ro_t *        prog_ro;
+      fd_acc_t const *        prog_ro;
     } pull;
 
     struct {
@@ -92,7 +93,7 @@ fiber_pull( fiber_t *                  fiber,
             fd_progcache_fork_id_t     fork_id,
             void const *               prog_addr,
             fd_prog_load_env_t const * load_env,
-            fd_accdb_ro_t *            prog_ro ) {
+            fd_acc_t const *            prog_ro ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->pull.cache     = fiber->cache;
   fiber->pull.fork_id   = fork_id;
@@ -236,8 +237,8 @@ test_pull_pull( fd_wksp_t * wksp ) {
 
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
-    fd_racesan_weave_add( w, fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.ro ) );
-    fd_racesan_weave_add( w, fiber_pull( &g_fiber[ 1 ], shmem, xid, &key, &load_env, acc.ro ) );
+    fd_racesan_weave_add( w, fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry ) );
+    fd_racesan_weave_add( w, fiber_pull( &g_fiber[ 1 ], shmem, xid, &key, &load_env, acc.entry ) );
 
     metrics_reset();
     fd_racesan_weave_exec_rand( w, i, STEP_MAX );
@@ -278,7 +279,7 @@ test_pull_peek( fd_wksp_t * wksp ) {
 
     fd_racesan_weave_t w[1];
     fd_racesan_weave_new( w );
-    fd_racesan_weave_add( w, fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.ro ) );
+    fd_racesan_weave_add( w, fiber_pull( &g_fiber[ 0 ], shmem, xid, &key, &load_env, acc.entry ) );
     fd_racesan_weave_add( w, fiber_peek( &g_fiber[ 1 ], shmem, xid, &key ) );
 
     metrics_reset();
@@ -322,7 +323,7 @@ test_cancel_peek( fd_wksp_t * wksp ) {
       xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env, acc.ro );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -373,7 +374,7 @@ test_publish_evict( fd_wksp_t * wksp ) {
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.ro );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -420,7 +421,7 @@ test_peek_root( fd_wksp_t * wksp ) {
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.ro );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -468,7 +469,7 @@ test_peek_cancel( fd_wksp_t * wksp ) {
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.ro );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -516,7 +517,7 @@ test_peek_peek( fd_wksp_t * wksp ) {
       xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env, acc.ro );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -567,9 +568,9 @@ test_peek_root_sibling( fd_wksp_t * wksp ) {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
       fd_progcache_rec_t * rec;
-      rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.ro );
+      rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
-      rec = fd_progcache_pull( tmp, xid2, &key, &load_env, acc.ro );
+      rec = fd_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
     }
@@ -617,9 +618,9 @@ test_peek_peek_root( fd_wksp_t * wksp ) {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
       fd_progcache_rec_t * rec;
-      rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.ro );
+      rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
-      rec = fd_progcache_pull( tmp, xid2, &key, &load_env, acc.ro );
+      rec = fd_progcache_pull( tmp, xid2, &key, &load_env, acc.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
     }
@@ -667,7 +668,7 @@ test_inject_at_hook( fd_wksp_t * wksp ) {
   {
     fd_progcache_t tmp[1];
     FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-    fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.ro );
+    fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
     FD_TEST( rec );
     fd_progcache_rec_close( tmp, rec );
     fd_progcache_leave( tmp, NULL );
@@ -707,7 +708,7 @@ test_publish_reclaim_evicted( fd_wksp_t * wksp ) {
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.ro );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -759,9 +760,9 @@ test_root_evict_two( fd_wksp_t * wksp ) {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
       fd_progcache_rec_t * rec;
-      rec = fd_progcache_pull( tmp, xid1, &ka, &load_env, acc_a.ro );
+      rec = fd_progcache_pull( tmp, xid1, &ka, &load_env, acc_a.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
-      rec = fd_progcache_pull( tmp, xid2, &kb, &load_env, acc_b.ro );
+      rec = fd_progcache_pull( tmp, xid2, &kb, &load_env, acc_b.entry );
       FD_TEST( rec ); fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
     }
@@ -813,7 +814,7 @@ test_publish_evict_stale( fd_wksp_t * wksp ) {
       xid_pre = fd_progcache_attach_child( admin, fd_progcache_fork_id_initial() );
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env_root, acc.ro );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid_pre, &key, &load_env_root, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
@@ -826,7 +827,7 @@ test_publish_evict_stale( fd_wksp_t * wksp ) {
     {
       fd_progcache_t tmp[1];
       FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
-      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env_child, acc.ro );
+      fd_progcache_rec_t * rec = fd_progcache_pull( tmp, xid1, &key, &load_env_child, acc.entry );
       FD_TEST( rec );
       fd_progcache_rec_close( tmp, rec );
       fd_progcache_leave( tmp, NULL );
