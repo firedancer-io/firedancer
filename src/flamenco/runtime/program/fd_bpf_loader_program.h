@@ -444,8 +444,8 @@ fd_bpf_state_encode( fd_bpf_state_t const * in,
   return 0;
 }
 
-/* fd_bpf_upgradeable_loader_state_size returns the bincode-exact wire
-   size for encoding.  Returns 0 for unknown discriminants. */
+/* fd_bpf_state_size returns the bincode-exact wire size for
+   encoding.  Returns 0 for unknown discriminants. */
 
 static inline ulong
 fd_bpf_state_size( fd_bpf_state_t const * in ) {
