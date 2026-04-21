@@ -21,12 +21,6 @@ setup_topo_banks( fd_topo_t *  topo,
                   int          larger_max_cost_per_block );
 
 void
-setup_topo_funk( fd_topo_t *  topo,
-                 ulong        max_account_records,
-                 ulong        max_database_transactions,
-                 ulong        heap_size_gib );
-
-void
 setup_topo_progcache( fd_topo_t *  topo,
                       char const * wksp_name,
                       ulong        max_cache_entries,
@@ -46,8 +40,16 @@ setup_topo_fec_sets( fd_topo_t *  topo,
                      ulong        sz );
 
 fd_topo_obj_t *
-setup_topo_acc_pool( fd_topo_t * topo,
-                     ulong       account_cnt );
+setup_topo_accdb( fd_topo_t *  topo,
+                  char const * wksp_name,
+                  ulong        max_accounts,
+                  ulong        max_live_slots,
+                  ulong        max_account_writes_per_slot,
+                  ulong        partition_cnt,
+                  ulong        partition_sz,
+                  ulong        cache_footprint,
+                  int          bundle_enabled,
+                  ulong        joiner_cnt );
 
 fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,

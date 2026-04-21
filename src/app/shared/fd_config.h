@@ -101,8 +101,7 @@ typedef struct fd_configh fd_configh_t;
 struct fd_configf {
   struct {
     ulong max_accounts;
-    ulong file_size_gib;
-    ulong mean_account_footprint;
+    ulong cache_size_gib;
   } accounts;
 
   struct {
@@ -118,7 +117,6 @@ struct fd_configf {
     ulong max_live_slots;
     int   fixed_fec_sets;
     ulong max_fork_width;
-    ulong concurrent_account_limit;
 
     struct {
       ulong heap_size_mib;
@@ -371,6 +369,10 @@ struct fd_config {
       char frontend_release_channel[ 16 ];
       int  frontend_release_channel_enum;
     } gui;
+
+    struct {
+      ulong partition_size_gib;
+    } accdb;
   } development;
 
   struct {

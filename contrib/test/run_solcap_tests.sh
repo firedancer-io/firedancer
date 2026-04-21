@@ -82,7 +82,6 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
     [tiles.rpc]
         enabled = false
 [accounts]
-    file_size_gib = 5
     max_accounts = 4000000
 [runtime]
     max_live_slots = 64

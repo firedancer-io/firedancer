@@ -12,6 +12,11 @@ specific parts (fdctl, fddev, discoh).  Focus on Firedancer equivalents
 Firedancer only supports x86-64 on Linux, other targets are not correct
 for example ARM due to TSO assumptions.
 
+Firedancer only supports x64 on Linux, other targets are not correct for
+example ARM due to TSO assumptions.
+
+## Topologies
+
 Topology: `src/app/firedancer/topology.c`.
 Tiles: `src/disco`, `src/discof`.
 

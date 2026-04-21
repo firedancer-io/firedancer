@@ -110,8 +110,7 @@
 #define FD_SNAPSHOT_MSG_CTRL_FINI              (9UL) /* Current snapshot has been fully loaded, finish processing */
 
 /* snapld -> snapct (via snapld_dc) */
-#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (18UL) /* snapld finished reading/downloading all data */
-
+#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (10UL) /* snapld finished reading/downloading all data */
 
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */

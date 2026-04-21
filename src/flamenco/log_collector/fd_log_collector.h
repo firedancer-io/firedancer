@@ -2,10 +2,10 @@
 #define HEADER_fd_src_flamenco_log_collector_fd_log_collector_h
 
 #include "fd_log_collector_base.h"
-#include "../runtime/context/fd_exec_instr_ctx.h"
 #include "../runtime/fd_runtime.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
+
 #include <stdio.h>
 #include <stdarg.h>
 
@@ -387,9 +387,9 @@ fd_log_collector_program_invoke( fd_exec_instr_ctx_t * ctx ) {
     return;
   }
 
-  fd_pubkey_t const * program_id_pubkey = &ctx->txn_out->accounts.keys[ ctx->instr->program_id ];
+  uchar const * program_id_pubkey = ctx->txn_out->accounts.account[ ctx->instr->program_id ].pubkey;
   /* Cache ctx->program_id_base58 */
-  fd_base58_encode_32( program_id_pubkey->uc, NULL, ctx->program_id_base58 );
+  fd_base58_encode_32( program_id_pubkey, NULL, ctx->program_id_base58 );
   /* Max msg_sz: 22 - 4 + 44 + 10 = 72 < 127 => we can use printf */
   fd_log_collector_printf_dangerous_max_127( ctx, "Program %s invoke [%u]", ctx->program_id_base58, ctx->runtime->instr.stack_sz );
 }

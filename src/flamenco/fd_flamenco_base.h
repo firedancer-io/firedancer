@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_fd_flamenco_base_h
 
 #include "../ballet/base58/fd_base58.h"
-#include "types/fd_cast.h"
 
 /* fd_w_u128 is a wrapped "uint128" type providing basic 128-bit
    unsigned int functionality even if the compile target does not
@@ -121,9 +120,6 @@ typedef struct fd_txn_out fd_txn_out_t;
 struct fd_log_collector;
 typedef struct fd_log_collector fd_log_collector_t;
 
-struct fd_acc_pool;
-typedef struct fd_acc_pool fd_acc_pool_t;
-
 struct fd_genesis;
 typedef struct fd_genesis fd_genesis_t;
 
@@ -152,26 +148,13 @@ struct fd_stashed_commission {
 };
 typedef struct fd_stashed_commission fd_stashed_commission_t;
 
-struct fd_account_meta {
-  uchar owner[32];
-  ulong lamports;
-  ulong slot;
-  uint  dlen;
-  uchar executable;
-  uchar padding[3];
-};
-typedef struct fd_account_meta fd_account_meta_t;
-
-FD_FN_PURE static inline uchar *
-fd_account_data( fd_account_meta_t const * acc ) {
-  return (uchar *)( acc+1 );
-}
-
 struct fd_hard_fork {
   ulong slot;
   ulong cnt; /* number of hard forks in that slot */
 };
 typedef struct fd_hard_fork fd_hard_fork_t;
+
+FD_PROTOTYPES_BEGIN
 
 struct fd_fee_rate_governor {
   ulong target_lamports_per_signature;

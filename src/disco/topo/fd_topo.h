@@ -370,6 +370,8 @@ struct fd_topo_tile {
 
       char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
       ushort expected_shred_version;
+      ulong  cache_size_gib;
+      ulong  accdb_obj_id;
     } gui;
 
     struct {
@@ -381,7 +383,9 @@ struct fd_topo_tile {
       ulong max_http_request_length;
 
       ulong max_live_slots;
-      ulong accdb_max_depth;
+
+      ulong accdb_obj_id;
+      ulong accdb_epoch_fseq_obj_id;
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
@@ -399,6 +403,7 @@ struct fd_topo_tile {
     struct {
       ulong fec_max;
 
+      ulong accdb_obj_id;
       ulong txncache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
@@ -440,10 +445,9 @@ struct fd_topo_tile {
 
     struct {
       ulong txncache_obj_id;
-      ulong acc_pool_obj_id;
+      ulong accdb_obj_id;
 
       ulong max_live_slots;
-      ulong accdb_max_depth;
 
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
@@ -525,16 +529,32 @@ struct fd_topo_tile {
     } forktest;
 
     struct {
+      ulong accdb_obj_id;
+
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
       int   wait_for_supermajority;
       ulong max_live_slots;
-      ulong accdb_max_depth;
       char  identity_key[ PATH_MAX ];
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];
     } tower;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong max_live_slots;
+
+      ulong rpc_epoch_obj_id;
+      ulong resolv_epoch_obj_ids[ 16 ];
+      ulong resolv_epoch_obj_cnt;
+    } accdb;
+
+    struct {
+      ulong max_live_slots;
+      ulong accdb_obj_id;
+      ulong accdb_epoch_fseq_obj_id;
+    } resolv;
 
     struct {
       char   folder_path[ PATH_MAX ];
@@ -595,11 +615,13 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
-      ulong accdb_max_depth;
-      ulong funk_obj_id;
-      ulong funk_locks_obj_id;
+      ulong accdb_obj_id;
       ulong txncache_obj_id;
     } snapin;
+
+    struct {
+      ulong partition_sz;
+    } snapwr;
 
     struct {
 
@@ -613,9 +635,8 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
-      ulong accdb_max_depth;
       ulong txncache_obj_id;
-      ulong acc_pool_obj_id;
+      ulong accdb_obj_id;
     } execle;
 
     struct {
@@ -634,7 +655,8 @@ struct fd_topo_tile {
       uint target_gid;
       uint target_uid;
 
-      ulong accdb_max_depth;
+      ulong max_live_slots;
+      ulong accdb_obj_id;
     } genesi;
 
     struct {
@@ -643,10 +665,6 @@ struct fd_topo_tile {
       int   recent_only;
       ulong recent_slots_per_file;
     } solcap;
-
-    struct {
-      ulong accdb_max_depth;
-    } resolv;
   };
 };
 

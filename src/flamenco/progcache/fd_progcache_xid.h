@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_progcache_fd_progcache_xid_h
 
 #include "../../util/bits/fd_bits.h"
-#include "../../funk/fd_funk_base.h"
 
 #if FD_HAS_X86
 #include <immintrin.h>
@@ -196,7 +195,7 @@ fd_progcache_txn_xid_st_atomic( fd_progcache_xid_t *       xd,
 
 FD_FN_PURE static inline ulong
 fd_progcache_xid_key_pair_hash( fd_progcache_xid_key_pair_t const * p,
-                                ulong                               seed ) {
+                                ulong                          seed ) {
   /* We ignore the xid part of the key because we need all the instances
      of a given record key to appear in the same hash
      chain. fd_progcache_rec_query_global depends on this. */
@@ -212,7 +211,7 @@ fd_progcache_xid_key_pair_hash( fd_progcache_xid_key_pair_t const * p,
 
 FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
 fd_progcache_txn_xid_hash( fd_progcache_xid_t const * x,
-                           ulong                      seed ) {
+                           ulong                     seed ) {
   return ( fd_ulong_hash( seed ^ (1UL<<0) ^ x->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ x->ul[1] ) ); /* tons of ILP */
 }
 
@@ -269,19 +268,6 @@ fd_progcache_txn_xid_set_root( fd_progcache_xid_t * x ) {
   ulong * a = x->ul;
   a[0] = ULONG_MAX; a[1] = ULONG_MAX;
   return x;
-}
-
-/* fd_progcache_xid_from_funk converts a funk transaction id into a
-   progcache transaction id.  fd_progcache_xid_t and fd_funk_txn_xid_t
-   are byte-compatible 16-byte identifiers; this helper exists to make
-   the type boundary explicit at progcache API call sites. */
-
-FD_FN_PURE static inline fd_progcache_xid_t
-fd_progcache_xid_from_funk( fd_funk_txn_xid_t const * src ) {
-  fd_progcache_xid_t out;
-  out.ul[0] = src->ul[0];
-  out.ul[1] = src->ul[1];
-  return out;
 }
 
 #endif /* HEADER_fd_src_flamenco_progcache_fd_progcache_xid_h */
