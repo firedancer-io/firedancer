@@ -379,10 +379,10 @@ fd_bpf_state_decode( fd_bpf_state_t * out,
 # undef CURSOR
 }
 
-/* fd_bpf_upgradeable_loader_state_encode serializes an
-   UpgradeableLoaderState into [buf, buf+bufsz).  On success stores the
-   number of bytes written to *out_sz and returns 0.  Returns -1 on
-   short buffer or unknown discriminant. */
+/* fd_bpf_state_encode serializes an UpgradeableLoaderState into
+   [buf, buf+bufsz).  On success stores the number of bytes written to
+   *out_sz and returns 0.  Returns -1 on short buffer or unknown
+   discriminant. */
 
 static inline int
 fd_bpf_state_encode( fd_bpf_state_t const * in,
