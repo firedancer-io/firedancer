@@ -106,7 +106,7 @@ union fd_bpf_instruction_inner {
 typedef union fd_bpf_instruction_inner fd_bpf_instruction_inner_t;
 
 struct fd_bpf_instruction {
-  uint                                                  discriminant;
+  uint                       discriminant;
   fd_bpf_instruction_inner_t inner;
 };
 typedef struct fd_bpf_instruction fd_bpf_instruction_t;
