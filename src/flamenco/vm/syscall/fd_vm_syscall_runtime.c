@@ -4,21 +4,10 @@
 #include "../../runtime/fd_system_ids.h"
 #include "fd_vm_syscall_macros.h"
 
-/* The VM structs for the epoch rewards and epoch schedule sysvars
-   involve padding which must be zeroed out.  These representations
-   are different from the runtime representations. */
-struct fd_vm_epoch_rewards {
-  ulong       distribution_starting_block_height;
-  ulong       num_partitions;
-  fd_hash_t   parent_blockhash;
-  fd_w_u128_t total_points;
-  ulong       total_rewards;
-  ulong       distributed_rewards;
-  uchar       active; /* 0 or 1 */
-};
-typedef struct fd_vm_epoch_rewards fd_vm_epoch_rewards_t;
-FD_STATIC_ASSERT( alignof(fd_vm_epoch_rewards_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, "vm epoch rewards alignment mismatch" );
-
+/* The VM structs for sysvars that are exposed by the VM are represented
+   differently from the representations of the accounts in the accounts
+   database. These structs usually have padding which must be zeroed
+   out. */
 struct fd_vm_epoch_schedule {
   ulong slots_per_epoch;
   ulong leader_schedule_slot_offset;
@@ -39,6 +28,9 @@ FD_STATIC_ASSERT( alignof(fd_vm_rent_t) == FD_VM_ALIGN_RUST_SYSVAR_RENT, "vm ren
 
 typedef fd_sol_sysvar_clock_t fd_vm_clock_t;
 FD_STATIC_ASSERT( alignof(fd_vm_clock_t) == FD_VM_ALIGN_RUST_SYSVAR_CLOCK, "vm clock alignment mismatch" );
+
+typedef fd_sysvar_epoch_rewards_t fd_vm_epoch_rewards_t;
+FD_STATIC_ASSERT( alignof(fd_vm_epoch_rewards_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, "vm epoch rewards alignment mismatch" );
 
 /* FIXME: In the original version of this code, there was an FD_TEST
    to check if the VM was attached to an instruction context (that

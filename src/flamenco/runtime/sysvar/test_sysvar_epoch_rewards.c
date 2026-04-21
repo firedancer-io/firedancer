@@ -1,7 +1,6 @@
 #include "fd_sysvar_epoch_rewards.h"
 #include "../../types/fd_types.h"
 
-
 FD_STATIC_ASSERT( alignof ( fd_sysvar_epoch_rewards_t                                     )==0x10UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, distribution_starting_block_height )==0x00UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, num_partitions                     )==0x08UL, layout );
