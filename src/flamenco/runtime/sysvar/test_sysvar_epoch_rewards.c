@@ -1,6 +1,17 @@
 #include "fd_sysvar_epoch_rewards.h"
 #include "../../types/fd_types.h"
 
+
+FD_STATIC_ASSERT( alignof ( fd_sysvar_epoch_rewards_t                                     )==0x10UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, distribution_starting_block_height )==0x00UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, num_partitions                     )==0x08UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, parent_blockhash                   )==0x10UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, total_points                       )==0x30UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, total_rewards                      )==0x40UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, distributed_rewards                )==0x48UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, active                             )==0x50UL, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_sysvar_epoch_rewards_t                                     )==0x60UL, layout );
+
 static void
 test_sysvar_epoch_rewards_bounds( void ) {
   /* Real sysvar account observed on-chain */

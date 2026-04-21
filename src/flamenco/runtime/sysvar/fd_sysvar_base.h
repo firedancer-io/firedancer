@@ -10,24 +10,16 @@
 #define FD_SYSVAR_CLOCK_BINCODE_SZ         (    40UL)
 
 #define FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ (    81UL)
-#define FD_SYSVAR_EPOCH_REWARDS_ALIGN      (    16UL)
-#define FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT  (    96UL)
 
 #define FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ (   33UL)
-#define FD_SYSVAR_EPOCH_SCHEDULE_ALIGN      (    8UL)
-#define FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT  (   40UL)
 
 #define FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ  (8UL)
-#define FD_SYSVAR_LAST_RESTART_SLOT_ALIGN       (8UL)
-#define FD_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT   (8UL)
 
 #define FD_SYSVAR_RECENT_HASHES_BINCODE_SZ (  6008UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/recent_blockhashes.rs#L157 */
 #define FD_SYSVAR_RECENT_HASHES_ALIGN      (     8UL)
 #define FD_SYSVAR_RECENT_HASHES_FOOTPRINT  (  6088UL)
 
 #define FD_SYSVAR_RENT_BINCODE_SZ          (    17UL)
-#define FD_SYSVAR_RENT_ALIGN               (     8UL)
-#define FD_SYSVAR_RENT_FOOTPRINT           (    24UL)
 
 #define FD_SYSVAR_SLOT_HASHES_BINCODE_SZ   ( 20488UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/slot_hashes.rs#L69 */
 #define FD_SYSVAR_SLOT_HASHES_ALIGN        (     8UL)
@@ -41,23 +33,23 @@
 #define FD_SYSVAR_STAKE_HISTORY_ALIGN      (     8UL)
 #define FD_SYSVAR_STAKE_HISTORY_FOOTPRINT  ( 16408UL)
 
-struct fd_sol_sysvar_clock {
+struct fd_sysvar_clock {
   ulong slot;
   long  epoch_start_timestamp;
   ulong epoch;
   ulong leader_schedule_epoch;
   long  unix_timestamp;
 };
-typedef struct fd_sol_sysvar_clock fd_sol_sysvar_clock_t;
+typedef struct fd_sysvar_clock fd_sol_sysvar_clock_t;
 
-struct __attribute__((packed, aligned(16))) fd_sysvar_epoch_rewards {
+struct fd_sysvar_epoch_rewards {
   ulong       distribution_starting_block_height;
   ulong       num_partitions;
   fd_hash_t   parent_blockhash;
   fd_w_u128_t total_points;
   ulong       total_rewards;
   ulong       distributed_rewards;
-  uchar       active;
+  uchar       active; /* 0 or 1 */
 };
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 
@@ -71,7 +63,7 @@ typedef struct fd_rent fd_rent_t;
 struct __attribute__((packed)) fd_epoch_schedule {
   ulong slots_per_epoch;
   ulong leader_schedule_slot_offset;
-  uchar warmup; /* encoded as a bool*/
+  uchar warmup; /* 0 or 1 */
   ulong first_normal_epoch;
   ulong first_normal_slot;
 };

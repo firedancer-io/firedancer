@@ -212,7 +212,7 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
                      pos->name, data_sz ));
       return EINVAL;
     }
-    if( FD_UNLIKELY( pos->validate && pos->validate( data, data_sz ) ) ) {
+    if( FD_UNLIKELY( pos->validate && pos->validate( data ) ) ) {
       FD_LOG_DEBUG(( "Failed to validate sysvar %s with data_sz=%lu",
                      pos->name, data_sz ));
       return EINVAL;

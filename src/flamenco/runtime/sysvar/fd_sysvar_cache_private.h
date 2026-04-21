@@ -7,10 +7,10 @@
 #define FD_SYSVAR_CACHE_MAGIC (0x1aa5ecb2a49b600aUL) /* random number */
 
 #define FD_SYSVAR_SIMPLE_ITER( SIMPLE_SYSVAR ) \
-SIMPLE_SYSVAR( clock,             CLOCK,             sol_sysvar_clock             ) \
-SIMPLE_SYSVAR( epoch_rewards,     EPOCH_REWARDS,     sysvar_epoch_rewards         ) \
-SIMPLE_SYSVAR( epoch_schedule,    EPOCH_SCHEDULE,    epoch_schedule               ) \
-SIMPLE_SYSVAR( rent,              RENT,              rent                         )
+SIMPLE_SYSVAR( clock,          CLOCK,          sol_sysvar_clock     ) \
+SIMPLE_SYSVAR( epoch_rewards,  EPOCH_REWARDS,  sysvar_epoch_rewards ) \
+SIMPLE_SYSVAR( epoch_schedule, EPOCH_SCHEDULE, epoch_schedule       ) \
+SIMPLE_SYSVAR( rent,           RENT,           rent                 )
 
 /* Declare a perfect hash table mapping sysvar IDs to sysvar cache slots
    Hashes bytes [8,12) of each sysvar address. */
@@ -60,9 +60,15 @@ struct fd_sysvar_pos {
 
   char const * name;
 
+  /* sysvars either have a decode function (along with a decode
+     footprint) function for complex type decodes or a validate function
+     for sysvars that are simple types that can be simply memcpy'd and
+     validated. */
+
   int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
   void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
-  int    (* validate)( void const * data, ulong data_sz );
+  /* returns 0 if valid, non-zero (-1) otherwise */
+  int    (* validate)( void const * data );
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
 
@@ -71,18 +77,16 @@ typedef struct fd_sysvar_pos fd_sysvar_pos_t;
   .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf
 
 static inline int
-fd_sysvar_validate_epoch_rewards( void const * data, ulong data_sz ) {
-  if( FD_UNLIKELY( data_sz!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) return 1;
+fd_sysvar_validate_epoch_rewards( void const * data ) {
   uchar active = ((fd_sysvar_epoch_rewards_t *)data)->active;
-  if( FD_UNLIKELY( active!=0 && active!=1 ) ) return 1;
+  if( FD_UNLIKELY( active!=0 && active!=1 ) ) return -1;
   return 0;
 }
 
 static inline int
-fd_sysvar_validate_epoch_schedule( void const * data, ulong data_sz ) {
-  if( FD_UNLIKELY( data_sz!=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ) ) return 1;
+fd_sysvar_validate_epoch_schedule( void const * data ) {
   uchar warmup = ((fd_epoch_schedule_t *)data)->warmup;
-  if( FD_UNLIKELY( warmup!=0 && warmup!=1 ) ) return 1;
+  if( FD_UNLIKELY( warmup!=0 && warmup!=1 ) ) return -1;
   return 0;
 }
 

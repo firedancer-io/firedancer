@@ -4,6 +4,42 @@
 #include "../../runtime/fd_system_ids.h"
 #include "fd_vm_syscall_macros.h"
 
+/* The VM structs for the epoch rewards and epoch schedule sysvars
+   involve padding which must be zeroed out.  These representations
+   are different from the runtime representations. */
+struct fd_vm_epoch_rewards {
+  ulong       distribution_starting_block_height;
+  ulong       num_partitions;
+  fd_hash_t   parent_blockhash;
+  fd_w_u128_t total_points;
+  ulong       total_rewards;
+  ulong       distributed_rewards;
+  uchar       active; /* 0 or 1 */
+};
+typedef struct fd_vm_epoch_rewards fd_vm_epoch_rewards_t;
+FD_STATIC_ASSERT( alignof(fd_vm_epoch_rewards_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, "vm epoch rewards alignment mismatch" );
+
+struct fd_vm_epoch_schedule {
+  ulong slots_per_epoch;
+  ulong leader_schedule_slot_offset;
+  uchar warmup; /* 0 or 1 */
+  ulong first_normal_epoch;
+  ulong first_normal_slot;
+};
+typedef struct fd_vm_epoch_schedule fd_vm_epoch_schedule_t;
+FD_STATIC_ASSERT( alignof(fd_vm_epoch_schedule_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE, "vm epoch schedule alignment mismatch" );
+
+struct fd_vm_rent {
+  ulong  lamports_per_uint8_year;
+  double exemption_threshold;
+  uchar  burn_percent;
+};
+typedef struct fd_vm_rent fd_vm_rent_t;
+FD_STATIC_ASSERT( alignof(fd_vm_rent_t) == FD_VM_ALIGN_RUST_SYSVAR_RENT, "vm rent alignment mismatch" );
+
+typedef fd_sol_sysvar_clock_t fd_vm_clock_t;
+FD_STATIC_ASSERT( alignof(fd_vm_clock_t) == FD_VM_ALIGN_RUST_SYSVAR_CLOCK, "vm clock alignment mismatch" );
+
 /* FIXME: In the original version of this code, there was an FD_TEST
    to check if the VM was attached to an instruction context (that
    would have crashed anyway because of pointer chasing).  If the VM
@@ -23,7 +59,7 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_clock_t) ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_vm_clock_t) ) );
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -33,15 +69,15 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_CLOCK,
-    .sz       = sizeof(fd_sol_sysvar_clock_t),
+    .sz       = sizeof(fd_vm_clock_t),
     .is_slice = 0,
   };
 
   fd_vm_haddr_query_t * queries[] = { &var_query };
   FD_VM_TRANSLATE_MUT( vm, queries );
 
-  fd_sol_sysvar_clock_t clock = fd_sysvar_cache_clock_read_nofail( instr_ctx->sysvar_cache );
-  memcpy( var_query.haddr, &clock, sizeof(fd_sol_sysvar_clock_t) );
+  fd_vm_clock_t clock = fd_sysvar_cache_clock_read_nofail( instr_ctx->sysvar_cache );
+  memcpy( var_query.haddr, &clock, sizeof(fd_vm_clock_t) );
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -59,7 +95,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_vm_epoch_schedule_t) ) );
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -69,7 +105,7 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE,
-    .sz       = FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT,
+    .sz       = sizeof(fd_vm_epoch_schedule_t),
     .is_slice = 0,
   };
 
@@ -82,14 +118,15 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
     return FD_VM_ERR_INVAL;
   }
 
-  /* Returned value has padding which must be zeroed out.*/
+  /* Returned value has padding which must be zeroed out. */
   uchar * dst = var_query.haddr;
-  memcpy( dst,      &schedule.slots_per_epoch,             8UL );
-  memcpy( dst+8UL,  &schedule.leader_schedule_slot_offset, 8UL );
-  memcpy( dst+16UL, &schedule.warmup,                      1UL );
-  memset( dst+17UL, 0UL,                                   7UL );
-  memcpy( dst+24UL, &schedule.first_normal_epoch,          8UL );
-  memcpy( dst+32UL, &schedule.first_normal_slot,           8UL );
+  fd_vm_epoch_schedule_t * vm_schedule = (fd_vm_epoch_schedule_t *)dst;
+  memset( vm_schedule, 0, sizeof(fd_vm_epoch_schedule_t) );
+  vm_schedule->slots_per_epoch             = schedule.slots_per_epoch;
+  vm_schedule->leader_schedule_slot_offset = schedule.leader_schedule_slot_offset;
+  vm_schedule->warmup                      = schedule.warmup;
+  vm_schedule->first_normal_epoch          = schedule.first_normal_epoch;
+  vm_schedule->first_normal_slot           = schedule.first_normal_slot;
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -110,7 +147,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_RENT_FOOTPRINT ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_vm_rent_t) ) );
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -120,7 +157,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_RENT,
-    .sz       = FD_SYSVAR_RENT_FOOTPRINT,
+    .sz       = sizeof(fd_vm_rent_t),
     .is_slice = 0,
   };
 
@@ -131,8 +168,11 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
 
   /* The returned value has padding which must be zeroed out. */
   uchar * dst = var_query.haddr;
-  memcpy( dst,                     &rent, sizeof(fd_rent_t) );
-  memset( dst + sizeof(fd_rent_t), 0UL,   7UL );
+  fd_vm_rent_t * vm_rent = (fd_vm_rent_t *)dst;
+  memset( vm_rent, 0, sizeof(fd_vm_rent_t) );
+  vm_rent->lamports_per_uint8_year = rent.lamports_per_uint8_year;
+  vm_rent->exemption_threshold     = rent.exemption_threshold;
+  vm_rent->burn_percent            = rent.burn_percent;
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
@@ -610,14 +650,16 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
   fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
-  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT ) );
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_vm_epoch_rewards_t) ) );
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
   }
 
-  uchar * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT );
+  uchar * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_vm_epoch_rewards_t) );
+  fd_vm_epoch_rewards_t * vm_epoch_rewards = (fd_vm_epoch_rewards_t *)out;
+  memset( vm_epoch_rewards, 0, sizeof(fd_vm_epoch_rewards_t) );
 
   fd_sysvar_epoch_rewards_t epoch_rewards;
   if( FD_UNLIKELY( !fd_sysvar_cache_epoch_rewards_read( instr_ctx->sysvar_cache, &epoch_rewards ) ) ) {
@@ -625,15 +667,13 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
     return FD_VM_ERR_INVAL;
   }
 
-  /* zero out padding at the end of the struct. */
-  memcpy( out,      &epoch_rewards.distribution_starting_block_height, 8UL  );
-  memcpy( out+8UL,  &epoch_rewards.num_partitions,                     8UL  );
-  memcpy( out+16UL, &epoch_rewards.parent_blockhash,                   32UL );
-  memcpy( out+48UL, &epoch_rewards.total_points,                       16UL );
-  memcpy( out+64UL, &epoch_rewards.total_rewards,                      8UL  );
-  memcpy( out+72UL, &epoch_rewards.distributed_rewards,                8UL  );
-  memcpy( out+80UL, &epoch_rewards.active,                             1UL  );
-  memset( out+81UL, 0,                                                 15UL );
+  vm_epoch_rewards->distribution_starting_block_height = epoch_rewards.distribution_starting_block_height;
+  vm_epoch_rewards->num_partitions                     = epoch_rewards.num_partitions;
+  vm_epoch_rewards->parent_blockhash                   = epoch_rewards.parent_blockhash;
+  vm_epoch_rewards->total_points                       = epoch_rewards.total_points;
+  vm_epoch_rewards->total_rewards                      = epoch_rewards.total_rewards;
+  vm_epoch_rewards->distributed_rewards                = epoch_rewards.distributed_rewards;
+  vm_epoch_rewards->active                             = epoch_rewards.active;
 
   *_ret = 0UL;
   return FD_VM_SUCCESS;
