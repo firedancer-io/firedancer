@@ -77,16 +77,23 @@ snapshot_create_cmd_fn( args_t *   args,
   fd_topo_wksp_t * metric_topo_wksp = &topo->workspaces[ metric_wksp_id ];
   fd_topo_join_workspace( topo, metric_topo_wksp, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_REGULAR );
   fd_topo_workspace_fill( topo, metric_topo_wksp );
-  ulong snapmk_tile_id = fd_topo_find_tile( topo, "snapmk", 0UL ); FD_TEST( snapmk_tile_id!=ULONG_MAX );
-  ulong snapzp_tile_id = fd_topo_find_tile( topo, "snapzp", 0UL ); FD_TEST( snapzp_tile_id!=ULONG_MAX );
-  fd_topo_tile_t const * snapmk_tile = &topo->tiles[ snapmk_tile_id ];
-  fd_topo_tile_t const * snapzp_tile = &topo->tiles[ snapzp_tile_id ];
-  ulong *          snapmk_metrics_obj = snapmk_tile->metrics;
-  ulong *          snapzp_metrics_obj = snapzp_tile->metrics;
-  ulong volatile * mk_tile_metrics    = fd_metrics_tile( snapmk_metrics_obj );
-  ulong volatile * zp_in_metrics      = fd_metrics_link_in( snapzp_metrics_obj, 0UL );
+
+  ulong                  snapmk_tile_id     = fd_topo_find_tile( topo, "snapmk", 0UL ); FD_TEST( snapmk_tile_id!=ULONG_MAX );
+  fd_topo_tile_t const * snapmk_tile        = &topo->tiles[ snapmk_tile_id ];
+  ulong *                snapmk_metrics_obj = snapmk_tile->metrics;
+  ulong volatile *       mk_tile_metrics    = fd_metrics_tile( snapmk_metrics_obj );
+
+  ulong snapzp_cnt = fd_topo_tile_name_cnt( topo, "snapzp" );
+  ulong volatile * zp_in_metrics[ FD_TOPO_MAX_TILE_IN_LINKS ];
+  for( ulong i=0UL; i<snapzp_cnt; i++ ) {
+    ulong snapzp_tile_id = fd_topo_find_tile( topo, "snapzp", 0UL ); FD_TEST( snapzp_tile_id!=ULONG_MAX );
+    fd_topo_tile_t const * snapzp_tile = &topo->tiles[ snapzp_tile_id ];
+    ulong *         snapzp_metrics_obj = snapzp_tile->metrics;
+    zp_in_metrics[ i ] = fd_metrics_link_in( snapzp_metrics_obj, i );
+  }
 
   ulong accounts_before = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
+  long dt = -fd_log_wallclock();
 
   /* Send snapshot create command */
   ulong err = send_admin_cmd( admin_cmd_mcache, admin_rsp_mcache, REPLAY_ADMIN_CMD_SNAP_CREATE );
@@ -110,22 +117,29 @@ snapshot_create_cmd_fn( args_t *   args,
   /* Wait for snapshot load to complete */
   fd_log_sleep( (long)5e6 );
   ulong accounts_processed_prev = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
-  ulong tot_sz_prev             = zp_in_metrics  [ MIDX( COUNTER, LINK,   CONSUMED_SIZE_BYTES ) ];
+  ulong tot_sz_prev = 0UL; for( ulong i=0UL; i<snapzp_cnt; i++ ) tot_sz_prev += zp_in_metrics[ i ][ MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) ];
   long period = (long)2e7;
   while( mk_tile_metrics[ MIDX( GAUGE, SNAPMK, ACTIVE ) ] ) {
     fd_log_sleep( period );
-    ulong accounts_processed = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED  ) ];
-    ulong tot_sz             = zp_in_metrics  [ MIDX( COUNTER, LINK,   CONSUMED_SIZE_BYTES ) ];
+    ulong accounts_processed = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
+    ulong tot_sz             = 0UL; for( ulong i=0UL; i<snapzp_cnt; i++ ) tot_sz += zp_in_metrics[ i ][ MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) ];
+    ulong accounts_delta     = accounts_processed - accounts_processed_prev;
+    ulong sz_delta           = tot_sz - tot_sz_prev;
     char buf[ 64 ];
     FD_LOG_NOTICE(( "  accounts=%7.2g/s  data=%s",
-      (double)(accounts_processed - accounts_processed_prev) * (1e9/(double)period),
-      fmt_bytes( buf, sizeof(buf), (double)(tot_sz - tot_sz_prev) * (1e9/(double)period) ) ));
+      (double)accounts_delta * (1e9/(double)period),
+      fmt_bytes( buf, sizeof(buf), (double)sz_delta * (1e9/(double)period) ) ));
     accounts_processed_prev = accounts_processed;
     tot_sz_prev = tot_sz;
   }
 
+  dt += fd_log_wallclock();
   ulong accounts_after = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
-  FD_LOG_NOTICE(( "Done (%lu accounts)", accounts_after - accounts_before ));
+  ulong account_cnt = accounts_after - accounts_before;
+  FD_LOG_NOTICE(( "Done: %lu accounts in %.1f seconds (%g accounts/s)",
+                  account_cnt,
+                  (double)dt/1e9,
+                  (double)account_cnt / ((double)dt/1e9) ));
 }
 
 action_t fd_action_snapshot_create = {

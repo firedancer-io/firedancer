@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
+#include "flame.h"
+#include "../../shared/commands/pid_tid.h"
 #include "../../platform/fd_sys_util.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod.h"
@@ -47,7 +49,7 @@ flame_cmd_args( int *    pargc,
                 args_t * args ) {
 
   if( FD_UNLIKELY( !*pargc ) ) FD_LOG_ERR(( "usage: flame [all|tile|tile:idx|agave]" ));
-  strncpy( args->flame.name, **pargv, sizeof( args->flame.name ) - 1 );
+  fd_cstr_ncpy( args->flame.name, **pargv, sizeof(args->flame.name) );
 
   (*pargc)--;
   (*pargv)++;
@@ -68,41 +70,9 @@ flame_cmd_fn( args_t *   args,
                      "show as [unknown]" ));
   }
 
-  ulong tile_cnt = 0UL;
-  ulong tile_idxs[ 128UL ];
-
-  int whole_process = 0;
-  if( FD_UNLIKELY( !strcmp( "all", args->flame.name ) ) ) {
-    FD_TEST( config->topo.tile_cnt<sizeof(tile_idxs)/sizeof(tile_idxs[0]) );
-    for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-      tile_idxs[ tile_cnt ] = i;
-      tile_cnt++;
-    }
-  } else if( FD_UNLIKELY( !strcmp( "agave", args->flame.name ) ) ) {
-    /* Find the bank tile so we can get the Agave PID */
-    ulong bank_tile_idx = fd_topo_find_tile( &config->topo, "bank", 0UL );
-    if( FD_UNLIKELY( bank_tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `bank` not found" ));
-    whole_process = 1;
-    tile_idxs[ 0 ] = bank_tile_idx;
-    tile_cnt = 1UL;
-  } else {
-    char * sep = strchr( args->flame.name, ':' );
-
-    ulong tile_idx;
-    if( FD_UNLIKELY( !sep ) ) {
-      tile_idx = fd_topo_find_tile( &config->topo, args->flame.name, 0UL );
-    } else {
-      char * endptr;
-      *sep = '\0';
-      ulong kind_id = strtoul( sep+1, &endptr, 10 );
-      if( FD_UNLIKELY( *endptr!='\0' || kind_id==ULONG_MAX ) ) FD_LOG_ERR(( "invalid tile kind id provided `%s`", sep+1 ));
-      tile_idx = fd_topo_find_tile( &config->topo, args->flame.name, kind_id );
-    }
-
-    if( FD_UNLIKELY( tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `%s` not found", args->flame.name ));
-    tile_idxs[ 0 ] = tile_idx;
-    tile_cnt = 1UL;
-  }
+  ushort tile_idxs[ 128 ];
+  _Bool whole_process;
+  ulong tile_cnt = fd_topo_match_tiles( &config->topo, tile_idxs, args->flame.name, &whole_process );
 
   char threads[ 4096 ] = {0};
   ulong len = 0UL;

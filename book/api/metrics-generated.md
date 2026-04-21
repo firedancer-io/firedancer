@@ -1350,6 +1350,17 @@
 
 </div>
 
+## Snapzp Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapzp_&#8203;accounts_&#8203;compressed</span> | counter | Number of accounts processed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;compressed</span> | counter | Number of bytes compressed |
+
+</div>
+
 ## Resolh Tile
 
 <div class="metrics">

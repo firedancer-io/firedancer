@@ -1197,6 +1197,11 @@ metric introduced.
     <counter name="AccountsProcessed" summary="Number of accounts processed" />
 </tile>
 
+<tile name="snapzp">
+    <counter name="AccountsCompressed" summary="Number of accounts processed" />
+    <counter name="BytesCompressed" summary="Number of bytes compressed" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 
