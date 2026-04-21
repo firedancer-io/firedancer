@@ -72,8 +72,8 @@ set of operations:
 - cancel: remove a fork and all its nodes/children
 - attach_root: promote a fork graph node to root and evict its siblings
 
-The program cache uses a variation of the funk data structure design.
-The fork graph is expressed as an n-ary tree:
+The program cache uses a variation of the accounts database structure
+design.  The fork graph is expressed as an n-ary tree:
 - each node maintains a doubly-linked list of siblings
 - each node maintains a doubly-linked list of cache records it owns
 

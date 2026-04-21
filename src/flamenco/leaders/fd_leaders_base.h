@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_leaders_fd_leaders_base_h
 #define HEADER_fd_src_flamenco_leaders_fd_leaders_base_h
 
-#include "../types/fd_types_custom.h"
 #include "../runtime/sysvar/fd_sysvar_base.h"
 #include "../features/fd_features.h"
 

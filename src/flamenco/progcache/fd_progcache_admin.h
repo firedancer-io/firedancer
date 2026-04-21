@@ -3,9 +3,6 @@
 
 #include "fd_progcache.h"
 
-struct fd_account_meta;
-typedef struct fd_account_meta fd_account_meta_t;
-
 union fd_features;
 typedef union fd_features fd_features_t;
 
@@ -39,9 +36,9 @@ fd_progcache_est_rec_max( ulong wksp_footprint,
    this is called. */
 
 void
-fd_progcache_attach_child( fd_progcache_join_t * cache,
-                           fd_xid_t const *      xid_parent,
-                           fd_xid_t const *      xid_new );
+fd_progcache_attach_child( fd_progcache_join_t *      cache,
+                           fd_progcache_xid_t const * xid_parent,
+                           fd_progcache_xid_t const * xid_new );
 
 /* fd_progcache_advance_root advances the fork graph root to the
    given xid.  (In funk terminology, this is the "last publish")
@@ -49,15 +46,15 @@ fd_progcache_attach_child( fd_progcache_join_t * cache,
    Assumes that the xid's parent is the fork graph root. */
 
 void
-fd_progcache_advance_root( fd_progcache_join_t * cache,
-                           fd_xid_t const *      xid );
+fd_progcache_advance_root( fd_progcache_join_t *      cache,
+                           fd_progcache_xid_t const * xid );
 
 /* fd_progcache_cancel removes a fork graph node by XID and its
    children (recursively). */
 
 void
-fd_progcache_cancel( fd_progcache_join_t * cache,
-                     fd_xid_t const *      xid );
+fd_progcache_cancel( fd_progcache_join_t *      cache,
+                     fd_progcache_xid_t const * xid );
 
 /* Reset operations ***************************************************/
 

@@ -65,14 +65,14 @@ get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
     }
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L63-L75 */
     case VOTE_STATE_TARGET_VERSION_V4: {
-      rc = fd_vsv_deserialize( vote_account->meta, vote_state_versioned );
+      rc = fd_vsv_deserialize( vote_account->entry, vote_state_versioned );
       if( FD_UNLIKELY( rc ) ) return rc;
 
       if( FD_UNLIKELY( fd_vsv_is_uninitialized( vote_state_versioned ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
       }
 
-      rc = fd_vsv_try_convert_to_v4( vote_state_versioned, vote_account->pubkey );
+      rc = fd_vsv_try_convert_to_v4( vote_state_versioned, (fd_pubkey_t*)vote_account->entry->pubkey );
       if( FD_UNLIKELY( rc ) ) return rc;
 
       return FD_EXECUTOR_INSTR_SUCCESS;
@@ -117,7 +117,7 @@ init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
       fd_vote_program_v3_create_new( vote_init, clock, versioned );
       return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned );
     case VOTE_STATE_TARGET_VERSION_V4:
-      fd_vote_state_v4_create_new_with_defaults( vote_account->pubkey, vote_init, clock, versioned );
+      fd_vote_state_v4_create_new_with_defaults( (fd_pubkey_t*)vote_account->entry->pubkey, vote_init, clock, versioned );
       return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
     default:
       FD_LOG_CRIT(( "unsupported version: %d", target_version ));
@@ -847,7 +847,7 @@ authorize( fd_exec_instr_ctx_t *         ctx,
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/mod.rs#L777-L782 */
       rc = fd_vote_verify_bls_proof_of_possession(
         ctx,
-        vote_account->pubkey->uc,
+        vote_account->entry->pubkey,
         vote_authorize->voter_with_bls.bls_pubkey,
         vote_authorize->voter_with_bls.bls_proof_of_possession
       );
@@ -1201,7 +1201,7 @@ initialize_account( fd_exec_instr_ctx_t *         ctx,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L916 */
-  rc = fd_vsv_get_state( vote_account->meta, versioned );
+  rc = fd_vsv_get_state( vote_account->entry, versioned );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L918-L920 */
@@ -1236,7 +1236,7 @@ initialize_account_v2( fd_exec_instr_ctx_t *         ctx,
   rc = check_vote_account_length( vote_account, target_version );
   if( FD_UNLIKELY( rc ) ) return rc;
 
-  rc = fd_vsv_get_state( vote_account->meta, versioned );
+  rc = fd_vsv_get_state( vote_account->entry, versioned );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   if( FD_UNLIKELY( !fd_vsv_is_uninitialized( versioned ) ) ) {
@@ -1251,7 +1251,7 @@ initialize_account_v2( fd_exec_instr_ctx_t *         ctx,
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/mod.rs#L1208-L1213 */
   rc = fd_vote_verify_bls_proof_of_possession(
     ctx,
-    vote_account->pubkey->uc,
+    vote_account->entry->pubkey,
     vote_init_v2->authorized_voter_bls_pubkey,
     vote_init_v2->authorized_voter_bls_proof_of_possession
   );

@@ -1,7 +1,7 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/fd_borrowed_account.h"
 #include "../../runtime/fd_system_ids.h"
-#include "../../runtime/program/fd_bpf_loader_program.h"
+#include "../../runtime/fd_executor.h"
 
 /* FIXME: ALGO EFFICIENCY */
 static inline int
@@ -150,15 +150,15 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
     /* Check that the account is not read-only in the caller but writable in the callee */
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.entry->pubkey, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
-    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.pubkey, signers, signers_cnt) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
+    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( (fd_pubkey_t*)borrowed_caller_acct.entry->pubkey, signers, signers_cnt) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.entry->pubkey, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
@@ -186,8 +186,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
   /* Obtain the program account index and return a MissingAccount error if not found.
     https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L430-L435 */
-  int program_idx = fd_exec_instr_ctx_find_idx_of_instr_account( instr_ctx, callee_program_id_pubkey );
-  if( FD_UNLIKELY( program_idx == -1 ) ) {
+  ulong program_idx = fd_exec_instr_ctx_find_idx_of_instr_account( instr_ctx, callee_program_id_pubkey );
+  if( FD_UNLIKELY( program_idx==ULONG_MAX ) ) {
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
     FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );

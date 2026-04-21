@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 /* Test for SIMD-0194: deprecate_rent_exemption_threshold
 
    This test simulates passing through several epoch boundaries,
@@ -16,11 +18,44 @@
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_cache.h"
-#include "../accdb/fd_accdb_admin_v1.h"
-#include "../accdb/fd_accdb_impl_v1.h"
-#include "../accdb/fd_accdb_sync.h"
+#include "../accdb/fd_accdb.h"
+#include "../accdb/fd_accdb_shmem.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_stake_types.h"
+
+#include <sys/mman.h>
+#include <errno.h>
+
+static fd_wksp_t *
+fd_wksp_new_lazy( ulong footprint ) {
+  footprint = fd_ulong_align_up( footprint, FD_SHMEM_NORMAL_PAGE_SZ );
+  void * mem = mmap( NULL, footprint, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
+  if( FD_UNLIKELY( mem==MAP_FAILED ) ) FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ulong part_max = fd_wksp_part_max_est( footprint, 64UL<<10 );
+  FD_TEST( part_max );
+  ulong data_max = fd_wksp_data_max_est( footprint, part_max );
+  FD_TEST( data_max );
+  fd_wksp_t * wksp = fd_wksp_join( fd_wksp_new( mem, "wksp", 1U, part_max, data_max ) );
+  FD_TEST( wksp );
+  FD_TEST( 0==fd_shmem_join_anonymous( "wksp", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, mem, FD_SHMEM_NORMAL_PAGE_SZ, footprint>>FD_SHMEM_NORMAL_LG_PAGE_SZ ) );
+  return wksp;
+}
+
+static void
+fd_wksp_delete_lazy( fd_wksp_t * wksp ) {
+  void * mem       = (void *)wksp;
+  ulong  footprint = fd_wksp_footprint( fd_wksp_part_max( wksp ), fd_wksp_data_max( wksp ) );
+  fd_shmem_leave_anonymous( wksp, NULL );
+  fd_wksp_delete( fd_wksp_leave( wksp ) );
+  munmap( mem, footprint );
+}
+
+static void
+drain_background( fd_accdb_t * accdb ) {
+  int charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
+}
 
 /* Values before deprecate_rent_exemption_threshold is activated */
 #define TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR (3480UL)
@@ -47,11 +82,10 @@ struct test_env {
   ulong                tag;
   fd_banks_t *         banks;
   fd_bank_t *          bank;
-  void *               funk_mem;
-  void *               funk_locks;
-  fd_accdb_admin_t     accdb_admin[1];
-  fd_accdb_user_t      accdb[1];
-  fd_funk_txn_xid_t    xid;
+  fd_accdb_t *         accdb;
+  void *               accdb_shmem;
+  void *               accdb_ljoin;
+  fd_accdb_fork_id_t   fork_id;
   fd_runtime_stack_t * runtime_stack;
 };
 typedef struct test_env test_env_t;
@@ -72,7 +106,7 @@ init_rent_sysvar( test_env_t * env,
     .exemption_threshold     = exemption_threshold,
     .burn_percent            = TEST_DEFAULT_SYSVAR_BURN_PERCENT
   };
-  fd_sysvar_rent_write( env->bank, env->accdb, &env->xid, NULL, &sysvar_rent );
+  fd_sysvar_rent_write( env->bank, env->accdb, NULL, &sysvar_rent );
 }
 
 static void
@@ -86,17 +120,29 @@ init_epoch_schedule_sysvar( test_env_t * env ) {
   };
 
   env->bank->f.epoch_schedule = epoch_schedule;
-  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &epoch_schedule );
+  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, NULL, &epoch_schedule );
 }
 
 static void
 init_stake_history_sysvar( test_env_t * env ) {
-  fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_stake_history_init( env->bank, env->accdb, NULL );
+
+  /* Seed the stake history so that the warmup calculation treats the
+     initial 1 SOL delegation as fully effective from the start. */
+  fd_epoch_stake_history_entry_pair_t pair = {
+    .epoch = 0UL,
+    .entry = {
+      .effective    = 1000000000UL,
+      .activating   = 0UL,
+      .deactivating = 0UL,
+    }
+  };
+  fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &pair );
 }
 
 static void
 init_clock_sysvar( test_env_t * env ) {
-  fd_sysvar_clock_init( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_clock_init( env->bank, env->accdb, NULL );
 }
 
 static void
@@ -135,26 +181,26 @@ add_vote_account( test_env_t *        env,
 
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, vote_account, sizeof(vote_state_data), FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( env->accdb, rw, vote_state_data, sizeof(vote_state_data) );
-  fd_accdb_ref_lamports_set( rw, 1000000000UL );
-  fd_accdb_ref_exec_bit_set( rw, 0 );
-  fd_memcpy( rw->meta->owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
-  fd_accdb_close_rw( env->accdb, rw );
+  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, vote_account->key, 1, 1 );
+  fd_memcpy( entry.data, vote_state_data, sizeof(vote_state_data) );
+  entry.data_len   = sizeof(vote_state_data);
+  entry.lamports   = 1000000000UL;
+  entry.executable = 0;
+  fd_memcpy( entry.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( env->accdb, &entry );
 }
 
 static void
 add_delegated_stake_account( test_env_t *        env,
                              fd_pubkey_t const * stake_account,
                              fd_pubkey_t const * vote_account ) {
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, stake_account, FD_STAKE_STATE_SZ, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_lamports_set( rw, 2000000000UL );
-  fd_accdb_ref_exec_bit_set( rw, 0 );
-  fd_memcpy( rw->meta->owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
-  fd_accdb_ref_data_sz_set( env->accdb, rw, FD_STAKE_STATE_SZ, 0 );
-  FD_STORE( fd_stake_state_t, fd_accdb_ref_data( rw ), ((fd_stake_state_t) {
+  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, stake_account->key, 1, 1 );
+  entry.lamports   = 2000000000UL;
+  entry.executable = 0;
+  fd_memcpy( entry.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
+  entry.data_len   = FD_STAKE_STATE_SZ;
+  FD_STORE( fd_stake_state_t, entry.data, ((fd_stake_state_t) {
     .stake_type = FD_STAKE_STATE_STAKE,
     .stake = {
       .meta = {
@@ -165,14 +211,15 @@ add_delegated_stake_account( test_env_t *        env,
         .delegation = {
           .voter_pubkey         = *vote_account,
           .stake                = 1000000000UL,
-          .activation_epoch     = 0UL,
+          .activation_epoch     = ULONG_MAX,
           .deactivation_epoch   = (ulong)-1,
           .warmup_cooldown_rate = 0.25
         }
       }
     }
   }) );
-  fd_accdb_close_rw( env->accdb, rw );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( env->accdb, &entry );
 }
 
 static void
@@ -187,7 +234,7 @@ add_bank_stake_delegation_entry( test_env_t *        env,
                                     stake_account,
                                     vote_account,
                                     1000000000UL,
-                                    0UL,
+                                    ULONG_MAX,
                                     ULONG_MAX,
                                     0UL,
                                     FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
@@ -200,21 +247,30 @@ test_env_create( test_env_t * env,
   env->wksp = wksp;
   env->tag  = 1UL;
 
-  ulong const funk_seed       = 17UL;
-  ulong const txn_max         = 2UL;
-  ulong const rec_max         = 16UL;
-  ulong const max_total_banks = 4UL;
-  ulong const max_fork_width  = 4UL;
+  ulong const max_accounts                = 64UL;
+  ulong const max_live_slots              = 8UL;
+  ulong const max_account_writes_per_slot = 16UL;
+  ulong const partition_cnt               = 1UL;
+  ulong const partition_sz                = 16UL<<20;
+  ulong const cache_fp                    = 16UL<<30;
+  ulong const joiner_cnt                  = 1UL;
+  ulong const seed                        = 17UL;
+  ulong const max_total_banks             = 4UL;
+  ulong const max_fork_width              = 4UL;
 
-  env->funk_mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( txn_max, rec_max ), env->tag );
-  FD_TEST( env->funk_mem );
-  env->funk_locks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( txn_max, rec_max ), env->tag );
-  FD_TEST( env->funk_locks );
-  FD_TEST( fd_funk_shmem_new( env->funk_mem, env->tag, funk_seed, txn_max, rec_max ) );
-  FD_TEST( fd_funk_locks_new( env->funk_locks, txn_max, rec_max ) );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, joiner_cnt );
+  env->accdb_shmem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), shmem_fp, env->tag );
+  FD_TEST( env->accdb_shmem );
+  FD_TEST( fd_accdb_shmem_new( env->accdb_shmem, max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, partition_sz, cache_fp, seed, joiner_cnt ) );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( env->accdb_shmem );
+  FD_TEST( shmem );
 
-  FD_TEST( fd_accdb_admin_v1_init( env->accdb_admin, env->funk_mem, env->funk_locks ) );
-  FD_TEST( fd_accdb_user_v1_init( env->accdb, env->funk_mem, env->funk_locks, txn_max ) );
+  ulong accdb_fp = fd_accdb_footprint( max_live_slots );
+  env->accdb_ljoin = fd_wksp_alloc_laddr( wksp, fd_accdb_align(), accdb_fp, env->tag );
+  FD_TEST( env->accdb_ljoin );
+  FD_TEST( fd_accdb_new( env->accdb_ljoin, shmem, 0 ) );
+  env->accdb = fd_accdb_join( env->accdb_ljoin );
+  FD_TEST( env->accdb );
 
   void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), fd_banks_footprint( max_total_banks, max_fork_width, 2048UL, 2048UL ), env->tag );
   FD_TEST( banks_mem );
@@ -229,10 +285,8 @@ test_env_create( test_env_t * env,
   FD_TEST( env->runtime_stack );
   FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) );
 
-  fd_funk_txn_xid_t root[1];
-  fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 1UL, env->bank->idx } };
-  fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
+  env->fork_id = fd_accdb_attach_child( env->accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
+  env->bank->accdb_fork_id = env->fork_id;
 
   init_rent_sysvar( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
   init_epoch_schedule_sysvar( env );
@@ -241,7 +295,7 @@ test_env_create( test_env_t * env,
   init_blockhash_queue( env );
 
   env->bank->f.slot = 1UL;
-  env->bank->f.epoch = 1UL;
+  env->bank->f.epoch = 0UL;
 
   fd_bank_top_votes_t_2_modify( env->bank );
 
@@ -254,6 +308,13 @@ test_env_create( test_env_t * env,
   fd_pubkey_t stake_account = { .ul[0] = 2UL };
   add_delegated_stake_account( env, &stake_account, &pubkey );
   add_bank_stake_delegation_entry( env, &stake_account, &pubkey );
+
+  /* Set up effective stake totals so the epoch boundary processing
+     writes correct stake history entries for warmup calculation. */
+  env->bank->f.total_effective_stake = 1000000000UL;
+  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
+  stake_delegations->effective_stake = 1000000000UL;
+
   FD_LOG_NOTICE(("fork idx %u", env->bank->vote_stakes_fork_id));
   ulong cnt = fd_vote_stakes_ele_cnt( vote_stakes, env->bank->vote_stakes_fork_id );
   FD_LOG_NOTICE(("cnt %lu", cnt));
@@ -262,8 +323,6 @@ test_env_create( test_env_t * env,
   fd_features_disable_all( &features );
   features.deprecate_rent_exemption_threshold = TEST_FEATURE_ACTIVATION_SLOT;
   env->bank->f.features = features;
-
-  fd_accdb_advance_root( env->accdb_admin, &env->xid );
 
   return env;
 }
@@ -275,10 +334,8 @@ test_env_destroy( test_env_t * env ) {
   fd_wksp_free_laddr( env->runtime_stack );
   fd_wksp_free_laddr( env->banks );
 
-  fd_accdb_admin_fini( env->accdb_admin );
-  fd_accdb_user_fini( env->accdb );
-  fd_wksp_free_laddr( fd_funk_delete( env->funk_mem ) );
-  fd_wksp_free_laddr( env->funk_locks );
+  fd_wksp_free_laddr( env->accdb_ljoin );
+  fd_wksp_free_laddr( env->accdb_shmem );
 
   fd_wksp_usage_t usage[1];
   fd_wksp_usage( env->wksp, &env->tag, 1UL, usage );
@@ -294,18 +351,14 @@ verify_rent_values( test_env_t * env,
                     double       expected_threshold,
                     uchar        expected_bank_burn_percent,
                     uchar        expected_sysvar_burn_percent ) {
-  fd_rent_t funk_rent[1];
-  FD_TEST( fd_sysvar_rent_read( env->accdb, &env->xid, funk_rent ) );
-  FD_TEST( funk_rent->lamports_per_uint8_year == expected_lamports );
-  FD_TEST( funk_rent->exemption_threshold     == expected_threshold );
-  FD_TEST( funk_rent->burn_percent            == expected_sysvar_burn_percent );
-
+  /* Verify bank-level rent values */
   fd_rent_t const * bank_rent = &env->bank->f.rent;
   FD_TEST( bank_rent );
   FD_TEST( bank_rent->lamports_per_uint8_year == expected_lamports );
   FD_TEST( bank_rent->exemption_threshold     == expected_threshold );
   FD_TEST( bank_rent->burn_percent            == expected_bank_burn_percent );
 
+  /* Verify sysvar cache rent values */
   fd_sysvar_cache_t const * sysvar_cache = &env->bank->f.sysvar_cache;
   fd_rent_t cache_rent[1];
   FD_TEST( fd_sysvar_cache_rent_read( sysvar_cache, cache_rent ) );
@@ -314,50 +367,50 @@ verify_rent_values( test_env_t * env,
   FD_TEST( cache_rent->burn_percent            == expected_sysvar_burn_percent );
 }
 
+/* Check if rent values changed from the given baseline. */
 static int
-rent_was_modified_in_txn( test_env_t *              env,
-                          fd_funk_txn_xid_t const * xid ) {
-  fd_funk_t * funk = fd_accdb_user_v1_funk( env->accdb );
-  fd_funk_rec_query_t query[1];
-  fd_funk_rec_key_t key = FD_LOAD( fd_funk_rec_key_t, fd_sysvar_rent_id.uc );
-  return fd_funk_rec_query_try( funk, xid, &key, query )!=NULL;
+rent_changed_from( test_env_t * env,
+                   ulong        baseline_lamports,
+                   double       baseline_threshold ) {
+  fd_rent_t const * bank_rent = &env->bank->f.rent;
+  return bank_rent->lamports_per_uint8_year != baseline_lamports ||
+         bank_rent->exemption_threshold     != baseline_threshold;
 }
 
 static int
 process_slot( test_env_t * env,
               ulong        slot ) {
   fd_bank_t * parent_bank = env->bank;
-  ulong parent_slot       = parent_bank->f.slot;
   ulong parent_bank_idx   = parent_bank->idx;
 
   FD_TEST( parent_bank->state==FD_BANK_STATE_FROZEN );
+
+  /* Snapshot rent values before processing */
+  ulong  prev_lamports  = env->bank->f.rent.lamports_per_uint8_year;
+  double prev_threshold = env->bank->f.rent.exemption_threshold;
 
   ulong new_bank_idx = fd_banks_new_bank( env->banks, parent_bank_idx, 0L )->idx;
   fd_bank_t * new_bank = fd_banks_clone_from_parent( env->banks, new_bank_idx );
   FD_TEST( new_bank );
 
   new_bank->f.slot = slot;
-  new_bank->f.parent_slot = parent_slot;
+  new_bank->f.parent_slot = parent_bank->f.slot;
 
-  fd_epoch_schedule_t const * epoch_schedule = &new_bank->f.epoch_schedule;
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
-  new_bank->f.epoch = epoch;
+  fd_accdb_fork_id_t new_fork_id = fd_accdb_attach_child( env->accdb, env->fork_id );
+  new_bank->accdb_fork_id = new_fork_id;
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
-  fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
-
-  env->xid  = xid;
-  env->bank = new_bank;
+  env->fork_id = new_fork_id;
+  env->bank    = new_bank;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( env->banks, env->bank, env->accdb, env->runtime_stack, NULL, &is_epoch_boundary );
 
-  int rent_modified = rent_was_modified_in_txn( env, &xid );
+  int rent_modified = rent_changed_from( env, prev_lamports, prev_threshold );
 
   fd_banks_mark_bank_frozen( new_bank );
 
-  fd_accdb_advance_root( env->accdb_admin, &xid );
+  fd_accdb_advance_root( env->accdb, new_fork_id );
+  drain_background( env->accdb );
   fd_banks_advance_root( env->banks, new_bank_idx );
 
   return rent_modified;
@@ -422,23 +475,14 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx > fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
-  char const * _page_sz = fd_env_strip_cmdline_cstr( &argc, &argv,  "--page-sz",  NULL, "gigantic" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL );
-  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
-
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
-
-  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  ulong wksp_sz = 20UL<<30; /* 20 GiB virtual (demand-paged) */
+  FD_LOG_NOTICE(( "Creating workspace (lazy paged, %lu GiB)", wksp_sz>>30 ));
+  fd_wksp_t * wksp = fd_wksp_new_lazy( wksp_sz );
   FD_TEST( wksp );
 
   test_deprecate_rent_exemption_threshold( wksp );
 
-  fd_wksp_delete_anonymous( wksp );
+  fd_wksp_delete_lazy( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

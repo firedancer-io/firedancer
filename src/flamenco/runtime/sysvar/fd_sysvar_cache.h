@@ -22,7 +22,7 @@
 
 #include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
-#include "../../accdb/fd_accdb_ref.h"
+#include "../../accdb/fd_accdb.h"
 
 #define FD_SYSVAR_CACHE_ENTRY_CNT 9
 
@@ -121,9 +121,8 @@ fd_sysvar_cache_delete( void * mem );
    include unexpected database error or sysvar deserialize failure. */
 
 int
-fd_sysvar_cache_restore( fd_bank_t *               bank,
-                         fd_accdb_user_t *         accdb,
-                         fd_funk_txn_xid_t const * xid );
+fd_sysvar_cache_restore( fd_bank_t *  bank,
+                         fd_accdb_t * accdb );
 
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
    with solfuzz/protosol conformance tooling.  This version works around
@@ -131,13 +130,12 @@ fd_sysvar_cache_restore( fd_bank_t *               bank,
    log warning. */
 
 void
-fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
-                              fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid );
+fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
+                              fd_accdb_t * accdb );
 
 void
-fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t *   cache,
-                                  fd_accdb_ro_t const * ro );
+fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t *      cache,
+                                  fd_accdb_entry_t const * entry );
 
 /* Generic accessors for serialized sysvar account data. */
 

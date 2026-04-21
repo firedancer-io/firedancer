@@ -85,7 +85,6 @@ echo "
     execrp_tile_count = 8
 [accounts]
     max_accounts = 150000000
-    file_size_gib = 100
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384

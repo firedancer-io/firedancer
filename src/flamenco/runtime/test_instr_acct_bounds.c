@@ -11,6 +11,7 @@
    - Transactions with >255 instruction accounts are rejected */
 
 #include "tests/fd_svm_mini.h"
+#include "../accdb/fd_accdb.h"
 #include "info/fd_instr_info.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
@@ -18,7 +19,7 @@
 #include "../../disco/fd_txn_p.h"
 
 static void
-setup_txn( fd_svm_mini_t * mini, fd_bank_t * bank, fd_xid_t const * xid,
+setup_txn( fd_svm_mini_t * mini, fd_bank_t * bank, fd_accdb_fork_id_t const * xid,
            fd_pubkey_t const * fee_payer,
            fd_txn_p_t * txn_p, fd_txn_out_t * txn_out, fd_txn_in_t * txn_in,
            ushort instr_acct_cnt ) {
@@ -83,7 +84,7 @@ verify_trace_accts( fd_svm_mini_t * mini, ushort expected_cnt ) {
 static void
 init_test_env( fd_svm_mini_t * mini,
                fd_bank_t **    out_bank,
-               fd_xid_t *      out_xid,
+               fd_accdb_fork_id_t *      out_xid,
                fd_pubkey_t *   out_fee_payer ) {
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
@@ -91,11 +92,11 @@ init_test_env( fd_svm_mini_t * mini,
 
   ulong bank_idx = fd_svm_mini_attach_child( mini, root_idx, 10UL );
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
-  fd_xid_t xid = fd_svm_mini_xid( mini, bank_idx );
+  fd_accdb_fork_id_t xid = fd_svm_mini_fork_id( mini, bank_idx );
 
   fd_pubkey_t fee_payer;
   fd_memset( &fee_payer, 0x01, sizeof(fd_pubkey_t) );
-  fd_svm_mini_add_lamports( mini, &xid, &fee_payer, 1000000000UL );
+  fd_svm_mini_add_lamports( mini, xid, &fee_payer, 1000000000UL );
 
   *out_bank      = bank;
   *out_xid       = xid;
@@ -106,7 +107,7 @@ init_test_env( fd_svm_mini_t * mini,
 static void
 test_500_instr_accts( fd_svm_mini_t * mini ) {
   fd_bank_t * bank;
-  fd_xid_t    xid;
+  fd_accdb_fork_id_t    xid;
   fd_pubkey_t fee_payer;
   init_test_env( mini, &bank, &xid, &fee_payer );
 
@@ -125,7 +126,7 @@ test_500_instr_accts( fd_svm_mini_t * mini ) {
 static void
 test_1094_instr_accts( fd_svm_mini_t * mini ) {
   fd_bank_t * bank;
-  fd_xid_t    xid;
+  fd_accdb_fork_id_t    xid;
   fd_pubkey_t fee_payer;
   init_test_env( mini, &bank, &xid, &fee_payer );
 
@@ -145,7 +146,7 @@ test_1094_instr_accts( fd_svm_mini_t * mini ) {
 static void
 test_limit_instr_accts_at_limit( fd_svm_mini_t * mini ) {
   fd_bank_t * bank;
-  fd_xid_t    xid;
+  fd_accdb_fork_id_t    xid;
   fd_pubkey_t fee_payer;
   init_test_env( mini, &bank, &xid, &fee_payer );
 
@@ -163,7 +164,7 @@ test_limit_instr_accts_at_limit( fd_svm_mini_t * mini ) {
 static void
 test_limit_instr_accts_exceeded( fd_svm_mini_t * mini ) {
   fd_bank_t * bank;
-  fd_xid_t    xid;
+  fd_accdb_fork_id_t    xid;
   fd_pubkey_t fee_payer;
   init_test_env( mini, &bank, &xid, &fee_payer );
 

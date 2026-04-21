@@ -18,7 +18,7 @@
 
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 
 #include "../../waltz/http/fd_http_server.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"

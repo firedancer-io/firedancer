@@ -380,7 +380,6 @@ struct fd_topo_tile {
       ulong max_http_request_length;
 
       ulong max_live_slots;
-      ulong accdb_max_depth;
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
@@ -398,6 +397,7 @@ struct fd_topo_tile {
     struct {
       ulong fec_max;
 
+      ulong accdb_obj_id;
       ulong txncache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
@@ -413,7 +413,6 @@ struct fd_topo_tile {
       ulong heap_size_gib;
       ulong sched_depth;
       ulong max_live_slots;
-      ulong write_delay_slots;
 
       /* not specified in TOML */
 
@@ -440,10 +439,9 @@ struct fd_topo_tile {
 
     struct {
       ulong txncache_obj_id;
-      ulong acc_pool_obj_id;
+      ulong accdb_obj_id;
 
       ulong max_live_slots;
-      ulong accdb_max_depth;
 
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
@@ -530,11 +528,15 @@ struct fd_topo_tile {
       int   hard_fork_fatal;
       int   wait_for_supermajority;
       ulong max_live_slots;
-      ulong accdb_max_depth;
       char  identity_key[ PATH_MAX ];
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];
     } tower;
+
+    struct {
+      ulong accdb_obj_id;
+      ulong max_live_slots;
+    } accdb;
 
     struct {
       char   folder_path[ PATH_MAX ];
@@ -597,35 +599,9 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
-      ulong accdb_max_depth;
-      ulong funk_obj_id;
-      ulong funk_locks_obj_id;
+      ulong accdb_obj_id;
       ulong txncache_obj_id;
-
-      uint  lthash_disabled : 1;
-      uint  use_vinyl : 1;
     } snapin;
-
-    struct {
-      ulong vinyl_meta_map_obj_id;
-      ulong vinyl_meta_pool_obj_id;
-      ulong snapwr_depth;
-      char  vinyl_path[ PATH_MAX ];
-      uint  lthash_disabled : 1;
-      ulong max_accounts;
-    } snapwm;
-
-    struct {
-      ulong dcache_obj_id;
-      char  vinyl_path[ PATH_MAX ];
-      uint  lthash_disabled : 1;
-    } snapwr;
-
-    struct {
-      ulong dcache_obj_id;
-      int   io_uring_enabled;
-      char  vinyl_path[ PATH_MAX ];
-    } snaplh;
 
     struct {
 
@@ -639,9 +615,7 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
-      ulong accdb_max_depth;
       ulong txncache_obj_id;
-      ulong acc_pool_obj_id;
     } execle;
 
     struct {
@@ -659,21 +633,7 @@ struct fd_topo_tile {
 
       uint target_gid;
       uint target_uid;
-
-      ulong accdb_max_depth;
     } genesi;
-
-    struct {
-      ulong meta_map_obj_id;
-      ulong meta_pool_obj_id;
-      ulong line_max;
-      ulong data_obj_id;
-      char  bstream_path[ PATH_MAX ];
-      ulong pair_cnt_limit;
-
-      int  io_type; /* FD_VINYL_IO_TYPE_* */
-      uint uring_depth;
-    } accdb;
 
     struct {
       ulong capture_start_slot;
@@ -681,10 +641,6 @@ struct fd_topo_tile {
       int   recent_only;
       ulong recent_slots_per_file;
     } solcap;
-
-    struct {
-      ulong accdb_max_depth;
-    } resolv;
   };
 };
 

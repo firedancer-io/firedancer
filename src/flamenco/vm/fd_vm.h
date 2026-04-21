@@ -44,7 +44,7 @@ struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
       original data len. */
    ulong               original_data_len;
    /* The transaction account corresponding to this account. */
-   fd_account_meta_t * meta;
+   fd_accdb_entry_t *  entry;
 
    /* The expected virtual addresses of the serialized pubkey, lamports, owner,
       and data for this account in VM address space.

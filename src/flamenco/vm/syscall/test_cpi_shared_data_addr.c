@@ -70,17 +70,20 @@ build_callee_text( ulong * buf ) {
   return ic * 8UL;
 }
 
-/* Set up a data account meta with the callee as owner */
+/* Set up a data account entry */
 
-static fd_account_meta_t *
-init_data_meta( uchar * buf, ulong buf_sz ) {
-  FD_TEST( buf_sz >= sizeof(fd_account_meta_t) + INIT_DLEN + MAX_PERMITTED_DATA_INCREASE );
-  fd_account_meta_t * meta = (fd_account_meta_t *)buf;
-  memset( meta, 0, sizeof(fd_account_meta_t) + INIT_DLEN + MAX_PERMITTED_DATA_INCREASE );
-  memcpy( meta->owner, &callee_program_pubkey, sizeof(fd_pubkey_t) );
-  meta->lamports = LAMPORTS;
-  meta->dlen     = (uint)INIT_DLEN;
-  return meta;
+static void
+init_data_entry( fd_accdb_entry_t * ent,
+                 uchar const *      pubkey,
+                 uchar *            data_buf,
+                 ulong              data_sz ) {
+  memset( ent, 0, sizeof(fd_accdb_entry_t) );
+  memcpy( ent->pubkey, pubkey, 32 );
+  memcpy( ent->owner, callee_program_pubkey.key, 32 );
+  ent->lamports = LAMPORTS;
+  ent->data_len = INIT_DLEN;
+  ent->data     = data_buf;
+  memset( data_buf, 0, data_sz );
 }
 
 /* Set up the full test environment: bank, accounts, instruction
@@ -115,30 +118,30 @@ test_env_setup( fd_svm_mini_t * mini ) {
   txn_out->accounts.cnt = 3;
 
   /* Program account */
-  static uchar prog_buf[ sizeof(fd_account_meta_t) + 2048 ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-  fd_account_meta_t * prog_meta = (fd_account_meta_t *)prog_buf;
-  FD_TEST( sizeof(prog_buf) >= sizeof(fd_account_meta_t) + elf_sz );
-  memset( prog_meta, 0, sizeof(fd_account_meta_t) + elf_sz );
-  memcpy( prog_meta->owner, &fd_solana_bpf_loader_program_id, sizeof(fd_pubkey_t) );
-  prog_meta->executable = 1;
-  prog_meta->lamports   = LAMPORTS;
-  prog_meta->dlen       = (uint)elf_sz;
-  memcpy( (uchar *)prog_meta + sizeof(fd_account_meta_t), elf_buf, elf_sz );
+  static uchar prog_data[ 2048 ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+  FD_TEST( sizeof(prog_data) >= elf_sz );
+  memset( prog_data, 0, elf_sz );
+  memcpy( prog_data, elf_buf, elf_sz );
   memcpy( &txn_out->accounts.keys[0], &callee_program_pubkey, sizeof(fd_pubkey_t) );
-  fd_accdb_rw_init_nodb( &txn_out->accounts.account[0], &callee_program_pubkey, prog_meta, FD_RUNTIME_ACC_SZ_MAX );
+  fd_accdb_entry_t * prog_ent = &txn_out->accounts.account[0];
+  memset( prog_ent, 0, sizeof(fd_accdb_entry_t) );
+  memcpy( prog_ent->pubkey, callee_program_pubkey.key, 32 );
+  memcpy( prog_ent->owner, fd_solana_bpf_loader_program_id.key, 32 );
+  prog_ent->executable = 1;
+  prog_ent->lamports   = LAMPORTS;
+  prog_ent->data_len   = elf_sz;
+  prog_ent->data       = prog_data;
 
   /* Data accounts */
-  static uchar acct1_buf[ sizeof(fd_account_meta_t) + MAX_PERMITTED_DATA_INCREASE + 1024 ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-  static uchar acct2_buf[ sizeof(fd_account_meta_t) + MAX_PERMITTED_DATA_INCREASE + 1024 ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-  fd_account_meta_t * acct1_meta = init_data_meta( acct1_buf, sizeof(acct1_buf) );
-  fd_account_meta_t * acct2_meta = init_data_meta( acct2_buf, sizeof(acct2_buf) );
+  static uchar acct1_data[ MAX_PERMITTED_DATA_INCREASE + 1024 ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+  static uchar acct2_data[ MAX_PERMITTED_DATA_INCREASE + 1024 ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
 
   memcpy( &txn_out->accounts.keys[1], &acct1_pubkey, sizeof(fd_pubkey_t) );
-  fd_accdb_rw_init_nodb( &txn_out->accounts.account[1], &acct1_pubkey, acct1_meta, FD_RUNTIME_ACC_SZ_MAX );
+  init_data_entry( &txn_out->accounts.account[1], acct1_pubkey.key, acct1_data, sizeof(acct1_data) );
   memcpy( &txn_out->accounts.keys[2], &acct2_pubkey, sizeof(fd_pubkey_t) );
-  fd_accdb_rw_init_nodb( &txn_out->accounts.account[2], &acct2_pubkey, acct2_meta, FD_RUNTIME_ACC_SZ_MAX );
+  init_data_entry( &txn_out->accounts.account[2], acct2_pubkey.key, acct2_data, sizeof(acct2_data) );
 
-  for( uint i=0; i<3; i++ ) fd_svm_mini_put_account_rooted( mini, txn_out->accounts.account[i].ro );
+  for( uint i=0; i<3; i++ ) fd_svm_mini_put_account_rooted( mini, &txn_out->accounts.account[i] );
 
   /* Instruction info */
   fd_instr_info_t * instr = &runtime->instr.trace[0];
@@ -166,9 +169,9 @@ test_env_setup( fd_svm_mini_t * mini ) {
   /* VM acc_region_metas */
   static fd_vm_acc_region_meta_t arm[3];
   memset( arm, 0, sizeof(arm) );
-  arm[0].meta = prog_meta;
-  arm[1].meta = acct1_meta;  arm[1].original_data_len = INIT_DLEN;
-  arm[2].meta = acct2_meta;  arm[2].original_data_len = INIT_DLEN;
+  arm[0].entry = &txn_out->accounts.account[0];
+  arm[1].entry = &txn_out->accounts.account[1];  arm[1].original_data_len = INIT_DLEN;
+  arm[2].entry = &txn_out->accounts.account[2];  arm[2].original_data_len = INIT_DLEN;
 
   /* Initialize VM */
   static uchar rodata[100];

@@ -1,10 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
-#include "../leaders/fd_leaders.h"
-#include "../types/fd_types.h"
-#include "../../ballet/txn/fd_txn.h" /* for fd_acct_addr_t */
-#include "../vm/fd_vm_base.h" /* fd_vm_trace_t */
+#include "../types/fd_types_custom.h"
+#include "../vm/fd_vm_base.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -236,8 +234,6 @@ FD_PROTOTYPES_BEGIN
 FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
 
 #define FD_EPOCH_CREDITS_MAX (64UL)
-
-static const FD_FN_UNUSED fd_account_meta_t FD_ACCOUNT_META_DEFAULT = {0};
 
 FD_PROTOTYPES_END
 

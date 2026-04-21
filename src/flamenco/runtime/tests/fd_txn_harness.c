@@ -5,8 +5,6 @@
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
-#include "../../accdb/fd_accdb_admin_v1.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../fd_system_ids.h"
@@ -31,14 +29,7 @@
 
 static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_accdb_v1_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache->join );
-
-  /* In order to check for leaks in the workspace, we need to compact the
-     allocators. Without doing this, empty superblocks may be retained
-     by the fd_alloc instance, which mean we cannot check for leaks. */
-  fd_alloc_compact( fd_accdb_user_v1_funk( runner->accdb )->alloc );
-  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Creates transaction execution context for a single test case.
@@ -46,13 +37,14 @@ fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
 static fd_txn_p_t *
 fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                               fd_exec_test_txn_context_t const * test_ctx ) {
-  fd_accdb_user_t * accdb = runner->accdb;
+  fd_accdb_t * accdb = runner->accdb;
 
-  /* Set up the funk transaction */
-  ulong             slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
-  fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->idx } };
-  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
+  /* Set up the fork */
+  ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
+  fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, runner->root_fork_id );
+
+  fd_progcache_xid_t xid = { .ul = { slot, runner->bank->idx } };
+  fd_progcache_xid_t parent_xid; fd_progcache_txn_xid_set_root( &parent_xid );
   fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
 
   /* Initialize bank from input txn bank */
@@ -100,14 +92,14 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
-    fd_solfuzz_pb_load_account( runner->runtime, accdb, &xid, &test_ctx->account_shared_data[i], i );
+    fd_solfuzz_pb_load_account( runner->runtime, accdb, fork_id, &test_ctx->account_shared_data[i], i );
   }
 
   runner->bank->f.ticks_per_slot = 64;
   runner->bank->f.slots_per_year = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(runner->bank->f.ticks_per_slot);
 
   /* Restore sysvars from account context */
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb, &xid );
+  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb );
 
   /* Rent */
   FD_TEST( fd_sysvar_cache_rent_read( &runner->bank->f.sysvar_cache, &runner->bank->f.rent ) );
@@ -294,7 +286,6 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     fd_txn_out_t *       txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
     fd_log_collector_t * log     = fd_spad_alloc( runner->spad, alignof(fd_log_collector_t), sizeof(fd_log_collector_t) );
     runtime->log.log_collector = log;
-    runtime->acc_pool = runner->acc_pool;
     txn_in->txn = txn;
     txn_in->bundle.is_bundle = 0;
     fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out );

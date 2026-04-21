@@ -17,8 +17,6 @@
 #include <sys/mman.h>
 
 #include "../../util/fd_util.h"
-#include "../../funk/fd_funk.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/pod/fd_pod_format.h"

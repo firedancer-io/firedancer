@@ -10,7 +10,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "fd_runtime_err.h"
 #include "fd_system_ids.h"
-#include "sysvar/fd_sysvar_slot_hashes.h"
+#include "../types/fd_types.h"
 
 #define FD_ADDRLUT_STATUS_ACTIVATED    (0)
 #define FD_ADDRLUT_STATUS_DEACTIVATING (1)
@@ -266,14 +266,6 @@ fd_alut_interp_new( fd_alut_interp_t *     interp,
     .ro_indir_cnt  = 0UL,
     .rw_indir_cnt  = 0UL
   };
-  return interp;
-}
-
-/* fd_alut_interp_delete destroys an ALUT interpreter object.  Releases
-   references to out_addrs, txn, and txn_payload. */
-
-FD_FN_UNUSED static void *
-fd_alut_interp_delete( fd_alut_interp_t * interp ) {
   return interp;
 }
 

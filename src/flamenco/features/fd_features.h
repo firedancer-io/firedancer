@@ -1,10 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_features_fd_features_h
 #define HEADER_fd_src_flamenco_features_fd_features_h
 
-#include "../fd_flamenco_base.h"
-#include "../types/fd_types.h"
+#include "../types/fd_types_custom.h"
 #include "fd_features_generated.h"
-#include "../accdb/fd_accdb_user.h"
+#include "../accdb/fd_accdb.h"
 
 /* Macro FEATURE_ID_CNT expands to the number of features in
    fd_features_t. */
@@ -166,9 +165,8 @@ fd_feature_id_query( ulong prefix );
    also be populated with slot+1 as their activation slot. */
 
 void
-fd_features_restore( fd_bank_t *               bank,
-                     fd_accdb_user_t *         accdb,
-                     fd_funk_txn_xid_t const * xid );
+fd_features_restore( fd_bank_t *  bank,
+                     fd_accdb_t * accdb );
 
 FD_PROTOTYPES_END
 

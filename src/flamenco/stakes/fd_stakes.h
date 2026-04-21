@@ -3,12 +3,11 @@
 
 #include "fd_stake_delegations.h"
 #include "fd_stake_types.h"
-#include "../types/fd_types.h"
 
 FD_PROTOTYPES_BEGIN
 
 fd_stake_state_t const *
-fd_stakes_get_state( fd_account_meta_t const * meta );
+fd_stakes_get_state( fd_accdb_entry_t const * entry );
 
 fd_stake_history_entry_t
 stake_activating_and_deactivating( fd_delegation_t const *    self,
@@ -53,16 +52,14 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
-                          fd_accdb_user_t *              accdb,
-                          fd_funk_txn_xid_t const *      xid,
+                          fd_accdb_t *                   accdb,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
                           ulong *                        new_rate_activation_epoch );
 
 void
 fd_refresh_vote_accounts( fd_bank_t *                    bank,
-                          fd_accdb_user_t *              accdb,
-                          fd_funk_txn_xid_t const *      xid,
+                          fd_accdb_t *                   accdb,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
@@ -74,9 +71,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
    the stake account. */
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const *       pubkey,
-                                   fd_account_meta_t const * meta,
-                                   fd_bank_t *               bank );
+fd_stakes_update_stake_delegation( fd_pubkey_t const *      pubkey,
+                                   fd_accdb_entry_t const * entry,
+                                   fd_bank_t *              bank );
 
 FD_PROTOTYPES_END
 

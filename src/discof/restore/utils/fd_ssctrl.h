@@ -3,7 +3,6 @@
 
 #include "../../../util/net/fd_net_headers.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
-#include "../../../ballet/lthash/fd_lthash.h"
 
 /* The snapshot tiles have a somewhat involved state machine, which is
    controlled by snapct.  Imagine first the following sequence:
@@ -110,25 +109,6 @@
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
 #define FD_SNAPSHOT_MSG_CTRL_FINI              (9UL) /* Current snapshot has been fully loaded, finish processing */
 
-/* snapin -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Expected accounts hash sent from snapin to snapls */
-/* snapin -> snapwm -> snaplv */
-#define FD_SNAPSHOT_HASH_MSG_EXP_AND_CAPITAL  (11UL) /* Combined expected hash and capitalization message sent from snapin to snapwm to snaplv */
-
-/* snapin -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_SUB              (12UL) /* Duplicate account sent from snapin to snapls, includes account header and data */
-#define FD_SNAPSHOT_HASH_MSG_SUB_HDR          (13UL) /* Duplicate account sent from snapin to snapls, only the account header, no data */
-#define FD_SNAPSHOT_HASH_MSG_SUB_DATA         (14UL) /* Duplicate account sent from snapin to snapls, only the account data, no header */
-/* snapwm -> snaplv */
-#define FD_SNAPSHOT_HASH_MSG_RESULT_SUB       (15UL) /* Duplicate partial hash result sent from snapwm to snaplv (to subtract) */
-/* snapwm -> snaplv -> snaplh */
-#define FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH   (16UL) /* Duplicate account(s) meta batch sent from snapwm to snaplv */
-
-/* snapla -> snapls */
-/* snaplh -> snaplv */
-#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD       (17UL) /* Hash result sent from snapla (snaplh) to snapls (snaplv) */
-
-
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */
 typedef struct fd_ssctrl_init {
@@ -147,11 +127,6 @@ typedef struct fd_ssctrl_init {
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
 } fd_ssctrl_meta_t;
-
-typedef struct fd_ssctrl_hash_result {
-  fd_lthash_value_t lthash;
-  long              capitalization;
-} fd_ssctrl_hash_result_t;
 
 struct fd_snapshot_account_hdr {
   uchar   pubkey[ FD_PUBKEY_FOOTPRINT ];
@@ -220,14 +195,6 @@ fd_ssctrl_msg_ctrl_str( ulong sig ) {
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:         return "shutdown";
     case FD_SNAPSHOT_MSG_CTRL_ERROR:            return "error";
     case FD_SNAPSHOT_MSG_CTRL_FINI:             return "fini";
-    case FD_SNAPSHOT_HASH_MSG_EXPECTED:         return "hash_expected";
-    case FD_SNAPSHOT_HASH_MSG_EXP_AND_CAPITAL:  return "hash_exp_and_capital";
-    case FD_SNAPSHOT_HASH_MSG_SUB:              return "hash_sub";
-    case FD_SNAPSHOT_HASH_MSG_SUB_HDR:          return "hash_sub_hdr";
-    case FD_SNAPSHOT_HASH_MSG_SUB_DATA:         return "hash_sub_data";
-    case FD_SNAPSHOT_HASH_MSG_RESULT_SUB:       return "hash_result_sub";
-    case FD_SNAPSHOT_HASH_MSG_SUB_META_BATCH:   return "hash_sub_meta_batch";
-    case FD_SNAPSHOT_HASH_MSG_RESULT_ADD:       return "hash_result_add";
     default:                                    return "unknown";
   }
 }

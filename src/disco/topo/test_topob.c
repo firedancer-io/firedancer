@@ -178,7 +178,7 @@ run_test( char const *          test_name,
 /*  Tile definitions                                                        */
 /* ======================================================================== */
 
-/* --- Firedancer default (no snapshots, no rpc, no telemetry, no vinyl) -- */
+/* --- Firedancer default (no snapshots, no rpc, no telemetry) -- */
 
 static tile_spec_t const FIREDANCER_TILES[] = {
   /* floating tiles */
@@ -233,13 +233,13 @@ static tile_spec_t const FRANKENDANCER_TILES[] = {
    POST_START tiles on cores 22..36.  HT siblings all unassigned.          */
 
 static char const * const FD_SKIP_HT[] = {
-  /* phys cores 0-36 (ALWAYS 1-21, POST_START 22-36) */
+  /* phys cores 0-36 (ALWAYS 1-22, POST_START 23-36) */
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "net",     /*  3 */ "quic",
   /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "verify",  /*  7 */ "verify",
-  /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "dedup",   /* 11 */ "pack",
-  /* 12 */ "sign",    /* 13 */ "sign",    /* 14 */ "shred",   /* 15 */ "gui",
-  /* 16 */ "gossvf",  /* 17 */ "gossvf",  /* 18 */ "gossip",  /* 19 */ "repair",
-  /* 20 */ "replay",  /* 21 */ "tower",   /* 22 */ "resolv",  /* 23 */ "execle",
+  /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "dedup",   /* 11 */ "resolv",
+  /* 12 */ "pack",    /* 13 */ "sign",    /* 14 */ "sign",    /* 15 */ "shred",
+  /* 16 */ "gui",     /* 17 */ "gossvf",  /* 18 */ "gossvf",  /* 19 */ "gossip",
+  /* 20 */ "repair",  /* 21 */ "replay",  /* 22 */ "tower",   /* 23 */ "execle",
   /* 24 */ "execle",  /* 25 */ "poh",     /* 26 */ "execrp",  /* 27 */ "execrp",
   /* 28 */ "execrp",  /* 29 */ "execrp",  /* 30 */ "execrp",  /* 31 */ "execrp",
   /* 32 */ "execrp",  /* 33 */ "execrp",  /* 34 */ "execrp",  /* 35 */ "execrp",
@@ -266,16 +266,16 @@ static char const * const FRANK_SKIP_HT_PREFIX[] = {
 
 static char const * const FD_24X2[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "pack",    /*  7 */ "sign",
-  /*  8 */ "shred",   /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "repair",
-  /* 12 */ "tower",   /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
+  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolv",  /*  7 */ "pack",
+  /*  8 */ "sign",    /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "gossip",
+  /* 12 */ "replay",  /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
   /* 20 */ "txsend",  /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
   /* --- HT siblings (24-47) --- */
   /* 24 */ __,        /* 25 */ "net",     /* 26 */ "verify",  /* 27 */ "verify",
-  /* 28 */ "verify",  /* 29 */ "dedup",   /* 30 */ __,        /* 31 */ "sign",
-  /* 32 */ "gossvf",  /* 33 */ __,        /* 34 */ "gossip",  /* 35 */ "replay",
-  /* 36 */ "resolv",  /* 37 */ "execle",  /* 38 */ __,        /* 39 */ "execrp",
+  /* 28 */ "verify",  /* 29 */ "dedup",   /* 30 */ "sign",    /* 31 */ __,
+  /* 32 */ "shred",   /* 33 */ __,        /* 34 */ "gossvf",  /* 35 */ "repair",
+  /* 36 */ "tower",   /* 37 */ "execle",  /* 38 */ __,        /* 39 */ "execrp",
   /* 40 */ "execrp",  /* 41 */ "execrp",  /* 42 */ "execrp",  /* 43 */ "execrp",
   /* 44 */ __,        /* 45 */ __,        /* 46 */ __,        /* 47 */ __,
 };
@@ -285,18 +285,18 @@ static char const * const FD_24X2[] = {
 
 static char const * const FD_32X2[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "pack",    /*  7 */ "sign",
-  /*  8 */ "shred",   /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "repair",
-  /* 12 */ "tower",   /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
+  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolv",  /*  7 */ "pack",
+  /*  8 */ "sign",    /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "gossip",
+  /* 12 */ "replay",  /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
   /* 20 */ "txsend",  /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
   /* 24 */ __,        /* 25 */ __,        /* 26 */ __,        /* 27 */ __,
   /* 28 */ __,        /* 29 */ __,        /* 30 */ __,        /* 31 */ __,
   /* --- HT siblings (32-63) --- */
   /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
-  /* 36 */ "verify",  /* 37 */ "dedup",   /* 38 */ __,        /* 39 */ "sign",
-  /* 40 */ "gossvf",  /* 41 */ __,        /* 42 */ "gossip",  /* 43 */ "replay",
-  /* 44 */ "resolv",  /* 45 */ "execle",  /* 46 */ __,        /* 47 */ "execrp",
+  /* 36 */ "verify",  /* 37 */ "dedup",   /* 38 */ "sign",    /* 39 */ __,
+  /* 40 */ "shred",   /* 41 */ __,        /* 42 */ "gossvf",  /* 43 */ "repair",
+  /* 44 */ "tower",   /* 45 */ "execle",  /* 46 */ __,        /* 47 */ "execrp",
   /* 48 */ "execrp",  /* 49 */ "execrp",  /* 50 */ "execrp",  /* 51 */ "execrp",
   /* 52 */ __,        /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
   /* 56 */ __,        /* 57 */ __,        /* 58 */ __,        /* 59 */ __,
@@ -367,12 +367,12 @@ static tile_spec_t const FD_FEWER_TILES[] = {
 };
 
 static char const * const FD_32X2_FEWER[] = {
-  /* skip_ht: ALWAYS on cores 1..17, POST_START on cores 18..26 */
+  /* skip_ht: ALWAYS on cores 1..18, POST_START on cores 19..26 */
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "net",     /*  3 */ "quic",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "dedup",   /*  7 */ "pack",
-  /*  8 */ "sign",    /*  9 */ "sign",    /* 10 */ "shred",   /* 11 */ "gui",
-  /* 12 */ "gossvf",  /* 13 */ "gossvf",  /* 14 */ "gossip",  /* 15 */ "repair",
-  /* 16 */ "replay",  /* 17 */ "tower",   /* 18 */ "resolv",  /* 19 */ "execle",
+  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "dedup",   /*  7 */ "resolv",
+  /*  8 */ "pack",    /*  9 */ "sign",    /* 10 */ "sign",    /* 11 */ "shred",
+  /* 12 */ "gui",     /* 13 */ "gossvf",  /* 14 */ "gossvf",  /* 15 */ "gossip",
+  /* 16 */ "repair",  /* 17 */ "replay",  /* 18 */ "tower",   /* 19 */ "execle",
   /* 20 */ "execle",  /* 21 */ "poh",     /* 22 */ "execrp",  /* 23 */ "execrp",
   /* 24 */ "execrp",  /* 25 */ "execrp",  /* 26 */ "txsend",
 };
@@ -420,18 +420,18 @@ static char const * const FRANK_32X2_MORE_BANK[] = {
 
 static char const * const FD_32X2_EXTRA_BL[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ __,        /*  6 */ "verify",  /*  7 */ "pack",
-  /*  8 */ "sign",    /*  9 */ "shred",   /* 10 */ "gui",     /* 11 */ "gossvf",
-  /* 12 */ "repair",  /* 13 */ "tower",   /* 14 */ "execle",  /* 15 */ "poh",
+  /*  4 */ "verify",  /*  5 */ __,        /*  6 */ "verify",  /*  7 */ "resolv",
+  /*  8 */ "pack",    /*  9 */ "sign",    /* 10 */ "gui",     /* 11 */ "gossvf",
+  /* 12 */ "gossip",  /* 13 */ "replay",  /* 14 */ "execle",  /* 15 */ "poh",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
   /* 20 */ "execrp",  /* 21 */ "txsend",  /* 22 */ __,        /* 23 */ __,
   /* 24 */ __,        /* 25 */ __,        /* 26 */ __,        /* 27 */ __,
   /* 28 */ __,        /* 29 */ __,        /* 30 */ __,        /* 31 */ __,
   /* --- HT siblings (32-63) --- */
   /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
-  /* 36 */ "verify",  /* 37 */ __,        /* 38 */ "dedup",   /* 39 */ __,
-  /* 40 */ "sign",    /* 41 */ "gossvf",  /* 42 */ __,        /* 43 */ "gossip",
-  /* 44 */ "replay",  /* 45 */ "resolv",  /* 46 */ "execle",  /* 47 */ __,
+  /* 36 */ "verify",  /* 37 */ __,        /* 38 */ "dedup",   /* 39 */ "sign",
+  /* 40 */ __,        /* 41 */ "shred",   /* 42 */ __,        /* 43 */ "gossvf",
+  /* 44 */ "repair",  /* 45 */ "tower",   /* 46 */ "execle",  /* 47 */ __,
   /* 48 */ "execrp",  /* 49 */ "execrp",  /* 50 */ "execrp",  /* 51 */ "execrp",
   /* 52 */ "execrp",  /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
   /* 56 */ __,        /* 57 */ __,        /* 58 */ __,        /* 59 */ __,

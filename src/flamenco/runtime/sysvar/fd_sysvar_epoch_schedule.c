@@ -1,12 +1,6 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../../accdb/fd_accdb_sync.h"
-
-static int
-validate( fd_epoch_schedule_t const * schedule ) {
-  return schedule->warmup!=0 && schedule->warmup!=1;
-}
 
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
@@ -38,55 +32,18 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 
 void
 fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
-                                fd_accdb_user_t *           accdb,
-                                fd_funk_txn_xid_t const *   xid,
+                                fd_accdb_t *                accdb,
                                 fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_schedule_id, epoch_schedule, sizeof(fd_epoch_schedule_t) );
-}
-
-fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_epoch_schedule_t *     out ) {
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_epoch_schedule_id ) ) ) {
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )!=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  memcpy( out, fd_accdb_ref_data_const( ro ), sizeof(fd_epoch_schedule_t) );
-
-  if( FD_UNLIKELY( validate( out ) ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  fd_accdb_close_ro( accdb, ro );
-  return out;
+  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_epoch_schedule_id, epoch_schedule, sizeof(fd_epoch_schedule_t) );
 }
 
 void
-fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
-                               fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_capture_ctx_t *        capture_ctx ) {
+fd_sysvar_epoch_schedule_init( fd_bank_t *        bank,
+                               fd_accdb_t *       accdb,
+                               fd_capture_ctx_t * capture_ctx ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-  fd_sysvar_epoch_schedule_write( bank, accdb, xid, capture_ctx, epoch_schedule );
+  fd_sysvar_epoch_schedule_write( bank, accdb, capture_ctx, epoch_schedule );
 }
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/sdk/program/src/epoch_schedule.rs#L105 */
@@ -94,7 +51,6 @@ fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
 ulong
 fd_epoch_slot_cnt( fd_epoch_schedule_t const * schedule,
                    ulong                       epoch ) {
-
   if( FD_UNLIKELY( epoch < schedule->first_normal_epoch ) ) {
     ulong exp = fd_ulong_sat_add( epoch, (ulong)fd_ulong_find_lsb( FD_EPOCH_LEN_MIN ) );
     return ( exp<64UL ? 1UL<<exp : ULONG_MAX ); // saturating_pow

@@ -9,15 +9,10 @@
 #include "../fd_alut.h"
 #include "../program/fd_precompiles.h"
 #include "../../../ballet/nanopb/pb_encode.h"
-#include "../../accdb/fd_accdb_sync.h"
-#include "../../progcache/fd_prog_load.h"
-#include "../program/vote/fd_vote_state_versioned.h"
-#include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../fd_runtime_stack.h"
 
 #include <stdio.h> /* fopen */
-#include <sys/mman.h> /* mmap */
-#include <unistd.h> /* ftruncate */
+#include <unistd.h> /* access */
 
 #define SORT_NAME        sort_uint64_t
 #define SORT_KEY_T       uint64_t
@@ -97,26 +92,25 @@ dump_sorted_features( fd_features_t const *        features,
 
 /** ACCOUNT DUMPING **/
 static void
-dump_account_state( fd_pubkey_t const *         account_key,
-                    fd_account_meta_t const *   account_meta,
+dump_account_state( fd_accdb_entry_t const *    entry,
                     fd_exec_test_acct_state_t * output_account,
                     fd_spad_t *                 spad ) {
     // Address
-    fd_memcpy(output_account->address, account_key, sizeof(fd_pubkey_t));
+    fd_memcpy(output_account->address, entry->pubkey, sizeof(fd_pubkey_t));
 
     // Lamports
-    output_account->lamports = (uint64_t)account_meta->lamports;
+    output_account->lamports = (uint64_t)entry->lamports;
 
     // Data
-    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( account_meta->dlen ) );
-    output_account->data->size = (pb_size_t) account_meta->dlen;
-    fd_memcpy(output_account->data->bytes, fd_account_data( account_meta ), account_meta->dlen );
+    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( entry->data_len ) );
+    output_account->data->size = (pb_size_t) entry->data_len;
+    fd_memcpy(output_account->data->bytes, entry->data, entry->data_len );
 
     // Executable
-    output_account->executable = (bool)account_meta->executable;
+    output_account->executable = (bool)entry->executable;
 
     // Owner
-    fd_memcpy(output_account->owner, account_meta->owner, sizeof(fd_pubkey_t));
+    fd_memcpy(output_account->owner, entry->owner, sizeof(fd_pubkey_t));
 }
 
 static uchar
@@ -136,34 +130,32 @@ account_already_dumped( fd_exec_test_acct_state_t const * dumped_accounts,
    account exists, 1 otherwise.
    TODO: This can be optimized by using a set. */
 static uchar
-dump_account_if_not_already_dumped( fd_accdb_user_t *           accdb,
-                                    fd_funk_txn_xid_t const *   xid,
+dump_account_if_not_already_dumped( fd_accdb_t *                accdb,
+                                    fd_accdb_fork_id_t          fork_id,
                                     fd_pubkey_t const *         account_key,
                                     fd_spad_t *                 spad,
                                     fd_exec_test_acct_state_t * out_acct_states,
                                     pb_size_t *                 out_acct_states_cnt,
-                                    fd_accdb_ro_t *             out_ro ) {
-  fd_accdb_ro_t ro[1];
-  if( !fd_accdb_open_ro( accdb, ro, xid, account_key ) ) {
-    return 1;
-  }
+                                    fd_accdb_entry_t *          out_ro ) {
+  fd_accdb_entry_t ro = fd_accdb_read_one( accdb, fork_id, account_key->uc );
+  if( FD_UNLIKELY( !ro.lamports ) ) return 1;
 
   if( !account_already_dumped( out_acct_states, *out_acct_states_cnt, account_key ) ) {
-    dump_account_state( account_key, ro->meta, &out_acct_states[*out_acct_states_cnt], spad );
+    dump_account_state( &ro, &out_acct_states[*out_acct_states_cnt], spad );
     (*out_acct_states_cnt)++;
   }
 
   if( out_ro ) {
-    *out_ro = *ro;
+    *out_ro = ro;
   } else {
-    fd_accdb_close_ro( accdb, ro );
+    fd_accdb_unread_one( accdb, &ro );
   }
   return 0;
 }
 
 static void
-dump_executable_account_if_exists( fd_accdb_user_t *                 accdb,
-                                   fd_funk_txn_xid_t const *         xid,
+dump_executable_account_if_exists( fd_accdb_t *                      accdb,
+                                   fd_accdb_fork_id_t                fork_id,
                                    fd_exec_test_acct_state_t const * program_account,
                                    fd_spad_t *                       spad,
                                    fd_exec_test_acct_state_t *       out_account_states,
@@ -184,12 +176,12 @@ dump_executable_account_if_exists( fd_accdb_user_t *                 accdb,
   }
 
   fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
-  dump_account_if_not_already_dumped( accdb, xid, programdata_acc, spad, out_account_states, out_account_states_count, NULL );
+  dump_account_if_not_already_dumped( accdb, fork_id, programdata_acc, spad, out_account_states, out_account_states_count, NULL );
 }
 
 static void
-dump_sanitized_transaction( fd_accdb_user_t *                      accdb,
-                            fd_funk_txn_xid_t const *              xid,
+dump_sanitized_transaction( fd_accdb_t *                           accdb,
+                            fd_accdb_fork_id_t                     fork_id,
                             fd_txn_t const *                       txn_descriptor,
                             uchar const *                          txn_payload,
                             fd_spad_t *                            spad,
@@ -273,10 +265,8 @@ dump_sanitized_transaction( fd_accdb_user_t *                      accdb,
       memcpy( message->address_table_lookups[i].account_key, alut_key, sizeof(fd_pubkey_t) );
 
       // Access ALUT account data to access its keys
-      fd_accdb_ro_t addr_lut_ro[1];
-      if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, addr_lut_ro, xid, alut_key ) ) ) {
-        FD_LOG_ERR(( "addr lut not found" ));
-      }
+      fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, alut_key->uc );
+      if( FD_UNLIKELY( !entry.lamports ) ) FD_LOG_ERR(( "addr lut not found" ));
 
       // alut -> writable_indexes
       message->address_table_lookups[i].writable_indexes_count = address_lookup_tables[i].writable_cnt;
@@ -294,7 +284,7 @@ dump_sanitized_transaction( fd_accdb_user_t *                      accdb,
         message->address_table_lookups[i].readonly_indexes[j] = readonly_indexes[j];
       }
 
-      fd_accdb_close_ro( accdb, addr_lut_ro );
+      fd_accdb_unread_one( accdb, &entry );
     }
   }
 
@@ -423,8 +413,8 @@ add_account_to_dumped_accounts( fd_dump_account_key_node_t *  pool,
    its programdata account (if the account is a v3 program) to the
    dumped accounts set if they do not exist already. */
 static void
-add_account_and_programdata_to_dumped_accounts( fd_accdb_user_t *             accdb,
-                                                fd_funk_txn_xid_t const *     xid,
+add_account_and_programdata_to_dumped_accounts( fd_accdb_t *                  accdb,
+                                                fd_accdb_fork_id_t            fork_id,
                                                 fd_dump_account_key_node_t *  pool,
                                                 fd_dump_account_key_node_t ** root,
                                                 fd_pubkey_t const *           pubkey ) {
@@ -437,14 +427,12 @@ add_account_and_programdata_to_dumped_accounts( fd_accdb_user_t *             ac
 
   /* Read the account from Funk to see if its a program account and if
      it needs to be dumped. */
-  fd_accdb_ro_t program_account[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, program_account, xid, pubkey ) ) ) {
-    return;
-  }
+  fd_accdb_entry_t program_account = fd_accdb_read_one( accdb, fork_id, pubkey->uc );
+  if( FD_UNLIKELY( !program_account.lamports ) ) return;
 
   /* Return if its not owned by the v3 loader */
-  if( FD_LIKELY( !fd_pubkey_eq( fd_accdb_ref_owner( program_account ), &fd_solana_bpf_loader_upgradeable_program_id ) ) ) {
-    fd_accdb_close_ro( accdb, program_account );
+  if( FD_LIKELY( !fd_pubkey_eq( (fd_pubkey_t*)program_account.owner, &fd_solana_bpf_loader_upgradeable_program_id ) ) ) {
+    fd_accdb_unread_one( accdb, &program_account );
     return;
   }
 
@@ -452,27 +440,27 @@ add_account_and_programdata_to_dumped_accounts( fd_accdb_user_t *             ac
   fd_bpf_state_t program_account_state[1];
   if( FD_UNLIKELY( fd_bpf_state_decode(
       program_account_state,
-      fd_accdb_ref_data_const( program_account ),
-      fd_accdb_ref_data_sz   ( program_account ) ) ) ) {
-    fd_accdb_close_ro( accdb, program_account );
+      program_account.data,
+      program_account.data_len ) ) ) {
+    fd_accdb_unread_one( accdb, &program_account );
     return;
   }
   if( program_account_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
-    fd_accdb_close_ro( accdb, program_account );
+    fd_accdb_unread_one( accdb, &program_account );
     return;
   }
 
   /* Dump the programdata address */
   add_account_to_dumped_accounts( pool, root, &program_account_state->inner.program.programdata_address );
-  fd_accdb_close_ro( accdb, program_account );
+  fd_accdb_unread_one( accdb, &program_account );
 }
 
 /* add_lut_account_to_dumped_accounts adds an address lookup table
    account AND all pubkeys in the lookup table to the dumped accounts
    set if they do not exist already. */
 static void
-add_lut_accounts_to_dumped_accounts( fd_accdb_user_t *             accdb,
-                                     fd_funk_txn_xid_t const *     xid,
+add_lut_accounts_to_dumped_accounts( fd_accdb_t *                  accdb,
+                                     fd_accdb_fork_id_t            fork_id,
                                      fd_dump_account_key_node_t *  pool,
                                      fd_dump_account_key_node_t ** root,
                                      fd_pubkey_t const *           pubkey ) {
@@ -480,42 +468,35 @@ add_lut_accounts_to_dumped_accounts( fd_accdb_user_t *             accdb,
   add_account_to_dumped_accounts( pool, root, pubkey );
 
   /* Read the account and dump all pubkeys within the lookup table. */
-  fd_accdb_ro_t lut_account[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, lut_account, xid, pubkey ) ) ) {
-    return;
-  }
-
-  uchar const  * data     = fd_accdb_ref_data_const( lut_account );
-  ulong          data_len = fd_accdb_ref_data_sz   ( lut_account );
+  fd_accdb_entry_t lut_account = fd_accdb_read_one( accdb, fork_id, pubkey->uc );
+  if( FD_UNLIKELY( !lut_account.lamports ) ) return;
 
   /* Decode the ALUT account and dump all pubkeys within the lookup
      table. */
-  if( data_len<FD_LOOKUP_TABLE_META_SIZE || (data_len&0x1fUL) ) {
-    fd_accdb_close_ro( accdb, lut_account );
+  if( lut_account.data_len<FD_LOOKUP_TABLE_META_SIZE || (lut_account.data_len&0x1fUL) ) {
+    fd_accdb_unread_one( accdb, &lut_account );
     return;
   }
-  fd_pubkey_t const * lookup_addrs     = fd_type_pun_const( data+FD_LOOKUP_TABLE_META_SIZE );
-  ulong               lookup_addrs_cnt = ( data_len-FD_LOOKUP_TABLE_META_SIZE)>>5UL; // = (dlen - 56) / 32
+  fd_pubkey_t const * lookup_addrs     = fd_type_pun_const( lut_account.data+FD_LOOKUP_TABLE_META_SIZE );
+  ulong               lookup_addrs_cnt = ( lut_account.data_len-FD_LOOKUP_TABLE_META_SIZE)>>5UL; // = (dlen - 56) / 32
   for( ulong i=0UL; i<lookup_addrs_cnt; i++ ) {
     fd_pubkey_t const * referenced_pubkey = &lookup_addrs[i];
-    add_account_and_programdata_to_dumped_accounts( accdb, xid, pool, root, referenced_pubkey );
+    add_account_and_programdata_to_dumped_accounts( accdb, fork_id, pool, root, referenced_pubkey );
   }
-  fd_accdb_close_ro( accdb, lut_account );
+  fd_accdb_unread_one( accdb, &lut_account );
 }
 
 static void
 create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
                                           fd_banks_t *          banks,
                                           fd_bank_t *           bank,
-                                          fd_accdb_user_t *     accdb,
+                                          fd_accdb_t *          accdb,
                                           fd_runtime_stack_t *  runtime_stack ) {
   /* We should use the bank fields and funk txn from the parent slot in
      order to capture the block context from before the current block
      was executed, since dumping is happening in the block finalize
      step. */
   fd_bank_t * parent_bank = fd_banks_get_parent( banks, bank );
-  ulong                          parent_slot    = parent_bank->f.slot;
-  fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->idx } };
   fd_exec_test_block_context_t * block_context  = &dump_ctx->block_context;
   ulong                          dump_txn_count = dump_ctx->txns_to_dump_cnt;
   fd_spad_t *                    spad           = dump_ctx->spad;
@@ -547,7 +528,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   for( ulong i=0UL; i<dump_ctx->txns_to_dump_cnt; i++ ) {
     fd_txn_p_t const * txn_ptr        = &dump_ctx->txns_to_dump[i];
     fd_txn_t const *   txn_descriptor = TXN( txn_ptr );
-    dump_sanitized_transaction( accdb, &parent_xid, txn_descriptor, txn_ptr->payload, spad, &block_context->txns[i] );
+    dump_sanitized_transaction( accdb, parent_bank->accdb_fork_id, txn_descriptor, txn_ptr->payload, spad, &block_context->txns[i] );
 
     /* Dump account + alut + programdata accounts (if applicable).
        1. Dump the raw txn account keys
@@ -560,7 +541,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( txn_descriptor, txn_ptr->payload );
     for( ushort l=0; l<txn_descriptor->acct_addr_cnt; l++ ) {
       fd_pubkey_t const * account_key = fd_type_pun_const( &account_keys[l] );
-      add_account_and_programdata_to_dumped_accounts( accdb, &parent_xid, dumped_accounts_pool, &dumped_accounts_root, account_key );
+      add_account_and_programdata_to_dumped_accounts( accdb, parent_bank->accdb_fork_id, dumped_accounts_pool, &dumped_accounts_root, account_key );
     }
 
     // 2 + 3 + 4. Dump any ALUT accounts + any accounts referenced in
@@ -569,7 +550,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
     for( ushort l=0; l<txn_descriptor->addr_table_lookup_cnt; l++ ) {
       fd_txn_acct_addr_lut_t const * lookup_table = &txn_lookup_tables[l];
       fd_pubkey_t const *            lut_key      = fd_type_pun_const( txn_ptr->payload+lookup_table->addr_off );
-      add_lut_accounts_to_dumped_accounts( accdb, &parent_xid, dumped_accounts_pool, &dumped_accounts_root, lut_key );
+      add_lut_accounts_to_dumped_accounts( accdb, parent_bank->accdb_fork_id, dumped_accounts_pool, &dumped_accounts_root, lut_key );
     }
   }
 
@@ -680,16 +661,13 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   for( fd_dump_account_key_node_t * node = fd_dump_account_key_map_minimum( dumped_accounts_pool, dumped_accounts_root );
                                     node;
                                     node = fd_dump_account_key_map_successor( dumped_accounts_pool, node ) ) {
-    fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, &parent_xid, &node->key ) ) ) {
-      continue;
-    }
+    fd_accdb_entry_t entry = fd_accdb_read_one( accdb, parent_bank->accdb_fork_id, node->key.uc );
+    if( FD_UNLIKELY( !entry.lamports ) ) continue;
     dump_account_state(
-        fd_accdb_ref_address( ro ),
-        ro->meta,
+        &entry,
         &block_context->acct_states[block_context->acct_states_count++],
         spad );
-    fd_accdb_close_ro( accdb, ro );
+    fd_accdb_unread_one( accdb, &entry );
   }
 
   /* BlockContext -> bank */
@@ -782,13 +760,12 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->account_shared_data = fd_spad_alloc( spad,
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
-  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
 
   /* Dump regular accounts first */
   for( ulong i = 0; i < txn_out->accounts.cnt; ++i ) {
     dump_account_if_not_already_dumped(
       runtime->accdb,
-      &xid,
+      bank->accdb_fork_id,
       &txn_out->accounts.keys[i],
       spad,
       txn_context_msg->account_shared_data,
@@ -804,29 +781,26 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + addr_lut->addr_off);
 
     // Dump the LUT account itself if not already dumped
-    fd_accdb_ro_t ro[1];
+    fd_accdb_entry_t entry;
     int ret = dump_account_if_not_already_dumped(
         runtime->accdb,
-        &xid,
+        bank->accdb_fork_id,
         alut_key,
         spad,
         txn_context_msg->account_shared_data,
         &txn_context_msg->account_shared_data_count,
-        ro
+        &entry
     );
     if( FD_UNLIKELY( ret ) ) continue;
 
-    uchar const * alut_data = fd_accdb_ref_data_const( ro );
-    ulong         alut_sz   = fd_accdb_ref_data_sz   ( ro );
-
-    if( FD_UNLIKELY( alut_sz<FD_LOOKUP_TABLE_META_SIZE ) ) {
+    if( FD_UNLIKELY( entry.data_len < FD_LOOKUP_TABLE_META_SIZE ) ) {
       /* Skip over invalid address lookup tables */
-      fd_accdb_close_ro( runtime->accdb, ro );
+      fd_accdb_unread_one( runtime->accdb, &entry );
       continue;
     }
 
-    fd_pubkey_t const * lookup_addrs     = fd_type_pun_const( alut_data+FD_LOOKUP_TABLE_META_SIZE );
-    ulong               lookup_addrs_cnt = (alut_sz - FD_LOOKUP_TABLE_META_SIZE) / sizeof(fd_pubkey_t);
+    fd_pubkey_t const * lookup_addrs     = fd_type_pun_const( entry.data + FD_LOOKUP_TABLE_META_SIZE );
+    ulong               lookup_addrs_cnt = (entry.data_len - FD_LOOKUP_TABLE_META_SIZE) / sizeof(fd_pubkey_t);
 
     /* Dump any account state refererenced in ALUTs */
     uchar const * writable_lut_idxs = txn_payload + addr_lut->writable_off;
@@ -837,7 +811,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       fd_pubkey_t const * referenced_addr = lookup_addrs + writable_lut_idxs[j];
       dump_account_if_not_already_dumped(
           runtime->accdb,
-          &xid,
+          bank->accdb_fork_id,
           referenced_addr,
           spad,
           txn_context_msg->account_shared_data,
@@ -854,7 +828,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       fd_pubkey_t const * referenced_addr = lookup_addrs + readonly_lut_idxs[j];
       dump_account_if_not_already_dumped(
           runtime->accdb,
-          &xid,
+          bank->accdb_fork_id,
           referenced_addr,
           spad,
           txn_context_msg->account_shared_data,
@@ -863,21 +837,21 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       );
     }
 
-    fd_accdb_close_ro( runtime->accdb, ro );
+    fd_accdb_unread_one( runtime->accdb, &entry );
   }
 
   /* Dump the programdata accounts for any potential v3-owned program accounts */
   uint accounts_dumped_so_far = txn_context_msg->account_shared_data_count;
   for( uint i=0U; i<accounts_dumped_so_far; i++ ) {
     fd_exec_test_acct_state_t const * maybe_program_account = &txn_context_msg->account_shared_data[i];
-    dump_executable_account_if_exists( runtime->accdb, &xid, maybe_program_account, spad, txn_context_msg->account_shared_data, &txn_context_msg->account_shared_data_count );
+    dump_executable_account_if_exists( runtime->accdb, bank->accdb_fork_id, maybe_program_account, spad, txn_context_msg->account_shared_data, &txn_context_msg->account_shared_data_count );
   }
 
   /* Dump sysvars */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
     dump_account_if_not_already_dumped(
         runtime->accdb,
-        &xid,
+        bank->accdb_fork_id,
         fd_dump_sysvar_ids[i],
         spad,
         txn_context_msg->account_shared_data,
@@ -889,7 +863,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   /* Transaction Context -> tx */
   txn_context_msg->has_tx = true;
   fd_exec_test_sanitized_transaction_t * sanitized_transaction = &txn_context_msg->tx;
-  dump_sanitized_transaction( runtime->accdb, &xid, txn_descriptor, txn_payload, spad, sanitized_transaction );
+  dump_sanitized_transaction( runtime->accdb, bank->accdb_fork_id, txn_descriptor, txn_payload, spad, sanitized_transaction );
 
   /* Transaction Context -> bank */
   dump_txn_bank( bank, spad, txn_context_msg );
@@ -905,24 +879,20 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Program ID */
   fd_memcpy( instr_context->program_id, txn_out->accounts.keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
-  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
-
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_out->accounts.cnt;
   instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + runtime->accounts.executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
     // Copy account information over
-    fd_account_meta_t * account_meta = txn_out->accounts.account[i].meta;
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
-    dump_account_state( &txn_out->accounts.keys[i], account_meta, output_account, spad );
+    dump_account_state( &txn_out->accounts.account[ i ], output_account, spad );
   }
 
   /* Add sysvar cache variables */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    fd_accdb_ro_t ro[1];
-    if( !fd_accdb_open_ro( runtime->accdb, ro, &xid, fd_dump_sysvar_ids[i] ) ) {
-      continue;
-    }
+    fd_accdb_entry_t entry = fd_accdb_read_one( runtime->accdb, bank->accdb_fork_id, fd_dump_sysvar_ids[i]->uc );
+    if( FD_UNLIKELY( !entry.lamports ) ) continue;
+
     // Make sure the account doesn't exist in the output accounts yet
     int account_exists = 0;
     for( ulong j = 0; j < txn_out->accounts.cnt; j++ ) {
@@ -935,18 +905,18 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if( !account_exists ) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( fd_accdb_ref_address( ro ), ro->meta, output_account, spad );
+      dump_account_state( &entry, output_account, spad );
     }
-    fd_accdb_close_ro( runtime->accdb, ro );
+    fd_accdb_unread_one( runtime->accdb, &entry );
   }
 
   /* Add executable accounts */
   for( ulong i = 0; i < runtime->accounts.executable_cnt; i++ ) {
     // Make sure the account doesn't exist in the output accounts yet
-    fd_accdb_ro_t const * ro = &runtime->accounts.executable[i];
+    fd_accdb_entry_t const * ro = &runtime->accounts.executable[i];
     bool account_exists = false;
     for( ulong j = 0; j < instr_context->accounts_count; j++ ) {
-      if( 0 == memcmp( instr_context->accounts[j].address, fd_accdb_ref_address( ro ), sizeof(fd_pubkey_t) ) ) {
+      if( 0 == memcmp( instr_context->accounts[j].address, ro->pubkey, sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
@@ -954,7 +924,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if( !account_exists ) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( fd_accdb_ref_address( ro ), ro->meta, output_account, spad );
+      dump_account_state( ro, output_account, spad );
     }
   }
 
@@ -1028,30 +998,60 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
    TxnResult protobuf.  Sub-allocations for account data are bump-
    allocated from the caller's scratch region via _l. */
 static void
-write_account_to_result( fd_pubkey_t const *              pubkey,
-                         fd_account_meta_t const *        meta,
-                         fd_exec_test_acct_state_t *      out_accounts,
-                         pb_size_t *                      out_accounts_cnt,
-                         ulong *                          scratch_cur,
-                         ulong                            scratch_end ) {
+write_account_to_result( fd_accdb_entry_t const *    entry,
+                         fd_exec_test_acct_state_t * out_accounts,
+                         pb_size_t *                 out_accounts_cnt,
+                         ulong *                     scratch_cur,
+                         ulong                       scratch_end ) {
+  fd_exec_test_acct_state_t * out_acct = &out_accounts[ *out_accounts_cnt ];
+  (*out_accounts_cnt)++;
+
+  memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
+  memcpy( out_acct->address, entry->pubkey, sizeof(fd_pubkey_t) );
+  out_acct->lamports = entry->lamports;
+
+  if( entry->data_len>0UL ) {
+    pb_bytes_array_t * data = (pb_bytes_array_t *)fd_ulong_align_up( *scratch_cur, alignof(pb_bytes_array_t) );
+    *scratch_cur = (ulong)data + PB_BYTES_ARRAY_T_ALLOCSIZE( entry->data_len );
+    if( FD_UNLIKELY( *scratch_cur > scratch_end ) ) abort();
+    data->size = (pb_size_t)entry->data_len;
+    fd_memcpy( data->bytes, entry->data, entry->data_len );
+    out_acct->data = data;
+  }
+
+  out_acct->executable = entry->executable;
+  memcpy( out_acct->owner, entry->owner, sizeof(fd_pubkey_t) );
+}
+
+static void
+write_account_to_result1( uchar const *               pubkey,
+                          ulong                       lamports,
+                          uchar const *               owner,
+                          ulong                       data_len,
+                          uchar const *               _data,
+                          int                         executable,
+                          fd_exec_test_acct_state_t * out_accounts,
+                          pb_size_t *                 out_accounts_cnt,
+                          ulong *                     scratch_cur,
+                          ulong                       scratch_end ) {
   fd_exec_test_acct_state_t * out_acct = &out_accounts[ *out_accounts_cnt ];
   (*out_accounts_cnt)++;
 
   memset( out_acct, 0, sizeof(fd_exec_test_acct_state_t) );
   memcpy( out_acct->address, pubkey, sizeof(fd_pubkey_t) );
-  out_acct->lamports = meta->lamports;
+  out_acct->lamports = lamports;
 
-  if( meta->dlen>0UL ) {
+  if( data_len>0UL ) {
     pb_bytes_array_t * data = (pb_bytes_array_t *)fd_ulong_align_up( *scratch_cur, alignof(pb_bytes_array_t) );
-    *scratch_cur = (ulong)data + PB_BYTES_ARRAY_T_ALLOCSIZE( meta->dlen );
+    *scratch_cur = (ulong)data + PB_BYTES_ARRAY_T_ALLOCSIZE( data_len );
     if( FD_UNLIKELY( *scratch_cur > scratch_end ) ) abort();
-    data->size = (pb_size_t)meta->dlen;
-    fd_memcpy( data->bytes, fd_account_data( meta ), meta->dlen );
+    data->size = (pb_size_t)data_len;
+    fd_memcpy( data->bytes, _data, data_len );
     out_acct->data = data;
   }
 
-  out_acct->executable = meta->executable;
-  memcpy( out_acct->owner, meta->owner, sizeof(fd_pubkey_t) );
+  out_acct->executable = executable;
+  memcpy( out_acct->owner, owner, sizeof(fd_pubkey_t) );
 }
 
 ulong
@@ -1146,9 +1146,13 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
   if( txn_out->err.is_fees_only || exec_res!=FD_RUNTIME_EXECUTE_SUCCESS ) {
     /* If the transaction errored, capture the rollback accounts (fee payer and nonce). */
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      write_account_to_result(
-        &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX],
-        txn_out->accounts.rollback_fee_payer,
+      write_account_to_result1(
+        txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX].uc,
+        txn_out->accounts.fee_payer_rollback_lamports,
+        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].prior_owner,
+        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].prior_data_len,
+        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].prior_data,
+        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].prior_executable,
         txn_result->rollback_accounts,
         &txn_result->rollback_accounts_count,
         &_l,
@@ -1157,9 +1161,13 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
     }
 
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      write_account_to_result(
-        &txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn],
-        txn_out->accounts.rollback_nonce,
+      write_account_to_result1(
+        txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn].uc,
+        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ].prior_lamports,
+        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ].prior_owner,
+        txn_out->accounts.nonce_rollback_data_len,
+        txn_out->accounts.nonce_rollback_data,
+        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ].prior_executable,
         txn_result->rollback_accounts,
         &txn_result->rollback_accounts_count,
         &_l,
@@ -1177,8 +1185,7 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
       }
 
       write_account_to_result(
-        &txn_out->accounts.keys[j],
-        txn_out->accounts.account[j].meta,
+        &txn_out->accounts.account[j],
         txn_result->modified_accounts,
         &txn_result->modified_accounts_count,
         &_l,
@@ -1309,7 +1316,7 @@ void
 fd_dump_block_to_protobuf( fd_block_dump_ctx_t *       dump_block_ctx,
                            fd_banks_t *                banks,
                            fd_bank_t *                 bank,
-                           fd_accdb_user_t *           accdb,
+                           fd_accdb_t *                accdb,
                            fd_dump_proto_ctx_t const * dump_proto_ctx,
                            fd_runtime_stack_t *        runtime_stack ) {
   if( FD_UNLIKELY( dump_block_ctx==NULL ) ) {

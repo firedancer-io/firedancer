@@ -2,9 +2,11 @@
 #define HEADER_fd_src_flamenco_progcache_fd_progcache_rec_h
 
 #include "fd_progcache_base.h"
+#include "fd_progcache_xid.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../fd_flamenco_base.h"
 #include "../fd_rwlock.h"
+
 #include <stdatomic.h>
 
 /* fd_progcache_rec_t is the fixed size header of a program cache entry
@@ -15,7 +17,7 @@
    segment, control flow metadata, ...). */
 
 struct __attribute__((aligned(64))) fd_progcache_rec {
-  fd_funk_xid_key_pair_t pair;  /* Transaction id and record key pair */
+  fd_progcache_xid_key_pair_t pair;  /* Transaction id and record key pair */
 
   /* Slot number at which this cache entry was created.
      Matches the XID's slot number for in-preparation transactions. */

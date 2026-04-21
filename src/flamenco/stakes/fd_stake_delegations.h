@@ -1,10 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_stake_delegations_h
 #define HEADER_fd_src_flamenco_stakes_fd_stake_delegations_h
 
-#include "../rewards/fd_rewards_base.h"
-#include "../runtime/fd_cost_tracker.h"
-#include "../../disco/pack/fd_pack.h" /* TODO: Layering violation */
-#include "../../disco/pack/fd_pack_cost.h"
+#include "../types/fd_types.h"
+#include "../accdb/fd_accdb.h"
+#include "../fd_rwlock.h"
 #include "../../util/tmpl/fd_map.h"
 
 #define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E0) /* FIREDANCER STAKE V0 */
@@ -243,8 +242,8 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
                               ulong                      epoch,
                               fd_stake_history_t const * stake_history,
                               ulong *                    warmup_cooldown_rate_epoch,
-                              fd_accdb_user_t *          accdb,
-                              fd_funk_txn_xid_t const *  xid );
+                              fd_accdb_t *               accdb,
+                              fd_accdb_fork_id_t         fork_id );
 
 /* fd_stake_delegations_cnt returns the number of stake delegations
    in the base of stake delegations struct. */
