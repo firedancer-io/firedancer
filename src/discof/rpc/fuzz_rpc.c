@@ -17,13 +17,13 @@
 #include <sys/mman.h>
 
 #include "../../util/fd_util.h"
-#include "../../funk/fd_funk.h"
-#include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../ballet/json/cJSON_alloc.h"
 #include "../../util/sanitize/fd_fuzz.h"
+#include "../../flamenco/accdb/fd_accdb.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
 
 #define FD_TILE_TEST
 #include "fd_rpc_tile.c"
@@ -44,9 +44,8 @@ static uchar * nodes_dlist_mem;
 static uchar * http_mem;
 static uchar * rpc_mem;
 
-static fd_topo_t * topo;
-static ulong funk_obj_id;
-static ulong locks_obj_id;
+static fd_topo_t *  topo;
+static fd_accdb_t * fuzz_accdb;
 
 static fd_wksp_t *
 fd_wksp_new_lazy( ulong footprint ) {
@@ -68,32 +67,42 @@ fd_wksp_new_lazy( ulong footprint ) {
   return wksp;
 }
 
-void
-setup_topo_funk( fd_topo_t *  topo,
-                 ulong        max_account_records,
-                 ulong        max_database_transactions,
-                 ulong        heap_size_mib ) {
-  fd_topo_obj_t * funk_obj = fd_topob_obj( topo, "funk", "funk" );
-  FD_TEST( fd_pod_insert_ulong(  topo->props, "funk", funk_obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_account_records,       "obj.%lu.rec_max",  funk_obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_database_transactions, "obj.%lu.txn_max",  funk_obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, heap_size_mib*(1UL<<20),   "obj.%lu.heap_max", funk_obj->id ) );
-  ulong funk_footprint = fd_funk_shmem_footprint( max_database_transactions, max_account_records );
-  if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [accounts] parameters" ));
+/* setup_accdb constructs a minimal in-memory accdb instance suitable
+   for fuzzing the rpc tile.  The accdb is populated via a memfd-backed
+   data file; no on-disk persistence is required. */
 
-  /* Adjust workspace partition count */
-  ulong wksp_idx = fd_topo_find_wksp( topo, "funk" );
-  FD_TEST( wksp_idx!=ULONG_MAX );
-  fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
-  ulong size     = funk_footprint+(heap_size_mib*(1UL<<20));
-  ulong part_max = fd_wksp_part_max_est( size, 1U<<14U );
-  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", size ));
-  wksp->part_max += part_max;
+static fd_accdb_t *
+setup_accdb( void ) {
+  ulong max_accounts                = 1024UL;
+  ulong max_live_slots              = 16UL;
+  ulong max_account_writes_per_slot = 64UL;
+  ulong partition_cnt               = 4UL;
+  ulong partition_sz                = 16UL<<20; /* 16 MiB; must fit worst-case account write */
+  ulong cache_footprint             = 16UL<<30; /* matches per-class minimums in test_accdb */
+  ulong cache_min_reserved          = 640UL;
+  ulong joiner_cnt                  = 1UL;
 
-  fd_topo_obj_t * locks_obj = fd_topob_obj( topo, "funk_locks", "funk_locks" );
-  FD_TEST( fd_pod_insert_ulong( topo->props, "funk_locks", locks_obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_database_transactions, "obj.%lu.txn_max", locks_obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_account_records,       "obj.%lu.rec_max", locks_obj->id ) );
+  int fd = memfd_create( "fuzz_rpc_accdb", 0 );
+  if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
+
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot,
+                                             partition_cnt, cache_footprint, cache_min_reserved, joiner_cnt );
+  FD_TEST( shmem_fp );
+  void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
+  FD_TEST( shmem_mem );
+  fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
+      fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, max_account_writes_per_slot,
+                          partition_cnt, partition_sz, cache_footprint, cache_min_reserved,
+                          42UL, joiner_cnt ) );
+  FD_TEST( shmem );
+
+  ulong accdb_fp = fd_accdb_footprint( max_live_slots );
+  FD_TEST( accdb_fp );
+  void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
+  FD_TEST( accdb_mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
+  FD_TEST( accdb );
+  return accdb;
 }
 
 int
@@ -128,12 +137,7 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_topo_wksp_t * topo_wksp = fd_topob_wksp( topo, "wksp" );
   topo_wksp->wksp = wksp;
 
-  ulong const funk_txn_max = 16UL;
-  ulong const funk_rec_max = 16UL;
-  setup_topo_funk( topo, funk_rec_max, funk_txn_max, 1UL );
-
-  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ))!=ULONG_MAX );
-  FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ))!=ULONG_MAX );
+  fuzz_accdb = setup_accdb();
 
   void * shalloc = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL );
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( shalloc, 1UL ), 1UL );
@@ -160,7 +164,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( http_mem, http_params, (fd_http_server_callbacks_t){ 0 }, NULL ) );
   ctx->http = http;
 
-  FD_TEST( fd_accdb_user_v1_init( ctx->accdb, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, locks_obj_id ), 16UL ) );
+  ctx->accdb = fuzz_accdb;
 
   ctx->cluster_nodes_dlist = fd_rpc_cluster_node_dlist_join( fd_rpc_cluster_node_dlist_new( nodes_dlist_mem ) );
   ctx->cluster_nodes[ 0 ].valid = 1;

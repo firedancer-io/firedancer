@@ -1,10 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
-#include "../leaders/fd_leaders.h"
-#include "../types/fd_types.h"
-#include "../../ballet/txn/fd_txn.h" /* for fd_acct_addr_t */
-#include "../vm/fd_vm_base.h" /* fd_vm_trace_t */
+#include "../types/fd_types_custom.h"
+#include "../vm/fd_vm_base.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -34,8 +32,8 @@ FD_PROTOTYPES_BEGIN
    241,000,000 * 0.000005 = 1,205 SOL.
    This brings our total cost to 550,685 SOL. */
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (241000000UL)
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000UL)
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2410000UL)
 
 /* The expected stake and vote account values are based on observed
    values on mainnet and testnet allowing for some growth.  These are
@@ -235,9 +233,20 @@ FD_PROTOTYPES_BEGIN
 #define BPF_LOADER_SERIALIZATION_FOOTPRINT (671761968UL)
 FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
 
-#define FD_EPOCH_CREDITS_MAX (64UL)
+/* FD_SYSVAR_INSTRUCTIONS_FOOTPRINT bounds the worst-case serialized
+   size of the sysvar instructions account.  See
+   fd_sysvar_instructions.c for the format.  Worst case:
+     - 2 bytes header (num_instructions)
+     - FD_TXN_INSTR_MAX * 2 = 128 bytes (instruction offsets)
+     - per-instr fixed: 2 (num_accounts) + 32 (program_id) + 2 (data_len)
+       = 36 bytes * FD_TXN_INSTR_MAX (64) = 2304 bytes
+     - per-acct ref: 33 bytes * FD_INSTR_ACCT_MAX (1094) = 36102 bytes
+     - instr data total: bounded by FD_TXN_MTU (1232 bytes)
+     - 2 bytes tail (current_instr_idx)
+   Total: 39770 bytes, rounded up to 40960. */
+#define FD_SYSVAR_INSTRUCTIONS_FOOTPRINT (40960UL)
 
-static const FD_FN_UNUSED fd_account_meta_t FD_ACCOUNT_META_DEFAULT = {0};
+#define FD_EPOCH_CREDITS_MAX (64UL)
 
 FD_PROTOTYPES_END
 

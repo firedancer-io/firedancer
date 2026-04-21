@@ -7,26 +7,25 @@ $(call add-hdrs,test_vm_util.h)
 $(call add-objs,test_vm_util,fd_flamenco)
 
 ifdef FD_HAS_BLST
-$(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(BLST_LIBS))
+$(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_ballet fd_util fd_disco,$(BLST_LIBS))
 endif
 endif
 
-# Unfortunately, the get_sysvar syscall handler depends on the funk database
 ifdef FD_HAS_BLST
-$(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(BLST_LIBS))
+$(call make-unit-test,test_vm_interp,test_vm_interp,fd_flamenco fd_ballet fd_util fd_disco,$(BLST_LIBS))
 $(call run-unit-test,test_vm_interp)
 endif
 endif
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128
-$(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util fd_funk)
+$(call make-unit-test,test_vm_base,test_vm_base,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vm_base)
 endif
 endif
 
 ifdef FD_HAS_BLST
-$(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_funk fd_ballet fd_util,$(BLST_LIBS))
+$(call make-unit-test,test_vm_instr,test_vm_instr,fd_flamenco fd_ballet fd_util,$(BLST_LIBS))
 $(call run-unit-test,test_vm_instr)
 endif
 

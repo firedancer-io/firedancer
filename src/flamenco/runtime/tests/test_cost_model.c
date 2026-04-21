@@ -111,7 +111,8 @@ txn_serialize( fd_txn_p_t *     out,
 static ulong
 fd_calculate_allocated_accounts_data_size( fd_bank_t * bank,
                                            fd_txn_in_t const * txn_in ) {
-  fd_txn_out_t txn_out = {0};
+  static fd_txn_out_t txn_out;
+  fd_memset( &txn_out, 0, sizeof(txn_out) );
   fd_compute_budget_details_new( &txn_out.details.compute_budget );
   fd_cost_tracker_calculate_cost( bank, txn_in, &txn_out );
   return txn_out.details.txn_cost.transaction.allocated_accounts_data_size;
@@ -258,7 +259,8 @@ test_calculate_allocated_accounts_data_size_invalid_ix( fd_bank_t * bank ) {
 
 static void
 test_sanitize_compute_unit_limits_heap_size( void ) {
-  fd_txn_out_t txn_out = {0};
+  static fd_txn_out_t txn_out;
+  fd_memset( &txn_out, 0, sizeof(txn_out) );
   fd_compute_budget_details_new( &txn_out.details.compute_budget );
 
   txn_out.details.compute_budget.has_requested_heap_size = 1;

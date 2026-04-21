@@ -2,6 +2,7 @@
 #include "fd_system_ids.h"
 #include "fd_bank.h"
 #include "fd_runtime.h"
+#include "fd_executor.h"
 #include "../features/fd_features.h"
 #include "../vm/fd_vm_base.h"
 #include "program/fd_system_program.h"
@@ -382,7 +383,7 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
   account_cost_t const * pool = fd_type_pun_const( (void*)((ulong)cost_tracker + ((cost_tracker_outer_t const *)cost_tracker)->pool_offset) );
 
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    if( txn_out->accounts.is_writable[i]==0 ) continue;
+    if( FD_UNLIKELY( !txn_out->accounts.account[ i ]._writable ) ) continue;
 
     fd_pubkey_t const * writable_acc = &txn_out->accounts.keys[i];
 
@@ -405,7 +406,7 @@ add_transaction_execution_cost( fd_cost_tracker_t * _cost_tracker,
   account_cost_t * pool = fd_type_pun( (void*)((ulong)cost_tracker+cost_tracker->pool_offset) );
 
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    if( FD_LIKELY( txn_out->accounts.is_writable[i]==0 ) ) continue;
+    if( FD_UNLIKELY( !txn_out->accounts.account[ i ]._writable ) ) continue;
 
     fd_pubkey_t const * writable_acc = &txn_out->accounts.keys[i];
 

@@ -3,8 +3,7 @@
 
 /* fd_accdb_svm.h provides APIs for slot boundary account changes. */
 
-#include "../accdb/fd_accdb_ref.h"
-#include "../../funk/fd_funk_base.h"
+#include "../accdb/fd_accdb.h"
 #include "../types/fd_types_custom.h"
 
 FD_PROTOTYPES_BEGIN
@@ -16,24 +15,21 @@ typedef struct fd_accdb_svm_update fd_accdb_svm_update_t;
 
 /* fd_accdb_svm_open_rw starts a system account update. */
 
-fd_accdb_rw_t *
-fd_accdb_svm_open_rw( fd_accdb_user_t *         accdb,
-                      fd_bank_t *               bank,
-                      fd_funk_txn_xid_t const * xid,
-                      fd_accdb_rw_t *           rw,
-                      fd_accdb_svm_update_t *   update,
-                      fd_pubkey_t const *       pubkey,
-                      ulong                     data_max,
-                      int                       flags );
+fd_accdb_entry_t
+fd_accdb_svm_open_rw( fd_bank_t *             bank,
+                      fd_accdb_t *            accdb,
+                      fd_accdb_svm_update_t * update,
+                      fd_pubkey_t const *     pubkey,
+                      int                     create );
 
 /* fd_accdb_svm_close_rw ends a system account update.  Updates the bank
    LtHash and capitalization. */
 
 void
-fd_accdb_svm_close_rw( fd_accdb_user_t *       accdb,
-                       fd_bank_t *             bank,
+fd_accdb_svm_close_rw( fd_bank_t *             bank,
+                       fd_accdb_t *            accdb,
                        fd_capture_ctx_t *      capture_ctx,
-                       fd_accdb_rw_t *         rw,
+                       fd_accdb_entry_t *      rw,
                        fd_accdb_svm_update_t * update );
 
 /* fd_accdb_svm_credit credits an account with lamports.  Updates the
@@ -41,12 +37,11 @@ fd_accdb_svm_close_rw( fd_accdb_user_t *       accdb,
    account if it does not exist.  Bypasses rent-exemption rules. */
 
 void
-fd_accdb_svm_credit( fd_accdb_user_t *         accdb,
-                     fd_bank_t *               bank,
-                     fd_funk_txn_xid_t const * xid,
-                     fd_capture_ctx_t *        capture_ctx,
-                     fd_pubkey_t const *       pubkey,
-                     ulong                     lamports );
+fd_accdb_svm_credit( fd_bank_t *         bank,
+                     fd_accdb_t *        accdb,
+                     fd_capture_ctx_t *  capture_ctx,
+                     fd_pubkey_t const * pubkey,
+                     ulong               lamports );
 
 /* fd_accdb_svm_write replaces the contents of an account.  Replaces the
    account owner and data.  Mints lamports if account has less than
@@ -59,17 +54,15 @@ fd_accdb_svm_credit( fd_accdb_user_t *         accdb,
      than sz, leave tail region unchanged) */
 
 void
-fd_accdb_svm_write( fd_accdb_user_t *         accdb,
-                    fd_bank_t *               bank,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_capture_ctx_t *        capture_ctx,
-                    fd_pubkey_t const *       pubkey,
-                    fd_pubkey_t const *       owner,
-                    void const *              data,
-                    ulong                     sz,
-                    ulong                     lamports_min,
-                    int                       exec_bit,
-                    int                       flags );
+fd_accdb_svm_write( fd_bank_t *         bank,
+                    fd_accdb_t *        accdb,
+                    fd_capture_ctx_t *  capture_ctx,
+                    fd_pubkey_t const * pubkey,
+                    fd_pubkey_t const * owner,
+                    void const *        data,
+                    ulong               sz,
+                    ulong               lamports_min,
+                    int                 exec_bit );
 
 /* fd_accdb_svm_remove destroys an account and burns all lamports.
    Updates the account itself, bank LtHash, and bank capitalization.
@@ -77,11 +70,10 @@ fd_accdb_svm_write( fd_accdb_user_t *         accdb,
    burned. */
 
 ulong
-fd_accdb_svm_remove( fd_accdb_user_t *         accdb,
-                     fd_bank_t *               bank,
-                     fd_funk_txn_xid_t const * xid,
-                     fd_capture_ctx_t *        capture_ctx,
-                     fd_pubkey_t const *       pubkey );
+fd_accdb_svm_remove( fd_bank_t *         bank,
+                     fd_accdb_t *        accdb,
+                     fd_capture_ctx_t *  capture_ctx,
+                     fd_pubkey_t const * pubkey );
 
 FD_PROTOTYPES_END
 

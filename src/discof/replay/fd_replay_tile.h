@@ -70,7 +70,6 @@
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
-#include "../reasm/fd_reasm.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
@@ -123,6 +122,7 @@ struct fd_replay_slot_completed {
      eliminate non-timestamp fields and have consumers just use
      bank_idx. */
   ulong bank_idx;
+  fd_accdb_fork_id_t accdb_fork_id;
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */
   long preparation_begin_nanos;           /* timestamp when replay began preparing the state to begin execution of the slot */

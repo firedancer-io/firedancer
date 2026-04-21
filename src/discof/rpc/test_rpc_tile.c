@@ -1,10 +1,11 @@
 #define _GNU_SOURCE
 #include "fd_rpc_tile.c"
-#include "../../funk/fd_funk.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../util/pod/fd_pod.h"
+#include "../../tango/fseq/fd_fseq.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/mman.h>
 
 static fd_wksp_t *
@@ -127,22 +128,53 @@ main( int     argc,
   keyswitch_obj->wksp_id = topo_wksp->id;
   keyswitch_obj->offset  = fd_wksp_gaddr_fast( wksp, keyswitch_mem );
 
-  ulong const funk_txn_max = 16UL;
-  ulong const funk_rec_max = 16UL;
-  void * shfunk = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_shmem_footprint( funk_txn_max, funk_rec_max ), 1UL );
-  FD_TEST( fd_funk_shmem_new( shfunk, 1UL, 1UL, funk_txn_max, funk_rec_max ) );
-  fd_topo_obj_t * funk_obj = fd_topob_obj( topo, "funk", "wksp" );
-  funk_obj->wksp_id = topo_wksp->id;
-  funk_obj->offset  = fd_wksp_gaddr_fast( wksp, shfunk );
-  fd_pod_insert_ulong( topo->props, "funk", funk_obj->id );
+  ulong const max_accounts                = 1024UL;
+  ulong const max_live_slots              = 16UL;
+  ulong const max_writes_per_slot         = 64UL;
+  ulong const partition_cnt               = 8192UL;
+  ulong const partition_sz                = 1UL<<24UL;
+  ulong const cache_fp                    = 64UL<<20UL;
+  ulong const cache_min_reserved          = 1UL;
+  ulong const joiner_cnt                  = 2UL; /* writer + readonly rpc */
 
-  void * shlocks = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_locks_footprint( funk_txn_max, funk_rec_max ), 1UL );
-  FD_TEST( shlocks );
-  FD_TEST( fd_funk_locks_new( shlocks, funk_txn_max, funk_rec_max ) );
-  fd_topo_obj_t * funk_locks_obj = fd_topob_obj( topo, "funk_locks", "wksp" );
-  funk_locks_obj->wksp_id = topo_wksp->id;
-  funk_locks_obj->offset  = fd_wksp_gaddr_fast( wksp, shlocks );
-  fd_pod_insert_ulong( topo->props, "funk_locks", funk_locks_obj->id );
+  fd_topo_obj_t * accdb_shmem_obj = fd_topob_obj( topo, "accdb_shmem", "wksp" );
+  ulong accdb_shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
+  void * accdb_shmem_mem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), accdb_shmem_fp, 1UL );
+  FD_TEST( accdb_shmem_mem );
+  FD_TEST( fd_accdb_shmem_new( accdb_shmem_mem, max_accounts, max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 42UL, joiner_cnt ) );
+  accdb_shmem_obj->wksp_id = topo_wksp->id;
+  accdb_shmem_obj->offset  = fd_wksp_gaddr_fast( wksp, accdb_shmem_mem );
+  fd_pod_insert_ulong( topo->props, "accdb", accdb_shmem_obj->id );
+
+  /* Set up an fseq for the rpc tile's epoch slot. */
+  void * fseq_mem = fd_wksp_alloc_laddr( wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL );
+  FD_TEST( fseq_mem );
+  FD_TEST( fd_fseq_new( fseq_mem, ULONG_MAX ) );
+  fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "wksp" );
+  fseq_obj->wksp_id = topo_wksp->id;
+  fseq_obj->offset  = fd_wksp_gaddr_fast( wksp, fseq_mem );
+
+  /* Open the on-disk accdb file and dup it to the well-known fd FD_ACCDB_FD_RO
+     that the rpc tile expects for its O_RDONLY join. */
+  int accdb_data_fd = memfd_create( "accdb_test_data", 0 );
+  FD_TEST( accdb_data_fd>=0 );
+  FD_TEST( dup2( accdb_data_fd, FD_ACCDB_FD_RO )==FD_ACCDB_FD_RO );
+
+  /* Set up a writer accdb join used solely by the test to populate
+     accounts.  The rpc tile will join read-only against the same shmem. */
+  fd_accdb_shmem_t * writer_shmem = fd_accdb_shmem_join( accdb_shmem_mem );
+  FD_TEST( writer_shmem );
+  void * writer_ljoin = fd_wksp_alloc_laddr( wksp, fd_accdb_align(), fd_accdb_footprint( max_live_slots ), 1UL );
+  FD_TEST( writer_ljoin );
+  fd_accdb_t * writer_accdb = fd_accdb_join( fd_accdb_new( writer_ljoin, writer_shmem, accdb_data_fd, 0UL, NULL ) );
+  FD_TEST( writer_accdb );
+
+  fd_accdb_fork_id_t test_fork_id;
+  {
+    fd_accdb_fork_id_t sentinel = { .val = USHORT_MAX };
+    fd_accdb_fork_id_t root_fork = fd_accdb_attach_child( writer_accdb, sentinel );
+    test_fork_id = fd_accdb_attach_child( writer_accdb, root_fork );
+  }
 
   fd_topo_link_t * link_rpc_replay = create_link( topo, wksp, "rpc_replay", 4UL, 0UL, 1UL );
   (void)link_rpc_replay;
@@ -150,10 +182,11 @@ main( int     argc,
   fd_topo_tile_t * tile     = fd_topob_tile( topo, "rpc", "wksp", "wksp", 0UL, 0, 0, 0 );
   fd_topo_obj_t *  tile_obj = &topo->objs[ tile->tile_obj_id ];
   strcpy( tile->name, "rpc" );
-  tile->rpc.max_live_slots = 16UL;
-  tile->rpc.send_buffer_size_mb = 64UL;
-  tile->rpc.accdb_max_depth = 16UL;
-  tile->id_keyswitch_obj_id = keyswitch_obj->id;
+  tile->rpc.max_live_slots          = max_live_slots;
+  tile->rpc.send_buffer_size_mb     = 64UL;
+  tile->rpc.accdb_obj_id            = accdb_shmem_obj->id;
+  tile->rpc.accdb_epoch_fseq_obj_id = fseq_obj->id;
+  tile->id_keyswitch_obj_id         = keyswitch_obj->id;
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
 
@@ -179,19 +212,11 @@ main( int     argc,
 
   /* -- getMultipleAccounts -- */
 
-  fd_funk_t funk_join[1];
-  fd_funk_t * funk = fd_funk_join( funk_join, shfunk, shlocks );
-  FD_TEST( funk );
-
-  ctx->banks[0].slot = 42UL;
+  ctx->banks[0].slot          = 42UL;
+  ctx->banks[0].accdb_fork_id = test_fork_id;
   ctx->processed_idx = 0UL;
   ctx->confirmed_idx = 0UL;
   ctx->finalized_idx = 0UL;
-
-  fd_funk_txn_xid_t root_xid;
-  fd_funk_txn_xid_set_root( &root_xid );
-  fd_funk_txn_xid_t test_xid = { .ul = { 42UL, 0UL } };
-  fd_funk_txn_prepare( funk, &root_xid, &test_xid );
 
   /* Account A: 4 bytes of data, 1000000 lamports */
   fd_pubkey_t addr_a;
@@ -200,12 +225,16 @@ main( int     argc,
   memset( owner_a, 0xBB, 32 );
   uchar data_a[4] = { 0x01, 0x02, 0x03, 0x04 };
   {
-    fd_accdb_rw_t rw[1];
-    FD_TEST( fd_accdb_open_rw( ctx->accdb, rw, &test_xid, addr_a.uc, 64UL, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE ) );
-    fd_accdb_ref_lamports_set( rw, 1000000UL );
-    fd_accdb_ref_owner_set( rw, owner_a );
-    fd_accdb_ref_data_set( ctx->accdb, rw, data_a, sizeof(data_a) );
-    fd_accdb_close_rw( ctx->accdb, rw );
+    uchar const * pks[1] = { addr_a.uc };
+    int wr[1] = { 1 };
+    fd_accdb_entry_t ent[1]; memset( ent, 0, sizeof(ent) );
+    fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, pks, wr, ent );
+    ent[0].lamports = 1000000UL;
+    ent[0].data_len = sizeof(data_a);
+    memcpy( ent[0].owner, owner_a, 32UL );
+    memcpy( ent[0].data, data_a, sizeof(data_a) );
+    ent[0].commit = 1;
+    fd_accdb_release( writer_accdb, 1UL, ent );
   }
 
   /* Account B: 2 bytes of data, 500000 lamports */
@@ -215,12 +244,16 @@ main( int     argc,
   memset( owner_b, 0xDD, 32 );
   uchar data_b[2] = { 0xFE, 0xED };
   {
-    fd_accdb_rw_t rw[1];
-    FD_TEST( fd_accdb_open_rw( ctx->accdb, rw, &test_xid, addr_b.uc, 64UL, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE ) );
-    fd_accdb_ref_lamports_set( rw, 500000UL );
-    fd_accdb_ref_owner_set( rw, owner_b );
-    fd_accdb_ref_data_set( ctx->accdb, rw, data_b, sizeof(data_b) );
-    fd_accdb_close_rw( ctx->accdb, rw );
+    uchar const * pks[1] = { addr_b.uc };
+    int wr[1] = { 1 };
+    fd_accdb_entry_t ent[1]; memset( ent, 0, sizeof(ent) );
+    fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, pks, wr, ent );
+    ent[0].lamports = 500000UL;
+    ent[0].data_len = sizeof(data_b);
+    memcpy( ent[0].owner, owner_b, 32UL );
+    memcpy( ent[0].data, data_b, sizeof(data_b) );
+    ent[0].commit = 1;
+    fd_accdb_release( writer_accdb, 1UL, ent );
   }
 
   FD_BASE58_ENCODE_32_BYTES( addr_a.uc, addr_a_b58 );

@@ -55,10 +55,6 @@ Firedancer source tree
       │
       ├── flamenco/    Solana SVM / runtime
       │
-      ├── funk/        Fork-aware in-memory key-value store (accounts DB, program cache)
-      │
-      ├── groove/      Disk-backed memory-mapped key-value cold store (accounts DB)
-      │
       ├── tango/       IPC messaging layer
       │
       ├── util/        C language environment, system runtime, common data

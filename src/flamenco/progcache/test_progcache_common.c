@@ -1,6 +1,7 @@
 
 #include "fd_progcache_admin.h"
 #include "fd_progcache_user.h"
+#include "../accdb/fd_accdb.h"
 
 FD_FN_UNUSED static fd_pubkey_t
 test_key( ulong x ) {
@@ -9,9 +10,10 @@ test_key( ulong x ) {
   return key;
 }
 
+#define TEST_ACCOUNT_DATA_MAX (1UL<<20)
 struct test_account {
-  fd_account_meta_t meta[1];
-  fd_accdb_ro_t     ro[1];
+  fd_accdb_entry_t entry[1];
+  uchar            buf[ TEST_ACCOUNT_DATA_MAX ];
 };
 typedef struct test_account test_account_t;
 
@@ -22,12 +24,15 @@ test_account_init( test_account_t * acc,
                    _Bool            executable,
                    void const *     data,
                    ulong            data_sz ) {
-  memcpy( acc->meta->owner, owner, 32 );
-  acc->meta->lamports   = 42UL;
-  acc->meta->slot       = 0UL;
-  acc->meta->dlen       = (uint)data_sz;
-  acc->meta->executable = executable;
-  fd_accdb_ro_init_nodb_oob( acc->ro, address, acc->meta, data );
+  if( data_sz > TEST_ACCOUNT_DATA_MAX ) FD_LOG_ERR(( "test_account_init: data_sz %lu exceeds max %lu", data_sz, TEST_ACCOUNT_DATA_MAX ));
+  memset( acc->entry, 0, sizeof(fd_accdb_entry_t) );
+  memcpy( acc->entry->pubkey, address, 32 );
+  memcpy( acc->entry->owner, owner, 32 );
+  acc->entry->lamports   = 42UL;
+  acc->entry->executable = executable;
+  acc->entry->data_len   = data_sz;
+  acc->entry->data       = acc->buf;
+  if( data_sz ) memcpy( acc->entry->data, data, data_sz );
   return acc;
 }
 

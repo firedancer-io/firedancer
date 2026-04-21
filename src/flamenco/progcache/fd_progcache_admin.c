@@ -33,9 +33,9 @@ fd_progcache_est_rec_max( ulong wksp_footprint,
    txn_map. */
 
 void
-fd_progcache_attach_child( fd_progcache_join_t * cache,
-                           fd_xid_t const *      xid_parent,
-                           fd_xid_t const *      xid_new ) {
+fd_progcache_attach_child( fd_progcache_join_t *      cache,
+                           fd_progcache_xid_t const * xid_parent,
+                           fd_progcache_xid_t const * xid_new ) {
   fd_rwlock_write( &cache->shmem->txn.rwlock );
 
   if( FD_UNLIKELY( fd_prog_txnm_idx_query_const( cache->txn.map, xid_new, ULONG_MAX, cache->txn.pool )!=ULONG_MAX ) ) {
@@ -51,9 +51,9 @@ fd_progcache_attach_child( fd_progcache_join_t * cache,
   uint * _child_head_idx;
   uint * _child_tail_idx;
 
-  if( FD_UNLIKELY( fd_funk_txn_xid_eq( xid_parent, cache->shmem->txn.last_publish ) ) ) {
+  if( FD_UNLIKELY( fd_progcache_txn_xid_eq( xid_parent, cache->shmem->txn.last_publish ) ) ) {
 
-    parent_idx = FD_FUNK_TXN_IDX_NULL;
+    parent_idx = FD_PROGCACHE_TXN_IDX_NULL;
 
     _child_head_idx = &cache->shmem->txn.child_head_idx;
     _child_tail_idx = &cache->shmem->txn.child_tail_idx;
@@ -76,7 +76,7 @@ fd_progcache_attach_child( fd_progcache_join_t * cache,
   uint txn_idx = (uint)fd_prog_txnp_idx_acquire( cache->txn.pool );
   if( FD_UNLIKELY( txn_idx==UINT_MAX ) ) FD_LOG_ERR(( "fd_progcache_attach_child failed: transaction object pool out of memory" ));
   fd_progcache_txn_t * txn = &cache->txn.pool[ txn_idx ];
-  fd_funk_txn_xid_copy( &txn->xid, xid_new );
+  fd_progcache_txn_xid_copy( &txn->xid, xid_new );
 
   uint sibling_prev_idx = *_child_tail_idx;
 
@@ -160,7 +160,7 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
   /* Remove transaction from index */
 
   if( FD_UNLIKELY( !fd_prog_txnm_ele_remove( cache->txn.map, &txn->xid, NULL, cache->txn.pool ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_cancel failed: fd_funk_txn_map_remove(%lu:%lu) failed",
+    FD_LOG_CRIT(( "fd_progcache_cancel failed: fd_prog_txnm_ele_remove(%lu:%lu) failed",
                   txn->xid.ul[0], txn->xid.ul[1] ));
   }
 
@@ -245,13 +245,13 @@ fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
     fd_prog_recm_txn_add( map_txn, &rec->pair, 1 );
     int txn_err = fd_prog_recm_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
     if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) ) {
-      FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock funk rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
+      FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
     }
 
     /* Evict previous root value */
-    fd_funk_xid_key_pair_t pair[1];
-    fd_funk_rec_key_copy( pair->key, rec->pair.key );
-    fd_funk_txn_xid_set_root( pair->xid );
+    fd_progcache_xid_key_pair_t pair[1];
+    fd_progcache_rec_key_copy( pair->key, rec->pair.key );
+    fd_progcache_txn_xid_set_root( pair->xid );
     if( fd_prog_delete_rec_by_key( cache, pair, 0 )>=0 ) {
       fd_progcache_admin_metrics_g.gc_root_cnt++;
     }
@@ -262,8 +262,8 @@ fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
     rec->prev_idx = UINT_MAX;
     rec->next_idx = UINT_MAX;
     atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
-    fd_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
-    fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
+    fd_progcache_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
+    fd_progcache_txn_xid_st_atomic( rec->pair.xid, &root );
     fd_rwlock_unwrite( &rec->lock );
     fd_progcache_admin_metrics_g.root_cnt++;
 
@@ -285,12 +285,12 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 
   /* Phase 1: Mark transaction as "last published" */
 
-  fd_xid_t const xid = txn->xid;
+  fd_progcache_xid_t const xid = txn->xid;
   if( FD_UNLIKELY( txn->parent_idx!=UINT_MAX ) ) {
     FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid.ul[0], xid.ul[1] ));
   }
   fd_racesan_hook( "prog_publish_one:pre_xid_store" );
-  fd_funk_txn_xid_st_atomic( cache->shmem->txn.last_publish, &xid );
+  fd_progcache_txn_xid_st_atomic( cache->shmem->txn.last_publish, &xid );
 
   /* Phase 2: Drain inserters from transaction */
 
@@ -325,7 +325,7 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   /* Phase 5: Remove transaction from index */
 
   if( FD_UNLIKELY( fd_prog_txnm_idx_remove( cache->txn.map, &txn->xid, ULONG_MAX, cache->txn.pool )==ULONG_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_publish failed: fd_funk_txn_map_remove(%lu:%lu) failed",
+    FD_LOG_CRIT(( "fd_progcache_publish failed: fd_prog_txnm_idx_remove(%lu:%lu) failed",
                   xid.ul[0], xid.ul[1] ));
   }
 
@@ -343,8 +343,8 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 }
 
 void
-fd_progcache_advance_root( fd_progcache_join_t * cache,
-                           fd_xid_t const *      xid ) {
+fd_progcache_advance_root( fd_progcache_join_t *      cache,
+                           fd_progcache_xid_t const * xid ) {
 
   /* Detach records from txns without acquiring record locks */
 
@@ -382,8 +382,8 @@ fd_progcache_advance_root( fd_progcache_join_t * cache,
 }
 
 void
-fd_progcache_cancel( fd_progcache_join_t * cache,
-                     fd_xid_t const *      xid ) {
+fd_progcache_cancel( fd_progcache_join_t *      cache,
+                     fd_progcache_xid_t const * xid ) {
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
   fd_progcache_txn_t * txn = fd_prog_txnm_ele_query( cache->txn.map, xid, NULL, cache->txn.pool );
@@ -414,7 +414,7 @@ reset_txn_list( fd_progcache_join_t * cache,
   }
 }
 
-/* reset_rec_map frees all records in a funk instance. */
+/* reset_rec_map frees all records in a progcache instance. */
 
 static void
 reset_rec_map( fd_progcache_join_t * cache ) {

@@ -302,7 +302,7 @@ after_credit( fd_snapld_tile_t *  ctx,
     long result = read( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, out, ctx->out_dc.mtu );
     if( FD_UNLIKELY( result<=0L ) ) {
       if( result==0L ) {
-        FD_LOG_NOTICE(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
+        FD_LOG_INFO(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       } else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
         FD_LOG_WARNING(( "read() failed on %s snapshot file (%i-%s)", ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));

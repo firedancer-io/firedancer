@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_leaders_fd_multi_epoch_leaders_h
 
 #include "fd_leaders.h"
+#include "fd_leaders_base.h"
 
 /* fd_multi_epoch_leaders is a wrapper around multiple fd_epoch_leaders
    objects.  It simplifies tracking leader schedules for multiple epochs,

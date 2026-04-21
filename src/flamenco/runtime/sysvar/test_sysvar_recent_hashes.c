@@ -32,8 +32,8 @@ test_sysvar_recent_hashes_init( fd_wksp_t * wksp ) {
   env->bank->f.rent = rent;
 
   /* Create an empty recent hashes sysvar */
-  fd_sysvar_recent_hashes_init( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_recent_hashes_init( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
   FD_TEST( fd_sysvar_cache_recent_hashes_is_valid( env->sysvar_cache )==1 );
   {
     env->bank->f.poh = (fd_hash_t){0};
@@ -70,8 +70,8 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
   fd_hash_t poh = { .ul={ 0x110b8a330ecf93c2UL, 0xb709306fbd53c744, 0xda66f7127781dd72, 0UL } };
   env->bank->f.poh = poh;
   env->bank->f.rbh_lamports_per_sig = 1000UL;
-  fd_sysvar_recent_hashes_update( env->bank, env->accdb, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+  fd_sysvar_recent_hashes_update( env->bank, env->accdb, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb );
   FD_TEST( fd_sysvar_cache_recent_hashes_is_valid( env->sysvar_cache )==1 );
   {
     ulong sz = 0UL;
@@ -88,8 +88,8 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
     poh.ul[3] = i+1UL;
     env->bank->f.poh = poh;
     env->bank->f.rbh_lamports_per_sig = 1001UL+i;
-    fd_sysvar_recent_hashes_update( env->bank, env->accdb, &env->xid, NULL );
-    fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
+    fd_sysvar_recent_hashes_update( env->bank, env->accdb, NULL );
+    fd_sysvar_cache_restore( env->bank, env->accdb );
 
     ulong sz = 0UL;
     uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_recent_block_hashes_id, &sz );

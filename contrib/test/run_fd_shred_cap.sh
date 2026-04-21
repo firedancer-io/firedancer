@@ -6,7 +6,6 @@ LOG="/tmp/ledger_log$$"
 DATA_DIR=${DATA_DIR:="/data/svc_firedancer"}
 
 rm -rf $DATA_DIR/shredcap_testnet.blockstore
-rm -rf $DATA_DIR/shredcap_testnet.funk
 
 TOML=$DATA_DIR/fd_shredcap.toml
 
@@ -85,7 +84,6 @@ echo "
     execrp_tile_count = 8
 [accounts]
     max_accounts = 150000000
-    file_size_gib = 100
 [tiles]
     [tiles.shred]
         max_pending_shred_sets = 16384

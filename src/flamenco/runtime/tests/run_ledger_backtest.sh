@@ -8,7 +8,6 @@ OBJDIR=${OBJDIR:-build/native/gcc}
 LEDGER=""
 RESTORE_ARCHIVE=""
 END_SLOT="0"
-FUNK_PAGES="16"
 INDEX_MAX="5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
@@ -23,8 +22,6 @@ SKIP_CHECKSUM=1
 DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
-DISABLE_LTHASH_VERIFICATION=true
-DB=${DB:="vinyl"}
 EXECRP_TILE_COUNT="10"
 INGEST_DEAD_SLOTS="false"
 ROOT_DISTANCE="2"
@@ -56,11 +53,6 @@ while [[ $# -gt 0 ]]; do
        ;;
     -e|--end_slot)
        END_SLOT="$2"
-       shift
-       shift
-       ;;
-    -y|--funk-pages)
-       FUNK_PAGES="$2"
        shift
        shift
        ;;
@@ -111,14 +103,6 @@ while [[ $# -gt 0 ]]; do
     --log)
         LOG="$2"
         shift
-        shift
-        ;;
-    -lt|--lthash-verification)
-        DISABLE_LTHASH_VERIFICATION=false
-        shift
-        ;;
-    --funk)
-        DB=funk
         shift
         ;;
     --exec)
@@ -250,7 +234,6 @@ cat <<EOF > ${CONFIG_FILE}
             allow_any = false
             allow_list = []
 [layout]
-    snapshot_hash_tile_count = 1
     execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
 
@@ -271,8 +254,6 @@ cat <<EOF > ${CONFIG_FILE}
     snapshots = "$DUMP/$LEDGER"
     accounts = "/$DUMP/accounts.db"
 [development]
-    [development.snapshots]
-        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION
     [development.ledger_input]
         path = "$LEDGER_INPUT"
         end_slot = $END_SLOT
@@ -280,26 +261,13 @@ cat <<EOF > ${CONFIG_FILE}
         root_distance = $ROOT_DISTANCE
 EOF
 
-if [[ "$DB" == "funk" ]]; then
-  cat <<EOF >> ${CONFIG_FILE}
-[accounts]
-    file_size_gib = $FUNK_PAGES
-    max_accounts = $INDEX_MAX
-EOF
-elif [[ "$DB" == "vinyl" ]]; then
-  if [[ "$INDEX_MAX" -lt "1000000" ]]; then
-    INDEX_MAX=1000000
-  fi
-  cat <<EOF >> ${CONFIG_FILE}
-[accounts]
-    in_memory_only = false
-    max_accounts = $INDEX_MAX
-    file_size_gib = $((FUNK_PAGES))
-    max_unrooted_account_size_gib = 2
-    cache_size_gib = 10
-    io_provider = "io_uring"
-EOF
+if [[ "$INDEX_MAX" -lt "1000000" ]]; then
+  INDEX_MAX=1000000
 fi
+cat <<EOF >> ${CONFIG_FILE}
+[accounts]
+    max_accounts = $INDEX_MAX
+EOF
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]

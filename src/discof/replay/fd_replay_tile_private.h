@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 #define HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 
-#include "fd_replay_tile.h"
 #include "fd_vote_tracker.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
@@ -9,7 +8,6 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_sched.h"
-#include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -70,12 +68,10 @@ struct fd_replay_tile {
   uint rng_seed;
   fd_rng_t rng[ 1 ];
 
-  fd_accdb_admin_t    accdb_admin[1];
-  fd_accdb_user_t     accdb[1];
   fd_progcache_join_t progcache[1];
   fd_wksp_mon_t       progcache_wksp_mon[1];
-  fd_wksp_mon_t       accdb_cache_wksp_mon[1];
 
+  fd_accdb_t *    accdb;
   fd_txncache_t * txncache;
   fd_store_t *    store;
   fd_banks_t *    banks;
@@ -381,9 +377,6 @@ struct fd_replay_tile {
     ulong leader_bid_wait;
     ulong banks_full;
     ulong storage_root_behind;
-
-    fd_histf_t root_slot_dur[1];
-    fd_histf_t root_account_dur[1];
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];

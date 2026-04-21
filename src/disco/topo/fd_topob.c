@@ -383,23 +383,18 @@ static char const * FLOATING[] = {
 /* Tiles only active on startup
    (Must shut down after snapshot load) */
 static char const * STARTUP[] = {
+  "genesi", /* FIREDANCER only */
   "snapct", /* FIREDANCER only */
   "snapld", /* FIREDANCER only */
   "snapdc", /* FIREDANCER only */
   "snapin", /* FIREDANCER only */
-  "snapwm", /* FIREDANCER only */
-  "snapwh", /* FIREDANCER only */
-  "snapla", /* FIREDANCER only */
-  "snapls", /* FIREDANCER only */
-  "snaplh", /* FIREDANCER only */
-  "snaplv", /* FIREDANCER only */
+  "snapwr", /* FIREDANCER only */
   NULL
 };
 
 /* Tiles only active post startup
    (Must sleep until snapshot load finishes) */
 static char const * POST_START[] = {
-  "resolv", /* FIREDANCER only */
   "accdb",  /* FIREDANCER only */
   "execle", /* FIREDANCER only */
   "poh",    /* FIREDANCER only */
@@ -420,6 +415,7 @@ static char const * ALWAYS[] = {
   "verify",
   "dedup",
   "resolh", /* FRANK only */
+  "resolv", /* FIREDANCER only */
   "pack",
   "bank",   /* FRANK only */
   "pohh",   /* FRANK only */

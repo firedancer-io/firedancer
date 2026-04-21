@@ -156,7 +156,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int                     virtual_address_space_adjustments      = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
 
   uchar               program_id_idx = ctx->instr->program_id;
-  fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
+  fd_accdb_entry_t *  program_acc    = &ctx->txn_out->accounts.account[program_id_idx];
   uchar               is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
                                       ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 

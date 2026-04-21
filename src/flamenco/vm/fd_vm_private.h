@@ -380,7 +380,9 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
       vm->instr_ctx->txn_out->details.accounts_resize_delta = fd_long_sat_add(
         vm->instr_ctx->txn_out->details.accounts_resize_delta, growth );
 
-      fd_account_meta_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].meta, new_region_sz );
+      ulong memset_sz = fd_ulong_sat_sub( new_region_sz, vm->acc_region_metas[ region->acc_region_meta_idx ].entry->data_len );
+      fd_memset( vm->acc_region_metas[ region->acc_region_meta_idx ].entry->data+vm->acc_region_metas[ region->acc_region_meta_idx ].entry->data_len, 0, memset_sz );
+      vm->acc_region_metas[ region->acc_region_meta_idx ].entry->data_len = new_region_sz;
       region->region_sz = (uint)new_region_sz;
     }
   }

@@ -339,12 +339,12 @@ check( config_t const * config,
     fd_genesis_account_t a[1];  fd_genesis_account( genesis,     disk_bin,  a, i );
     fd_genesis_account_t b[1];  fd_genesis_account( tmp_genesis, fresh_bin, b, i );
 
-    if( FD_UNLIKELY( memcmp( a->pubkey.uc, b->pubkey.uc, 32 ) ) )        PARTIALLY_CONFIGURED( "`%s` has unexpected account key at index %lu", genesis_path, i );
-    if( FD_UNLIKELY( a->meta.lamports!=b->meta.lamports ) )               PARTIALLY_CONFIGURED( "`%s` has unexpected account lamports at index %lu", genesis_path, i );
-    if( FD_UNLIKELY( a->meta.dlen!=b->meta.dlen ) )                       PARTIALLY_CONFIGURED( "`%s` has unexpected account data_len at index %lu", genesis_path, i );
-    if( FD_UNLIKELY( memcmp( a->meta.owner, b->meta.owner, 32 ) ) )      PARTIALLY_CONFIGURED( "`%s` has unexpected account owner at index %lu", genesis_path, i );
-    if( FD_UNLIKELY( a->meta.executable!=b->meta.executable ) )           PARTIALLY_CONFIGURED( "`%s` has unexpected account executable flag at index %lu", genesis_path, i );
-    if( FD_UNLIKELY( a->meta.dlen && memcmp( a->data, b->data, a->meta.dlen ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account data at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( memcmp( a->pubkey.uc, b->pubkey.uc, 32 ) ) )               PARTIALLY_CONFIGURED( "`%s` has unexpected account key at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( a->lamports!=b->lamports ) )                               PARTIALLY_CONFIGURED( "`%s` has unexpected account lamports at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( a->data_len!=b->data_len ) )                               PARTIALLY_CONFIGURED( "`%s` has unexpected account data_len at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( memcmp( a->owner.uc, b->owner.uc, 32 ) ) )                 PARTIALLY_CONFIGURED( "`%s` has unexpected account owner at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( a->executable!=b->executable ) )                           PARTIALLY_CONFIGURED( "`%s` has unexpected account executable flag at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( a->data_len && memcmp( a->data, b->data, a->data_len ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected account data at index %lu", genesis_path, i );
   }
 
   if( FD_UNLIKELY( tmp_genesis->builtin_cnt!=genesis->builtin_cnt ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors_len", genesis_path );
@@ -352,9 +352,9 @@ check( config_t const * config,
     fd_genesis_builtin_t a[1];  fd_genesis_builtin( genesis,     disk_bin,  a, i );
     fd_genesis_builtin_t b[1];  fd_genesis_builtin( tmp_genesis, fresh_bin, b, i );
 
-    if( FD_UNLIKELY( memcmp( a->pubkey.uc, b->pubkey.uc, 32 ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors pubkey at index %lu", genesis_path, i );
-    if( FD_UNLIKELY( a->dlen!=b->dlen ) )                          PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors string_len at index %lu", genesis_path, i );
-    if( FD_UNLIKELY( a->dlen && memcmp( a->data, b->data, a->dlen ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors string at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( memcmp( a->pubkey.uc, b->pubkey.uc, 32 ) ) )               PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors pubkey at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( a->data_len!=b->data_len ) )                               PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors string_len at index %lu", genesis_path, i );
+    if( FD_UNLIKELY( a->data_len && memcmp( a->data, b->data, a->data_len ) ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected native_instruction_processors string at index %lu", genesis_path, i );
   }
 
   if( FD_UNLIKELY( tmp_genesis->poh.ticks_per_slot!=config->development.genesis.ticks_per_slot ) ) PARTIALLY_CONFIGURED( "`%s` has unexpected ticks_per_slot", genesis_path );

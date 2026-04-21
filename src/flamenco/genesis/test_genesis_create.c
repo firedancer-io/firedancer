@@ -102,9 +102,9 @@ main( int     argc,
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, result_mem, account, i );
     if( fd_pubkey_eq( &account->pubkey, &options->vote_pubkey ) ) {
-      FD_TEST( account->meta.dlen == FD_VOTE_STATE_V3_SZ );
-      FD_TEST( !memcmp( account->meta.owner, fd_solana_vote_program_id.key, 32 ) );
-      FD_TEST( account->meta.lamports > 0UL );
+      FD_TEST( account->data_len == FD_VOTE_STATE_V3_SZ );
+      FD_TEST( !memcmp( account->owner.key, fd_solana_vote_program_id.key, 32 ) );
+      FD_TEST( account->lamports > 0UL );
       found_vote = 1;
       break;
     }
@@ -118,9 +118,9 @@ main( int     argc,
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, result_mem, account, i );
     if( fd_pubkey_eq( &account->pubkey, &options->stake_pubkey ) ) {
-      FD_TEST( account->meta.dlen == FD_STAKE_STATE_SZ );
-      FD_TEST( !memcmp( account->meta.owner, fd_solana_stake_program_id.key, 32 ) );
-      FD_TEST( account->meta.lamports > 0UL );
+      FD_TEST( account->data_len == FD_STAKE_STATE_SZ );
+      FD_TEST( !memcmp( account->owner.key, fd_solana_stake_program_id.key, 32 ) );
+      FD_TEST( account->lamports > 0UL );
       found_stake = 1;
       break;
     }

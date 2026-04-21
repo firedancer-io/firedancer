@@ -54,10 +54,10 @@ test_sysvar_epoch_rewards_invalid_active( fd_wksp_t * wksp ) {
     .distributed_rewards                =  40UL,
     .active                             = 2
   };
-  fd_sysvar_account_update( env->bank, env->accdb, &env->xid, NULL,
+  fd_sysvar_account_update( env->bank, env->accdb, NULL,
                             &fd_sysvar_epoch_rewards_id, &epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
 
-  FD_TEST( !fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid ) );
+  FD_TEST( !fd_sysvar_cache_restore( env->bank, env->accdb ) );
   FD_TEST( fd_sysvar_cache_epoch_rewards_is_valid( env->sysvar_cache )==0 );
 
   fd_sysvar_epoch_rewards_t restored;

@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_history_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_history_h
 
-#include "../../fd_flamenco_base.h"
 #include "../fd_bank.h"
 
 #define FD_SLOT_HISTORY_SLOT_FOUND     (0)
@@ -23,16 +22,14 @@ typedef struct fd_slot_history_view fd_slot_history_view_t;
 FD_PROTOTYPES_BEGIN
 
 void
-fd_sysvar_slot_history_init( fd_bank_t *               bank,
-                             fd_accdb_user_t *         accdb,
-                             fd_funk_txn_xid_t const * xid,
-                             fd_capture_ctx_t *        capture_ctx );
+fd_sysvar_slot_history_init( fd_bank_t *        bank,
+                             fd_accdb_t *       accdb,
+                             fd_capture_ctx_t * capture_ctx );
 
 void
-fd_sysvar_slot_history_update( fd_bank_t *               bank,
-                               fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_capture_ctx_t *        capture_ctx );
+fd_sysvar_slot_history_update( fd_bank_t *        bank,
+                               fd_accdb_t *       accdb,
+                               fd_capture_ctx_t * capture_ctx );
 
 int
 fd_sysvar_slot_history_validate( uchar const * data,

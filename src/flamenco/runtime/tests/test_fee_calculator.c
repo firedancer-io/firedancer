@@ -2,7 +2,6 @@
    registration.  Regression for 6a6861d / f86def8. */
 
 #include "fd_svm_mini.h"
-#include "../../accdb/fd_accdb_sync.h"
 #include "../fd_system_ids.h"
 #include "../fd_blockhashes.h"
 #include "../program/fd_system_program.h"
@@ -100,12 +99,12 @@ durable_nonce_from_blockhash( fd_hash_t *       out,
 }
 
 static void
-create_nonce_account_initialized( fd_svm_mini_t *     mini,
-                                  fd_xid_t const *    xid,
-                                  fd_pubkey_t const * nonce_pubkey,
-                                  fd_pubkey_t const * authority,
-                                  fd_hash_t const *   durable_nonce,
-                                  ulong               fee_lamports_per_sig ) {
+create_nonce_account_initialized( fd_svm_mini_t *        mini,
+                                  fd_accdb_fork_id_t     fork_id,
+                                  fd_pubkey_t const *    nonce_pubkey,
+                                  fd_pubkey_t const *    authority,
+                                  fd_hash_t const *      durable_nonce,
+                                  ulong                  fee_lamports_per_sig ) {
   fd_nonce_state_versions_t state = {
     .version                = FD_NONCE_VERSION_CURRENT,
     .kind                   = FD_NONCE_STATE_INITIALIZED,
@@ -118,20 +117,20 @@ create_nonce_account_initialized( fd_svm_mini_t *     mini,
   ulong written = 0UL;
   FD_TEST( fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written )==0 );
 
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( mini->accdb, rw, xid, nonce_pubkey,
-                             FD_SYSTEM_PROGRAM_NONCE_DLEN, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( mini->accdb, rw, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
-  rw->meta->lamports = 10000000UL;
-  rw->meta->slot     = 1UL;
-  memcpy( rw->meta->owner, fd_solana_system_program_id.key, 32UL );
-  fd_accdb_close_rw( mini->accdb, rw );
+  fd_accdb_t * accdb = mini->runtime->accdb;
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key );
+  fd_memcpy( entry.data, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
+  entry.data_len = FD_SYSTEM_PROGRAM_NONCE_DLEN;
+  entry.lamports = 10000000UL;
+  fd_memcpy( entry.owner, fd_solana_system_program_id.key, 32UL );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
 }
 
 static void
-create_nonce_account_uninitialized( fd_svm_mini_t *     mini,
-                                    fd_xid_t const *    xid,
-                                    fd_pubkey_t const * nonce_pubkey ) {
+create_nonce_account_uninitialized( fd_svm_mini_t *        mini,
+                                    fd_accdb_fork_id_t     fork_id,
+                                    fd_pubkey_t const *    nonce_pubkey ) {
   fd_nonce_state_versions_t state = {
     .version = FD_NONCE_VERSION_CURRENT,
     .kind    = FD_NONCE_STATE_UNINITIALIZED
@@ -141,29 +140,27 @@ create_nonce_account_uninitialized( fd_svm_mini_t *     mini,
   ulong written = 0UL;
   FD_TEST( fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written )==0 );
 
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( mini->accdb, rw, xid, nonce_pubkey,
-                             FD_SYSTEM_PROGRAM_NONCE_DLEN, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( mini->accdb, rw, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
-  rw->meta->lamports = 10000000UL;
-  rw->meta->slot     = 1UL;
-  memcpy( rw->meta->owner, fd_solana_system_program_id.key, 32UL );
-  fd_accdb_close_rw( mini->accdb, rw );
+  fd_accdb_t * accdb = mini->runtime->accdb;
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key );
+  fd_memcpy( entry.data, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
+  entry.data_len = FD_SYSTEM_PROGRAM_NONCE_DLEN;
+  entry.lamports = 10000000UL;
+  fd_memcpy( entry.owner, fd_solana_system_program_id.key, 32UL );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
 }
 
 static ulong
-read_nonce_fee( fd_svm_mini_t *     mini,
-                fd_xid_t const *    xid,
-                fd_pubkey_t const * nonce_pubkey ) {
-  fd_accdb_ro_t ro[1];
-  FD_TEST( fd_accdb_open_ro( mini->accdb, ro, xid, nonce_pubkey ) );
+read_nonce_fee( fd_svm_mini_t *        mini,
+                fd_accdb_fork_id_t     fork_id,
+                fd_pubkey_t const *    nonce_pubkey ) {
+  fd_accdb_t * accdb = mini->runtime->accdb;
+  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, nonce_pubkey->key );
 
   fd_nonce_state_versions_t state = {0};
   FD_TEST( fd_nonce_state_versions_decode(
-      &state,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz( ro ) )==0 );
-  fd_accdb_close_ro( mini->accdb, ro );
+      &state, entry.data, entry.data_len )==0 );
+  fd_accdb_unread_one( accdb, &entry );
 
   FD_TEST( state.version == FD_NONCE_VERSION_CURRENT );
   FD_TEST( state.kind    == FD_NONCE_STATE_INITIALIZED );
@@ -171,23 +168,19 @@ read_nonce_fee( fd_svm_mini_t *     mini,
 }
 
 static ulong
-read_lamports( fd_svm_mini_t *     mini,
-               fd_xid_t const *    xid,
-               fd_pubkey_t const * pubkey ) {
-  fd_accdb_ro_t ro[1];
-  if( !fd_accdb_open_ro( mini->accdb, ro, xid, pubkey ) ) return 0UL;
-  ulong lamports = fd_accdb_ref_lamports( ro );
-  fd_accdb_close_ro( mini->accdb, ro );
-  return lamports;
+read_lamports( fd_svm_mini_t *        mini,
+               fd_accdb_fork_id_t     fork_id,
+               fd_pubkey_t const *    pubkey ) {
+  return fd_accdb_lamports( mini->runtime->accdb, fork_id, pubkey->key );
 }
 
 /* Helper: set up root -> slot 2 (frozen with FEE_A) -> slot 3 (FEE_B).
    Returns slot 3's bank_idx. */
 
 struct test_env {
-  fd_bank_t * bank;
-  fd_xid_t    xid;
-  fd_hash_t   genesis_hash;
+  fd_bank_t *        bank;
+  fd_accdb_fork_id_t fork_id;
+  fd_hash_t          genesis_hash;
 };
 
 static struct test_env
@@ -202,15 +195,15 @@ setup_two_fee_slots( fd_svm_mini_t * mini ) {
   fd_svm_mini_freeze( mini, slot2_idx );
   fd_svm_mini_advance_root( mini, slot2_idx );
 
-  ulong child_idx  = fd_svm_mini_attach_child( mini, slot2_idx, 3UL );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, child_idx );
-  fd_xid_t    xid  = fd_svm_mini_xid( mini, child_idx );
+  ulong child_idx         = fd_svm_mini_attach_child( mini, slot2_idx, 3UL );
+  fd_bank_t *        bank = fd_svm_mini_bank( mini, child_idx );
+  fd_accdb_fork_id_t fork_id = fd_svm_mini_fork_id( mini, child_idx );
   bank->f.rbh_lamports_per_sig = FEE_B;
 
   fd_hash_t genesis_hash = {0};
   fd_memset( genesis_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
 
-  return (struct test_env){ .bank = bank, .xid = xid, .genesis_hash = genesis_hash };
+  return (struct test_env){ .bank = bank, .fork_id = fork_id, .genesis_hash = genesis_hash };
 }
 
 static void
@@ -242,11 +235,11 @@ test_advance_nonce_fee( fd_svm_mini_t * mini ) {
   fd_pubkey_t fee_payer_key = { .ul[0] = 0xFEE1UL };
   fd_pubkey_t nonce_key     = { .ul[0] = 0xAAAAUL };
 
-  fd_svm_mini_add_lamports( mini, &env.xid, &fee_payer_key, 10000000000UL );
-  create_nonce_account_initialized( mini, &env.xid, &nonce_key, &fee_payer_key,
+  fd_svm_mini_add_lamports( mini, env.fork_id, &fee_payer_key, 10000000000UL );
+  create_nonce_account_initialized( mini, env.fork_id, &nonce_key, &fee_payer_key,
                                     &durable_nonce, FEE_A );
 
-  ulong payer_before = read_lamports( mini, &env.xid, &fee_payer_key );
+  ulong payer_before = read_lamports( mini, env.fork_id, &fee_payer_key );
 
   fd_pubkey_t tx_keys[4] = {
     fee_payer_key, nonce_key,
@@ -259,19 +252,19 @@ test_advance_nonce_fee( fd_svm_mini_t * mini ) {
     .account_idxs_cnt = 3, .data = ix_data, .data_sz = 4,
   }};
 
-  fd_txn_p_t txn_p = {0};
+  static fd_txn_p_t txn_p; fd_memset( &txn_p, 0, sizeof(txn_p) );
   txn_serialize( &txn_p, 1UL, 2UL, 4UL, tx_keys, &durable_nonce, instrs, 1 );
   FD_TEST( fd_txn_parse( txn_p.payload, txn_p.payload_sz, TXN( &txn_p ), NULL ) );
 
-  fd_txn_out_t txn_out[1] = {0};
+  static fd_txn_out_t txn_out[1]; fd_memset( txn_out, 0, sizeof(*txn_out) );
   execute_txn( mini, env.bank, &txn_p, txn_out );
 
   FD_TEST( txn_out->err.is_committable );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
   fd_runtime_commit_txn( mini->runtime, env.bank, txn_out );
 
-  FD_TEST( read_nonce_fee( mini, &env.xid, &nonce_key ) == FEE_A );
-  FD_TEST( payer_before - read_lamports( mini, &env.xid, &fee_payer_key ) == FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE );
+  FD_TEST( read_nonce_fee( mini, env.fork_id, &nonce_key ) == FEE_A );
+  FD_TEST( payer_before - read_lamports( mini, env.fork_id, &fee_payer_key ) == FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE );
 
   FD_LOG_NOTICE(( "test_advance_nonce_fee: PASSED" ));
 }
@@ -286,8 +279,8 @@ test_initialize_nonce_fee( fd_svm_mini_t * mini ) {
   fd_pubkey_t fee_payer_key = { .ul[0] = 0xFEE2UL };
   fd_pubkey_t nonce_key     = { .ul[0] = 0xBBBBUL };
 
-  fd_svm_mini_add_lamports( mini, &env.xid, &fee_payer_key, 10000000000UL );
-  create_nonce_account_uninitialized( mini, &env.xid, &nonce_key );
+  fd_svm_mini_add_lamports( mini, env.fork_id, &fee_payer_key, 10000000000UL );
+  create_nonce_account_uninitialized( mini, env.fork_id, &nonce_key );
 
   fd_blockhash_info_t const * last_bh =
       fd_blockhashes_peek_last( &env.bank->f.block_hash_queue );
@@ -308,19 +301,19 @@ test_initialize_nonce_fee( fd_svm_mini_t * mini ) {
     .account_idxs_cnt = 3, .data = ix_data, .data_sz = 36,
   }};
 
-  fd_txn_p_t txn_p = {0};
+  static fd_txn_p_t txn_p; fd_memset( &txn_p, 0, sizeof(txn_p) );
   fd_hash_t blockhash = last_bh->hash;
   txn_serialize( &txn_p, 1UL, 3UL, 5UL, tx_keys, &blockhash, instrs, 1 );
   FD_TEST( fd_txn_parse( txn_p.payload, txn_p.payload_sz, TXN( &txn_p ), NULL ) );
 
-  fd_txn_out_t txn_out[1] = {0};
+  static fd_txn_out_t txn_out[1]; fd_memset( txn_out, 0, sizeof(*txn_out) );
   execute_txn( mini, env.bank, &txn_p, txn_out );
 
   FD_TEST( txn_out->err.is_committable );
   FD_TEST( txn_out->err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
   fd_runtime_commit_txn( mini->runtime, env.bank, txn_out );
 
-  FD_TEST( read_nonce_fee( mini, &env.xid, &nonce_key ) == FEE_A );
+  FD_TEST( read_nonce_fee( mini, env.fork_id, &nonce_key ) == FEE_A );
 
   FD_LOG_NOTICE(( "test_initialize_nonce_fee: PASSED" ));
 }
@@ -405,8 +398,8 @@ test_advance_nonce_already_advanced( fd_svm_mini_t * mini ) {
   fd_pubkey_t fee_payer_key = { .ul[0] = 0xFEE3UL };
   fd_pubkey_t nonce_key     = { .ul[0] = 0xCCCCUL };
 
-  fd_svm_mini_add_lamports( mini, &env.xid, &fee_payer_key, 10000000000UL );
-  create_nonce_account_initialized( mini, &env.xid, &nonce_key, &fee_payer_key,
+  fd_svm_mini_add_lamports( mini, env.fork_id, &fee_payer_key, 10000000000UL );
+  create_nonce_account_initialized( mini, env.fork_id, &nonce_key, &fee_payer_key,
                                     &durable_nonce, FEE_A );
 
   fd_pubkey_t tx_keys[4] = {
@@ -420,11 +413,11 @@ test_advance_nonce_already_advanced( fd_svm_mini_t * mini ) {
     .account_idxs_cnt = 3, .data = ix_data, .data_sz = 4,
   }};
 
-  fd_txn_p_t txn_p = {0};
+  static fd_txn_p_t txn_p; fd_memset( &txn_p, 0, sizeof(txn_p) );
   txn_serialize( &txn_p, 1UL, 2UL, 4UL, tx_keys, &durable_nonce, instrs, 1 );
   FD_TEST( fd_txn_parse( txn_p.payload, txn_p.payload_sz, TXN( &txn_p ), NULL ) );
 
-  fd_txn_out_t txn_out[1] = {0};
+  static fd_txn_out_t txn_out[1]; fd_memset( txn_out, 0, sizeof(*txn_out) );
   execute_txn( mini, env.bank, &txn_p, txn_out );
 
   FD_TEST( !txn_out->err.is_committable );

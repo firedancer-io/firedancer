@@ -1,7 +1,7 @@
 #include "fd_vm_syscall.h"
 #include "../../runtime/fd_borrowed_account.h"
 #include "../../runtime/fd_system_ids.h"
-#include "../../runtime/program/fd_bpf_loader_program.h"
+#include "../../runtime/fd_executor.h"
 
 /* FIXME: ALGO EFFICIENCY */
 static inline int
@@ -191,8 +191,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
   /* Obtain the program account index and return a MissingAccount error if not found.
     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L421-L436 */
-  int program_idx = fd_exec_instr_ctx_find_idx_of_instr_account( instr_ctx, callee_program_id_pubkey );
-  if( FD_UNLIKELY( program_idx == -1 ) ) {
+  ulong program_idx = fd_exec_instr_ctx_find_idx_of_instr_account( instr_ctx, callee_program_id_pubkey );
+  if( FD_UNLIKELY( program_idx==ULONG_MAX ) ) {
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
     FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );

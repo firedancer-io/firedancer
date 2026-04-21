@@ -24,16 +24,8 @@ predicate fitsInFootprint(string structName, string macroName) {
 
 from string macroName, string structName
 where (
-    macroName = "FD_FUNK_FOOTPRINT" and
-    structName = "fd_funk_private" and
-    not fitsInFootprint(structName, macroName)
-) and (
     macroName = "FD_FSEQ_FOOTPRINT" and
     structName = "fd_fseq_shmem_t" and
-    not fitsInFootprint(structName, macroName)
-) and (
-    macroName = "FD_FUNK_TXN_FOOTPRINT" and
-    structName = "fd_funk_txn_private" and
     not fitsInFootprint(structName, macroName)
 ) and (
     macroName = "FD_BLAKE3_FOOTPRINT" and
@@ -50,14 +42,6 @@ where (
 ) and (
     macroName = "FD_SHREDCAP_MANIFEST_CAP_FOOTPRINT_V1" and
     structName = "fd_shredcap_manifest_cap_V1" and
-    not fitsInFootprint(structName, macroName)
-) and (
-    macroName = "FD_FUNK_TXN_XID_FOOTPRINT" and
-    structName = "fd_funk_txn_xid" and
-    not fitsInFootprint(structName, macroName)
-) and (
-    macroName = "FD_FUNK_XID_KEY_PAIR_FOOTPRINT" and
-    structName = "fd_funk_xid_key_pair" and
     not fitsInFootprint(structName, macroName)
 ) and (
     macroName = "FD_WKSP_PRIVATE_PINFO_FOOTPRINT" and

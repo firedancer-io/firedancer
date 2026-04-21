@@ -1,9 +1,9 @@
 #include "fd_bpf_loader_serialization.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_runtime.h"
 #include "../fd_bank.h"
+#include "../tests/fd_svm_mini.h"
+#include "../../accdb/fd_accdb.h"
 #include "../../fd_flamenco_base.h"
-#include "../../accdb/fd_accdb_ref.h"
 #include "../../../ballet/json/cJSON.h"
 #include "../../../ballet/json/cJSON_alloc.h"
 #include "../../../ballet/base64/fd_base64.h"
@@ -350,131 +350,99 @@ find_program_index( fixture_input_t const * in ) {
   return -1;
 }
 
+/* Per-fixture context: txn_out is huge (10MB nonce_rollback_data buffer),
+   so allocate via static. */
+static fd_txn_in_t     g_txn_in[1];
+static fd_txn_out_t    g_txn_out[1];
+static fd_instr_info_t g_info[1];
+
 static void
-setup_instr_ctx( fixture_input_t const *      in,
-                 int                          program_idx,
-                 fd_alloc_t *                 alloc,
-                 fd_wksp_t *                  wksp,
-                 uchar ***                    out_storage,
-                 fd_txn_out_t **              out_txn_out,
-                 fd_banks_t **                out_banks,
-                 fd_runtime_t **              out_runtime,
-                 fd_exec_instr_ctx_t *        instr_ctx ) {
+setup_instr_ctx( fixture_input_t const * in,
+                 int                     program_idx,
+                 fd_svm_mini_t *         mini,
+                 fd_alloc_t *            alloc,
+                 uchar ***               out_storage,
+                 fd_exec_instr_ctx_t *   instr_ctx ) {
 
-  ulong wksp_tag = 1UL;
+  fd_runtime_t * runtime = mini->runtime;
 
-  uchar ** storage = fd_alloc_malloc( alloc, alignof(uchar*), sizeof(uchar*) * in->num_accounts );
+  /* Allocate per-account data buffers (lifetime: until cleanup_instr_ctx) */
+  uchar ** storage = fd_alloc_malloc( alloc, alignof(uchar*), sizeof(uchar*) * (in->num_accounts ? in->num_accounts : 1UL) );
   FD_TEST( storage );
 
-  for( ulong i=0; i<in->num_accounts; i++ ) {
-    ulong sz = sizeof(fd_account_meta_t) + in->accounts[i].data_len;
-    storage[i] = fd_alloc_malloc( alloc, FD_ACCOUNT_REC_ALIGN, sz );
-    FD_TEST( storage[i] );
-    fd_memset( storage[i], 0, sz );
+  fd_memset( g_txn_in,  0, sizeof(g_txn_in)  );
+  fd_memset( g_txn_out, 0, sizeof(g_txn_out) );
+  fd_memset( g_info,    0, sizeof(g_info)    );
 
-    fd_account_meta_t * meta = (fd_account_meta_t *)storage[i];
-    fd_account_meta_init( meta );
-    meta->dlen       = (uint)in->accounts[i].data_len;
-    meta->lamports   = in->accounts[i].lamports;
-    meta->executable = in->accounts[i].executable;
-    fd_memcpy( meta->owner, in->accounts[i].owner.key, 32 );
+  g_txn_out->accounts.cnt = in->num_accounts;
 
-    if( in->accounts[i].data_len ) {
-      fd_memcpy( fd_account_data( meta ), in->accounts[i].data, in->accounts[i].data_len );
-    }
+  for( ulong i=0UL; i<in->num_accounts; i++ ) {
+    ulong dlen = in->accounts[i].data_len;
+    uchar * data_buf = fd_alloc_malloc( alloc, FD_ACCOUNT_REC_ALIGN, dlen ? dlen : 1UL );
+    FD_TEST( data_buf );
+    if( dlen ) fd_memcpy( data_buf, in->accounts[i].data, dlen );
+    storage[i] = data_buf;
+
+    fd_accdb_entry_t * ent = &g_txn_out->accounts.account[i];
+    fd_memset( ent, 0, sizeof(*ent) );
+    memcpy( ent->pubkey, in->accounts[i].pubkey.key, 32 );
+    memcpy( ent->owner,  in->accounts[i].owner.key,  32 );
+    ent->lamports   = in->accounts[i].lamports;
+    ent->executable = in->accounts[i].executable;
+    ent->data_len   = (uint)dlen;
+    ent->data       = data_buf;
+    ent->_writable  = 1;
+    ent->commit     = 0;
+
+    memcpy( g_txn_out->accounts.keys[i].key, in->accounts[i].pubkey.key, 32 );
+
+    runtime->accounts.refcnt[i] = 0UL;
   }
 
-  fd_txn_out_t * txn_out = fd_wksp_alloc_laddr( wksp, alignof(fd_txn_out_t), sizeof(fd_txn_out_t), wksp_tag++ );
-  FD_TEST( txn_out );
-  fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
-  txn_out->accounts.cnt = in->num_accounts;
+  g_info->program_id = (uchar)program_idx;
+  if( in->instr_data_len ) fd_memcpy( g_info->data, in->instr_data, in->instr_data_len );
+  g_info->data_sz  = (ushort)in->instr_data_len;
+  g_info->acct_cnt = (ushort)in->num_instr_accounts;
 
-  for( ulong i=0; i<in->num_accounts; i++ ) {
-    fd_account_meta_t * meta = (fd_account_meta_t *)storage[i];
-    fd_accdb_rw_init_nodb( &txn_out->accounts.account[i], &in->accounts[i].pubkey, meta, FD_RUNTIME_ACC_SZ_MAX );
-    fd_memcpy( txn_out->accounts.keys[i].key, in->accounts[i].pubkey.key, 32 );
+  uchar seen[FD_TXN_ACCT_ADDR_MAX] = {0};
+  for( ulong i=0UL; i<in->num_instr_accounts; i++ ) {
+    fd_instr_info_setup_instr_account( g_info,
+                                       seen,
+                                       in->instr_accounts[i].index_in_transaction,
+                                       (ushort)i,
+                                       (ushort)i,
+                                       in->instr_accounts[i].is_writable,
+                                       in->instr_accounts[i].is_signer );
   }
 
-  ulong banks_footprint = fd_banks_footprint( 1UL, 1UL, 2048UL, 2048UL );
-  void * banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(), banks_footprint, wksp_tag++ );
-  FD_TEST( banks_mem );
-  fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL, 1UL, 2048UL, 2048UL, 0, 42UL ) );
-  FD_TEST( banks );
-
-  fd_bank_t * bank = fd_banks_init_bank( banks );
-  FD_TEST( bank );
-
-  fd_features_t * features = &bank->f.features;
-  fd_features_disable_all( features );
-  FD_FEATURE_SET_ACTIVE( features, remove_accounts_executable_flag_checks, 0UL );
-
-  fd_runtime_t * runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag++ );
-  FD_TEST( runtime );
-  fd_memset( runtime, 0, sizeof(fd_runtime_t) );
+  /* This test calls fd_bpf_loader_input_serialize_parameters directly,
+     bypassing fd_instr_stack_push.  The serializer reads stack_sz to
+     index the per-frame serialization scratch buffer, so set it to 1. */
   runtime->instr.stack_sz = 1;
-  for( ulong i=0; i<in->num_accounts; i++ ) {
-    runtime->accounts.starting_lamports[i] = in->accounts[i].lamports;
-    runtime->accounts.starting_dlen[i]     = in->accounts[i].data_len;
-    runtime->accounts.refcnt[i]            = 0UL;
-  }
-
-  static fd_txn_in_t     txn_in[1];
-  static fd_instr_info_t info[1];
-  fd_memset( txn_in, 0, sizeof(fd_txn_in_t) );
-  fd_memset( info, 0, sizeof(fd_instr_info_t) );
-
-  info->program_id = (uchar)program_idx;
-  if( in->instr_data_len ) {
-    fd_memcpy( info->data, in->instr_data, in->instr_data_len );
-  }
-  info->data_sz    = (ushort)in->instr_data_len;
-  info->acct_cnt   = (ushort)in->num_instr_accounts;
-
-  uchar seen[FD_INSTR_ACCT_MAX] = {0};
-  for( ulong i=0; i<in->num_instr_accounts; i++ ) {
-    ushort idx = in->instr_accounts[i].index_in_transaction;
-    info->accounts[i].index_in_transaction = idx;
-    info->accounts[i].index_in_caller      = (ushort)i;
-    info->accounts[i].index_in_callee      = (ushort)i;
-    info->accounts[i].is_signer            = in->instr_accounts[i].is_signer;
-    info->accounts[i].is_writable          = in->instr_accounts[i].is_writable;
-    info->is_duplicate[i] = seen[idx] ? 1 : 0;
-    seen[idx] = 1;
-  }
 
   fd_memset( instr_ctx, 0, sizeof(fd_exec_instr_ctx_t) );
-  instr_ctx->instr      = info;
-  instr_ctx->txn_in     = txn_in;
-  instr_ctx->txn_out    = txn_out;
-  instr_ctx->bank       = bank;
-  instr_ctx->runtime    = runtime;
+  instr_ctx->instr   = g_info;
+  instr_ctx->txn_in  = g_txn_in;
+  instr_ctx->txn_out = g_txn_out;
+  instr_ctx->runtime = runtime;
 
   *out_storage = storage;
-  *out_txn_out = txn_out;
-  *out_banks   = banks;
-  *out_runtime = runtime;
 }
 
 static void
 cleanup_instr_ctx( fixture_input_t const * in,
                    fd_alloc_t *            alloc,
-                   uchar **                storage,
-                   fd_txn_out_t *          txn_out,
-                   fd_banks_t *            banks,
-                   fd_runtime_t *          runtime ) {
-  for( ulong i=0; i<in->num_accounts; i++ ) {
+                   uchar **                storage ) {
+  for( ulong i=0UL; i<in->num_accounts; i++ ) {
     fd_alloc_free( alloc, storage[i] );
   }
-  fd_wksp_free_laddr( runtime );
-  fd_wksp_free_laddr( banks );
-  fd_wksp_free_laddr( txn_out );
   fd_alloc_free( alloc, storage );
 }
 
 static int
-run_fixture( fd_alloc_t * alloc,
-             fd_wksp_t *  wksp,
-             fixture_t *  fix ) {
+run_fixture( fd_svm_mini_t * mini,
+             fd_alloc_t *    alloc,
+             fixture_t *     fix ) {
 
   fixture_input_t *  in  = &fix->input;
   fixture_output_t * out = &fix->output;
@@ -485,12 +453,9 @@ run_fixture( fd_alloc_t * alloc,
   FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, is_deprecated=%d",
                   in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping, in->is_deprecated ));
 
-  uchar **           storage = NULL;
-  fd_txn_out_t *     txn_out = NULL;
-  fd_banks_t *       banks   = NULL;
-  fd_runtime_t *     runtime = NULL;
+  uchar **            storage = NULL;
   fd_exec_instr_ctx_t ctx[1];
-  setup_instr_ctx( in, program_idx, alloc, wksp, &storage, &txn_out, &banks, &runtime, ctx );
+  setup_instr_ctx( in, program_idx, mini, alloc, &storage, ctx );
 
   ulong                   serialized_sz = 0;
   ulong                   pre_lens[FD_INSTR_ACCT_MAX];
@@ -544,31 +509,33 @@ run_fixture( fd_alloc_t * alloc,
     }
   }
 
-  cleanup_instr_ctx( in, alloc, storage, txn_out, banks, runtime );
+  cleanup_instr_ctx( in, alloc, storage );
 
   return ok ? 0 : -1;
 }
 
 int
 main( int argc, char ** argv ) {
-  fd_boot( &argc, &argv );
+  fd_svm_mini_limits_t limits[1];
+  fd_svm_mini_limits_default( limits );
+  fd_svm_mini_t * mini = fd_svm_test_boot( &argc, &argv, limits );
 
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
+  fd_svm_mini_params_t params[1];
+  fd_svm_mini_params_default( params );
+  ulong root_idx = fd_svm_mini_reset( mini, params );
+  fd_bank_t * bank = fd_svm_mini_bank( mini, root_idx );
+  fd_features_disable_all( &bank->f.features );
+  FD_FEATURE_SET_ACTIVE( &bank->f.features, remove_accounts_executable_flag_checks, 0UL );
 
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "normal" );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1100000UL );
-  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
-
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  FD_TEST( page_sz );
-
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-  FD_TEST( wksp );
-
-  void * alloc_mem = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 1UL );
+  /* Stand up a private wksp and fd_alloc for fixture data — the
+     1.3MB JSON file plus per-fixture buffers don't fit in the svm_mini
+     wksp, which is sized exactly for runtime objects. */
+  fd_wksp_t * fix_wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 16384UL,
+                                                fd_shmem_cpu_idx( 0UL ), "fix_wksp", 0UL );
+  FD_TEST( fix_wksp );
+  void * alloc_mem = fd_wksp_alloc_laddr( fix_wksp, fd_alloc_align(), fd_alloc_footprint(), 99UL );
   FD_TEST( alloc_mem );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 0UL );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 99UL ), 0UL );
   FD_TEST( alloc );
 
   char const * fixtures_path = "src/flamenco/runtime/program/test_bpf_loader_serialization_fixtures.json";
@@ -602,7 +569,7 @@ main( int argc, char ** argv ) {
     cJSON_free( json_str );
 
     FD_LOG_NOTICE(( "Testing: %s", fix->input.name ));
-    int result = run_fixture( alloc, wksp, fix );
+    int result = run_fixture( mini, alloc, fix );
 
     if( result==0 ) {
       FD_LOG_NOTICE(( "  PASS" ));
@@ -613,11 +580,10 @@ main( int argc, char ** argv ) {
 
   cJSON_Delete( root );
   fd_alloc_free( alloc, data );
-
-  fd_alloc_delete( fd_alloc_leave( alloc ) );
-  fd_wksp_delete_anonymous( wksp );
+  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
+  fd_wksp_delete_anonymous( fix_wksp );
 
   FD_LOG_NOTICE(( "pass" ));
-  fd_halt();
+  fd_svm_test_halt( mini );
   return 0;
 }

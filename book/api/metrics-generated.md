@@ -136,90 +136,6 @@
 
 </div>
 
-## Snapwr Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwr_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
-| <span class="metrics-name">snapwr_&#8203;file_&#8203;capacity_&#8203;bytes</span> | gauge | Account database file capacity in bytes |
-| <span class="metrics-name">snapwr_&#8203;file_&#8203;used_&#8203;bytes</span> | gauge | Current number of bytes used in the account database file |
-
-</div>
-
-## Snapwh Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
-
-</div>
-
-## Snapla Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapla_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapla_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapla_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Snapls Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapls_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapls_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snapls_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Snapwm Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwm_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;loaded</span> | gauge | Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;replaced</span> | gauge | Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;active</span> | gauge | Current number of accounts in index. Resets if snapshot load restarts |
-
-</div>
-
-## Snaplh Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snaplh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snaplh_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaplh_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Snaplv Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snaplv_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snaplv_&#8203;full_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaplv_&#8203;incremental_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
 ## Netlnk Tile
 
 <div class="metrics">
@@ -612,6 +528,42 @@
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but failed to execute) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not (Transaction did not land) |
 | <span class="metrics-name">execle_&#8203;compute_&#8203;units_&#8203;total</span> | counter | Estimated number of compute units executed since tile start |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted</span> | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (0-128 B) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (129-512 B) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (513 B-2 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (2-8 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (8-32 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (32-128 KiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
 
 </div>
 
@@ -991,17 +943,6 @@
 | <span class="metrics-name">replay_&#8203;leader_&#8203;bid_&#8203;wait</span> | counter | Times where replay is blocked by the PoH tile not sending an end of leader message |
 | <span class="metrics-name">replay_&#8203;banks_&#8203;full</span> | counter | Times where banks are full and a FEC set can't be processed |
 | <span class="metrics-name">replay_&#8203;storage_&#8203;root_&#8203;behind</span> | counter | Times where the storage root is behind the consensus root and can't be advanced |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;reverted</span> | counter | Number of account database records reverted |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted</span> | counter | Number of account database entries rooted |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;rooted_&#8203;bytes</span> | counter | Number of bytes in account database entries rooted (including overhead) |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;gc_&#8203;root</span> | counter | Number of account database entries garbage collected |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;account_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block, normalized by account count) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">db</span>"} | counter | Total time in seconds spent rooting accounts (Waiting on database server) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">copy</span>"} | counter | Total time in seconds spent rooting accounts (Copying account data) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;gc_&#8203;root</span> | counter | Number of program cache entries garbage collected while rooting |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;free_&#8203;parts</span> | gauge | Number of program cache heap partitions free (indicates fragmentation) |
@@ -1011,12 +952,42 @@
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;used_&#8203;part_&#8203;median_&#8203;bytes</span> | gauge | Median used heap partition size in program cache |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;used_&#8203;part_&#8203;mean_&#8203;bytes</span> | gauge | Mean used heap partition size in program cache |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;time_&#8203;seconds</span> | counter | Total time in seconds spent doing program cache tasks |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;parts</span> | gauge | Number of account database cache heap partitions free (indicates fragmentation) |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;bytes</span> | gauge | Account database cache heap utilization (free bytes) |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;size_&#8203;bytes</span> | gauge | Account database cache heap utilization (total size) |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;part_&#8203;max_&#8203;bytes</span> | gauge | Largest free heap partition in account database cache |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;used_&#8203;part_&#8203;median_&#8203;bytes</span> | gauge | Median used heap partition size in account database cache |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;used_&#8203;part_&#8203;mean_&#8203;bytes</span> | gauge | Mean used heap partition size in account database cache |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted</span> | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (0-128 B) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (129-512 B) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (513 B-2 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (2-8 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (8-32 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (32-128 KiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
 | <span class="metrics-name">replay_&#8203;runtime_&#8203;status</span> | gauge | Solana runtime status (0=initializing 1=loaded) |
 
 </div>
@@ -1055,7 +1026,6 @@
 | <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction (The transaction was part of a bundle and an earlier transaction in the bundle failed) |
 | <span class="metrics-name">execrp_&#8203;sigverify_&#8203;count</span> | counter | Number of Ed25519 signature verification jobs executed |
 | <span class="metrics-name">execrp_&#8203;poh_&#8203;hash_&#8203;count</span> | counter | Number of PoH SHA-256 calls executed |
-| <span class="metrics-name">execrp_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction execution (includes VM setup/execution)) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction result commit) |
@@ -1064,11 +1034,6 @@
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM setup (CPI)) |
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM commit (CPI)) |
 | <span class="metrics-name">execrp_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM interpreter execution) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged_&#8203;nonexist</span>"} | counter | Transaction account change event counters (Account did not exist before and still does not) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">created</span>"} | counter | Transaction account change event counters (Account created) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">delete</span>"} | counter | Transaction account change event counters (Account deleted) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">modify</span>"} | counter | Transaction account change event counters (Account modified) |
-| <span class="metrics-name">execrp_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged</span>"} | counter | Transaction account change event counters (Account unchanged) |
 | <span class="metrics-name">execrp_&#8203;compute_&#8203;units_&#8203;total</span> | counter | Estimated number of compute units executed since tile start |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;lookups</span> | counter | Program cache lookup counter |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;hits</span> | counter | Program cache hit counter |
@@ -1083,6 +1048,42 @@
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Number of bytes evicted from program cache |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;total_&#8203;seconds</span> | counter | Total time in seconds spent on program cache operations |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;load_&#8203;seconds</span> | counter | Total time in seconds spent loading programs |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted</span> | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (0-128 B) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (129-512 B) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (513 B-2 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (2-8 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (8-32 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (32-128 KiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
 
 </div>
 
@@ -1092,35 +1093,77 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">accdb_&#8203;accounts</span> | gauge | Current number of accounts |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of read operations (Record cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of read operations (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of read operations (File access) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes read (Record cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes read (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes read (File access) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of write operations (Record cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of write operations (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of write operations (File access) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes written (Record cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes written (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes written (File access) |
-| <span class="metrics-name">accdb_&#8203;file_&#8203;capacity_&#8203;bytes</span> | gauge | Account database file capacity in bytes |
-| <span class="metrics-name">accdb_&#8203;file_&#8203;used_&#8203;bytes</span> | gauge | Current number of bytes used in account database file |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (Blocks between ancient and past have been written and forgotten (no read, no write)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (Blocks between past and present have been written (read only)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">future</span>"} | gauge | Current bstream sequence number (Blocks between future and ancient have not been written (no read, no write)) |
-| <span class="metrics-name">accdb_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
-| <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
-| <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
-| <span class="metrics-name">accdb_&#8203;account_&#8203;index_&#8203;remaining_&#8203;free</span> | gauge | Remaining free slots in the account database index (validator crashes when this number reaches zero) |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;total</span> | gauge | Total number of accounts currently in the account database |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;capacity</span> | gauge | Total capacity of accounts that can be stored in the account database |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;relocated</span> | counter | Total number of accounts moved in the account database during compaction |
+| <span class="metrics-name">accdb_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Total allocated size of the account database on disk |
+| <span class="metrics-name">accdb_&#8203;disk_&#8203;current_&#8203;bytes</span> | gauge | Total written-through size of the account database on disk, excluding never-written partition tail space |
+| <span class="metrics-name">accdb_&#8203;disk_&#8203;used_&#8203;bytes</span> | gauge | Total size of the account database on disk that is currently used |
+| <span class="metrics-name">accdb_&#8203;in_&#8203;compaction</span> | gauge | 1 if a compaction is currently in progress, 0 if not |
+| <span class="metrics-name">accdb_&#8203;compactions_&#8203;requested</span> | counter | Total number of compactions requested on the account database |
+| <span class="metrics-name">accdb_&#8203;compactions_&#8203;completed</span> | counter | Total number of compactions fully completed on the account database, less than or equal to the requested amount |
+| <span class="metrics-name">accdb_&#8203;accounts_&#8203;relocated_&#8203;bytes</span> | counter | Total number of bytes moved in the account database during compaction |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted</span> | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (0-128 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (129-512 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (513 B-2 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (2-8 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (8-32 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (32-128 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;deleted</span> | counter | Number of accounts deleted from the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (0-128 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (129-512 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (513 B-2 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (2-8 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (8-32 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (32-128 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (128 KiB-1 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;used</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | gauge | Number of slots currently occupied in the account database cache, broken down by size class (1-10 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;max</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | gauge | Total slot capacity of the account database cache, broken down by size class (0-128 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;max</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | gauge | Total slot capacity of the account database cache, broken down by size class (129-512 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;max</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | gauge | Total slot capacity of the account database cache, broken down by size class (513 B-2 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;max</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | gauge | Total slot capacity of the account database cache, broken down by size class (2-8 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;max</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | gauge | Total slot capacity of the account database cache, broken down by size class (8-32 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;max</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | gauge | Total slot capacity of the account database cache, broken down by size class (32-128 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;max</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | gauge | Total slot capacity of the account database cache, broken down by size class (128 KiB-1 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;max</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | gauge | Total slot capacity of the account database cache, broken down by size class (1-10 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;reserved</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | gauge | Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class (0-128 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;reserved</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | gauge | Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class (129-512 B) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;reserved</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | gauge | Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class (513 B-2 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;reserved</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | gauge | Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class (2-8 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;reserved</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | gauge | Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class (8-32 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;reserved</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | gauge | Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class (32-128 KiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;reserved</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | gauge | Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class (128 KiB-1 MiB) |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;cache_&#8203;class_&#8203;reserved</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | gauge | Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class (1-10 MiB) |
 
 </div>
 
@@ -1184,6 +1227,42 @@
 | <span class="metrics-name">tower_&#8203;votes_&#8203;already_&#8203;voted</span> | counter | Voter already voted for this slot |
 | <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;slot</span> | counter | Vote txn was for a slot we haven't replayed |
 | <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;block_&#8203;id</span> | counter | Vote txn was for a block id we don't recognize |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts evicted from the account database cache to make space, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted</span> | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (0-128 B) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (129-512 B) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (513 B-2 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (2-8 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (8-32 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (32-128 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;preevicted_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of accounts preemptively evicted (written back) from the account database cache by the background preevict pass, broken down by cache size class (1-10 MiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class0</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (0-128 B) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class1</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (129-512 B) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class2</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (513 B-2 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class3</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (2-8 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class4</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (8-32 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class5</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (32-128 KiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class6</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (128 KiB-1 MiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
 
 </div>
 
@@ -1342,6 +1421,12 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts read from the account database |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were not found in the account database cache and had to be read from disk |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied out of the account database cache on a cache hit |
 
 </div>
 

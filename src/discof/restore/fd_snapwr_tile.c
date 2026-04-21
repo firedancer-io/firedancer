@@ -1,180 +1,354 @@
-/* The snapwr tile dispatches O_DIRECT writes of large (~O(10MiB))
-   blocks to a vinyl bstream file.  This tile practically only does
-   blocking write(2) calls, which typically just yield to the kernel
-   scheduler until I/O completes.
-
-   Alternatives considered:
-   - Doing blocking O_DIRECT writes in the snapin tile is possible, but
-     starves the snapin tile off valuable CPU cycles while waiting for
-     write completions.
-   - Writing using the page cache (without O_DIRECT) similarly pipelines
-     writes through background dirty cache flushing.  Has a noticeable
-     throughput cost.
-   - io_uring with O_DIRECT has significantly lower latency (due to
-     fewer per-op overhead, and thus smaller possible block sizes), and
-     slightly better throughput.  However, is much more complex, less
-     portable, and less secure (harder to sandbox).
-
-   While writing, under the hood, the following happens on a fast NVMe
-   paired with an optimized file system (e.g. XFS):
-   - Userland context switches to kernel context via pwrite64
-   - Kernel sets up IOMMU page table entries, allowing NVMe device to
-     read userland memory
-   - Kernel sends write commands to NVMe device
-   - Kernel suspends thread
-     ...
-   - NVMe device does DMA reads, writes to disk
-     ...
-   - NVMe device sends completions to kernel
-   - Kernel removes IOMMU page table entries (might send IPIs ... sad)
-   - Kernel swaps back to userland and resumes
-   The above is a *lot* of overhead per-operation, which is the reason
-   for multiple megabyte buffer sizes.
-
-   The snapwr tile is thus expected to spend most of its time sleeping
-   waiting for disk I/O to complete.  The snapwr tile typically runs in
-   "floating" mode.  If there is no work to do, it saves power by going
-   to sleep for 1 millisecond at a time.
-
-   Accepted message descriptors:
-
-   - ctl==FD_SNAPSHOT_MSG_DATA
-     - chunk: compressed byte offset, relative to dcache data region (>>FD_CHUNK_LG_SZ)
-     - sig:   file offset to write to
-     - sz:    compressed write size (>>FD_VINYL_BSTREAM_BLOCK_LG_SZ)
-
-   - ctl==FD_SNAPSHOT_MSG_CTRL_INIT_FULL
-
-   - ctl==FD_SNAPSHOT_MSG_CTRL_INIT_INCR
-     - sig:   file offset to rewind "bytes written" metric to
-
-   - ctl==FD_SNAPSHOT_MSG_CTRL_SHUTDOWN */
-
-#define _GNU_SOURCE /* O_DIRECT */
+#define _GNU_SOURCE
 #include "utils/fd_ssctrl.h"
-#include "utils/fd_vinyl_admin.h"
+#include "utils/fd_ssparse.h"
+#include "utils/fd_ssmanifest_parser.h"
+
 #include "../../disco/topo/fd_topo.h"
-#include "../../disco/metrics/fd_metrics.h"
-#include "../../util/pod/fd_pod.h"
-#include "../../vinyl/bstream/fd_vinyl_bstream.h"
+
 #include "generated/fd_snapwr_tile_seccomp.h"
 
 #include <errno.h>
-#include <sys/stat.h>
-#include <fcntl.h> /* open */
-#include <unistd.h> /* pwrite */
+#include <fcntl.h>
+#include <unistd.h>
 
 #define NAME "snapwr"
 
-struct fd_snapwr {
-  uint         state;
-  int          dev_fd;
-  ulong        dev_sz;
-  ulong        dev_base;
-  void const * base;
-  ulong *      seq_sync;  /* fseq->seq[0] */
-  uint         idle_cnt;
+#define FD_SNAPWR_WRITE_BUF_SZ  (8UL<<20)   /* 8MiB */
+#define FD_SNAPWR_PARTITION_SZ  (1UL<<35UL) /* 32 GiB */
 
-  fd_vinyl_admin_t * vinyl_admin;
-  ulong *      bstream_seq;
-  int          lthash_disabled;
-
-  ulong        req_seen;
-  ulong        tile_cnt;
-  ulong        tile_idx;
-
-  struct {
-    ulong last_off;
-  } metrics;
+struct fd_snapwr_out {
+  ulong       idx;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+  ulong       mtu;
 };
 
-typedef struct fd_snapwr fd_snapwr_t;
+typedef struct fd_snapwr_out fd_snapwr_out_t;
+
+struct fd_snapwr_tile {
+  int full;
+  int state;
+
+  ulong accounts_off;
+  ulong flush_off;
+
+  uchar * write_buf;
+  ulong   write_buf_used;
+
+  ulong seed;
+
+  fd_ssparse_t * ssparse;
+  fd_ssmanifest_parser_t * manifest_parser;
+
+  struct {
+    fd_wksp_t * wksp;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       mtu;
+    ulong       pos;
+  } in;
+
+  fd_snapwr_out_t ct_out;
+
+  struct {
+    ulong full_bytes_read;
+    ulong incremental_bytes_read;
+  } metrics;
+
+  fd_snapshot_manifest_t manifest[1];
+};
+
+typedef struct fd_snapwr_tile fd_snapwr_tile_t;
+
+static inline int
+should_shutdown( fd_snapwr_tile_t * ctx ) {
+  return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
+}
 
 static ulong
 scratch_align( void ) {
-  return alignof(fd_snapwr_t);
+  return 512UL;
 }
 
 static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
-  return sizeof(fd_snapwr_t);
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapwr_tile_t),    sizeof(fd_snapwr_tile_t)         );
+  l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),           fd_ssparse_footprint( 1UL<<24 )  );
+  l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
+  l = FD_LAYOUT_APPEND( l, 1UL,                          FD_SNAPWR_WRITE_BUF_SZ           );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
-  fd_snapwr_t * snapwr = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  memset( snapwr, 0, sizeof(fd_snapwr_t) );
-
-  char const * vinyl_path = tile->snapwr.vinyl_path;
-  int vinyl_fd = open( vinyl_path, O_RDWR|O_DIRECT|O_CLOEXEC, 0644 );
-  if( FD_UNLIKELY( vinyl_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_DIRECT|O_CLOEXEC,0644) failed (%i-%s)", vinyl_path, errno, strerror( errno ) ));
-
-  struct stat st;
-  if( FD_UNLIKELY( 0!=fstat( vinyl_fd, &st ) ) ) FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", vinyl_path, errno, strerror( errno ) ));
-
-  snapwr->dev_fd   = vinyl_fd;
-  snapwr->dev_sz   = fd_ulong_align_dn( (ulong)st.st_size, FD_VINYL_BSTREAM_BLOCK_SZ );
-  snapwr->dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
+transition_malformed( fd_snapwr_tile_t *  ctx,
+                      fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
+  ctx->state = FD_SNAPSHOT_STATE_ERROR;
+  fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
-  fd_snapwr_t * snapwr = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  memset( &snapwr->metrics, 0, sizeof(snapwr->metrics) );
+buffer_flush( fd_snapwr_tile_t * ctx ) {
+  if( FD_UNLIKELY( !ctx->write_buf_used ) ) return;
 
-  if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
-  if( FD_UNLIKELY( tile->out_cnt!=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 0", tile->out_cnt ));
+  ulong sz  = ctx->write_buf_used;
+  ulong off = ctx->flush_off;
+  ulong bytes_written = 0UL;
+  while( bytes_written<sz ) {
+    long res = pwrite( FD_ACCDB_FD_RW, ctx->write_buf+bytes_written, sz-bytes_written, (long)(off+bytes_written) );
+    if( FD_UNLIKELY( -1==res ) ) FD_LOG_ERR(( "error writing to disk (%d-%s)", errno, fd_io_strerror( errno ) ));
+    bytes_written += (ulong)res;
+  }
+  ctx->flush_off      += sz;
+  ctx->write_buf_used  = 0UL;
+}
 
-  if( FD_UNLIKELY( !tile->in_link_reliable[ 0 ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link 0 must be reliable" ));
-  FD_TEST( tile->snapwr.dcache_obj_id!=ULONG_MAX );
+static void
+buffer_write( fd_snapwr_tile_t * ctx,
+              uchar const *      data,
+              ulong              sz ) {
+  ctx->accounts_off += sz;
+  while( sz ) {
+    ulong avail = FD_SNAPWR_WRITE_BUF_SZ - ctx->write_buf_used;
+    ulong n     = fd_ulong_min( sz, avail );
+    fd_memcpy( ctx->write_buf + ctx->write_buf_used, data, n );
+    ctx->write_buf_used += n;
+    data += n;
+    sz   -= n;
+    if( FD_UNLIKELY( ctx->write_buf_used==FD_SNAPWR_WRITE_BUF_SZ ) ) buffer_flush( ctx );
+  }
+}
 
-  fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
-  if( FD_UNLIKELY( 0!=strcmp( in_link->name, "snapwh_wr" ) ) ) FD_LOG_ERR(( "tile `" NAME "` has unexpected in link name `%s`", in_link->name ));
+static void
+buffer_skip( fd_snapwr_tile_t * ctx,
+             ulong              sz ) {
+  buffer_flush( ctx );
+  ctx->accounts_off += sz;
+  ctx->flush_off    += sz;
+}
 
-  uchar const * in_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
-  FD_TEST( in_dcache );
-  snapwr->base     = in_dcache;
-  snapwr->seq_sync = tile->in_link_fseq[ 0 ];
-
-  ulong const wr_tile_cnt = fd_topo_tile_name_cnt( topo, "snapwr" );
-  snapwr->vinyl_admin     = NULL;
-  snapwr->bstream_seq     = NULL;
-  snapwr->lthash_disabled = !!tile->snapwr.lthash_disabled;
-  if( !snapwr->lthash_disabled ) {
-    if( FD_UNLIKELY( wr_tile_cnt>FD_VINYL_ADMIN_WR_SEQ_CNT_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` count %lu exceeds vinyl admin limit %lu", wr_tile_cnt, FD_VINYL_ADMIN_WR_SEQ_CNT_MAX ));
-    ulong vinyl_admin_obj_id = fd_pod_query_ulong( topo->props, "vinyl_admin", ULONG_MAX );
-    FD_TEST( vinyl_admin_obj_id!=ULONG_MAX );
-    fd_vinyl_admin_t * vinyl_admin = fd_vinyl_admin_join( fd_topo_obj_laddr( topo, vinyl_admin_obj_id ) );
-    FD_TEST( vinyl_admin );
-    snapwr->vinyl_admin = vinyl_admin;
-    FD_TEST( tile->kind_id<FD_VINYL_ADMIN_WR_SEQ_CNT_MAX );
-    snapwr->bstream_seq = &snapwr->vinyl_admin->wr_seq[ tile->kind_id ];
+static void
+process_account_header( fd_snapwr_tile_t *            ctx,
+                        fd_ssparse_advance_result_t * result ) {
+  /* Ensure header+data does not cross a partition boundary.  If it
+     would, pad with zeros so the account starts at the next one. */
+  ulong account_sz    = 68UL + (ulong)result->account_header.data_len;
+  ulong cur_boundary  = ctx->accounts_off / FD_SNAPWR_PARTITION_SZ;
+  ulong end_boundary  = (ctx->accounts_off + account_sz - 1UL) / FD_SNAPWR_PARTITION_SZ;
+  if( FD_UNLIKELY( cur_boundary!=end_boundary ) ) {
+    ulong next = (cur_boundary + 1UL) * FD_SNAPWR_PARTITION_SZ;
+    buffer_skip( ctx, next - ctx->accounts_off );
   }
 
-  snapwr->state = FD_SNAPSHOT_STATE_IDLE;
+  uchar data[ 68UL ];
+  fd_memcpy( data, result->account_header.pubkey, 32UL );
+  fd_memcpy( data+32UL, &result->account_header.data_len, 4UL );
+  fd_memcpy( data+36UL, result->account_header.owner, 32UL );
+  buffer_write( ctx, data, 68UL );
+}
 
-  snapwr->req_seen = 0UL;
-  snapwr->tile_cnt = wr_tile_cnt;
-  snapwr->tile_idx = tile->kind_id;
+static void
+process_account_data( fd_snapwr_tile_t *            ctx,
+                      fd_ssparse_advance_result_t * result ) {
+  buffer_write( ctx, result->account_data.data, result->account_data.data_sz );
+}
+
+static int
+handle_data_frag( fd_snapwr_tile_t *  ctx,
+                  ulong               chunk,
+                  ulong               sz,
+                  fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
+    FD_LOG_WARNING(( "received unexpected data frag while in state %s (%lu)",
+                     fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state  ));
+    transition_malformed( ctx, stem );
+    return 0;
+  }
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    /* Ignore all data frags after observing an error in the stream until
+       we receive fail & init control messages to restart processing. */
+    return 0;
+  }
+  if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+    FD_LOG_ERR(( "received data frag during invalid state %s (%lu)",
+                 fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
+  }
+
+  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
+
+  for(;;) {
+    if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
+
+    uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
+
+    fd_ssparse_advance_result_t result[1];
+    int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
+    switch( res ) {
+      case FD_SSPARSE_ADVANCE_ERROR:
+        FD_LOG_WARNING(( "error while parsing snapshot stream" ));
+        transition_malformed( ctx, stem );
+        return 0;
+      case FD_SSPARSE_ADVANCE_AGAIN:
+        break;
+      case FD_SSPARSE_ADVANCE_MANIFEST: {
+        int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
+                                                result->manifest.data,
+                                                result->manifest.data_sz,
+                                                result->manifest.acc_vec_map,
+                                                result->manifest.acc_vec_pool );
+        if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+          FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
+          transition_malformed( ctx, stem );
+          return 0;
+        }
+        break;
+      }
+      case FD_SSPARSE_ADVANCE_STATUS_CACHE:
+        break;
+      case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
+        process_account_header( ctx, result );
+        break;
+      case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
+        process_account_data( ctx, result );
+        break;
+      case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
+        FD_TEST( 0 );
+        break;
+      case FD_SSPARSE_ADVANCE_DONE:
+        buffer_flush( ctx );
+        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+        break;
+      default:
+        FD_LOG_ERR(( "unexpected fd_ssparse_advance result %d", res ));
+        break;
+    }
+
+    ctx->in.pos += result->bytes_consumed;
+    if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
+    else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
+  }
+
+  int reprocess_frag = ctx->in.pos<sz;
+  if( FD_LIKELY( !reprocess_frag ) ) ctx->in.pos = 0UL;
+  return reprocess_frag;
+}
+
+static void
+handle_control_frag( fd_snapwr_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     ulong               sig ) {
+  if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
+    /* Control messages move along the snapshot load pipeline.  Since
+       error conditions can be triggered by any tile in the pipeline,
+       it is possible to be in error state and still receive otherwise
+       valid messages.  Only a fail message can revert this. */
+    return;
+  };
+
+  switch( sig ) {
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      fd_ssparse_reset( ctx->ssparse );
+      fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
+
+      if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
+        ctx->metrics.full_bytes_read        = 0UL;
+        ctx->metrics.incremental_bytes_read = 0UL;
+      } else {
+        ctx->metrics.incremental_bytes_read = 0UL;
+      }
+      break;
+    }
+    case FD_SNAPSHOT_MSG_CTRL_FINI: {
+      /* This is a special case: handle_data_frag must have already
+         processed FD_SSPARSE_ADVANCE_DONE and moved the state into
+         FD_SNAPSHOT_STATE_FINISHING. */
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_NEXT: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_ERROR: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL: {
+      FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+      FD_LOG_ERR((( "TODO: UNIMPLEMENTED: snapshot load failure handling (TODO: reset accdb to last known good state, etc)" )));
+      break;
+    }
+
+    case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
+      break;
+    }
+
+    default: {
+      FD_LOG_ERR(( "unexpected control frag %s (%lu) in state %s (%lu)",
+                   fd_ssctrl_msg_ctrl_str( sig ), sig,
+                   fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
+      break;
+    }
+  }
+
+  fd_stem_publish( stem, ctx->ct_out.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
+static inline int
+returnable_frag( fd_snapwr_tile_t *  ctx,
+                 ulong               in_idx FD_PARAM_UNUSED,
+                 ulong               seq    FD_PARAM_UNUSED,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tspub  FD_PARAM_UNUSED,
+                 fd_stem_context_t * stem ) {
+  FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
+  else                                           handle_control_frag( ctx, stem, sig );
+
+  return 0;
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t      const * topo,
-                      fd_topo_tile_t const * tile,
+populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
-  fd_snapwr_t const * snapwr = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
-  out_fds[ out_cnt++ ] = snapwr->dev_fd;
+  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RW; /* accounts db */
 
   return out_cnt;
 }
@@ -184,141 +358,90 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  fd_snapwr_t const * snapwr = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  populate_sock_filter_policy_fd_snapwr_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)snapwr->dev_fd );
+  (void)topo; (void)tile;
+
+  populate_sock_filter_policy_fd_snapwr_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)FD_ACCDB_FD_RW );
   return sock_filter_policy_fd_snapwr_tile_instr_cnt;
 }
 
-static int
-should_shutdown( fd_snapwr_t const * ctx ) {
-  return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
+static inline fd_snapwr_out_t
+out1( fd_topo_t const *      topo,
+      fd_topo_tile_t const * tile,
+      char const *           name ) {
+  ulong idx = fd_topo_find_tile_out_link( topo, tile, name, 0UL );
+
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_snapwr_out_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0, .mtu = 0 };
+
+  ulong mtu = topo->links[ tile->out_link_id[ idx ] ].mtu;
+  if( FD_UNLIKELY( mtu==0UL ) ) return (fd_snapwr_out_t){ .idx = idx, .mem = NULL, .chunk0 = ULONG_MAX, .wmark = ULONG_MAX, .chunk = ULONG_MAX, .mtu = mtu };
+
+  void * mem   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
+  ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
+  ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, mtu );
+  return (fd_snapwr_out_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0, .mtu = mtu };
 }
 
 static void
-before_credit( fd_snapwr_t *       ctx,
-               fd_stem_context_t * stem,
-               int *               charge_busy ) {
-  (void)stem;
-  if( ++ctx->idle_cnt >= 1024U ) {
-    fd_log_sleep( (long)1e6 ); /* 1 millisecond */
-    *charge_busy = 0;
-    ctx->idle_cnt = 0U;
-  }
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  fd_snapwr_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 }
 
 static void
-metrics_write( fd_snapwr_t * ctx ) {
-  FD_MGAUGE_SET( SNAPWR, STATE,               ctx->state            );
-  FD_MGAUGE_SET( SNAPWR, FILE_USED_BYTES,     ctx->metrics.last_off );
-  FD_MGAUGE_SET( SNAPWR, FILE_CAPACITY_BYTES, ctx->dev_sz           );
-}
+unprivileged_init( fd_topo_t *      topo,
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-/* handle_control_frag handles an administrative frag from the snapin
-   tile. */
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_snapwr_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapwr_tile_t),    sizeof(fd_snapwr_tile_t)          );
+  void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),           fd_ssparse_footprint( 1UL<<24UL ) );
+  void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint()  );
+  void * _write_buf       = FD_SCRATCH_ALLOC_APPEND( l, 1UL,                          FD_SNAPWR_WRITE_BUF_SZ            );
 
-static void
-handle_control_frag( fd_snapwr_t * ctx,
-                     ulong         meta_ctl,
-                     ulong         meta_sig ) {
-  switch( meta_ctl ) {
-  case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
-    ctx->metrics.last_off = 0UL;
-    ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-    break;
-  case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-    ctx->metrics.last_off = meta_sig;
-    ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-    break;
-  case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
-    ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
-    break;
-  default:
-    FD_LOG_CRIT(( "received unexpected ssctrl msg type %lu", meta_ctl ));
-    break;
-  }
-}
+  ctx->full = 1;
+  ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-static int
-should_process_wr_request( fd_snapwr_t * ctx ) {
-  return ctx->req_seen%ctx->tile_cnt==ctx->tile_idx;
-}
+  ctx->accounts_off    = 0UL;
+  ctx->flush_off       = 0UL;
+  ctx->write_buf       = _write_buf;
+  ctx->write_buf_used  = 0UL;
 
-/* handle_data_frag handles a bstream block sz-aligned write request.
-   Does a synchronous blocking O_DIRECT write. */
+  ctx->ssparse = fd_ssparse_new( _ssparse, 1UL<<24UL, ctx->seed );
+  FD_TEST( ctx->ssparse );
+  fd_ssparse_batch_enable( ctx->ssparse, 0 );
 
-static void
-handle_data_frag( fd_snapwr_t * ctx,
-                  ulong         chunk,      /* compressed input pointer */
-                  ulong         dev_off,    /* file offset */
-                  ulong         sz_comp ) { /* compressed input size */
-  ulong        src_sz = sz_comp<<FD_VINYL_BSTREAM_BLOCK_LG_SZ;
-  void const * src    = fd_chunk_to_laddr_const( ctx->base, chunk );
-  FD_CRIT( fd_ulong_is_aligned( (ulong)src, FD_VINYL_BSTREAM_BLOCK_SZ ), "misaligned write request" );
-  FD_CRIT( fd_ulong_is_aligned( src_sz, FD_VINYL_BSTREAM_BLOCK_SZ ),     "misaligned write request" );
-  if( FD_UNLIKELY( dev_off+src_sz > ctx->dev_sz ) ) {
-    FD_LOG_CRIT(( "vinyl bstream log is out of space" ));
-  }
+  ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
+  FD_TEST( ctx->manifest_parser );
 
-  if( FD_LIKELY( should_process_wr_request( ctx ) ) ) {
-    /* Do a synchronous write(2) */
-    ssize_t write_sz = pwrite( ctx->dev_fd, src, src_sz, (off_t)dev_off );
-    if( FD_UNLIKELY( write_sz<0 ) ) {
-      FD_LOG_ERR(( "pwrite(off=%lu,sz=%lu) failed (%i-%s)", dev_off, src_sz, errno, strerror( errno ) ));
-    }
-  }
-  ctx->req_seen++;
+  fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  if( !!ctx->bstream_seq ) {
-    /* There is a way to avoid a lock here: every write tile has its
-       own unique location in vinyl_admin's wr_seq array, based on its
-       tile index (kind_id).  The value is a ulong, and works the same
-       way as a stem's fseq or an mcache's seq.  The only other tile
-       that can write to that location is snapwm during init full/incr
-       snapshot, but snapwm gurantees that all write tiles have already
-       finished processing all pending bstream writes (and updated the
-       bstream_seq) by the time the wr_seq array is overwritten. */
-    ulong new_seq = (dev_off+src_sz)-ctx->dev_base;
-    fd_vinyl_admin_ulong_update( ctx->bstream_seq, new_seq );
-  }
+  if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
+  ctx->ct_out = out1( topo, tile, "snapwr_ct" );
+  if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapwr_ct`" ));
 
-  ctx->metrics.last_off = dev_off+src_sz;
-}
+  fd_ssparse_reset( ctx->ssparse );
+  fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
-static int
-during_frag( fd_snapwr_t *       ctx,
-             ulong               in_idx,
-             ulong               meta_seq,
-             ulong               meta_sig,
-             ulong               meta_chunk,
-             ulong               meta_sz,
-             ulong               meta_ctl,
-             ulong               meta_tsorig,
-             ulong               meta_tspub ) {
-  (void)in_idx; (void)meta_sz; (void)meta_tspub;
-  ctx->idle_cnt = 0U;
-
-  if( FD_UNLIKELY( meta_ctl==FD_SNAPSHOT_MSG_DATA ) ) {
-    handle_data_frag( ctx, meta_chunk, meta_sig, meta_tsorig );
-  } else {
-    handle_control_frag( ctx, meta_ctl, meta_sig );
-  }
-
-  /* Because snapwr pacing is so loose and this tile sleeps, fd_stem
-     will not return flow control credits fast enough.
-     So, always update fseq (consumer progress) here. */
-  fd_fseq_update( ctx->seq_sync, fd_seq_inc( meta_seq, 1UL ) );
-
-  return 0;
+  fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
+  FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
+  fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+  ctx->in.wksp   = in_wksp->wksp;
+  ctx->in.chunk0 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
+  ctx->in.wmark  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
+  ctx->in.mtu    = in_link->mtu;
+  ctx->in.pos    = 0UL;
 }
 
 #define STEM_BURST 1UL
-#define STEM_LAZY  ((long)2e6)
-#define STEM_CALLBACK_CONTEXT_TYPE    fd_snapwr_t
-#define STEM_CALLBACK_CONTEXT_ALIGN   alignof(fd_snapwr_t)
+
+#define STEM_LAZY  1000L
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_snapwr_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapwr_tile_t)
+
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
-#define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT   before_credit
-#define STEM_CALLBACK_DURING_FRAG1    during_frag
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 
@@ -330,7 +453,7 @@ fd_topo_run_tile_t fd_tile_snapwr = {
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
-  .run                      = stem_run
+  .run                      = stem_run,
 };
 
 #undef NAME

@@ -1,10 +1,10 @@
 /* Test accounts_resize_delta tracking with signed arithmetic. */
 
 #include "fd_svm_mini.h"
-#include "../../accdb/fd_accdb_sync.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../fd_system_ids.h"
 #include "../../../disco/fd_txn_p.h"
+#include <stdlib.h>
 
 #define MiB (1L << 20)
 
@@ -16,32 +16,32 @@
 struct test_env {
   fd_svm_mini_t * mini;
   fd_bank_t *     bank;
-  fd_xid_t        xid;
+  fd_accdb_fork_id_t fork_id;
   fd_txn_in_t     txn_in;
   fd_txn_out_t    txn_out[1];
 };
 typedef struct test_env test_env_t;
 
 static void
-create_account_raw( fd_accdb_user_t *   user,
-                    fd_xid_t const *    xid,
+create_account_raw( fd_accdb_t *        accdb,
+                    fd_accdb_fork_id_t  fork_id,
                     fd_pubkey_t const * pubkey,
                     ulong               lamports,
                     uint                dlen,
                     uchar *             data,
                     fd_pubkey_t const * owner ) {
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( user, rw, xid, pubkey, dlen, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( user, rw, data, dlen );
-  rw->meta->lamports = lamports;
-  rw->meta->slot = 10UL;
-  rw->meta->executable = 0;
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key );
+  if( data && dlen ) fd_memcpy( entry.data, data, dlen );
+  entry.data_len   = dlen;
+  entry.lamports   = lamports;
+  entry.executable = 0;
   if( owner ) {
-    memcpy( rw->meta->owner, owner->key, 32UL );
+    memcpy( entry.owner, owner->key, 32UL );
   } else {
-    memset( rw->meta->owner, 0UL, 32UL );
+    memset( entry.owner, 0UL, 32UL );
   }
-  fd_accdb_close_rw( user, rw );
+  entry.commit = 1;
+  fd_accdb_unwrite_one( accdb, &entry );
 }
 
 static void
@@ -55,14 +55,14 @@ setup_test( test_env_t * env, fd_svm_mini_t * mini ) {
   ulong root_idx = fd_svm_mini_reset( mini, params );
 
   ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 10UL );
-  env->bank = fd_svm_mini_bank( mini, child_idx );
-  env->xid  = fd_svm_mini_xid( mini, child_idx );
+  env->bank    = fd_svm_mini_bank( mini, child_idx );
+  env->fork_id = fd_svm_mini_fork_id( mini, child_idx );
 }
 
 static void
 create_allocatable_account( test_env_t * env, fd_pubkey_t const * pubkey ) {
   fd_pubkey_t system_program = fd_solana_system_program_id;
-  create_account_raw( env->mini->accdb, &env->xid, pubkey, TEST_LAMPORTS, 0UL, NULL, &system_program );
+  create_account_raw( env->mini->runtime->accdb, env->fork_id, pubkey, TEST_LAMPORTS, 0UL, NULL, &system_program );
 }
 
 static void
@@ -71,7 +71,7 @@ create_loader_v3_buffer( test_env_t *        env,
                          fd_pubkey_t const * authority,
                          ulong               buffer_size ) {
   ulong dlen = BUFFER_METADATA_SIZE + buffer_size;
-  uchar * data = fd_wksp_alloc_laddr( env->mini->wksp, 8UL, dlen, 42UL );
+  uchar * data = aligned_alloc( 8UL, fd_ulong_align_up( dlen, 8UL ) );
   FD_TEST( data );
   fd_memset( data, 0, dlen );
 
@@ -84,20 +84,23 @@ create_loader_v3_buffer( test_env_t *        env,
   FD_TEST( !fd_bpf_state_encode( &state, data, BUFFER_METADATA_SIZE, &out_sz ) );
   FD_TEST( out_sz == BUFFER_METADATA_SIZE );
 
-  fd_accdb_rw_t rw[1];
-  FD_TEST( fd_accdb_open_rw( env->mini->accdb, rw, &env->xid, pubkey, (uint)dlen, FD_ACCDB_FLAG_CREATE ) );
-  fd_accdb_ref_data_set( env->mini->accdb, rw, data, (uint)dlen );
-  rw->meta->lamports = TEST_LAMPORTS;
-  rw->meta->slot = 10UL;
-  rw->meta->executable = 0;
-  fd_memcpy( rw->meta->owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32 );
-  fd_accdb_close_rw( env->mini->accdb, rw );
-  fd_wksp_free_laddr( data );
+  fd_accdb_entry_t rw = fd_accdb_write_one( env->mini->runtime->accdb, env->fork_id, pubkey->key );
+  fd_memset( rw.data, 0, dlen );
+  FD_STORE( ulong, rw.data, 0UL );
+  fd_memcpy( rw.data + 8, authority->uc, 32 );
+  FD_STORE( ulong, rw.data + 40, 0UL );
+  rw.data_len   = dlen;
+  rw.lamports   = TEST_LAMPORTS;
+  rw.executable = 1;
+  fd_memcpy( rw.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32 );
+  rw.commit = 1;
+  fd_accdb_unwrite_one( env->mini->runtime->accdb, &rw );
+  free( data );
 }
 
 static void
 create_simple_account( test_env_t * env, fd_pubkey_t const * pubkey, ulong lamports ) {
-  create_account_raw( env->mini->accdb, &env->xid, pubkey, lamports, 0UL, NULL, NULL );
+  create_account_raw( env->mini->runtime->accdb, env->fork_id, pubkey, lamports, 0UL, NULL, NULL );
 }
 
 #define FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _to_add, _sz ) __extension__({ \
@@ -231,7 +234,7 @@ get_resize_delta( test_env_t * env ) {
 /* Empty txn has delta=0 */
 static void
 test_empty_txn_delta_is_zero( fd_svm_mini_t * mini ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t acct1 = { .ul[0] = 1UL };
@@ -251,7 +254,7 @@ test_empty_txn_delta_is_zero( fd_svm_mini_t * mini ) {
 /* 10+9=19 MiB under limit */
 static void
 test_allocate_19mib_succeeds( fd_svm_mini_t * mini ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA0UL };
@@ -281,7 +284,7 @@ test_allocate_19mib_succeeds( fd_svm_mini_t * mini ) {
 /* 10+10=20 MiB at limit */
 static void
 test_allocate_20mib_succeeds( fd_svm_mini_t * mini ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA2UL };
@@ -313,7 +316,7 @@ test_allocate_20mib_succeeds( fd_svm_mini_t * mini ) {
    exercises the MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN branch. */
 static void
 test_allocate_21mib_fails( fd_svm_mini_t * mini ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA1UL };
@@ -347,7 +350,7 @@ test_allocate_21mib_fails( fd_svm_mini_t * mini ) {
 /* Closing a loader-v3 buffer gives negative delta. */
 static void
 test_close_gives_negative_delta( fd_svm_mini_t * mini ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t authority  = { .ul[0] = 0xA3UL };
@@ -382,7 +385,7 @@ test_close_gives_negative_delta( fd_svm_mini_t * mini ) {
    With unsigned arithmetic this would fail. */
 static void
 test_close_enables_more_allocation( fd_svm_mini_t * mini ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   setup_test( env, mini );
 
   fd_pubkey_t authority  = { .ul[0] = 0xA4UL };
