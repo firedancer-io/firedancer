@@ -68,10 +68,8 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
   memcpy( out_instr->data, cpi_instr_data, out_instr->data_sz );
 
   /* Find the index of the CPI instruction's program account in the transaction */
-  int program_id_idx = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, program_id );
-  if( FD_LIKELY( program_id_idx != -1 ) ) {
-    out_instr->program_id = (uchar)program_id_idx;
-  }
+  ulong program_id_idx = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, program_id );
+  if( FD_LIKELY( program_id_idx!=ULONG_MAX ) ) out_instr->program_id = (uchar)program_id_idx;
 
   uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
 
@@ -92,13 +90,13 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t *                         vm,
 
     /* Use USHORT_MAX to indicate account not found
         https://github.com/anza-xyz/agave/blob/v3.0.4/program-runtime/src/invoke_context.rs#L395-L397 */
-    int idx_in_txn    = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, pubkey );
-    int idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( vm->instr_ctx, pubkey );
+    ulong idx_in_txn    = fd_runtime_find_index_of_account( vm->instr_ctx->txn_out, pubkey );
+    ulong idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( vm->instr_ctx, pubkey );
 
     fd_instr_info_setup_instr_account( out_instr,
                                        acc_idx_seen,
-                                       idx_in_txn!=-1 ? (ushort)idx_in_txn : USHORT_MAX,
-                                       idx_in_caller!=-1 ? (ushort)idx_in_caller : USHORT_MAX,
+                                       idx_in_txn!=ULONG_MAX ? (ushort)idx_in_txn : USHORT_MAX,
+                                       idx_in_caller!=ULONG_MAX ? (ushort)idx_in_caller : USHORT_MAX,
                                        i,
                                        VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ),
                                        VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) );
@@ -272,14 +270,13 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     fd_guarded_borrowed_account_t callee_acct = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, instruction_accounts[i].index_in_caller, &callee_acct );
 
-    fd_pubkey_t const *       account_key = callee_acct.pubkey;
-    fd_account_meta_t const * acc_meta    = fd_borrowed_account_get_acc_meta( &callee_acct );
+    fd_pubkey_t const *      account_key = (fd_pubkey_t*)callee_acct.entry->pubkey;
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
     if( fd_borrowed_account_is_executable( &callee_acct ) ) {
       // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
-      FD_VM_CU_UPDATE( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
+      FD_VM_CU_UPDATE( vm, callee_acct.entry->data_len / FD_VM_CPI_BYTES_PER_UNIT );
       continue;
     }
 
@@ -525,21 +522,20 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
                                        fd_vm_cpi_caller_account_t *       caller_account,
                                        fd_borrowed_account_t *            borrowed_callee_acc ) {
 
-  fd_account_meta_t * callee_meta = borrowed_callee_acc->meta;
   /* Update the caller account lamports with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1191 */
-  *(caller_account->lamports) = callee_meta->lamports;
+  *(caller_account->lamports) = borrowed_callee_acc->entry->lamports;
 
   /* Update the caller account owner with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1192 */
-  fd_pubkey_t const * updated_owner = (fd_pubkey_t const *)callee_meta->owner;
+  fd_pubkey_t const * updated_owner = (fd_pubkey_t const *)borrowed_callee_acc->entry->owner;
   if( updated_owner ) *caller_account->owner = *updated_owner;
   else                fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
 
   /* Update the caller account data with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1194-L1195 */
   ulong prev_len = *caller_account->ref_to_len_in_vm;
-  ulong post_len = callee_meta->dlen;
+  ulong post_len = borrowed_callee_acc->entry->data_len;
 
   /* Calculate the address space reserved for the account. With syscall_parameter_address_restrictions
      and deprecated loader, the reserved space equals original length (no realloc space).
@@ -629,7 +625,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
 
-    fd_memcpy( caller_account->serialized_data, fd_account_data( callee_meta ), post_len );
+    fd_memcpy( caller_account->serialized_data, borrowed_callee_acc->entry->data, post_len );
   }
 
 

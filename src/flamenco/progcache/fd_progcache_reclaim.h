@@ -1,7 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_progcache_fd_progcache_reclaim_h
 #define HEADER_fd_src_flamenco_progcache_fd_progcache_reclaim_h
 
+#include "../../util/fd_util_base.h"
 #include "fd_progcache_base.h"
+#include "fd_progcache_xid.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -15,9 +17,9 @@ fd_prog_delete_rec( fd_progcache_join_t * cache,
                     fd_progcache_rec_t *  rec );
 
 long
-fd_prog_delete_rec_by_key( fd_progcache_join_t *          cache,
-                           fd_funk_xid_key_pair_t const * key,
-                           _Bool                          lock );
+fd_prog_delete_rec_by_key( fd_progcache_join_t *               cache,
+                           fd_progcache_xid_key_pair_t const * key,
+                           _Bool                               lock );
 
 /* Internal API */
 

@@ -33,8 +33,8 @@ FD_PROTOTYPES_BEGIN
    241,000,000 * 0.000005 = 1,205 SOL.
    This brings our total cost to 550,685 SOL. */
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (241000000UL)
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000UL)
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2410000UL)
 
 /* The expected stake and vote account values are based on observed
    values on mainnet and testnet allowing for some growth.  These are
@@ -250,7 +250,6 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
 #define FD_EPOCH_STAKES_LEN      (3UL)
 #define FD_EPOCH_VOTE_STAKES_MAX (40200UL)
 
-static const FD_FN_UNUSED fd_account_meta_t FD_ACCOUNT_META_DEFAULT = {0};
 
 FD_PROTOTYPES_END
 

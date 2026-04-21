@@ -117,14 +117,17 @@ run_firedancer_threaded( config_t * config,
 
   run_firedancer_init( config, init_workspaces, 1 );
 
-  /* This is kind of a hack, but we have to join all the workspaces as read-write
-     if we are running things threaded.  The reason is that if one of the earlier
-     tiles maps it in as read-only, later tiles will reuse the same cached shmem
-     join (the key is only on shmem name, when it should be (name, mode)). */
-
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
+
+  initialize_accdb_fd( config );
+
+  /* This is kind of a hack, but we have to join all the workspaces as
+     read-write if we are running things threaded.  The reason is that
+     if one of the earlier tiles maps it in as read-only, later tiles
+     will reuse the same cached shmem join (the key is only on shmem
+     name, when it should be (name, mode)). */
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, config->development.core_dump_level );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );

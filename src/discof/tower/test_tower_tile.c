@@ -1,10 +1,14 @@
+#define _GNU_SOURCE
 #define fd_eqvoc_query       mock_eqvoc_query_fn
 #define QUERY_VOTE_ACCS      mock_query_vote_accs
 
 #include "fd_tower_tile.c"
+#include "../../disco/topo/fd_topob.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/mman.h>
 
 /* mock_vote_txn builds a vote transaction from a tower.  Constructs an
    fd_tower_t with the given (slot, conf) pairs, serializes it via
@@ -229,6 +233,50 @@ mock_query_vote_accs( fd_tower_tile_t *            ctx,
   return total_stake;
 }
 
+/* mock_topo_with_accdb constructs a minimal fd_topo_t containing one
+   accdb shmem object and wires tile->tower.accdb_obj_id to it.  This is
+   needed because init_choreo joins fd_accdb against
+   tile->tower.accdb_obj_id.  Also dups a memfd onto fd FD_ACCDB_FD_RW so that
+   the writer accdb join in init_choreo has a valid backing fd. */
+
+static void
+mock_topo_with_accdb( fd_wksp_t *      wksp,
+                      fd_topo_t *      topo,
+                      fd_topo_tile_t * tile ) {
+  static int      accdb_data_fd = -1;
+  static int      fd_inited     = 0;
+  if( !fd_inited ) {
+    accdb_data_fd = memfd_create( "tower_accdb_test_data", 0 );
+    FD_TEST( accdb_data_fd>=0 );
+    FD_TEST( dup2( accdb_data_fd, FD_ACCDB_FD_RW )==FD_ACCDB_FD_RW );
+    fd_inited = 1;
+  }
+
+  ulong const max_accounts        = 1024UL;
+  ulong const max_writes_per_slot = 64UL;
+  ulong const partition_cnt       = 8192UL;
+  ulong const partition_sz        = 1UL<<24UL;
+  ulong const cache_fp            = 64UL<<20UL;
+  ulong const cache_min_reserved  = 1UL;
+  ulong const joiner_cnt          = 1UL;
+
+  memset( topo, 0, sizeof(*topo) );
+  fd_topob_new( topo, "topo" );
+  fd_topo_wksp_t * topo_wksp = fd_topob_wksp( topo, "wksp" );
+  topo_wksp->wksp = wksp;
+
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
+  void * shmem_mem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), shmem_fp, 1UL );
+  FD_TEST( shmem_mem );
+  FD_TEST( fd_accdb_shmem_new( shmem_mem, max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 42UL, joiner_cnt ) );
+
+  fd_topo_obj_t * shmem_obj = fd_topob_obj( topo, "accdb_shmem", "wksp" );
+  shmem_obj->wksp_id = topo_wksp->id;
+  shmem_obj->offset  = fd_wksp_gaddr_fast( wksp, shmem_mem );
+
+  tile->tower.accdb_obj_id = shmem_obj->id;
+}
+
 static void
 test_fixture_replay( fd_wksp_t * wksp ) {
 
@@ -237,9 +285,12 @@ test_fixture_replay( fd_wksp_t * wksp ) {
      fd_topo_tile_t with just the fields that scratch_footprint and
      init_choreo access. */
 
-  fd_topo_tile_t tile[1];
+  static fd_topo_tile_t tile[1];
   memset( tile, 0, sizeof(*tile) );
   tile->tower.max_live_slots = MOCK_SLOT_MAX;
+
+  static fd_topo_t topo[1];
+  mock_topo_with_accdb( wksp, topo, tile );
 
   FD_TEST( scratch_align()==128UL );
 
@@ -254,7 +305,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
      choreo structures, and state initialization. */
 
   ((fd_tower_tile_t *)scratch)->seed = 42UL;
-  fd_tower_tile_t * ctx = init_choreo( scratch, tile );
+  fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
   FD_TEST( ctx );
 
   /* Set fields normally handled by privileged_init. */
@@ -365,15 +416,19 @@ mock_eqvoc_query_fn( fd_eqvoc_t * eqvoc FD_PARAM_UNUSED, ulong slot ) {
 
 static fd_tower_tile_t *
 eqvoc_setup( fd_wksp_t * wksp ) {
-  fd_topo_tile_t tile[1];
+  static fd_topo_tile_t tile[1];
   memset( tile, 0, sizeof(*tile) );
   tile->tower.max_live_slots = MOCK_SLOT_MAX;
+
+  static fd_topo_t topo[1];
+  memset( topo, 0, sizeof(*topo) );
+  mock_topo_with_accdb( wksp, topo, tile );
 
   void * scratch = fd_wksp_alloc_laddr( wksp, scratch_align(), scratch_footprint( tile ), 1UL );
   FD_TEST( scratch );
 
   ((fd_tower_tile_t *)scratch)->seed = 42UL;
-  fd_tower_tile_t * ctx = init_choreo( scratch, tile );
+  fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
   FD_TEST( ctx );
 
   ctx->checkpt_fd = -1;

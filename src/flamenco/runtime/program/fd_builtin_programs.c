@@ -1,9 +1,7 @@
 #include "fd_builtin_programs.h"
 #include "fd_precompiles.h"
 #include "../fd_system_ids.h"
-#include "../fd_system_ids_pp.h"
 #include "../fd_accdb_svm.h"
-#include "../../accdb/fd_accdb_sync.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \
     {                                                                       \
@@ -129,18 +127,16 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 
 // https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4944
 static int
-fd_builtin_is_bpf( fd_accdb_user_t *         accdb,
-                   fd_funk_txn_xid_t const * xid,
-                   fd_pubkey_t const  *      pubkey ) {
-  fd_accdb_ro_t ro[1];
-  if( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) {
-    return 0;
-  }
-  int is_bpf = fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_bpf_loader_upgradeable_program_id );
-  fd_accdb_close_ro( accdb, ro );
+fd_builtin_is_bpf( fd_accdb_t *         accdb,
+                   fd_accdb_fork_id_t   fork_id,
+                   fd_pubkey_t const  * pubkey ) {
+  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, pubkey->uc );
+  if( FD_UNLIKELY( !entry.lamports ) ) return 0;
+
+  int is_bpf = !memcmp( entry.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32UL );
+  fd_accdb_unread_one( accdb, &entry );
   return is_bpf;
 }
-
 
 /* BuiltIn programs need "bogus" executable accounts to exist.
    These are loaded and ignored during execution.
@@ -150,49 +146,46 @@ fd_builtin_is_bpf( fd_accdb_user_t *         accdb,
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
 void
-fd_write_builtin_account( fd_bank_t  *              bank,
-                          fd_accdb_user_t *         accdb,
-                          fd_funk_txn_xid_t const * xid,
-                          fd_capture_ctx_t *        capture_ctx,
-                          fd_pubkey_t const         pubkey,
-                          void const *              data,
-                          ulong                     sz ) {
+fd_write_builtin_account( fd_bank_t  *       bank,
+                          fd_accdb_t *       accdb,
+                          fd_capture_ctx_t * capture_ctx,
+                          fd_pubkey_t const  pubkey,
+                          void const *       data,
+                          ulong              sz ) {
   fd_accdb_svm_write(
-      accdb, bank, xid, capture_ctx,
+      bank, accdb, capture_ctx,
       &pubkey,
       &fd_solana_native_loader_id, /* owner */
       data, sz,                    /* data */
       1UL,                         /* lamports_min */
-      1,                           /* exec_bit */
-      FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE
+      1                            /* exec_bit */
   );
 }
 
 void
-fd_builtin_programs_init( fd_bank_t *               bank,
-                          fd_accdb_user_t *         accdb,
-                          fd_funk_txn_xid_t const * xid,
-                          fd_capture_ctx_t *        capture_ctx ) {
+fd_builtin_programs_init( fd_bank_t *        bank,
+                          fd_accdb_t *       accdb,
+                          fd_capture_ctx_t * capture_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/builtins/src/lib.rs#L52 */
   fd_builtin_program_t const * builtins = fd_builtins();
 
   for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
     /** https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L4949 */
-    if( bank->f.slot==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( accdb, xid, builtins[i].pubkey ) ) {
-      fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
+    if( bank->f.slot==0UL && builtins[i].enable_feature_offset==NO_ENABLE_FEATURE_ID && !fd_builtin_is_bpf( accdb, bank->accdb_fork_id, builtins[i].pubkey ) ) {
+      fd_write_builtin_account( bank, accdb, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen( builtins[i].data ) );
     } else if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       continue;
     } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( bank->f.slot, &bank->f.features, builtins[i].enable_feature_offset ) ) {
       continue;
     } else {
-      fd_write_builtin_account( bank, accdb, xid, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
+      fd_write_builtin_account( bank, accdb, capture_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
     }
   }
 
   /* Precompiles have empty account data */
-  fd_write_builtin_account( bank, accdb, xid, capture_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
-  fd_write_builtin_account( bank, accdb, xid, capture_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
-  fd_write_builtin_account( bank, accdb, xid, capture_ctx, fd_solana_secp256r1_program_id, "", 0 );
+  fd_write_builtin_account( bank, accdb, capture_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
+  fd_write_builtin_account( bank, accdb, capture_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
+  fd_write_builtin_account( bank, accdb, capture_ctx, fd_solana_secp256r1_program_id, "", 0 );
 }
 
 fd_builtin_program_t const *

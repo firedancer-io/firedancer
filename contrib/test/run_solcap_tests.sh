@@ -72,7 +72,6 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
             allow_list = []
 [layout]
     shred_tile_count = 4
-    snapshot_hash_tile_count = 1
     verify_tile_count = 2
     execrp_tile_count = 6
 [tiles]
@@ -83,7 +82,6 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
     [tiles.rpc]
         enabled = false
 [accounts]
-    file_size_gib = 5
     max_accounts = 4000000
 [runtime]
     max_live_slots = 64
@@ -97,9 +95,6 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
 
 [capture]
     solcap_capture = "${dump_dir}/mainnet-406545575.solcap"
-[development]
-    [development.snapshots]
-        disable_lthash_verification = true
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
 [development.ledger_input]

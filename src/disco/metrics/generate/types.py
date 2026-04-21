@@ -10,8 +10,7 @@ class Tile(Enum):
     SNAPLD = 4
     SNAPDC = 5
     SNAPIN = 6
-    SNAPLA = 9
-    SNAPLS = 10
+    SNAPWR = 7
 
     NETLNK = 14
     NET = 15
@@ -32,6 +31,7 @@ class Tile(Enum):
     REPAIR = 29
     REPLAY = 30
     EXECRP = 31
+    ACCDB = 32
     TOWER = 33
     TXSEND = 34
 

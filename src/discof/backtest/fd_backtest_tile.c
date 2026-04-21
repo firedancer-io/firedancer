@@ -281,7 +281,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       ctx->reading_slot = manifest->slot;
       ctx->start_slot  = manifest->slot;
       FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
-      FD_LOG_NOTICE(( "Replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
+      FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
       break;
     }
     case IN_KIND_GENESI: {
@@ -293,7 +293,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
-        FD_LOG_NOTICE(( "Replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
+        FD_LOG_NOTICE(( "replaying from slot %lu to %lu", ctx->start_slot, ctx->end_slot ));
       }
       break;
     }
