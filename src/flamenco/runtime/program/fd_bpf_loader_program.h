@@ -155,8 +155,8 @@ struct fd_bpf_state {
 };
 typedef struct fd_bpf_state fd_bpf_state_t;
 
-/* fd_bpf_upgradeable_loader_program_instruction_decode parses a
-   bincode-encoded UpgradeableLoaderInstruction from [data, data+data_sz).
+/* fd_bpf_instruction_decode parses a bincode-encoded
+   UpgradeableLoaderInstruction from [data, data+data_sz).
    Variable-length fields (`write.bytes`) point directly into `data`, so
    callers must keep that buffer alive.  Trailing bytes beyond the parsed
    region are accepted (matches Agave's default `allow_trailing_bytes()`).
