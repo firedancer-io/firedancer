@@ -137,7 +137,7 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_acct_idx ].index_in_transaction;
-    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ].key, key_b58 );
+    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ].uc, key_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Transfer: `from` account %s must sign", key_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -167,7 +167,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
-    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
+    FD_BASE58_ENCODE_32_BYTES( account->entry->pubkey, account_b58 );
     FD_FMT_ADDRESS( account_b58, base, address_fmt );
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Allocate: 'to' account %s must sign",
@@ -180,7 +180,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( ( fd_borrowed_account_get_data_len( account ) != 0UL ) ||
                    ( 0!=memcmp( fd_borrowed_account_get_owner( account ), fd_solana_system_program_id.uc, 32UL ) ) ) ) {
     /* Max msg_sz: 35 - 2 + 125 = 158 */
-    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
+    FD_BASE58_ENCODE_32_BYTES( account->entry->pubkey, account_b58 );
     FD_FMT_ADDRESS( account_b58, base, address_fmt );
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Allocate: account %s already in use",
@@ -231,7 +231,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
 
   if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 28 - 2 + 125 = 151 */
-    FD_BASE58_ENCODE_32_BYTES( account->pubkey->key, account_b58 );
+    FD_BASE58_ENCODE_32_BYTES( account->entry->pubkey, account_b58 );
     FD_FMT_ADDRESS( account_b58, base, address_fmt );
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Assign: account %s must sign",
@@ -291,7 +291,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
 
     if( FD_UNLIKELY( fd_borrowed_account_get_lamports( &to ) ) ) {
       /* Max msg_sz: 41 - 2 + 125 = 164 */
-      FD_BASE58_ENCODE_32_BYTES( to.pubkey->key, to_b58 );
+      FD_BASE58_ENCODE_32_BYTES( to.entry->pubkey, to_b58 );
       FD_FMT_ADDRESS( to_b58, base, address_fmt );
       fd_log_collector_printf_inefficient_max_512( ctx,
         "Create Account: account %s already in use",
@@ -436,7 +436,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L392 */
 
-  err = fd_system_program_assign( ctx, &account, owner, account.pubkey, NULL );
+  err = fd_system_program_assign( ctx, &account, owner, (fd_pubkey_t*)account.entry->pubkey, NULL );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */
@@ -531,7 +531,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L515
      Authorization check is lifted out from 'allocate' to here. */
 
-  err = fd_system_program_allocate( ctx, &account, space, account.pubkey, NULL );
+  err = fd_system_program_allocate( ctx, &account, space, (fd_pubkey_t*)account.entry->pubkey, NULL );
   if( FD_UNLIKELY( err ) ) return err;
 
   /* Implicit drop */
@@ -562,7 +562,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
 
   err = verify_seed_address(
     ctx,
-    account.pubkey,
+    (fd_pubkey_t*)account.entry->pubkey,
     &args->base,
     (char const *)args->seed,
     args->seed_len,
@@ -609,7 +609,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
 
   err = verify_seed_address(
     ctx,
-    account.pubkey,
+    (fd_pubkey_t*)account.entry->pubkey,
     &args->base,
     (char const *)args->seed,
     args->seed_len,
@@ -653,7 +653,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
     if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_base_idx ].index_in_transaction;
-    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ].key, key_b58 );
+    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ].uc, key_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Transfer: 'from' account %s must sign", key_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -801,28 +801,25 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /**********************************************************************/
 
 int
-fd_get_system_account_kind( fd_account_meta_t const * meta ) {
+fd_get_system_account_kind( fd_accdb_entry_t const * entry ) {
   /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L56 */
-  if( FD_UNLIKELY( memcmp( meta->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( memcmp( entry->owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
   }
 
   /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L57-L58 */
-  if( FD_LIKELY( !meta->dlen ) ) {
+  if( FD_LIKELY( !entry->data_len ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_SYSTEM;
   }
 
   /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L59 */
-  if( FD_UNLIKELY( meta->dlen!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
+  if( FD_UNLIKELY( entry->data_len!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
   }
 
   /* https://github.com/anza-xyz/solana-sdk/blob/nonce-account%40v2.2.1/nonce-account/src/lib.rs#L60-L64 */
   fd_nonce_state_versions_t versions[1];
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      nonce_state_versions, versions,
-      fd_account_data( meta ),
-      meta->dlen ) ) ) {
+  if( FD_UNLIKELY( !fd_bincode_decode_static( nonce_state_versions, versions, entry->data, entry->data_len ) ) ) {
     return FD_SYSTEM_PROGRAM_NONCE_ACCOUNT_KIND_UNKNOWN;
   }
 

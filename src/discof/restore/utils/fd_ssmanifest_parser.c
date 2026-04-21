@@ -1905,9 +1905,6 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   parser->dst_sz   = state_size( parser );
   parser->dst_cur  = 0UL;
   parser->manifest = manifest;
-
-  FD_SCRATCH_ALLOC_INIT( l, parser );
-                         FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );
 }
 
 int

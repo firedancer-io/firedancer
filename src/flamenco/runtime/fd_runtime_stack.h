@@ -1,11 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h
 
-#include "../types/fd_types_custom.h"
-#include "../leaders/fd_leaders_base.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "program/fd_builtin_programs.h"
-#include "fd_runtime_const.h"
+#include "../leaders/fd_leaders_base.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
@@ -93,7 +91,13 @@ struct fd_runtime_stack {
   struct {
     /* Staging memory for bpf migration.  This is used to store and
        stage various accounts which is required for deploying a new BPF
-       program at the epoch boundary. */
+       program at the epoch boundary.
+
+       TODO: These are only used by the replay tile on epoch boundaries
+       and don't need to be in the per-exec stacks.  Additionally, we
+       could just acquire these buffers out of the account database
+       directly to share them across tiles using the existing flexible
+       buffer management. */
     fd_tmp_account_t source;
     fd_tmp_account_t program_account;
     fd_tmp_account_t new_target_program;

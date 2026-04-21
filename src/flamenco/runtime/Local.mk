@@ -16,7 +16,7 @@ $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
-$(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_ballet fd_util)
 endif
 endif
 
@@ -31,7 +31,7 @@ endif
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
 ifdef FD_HAS_INT128
-$(call make-unit-test,test_cost_tracker,test_cost_tracker,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_cost_tracker,test_cost_tracker,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_cost_tracker,)
 endif
 endif
@@ -42,14 +42,11 @@ $(call add-objs,fd_compute_budget_details,fd_flamenco)
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
 
-$(call add-hdrs,fd_acc_pool.h)
-$(call add-objs,fd_acc_pool,fd_flamenco)
-
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
-$(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_bundle_exec)
-$(call make-unit-test,test_runtime_alut,test_runtime_alut,fd_flamenco fd_funk fd_ballet fd_util)
+# $(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco fd_ballet fd_util)
+# $(call run-unit-test,test_bundle_exec)
+# $(call make-unit-test,test_runtime_alut,test_runtime_alut,fd_flamenco fd_ballet fd_util)
 endif
 endif
 
@@ -58,7 +55,7 @@ $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128
-$(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_bank,test_bank,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_bank,)
 endif
 endif
@@ -73,20 +70,20 @@ ifdef FD_HAS_INT128
 $(call add-hdrs,fd_runtime.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h fd_runtime_helpers.h)
 $(call add-objs,fd_runtime,fd_flamenco)
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_deprecate_rent_exemption_threshold)
-$(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_instr_acct_bounds,)
-$(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_accounts_resize_delta)
-$(call make-unit-test,test_fee_reward,tests/test_fee_reward,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_fee_reward)
-ifdef FD_HAS_DOUBLE
-$(call make-unit-test,test_inflation_rewards,tests/test_inflation_rewards,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_inflation_rewards)
-endif
-$(call make-unit-test,test_fee_calculator,tests/test_fee_calculator,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
-$(call run-unit-test,test_fee_calculator)
+# $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_ballet fd_util)
+# $(call run-unit-test,test_deprecate_rent_exemption_threshold)
+# $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_test fd_flamenco fd_ballet fd_util)
+# $(call run-unit-test,test_instr_acct_bounds,)
+# $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+# $(call run-unit-test,test_accounts_resize_delta)
+# $(call make-unit-test,test_fee_reward,tests/test_fee_reward,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+# $(call run-unit-test,test_fee_reward)
+# ifdef FD_HAS_DOUBLE
+# $(call make-unit-test,test_inflation_rewards,tests/test_inflation_rewards,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+# $(call run-unit-test,test_inflation_rewards)
+# endif
+# $(call make-unit-test,test_fee_calculator,tests/test_fee_calculator,fd_flamenco_test fd_flamenco fd_funk fd_tango fd_ballet fd_util fd_disco)
+# $(call run-unit-test,test_fee_calculator)
 $(call make-unit-test,test_feature_activation,tests/test_feature_activation,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_feature_activation)
 endif

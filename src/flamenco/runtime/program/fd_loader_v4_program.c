@@ -1,4 +1,5 @@
 #include "fd_loader_v4_program.h"
+#include "../fd_executor.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../fd_borrowed_account.h"
@@ -774,7 +775,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L463 */
-  fd_pubkey_t const * address_of_next_version = next_version.pubkey;
+  fd_pubkey_t const * address_of_next_version = (fd_pubkey_t*)next_version.entry->pubkey;
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L464 */
   fd_borrowed_account_drop( &next_version );
@@ -879,7 +880,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     fd_guarded_borrowed_account_t program = {0};
     rc = fd_exec_instr_ctx_try_borrow_last_program_account( instr_ctx, &program );
     if( FD_UNLIKELY( rc ) ) return rc;
-    fd_accdb_ro_t program_ro[1]; fd_borrowed_account_ro( &program, program_ro );
+    fd_accdb_entry_t * program_ro = program.entry;
 
     /* Work around differences in program caching behavior between
        Fireadncer and Agave here.
@@ -912,11 +913,11 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-    fd_funk_txn_xid_t xid = { .ul = { instr_ctx->bank->f.slot, instr_ctx->bank->idx } };
+    fd_progcache_xid_t xid = { .ul = { instr_ctx->bank->f.slot, instr_ctx->bank->idx } };
     fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->bank );
     fd_progcache_t * progcache = instr_ctx->runtime->progcache;
     fd_progcache_rec_t * cache_entry = fd_progcache_pull(
-        progcache, &xid, program_id, load_env, program_ro, fd_accdb_ref_owner( program_ro ) );
+        progcache, &xid, program_id, load_env, program_ro, (fd_pubkey_t*)program_ro->owner );
     if( FD_UNLIKELY( !cache_entry ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

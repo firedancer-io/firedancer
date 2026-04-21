@@ -1,7 +1,10 @@
-uint logfile_fd, uint vinyl_fd
-
-# snapshot: write bytes to vinyl file
-pwrite64: (eq (arg 0) vinyl_fd)
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# accounts_fd: The file descriptor for the accounts database.  The
+#              snapwr tile writes all accounts loaded from a snapshot
+#              out sequentially to the database on disk.
+unsigned int logfile_fd, unsigned int accounts_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -9,9 +12,7 @@ pwrite64: (eq (arg 0) vinyl_fd)
 # are always written to the log file.
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
-# that descriptor 2 is always STDERR.  The other files that can be
-# written to are the out descriptors for the full and incremental
-# snapshots.
+# that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
@@ -20,10 +21,11 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
+# accounts: pwrite64 to write account data at explicit offsets,
+# bypassing sequential write and allowing sparse holes for padding.
+#
+# arg 0 is the file descriptor to write to.
+pwrite64: (eq (arg 0) accounts_fd)
+
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)
-
-# fd_log_sleep: it requires a combination of these three syscalls.
-sched_yield:
-clock_nanosleep: (eq (arg 0) 0)
-nanosleep:

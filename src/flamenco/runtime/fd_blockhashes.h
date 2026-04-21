@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_blockhashes_h
 
 #include "../types/fd_types.h"
-#include "../../funk/fd_funk_base.h" /* fd_funk_rec_key_hash1 */
+#include "../../discof/accdb/fd_accdb.h"
 
 /* fd_blockhashes.h provides a "blockhash queue" API.  The blockhash
    queue is a consensus-relevant data structure that is part of the slot
@@ -42,7 +42,7 @@ typedef struct fd_blockhash_info fd_blockhash_info_t;
 #define MAP_IDX_T         ushort
 #define MAP_NEXT          next
 #define MAP_KEY_EQ(k0,k1) fd_hash_eq( (k0), (k1) )
-#define MAP_KEY_HASH(k,s) fd_funk_rec_key_hash1( (k->uc), (s) )
+#define MAP_KEY_HASH(k,s) fd_accdb_hash( (k->uc), (s) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_blockhashes_t is the class representing a blockhash queue.

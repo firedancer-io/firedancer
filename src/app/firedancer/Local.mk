@@ -36,7 +36,7 @@ $(OBJDIR)/obj/app/firedancer/version.d: src/app/firedancer/version.h
 # firedancer core
 $(call add-objs,topology,fd_firedancer)
 $(call add-objs,config,fd_firedancer)
-$(call add-objs,callbacks callbacks_vinyl,fd_firedancer)
+$(call add-objs,callbacks,fd_firedancer)
 
 # commands
 $(call add-objs,commands/add_authorized_voter,fd_firedancer)
@@ -52,7 +52,7 @@ $(call add-objs,version,firedancer_version)
 ifdef FD_HAS_SSE
 # ifdef FD_HAS_BLST -- will be a required dependency soon
 ifdef FD_HAS_S2NBIGNUM
-$(call make-bin,firedancer,main,fd_firedancer fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_vinyl fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(OPENSSL_LIBS))
+$(call make-bin,firedancer,main,fd_firedancer fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(OPENSSL_LIBS))
 endif
 # endif
 endif

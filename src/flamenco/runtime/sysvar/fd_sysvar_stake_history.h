@@ -1,9 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_stake_history_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_stake_history_h
 
-#include "../../types/fd_types.h"
-#include "../../../funk/fd_funk_base.h"
-#include "../../accdb/fd_accdb_user.h"
+#include "../fd_bank.h"
+#include "../../../discof/accdb/fd_accdb.h"
 
 /* FD_SYSVAR_STAKE_HISTORY_CAP is the max number of entries that the
    "stake history" sysvar will include.
@@ -18,25 +17,23 @@ FD_PROTOTYPES_BEGIN
 
 /* Initialize the stake history sysvar account. */
 void
-fd_sysvar_stake_history_init( fd_bank_t *               bank,
-                              fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_capture_ctx_t *        capture_ctx );
+fd_sysvar_stake_history_init( fd_bank_t *        bank,
+                              fd_accdb_t *       accdb,
+                              fd_capture_ctx_t * capture_ctx );
 
 /* fd_sysvar_stake_history_read reads the stake history sysvar from funk.
    If the account doesn't exist in funk or if the account has zero
    lamports, this function returns NULL. */
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_stake_history_t  *     stake_history );
+fd_sysvar_stake_history_read( fd_accdb_t *          accdb,
+                              fd_accdb_fork_id_t    fork_id,
+                              fd_stake_history_t  * stake_history );
 
 /* Update the stake history sysvar account - called during epoch boundary */
 void
 fd_sysvar_stake_history_update( fd_bank_t *                                 bank,
-                                fd_accdb_user_t *                           accdb,
-                                fd_funk_txn_xid_t const *                   xid,
+                                fd_accdb_t *                                accdb,
                                 fd_capture_ctx_t *                          capture_ctx,
                                 fd_epoch_stake_history_entry_pair_t const * pair );
 

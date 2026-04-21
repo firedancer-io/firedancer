@@ -7,9 +7,8 @@
    block.  If a block's limits are exceeded, then the block is marked as
    dead. */
 
-#include "fd_executor.h"
 #include "fd_runtime_err.h"
-#include "../../disco/pack/fd_pack.h" /* TODO: Layering violation */
+#include "fd_runtime_const.h"
 #include "../../disco/pack/fd_pack_cost.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */

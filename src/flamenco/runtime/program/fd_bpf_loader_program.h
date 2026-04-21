@@ -6,10 +6,9 @@
 
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
-#include "../../progcache/fd_progcache_rec.h"
-#include "../../features/fd_features.h"
+#include "../../../discof/accdb/fd_accdb.h"
+#include "../../progcache/fd_progcache_base.h"
 #include "../../types/fd_types.h"
-#include "../../../funk/fd_funk_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
@@ -59,7 +58,7 @@ FD_PROTOTYPES_BEGIN
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
 
 int
-fd_bpf_loader_program_get_state( fd_account_meta_t const *           meta,
+fd_bpf_loader_program_get_state( fd_accdb_entry_t const *            acc,
                                  fd_bpf_upgradeable_loader_state_t * state );
 
 int

@@ -27,7 +27,7 @@
    dedup pubkeys into a lookup table and only store an index for each
    rotation. */
 
-#include "fd_leaders_base.h"
+#include "../types/fd_types_custom.h"
 #include "../../ballet/wsample/fd_wsample.h"
 
 #define FD_ULONG_MAX(  a, b ) (__builtin_choose_expr( __builtin_constant_p( a ) & __builtin_constant_p( b ),        \

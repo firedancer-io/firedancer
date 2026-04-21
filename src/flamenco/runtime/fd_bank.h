@@ -9,6 +9,7 @@
 #include "../stakes/fd_vote_stakes.h"
 #include "../fd_rwlock.h"
 #include "fd_blockhashes.h"
+#include "fd_cost_tracker.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "fd_txncache_shmem.h"
@@ -263,6 +264,7 @@ struct fd_bank {
 
   ulong refcnt; /* reference count on the bank, see replay for more details */
 
+  fd_accdb_fork_id_t    accdb_fork_id; /* fork id used by the accounts database */
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
   ushort                vote_stakes_fork_id; /* fork id used by the vote stakes */
   uchar                 stake_rewards_fork_id; /* fork id used by stake rewards */
@@ -338,9 +340,10 @@ struct fd_bank {
 typedef struct fd_bank fd_bank_t;
 
 struct fd_banks_prune_cancel_info {
-  fd_txncache_fork_id_t txncache_fork_id;
-  ulong                 slot;
-  ulong                 bank_idx;
+  fd_txncache_fork_id_t  txncache_fork_id;
+  fd_accdb_fork_id_t     accdb_fork_id;
+  ulong                  slot;
+  ulong                  bank_idx;
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 

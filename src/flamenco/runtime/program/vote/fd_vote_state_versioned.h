@@ -19,7 +19,7 @@ FD_PROTOTYPES_BEGIN
    decoding fails.
    https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074 */
 int
-fd_vsv_get_state( fd_account_meta_t const *   meta,
+fd_vsv_get_state( fd_accdb_entry_t const *    entry,
                   fd_vote_state_versioned_t * versioned );
 
 /* This is essentially a call to get_state, additionally erroring out
@@ -27,7 +27,7 @@ fd_vsv_get_state( fd_account_meta_t const *   meta,
    V0.23.5) variant.
    https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/vote_state_versions.rs#L140-L187 */
 int
-fd_vsv_deserialize( fd_account_meta_t const *   meta,
+fd_vsv_deserialize( fd_accdb_entry_t const *    entry,
                     fd_vote_state_versioned_t * versioned );
 
 /* Returns a const pointer to the authorized withdrawer for the
@@ -180,7 +180,8 @@ fd_vsv_is_uninitialized( fd_vote_state_versioned_t * self );
    0 otherwise.
    https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v4.0.4/vote-interface/src/state/vote_state_versions.rs#L189-L193 */
 int
-fd_vsv_is_correct_size_and_initialized( fd_account_meta_t const * meta );
+fd_vsv_is_correct_size_and_initialized( uchar const * data,
+                                        ulong         data_len );
 
 FD_PROTOTYPES_END
 

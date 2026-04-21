@@ -2,6 +2,8 @@
 #include "../runtime/fd_runtime_const.h"
 #include "../../util/bits/fd_bits.h"
 
+#include <stddef.h>
+
 fd_genesis_t *
 fd_genesis_parse( fd_genesis_t * genesis,
                   uchar const *  bin,
@@ -137,13 +139,12 @@ fd_genesis_account( fd_genesis_t const *   genesis,
                     fd_genesis_account_t * out,
                     ulong                  idx ) {
   fd_genesis_account_off_t const * off = &genesis->account[ idx ];
-  out->pubkey        = FD_LOAD( fd_pubkey_t, bin+off->pubkey_off      );
-  out->meta.lamports = FD_LOAD( ulong,       bin+off->pubkey_off+32UL );
-  out->meta.dlen     = (uint)FD_LOAD( ulong, bin+off->pubkey_off+40UL );
-  out->data          = bin+off->pubkey_off+48UL;
-  memcpy( out->meta.owner, bin+off->owner_off, sizeof(fd_pubkey_t) );
-  out->meta.executable = !!bin[ off->owner_off+32UL ];
-  out->meta.slot       = 0UL;
+  out->pubkey   = FD_LOAD( fd_pubkey_t, bin+off->pubkey_off      );
+  out->lamports = FD_LOAD( ulong,       bin+off->pubkey_off+32UL );
+  out->data_len = (uint)FD_LOAD( ulong, bin+off->pubkey_off+40UL );
+  out->data     = bin+off->pubkey_off+48UL;
+  memcpy( out->owner.uc, bin+off->owner_off, sizeof(fd_pubkey_t) );
+  out->executable = !!bin[ off->owner_off+32UL ];
   return out;
 }
 
@@ -153,8 +154,8 @@ fd_genesis_builtin( fd_genesis_t const *   genesis,
                     fd_genesis_builtin_t * out,
                     ulong                  idx ) {
   fd_genesis_builtin_off_t const * off = &genesis->builtin[ idx ];
-  out->pubkey = FD_LOAD( fd_pubkey_t, bin+off->pubkey_off   );
-  out->dlen   = FD_LOAD( ulong,       bin+off->data_len_off );
-  out->data   = bin+off->data_len_off+8UL;
+  out->pubkey   = FD_LOAD( fd_pubkey_t, bin+off->pubkey_off   );
+  out->data_len = FD_LOAD( ulong,       bin+off->data_len_off );
+  out->data     = bin+off->data_len_off+8UL;
   return out;
 }

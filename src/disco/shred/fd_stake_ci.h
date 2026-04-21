@@ -13,7 +13,7 @@
    need to do any adjustment. */
 
 #include "fd_shred_dest.h"
-#include "../../flamenco/leaders/fd_leaders.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 
 /* staked+unstaked <= MAX_SHRED_DESTS implies
    MAX_SHRED_DEST_FOOTPRINT>=fd_shred_dest_footprint( staked, unstaked )

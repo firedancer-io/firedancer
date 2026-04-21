@@ -10,7 +10,6 @@ ifdef FD_HAS_ZSTD
 $(call add-objs,commands/gossip,fd_firedancer_dev)
 $(call add-objs,commands/bench,fd_firedancer_dev)
 $(call add-objs,commands/dev,fd_firedancer_dev)
-$(call add-objs,commands/sim,fd_firedancer_dev)
 $(call add-objs,commands/backtest,fd_firedancer_dev)
 $(call add-objs,commands/snapshot_load,fd_firedancer_dev)
 $(call add-objs,commands/repair,fd_firedancer_dev)
@@ -22,12 +21,12 @@ $(call add-objs,commands/reasm,fd_firedancer_dev)
 ifdef FD_HAS_SSE
 # ifdef FD_HAS_BLST -- will be a required dependency soon
 ifdef FD_HAS_S2NBIGNUM
-$(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_vinyl fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(ROCKSDB_LIBS) $(OPENSSL_LIBS))
+$(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(ROCKSDB_LIBS) $(OPENSSL_LIBS))
 endif
 # endif
 endif
 
-$(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_vinyl fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(ROCKSDB_LIBS) $(OPENSSL_LIBS))
+$(call make-integration-test,test_firedancer_dev,tests/test_firedancer_dev,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(ROCKSDB_LIBS) $(OPENSSL_LIBS))
 $(call run-integration-test,test_firedancer_dev)
 else
 $(warning firedancer-dev build disabled due to lack of zstd)

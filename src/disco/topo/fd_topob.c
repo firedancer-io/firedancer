@@ -418,12 +418,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     "snapld", /* FIREDANCER only */
     "snapdc", /* FIREDANCER only */
     "snapin", /* FIREDANCER only */
-    "snapwm", /* FIREDANCER only */
-    "snapwh", /* FIREDANCER only */
-    "snapla", /* FIREDANCER only */
-    "snapls", /* FIREDANCER only */
-    "snaplh", /* FIREDANCER only */
-    "snaplv", /* FIREDANCER only */
+    "snapwr", /* FIREDANCER only */
     "arch_f", /* FIREDANCER only */
     "arch_w", /* FIREDANCER only */
     "accdb",  /* FIREDANCER only */
@@ -437,8 +432,7 @@ fd_topob_auto_layout_cpus( fd_topo_t *      topo,
     "snapld", /* TODO: Snapshot loading speed depends on having full core */
     "snapdc", /* TODO: Snapshot loading speed depends on having full core */
     "snapin", /* TODO: Snapshot loading speed depends on having full core */
-    "snapwm", /* TODO: Snapshot loading speed depends on having full core */
-    "snapwh", /* TODO: Snapshot loading speed depends on having full core */
+    "snapwr", /* TODO: Snapshot loading speed depends on having full core */
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

@@ -13,7 +13,6 @@
 #include "../../discof/fd_accdb_topo.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
-#include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 
@@ -53,8 +52,8 @@ struct fd_execle_tile {
   fd_pack_rebate_sum_t rebater[ 1 ];
 
   fd_banks_t * banks;
+  fd_accdb_t * accdb;
 
-  fd_accdb_user_t accdb[1];
   fd_progcache_t  progcache[1];
 
   fd_runtime_t runtime[1];
@@ -621,8 +620,6 @@ unprivileged_init( fd_topo_t *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->execle.accdb_max_depth );
-
   fd_progcache_init_from_topo( ctx->progcache, topo, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->execle.txncache_obj_id );
@@ -630,10 +627,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( txncache_shmem );
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
-
-
-  fd_acc_pool_t * acc_pool = fd_acc_pool_join( fd_topo_obj_laddr( topo, tile->execle.acc_pool_obj_id ) );
-  FD_TEST( acc_pool );
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
     ctx->txn_in[ i ].bundle.prev_txn_cnt = i;
@@ -643,7 +636,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->accdb                    = ctx->accdb;
   ctx->runtime->progcache                = ctx->progcache;
   ctx->runtime->status_cache             = txncache;
-  ctx->runtime->acc_pool                 = acc_pool;
   memset( &ctx->runtime->log, 0, sizeof(ctx->runtime->log) );
   ctx->runtime->log.log_collector        = ctx->log_collector;
   ctx->runtime->fuzz.enabled             = 0;

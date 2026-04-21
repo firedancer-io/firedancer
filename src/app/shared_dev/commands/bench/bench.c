@@ -199,6 +199,8 @@ bench_cmd_fn( args_t *   args,
     fd_topo_install_xdp_simple( &config->topo, config->net.bind_address_parsed );
   }
 
+  initialize_accdb_fd( config );
+
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
 
   if( !args->load.no_watch ) {

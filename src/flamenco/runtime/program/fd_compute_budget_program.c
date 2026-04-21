@@ -6,6 +6,7 @@
 #include "../fd_executor.h"
 #include "fd_builtin_programs.h"
 #include "../fd_compute_budget_details.h"
+#include "../../vm/fd_vm_base.h"
 
 #define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT    (200000UL)
 #define DEFAULT_COMPUTE_UNITS                     (150UL)

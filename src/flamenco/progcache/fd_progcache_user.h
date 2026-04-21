@@ -52,6 +52,7 @@
 
 #include "fd_progcache.h"
 #include "fd_prog_load.h"
+#include "fd_progcache_lineage.h"
 #include "../runtime/fd_runtime_const.h"
 
 struct fd_progcache_metrics {
@@ -72,13 +73,13 @@ struct fd_progcache_metrics {
 
 typedef struct fd_progcache_metrics fd_progcache_metrics_t;
 
-/* fd_progcache_t is a thread-local client to a program cache funk
-   instance.  This struct is quite large and therefore not local/stack
+/* fd_progcache_t is a thread-local client to a program cache instance.
+   This struct is quite large and therefore not local/stack
    declaration-friendly. */
 
 struct fd_progcache {
   fd_progcache_join_t join[1];
-  fd_accdb_lineage_t  lineage[1];
+  fd_progcache_lineage_t lineage[1];
 
   fd_progcache_metrics_t * metrics;
 
@@ -152,10 +153,10 @@ fd_progcache_revision_slot( ulong epoch_slot0,
    fd_progcache_rec_close. */
 
 fd_progcache_rec_t * /* read locked */
-fd_progcache_peek( fd_progcache_t    * cache,
-                   fd_xid_t    const * xid,
-                   fd_pubkey_t const * prog_addr,
-                   ulong               revision_slot );
+fd_progcache_peek( fd_progcache_t    *        cache,
+                   fd_progcache_xid_t const * xid,
+                   fd_pubkey_t const *        prog_addr,
+                   ulong                      revision_slot );
 
 /* fd_progcache_pull loads a program from cache, filling the cache if
    necessary.  The load operation can have a number of outcomes:
@@ -174,10 +175,10 @@ fd_progcache_peek( fd_progcache_t    * cache,
 
 fd_progcache_rec_t * /* read locked */
 fd_progcache_pull( fd_progcache_t           * cache,
-                   fd_xid_t const           * xid,
+                   fd_progcache_xid_t const * xid,
                    fd_pubkey_t        const * prog_addr,
                    fd_prog_load_env_t const * env,
-                   fd_accdb_ro_t            * progdata_ro,
+                   fd_accdb_entry_t *         progdata_ro,
                    fd_pubkey_t        const * program_owner );
 
 /* fd_progcache_rec_close releases a cache record handle returned by

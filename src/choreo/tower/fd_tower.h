@@ -187,11 +187,11 @@
    our state.  Every time tower makes a new root slot, we prune any old
    state that does not originate from that new root slot.  Our
    blockstore will discard blocks below that root, our forks structure
-   will discard stale banks, funk (which is our accounts database) will
-   discard stale transactions (which in turn track modifications to
-   accounts), and ghost (which is our fork select tree) will discard
-   stale nodes tracking stake percentages.  We call this operation
-   publishing.
+   will discard stale banks, our accounts database will discard stale
+   transactions (which in turn track modifications to accounts), and
+   ghost (which is our fork select tree) will discard stale nodes
+   tracking stake percentages.  We call this operation advancing the
+   root.
 
    Note that the vote slots are not necessarily consecutive.  Here I
    elided the votes sandwiched between the newest and oldest votes for

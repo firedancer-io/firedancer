@@ -9,7 +9,7 @@ $(call add-objs,fd_stake_delegations,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128
-$(call make-unit-test,test_stake_delegations,test_stake_delegations,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_stake_delegations,test_stake_delegations,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_stake_delegations)
 endif
 endif
@@ -21,8 +21,8 @@ $(call add-hdrs,fd_vote_stakes.h)
 $(call add-objs,fd_vote_stakes,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_vote_stakes,test_vote_stakes,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_vote_stakes,test_vote_stakes,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_vote_stakes)
-$(call make-unit-test,test_top_votes,test_top_votes,fd_flamenco fd_funk fd_ballet fd_util)
+$(call make-unit-test,test_top_votes,test_top_votes,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_top_votes)
 endif

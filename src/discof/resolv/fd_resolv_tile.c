@@ -3,9 +3,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../replay/fd_replay_tile.h"
 #include "generated/fd_resolv_tile_seccomp.h"
-#include "../../discof/fd_accdb_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_alut.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -148,8 +146,7 @@ typedef struct {
      rooted bank (after exchanging it for a new rooted bank). */
   fd_banks_t * banks;
   fd_bank_t * bank;
-
-  fd_accdb_user_t accdb[1];
+  fd_accdb_t * accdb;
 
   fd_stashed_txn_m_t * pool;
   map_chain_t *        map_chain;
@@ -250,28 +247,17 @@ peek_alut( fd_resolv_ctx_t *  ctx,
            fd_txn_m_t *       txnm,
            fd_alut_interp_t * interp,
            ulong              alut_idx ) {
-  fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
-
   fd_txn_t const * txn         = fd_txn_m_txn_t_const  ( txnm );
   uchar const *    txn_payload = fd_txn_m_payload_const( txnm );
-  fd_txn_acct_addr_lut_t const * addr_lut =
-      &fd_txn_get_address_tables_const( txn )[ alut_idx ];
+  fd_txn_acct_addr_lut_t const * addr_lut = &fd_txn_get_address_tables_const( txn )[ alut_idx ];
   fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, txn_payload+addr_lut->addr_off );
 
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, &addr_lut_acc ) ) ) {
-    return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-  }
+  fd_accdb_entry_t entry = fd_accdb_read_one( ctx->accdb, ctx->bank->accdb_fork_id, addr_lut_acc.uc );
+  if( FD_UNLIKELY( !entry.lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
 
-  int err = fd_alut_interp_next(
-      interp,
-      &addr_lut_acc,
-      fd_accdb_ref_owner     ( ro ),
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
-
-  fd_accdb_close_ro( ctx->accdb, ro );
+  int err = fd_alut_interp_next( interp, &addr_lut_acc, entry.owner, entry.data, entry.data_len );
+  fd_accdb_unread_one( ctx->accdb, &entry );
 
   return err;
 }
@@ -282,7 +268,6 @@ peek_alut( fd_resolv_ctx_t *  ctx,
 static int
 peek_aluts( fd_resolv_ctx_t * ctx,
             fd_txn_m_t *      txnm ) {
-
   /* Unpack context */
   fd_txn_t const *          txn          = fd_txn_m_txn_t_const  ( txnm );
   uchar const *             txn_payload  = fd_txn_m_payload_const( txnm );
@@ -301,7 +286,6 @@ peek_aluts( fd_resolv_ctx_t * ctx,
     err = peek_alut( ctx, txnm, interp, i );
     if( FD_UNLIKELY( err ) ) break;
   }
-  fd_alut_interp_delete( interp );
   fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
 
   ulong ctr_idx;
@@ -618,8 +602,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_replay->chunk0 = fd_dcache_compact_chunk0( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
   ctx->out_replay->wmark  = fd_dcache_compact_wmark ( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
   ctx->out_replay->chunk  = ctx->out_replay->chunk0;
-
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->resolv.accdb_max_depth );
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

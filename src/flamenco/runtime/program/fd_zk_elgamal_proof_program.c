@@ -146,7 +146,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     do {
       fd_guarded_borrowed_account_t _acc = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, (ushort)(accessed_accounts+1), &_acc );
-      *context_state_authority = *_acc.pubkey;
+      *context_state_authority = *(fd_pubkey_t*)_acc.entry->pubkey;
     } while(0);
 
     /* Borrow the proof context account
@@ -219,7 +219,7 @@ fd_zksdk_process_close_proof_context( fd_exec_instr_ctx_t * ctx ) {
     }
 
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_OWNER, &owner_acc );
-    *owner_pubkey = *owner_acc.pubkey;
+    *owner_pubkey = *(fd_pubkey_t*)owner_acc.entry->pubkey;
     /* implicit drop of borrowed owner_acc */
   } while (0);
 
@@ -230,13 +230,13 @@ fd_zksdk_process_close_proof_context( fd_exec_instr_ctx_t * ctx ) {
   /* Obtain the proof account pubkey by borrowing the proof account.
      https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/zk-elgamal-proof/src/lib.rs#L143 */
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK(ctx, ACC_IDX_PROOF, &proof_acc );
-  *proof_pubkey = *proof_acc.pubkey;
+  *proof_pubkey = *(fd_pubkey_t*)proof_acc.entry->pubkey;
   fd_borrowed_account_drop( &proof_acc );
 
   /* Obtain the dest account pubkey by borrowing the dest account.
      https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/zk-elgamal-proof/src/lib.rs#L144 */
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_DEST, &dest_acc );
-  *dest_pubkey = *dest_acc.pubkey;
+  *dest_pubkey = *(fd_pubkey_t*)dest_acc.entry->pubkey;
   fd_borrowed_account_drop( &dest_acc );
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/zk-elgamal-proof/src/lib.rs#L145-L147 */

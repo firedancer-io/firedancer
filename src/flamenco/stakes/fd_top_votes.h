@@ -2,9 +2,8 @@
 #define HEADER_fd_src_flamenco_stakes_fd_top_votes_h
 
 #include "../../util/fd_util_base.h"
-#include "../../funk/fd_funk_base.h"
 #include "../types/fd_types_custom.h"
-#include "../accdb/fd_accdb_base.h"
+#include "../../discof/accdb/fd_accdb.h"
 
 /* With the introduction of VAT, the set of vote accounts that receive
    epoch rewards, participate in clock calculation, and are eligible for
@@ -140,8 +139,8 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
 
 void
 fd_top_votes_refresh( fd_top_votes_t *          top_votes,
-                      fd_accdb_user_t *         accdb,
-                      fd_funk_txn_xid_t const * xid );
+                      fd_accdb_t *              accdb,
+                      fd_accdb_fork_id_t        fork_id );
 
 #define FD_TOP_VOTES_ITER_FOOTPRINT (16UL)
 #define FD_TOP_VOTES_ITER_ALIGN     (8UL)

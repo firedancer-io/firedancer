@@ -1,6 +1,11 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-unsigned int logfile_fd
+#
+# accounts_fd: The file descriptor for the accounts database.  Execution
+#              tiles may need to pull accounts into the cache from disk,
+#              or purge out of cache to the disk to make forward
+#              progress.
+unsigned int logfile_fd, unsigned int accounts_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -16,3 +21,18 @@ write: (or (eq (arg 0) 2)
 #
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
+
+# accdb: write to the accounts database
+#
+# Users of the accounts database may need to write data to persistent
+# storage if the cache is full (to complete an eviction).
+#
+# arg 0 is the file descriptor to write to.
+pwritev2: (eq (arg 0) accounts_fd)
+
+# accdb: read from the accounts database
+#
+# Users of the accounts database may need to read data into the cache.
+#
+# arg 0 is the file descriptor to read from
+pread64: (eq (arg 0) accounts_fd)

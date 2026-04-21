@@ -13,7 +13,6 @@
     [tiles.rpc]
         enabled = false
 [accounts]
-    file_size_gib = {funk_pages}
     max_accounts = {index_max}
 [runtime]
     max_live_slots = 128

@@ -5,7 +5,7 @@
 #include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
 #include "../../disco/pack/fd_microblock.h" /* for fd_txn_p_t */
 
-#include "../../flamenco/accdb/fd_accdb_user.h"
+#include "../../discof/accdb/fd_accdb.h"
 #include "../../util/spad/fd_spad.h" /* for ALUTs */
 
 /* fd_sched wraps all the smarts and mechanical chores around scheduling
@@ -57,9 +57,9 @@ struct fd_sched;
 typedef struct fd_sched fd_sched_t;
 
 struct fd_sched_alut_ctx {
-  fd_accdb_user_t   accdb[1];
-  fd_funk_txn_xid_t xid[1];
-  ulong             els; /* Effective lookup slot. */
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t fork_id;
+  ulong              els; /* Effective lookup slot. */
 };
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 

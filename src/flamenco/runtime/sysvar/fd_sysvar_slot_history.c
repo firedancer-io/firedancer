@@ -1,7 +1,6 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../../accdb/fd_accdb_sync.h"
 
 /* FIXME These constants should be header defines */
 
@@ -34,8 +33,7 @@ fd_sysvar_slot_history_set( fd_slot_history_global_t * history,
 
 void
 fd_sysvar_slot_history_write_history( fd_bank_t *                bank,
-                                      fd_accdb_user_t *          accdb,
-                                      fd_funk_txn_xid_t const *  xid,
+                                      fd_accdb_t *               accdb,
                                       fd_capture_ctx_t *         capture_ctx,
                                       fd_slot_history_global_t * history ) {
   uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ] = {0};
@@ -43,18 +41,16 @@ fd_sysvar_slot_history_write_history( fd_bank_t *                bank,
     .data    = slot_history_mem,
     .dataend = slot_history_mem + FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ
   };
-  int err = fd_slot_history_encode_global( history, &ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "fd_slot_history_encode_global failed" ));
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_slot_history_id, slot_history_mem, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
+  FD_TEST( fd_slot_history_encode_global( history, &ctx )==FD_BINCODE_SUCCESS );
+  fd_sysvar_account_update( bank, accdb, capture_ctx, &fd_sysvar_slot_history_id, slot_history_mem, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
 
 void
-fd_sysvar_slot_history_init( fd_bank_t *               bank,
-                             fd_accdb_user_t *         accdb,
-                             fd_funk_txn_xid_t const * xid,
-                             fd_capture_ctx_t *        capture_ctx ) {
+fd_sysvar_slot_history_init( fd_bank_t *        bank,
+                             fd_accdb_t *       accdb,
+                             fd_capture_ctx_t * capture_ctx ) {
   /* Create a new slot history instance */
 
   /* We need to construct the gaddr-aware slot history object */
@@ -70,73 +66,33 @@ fd_sysvar_slot_history_init( fd_bank_t *               bank,
 
   /* TODO: handle slot != 0 init case */
   fd_sysvar_slot_history_set( history, bank->f.slot );
-  fd_sysvar_slot_history_write_history( bank, accdb, xid, capture_ctx, history );
+  fd_sysvar_slot_history_write_history( bank, accdb, capture_ctx, history );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
 int
-fd_sysvar_slot_history_update( fd_bank_t *               bank,
-                               fd_accdb_user_t *         accdb,
-                               fd_funk_txn_xid_t const * xid,
-                               fd_capture_ctx_t *        capture_ctx ) {
-  /* Set current_slot, and update next_slot */
-  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
+fd_sysvar_slot_history_update( fd_bank_t *        bank,
+                               fd_accdb_t *       accdb,
+                               fd_capture_ctx_t * capture_ctx ) {
+  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_slot_history_id.uc );
+  FD_TEST( entry.lamports ); /* Slot history account must exist */
 
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, key ) ) ) FD_LOG_ERR(( "slot history account does not exist, cannot continue" ));
   fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_accdb_ref_data_const( ro ),
-    .dataend = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_accdb_ref_data_sz( ro )
+    .data    = entry.data,
+    .dataend = entry.data+entry.data_len
   };
 
   uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] = {0};
   fd_slot_history_global_t * history = fd_slot_history_decode_global( slot_history_mem, &ctx );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_HEXDUMP_ERR(( "corrupt slot history sysvar", fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ));
-  fd_accdb_close_ro( accdb, ro );
+  if( FD_UNLIKELY( !history ) ) FD_LOG_HEXDUMP_ERR(( "corrupt slot history sysvar", entry.data, entry.data_len ));
+  fd_accdb_unread_one( accdb, &entry );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
   fd_sysvar_slot_history_set( history, bank->f.slot );
-  history->next_slot = bank->f.slot + 1;
+  history->next_slot = bank->f.slot+1UL;
 
-  fd_sysvar_slot_history_write_history( bank, accdb, xid, capture_ctx, history );
-
+  fd_sysvar_slot_history_write_history( bank, accdb, capture_ctx, history );
   return 0;
-}
-
-fd_slot_history_global_t *
-fd_sysvar_slot_history_read( fd_accdb_user_t *         accdb,
-                             fd_funk_txn_xid_t const * xid,
-                             uchar                     out_mem[ static FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] ) {
-  /* Set current_slot, and update next_slot */
-
-  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
-
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, key ) ) ) {
-    FD_LOG_CRIT(( "slot history account does not exist, cannot continue" ));
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  ulong data_len = fd_accdb_ref_data_sz( ro );
-  if( FD_UNLIKELY( data_len>FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
-    FD_LOG_ERR(( "corrupt slot history sysvar: sysvar data is too large (%lu bytes)", data_len ));
-  }
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_accdb_ref_data_const( ro ),
-    .dataend = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_accdb_ref_data_sz( ro )
-  };
-  fd_slot_history_global_t * history = fd_slot_history_decode_global( out_mem, &ctx );
-  fd_accdb_close_ro( accdb, ro );
-  return history;
 }
 
 int

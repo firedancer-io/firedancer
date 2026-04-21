@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_fd_flamenco_base_h
 
 #include "../ballet/base58/fd_base58.h"
-#include "types/fd_cast.h"
 
 /* Forward declarations */
 
@@ -54,9 +53,6 @@ typedef struct fd_txn_out fd_txn_out_t;
 struct fd_log_collector;
 typedef struct fd_log_collector fd_log_collector_t;
 
-struct fd_acc_pool;
-typedef struct fd_acc_pool fd_acc_pool_t;
-
 struct fd_genesis;
 typedef struct fd_genesis fd_genesis_t;
 
@@ -65,21 +61,6 @@ typedef struct fd_stake_rewards fd_stake_rewards_t;
 
 struct fd_top_votes;
 typedef struct fd_top_votes fd_top_votes_t;
-
-struct fd_account_meta {
-  uchar owner[32];
-  ulong lamports;
-  ulong slot;
-  uint  dlen;
-  uchar executable;
-  uchar padding[3];
-};
-typedef struct fd_account_meta fd_account_meta_t;
-
-FD_FN_PURE static inline uchar *
-fd_account_data( fd_account_meta_t const * acc ) {
-  return (uchar *)( acc+1 );
-}
 
 FD_PROTOTYPES_BEGIN
 

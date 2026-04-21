@@ -26,7 +26,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v4.0.0 -y 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-254462437-v4.0.0 -y 16 -m 10000000 -e 254462598 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.0.0 -y 3 -m 2000000 -e 346556337 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v4.0.0 -y 3 -m 2000000 -e 380592006 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 -y 1 -m 3000 -e 1352 -g -lt --funk
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 -y 1 -m 3000 -e 1352 -g -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-422969842-v4.0.0 -y 1 -m 2000000 -e 422969848 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l breakpoint-385786458-v4.0.0 -y 1 -m 2000000 -e 385786458
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-states-v4-local-v4.0.0 -y 1 -m 3000 -e 1000 -lt
