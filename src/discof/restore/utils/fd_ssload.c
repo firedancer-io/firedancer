@@ -228,8 +228,15 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_top_votes_init( top_votes_t_1 );
   fd_top_votes_init( top_votes_t_2 );
 
-  ulong t_1_idx = manifest->epoch_stakes[2].vote_stakes_len==0UL ? 1UL : 2UL;
-  ulong t_2_idx = manifest->epoch_stakes[2].vote_stakes_len==0UL ? 0UL : 1UL;
+  ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, manifest->slot );
+  ulong epoch_stakes_base     = epoch > 0UL ? epoch - 1UL : 0UL;
+
+  FD_TEST( leader_schedule_epoch >= epoch_stakes_base );
+  ulong t_1_idx = leader_schedule_epoch - epoch_stakes_base;
+  FD_TEST( t_1_idx < FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+
+  int   has_t_2 = (t_1_idx > 0UL);
+  ulong t_2_idx = has_t_2 ? t_1_idx - 1UL : 0UL;
 
   bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
 
@@ -264,27 +271,33 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   /* Populate the vote stakes for the end of the T-2 epoch if the
      snapshot is in epoch T. */
-  for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
+  if( has_t_2 ) {
+    for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
 
-    fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
-    fd_vote_stakes_root_update_meta(
-        vote_stakes,
-        (fd_pubkey_t *)elem->vote,
-        (fd_pubkey_t *)elem->identity,
-        elem->stake,
-        (uchar)elem->commission,
-        bank->f.epoch );
+      fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
+      fd_vote_stakes_root_update_meta(
+          vote_stakes,
+          (fd_pubkey_t *)elem->vote,
+          (fd_pubkey_t *)elem->identity,
+          elem->stake,
+          (uchar)elem->commission,
+          bank->f.epoch );
+    }
   }
 
   /* Store commissions in the banks for the end of the T-3 epoch if the
      snapshot is in epoch T. */
-  *fd_bank_snapshot_commission_t_3_len( bank ) = manifest->epoch_stakes[0].vote_stakes_len;
-  fd_stashed_commission_t * snapshot_commission = fd_bank_snapshot_commission_t_3( bank );
-  for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
-    fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
-    fd_memcpy( snapshot_commission[i].pubkey, elem->vote, 32UL );
-    snapshot_commission[i].commission = (uchar)elem->commission;
+  if( manifest->epoch_stakes[0].vote_stakes_len > 0UL ) {
+    *fd_bank_snapshot_commission_t_3_len( bank ) = manifest->epoch_stakes[0].vote_stakes_len;
+    fd_stashed_commission_t * snapshot_commission = fd_bank_snapshot_commission_t_3( bank );
+    for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
+      fd_memcpy( snapshot_commission[i].pubkey, elem->vote, 32UL );
+      snapshot_commission[i].commission = (uchar)elem->commission;
+    }
+  } else {
+    *fd_bank_snapshot_commission_t_3_len( bank ) = 0UL;
   }
 
   bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
