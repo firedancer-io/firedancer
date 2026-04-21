@@ -155,29 +155,6 @@ struct fd_bpf_state {
 };
 typedef struct fd_bpf_state fd_bpf_state_t;
 
-/* fd_bpf_upgradeable_loader_state_is_* helpers mirror the (now-removed)
-   generated bincode helpers so existing call sites keep working. */
-
-static inline uchar
-fd_bpf_state_is_uninitialized( fd_bpf_state_t const * self ) {
-  return (uchar)( self->discriminant==FD_BPF_STATE_UNINITIALIZED );
-}
-
-static inline uchar
-fd_bpf_state_is_buffer( fd_bpf_state_t const * self ) {
-  return (uchar)( self->discriminant==FD_BPF_STATE_BUFFER );
-}
-
-static inline uchar
-fd_bpf_state_is_program( fd_bpf_state_t const * self ) {
-  return (uchar)( self->discriminant==FD_BPF_STATE_PROGRAM );
-}
-
-static inline uchar
-fd_bpf_state_is_program_data( fd_bpf_state_t const * self ) {
-  return (uchar)( self->discriminant==FD_BPF_STATE_PROGRAM_DATA );
-}
-
 /* fd_bpf_upgradeable_loader_program_instruction_decode parses a
    bincode-encoded UpgradeableLoaderInstruction from [data, data+data_sz).
    Variable-length fields (`write.bytes`) point directly into `data`, so
@@ -327,27 +304,6 @@ fd_bpf_instruction_encode( fd_bpf_instruction_t const * in,
   return 0;
 }
 
-/* fd_bpf_upgradeable_loader_program_instruction_size returns the
-   bincode-exact wire size for encoding.  Returns 0 for unknown
-   discriminants. */
-
-static inline ulong
-fd_bpf_instruction_size( fd_bpf_instruction_t const * in ) {
-  switch( in->discriminant ) {
-    case FD_BPF_INSTR_WRITE:                    return 4UL + 4UL + 8UL + in->inner.write.bytes_len;
-    case FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN: return 4UL + 8UL;
-    case FD_BPF_INSTR_EXTEND_PROGRAM:           return 4UL + 4UL;
-    case FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED:   return 4UL + 4UL;
-    case FD_BPF_INSTR_INITIALIZE_BUFFER:
-    case FD_BPF_INSTR_UPGRADE:
-    case FD_BPF_INSTR_SET_AUTHORITY:
-    case FD_BPF_INSTR_CLOSE:
-    case FD_BPF_INSTR_SET_AUTHORITY_CHECKED:
-    case FD_BPF_INSTR_MIGRATE:                  return 4UL;
-    default:                                    return 0UL;
-  }
-}
-
 /* fd_bpf_upgradeable_loader_state_decode parses a bincode-encoded
    UpgradeableLoaderState from [data, data+data_sz).  The output struct
    has no variable-length fields, so the decoder performs a fixed-size
@@ -495,70 +451,12 @@ static inline ulong
 fd_bpf_state_size( fd_bpf_state_t const * in ) {
   switch( in->discriminant ) {
     case FD_BPF_STATE_UNINITIALIZED: return 4UL;
-    case FD_BPF_STATE_BUFFER:        return 4UL + 1UL + ( in->inner.buffer.has_authority_address ? 32UL : 0UL );
+    case FD_BPF_STATE_BUFFER:        return 4UL + 1UL + (in->inner.buffer.has_authority_address ? 32UL : 0UL);
     case FD_BPF_STATE_PROGRAM:       return 4UL + 32UL;
-    case FD_BPF_STATE_PROGRAM_DATA:  return 4UL + 8UL + 1UL + ( in->inner.program_data.has_upgrade_authority_address ? 32UL : 0UL );
+    case FD_BPF_STATE_PROGRAM_DATA:  return 4UL + 8UL + 1UL + (in->inner.program_data.has_upgrade_authority_address ? 32UL : 0UL);
     default:                         return 0UL;
   }
 }
-
-/* Compatibility aliases for pre-rename callers.  The handwritten loader
-   implementation now uses the shorter `fd_bpf_*` naming scheme
-   internally, but much of the runtime still refers to the older
-   `fd_bpf_upgradeable_loader_*` symbols. */
-
-typedef fd_bpf_instruction_write_t                    fd_bpf_upgradeable_loader_program_instruction_write_t;
-typedef fd_bpf_instruction_deploy_with_max_data_len_t fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t;
-typedef fd_bpf_instruction_extend_program_t           fd_bpf_upgradeable_loader_program_instruction_extend_program_t;
-typedef fd_bpf_instruction_extend_program_checked_t   fd_bpf_upgradeable_loader_program_instruction_extend_program_checked_t;
-typedef fd_bpf_instruction_inner_t                    fd_bpf_upgradeable_loader_program_instruction_inner_t;
-typedef fd_bpf_instruction_t                          fd_bpf_upgradeable_loader_program_instruction_t;
-
-typedef fd_bpf_state_buffer_t                         fd_bpf_upgradeable_loader_state_buffer_t;
-typedef fd_bpf_state_program_t                        fd_bpf_upgradeable_loader_state_program_t;
-typedef fd_bpf_state_program_data_t                   fd_bpf_upgradeable_loader_state_program_data_t;
-typedef fd_bpf_state_inner_t                          fd_bpf_upgradeable_loader_state_inner_t;
-typedef fd_bpf_state_t                                fd_bpf_upgradeable_loader_state_t;
-
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_INITIALIZE_BUFFER        FD_BPF_INSTR_INITIALIZE_BUFFER
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_WRITE                    FD_BPF_INSTR_WRITE
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_DEPLOY_WITH_MAX_DATA_LEN FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_UPGRADE                  FD_BPF_INSTR_UPGRADE
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_SET_AUTHORITY            FD_BPF_INSTR_SET_AUTHORITY
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_CLOSE                    FD_BPF_INSTR_CLOSE
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_EXTEND_PROGRAM           FD_BPF_INSTR_EXTEND_PROGRAM
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_SET_AUTHORITY_CHECKED    FD_BPF_INSTR_SET_AUTHORITY_CHECKED
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_MIGRATE                  FD_BPF_INSTR_MIGRATE
-#define FD_BPF_UPGRADEABLE_LOADER_INSTR_EXTEND_PROGRAM_CHECKED   FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED
-
-#define fd_bpf_upgradeable_loader_program_instruction_enum_initialize_buffer      FD_BPF_INSTR_INITIALIZE_BUFFER
-#define fd_bpf_upgradeable_loader_program_instruction_enum_write                  FD_BPF_INSTR_WRITE
-#define fd_bpf_upgradeable_loader_program_instruction_enum_deploy_with_max_data_len FD_BPF_INSTR_DEPLOY_WITH_MAX_DATA_LEN
-#define fd_bpf_upgradeable_loader_program_instruction_enum_upgrade                FD_BPF_INSTR_UPGRADE
-#define fd_bpf_upgradeable_loader_program_instruction_enum_set_authority          FD_BPF_INSTR_SET_AUTHORITY
-#define fd_bpf_upgradeable_loader_program_instruction_enum_close                  FD_BPF_INSTR_CLOSE
-#define fd_bpf_upgradeable_loader_program_instruction_enum_extend_program         FD_BPF_INSTR_EXTEND_PROGRAM
-#define fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked  FD_BPF_INSTR_SET_AUTHORITY_CHECKED
-#define fd_bpf_upgradeable_loader_program_instruction_enum_migrate                FD_BPF_INSTR_MIGRATE
-#define fd_bpf_upgradeable_loader_program_instruction_enum_extend_program_checked FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED
-
-#define fd_bpf_upgradeable_loader_state_enum_uninitialized FD_BPF_STATE_UNINITIALIZED
-#define fd_bpf_upgradeable_loader_state_enum_buffer        FD_BPF_STATE_BUFFER
-#define fd_bpf_upgradeable_loader_state_enum_program       FD_BPF_STATE_PROGRAM
-#define fd_bpf_upgradeable_loader_state_enum_program_data  FD_BPF_STATE_PROGRAM_DATA
-
-#define fd_bpf_upgradeable_loader_program_instruction_decode fd_bpf_instruction_decode
-#define fd_bpf_upgradeable_loader_program_instruction_encode fd_bpf_instruction_encode
-#define fd_bpf_upgradeable_loader_program_instruction_size   fd_bpf_instruction_size
-
-#define fd_bpf_upgradeable_loader_state_decode fd_bpf_state_decode
-#define fd_bpf_upgradeable_loader_state_encode fd_bpf_state_encode
-#define fd_bpf_upgradeable_loader_state_size   fd_bpf_state_size
-
-#define fd_bpf_upgradeable_loader_state_is_uninitialized fd_bpf_state_is_uninitialized
-#define fd_bpf_upgradeable_loader_state_is_buffer        fd_bpf_state_is_buffer
-#define fd_bpf_upgradeable_loader_state_is_program       fd_bpf_state_is_program
-#define fd_bpf_upgradeable_loader_state_is_program_data  fd_bpf_state_is_program_data
 
 FD_PROTOTYPES_BEGIN
 
@@ -566,8 +464,8 @@ FD_PROTOTYPES_BEGIN
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
 
 int
-fd_bpf_loader_program_get_state( fd_account_meta_t const *           meta,
-                                 fd_bpf_state_t * state );
+fd_bpf_loader_program_get_state( fd_account_meta_t const * meta,
+                                 fd_bpf_state_t *          state );
 
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,

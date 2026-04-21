@@ -37,12 +37,12 @@ fd_prog_info_v3( fd_prog_info_t *      out,
     FD_LOG_WARNING(( "program data account is too small" ));
     return NULL;
   }
-  fd_bpf_upgradeable_loader_state_t state;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &state, fd_accdb_ref_data_const( ro ), data_sz ) ) ) {
+  fd_bpf_state_t state;
+  if( FD_UNLIKELY( fd_bpf_state_decode( &state, fd_accdb_ref_data_const( ro ), data_sz ) ) ) {
     FD_LOG_WARNING(( "program data account is invalid" ));
     return NULL;
   }
-  if( FD_UNLIKELY( state.discriminant!=fd_bpf_upgradeable_loader_state_enum_program_data ) ) {
+  if( FD_UNLIKELY( state.discriminant!=FD_BPF_STATE_PROGRAM_DATA ) ) {
     FD_LOG_WARNING(( "loader v3 account is not a program data account" ));
     return NULL;
   }

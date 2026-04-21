@@ -208,11 +208,11 @@ target_core_bpf_new_checked( target_core_bpf_t *       target_core_bpf,
   }
 
   /* Decode and validate program account state */
-  fd_bpf_upgradeable_loader_state_t program_state[1];
+  fd_bpf_state_t program_state[1];
   if( FD_UNLIKELY( FD_EXECUTOR_INSTR_SUCCESS!=fd_bpf_loader_program_get_state( &program_account->meta, program_state ) ) ) {
     return NULL;
   }
-  if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program( program_state ) ) ) {
+  if( FD_UNLIKELY( program_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( 0!=memcmp( &program_state->inner.program.programdata_address, &program_data_address, sizeof(fd_pubkey_t) ) ) ) {
@@ -231,11 +231,11 @@ target_core_bpf_new_checked( target_core_bpf_t *       target_core_bpf,
   }
 
   /* Decode and validate program data account state */
-  fd_bpf_upgradeable_loader_state_t programdata_state[1];
+  fd_bpf_state_t programdata_state[1];
   if( FD_UNLIKELY( FD_EXECUTOR_INSTR_SUCCESS!=fd_bpf_loader_program_get_state( &program_data_account->meta, programdata_state ) ) ) {
     return NULL;
   }
-  if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program_data( programdata_state ) ) ) {
+  if( FD_UNLIKELY( programdata_state->discriminant!=FD_BPF_STATE_PROGRAM_DATA ) ) {
     return NULL;
   }
 
@@ -443,12 +443,12 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
     return NULL;
   }
 
-  fd_bpf_upgradeable_loader_state_t state[1];
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( state, acc->data, BUFFER_METADATA_SIZE ) ) ) {
+  fd_bpf_state_t state[1];
+  if( FD_UNLIKELY( fd_bpf_state_decode( state, acc->data, BUFFER_METADATA_SIZE ) ) ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( state->discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) ) {
+  if( FD_UNLIKELY( state->discriminant!=FD_BPF_STATE_BUFFER ) ) {
     /* CoreBpfMigrationError::InvalidBufferAccount(*buffer_address) */
     return NULL;
   }
@@ -482,8 +482,8 @@ new_target_program_account( fd_tmp_account_t *        acc,
                             target_builtin_t const *  target,
                             fd_rent_t const *         rent ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L86-L88 */
-  fd_bpf_upgradeable_loader_state_t state = {
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_program,
+  fd_bpf_state_t state = {
+    .discriminant = FD_BPF_STATE_PROGRAM,
     .inner = {
       .program = {
         .programdata_address = target->program_data_address,
@@ -491,15 +491,15 @@ new_target_program_account( fd_tmp_account_t *        acc,
     }
   };
 
-  ulong state_sz = fd_bpf_upgradeable_loader_state_size( &state );
+  ulong state_sz = fd_bpf_state_size( &state );
   tmp_account_new( acc, state_sz );
   acc->meta.lamports   = fd_rent_exempt_minimum_balance( rent, SIZE_OF_PROGRAM );
   acc->meta.executable = 1;
   memcpy( acc->meta.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) );
 
   ulong out_sz = 0UL;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &state, acc->data, state_sz, &out_sz ) ) ) {
-    FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_encode failed" ));
+  if( FD_UNLIKELY( fd_bpf_state_encode( &state, acc->data, state_sz, &out_sz ) ) ) {
+    FD_LOG_ERR(( "fd_bpf_state_encode failed" ));
   }
 
   return acc;
@@ -517,12 +517,12 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   if( FD_UNLIKELY( source->data_sz < buffer_metadata_sz ) )
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
 
-  fd_bpf_upgradeable_loader_state_t state;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &state, source->data, buffer_metadata_sz ) ) ) {
+  fd_bpf_state_t state;
+  if( FD_UNLIKELY( fd_bpf_state_decode( &state, source->data, buffer_metadata_sz ) ) ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( state.discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) )
+  if( FD_UNLIKELY( state.discriminant!=FD_BPF_STATE_BUFFER ) )
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
@@ -540,8 +540,8 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   ulong        lamports = fd_rent_exempt_minimum_balance( rent, space );
   fd_pubkey_t  owner    = fd_solana_bpf_loader_upgradeable_program_id;
 
-  fd_bpf_upgradeable_loader_state_t programdata_meta = {
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
+  fd_bpf_state_t programdata_meta = {
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
     .inner = {
       .program_data = {
         .slot = slot,
@@ -555,8 +555,8 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   acc->meta.lamports = lamports;
   memcpy( acc->meta.owner, owner.uc, sizeof(fd_pubkey_t) );
   ulong out_sz = 0UL;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &programdata_meta, acc->data, PROGRAMDATA_METADATA_SIZE, &out_sz ) ) ) {
-    FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_encode failed" ));
+  if( FD_UNLIKELY( fd_bpf_state_encode( &programdata_meta, acc->data, PROGRAMDATA_METADATA_SIZE, &out_sz ) ) ) {
+    FD_LOG_ERR(( "fd_bpf_state_encode failed" ));
   }
   fd_memcpy( (uchar *)acc->data+PROGRAMDATA_METADATA_SIZE, elf, elf_sz );
 
@@ -690,8 +690,8 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   new_target_program_data->meta.executable = 0;
   fd_memcpy( new_target_program_data->meta.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) );
 
-  fd_bpf_upgradeable_loader_state_t programdata_state[1] = {{
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
+  fd_bpf_state_t programdata_state[1] = {{
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
     .inner = { .program_data = {
       .slot = bank->f.slot,
       .upgrade_authority_address = target->upgrade_authority_address,
@@ -700,7 +700,7 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   }};
 
   ulong out_sz = 0UL;
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( programdata_state, new_target_program_data->data, PROGRAMDATA_METADATA_SIZE, &out_sz ) ) ) {
+  if( FD_UNLIKELY( fd_bpf_state_encode( programdata_state, new_target_program_data->data, PROGRAMDATA_METADATA_SIZE, &out_sz ) ) ) {
     return;
   }
 

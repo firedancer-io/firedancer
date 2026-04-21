@@ -367,13 +367,13 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
            fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_program_id.key) ||
            fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_deprecated_program_id.key) ||
            ( fd_vm_syscall_cpi_check_id(program_id, fd_solana_bpf_loader_upgradeable_program_id.key) &&
-             !(( instruction_data_len != 0 && instruction_data[0] == FD_BPF_UPGRADEABLE_LOADER_INSTR_UPGRADE ) ||
-               ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_UPGRADEABLE_LOADER_INSTR_SET_AUTHORITY ) ||
+             !(( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_UPGRADE ) ||
+               ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_SET_AUTHORITY ) ||
                ( FD_FEATURE_ACTIVE_BANK( bank, enable_bpf_loader_set_authority_checked_ix ) &&
-                 ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_UPGRADEABLE_LOADER_INSTR_SET_AUTHORITY_CHECKED )) ||
+                 ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_SET_AUTHORITY_CHECKED )) ||
                ( FD_FEATURE_ACTIVE_BANK( bank, enable_extend_program_checked ) &&
-                 ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_UPGRADEABLE_LOADER_INSTR_EXTEND_PROGRAM_CHECKED )) ||
-               ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_UPGRADEABLE_LOADER_INSTR_CLOSE ))) ||
+                 ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED )) ||
+               ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_CLOSE ))) ||
            fd_vm_syscall_cpi_is_precompile( program_id ) );
 }
 

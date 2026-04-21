@@ -172,14 +172,14 @@ dump_executable_account_if_exists( fd_accdb_user_t *                 accdb,
     return;
   }
 
-  fd_bpf_upgradeable_loader_state_t program_loader_state[1];
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode(
+  fd_bpf_state_t program_loader_state[1];
+  if( FD_UNLIKELY( fd_bpf_state_decode(
       program_loader_state,
       program_account->data->bytes,
       program_account->data->size ) ) ) {
     return;
   }
-  if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
+  if( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
     return;
   }
 
@@ -449,15 +449,15 @@ add_account_and_programdata_to_dumped_accounts( fd_accdb_user_t *             ac
   }
 
   /* Get the program account state */
-  fd_bpf_upgradeable_loader_state_t program_account_state[1];
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode(
+  fd_bpf_state_t program_account_state[1];
+  if( FD_UNLIKELY( fd_bpf_state_decode(
       program_account_state,
       fd_accdb_ref_data_const( program_account ),
       fd_accdb_ref_data_sz   ( program_account ) ) ) ) {
     fd_accdb_close_ro( accdb, program_account );
     return;
   }
-  if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {
+  if( program_account_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
     fd_accdb_close_ro( accdb, program_account );
     return;
   }

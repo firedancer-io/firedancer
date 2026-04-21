@@ -744,8 +744,8 @@ test_loader_v3_ok( fd_wksp_t * wksp ) {
   uchar data[ PROGRAMDATA_METADATA_SIZE + 655536 ];
   FD_TEST( data_sz<=sizeof(data) );
 
-  fd_bpf_upgradeable_loader_state_t state = {
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
+  fd_bpf_state_t state = {
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
     .inner = {
       .program_data = {
         .slot = 42UL,
@@ -755,7 +755,7 @@ test_loader_v3_ok( fd_wksp_t * wksp ) {
     }
   };
   ulong out_sz = 0UL;
-  FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+  FD_TEST( !fd_bpf_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   fd_memcpy( data+PROGRAMDATA_METADATA_SIZE, valid_program_data, valid_program_data_sz );
 
   fd_pubkey_t key = test_key( 1UL );
@@ -789,12 +789,12 @@ test_loader_v3_wrong_account_type( fd_wksp_t * wksp ) {
   uchar data[ PROGRAMDATA_METADATA_SIZE + 1048576 ];
   FD_TEST( data_sz<=sizeof(data) );
 
-  fd_bpf_upgradeable_loader_state_t state = {
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_buffer,
+  fd_bpf_state_t state = {
+    .discriminant = FD_BPF_STATE_BUFFER,
     .inner = { .buffer = { .has_authority_address = 0, .authority_address = {{0}} } }
   };
   ulong out_sz = 0UL;
-  FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+  FD_TEST( !fd_bpf_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   fd_memcpy( data+PROGRAMDATA_METADATA_SIZE, valid_program_data, valid_program_data_sz );
 
   fd_pubkey_t key = test_key( 1UL );
@@ -876,8 +876,8 @@ test_loader_v3_epoch_boundary( fd_wksp_t * wksp ) {
   uchar data[ PROGRAMDATA_METADATA_SIZE + 1048576 ];
   FD_TEST( data_sz<=sizeof(data) );
 
-  fd_bpf_upgradeable_loader_state_t state = {
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
+  fd_bpf_state_t state = {
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
     .inner = {
       .program_data = {
         .slot = 42UL,
@@ -887,7 +887,7 @@ test_loader_v3_epoch_boundary( fd_wksp_t * wksp ) {
     }
   };
   ulong out_sz = 0UL;
-  FD_TEST( !fd_bpf_upgradeable_loader_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
+  FD_TEST( !fd_bpf_state_encode( &state, data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   fd_memcpy( data+PROGRAMDATA_METADATA_SIZE, valid_program_data, valid_program_data_sz );
 
   fd_pubkey_t key = test_key( 1UL );
