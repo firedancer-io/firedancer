@@ -1539,6 +1539,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       out_entries[ i ].data_len = 0UL;
       out_entries[ i ].lamports = 0UL;
       out_entries[ i ].executable = 0;
+      memset( out_entries[ i ].owner, 0, 32UL );
+      fd_memcpy( out_entries[ i ].pubkey, pubkeys[ i ], 32UL );
       out_entries[ i ].prior_lamports = 0UL;
       out_entries[ i ].prior_data_len = 0UL;
       out_entries[ i ].prior_executable = 0;

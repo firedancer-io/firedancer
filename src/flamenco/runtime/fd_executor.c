@@ -1131,7 +1131,6 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_txn_out_t *      txn_out ) {
   int writable[ MAX_TX_ACCOUNT_LOCKS ];
   uchar const * pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
-  fd_pubkey_t executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     pubkeys[ i ] = txn_out->accounts.keys[ i ].uc;
     writable[ i ] = fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
@@ -1155,6 +1154,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   fd_accdb_acquire_a( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.cnt, pubkeys, writable, txn_out->accounts.account );
 
   ushort executable_account_cnt = 0;
+  fd_pubkey_t programdata_keys[ MAX_TX_ACCOUNT_LOCKS ];
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     fd_accdb_entry_t * entry = &txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( memcmp( entry->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
@@ -1166,8 +1166,8 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     writable[ executable_account_cnt ] = 0;
     /* Keep the derived programdata address in stable storage until
        fd_accdb_acquire_b() consumes the pubkey array below. */
-    executable_pubkeys[ executable_account_cnt ] = program_loader_state->inner.program.programdata_address;
-    pubkeys[ executable_account_cnt ] = executable_pubkeys[ executable_account_cnt ].uc;
+    programdata_keys[ executable_account_cnt ] = program_loader_state->inner.program.programdata_address;
+    pubkeys[ executable_account_cnt ] = programdata_keys[ executable_account_cnt ].uc;
     executable_account_cnt++;
   }
 

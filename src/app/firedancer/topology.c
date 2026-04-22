@@ -635,6 +635,7 @@ fd_topo_initialize( config_t * config ) {
     /**/              fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_ct",    0UL                                                 );
     /**/              fd_topob_tile_out(    topo, "snapwr",  0UL,                       "snapwr_ct",    0UL                                                 );
     /**/              fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapin_ct",    0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/              fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapwr_ct",    0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/              fd_topob_tile_in (    topo, "snapld",  0UL,          "metric_in", "snapct_ld",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/              fd_topob_tile_out(    topo, "snapld",  0UL,                       "snapld_dc",     0UL                                                );
 
