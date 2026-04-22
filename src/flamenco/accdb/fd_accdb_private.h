@@ -200,11 +200,13 @@ typedef struct fd_accdb_acc fd_accdb_acc_t;
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
-#define FD_ACCDB_SIZE_MASK            ((1U<<30)-1U)
+#define FD_ACCDB_SIZE_CACHE_CLAIM_BIT (1U<<29)
+#define FD_ACCDB_SIZE_MASK            ((1U<<29)-1U)
 #define FD_ACCDB_SIZE_PACK(sz,exec)   ((uint)(sz) | ((exec) ? FD_ACCDB_SIZE_EXEC_BIT : 0U))
 #define FD_ACCDB_SIZE_DATA(packed)    ((packed) & FD_ACCDB_SIZE_MASK)
 #define FD_ACCDB_SIZE_EXEC(packed)    (!!((packed) & FD_ACCDB_SIZE_EXEC_BIT))
 #define FD_ACCDB_SIZE_CACHE_VALID(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_VALID_BIT))
+#define FD_ACCDB_SIZE_CACHE_CLAIM(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_CLAIM_BIT))
 
 static inline ulong
 fd_accdb_acc_offset( fd_accdb_acc_t const * acc ) {

@@ -847,7 +847,10 @@ acquire_cache_line( fd_accdb_t * accdb,
 
     if( FD_LIKELY( line->acc_idx!=UINT_MAX ) ) {
       FD_VOLATILE( accdb->acc_pool[ line->acc_idx ].cache_idx ) = FD_ACCDB_ACC_CIDX_INVAL;
-      FD_VOLATILE( accdb->acc_pool[ line->acc_idx ].executable_size ) &= ~FD_ACCDB_SIZE_CACHE_VALID_BIT;
+      /* Preserve CACHE_CLAIM_BIT: a concurrent cold-load may hold
+         the claim and is about to publish a new cache_idx + set
+         CACHE_VALID.  A plain &= here would clobber its claim. */
+      FD_ATOMIC_FETCH_AND_AND( &accdb->acc_pool[ line->acc_idx ].executable_size, ~FD_ACCDB_SIZE_CACHE_VALID_BIT );
     }
     *out_evicted_acc_idx    = line->persisted ? UINT_MAX : line->acc_idx;
     line->key.generation    = UINT_MAX;
@@ -1154,6 +1157,90 @@ background_compact( fd_accdb_t * accdb,
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 }
 
+/* cold_load_acc resolves the cache slot for `acc` when STEP 1's
+   cache_try_pin failed.  It uses bit 29 of executable_size as a
+   single-claimer lock so that two concurrent acquirers cannot each
+   install their own cache slot for the same acc (which would orphan
+   one slot with a dangling line->acc_idx and eventually corrupt
+   acc->cache_valid via CLOCK).
+
+   Protocol per acc:
+     - If cache_valid is set, retry cache_try_pin (another thread
+       finished the cold-load while we were here).  On success, mark
+       exists_in_cache so STEP 4 will not write back the slot.
+     - If claim is set, spin (another thread is mid-cold-load).
+     - Otherwise CAS-set the claim bit.  Winner allocates a cache
+       line, populates the placeholder (acc_idx=UINT_MAX), publishes
+       cache_idx, then atomically (CAS-loop) sets cache_valid and
+       clears claim.
+
+   The eviction sites that clear cache_valid must use FETCH_AND with
+   ~CACHE_VALID_BIT (preserving the claim bit) to interact correctly
+   with this protocol. */
+
+static fd_accdb_cache_line_t *
+cold_load_acc( fd_accdb_t *      accdb,
+               fd_accdb_acc_t *  acc,
+               uchar const *     pubkey,
+               int *             out_exists_in_cache,
+               uint *            out_evicted_acc_idx ) {
+  for(;;) {
+    uint old_es  = FD_VOLATILE_CONST( acc->executable_size );
+    int  valid   = FD_ACCDB_SIZE_CACHE_VALID( old_es );
+    int  claimed = FD_ACCDB_SIZE_CACHE_CLAIM( old_es );
+
+    if( FD_UNLIKELY( valid ) ) {
+      uint cidx = FD_VOLATILE_CONST( acc->cache_idx );
+      fd_accdb_cache_line_t * hit = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
+      fd_accdb_cache_line_t * pinned = cache_try_pin( hit, pubkey, acc->key.generation );
+      if( FD_LIKELY( pinned ) ) {
+        *out_exists_in_cache  = 1;
+        *out_evicted_acc_idx  = UINT_MAX;
+        return pinned;
+      }
+      FD_SPIN_PAUSE();
+      continue;
+    }
+
+    if( FD_UNLIKELY( claimed ) ) {
+      FD_SPIN_PAUSE();
+      continue;
+    }
+
+    if( FD_UNLIKELY( FD_ATOMIC_CAS( &acc->executable_size, old_es, old_es | FD_ACCDB_SIZE_CACHE_CLAIM_BIT )!=old_es ) ) {
+      FD_SPIN_PAUSE();
+      continue;
+    }
+
+    /* We hold the claim.  Allocate a cache line and publish. */
+    ulong size_class = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( old_es ) );
+    fd_accdb_cache_line_t * line = acquire_cache_line( accdb, size_class, out_evicted_acc_idx );
+    fd_memcpy( line->key.pubkey, acc->key.pubkey, 32UL );
+    line->key.generation = acc->key.generation;
+    /* Leave acc_idx at UINT_MAX (the "loading" sentinel) until step 12
+       publishes it after the preadv2 fence.  Concurrent threads that
+       pin via cache_idx will spin on this in step 13. */
+    line->acc_idx = UINT_MAX;
+    FD_VOLATILE( acc->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, line ) );
+    FD_COMPILER_MFENCE();
+
+    /* Atomically set CACHE_VALID_BIT and clear CACHE_CLAIM_BIT.
+       Eviction may have flipped CACHE_VALID_BIT on us between our
+       claim and now (it preserves CLAIM but can clear VALID); the
+       CAS loop tolerates that.  The data length and exec bits stay
+       unchanged. */
+    for(;;) {
+      uint cur = FD_VOLATILE_CONST( acc->executable_size );
+      uint nxt = (cur & ~FD_ACCDB_SIZE_CACHE_CLAIM_BIT) | FD_ACCDB_SIZE_CACHE_VALID_BIT;
+      if( FD_LIKELY( FD_ATOMIC_CAS( &acc->executable_size, cur, nxt )==cur ) ) break;
+      FD_SPIN_PAUSE();
+    }
+
+    *out_exists_in_cache = 0;
+    return line;
+  }
+}
+
 #define RESERVATION_TYPE_SIMPLE            (0)
 #define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1)
 #define RESERVATION_TYPE_ALREADY_RESERVED  (2)
@@ -1276,21 +1363,21 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
 
     /* TODO: This over-reserves cache slots for writable accounts that
-      already exist.  For each such account we reserve one line in the
-      account's size class (for the read into cache) AND one line in
-      every size class (for the write destination buffers). But if the
-      account is already resident in cache (which is the common case for
-      hot accounts), the read-into-cache line is unnecessary — we will
-      get a cache hit in step 3 and never use it.  The fix is to probe
-      acc->cache_idx here and skip the per-account size class reservation
-      per-account size class reservation when a hit is found. This would
-      reduce peak reservation by up to one line per writable account per
-      acquire batch, lowering contention on the cache class counters and
-      allowing smaller cache provisioning. */
+       already exist.  For each such account we reserve one line in the
+       account's size class (for the read into cache) AND one line in
+       every size class (for the write destination buffers). But if the
+       account is already resident in cache (which is the common case
+       for hot accounts), the read-into-cache line is unnecessary — we
+       will get a cache hit in step 3 and never use it.  The fix is to
+       probe acc->cache_idx here and skip the per-account size class
+       reservation per-account size class reservation when a hit is
+       found. This would reduce peak reservation by up to one line per
+       writable account per acquire batch, lowering contention on the
+       cache class counters and allowing smaller cache provisioning. */
 
     /* Reserve cache slots by atomically incrementing the shared used
-      counters.  If any class exceeds its max, the reservation
-      overflowed — subtract back partial grabs and retry. */
+       counters.  If any class exceeds its max, the reservation
+       overflowed — subtract back partial grabs and retry. */
     for(;;) {
       int acquire_failed = 0;
       ulong grabbed[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
@@ -1355,27 +1442,11 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     if( FD_UNLIKELY( writable[ i ] ) ) {
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ i ][ j ] = acquire_cache_line( accdb, j, &evicted_dest_acc[ i ][ j ] );
       if( FD_LIKELY( accs[ i ] ) && FD_UNLIKELY( !original_cache_line[ i ] ) ) {
-        ulong size_class = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) );
-        original_cache_line[ i ] = acquire_cache_line( accdb, size_class, &evicted_orig_acc[ i ] ); /* TODO: Optimize. Sometimes not needed if same generation overwrite? */
-        fd_memcpy( original_cache_line[ i ]->key.pubkey, accs[ i ]->key.pubkey, 32UL );
-        original_cache_line[ i ]->key.generation = accs[ i ]->key.generation;
-        /* Leave acc_idx at UINT_MAX (the "loading" sentinel) until step 12
-           publishes it after the preadv2 fence.  Concurrent threads that
-           pin via cache_idx will spin on this in step 13. */
-        original_cache_line[ i ]->acc_idx = UINT_MAX;
-        FD_VOLATILE( accs[ i ]->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, original_cache_line[ i ] ) );
-        FD_VOLATILE( accs[ i ]->executable_size ) |= FD_ACCDB_SIZE_CACHE_VALID_BIT;
+        original_cache_line[ i ] = cold_load_acc( accdb, accs[ i ], pubkeys[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
       }
     } else {
       if( FD_UNLIKELY( !original_cache_line[ i ] ) ) {
-        ulong size_class = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) );
-        original_cache_line[ i ] = acquire_cache_line( accdb, size_class, &evicted_orig_acc[ i ] );
-        fd_memcpy( original_cache_line[ i ]->key.pubkey, accs[ i ]->key.pubkey, 32UL );
-        original_cache_line[ i ]->key.generation = accs[ i ]->key.generation;
-        /* Same loading-sentinel protocol as the writable branch above. */
-        original_cache_line[ i ]->acc_idx = UINT_MAX;
-        FD_VOLATILE( accs[ i ]->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, original_cache_line[ i ] ) );
-        FD_VOLATILE( accs[ i ]->executable_size ) |= FD_ACCDB_SIZE_CACHE_VALID_BIT;
+        original_cache_line[ i ] = cold_load_acc( accdb, accs[ i ], pubkeys[ i ], &exists_in_cache[ i ], &evicted_orig_acc[ i ] );
       }
     }
   }
@@ -2347,7 +2418,9 @@ background_preevict( fd_accdb_t * accdb,
       uint acc_idx = line->acc_idx;
       if( FD_LIKELY( acc_idx!=UINT_MAX ) ) {
         FD_VOLATILE( accdb->acc_pool[ acc_idx ].cache_idx ) = FD_ACCDB_ACC_CIDX_INVAL;
-        FD_VOLATILE( accdb->acc_pool[ acc_idx ].executable_size ) &= ~FD_ACCDB_SIZE_CACHE_VALID_BIT;
+        /* Preserve CACHE_CLAIM_BIT (see acquire_cache_line CLOCK
+           sweep for rationale). */
+        FD_ATOMIC_FETCH_AND_AND( &accdb->acc_pool[ acc_idx ].executable_size, ~FD_ACCDB_SIZE_CACHE_VALID_BIT );
       }
       line->key.generation = UINT_MAX;
       if( FD_UNLIKELY( !line->persisted && acc_idx!=UINT_MAX ) ) {
