@@ -2031,6 +2031,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_loader_v4 ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
+      FD_LOG_ERR(( "migrate instruction is not implemented" ));
       break;
     }
     default: {
