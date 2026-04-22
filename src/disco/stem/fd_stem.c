@@ -427,15 +427,13 @@ STEM_(run1)( ulong                        in_cnt,
       } else { /* event_idx==cons_cnt, housekeeping event */
 
         /* Update metrics counters to external viewers */
-        FD_COMPILER_MFENCE();
-        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)fd_log_wallclock() );
+        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)fd_tickcount() );
         FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
         FD_MCNT_INC  ( TILE, BACKPRESSURE_COUNT,        metric_backp_cnt );
         FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
 #ifdef STEM_CALLBACK_METRICS_WRITE
         STEM_CALLBACK_METRICS_WRITE( ctx );
 #endif
-        FD_COMPILER_MFENCE();
         metric_backp_cnt = 0UL;
 
         /* Receive flow control credits */
@@ -462,9 +460,7 @@ STEM_(run1)( ulong                        in_cnt,
 
           /* See notes above about use of quasi-atomic diagnostic accum */
           if( FD_LIKELY( slowest_cons!=ULONG_MAX ) ) {
-            FD_COMPILER_MFENCE();
             (*cons_slow[ slowest_cons ]) += metric_in_backp;
-            FD_COMPILER_MFENCE();
           }
         }
 

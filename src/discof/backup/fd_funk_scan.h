@@ -20,7 +20,7 @@
 
 typedef fd_funk_rec_map_shmem_private_chain_t fd_funk_rec_chain_t;
 
-#define FUNK_SCAN_PARA 64 /* Zen 5 load queue depth */
+#define FUNK_SCAN_PARA 96
 
 static fd_funk_rec_chain_t const rec_chain_sentinel = {
   .ver_cnt   = 0UL,
@@ -42,10 +42,9 @@ struct fd_funk_scan {
   ulong                       rec_tot;
 
   /* Cache */
-  fd_funk_rec_chain_t heads    [ FUNK_SCAN_PARA ];
-  uint                rec_idx  [ FUNK_SCAN_PARA ];
-  ulong               val_gaddr[ FUNK_SCAN_PARA ];
-  uint                data_sz  [ FUNK_SCAN_PARA ];
+  uint  rec_idx  [ FUNK_SCAN_PARA ];
+  ulong val_gaddr[ FUNK_SCAN_PARA ];
+  uint  data_sz  [ FUNK_SCAN_PARA ];
   ulong batch_idx;
   ulong batch_cnt;
 };

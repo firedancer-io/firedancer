@@ -22,7 +22,9 @@ fd_funk_scan_init( fd_funk_scan_t *  scan,
 
 void
 fd_funk_scan_refill( fd_funk_scan_t * scan ) {
-restart:
+  fd_funk_rec_chain_t heads[ FUNK_SCAN_PARA ];
+  fd_funk_rec_t const * reca[ FUNK_SCAN_PARA ];
+
   if( FD_UNLIKELY( scan->chain >= scan->chain1 ) ) return;
   if( FD_UNLIKELY( scan->chain + FUNK_SCAN_PARA > scan->chain1 ) ) {
     /* FIXME tail end */
@@ -34,42 +36,28 @@ restart:
   fd_funk_rec_t const *       rec_tbl   = scan->rec_tbl;
 
   /* Scan map chain descriptors */
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    __m128i chain_sse = _mm_load_si128( (void const *)( &chain_tbl[ scan->chain+i ] ) );
-    memcpy( &scan->heads[ i ], &chain_sse, sizeof(__m128i) );
+  for( ulong i=0UL; i<FUNK_SCAN_PARA; i+=4 ) {
+    __m512i chain_sse = _mm512_load_si512( (void const *)( &chain_tbl[ scan->chain+i ] ) );
+    memcpy( &heads[ i ], &chain_sse, sizeof(__m512i) );
   }
 
   /* Locate map heads */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    uint rec_idx;
-    ulong chain_cnt = fd_funk_rec_map_private_vcnt_cnt( scan->heads[ i ].ver_cnt );
+    ulong chain_cnt = fd_funk_rec_map_private_vcnt_cnt( heads[ i ].ver_cnt );
     scan->rec_tot += chain_cnt;
-    if( chain_cnt ) rec_idx = scan->heads[ i ].head_cidx;
-    else            rec_idx = UINT_MAX;
+    uint rec_idx = heads[ i ].head_cidx;
+    reca[ i ] = chain_cnt ? &rec_tbl[ rec_idx ] : &rec_sentinel;
     scan->rec_idx[ i ] = rec_idx;
   }
   scan->chain += FUNK_SCAN_PARA;
 
   /* Gather map recs */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    uint rec_idx = scan->rec_idx[ i ];
-    fd_funk_rec_t const * rec = rec_idx!=UINT_MAX ? &rec_tbl[ rec_idx ] : &rec_sentinel;
-    _mm_prefetch( (char const *)&rec->pair.xid,  _MM_HINT_T1 );
+    fd_funk_rec_t const * rec = reca[ i ];
     scan->val_gaddr[ i ] = rec->val_gaddr;
     scan->data_sz  [ i ] = (uint)( rec->val_sz - sizeof(fd_account_meta_t) );
   }
 
-  /* Filter */
-  ulong rec_cnt = 0UL;
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    if( scan->val_gaddr[ i ]==ULONG_MAX ) continue;
-    scan->rec_idx  [ rec_cnt ] = scan->rec_idx  [ i ];
-    scan->val_gaddr[ rec_cnt ] = scan->val_gaddr[ i ];
-    scan->data_sz  [ rec_cnt ] = scan->data_sz  [ i ];
-    /* FIXME filter by XID */
-    rec_cnt++;
-  }
   scan->batch_idx = 0UL;
-  scan->batch_cnt = rec_cnt;
-  if( !rec_cnt ) goto restart;
+  scan->batch_cnt = FUNK_SCAN_PARA;
 }

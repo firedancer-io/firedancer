@@ -152,12 +152,30 @@ check_credit( fd_snapmk_t *       ctx,
   }
 }
 
+static inline void
+fd_mcache_publish_if( fd_frag_meta_t * mcache,
+                      ulong            depth,
+                      ulong            seq,
+                      ulong            sig,
+                      ulong            chunk,
+                      ulong            sz,
+                      ulong            ctl,
+                      ulong            tsorig,
+                      ulong            tspub,
+                      _Bool            pub ) {
+  fd_frag_meta_t * meta_dst = mcache + fd_mcache_line_idx( seq, depth );
+  fd_frag_meta_t dummy[1];
+  fd_frag_meta_t * meta = pub ? meta_dst : dummy;
+  __m256i meta_avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
+  FD_VOLATILE( meta->avx ) = meta_avx;
+}
+
 __attribute__((noinline)) static void
 send_account_frags( fd_snapmk_t *       ctx,
                     fd_stem_context_t * stem ) {
   int out_idx = fd_ulong_find_lsb( ctx->out_ready );
   ulong burst_max = stem->cr_avail[ out_idx ];
-  if( FD_UNLIKELY( !burst_max ) ) {
+  if( FD_UNLIKELY( burst_max<FUNK_SCAN_PARA ) ) {
     ctx->out_ready = fd_ulong_clear_bit( ctx->out_ready, out_idx );
     return;
   };
@@ -166,22 +184,22 @@ send_account_frags( fd_snapmk_t *       ctx,
   ulong seq = stem->seqs[ out_idx ];
   ulong * cr_availp = &stem->cr_avail[ out_idx ];
   ulong pub_cnt = 0UL;
-  while( burst_max-- ) {
-    ulong scan_idx = fd_funk_scan_next( ctx->scan );
-    if( FD_UNLIKELY( scan_idx==ULONG_MAX ) ) {
-      ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
-      FD_LOG_NOTICE(( "DONE" ));
-      break;
-    }
-    ulong rec_idx   = ctx->scan->rec_idx  [ scan_idx ];
-    ulong val_gaddr = ctx->scan->val_gaddr[ scan_idx ];
-    uint  data_sz   = ctx->scan->data_sz  [ scan_idx ];
+  ulong seqa[ FUNK_SCAN_PARA ];
+  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ){
+    _Bool skip = ctx->scan->val_gaddr[ i ]==ULONG_MAX;
+    seqa[ i ] = seq;
+    seq = fd_seq_inc( seq, !skip );
+    pub_cnt += !skip;
+  }
+  ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 );
+  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ){
+    _Bool skip = ctx->scan->val_gaddr[ i ]==ULONG_MAX;
+    ulong rec_idx   = ctx->scan->rec_idx  [ i ];
+    ulong val_gaddr = ctx->scan->val_gaddr[ i ];
+    uint  data_sz   = ctx->scan->data_sz  [ i ];
 
     /* Send frag */
-    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 );
-    fd_mcache_publish( mcache, depth, seq, val_gaddr, 0UL, 0UL, ctl, rec_idx, data_sz );
-    pub_cnt++;
-    seq = fd_seq_inc( seq, 1UL );
+    fd_mcache_publish_if( mcache, depth, seqa[ i ], val_gaddr, 0UL, 0UL, ctl, rec_idx, data_sz, !skip );
   }
   *cr_availp -= pub_cnt;
   *stem->min_cr_avail = fd_ulong_min( *cr_availp, *stem->min_cr_avail );
@@ -199,6 +217,13 @@ after_credit( fd_snapmk_t *       ctx,
   (void)poll_in;
   switch( ctx->state ) {
   case SNAPMK_STATE_ACCOUNTS:
+    fd_funk_scan_refill( ctx->scan );
+    if( FD_UNLIKELY( ctx->scan->batch_idx >= ctx->scan->batch_cnt ) ) {
+      ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
+      FD_LOG_NOTICE(( "DONE" ));
+      break;
+    }
+    ctx->scan->batch_idx = FUNK_SCAN_PARA;
     send_account_frags( ctx, stem );
     *charge_busy = 1;
     break;
