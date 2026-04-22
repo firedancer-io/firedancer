@@ -202,7 +202,6 @@ send_account_frags( fd_snapmk_t *       ctx,
     fd_mcache_publish_if( mcache, depth, seqa[ i ], val_gaddr, 0UL, 0UL, ctl, rec_idx, data_sz, !skip );
   }
   *cr_availp -= pub_cnt;
-  *stem->min_cr_avail = fd_ulong_min( *cr_availp, *stem->min_cr_avail );
   stem->seqs[ out_idx ] = seq;
   ctx->metrics.accounts_processed += pub_cnt;
 }
@@ -291,7 +290,7 @@ metrics_write( fd_snapmk_t * ctx ) {
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#include "../../disco/stem/fd_stem.c"
+#include "../../disco/stem/fd_stem1.c"
 
 fd_topo_run_tile_t fd_tile_snapmk = {
   .name                     = "snapmk",
