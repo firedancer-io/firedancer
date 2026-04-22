@@ -237,7 +237,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
    the gossip peer table saturated.  Pull requests fire every ~1.6ms,
    so 500ms of silence means ~300 pulls returned no new contact
    infos — a strong convergence signal. */
-#define FD_GOSSIP_PEER_SAT_QUIET_NS (500L*1000L*1000L)
+#define FD_GOSSIP_PEER_SAT_QUIET_NS (1*1000L*1000L)
 
 void
 after_credit( fd_gossip_tile_ctx_t * ctx,

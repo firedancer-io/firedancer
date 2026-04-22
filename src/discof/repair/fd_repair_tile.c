@@ -732,7 +732,7 @@ blk_insert_check( ctx_t * ctx, fd_forest_blk_t * new_blk, ulong new_slot, ulong 
     return 0;
   } else {
     if( FD_UNLIKELY( evicted != ULONG_MAX ) ) {
-      FD_LOG_WARNING(( "fd_forest_blk_insert: evicted %lu and inserting new slot %lu", evicted, new_slot ));
+      // FD_LOG_WARNING(( "fd_forest_blk_insert: evicted %lu and inserting new slot %lu", evicted, new_slot ));
       ctx->metrics->blk_evicted++;
     }
     return 1;
