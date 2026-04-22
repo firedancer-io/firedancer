@@ -603,6 +603,10 @@ remove_children( fd_accdb_t *              accdb,
 static void
 background_advance_root( fd_accdb_t *       accdb,
                          fd_accdb_fork_id_t fork_id ) {
+  if( fork_id.val==accdb->shmem->root_fork_id.val ) {
+    return;
+  }
+
   drain_deferred_frees( accdb );
 
   /* The caller guarantees that rooting is sequential: each call

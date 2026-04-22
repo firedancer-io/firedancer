@@ -1667,6 +1667,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
   ulong advanceable_root_slot = bank->f.slot;
+  FD_LOG_NOTICE(("ADVANCING ROOT TO %lu", advanceable_root_slot));
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
   long t1 = fd_tickcount();
   fd_progcache_xid_t xid = { .ul[0] = advanceable_root_slot, .ul[1] = bank->idx };

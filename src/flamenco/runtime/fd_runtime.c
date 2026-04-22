@@ -966,6 +966,9 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
     fd_lthash_zero( lthash_prev );
   }
 
+  FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+  FD_LOG_WARNING(("PUBKEY %s", pubkey_b58));
+
   fd_lthash_value_t lthash_post[1];
   if( FD_LIKELY( entry->prior_data || entry->lamports ) ) {
     fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, entry->owner, entry->lamports, entry->executable, entry->data, entry->data_len, bank, capture_ctx );
@@ -984,6 +987,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_timestamp = fd_tickcount();
+
+  FD_LOG_WARNING(("TXN RESULT %d", txn_out->err.txn_err));
 
   if( FD_UNLIKELY( !txn_out->err.txn_err ) ) {
     fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
@@ -1099,7 +1104,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       fee_payer_account->commit = 1;
       fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
     }
-  } 
+  }
 
   fd_accdb_release( runtime->accdb, txn_out->accounts.cnt, txn_out->accounts.account );
 }

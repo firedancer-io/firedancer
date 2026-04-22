@@ -752,7 +752,7 @@ fd_executor_create_rollback_fee_payer_account( fd_txn_in_t const * txn_in,
   /* Deduct the transaction fees from the rollback account. Because of
      prior checks, this should never fail. */
   FD_TEST( fee_payer->lamports>=total_fee );
-  txn_out->accounts.fee_payer_rollback_lamports = fee_payer->lamports-total_fee;
+  txn_out->accounts.fee_payer_rollback_lamports = fee_payer->lamports;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L557-L634 */
@@ -775,6 +775,8 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
   ulong total_fee = fd_ulong_sat_add( execution_fee, priority_fee );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
+
+  FD_LOG_NOTICE(("BALANCE %lu FEE %lu POST %lu", fee_payer->lamports, total_fee, fee_payer->lamports-total_fee));
   int err = fd_validate_fee_payer( fee_payer, &bank->f.rent, total_fee );
   if( FD_UNLIKELY( err ) ) return err;
 
@@ -786,8 +788,8 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
      instruction execution).  This must happen after the fee has been
      deducted so that the balance check in fd_executor_txn_check sees
      the post-fee-deduction value as the starting point. */
-  // // TODO: IS THIS RIGHT? GOING TO MAKE THE LTHASH WRONG?
-  // fee_payer->prior_lamports = fee_payer->lamports;
+  // TODO: IS THIS RIGHT? GOING TO MAKE THE LTHASH WRONG?
+  //fee_payer->prior_lamports = fee_payer->lamports;
 
   txn_out->details.execution_fee = execution_fee;
   txn_out->details.priority_fee  = priority_fee;
@@ -1197,7 +1199,8 @@ fd_executor_txn_check( fd_bank_t *    bank,
     if( FD_UNLIKELY( !entry->_writable ) ) continue;
 
     fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, entry->lamports );
-    fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, entry->prior_lamports );
+    if( i!=0 ) fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, entry->prior_lamports );
+    else       fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, txn_out->accounts.fee_payer_rollback_lamports );
 
     /* Rent states are defined as followed:
         - lamports == 0                      -> Uninitialized
@@ -1249,6 +1252,7 @@ fd_execute_txn( fd_runtime_t *      runtime,
                 fd_bank_t *         bank,
                 fd_txn_in_t const * txn_in,
                 fd_txn_out_t *      txn_out ) {
+
 #if FD_HAS_FLATCC
   bool dump_insn = runtime->log.dump_proto_ctx &&
                    bank->f.slot>=runtime->log.dump_proto_ctx->dump_proto_start_slot &&
