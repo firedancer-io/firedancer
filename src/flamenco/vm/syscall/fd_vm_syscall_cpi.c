@@ -284,13 +284,14 @@ fd_vm_syscall_cpi_check_instruction( ulong           acct_cnt,
   return FD_VM_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.0.1/syscalls/src/cpi.rs#L1134-L1169 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1276-L1311 */
 static inline int
-fd_vm_cpi_update_caller_account_region( fd_vm_t *                    vm,
-                                        ulong                        instr_acc_idx,
-                                        fd_vm_cpi_caller_account_t * caller_account,
-                                        fd_borrowed_account_t *      borrowed_account ) {
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1283-L1290 */
+fd_vm_cpi_update_caller_account_region( fd_vm_t *                              vm,
+                                        fd_vm_cpi_translated_account_t const * translated_account,
+                                        fd_borrowed_account_t *                borrowed_account ) {
+  fd_vm_cpi_caller_account_t const * caller_account = &translated_account->caller_account;
+
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1283-L1290 */
   ulong address_space_reserved_for_account;
   if( vm->is_deprecated ) {
     address_space_reserved_for_account = caller_account->orig_data_len;
@@ -298,8 +299,12 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                    vm,
     address_space_reserved_for_account = fd_ulong_sat_add( caller_account->orig_data_len, MAX_PERMITTED_DATA_INCREASE );
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1292-L1308 */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1292-L1308 */
   if( address_space_reserved_for_account > 0UL ) {
+    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1295-L1297 */
+    fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[ translated_account->index_in_caller ];
+    fd_vm_input_region_t *    region          = &vm->input_mem_regions[ acc_region_meta->region_idx + 1UL ];
+
     /* Note that we don't special-case direct mapping here, as Agave does,
        because we do not create regions using CoW upon resize like Agave does.
 
@@ -309,11 +314,8 @@ fd_vm_cpi_update_caller_account_region( fd_vm_t *                    vm,
        Therefore we do not have equivalents of Agave's
        modify_memory_region_of_account and create_memory_region_of_account
        functions, but we instead inline this logic directly below. */
-    fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[instr_acc_idx];
-    fd_vm_input_region_t *    region          = &vm->input_mem_regions[acc_region_meta->region_idx + 1UL];
-
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L1301-L1307 */
-    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L23-L35 */
+    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/cpi.rs#L1301-L1307 */
+    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/serialization.rs#L23-L35 */
     region->region_sz = (uint)fd_borrowed_account_get_data_len( borrowed_account );
 
     int err;
