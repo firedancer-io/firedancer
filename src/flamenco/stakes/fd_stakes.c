@@ -860,7 +860,6 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     }
   };
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
-
   FD_TEST( fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history ) );
 
   /* Now increment the epoch and recompute the stakes for the vote

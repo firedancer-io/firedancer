@@ -776,7 +776,7 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
 
-  FD_LOG_NOTICE(("BALANCE %lu FEE %lu POST %lu", fee_payer->lamports, total_fee, fee_payer->lamports-total_fee));
+  //FD_LOG_NOTICE(("BALANCE %lu FEE %lu POST %lu", fee_payer->lamports, total_fee, fee_payer->lamports-total_fee));
   int err = fd_validate_fee_payer( fee_payer, &bank->f.rent, total_fee );
   if( FD_UNLIKELY( err ) ) return err;
 

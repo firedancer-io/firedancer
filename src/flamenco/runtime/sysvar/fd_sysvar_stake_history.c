@@ -47,10 +47,19 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
   fd_stake_history_t stake_history[1];
   FD_TEST( fd_sysvar_stake_history_read( accdb, bank->accdb_fork_id, stake_history ) );
 
-  stake_history->fd_stake_history_offset = (stake_history->fd_stake_history_offset+1UL) % stake_history->fd_stake_history_size;
-  if( FD_UNLIKELY( stake_history->fd_stake_history_len<stake_history->fd_stake_history_size ) ) stake_history->fd_stake_history_len++;
+  if( stake_history->fd_stake_history_offset == 0 ) {
+    stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
+  } else {
+    stake_history->fd_stake_history_offset--;
+  }
 
+  if( stake_history->fd_stake_history_len < stake_history->fd_stake_history_size ) {
+    stake_history->fd_stake_history_len++;
+  }
+
+  // This should be done with a bit mask
   ulong idx = stake_history->fd_stake_history_offset;
+
   stake_history->fd_stake_history[ idx ].epoch              = pair->epoch;
   stake_history->fd_stake_history[ idx ].entry.activating   = pair->entry.activating;
   stake_history->fd_stake_history[ idx ].entry.effective    = pair->entry.effective;

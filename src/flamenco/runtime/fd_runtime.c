@@ -966,8 +966,8 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
     fd_lthash_zero( lthash_prev );
   }
 
-  FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
-  FD_LOG_WARNING(("PUBKEY %s", pubkey_b58));
+  //FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+  //FD_LOG_WARNING(("PUBKEY %s", pubkey_b58));
 
   fd_lthash_value_t lthash_post[1];
   if( FD_LIKELY( entry->prior_data || entry->lamports ) ) {
@@ -988,7 +988,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
   txn_out->details.commit_start_timestamp = fd_tickcount();
 
-  FD_LOG_WARNING(("TXN RESULT %d", txn_out->err.txn_err));
+  //FD_LOG_WARNING(("TXN RESULT %d", txn_out->err.txn_err));
 
   if( FD_UNLIKELY( !txn_out->err.txn_err ) ) {
     fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
