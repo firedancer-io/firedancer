@@ -427,13 +427,15 @@ STEM_(run1)( ulong                        in_cnt,
       } else { /* event_idx==cons_cnt, housekeeping event */
 
         /* Update metrics counters to external viewers */
-        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)fd_tickcount() );
+        FD_COMPILER_MFENCE();
+        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)fd_log_wallclock() );
         FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
         FD_MCNT_INC  ( TILE, BACKPRESSURE_COUNT,        metric_backp_cnt );
         FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
 #ifdef STEM_CALLBACK_METRICS_WRITE
         STEM_CALLBACK_METRICS_WRITE( ctx );
 #endif
+        FD_COMPILER_MFENCE();
         metric_backp_cnt = 0UL;
 
         /* Receive flow control credits */
@@ -460,7 +462,9 @@ STEM_(run1)( ulong                        in_cnt,
 
           /* See notes above about use of quasi-atomic diagnostic accum */
           if( FD_LIKELY( slowest_cons!=ULONG_MAX ) ) {
+            FD_COMPILER_MFENCE();
             (*cons_slow[ slowest_cons ]) += metric_in_backp;
+            FD_COMPILER_MFENCE();
           }
         }
 
@@ -527,12 +531,8 @@ STEM_(run1)( ulong                        in_cnt,
 #endif
 
     int charge_busy_before = 0;
-    int is_backpressured   = min_cr_avail<burst;
 #ifdef STEM_CALLBACK_BEFORE_CREDIT
     STEM_CALLBACK_BEFORE_CREDIT( ctx, &stem, &charge_busy_before );
-#endif
-#ifdef STEM_CALLBACK_CHECK_CREDIT
-    STEM_CALLBACK_CHECK_CREDIT( ctx, &stem, &charge_busy_before, &is_backpressured );
 #endif
 
   /* Check if we are backpressured.  If so, count any transition into
@@ -543,6 +543,10 @@ STEM_(run1)( ulong                        in_cnt,
      different threads of execution.  We only count the transition
      from not backpressured to backpressured. */
 
+    int is_backpressured = min_cr_avail<burst;
+#ifdef STEM_CALLBACK_CHECK_CREDIT
+    STEM_CALLBACK_CHECK_CREDIT( ctx, &stem, &charge_busy_before, &is_backpressured );
+#endif
     if( FD_UNLIKELY( is_backpressured ) ) {
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;

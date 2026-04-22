@@ -208,7 +208,7 @@ metrics_write( fd_snapzp_t * ctx ) {
 #define STEM_CALLBACK_BEFORE_CREDIT   before_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
-#include "../../disco/stem/fd_stem1.c"
+#include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_snapzp = {
   .name                     = "snapzp",
