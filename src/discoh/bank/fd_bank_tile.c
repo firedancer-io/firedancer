@@ -225,6 +225,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                                                                       &remove_simple_vote_from_cost_model );
 
   ulong sanitized_idx = 0UL;
+  int skip_commit = 0;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
@@ -246,12 +247,39 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     ctx->metrics.transaction_result[ transaction_err   [ sanitized_idx-1UL ] ]++;
 
     ctx->metrics.processing_failed += (ulong)(processing_results[ sanitized_idx-1UL ]==0                         );
-    ctx->metrics.fee_only          += (ulong)(processing_results[ sanitized_idx-1UL ]==FD_BANK_TRANSACTION_LANDED);
 
     if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_LANDED) ) ) continue;
 
     uint actual_execution_cus = consumed_exec_cus[ sanitized_idx-1UL ];
     uint actual_acct_data_cus = consumed_acct_data_cus[ sanitized_idx-1UL ];
+
+
+    /* Check for FeesOnly transactions where actual CUs exceed
+       requested.  This can happen for durable nonce transactions
+       with oversized nonce accounts.  Skip the commit to prevent
+       underflow in the rebate computation.  The transaction keeps its
+       default full rebate set at the top of the loop. */
+    if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_EXECUTED) && ( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) ) {
+      FD_LOG_WARNING(( "FeesOnly txn actual CUs (%u+%u) exceed requested (%u), dropping",
+                       actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus ));
+      skip_commit = 1;
+      ctx->metrics.processing_failed++;
+      continue;
+    }
+
+    /* The VM will stop executing and fail an instruction immediately if
+       it exceeds its requested CUs.  A transaction which requests less
+       account data than it actually consumes will fail in the account
+       loading stage. */
+    if( FD_UNLIKELY( actual_execution_cus + actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
+      uchar * _sig = (uchar *)txn->payload + TXN(txn)->signature_off;
+      FD_BASE58_ENCODE_64_BYTES( _sig, _sig_b58 );
+      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
+      FD_LOG_ERR(( "transaction %s actual CUs (%u+%u) exceeded requested (%u) despite pack guaranteeing it would fit",
+                   _sig_b58, actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus ));
+    }
+
+    ctx->metrics.fee_only += (ulong)(processing_results[ sanitized_idx-1UL ]==FD_BANK_TRANSACTION_LANDED);
 
     int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
     if( FD_UNLIKELY( is_simple_vote && !remove_simple_vote_from_cost_model ) ) {
@@ -260,9 +288,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       txn->execle_cu.actual_consumed_cus = (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
       txn->execle_cu.rebated_cus         = non_execution_cus + requested_exec_plus_acct_data_cus - (uint)(FD_PACK_FIXED_SIMPLE_VOTE_COST);
     } else {
-      /* FeesOnly transactions are transactions that failed to load
-         before they even reach the VM stage. They have zero execution
-         cost but do charge for the account data they are able to load. */
       txn->execle_cu.rebated_cus         = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
       txn->execle_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
     }
@@ -276,27 +301,21 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( transaction_err[ sanitized_idx-1UL ] ) ctx->metrics.exec_failed++;
     else                                       ctx->metrics.success++;
-
-    /* The VM will stop executing and fail an instruction immediately if
-       it exceeds its requested CUs.  A transaction which requests less
-       account data than it actually consumes will fail in the account
-       loading stage. */
-    if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
-      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-      FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
-                   "(%u) requested_exec_plus_acct_data_cus (%u) exec_failed (%i)",
-                   actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus,
-                   transaction_err[ sanitized_idx-1UL ] ));
-    }
   }
 
-  /* Commit must succeed so no failure path.  This function takes
-     ownership of the load_and_execute_output and will free it
-     before it returns.  They should not be reused.  Once commit
-     is called, the transactions MUST be mixed into the PoH otherwise
-     we will fork and diverge, so the link from here til PoH mixin
-     must be completely reliable with nothing dropped. */
-  fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output );
+  if( FD_UNLIKELY( skip_commit ) ) {
+    FD_TEST( txn_cnt==1UL ); /* see comment about FeesOnly nonce transactions above */
+    fd_ext_bank_release_thunks( load_and_execute_output );
+  } else {
+    /* Commit must succeed so no failure path.  This function takes
+       ownership of the load_and_execute_output and will free it
+       before it returns.  They should not be reused.  Once commit
+       is called, the transactions MUST be mixed into the PoH
+       otherwise we will fork and diverge, so the link from here
+       til PoH mixin must be completely reliable with nothing
+       dropped. */
+    fd_ext_bank_commit_txns( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt, load_and_execute_output );
+  }
   load_and_execute_output = NULL;
 
   /* Indicate to pack tile we are done processing the transactions so
@@ -459,8 +478,11 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     if( FD_LIKELY( execution_success ) ) {
       if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
+        uchar * _sig = (uchar *)txn->payload + TXN(txn)->signature_off;
+        FD_BASE58_ENCODE_64_BYTES( _sig, _sig_b58 );
         FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-        FD_LOG_ERR(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
+        FD_LOG_ERR(( "transaction %s in bundle consumed %u CUs > requested %u CUs despite pack guaranteeing it would fit",
+                     _sig_b58, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
       }
 
       int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
