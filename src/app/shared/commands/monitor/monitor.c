@@ -111,7 +111,7 @@ tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,til
     fd_metrics_register( tile->metrics );
 
     FD_COMPILER_MFENCE();
-    snap->pid       = FD_MGAUGE_GET( TILE, PID );
+    snap->pid       = FD_MGAUGE_GET( TILE, TID );
     snap->nvcsw     = FD_MCNT_GET( TILE, CONTEXT_SWITCH_VOLUNTARY_COUNT );
     snap->nivcsw    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY_COUNT );
     snap->in_backp  = FD_MGAUGE_GET( TILE, IN_BACKPRESSURE );
@@ -325,7 +325,7 @@ run_monitor( config_t const * config,
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     if( !monitor_pane ) {
       PRINT( "snapshot for %s | Use TAB to switch panes" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-      PRINT( "    tile |     pid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish" TEXT_NEWLINE );
+      PRINT( "    tile |     tid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish" TEXT_NEWLINE );
       PRINT( "---------+---------+------------+-------+---------------------+---------------------+----------+---------------------+----------+----------+----------+----------" TEXT_NEWLINE );
       for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
         tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
@@ -367,7 +367,7 @@ run_monitor( config_t const * config,
         for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
           fd_topo_link_t link = topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
           ulong producer_tile_id = fd_topo_find_link_producer( topo, &link );
-          FD_TEST( producer_tile_id != ULONG_MAX );
+          if( producer_tile_id == ULONG_MAX ) continue;
 
           if( tile_snap_cur[ producer_tile_id ].status==2UL && tile_snap_cur[ tile_idx ].status==2UL ) {
             link_idx++;
