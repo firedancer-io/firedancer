@@ -25,6 +25,12 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_clock_t) ) );
 
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
@@ -60,6 +66,12 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_epoch_schedule_t) ) );
+
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -104,6 +116,12 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_rent_t) ) );
 
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
+
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
     return FD_VM_ERR_INVAL;
@@ -140,6 +158,12 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, 8UL ) );
+
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -185,6 +209,12 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L190-L197 */
   ulong sysvar_buf_cost = sz / FD_VM_CPI_BYTES_PER_UNIT;
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, fd_ulong_max( sysvar_buf_cost, FD_VM_MEM_OP_BASE_COST ) ) );
+
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
@@ -599,6 +629,12 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_epoch_rewards_t) ) );
+
+  /* See https://github.com/anza-xyz/agave/pull/12130 */
+  if( FD_UNLIKELY( vm->is_deprecated ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );
+    return FD_VM_SYSCALL_ERR_UNALIGNED_POINTER;
+  }
 
   if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
