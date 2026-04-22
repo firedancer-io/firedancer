@@ -167,28 +167,78 @@ send_account_frags( fd_snapmk_t *       ctx,
   fd_frag_meta_t * mcache = stem->mcaches[ out_idx ];
   ulong depth = stem->depths[ out_idx ];
   ulong seq = stem->seqs[ out_idx ];
-  ulong * cr_availp = &stem->cr_avail[ out_idx ];
-  ulong pub_cnt = 0UL;
-  ulong seqa[ FUNK_SCAN_PARA ];
-  fd_frag_meta_t * dsta[ FUNK_SCAN_PARA ];
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ){
-    _Bool skip = ctx->scan->val_gaddr[ i ]==ULONG_MAX;
-    seqa[ i ] = seq;
-    fd_frag_meta_t * meta_dst = mcache + fd_mcache_line_idx( seq, depth );
-    static fd_frag_meta_t dummy[1];
-    dsta[ i ] = !skip ? meta_dst : dummy;
-    seq = fd_seq_inc( seq, !skip );
-    pub_cnt += !skip;
+
+  /* SoA -> AoS as a 4×8 matrix transpose per group of 8 elements.
+
+     Source columns (SoA):
+       col0 = seq+i           (generated)
+       col1 = val_gaddr[i]    (ulong)
+       col2 = ctl<<48         (depends on val_gaddr==ULONG_MAX)
+       col3 = rec_idx[i] | (data_sz[i]<<32)
+
+     Dest rows (AoS):  fd_frag_meta_t.avx = [seq, sig, csctl, tsops]
+
+     Phase 1 — zip pairs of columns:
+       zip(col0,col1) -> [s0,g0, s1,g1, ..., s3,g3]
+       zip(col2,col3) -> [c0,t0, c1,t1, ..., c3,t3]
+     Phase 2 — merge 128-bit lane pairs into rows:
+       [s0,g0,c0,t0, s1,g1,c1,t1] (2 metas per 512b) */
+
+  ulong ctl_active   = (ulong)fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 ) << 48;
+  ulong ctl_sentinel = (ulong)fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 1 ) << 48;
+
+  __m512i ctl_act_v  = _mm512_set1_epi64( (long)ctl_active   );
+  __m512i ctl_sent_v = _mm512_set1_epi64( (long)ctl_sentinel );
+  __m512i ulong_max  = _mm512_set1_epi64( (long)ULONG_MAX    );
+  __m512i iota       = _mm512_set_epi64( 7, 6, 5, 4, 3, 2, 1, 0 );
+
+  __m512i zip_lo     = _mm512_set_epi64( 11,  3, 10,  2,  9,  1,  8,  0 );
+  __m512i zip_hi     = _mm512_set_epi64( 15,  7, 14,  6, 13,  5, 12,  4 );
+  __m512i merge_lo   = _mm512_set_epi64( 11, 10,  3,  2,  9,  8,  1,  0 );
+  __m512i merge_hi   = _mm512_set_epi64( 15, 14,  7,  6, 13, 12,  5,  4 );
+
+  ulong depth_mask   = depth - 1UL;
+  ulong seq_i        = seq & depth_mask;
+  ulong active_mask  = 0UL;
+
+  for( ulong i=0UL; i<FUNK_SCAN_PARA; i+=8UL ) {
+    __m512i col_seq = _mm512_add_epi64( _mm512_set1_epi64( (long)(seq+i) ), iota );
+    __m512i col_sig = _mm512_loadu_si512( &ctx->scan->val_gaddr[ i ] );
+
+    __mmask8 is_active = _mm512_cmpneq_epi64_mask( col_sig, ulong_max );
+    __m512i  col_csc   = _mm512_mask_blend_epi64( is_active, ctl_sent_v, ctl_act_v );
+    active_mask |= (ulong)is_active << i;
+
+    __m512i col_ts = _mm512_or_si512(
+      _mm512_cvtepu32_epi64( _mm256_loadu_si256( (void const *)&ctx->scan->rec_idx[ i ] ) ),
+      _mm512_slli_epi64( _mm512_cvtepu32_epi64( _mm256_loadu_si256( (void const *)&ctx->scan->data_sz[ i ] ) ), 32 )
+    );
+
+    __m512i sg_lo = _mm512_permutex2var_epi64( col_seq, zip_lo, col_sig );
+    __m512i ct_lo = _mm512_permutex2var_epi64( col_csc, zip_lo, col_ts  );
+    __m512i sg_hi = _mm512_permutex2var_epi64( col_seq, zip_hi, col_sig );
+    __m512i ct_hi = _mm512_permutex2var_epi64( col_csc, zip_hi, col_ts  );
+
+    __m512i row_01 = _mm512_permutex2var_epi64( sg_lo, merge_lo, ct_lo );
+    __m512i row_23 = _mm512_permutex2var_epi64( sg_lo, merge_hi, ct_lo );
+    __m512i row_45 = _mm512_permutex2var_epi64( sg_hi, merge_lo, ct_hi );
+    __m512i row_67 = _mm512_permutex2var_epi64( sg_hi, merge_hi, ct_hi );
+
+    fd_frag_meta_t * dst = mcache + seq_i + i;
+    FD_VOLATILE( dst[0].avx ) = _mm512_castsi512_si256( row_01 );
+    FD_VOLATILE( dst[1].avx ) = _mm512_extracti64x4_epi64( row_01, 1 );
+    FD_VOLATILE( dst[2].avx ) = _mm512_castsi512_si256( row_23 );
+    FD_VOLATILE( dst[3].avx ) = _mm512_extracti64x4_epi64( row_23, 1 );
+    FD_VOLATILE( dst[4].avx ) = _mm512_castsi512_si256( row_45 );
+    FD_VOLATILE( dst[5].avx ) = _mm512_extracti64x4_epi64( row_45, 1 );
+    FD_VOLATILE( dst[6].avx ) = _mm512_castsi512_si256( row_67 );
+    FD_VOLATILE( dst[7].avx ) = _mm512_extracti64x4_epi64( row_67, 1 );
   }
-  ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 );
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ){
-    ulong rec_idx   = ctx->scan->rec_idx  [ i ];
-    ulong val_gaddr = ctx->scan->val_gaddr[ i ];
-    uint  data_sz   = ctx->scan->data_sz  [ i ];
-    __m256i meta_avx = fd_frag_meta_avx( seqa[ i ], val_gaddr, 0UL, 0UL, ctl, rec_idx, data_sz );
-    FD_VOLATILE( dsta[ i ]->avx ) = meta_avx;
-  }
-  *cr_availp -= pub_cnt;
+
+  ulong pub_cnt = (ulong)fd_ulong_popcnt( active_mask );
+  seq = fd_seq_inc( seq, FUNK_SCAN_PARA );
+
+  stem->cr_avail[ out_idx ] -= pub_cnt;
   stem->seqs[ out_idx ] = seq;
   ctx->metrics.accounts_processed += pub_cnt;
 }
