@@ -155,8 +155,8 @@ struct fd_bpf_state {
 };
 typedef struct fd_bpf_state fd_bpf_state_t;
 
-/* fd_bpf_upgradeable_loader_program_instruction_decode parses a
-   bincode-encoded UpgradeableLoaderInstruction from [data, data+data_sz).
+/* fd_bpf_instruction_decode parses a bincode-encoded
+   UpgradeableLoaderInstruction from [data, data+data_sz).
    Variable-length fields (`write.bytes`) point directly into `data`, so
    callers must keep that buffer alive.  Trailing bytes beyond the parsed
    region are accepted (matches Agave's default `allow_trailing_bytes()`).
@@ -304,7 +304,7 @@ fd_bpf_instruction_encode( fd_bpf_instruction_t const * in,
   return 0;
 }
 
-/* fd_bpf_upgradeable_loader_state_decode parses a bincode-encoded
+/* fd_bpf_state_decode parses a bincode-encoded
    UpgradeableLoaderState from [data, data+data_sz).  The output struct
    has no variable-length fields, so the decoder performs a fixed-size
    copy and does not retain any pointer into `data`.  Trailing bytes
@@ -379,10 +379,10 @@ fd_bpf_state_decode( fd_bpf_state_t * out,
 # undef CURSOR
 }
 
-/* fd_bpf_upgradeable_loader_state_encode serializes an
-   UpgradeableLoaderState into [buf, buf+bufsz).  On success stores the
-   number of bytes written to *out_sz and returns 0.  Returns -1 on
-   short buffer or unknown discriminant. */
+/* fd_bpf_state_encode serializes an UpgradeableLoaderState into
+   [buf, buf+bufsz).  On success stores the number of bytes written to
+   *out_sz and returns 0.  Returns -1 on short buffer or unknown
+   discriminant. */
 
 static inline int
 fd_bpf_state_encode( fd_bpf_state_t const * in,
@@ -444,8 +444,8 @@ fd_bpf_state_encode( fd_bpf_state_t const * in,
   return 0;
 }
 
-/* fd_bpf_upgradeable_loader_state_size returns the bincode-exact wire
-   size for encoding.  Returns 0 for unknown discriminants. */
+/* fd_bpf_state_size returns the bincode-exact wire size for
+   encoding.  Returns 0 for unknown discriminants. */
 
 static inline ulong
 fd_bpf_state_size( fd_bpf_state_t const * in ) {
