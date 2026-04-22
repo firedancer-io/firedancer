@@ -122,9 +122,7 @@ returnable_frag( fd_snapzp_t *       ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)in_idx; (void)seq; (void)chunk; (void)sz; (void)stem;
-  if( fd_frag_meta_ctl_err( ctl ) ) return 0;
-
+  (void)in_idx; (void)seq; (void)chunk; (void)sz; (void)ctl; (void)stem;
   ctx->idle_cnt = 0UL;
   ulong rec_idx   = tsorig;
   ulong data_sz   = tspub;
