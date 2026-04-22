@@ -604,7 +604,7 @@ backtest_cmd_fn( args_t *   args,
   args_t watch_args;
   int pipefd[2];
   if( !args->backtest.no_watch ) {
-    if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( pipe2( pipefd, 0 ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     watch_args.watch.drain_output_fd = pipefd[0];
     if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

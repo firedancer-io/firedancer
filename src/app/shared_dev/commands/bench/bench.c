@@ -209,7 +209,7 @@ bench_cmd_fn( args_t *   args,
     config->development.no_clone = 1;
 
     int pipefd[2];
-    if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( pipe2( pipefd, 0 ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     args_t watch_args;
     watch_args.watch.drain_output_fd = pipefd[0];
