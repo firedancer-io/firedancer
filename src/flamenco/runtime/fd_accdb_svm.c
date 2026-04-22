@@ -29,7 +29,7 @@ fd_accdb_svm_open_rw( fd_bank_t *             bank,
                       fd_accdb_svm_update_t * update,
                       fd_pubkey_t const *     pubkey,
                       int                     create ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc, create, 0 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
   if( FD_UNLIKELY( !entry.lamports && !create ) ) return entry;
 
   update->lamports_before = entry.lamports;
@@ -78,7 +78,7 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
                      ulong               lamports_add ) {
   if( FD_UNLIKELY( !lamports_add ) ) return;
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc, 1, 0 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
 
   fd_lthash_value_t hash[1];
   fd_hashes_account_lthash_simple( entry.pubkey, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, hash );
@@ -101,7 +101,7 @@ fd_accdb_svm_write( fd_bank_t *         bank,
                     ulong               sz,
                     ulong               lamports_min,
                     int                 exec_bit ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc, 1, 0 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
 
   fd_lthash_value_t hash[1];
   fd_hashes_account_lthash_simple( entry.pubkey, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, hash );
@@ -132,7 +132,7 @@ fd_accdb_svm_remove( fd_bank_t *         bank,
                      fd_accdb_t *        accdb,
                      fd_capture_ctx_t *  capture_ctx,
                      fd_pubkey_t const * pubkey ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc, 0, 0 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
   if( FD_UNLIKELY( !entry.lamports ) ) return 0UL;
 
   ulong burned = entry.lamports;

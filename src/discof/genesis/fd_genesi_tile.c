@@ -117,7 +117,7 @@ initialize_accdb( fd_accdb_t *         accdb,
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, genesis_blob, account, i );
 
-    fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, account->pubkey.key, 1, 0 );
+    fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, account->pubkey.key );
     fd_memcpy( entry.owner, account->owner.uc, 32UL );
     entry.lamports = account->lamports;
     entry.executable = !!account->executable;

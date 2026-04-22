@@ -2313,13 +2313,10 @@ fd_accdb_unread_one( fd_accdb_t *       accdb,
 fd_accdb_entry_t
 fd_accdb_write_one( fd_accdb_t *       accdb,
                     fd_accdb_fork_id_t fork_id,
-                    uchar const *      pubkey,
-                    int                create,
-                    int                truncate ) {
+                    uchar const *      pubkey ) {
   fd_accdb_entry_t entry;
   fd_accdb_acquire( accdb, fork_id, 1UL, &pubkey, (int[]){1}, &entry );
   return entry;
-  (void)create; (void)truncate; // TODO: handle these flags
 }
 
 void

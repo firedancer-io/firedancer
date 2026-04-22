@@ -78,7 +78,7 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
     return 0;
   }
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key, 1, 1 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key );
   if( state->data && size ) {
     fd_memcpy( entry.data, state->data->bytes, size );
   }

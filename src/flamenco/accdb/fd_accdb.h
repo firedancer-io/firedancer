@@ -283,9 +283,7 @@ fd_accdb_read_one( fd_accdb_t *       accdb,
 fd_accdb_entry_t
 fd_accdb_write_one( fd_accdb_t *       accdb,
                     fd_accdb_fork_id_t fork_id,
-                    uchar const *      pubkey,
-                    int                create,
-                    int                truncate );
+                    uchar const *      pubkey );
 
 /* TODO: Set commit, and add a version that doesn't? */
 void

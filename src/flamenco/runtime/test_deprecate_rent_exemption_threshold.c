@@ -181,7 +181,7 @@ add_vote_account( test_env_t *        env,
 
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, vote_account->key, 1, 1 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, vote_account->key );
   fd_memcpy( entry.data, vote_state_data, sizeof(vote_state_data) );
   entry.data_len   = sizeof(vote_state_data);
   entry.lamports   = 1000000000UL;
@@ -195,7 +195,7 @@ static void
 add_delegated_stake_account( test_env_t *        env,
                              fd_pubkey_t const * stake_account,
                              fd_pubkey_t const * vote_account ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, stake_account->key, 1, 1 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, stake_account->key );
   entry.lamports   = 2000000000UL;
   entry.executable = 0;
   fd_memcpy( entry.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );

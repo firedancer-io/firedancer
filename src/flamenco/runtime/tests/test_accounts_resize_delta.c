@@ -29,7 +29,7 @@ create_account_raw( fd_accdb_t *        accdb,
                     uint                dlen,
                     uchar *             data,
                     fd_pubkey_t const * owner ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key, 1, 1 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key );
   if( data && dlen ) fd_memcpy( entry.data, data, dlen );
   entry.data_len   = dlen;
   entry.lamports   = lamports;
@@ -84,10 +84,13 @@ create_loader_v3_buffer( test_env_t *        env,
   FD_TEST( out_sz == BUFFER_METADATA_SIZE );
 
   fd_accdb_entry_t rw = fd_accdb_write_one( env->mini->runtime->accdb, env->fork_id, pubkey->key, 1, 1 );
-  fd_memcpy( rw.data, data, dlen );
+  fd_memset( rw.data, 0, dlen );
+  FD_STORE( ulong, rw.data, 0UL );
+  fd_memcpy( rw.data + 8, authority->uc, 32 );
+  FD_STORE( ulong, rw.data + 40, 0UL );
   rw.data_len   = dlen;
   rw.lamports   = TEST_LAMPORTS;
-  rw.executable = 0;
+  rw.executable = 1;
   fd_memcpy( rw.owner, fd_solana_bpf_loader_program_id.uc, 32 );
   rw.commit = 1;
   fd_accdb_unwrite_one( env->mini->runtime->accdb, &rw );

@@ -247,7 +247,7 @@ test_leader_not_system_owned( fd_svm_mini_t * mini ) {
   /* Create the leader account owned by the vote program (not system) */
   {
     fd_accdb_t * accdb = mini->runtime->accdb;
-    fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, leader_key.uc, 1, 0 );
+    fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, leader_key.uc );
     entry.lamports = 1000000000UL;  /* plenty for rent exemption */
     fd_memcpy( entry.owner, fd_solana_vote_program_id.uc, 32UL );
     entry.commit = 1;

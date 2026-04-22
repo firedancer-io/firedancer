@@ -118,7 +118,7 @@ create_nonce_account_initialized( fd_svm_mini_t *        mini,
   FD_TEST( fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written )==0 );
 
   fd_accdb_t * accdb = mini->runtime->accdb;
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key, 1, 0 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key );
   fd_memcpy( entry.data, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
   entry.data_len = FD_SYSTEM_PROGRAM_NONCE_DLEN;
   entry.lamports = 10000000UL;
@@ -141,7 +141,7 @@ create_nonce_account_uninitialized( fd_svm_mini_t *        mini,
   FD_TEST( fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written )==0 );
 
   fd_accdb_t * accdb = mini->runtime->accdb;
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key, 1, 0 );
+  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key );
   fd_memcpy( entry.data, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
   entry.data_len = FD_SYSTEM_PROGRAM_NONCE_DLEN;
   entry.lamports = 10000000UL;
