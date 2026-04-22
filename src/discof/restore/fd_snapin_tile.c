@@ -747,13 +747,16 @@ process_account_batch( fd_snapin_tile_t *               ctx,
                        buffered_account_batch_t const * batch ) {
   uchar const * const * entries;
   ulong                 cnt;
+  ulong                 batch_slot;
 
   if( FD_LIKELY( batch ) ) {
-    entries = batch->batch;
-    cnt     = batch->batch_cnt;
+    entries    = batch->batch;
+    cnt        = batch->batch_cnt;
+    batch_slot = batch->slot;
   } else {
-    entries = result->account_batch.batch;
-    cnt     = result->account_batch.batch_cnt;
+    entries    = result->account_batch.batch;
+    cnt        = result->account_batch.batch_cnt;
+    batch_slot = result->account_batch.slot;
   }
 
   uchar const * pubkeys[ FD_SSPARSE_ACC_BATCH_MAX ];
@@ -765,7 +768,7 @@ process_account_batch( fd_snapin_tile_t *               ctx,
   for( ulong i=0UL; i<cnt; i++ ) {
     uchar const * e = entries[ i ];
     pubkeys[ i ]     = e + 16UL;
-    slots[ i ]       = fd_ulong_load_8_fast( e+32UL );
+    slots[ i ]       = batch_slot;
     lamports[ i ]    = fd_ulong_load_8_fast( e+48UL );
     data_lens[ i ]   = fd_ulong_load_8_fast( e+8UL );
     executables[ i ] = e[ 96UL ];

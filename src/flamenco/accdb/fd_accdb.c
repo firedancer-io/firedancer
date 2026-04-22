@@ -1544,12 +1544,13 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     out_entries[ i ].executable = accs[ i ] ? FD_ACCDB_SIZE_EXEC( accs[ i ]->executable_size ) : 0;
     out_entries[ i ].lamports = accs[ i ] ? accs[ i ]->lamports : 0UL;
     if( FD_UNLIKELY( !accs[ i ] ) ) memset( out_entries[ i ].owner, 0, 32UL );
-    else                            fd_memcpy( out_entries[ i ].owner, original_cache_line[ i ]->owner, 32UL );
+    /* For accs[i] != NULL, the owner is copied from the cache line
+       below in step 14, after step 11 has populated it from disk for
+       cold loads. */
 
     out_entries[ i ].prior_lamports   = out_entries[ i ].lamports;
     out_entries[ i ].prior_data_len   = out_entries[ i ].data_len;
     out_entries[ i ].prior_executable = out_entries[ i ].executable;
-    fd_memcpy( out_entries[ i ].prior_owner, out_entries[ i ].owner, 32UL );
     out_entries[ i ].prior_data       = (uchar *)(original_cache_line[ i ] ? (original_cache_line[ i ]+1UL) : NULL);
 
     out_entries[ i ].commit = 0;
@@ -1752,6 +1753,18 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   }
 
   // STEP 14.
+  //   Now that all reads from disk into original_cache_line have
+  //   completed (and any concurrent loaders have published their
+  //   acc_idx in step 13), copy the owner into the output entries.
+  //   This must happen here rather than in step 7 because the cache
+  //   line owner is only valid post-read for cold loads.
+  for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
+    if( FD_UNLIKELY( !accs[ i ] ) ) continue;
+    fd_memcpy( out_entries[ i ].owner,       original_cache_line[ i ]->owner, 32UL );
+    fd_memcpy( out_entries[ i ].prior_owner, original_cache_line[ i ]->owner, 32UL );
+  }
+
+  // STEP 15.
   //   Finally, copy any accounts we are writing into the staging
   //   buffers, so they occupy a 10MiB cache line for the execution
   //   system.
@@ -2409,7 +2422,6 @@ fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
     if( FD_UNLIKELY( !acc ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading, increase [accounts.max_accounts], current value is %lu", acc_pool_ele_max( accdb->acc_pool_join ) ));
 
     fd_memcpy( acc->key.pubkey, pubkey, 32UL );
-    acc->cache_idx = (uint)slot;
     acc->key.generation = accdb->shmem->generation;
     acc->map.next = accdb->acc_map[ hash ];
     accdb->acc_map[ hash ] = (uint)acc_pool_idx( accdb->acc_pool_join, acc );
@@ -2423,6 +2435,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
     partition_pool_ele( accdb->partition_pool, old_pidx )->bytes_freed += old_sz;
   }
 
+  acc->cache_idx = (uint)slot;
   acc->lamports = lamports;
   acc->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_len, executable );
   acc->offset_fork = snapshot_allocate_next_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_len );
@@ -2528,13 +2541,13 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       acc = acc_pool_acquire( accdb->acc_pool_join );
       if( FD_UNLIKELY( !acc ) ) FD_LOG_ERR(( "accounts database ran out of space during snapshot loading" ));
       fd_memcpy( acc->key.pubkey, pubkeys[ i ], 32UL );
-      acc->cache_idx      = (uint)slots[ i ];
       acc->key.generation = gen;
       acc->map.next = accdb->acc_map[ hashes[ i ] ];
       accdb->acc_map[ hashes[ i ] ] = (uint)acc_pool_idx( accdb->acc_pool_join, acc );
       loaded++;
     }
 
+    acc->cache_idx       = (uint)slots[ i ];
     acc->lamports        = lamports[ i ];
     acc->executable_size = FD_ACCDB_SIZE_PACK( (uint)data_lens[ i ], executables[ i ] );
     acc->offset_fork     = snapshot_allocate_next_write( accdb, sizeof(fd_accdb_disk_meta_t)+data_lens[ i ] );

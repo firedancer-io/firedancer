@@ -270,6 +270,11 @@ struct fd_txn_out {
     ulong nonce_rollback_data_len;
     uchar nonce_rollback_data[ FD_SYSTEM_PROGRAM_NONCE_DLEN ];
     ulong fee_payer_rollback_lamports;
+
+    /* Backing buffer for the sysvar instructions account.  This account
+       is constructed on-the-fly by the SVM and never persisted to the
+       accounts database, so the accdb returns data=NULL for it. */
+    uchar sysvar_instructions_data[ FD_SYSVAR_INSTRUCTIONS_FOOTPRINT ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
   } accounts;
 };
 typedef struct fd_txn_out fd_txn_out_t;
