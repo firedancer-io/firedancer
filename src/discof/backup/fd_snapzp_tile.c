@@ -4,6 +4,7 @@
 #include "../../funk/fd_funk.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
+#include "fd_snapmk.h"
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 
@@ -19,6 +20,8 @@ struct fd_snapzp {
   ZSTD_outBuffer comp_buf;
 
   ulong idle_cnt;
+
+  fd_snapmk_batch_t * batch;
 
   struct {
     ulong accounts_compressed;
@@ -68,6 +71,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->raw = raw_buf;
   ctx->raw_buf  = (ZSTD_inBuffer){ .src = raw_buf,  .size = RAW_BUF_SZ };
   ctx->comp_buf = (ZSTD_outBuffer){ .dst = comp_buf, .size = COMP_BUF_SZ };
+
+  FD_TEST( tile->in_cnt==1UL );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[0] ].name, "snapmk_zp" ) );
+  ctx->batch = topo->links[ tile->in_link_id[0] ].dcache;
 }
 
 static ulong
@@ -111,23 +118,11 @@ before_credit( fd_snapzp_t *       ctx,
   }
 }
 
-static int
-returnable_frag( fd_snapzp_t *       ctx,
-                 ulong               in_idx,
-                 ulong               seq,
-                 ulong               sig,
-                 ulong               chunk,
-                 ulong               sz,
-                 ulong               ctl,
-                 ulong               tsorig,
-                 ulong               tspub,
-                 fd_stem_context_t * stem ) {
-  (void)in_idx; (void)seq; (void)chunk; (void)sz; (void)ctl; (void)stem;
-  ctx->idle_cnt = 0UL;
-  ulong rec_idx   = tsorig;
-  ulong data_sz   = tspub;
-  ulong val_gaddr = sig;
-
+static void
+append_account( fd_snapzp_t * ctx,
+                ulong         rec_idx,
+                ulong         val_gaddr,
+                uint          data_sz ) {
   fd_funk_rec_t const *     rec       = &ctx->funk->rec_pool->ele[ rec_idx ];
   fd_account_meta_t const * val       = fd_wksp_laddr_fast( ctx->funk->wksp, val_gaddr );
   ulong                     raw_chunk = sizeof(snap_acc_hdr_t) + data_sz;
@@ -173,7 +168,30 @@ returnable_frag( fd_snapzp_t *       ctx,
       FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_continue) failed: %s", ZSTD_getErrorName( ret ) ));
     }
   }
+}
 
+static int
+returnable_frag( fd_snapzp_t *       ctx,
+                 ulong               in_idx,
+                 ulong               seq,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl,
+                 ulong               tsorig,
+                 ulong               tspub,
+                 fd_stem_context_t * stem ) {
+  (void)in_idx; (void)sig; (void)chunk; (void)sz; (void)ctl; (void)tsorig; (void)tspub; (void)stem;
+  ctx->idle_cnt = 0UL;
+  fd_snapmk_batch_t const * batch = ctx->batch + (seq & 31UL); /* FIXME depth mask hardcoded */
+  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
+    ulong rec_idx = batch->rec_idx[ i ];
+    ulong val_gaddr = batch->val_gaddr[ i ];
+    uint  data_sz   = batch->data_sz[ i ];
+    if( val_gaddr != ULONG_MAX ) {
+      append_account( ctx, rec_idx, val_gaddr, data_sz );
+    }
+  }
   return 0;
 }
 

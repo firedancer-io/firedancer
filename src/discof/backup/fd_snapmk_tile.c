@@ -4,7 +4,6 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/pod/fd_pod.h"
-#include "fd_funk_scan.h"
 //#include "../../util/archive/fd_tar.h"
 
 /* Funk rooted record iterator (thread-safe) */
@@ -26,11 +25,8 @@ struct fd_snapmk {
   ulong chain;
   ulong chain1;
 
-  struct {
-    ulong accounts_processed;
-  } metrics;
-
-  ushort in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
+  fd_snapmk_batch_t * batch  [ FD_TOPO_MAX_TILE_OUT_LINKS ];
+  ushort              in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
 };
 typedef struct fd_snapmk fd_snapmk_t;
 
@@ -66,6 +62,7 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "Unexpected output link \"%s\"", link->name ));
     }
     FD_TEST( link->mcache );
+    ctx->batch[ i ] = link->dcache;
   }
   ctx->out_meta_idx = tile->out_cnt - 1UL;
   if( 0!=strcmp( topo->links[ tile->out_link_id[ ctx->out_meta_idx ] ].name, "snapmk_replay" ) ) {
@@ -141,6 +138,7 @@ check_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_IDLE:
     if( ctx->in_idle_cnt++ > 128 ) fd_log_sleep( (long)1e6 );
     *charge_busy = 0;
+    *is_backpressured = 0;
     break;
   case SNAPMK_STATE_ACCOUNTS:
     *is_backpressured = 0;
@@ -155,44 +153,6 @@ check_credit( fd_snapmk_t *       ctx,
   }
 }
 
-__attribute__((noinline)) static void
-send_account_frags( fd_snapmk_t *       ctx,
-                    fd_stem_context_t * stem ) {
-  int out_idx = fd_ulong_find_lsb( ctx->out_ready );
-  ulong burst_max = stem->cr_avail[ out_idx ];
-  if( FD_UNLIKELY( burst_max<FUNK_SCAN_PARA ) ) {
-    ctx->out_ready = fd_ulong_clear_bit( ctx->out_ready, out_idx );
-    return;
-  };
-  fd_frag_meta_t * mcache = stem->mcaches[ out_idx ];
-  ulong depth = stem->depths[ out_idx ];
-  ulong seq = stem->seqs[ out_idx ];
-  ulong * cr_availp = &stem->cr_avail[ out_idx ];
-  ulong pub_cnt = 0UL;
-  ulong seqa[ FUNK_SCAN_PARA ];
-  fd_frag_meta_t * dsta[ FUNK_SCAN_PARA ];
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ){
-    _Bool skip = ctx->scan->val_gaddr[ i ]==ULONG_MAX;
-    seqa[ i ] = seq;
-    fd_frag_meta_t * meta_dst = mcache + fd_mcache_line_idx( seq, depth );
-    static fd_frag_meta_t dummy[1];
-    dsta[ i ] = !skip ? meta_dst : dummy;
-    seq = fd_seq_inc( seq, !skip );
-    pub_cnt += !skip;
-  }
-  ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 );
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ){
-    ulong rec_idx   = ctx->scan->rec_idx  [ i ];
-    ulong val_gaddr = ctx->scan->val_gaddr[ i ];
-    uint  data_sz   = ctx->scan->data_sz  [ i ];
-    __m256i meta_avx = fd_frag_meta_avx( seqa[ i ], val_gaddr, 0UL, 0UL, ctl, rec_idx, data_sz );
-    FD_VOLATILE( dsta[ i ]->avx ) = meta_avx;
-  }
-  *cr_availp -= pub_cnt;
-  stem->seqs[ out_idx ] = seq;
-  ctx->metrics.accounts_processed += pub_cnt;
-}
-
 /* after_credit is called if we can publish at least one frag */
 
 static void
@@ -202,9 +162,14 @@ after_credit( fd_snapmk_t *       ctx,
               int *               charge_busy ) {
   (void)poll_in;
   switch( ctx->state ) {
-  case SNAPMK_STATE_ACCOUNTS:
+  case SNAPMK_STATE_ACCOUNTS: {
+    int out_idx = fd_ulong_find_lsb( ctx->out_ready );
+    ulong seq = stem->seqs[ out_idx ];
+    ctx->scan->batch = ctx->batch[ out_idx ] + (seq & (stem->depths[ out_idx ]-1));
     fd_funk_scan_refill( ctx->scan, ctx->chain );
-    send_account_frags( ctx, stem );
+    fd_stem_publish( stem, (ulong)out_idx, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+    _Bool blocked = !stem->cr_avail[ out_idx ];
+    ctx->out_ready &= blocked ? ~fd_ulong_mask_bit( out_idx ) : ULONG_MAX;
     ctx->chain += FUNK_SCAN_PARA;
     if( FD_UNLIKELY( ctx->chain >= ctx->chain1 ) ) {
       ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
@@ -213,6 +178,7 @@ after_credit( fd_snapmk_t *       ctx,
     }
     *charge_busy = 1;
     break;
+  }
   case SNAPMK_STATE_ACCOUNTS_FLUSH: {
     FD_COMPILER_MFENCE();
     ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
@@ -267,8 +233,7 @@ returnable_frag( fd_snapmk_t *       ctx,
 
 static void
 metrics_write( fd_snapmk_t * ctx ) {
-  FD_MGAUGE_SET( SNAPMK, ACTIVE,             ctx->state!=SNAPMK_STATE_IDLE );
-  FD_MCNT_SET  ( SNAPMK, ACCOUNTS_PROCESSED, ctx->metrics.accounts_processed );
+  FD_MGAUGE_SET( SNAPMK, ACTIVE, ctx->state!=SNAPMK_STATE_IDLE );
 }
 
 #define STEM_BURST 1UL

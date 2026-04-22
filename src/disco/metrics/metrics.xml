@@ -1194,7 +1194,6 @@ metric introduced.
 
 <tile name="snapmk">
     <gauge name="Active" summary="State of the tile. 0=IDLE 1=ACTIVE" />
-    <counter name="AccountsProcessed" summary="Number of accounts processed" />
 </tile>
 
 <tile name="snapzp">

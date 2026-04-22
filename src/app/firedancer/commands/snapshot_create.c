@@ -92,7 +92,8 @@ snapshot_create_cmd_fn( args_t *   args,
     zp_in_metrics[ i ] = fd_metrics_tile( snapzp_metrics_obj );
   }
 
-  ulong accounts_before = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
+# define SUM_ZP_METRIC( id ) __extension__ ({ ulong x = 0UL; for( ulong i=0UL; i<snapzp_cnt; i++ ) x += zp_in_metrics[ i ][ MIDX( COUNTER, SNAPZP, id ) ]; x; })
+  ulong accounts_before = SUM_ZP_METRIC( ACCOUNTS_COMPRESSED );
   long dt = -fd_log_wallclock();
 
   /* Send snapshot create command */
@@ -116,14 +117,14 @@ snapshot_create_cmd_fn( args_t *   args,
 
   /* Wait for snapshot load to complete */
   fd_log_sleep( (long)5e6 );
-  ulong accounts_processed_prev = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
-  ulong tot_sz_prev = 0UL; for( ulong i=0UL; i<snapzp_cnt; i++ ) tot_sz_prev += zp_in_metrics[ i ][ MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) ];
+  ulong accounts_processed_prev = SUM_ZP_METRIC( ACCOUNTS_COMPRESSED );
+  ulong tot_sz_prev             = SUM_ZP_METRIC( BYTES_COMPRESSED    );
   ulong tot_sz_before = tot_sz_prev;
   long period = (long)2e7;
   while( mk_tile_metrics[ MIDX( GAUGE, SNAPMK, ACTIVE ) ] ) {
     fd_log_sleep( period );
-    ulong accounts_processed = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
-    ulong tot_sz             = 0UL; for( ulong i=0UL; i<snapzp_cnt; i++ ) tot_sz += zp_in_metrics[ i ][ MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) ];
+    ulong accounts_processed = SUM_ZP_METRIC( ACCOUNTS_COMPRESSED );
+    ulong tot_sz             = SUM_ZP_METRIC( BYTES_COMPRESSED  );
     ulong accounts_delta     = accounts_processed - accounts_processed_prev;
     ulong sz_delta           = tot_sz - tot_sz_prev;
     char buf[ 64 ];
@@ -135,7 +136,7 @@ snapshot_create_cmd_fn( args_t *   args,
   }
 
   dt += fd_log_wallclock();
-  ulong accounts_after = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, ACCOUNTS_PROCESSED ) ];
+  ulong accounts_after = SUM_ZP_METRIC( ACCOUNTS_COMPRESSED );
   ulong tot_sz_after = 0UL; for( ulong i=0UL; i<snapzp_cnt; i++ ) tot_sz_after += zp_in_metrics[ i ][ MIDX( COUNTER, SNAPZP, BYTES_COMPRESSED ) ];
   ulong account_cnt = accounts_after - accounts_before;
   char buf[ 64 ];
@@ -144,6 +145,7 @@ snapshot_create_cmd_fn( args_t *   args,
                   (double)dt/1e9,
                   (double)account_cnt / ((double)dt/1e9),
                   fmt_bytes( buf, sizeof(buf), (double)(tot_sz_after - tot_sz_before) / ((double)dt/1e9) ) ) );
+# undef SUM_ZP_METRIC
 }
 
 action_t fd_action_snapshot_create = {

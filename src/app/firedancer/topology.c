@@ -1,6 +1,7 @@
 #include "topology.h"
 
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../discof/backup/fd_snapmk.h"
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
@@ -616,7 +617,7 @@ fd_topo_initialize( config_t * config ) {
       }
     }
   }
-  FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     2048UL,                                   0UL,                           1UL );
+  FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     32UL,                                     sizeof(fd_snapmk_batch_t),     1UL );
   if(snapmk_enabled)  {fd_topob_link( topo, "snapmk_replay", "snapmk_replay", 128UL,                                    0UL,                           1UL );}
 
   /**/                 fd_topob_link( topo, "genesi_out",    "genesi_out",    1UL,                                      FD_GENESIS_TILE_MTU,           1UL );
