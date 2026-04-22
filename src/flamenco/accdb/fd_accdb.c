@@ -1626,8 +1626,12 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
     if( FD_LIKELY( !writable[ i ] ) ) out_entries[ i ].data = (uchar *)(original_cache_line[ i ]+1UL);
     else                              out_entries[ i ].data = (uchar *)(destination_cache_lines[ i ][ 7UL ]+1UL);
-    out_entries[ i ].data_len = accs[ i ] ? FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) : 0UL;
-    out_entries[ i ].executable = accs[ i ] ? FD_ACCDB_SIZE_EXEC( accs[ i ]->executable_size ) : 0;
+    /* Tombstone reset: agave's account loader returns AccountSharedData::default()
+       (System owner, empty data, exec=0) for any account with lamports==0.
+       https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
+    int tombstone = accs[ i ] && accs[ i ]->lamports==0UL;
+    out_entries[ i ].data_len = ( accs[ i ] && !tombstone ) ? FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) : 0UL;
+    out_entries[ i ].executable = ( accs[ i ] && !tombstone ) ? FD_ACCDB_SIZE_EXEC( accs[ i ]->executable_size ) : 0;
     out_entries[ i ].lamports = accs[ i ] ? accs[ i ]->lamports : 0UL;
     if( FD_UNLIKELY( !accs[ i ] ) ) memset( out_entries[ i ].owner, 0, 32UL );
     /* For accs[i] != NULL, the owner is copied from the cache line
@@ -1846,8 +1850,14 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   line owner is only valid post-read for cold loads.
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accs[ i ] ) ) continue;
-    fd_memcpy( out_entries[ i ].owner,       original_cache_line[ i ]->owner, 32UL );
-    fd_memcpy( out_entries[ i ].prior_owner, original_cache_line[ i ]->owner, 32UL );
+    /* Tombstone reset: see STEP 7 comment. */
+    if( FD_UNLIKELY( accs[ i ]->lamports==0UL ) ) {
+      memset( out_entries[ i ].owner,       0, 32UL );
+      memset( out_entries[ i ].prior_owner, 0, 32UL );
+    } else {
+      fd_memcpy( out_entries[ i ].owner,       original_cache_line[ i ]->owner, 32UL );
+      fd_memcpy( out_entries[ i ].prior_owner, original_cache_line[ i ]->owner, 32UL );
+    }
   }
 
   // STEP 15.
