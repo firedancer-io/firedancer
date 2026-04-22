@@ -160,7 +160,7 @@ fd_ssarchive_latest_pair( char const * directory,
     sort_ssarchive_entries_inplace( full_snapshots, full_snapshots_cnt );
 
     if( FD_UNLIKELY( incremental_snapshots_cnt==0UL ) ) {
-      FD_LOG_WARNING(("no incremental snapshots found in `%s`, falling back to latest full snapshot", directory ));
+      FD_LOG_INFO(("no incremental snapshots found in `%s`, falling back to latest full snapshot", directory ));
       *full_slot           = full_snapshots[ 0UL ].slot;
       *full_is_zstd        = full_snapshots[ 0UL ].is_zstd;
       *incremental_slot    = ULONG_MAX;
