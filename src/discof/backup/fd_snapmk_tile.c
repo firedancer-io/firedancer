@@ -23,6 +23,9 @@ struct fd_snapmk {
 
   ulong in_idle_cnt;
 
+  ulong chain;
+  ulong chain1;
+
   struct {
     ulong accounts_processed;
   } metrics;
@@ -152,24 +155,6 @@ check_credit( fd_snapmk_t *       ctx,
   }
 }
 
-static inline void
-fd_mcache_publish_if( fd_frag_meta_t * mcache,
-                      ulong            depth,
-                      ulong            seq,
-                      ulong            sig,
-                      ulong            chunk,
-                      ulong            sz,
-                      ulong            ctl,
-                      ulong            tsorig,
-                      ulong            tspub,
-                      _Bool            pub ) {
-  fd_frag_meta_t * meta_dst = mcache + fd_mcache_line_idx( seq, depth );
-  fd_frag_meta_t dummy[1];
-  fd_frag_meta_t * meta = pub ? meta_dst : dummy;
-  __m256i meta_avx = fd_frag_meta_avx( seq, sig, chunk, sz, ctl, tsorig, tspub );
-  FD_VOLATILE( meta->avx ) = meta_avx;
-}
-
 __attribute__((noinline)) static void
 send_account_frags( fd_snapmk_t *       ctx,
                     fd_stem_context_t * stem ) {
@@ -185,21 +170,23 @@ send_account_frags( fd_snapmk_t *       ctx,
   ulong * cr_availp = &stem->cr_avail[ out_idx ];
   ulong pub_cnt = 0UL;
   ulong seqa[ FUNK_SCAN_PARA ];
+  fd_frag_meta_t * dsta[ FUNK_SCAN_PARA ];
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ){
     _Bool skip = ctx->scan->val_gaddr[ i ]==ULONG_MAX;
     seqa[ i ] = seq;
+    fd_frag_meta_t * meta_dst = mcache + fd_mcache_line_idx( seq, depth );
+    static fd_frag_meta_t dummy[1];
+    dsta[ i ] = !skip ? meta_dst : dummy;
     seq = fd_seq_inc( seq, !skip );
     pub_cnt += !skip;
   }
   ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_ACCOUNT, 0, 0, 0 );
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ){
-    _Bool skip = ctx->scan->val_gaddr[ i ]==ULONG_MAX;
     ulong rec_idx   = ctx->scan->rec_idx  [ i ];
     ulong val_gaddr = ctx->scan->val_gaddr[ i ];
     uint  data_sz   = ctx->scan->data_sz  [ i ];
-
-    /* Send frag */
-    fd_mcache_publish_if( mcache, depth, seqa[ i ], val_gaddr, 0UL, 0UL, ctl, rec_idx, data_sz, !skip );
+    __m256i meta_avx = fd_frag_meta_avx( seqa[ i ], val_gaddr, 0UL, 0UL, ctl, rec_idx, data_sz );
+    FD_VOLATILE( dsta[ i ]->avx ) = meta_avx;
   }
   *cr_availp -= pub_cnt;
   stem->seqs[ out_idx ] = seq;
@@ -216,14 +203,14 @@ after_credit( fd_snapmk_t *       ctx,
   (void)poll_in;
   switch( ctx->state ) {
   case SNAPMK_STATE_ACCOUNTS:
-    fd_funk_scan_refill( ctx->scan );
-    if( FD_UNLIKELY( ctx->scan->batch_idx >= ctx->scan->batch_cnt ) ) {
+    fd_funk_scan_refill( ctx->scan, ctx->chain );
+    send_account_frags( ctx, stem );
+    ctx->chain += FUNK_SCAN_PARA;
+    if( FD_UNLIKELY( ctx->chain >= ctx->chain1 ) ) {
       ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
       FD_LOG_NOTICE(( "DONE" ));
       break;
     }
-    ctx->scan->batch_idx = FUNK_SCAN_PARA;
-    send_account_frags( ctx, stem );
     *charge_busy = 1;
     break;
   case SNAPMK_STATE_ACCOUNTS_FLUSH: {
@@ -243,7 +230,9 @@ snap_begin( fd_snapmk_t * ctx ) {
     return;
   }
   ctx->state = SNAPMK_STATE_ACCOUNTS;
-  fd_funk_scan_init( ctx->scan, ctx->funk, 0UL, ULONG_MAX );
+  ctx->chain = 0UL;
+  ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );
+  fd_funk_scan_init( ctx->scan, ctx->funk );
   FD_LOG_NOTICE(( "START" ));
 }
 

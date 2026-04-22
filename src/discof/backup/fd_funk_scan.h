@@ -20,7 +20,7 @@
 
 typedef fd_funk_rec_map_shmem_private_chain_t fd_funk_rec_chain_t;
 
-#define FUNK_SCAN_PARA 96
+#define FUNK_SCAN_PARA 64
 
 static fd_funk_rec_chain_t const rec_chain_sentinel = {
   .ver_cnt   = 0UL,
@@ -35,37 +35,20 @@ struct fd_funk_scan {
   /* Source */
   fd_funk_rec_chain_t const * chain_tbl;
   fd_funk_rec_t const *       rec_tbl;
-  fd_wksp_t *                 val_base;
-  ulong                       chain0;
-  ulong                       chain1;
-  ulong                       chain;
-  ulong                       rec_tot;
 
   /* Cache */
   uint  rec_idx  [ FUNK_SCAN_PARA ];
   ulong val_gaddr[ FUNK_SCAN_PARA ];
   uint  data_sz  [ FUNK_SCAN_PARA ];
-  ulong batch_idx;
-  ulong batch_cnt;
 };
 typedef struct fd_funk_scan fd_funk_scan_t;
 
 fd_funk_scan_t *
 fd_funk_scan_init( fd_funk_scan_t *  scan,
-                   fd_funk_t const * funk,
-                   ulong             chain0,
-                   ulong             chain1 );
+                   fd_funk_t const * funk );
 
 void
-fd_funk_scan_refill( fd_funk_scan_t * scan );
-
-static inline ulong
-fd_funk_scan_next( fd_funk_scan_t * scan ) {
-  if( FD_UNLIKELY( scan->batch_idx>=scan->batch_cnt ) ) {
-    fd_funk_scan_refill( scan );
-    if( FD_UNLIKELY( scan->batch_idx>=scan->batch_cnt ) ) return ULONG_MAX;
-  }
-  return scan->batch_idx++;
-}
+fd_funk_scan_refill( fd_funk_scan_t * scan,
+                     ulong            chain );
 
 #endif /* HEADER_fd_src_discof_backup_fd_funk_scan_h */
