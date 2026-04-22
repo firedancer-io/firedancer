@@ -25,6 +25,19 @@
 
 #include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
 
+static fd_signature_t const fd_runtime_debug_signature = {
+  .uc = {
+    0xbd, 0xcc, 0x10, 0x95, 0xc9, 0x79, 0x1e, 0x8a,
+    0x23, 0x12, 0x81, 0x9c, 0x90, 0x99, 0xca, 0xf6,
+    0xc5, 0x28, 0x90, 0x6b, 0xf6, 0x4b, 0x12, 0x4b,
+    0x5b, 0xde, 0x65, 0x93, 0xfe, 0x75, 0x32, 0x07,
+    0x1a, 0x24, 0x73, 0xce, 0x32, 0xc0, 0xc8, 0x93,
+    0x8f, 0xef, 0x5a, 0xa3, 0xad, 0x95, 0x3f, 0x8d,
+    0x94, 0x40, 0x9f, 0x5f, 0x5f, 0x10, 0x74, 0x81,
+    0x08, 0x2a, 0xc5, 0xd1, 0x3d, 0xb9, 0x9d, 0x01
+  }
+};
+
 /*
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749
@@ -988,7 +1001,9 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
   txn_out->details.commit_start_timestamp = fd_tickcount();
 
-  //FD_LOG_WARNING(("TXN RESULT %d", txn_out->err.txn_err));
+  if( FD_UNLIKELY( fd_signature_eq( &txn_out->details.signature, &fd_runtime_debug_signature ) ) ) {
+    FD_LOG_WARNING(( "TXN RESULT %d %d %d", txn_out->err.txn_err, txn_out->err.exec_err, txn_out->err.exec_err_idx ));
+  }
 
   if( FD_UNLIKELY( !txn_out->err.txn_err ) ) {
     fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
@@ -1107,6 +1122,10 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   }
 
   fd_accdb_release( runtime->accdb, txn_out->accounts.cnt, txn_out->accounts.account );
+  if( FD_LIKELY( runtime->accounts.executable_cnt ) ) {
+    fd_accdb_release( runtime->accdb, runtime->accounts.executable_cnt, runtime->accounts.executable );
+    runtime->accounts.executable_cnt = 0UL;
+  }
 }
 
 void
@@ -1116,8 +1135,11 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
   fd_accdb_release( runtime->accdb, txn_out->accounts.cnt, txn_out->accounts.account );
+  if( FD_LIKELY( runtime->accounts.executable_cnt ) ) {
+    fd_accdb_release( runtime->accdb, runtime->accounts.executable_cnt, runtime->accounts.executable );
+    runtime->accounts.executable_cnt = 0UL;
+  }
 }
-
 static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
   runtime->instr.stack_sz     = 0;
@@ -1145,8 +1167,14 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->details.execution_fee   = 0UL;
   txn_out->details.priority_fee    = 0UL;
   txn_out->details.signature_count = 0UL;
+  fd_memset( txn_out->details.signature.uc, 0, sizeof(fd_signature_t) );
 
   txn_out->details.signature_count = TXN( txn_in->txn )->signature_cnt;
+  if( FD_LIKELY( txn_out->details.signature_count ) ) {
+    fd_memcpy( txn_out->details.signature.uc,
+               (uchar const *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off,
+               sizeof(fd_signature_t) );
+  }
   txn_out->details.is_simple_vote  = fd_txn_is_simple_vote_transaction( TXN( txn_in->txn ), txn_in->txn->payload );
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->recent_blockhash_off);
@@ -1543,7 +1571,6 @@ fd_runtime_get_executable_account( fd_runtime_t *      runtime,
 
   for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
     fd_accdb_entry_t * ro = &runtime->accounts.executable[ i ];
-
     if( FD_UNLIKELY( !memcmp( pubkey->uc, ro->pubkey, 32UL ) ) ) {
       if( FD_UNLIKELY( !ro->lamports ) ) return NULL;
       return ro;

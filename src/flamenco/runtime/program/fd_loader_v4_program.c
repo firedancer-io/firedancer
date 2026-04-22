@@ -898,17 +898,20 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     fd_loader_v4_state_t const * state = fd_loader_v4_get_state( prog_data, prog_data_sz, &rc );
     if( FD_UNLIKELY( rc ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
+      FD_LOG_NOTICE(("HIT THIS CASE"));
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( state ) ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
+      FD_LOG_NOTICE(("HIT THIS CASE"));
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     /* Handle `DelayedVisibility` case */
     if( FD_UNLIKELY( state->slot>=instr_ctx->bank->f.slot ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
+      FD_LOG_NOTICE(("HIT THIS CASE"));
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -920,6 +923,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
         progcache, &xid, program_id, load_env, program_ro, (fd_pubkey_t*)program_ro->owner );
     if( FD_UNLIKELY( !cache_entry ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
+      FD_LOG_NOTICE(("HIT THIS CASE"));
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
@@ -928,6 +932,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     if( FD_UNLIKELY( !cache_entry->data_gaddr ) ) {
       fd_progcache_rec_close( progcache, cache_entry );
       fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
+      FD_LOG_NOTICE(("HIT THIS CASE"));
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 

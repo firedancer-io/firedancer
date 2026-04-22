@@ -143,6 +143,42 @@ test_basic( void ) {
 }
 
 void
+test_missing_readonly_account_initializes_entry( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t slot1 = fd_accdb_attach_child( accdb, root );
+
+  uchar missing_pubkey[ 32UL ] = { 0xAB };
+  uchar zeros[ 32UL ]          = { 0 };
+  uchar const * pks[ 1 ]       = { missing_pubkey };
+  int wr[ 1 ]                  = { 0 };
+  fd_accdb_entry_t ent[ 1 ];
+
+  memset( ent, 0xA5, sizeof(ent) );
+  fd_accdb_acquire( accdb, slot1, 1UL, pks, wr, ent );
+
+  FD_TEST( !memcmp( ent[ 0 ].pubkey, missing_pubkey, 32UL ) );
+  FD_TEST( !memcmp( ent[ 0 ].owner,  zeros,          32UL ) );
+  FD_TEST( !memcmp( ent[ 0 ].prior_owner, zeros, 32UL ) );
+  FD_TEST( ent[ 0 ].lamports==0UL );
+  FD_TEST( ent[ 0 ].data_len==0UL );
+  FD_TEST( ent[ 0 ].data==NULL );
+  FD_TEST( ent[ 0 ].executable==0 );
+  FD_TEST( ent[ 0 ].prior_lamports==0UL );
+  FD_TEST( ent[ 0 ].prior_data_len==0UL );
+  FD_TEST( ent[ 0 ].prior_data==NULL );
+  FD_TEST( ent[ 0 ].prior_executable==0 );
+  FD_TEST( ent[ 0 ]._writable==0 );
+  FD_TEST( ent[ 0 ]._original_size_class==ULONG_MAX );
+  FD_TEST( ent[ 0 ]._original_cache_idx==ULONG_MAX );
+
+  fd_accdb_release( accdb, 1UL, ent );
+  close( fd );
+}
+
+void
 test_fork_basic( void ) {
   int fd;
   fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
@@ -836,6 +872,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_basic ..." ));
   test_basic();
+
+  FD_LOG_NOTICE(( "test_missing_readonly_account_initializes_entry ..." ));
+  test_missing_readonly_account_initializes_entry();
 
   FD_LOG_NOTICE(( "test_fork_basic ..." ));
   test_fork_basic();

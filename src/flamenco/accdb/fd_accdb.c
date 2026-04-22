@@ -1245,17 +1245,17 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   if( FD_LIKELY( reservation_type==RESERVATION_TYPE_SIMPLE || reservation_type==RESERVATION_TYPE_MAYBE_PROGRAMDATA ) ) {
     ulong requested_buckets[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
     for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
-      if( FD_UNLIKELY( !accs[ i ] && !writable[ i ] ) ) continue;
-
-      if( FD_LIKELY( accs[ i ] ) ) {
-        if( FD_UNLIKELY( accdb->shmem->cache_class_used[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) ) ].val!=ULONG_MAX ) ) {
-          requested_buckets[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) ) ]++;
+      if( FD_LIKELY( accs[ i ] || writable[ i ] ) ) {
+        if( FD_LIKELY( accs[ i ] ) ) {
+          if( FD_UNLIKELY( accdb->shmem->cache_class_used[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) ) ].val!=ULONG_MAX ) ) {
+            requested_buckets[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) ) ]++;
+          }
         }
-      }
-      if( FD_UNLIKELY( writable[ i ] ) ) {
-        for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-          if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
-            requested_buckets[ j ]++;
+        if( FD_UNLIKELY( writable[ i ] ) ) {
+          for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+            if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
+              requested_buckets[ j ]++;
+            }
           }
         }
       }
@@ -1264,7 +1264,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         /* Any account could also have an implied reference to a
           programdata account, which we don't know yet ... so we need to
           reserve worst case space if they all went to the same size
-          class. */
+          class.  This reservation runs unconditionally per pubkey (not
+          gated on accs/writable) so that acquire_b can refund based on
+          pubkeys_cnt without needing to re-derive the live-account set. */
         for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
           if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
             requested_buckets[ j ]++;
@@ -1357,7 +1359,10 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         original_cache_line[ i ] = acquire_cache_line( accdb, size_class, &evicted_orig_acc[ i ] ); /* TODO: Optimize. Sometimes not needed if same generation overwrite? */
         fd_memcpy( original_cache_line[ i ]->key.pubkey, accs[ i ]->key.pubkey, 32UL );
         original_cache_line[ i ]->key.generation = accs[ i ]->key.generation;
-        original_cache_line[ i ]->acc_idx = (uint)( accs[ i ] - accdb->acc_pool );
+        /* Leave acc_idx at UINT_MAX (the "loading" sentinel) until step 12
+           publishes it after the preadv2 fence.  Concurrent threads that
+           pin via cache_idx will spin on this in step 13. */
+        original_cache_line[ i ]->acc_idx = UINT_MAX;
         FD_VOLATILE( accs[ i ]->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, original_cache_line[ i ] ) );
         FD_VOLATILE( accs[ i ]->executable_size ) |= FD_ACCDB_SIZE_CACHE_VALID_BIT;
       }
@@ -1367,7 +1372,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         original_cache_line[ i ] = acquire_cache_line( accdb, size_class, &evicted_orig_acc[ i ] );
         fd_memcpy( original_cache_line[ i ]->key.pubkey, accs[ i ]->key.pubkey, 32UL );
         original_cache_line[ i ]->key.generation = accs[ i ]->key.generation;
-        original_cache_line[ i ]->acc_idx = (uint)( accs[ i ] - accdb->acc_pool );
+        /* Same loading-sentinel protocol as the writable branch above. */
+        original_cache_line[ i ]->acc_idx = UINT_MAX;
         FD_VOLATILE( accs[ i ]->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)size_class, (uint)cache_line_idx( accdb, size_class, original_cache_line[ i ] ) );
         FD_VOLATILE( accs[ i ]->executable_size ) |= FD_ACCDB_SIZE_CACHE_VALID_BIT;
       }
@@ -1813,11 +1819,43 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     uchar const * const * pubkeys,
                     int *                 writable,
                     fd_accdb_entry_t *    out_entries ) {
+  /* acquire_a reserved one slot in EVERY class per maybe-programdata
+     candidate (reserved_cnt total per class).  Now that we know the
+     actual programdata pubkeys, we keep one reservation per actual
+     programdata account in its own size class (consumed later by
+     release) and refund the rest. */
+
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+
   ulong refund[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
-  for( ulong i=0UL; i<reserved_cnt; i++ ) {
-    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-      if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
-        refund[ j ]++;
+  for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+    if( FD_LIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
+      refund[ j ] = reserved_cnt;
+    }
+  }
+
+  for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
+    ulong h = fd_accdb_hash( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+    uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ h ] );
+    fd_accdb_acc_t * acc = NULL;
+    while( acc_idx!=UINT_MAX ) {
+      fd_accdb_acc_t * candidate = &accdb->acc_pool[ acc_idx ];
+      uint next = FD_VOLATILE_CONST( candidate->map.next );
+      if( FD_UNLIKELY( (candidate->key.generation>root_generation && fd_accdb_acc_fork_id(candidate)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate) )) ) || memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) {
+        acc_idx = next;
+        continue;
+      }
+      acc = candidate;
+      break;
+    }
+
+    if( FD_UNLIKELY( !acc && !writable[ i ] ) ) continue;
+    if( FD_LIKELY( acc ) ) {
+      ulong cls = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( acc->executable_size ) );
+      if( FD_LIKELY( accdb->shmem->cache_class_used[ cls ].val!=ULONG_MAX ) ) {
+        FD_TEST( refund[ cls ]>0UL );
+        refund[ cls ]--;
       }
     }
   }

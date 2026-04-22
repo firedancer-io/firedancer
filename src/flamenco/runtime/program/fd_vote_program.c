@@ -411,6 +411,7 @@ check_and_filter_proposed_vote_state( fd_exec_instr_ctx_t *       ctx,
   for( ulong i=filter_index; i>0UL && filter_votes_index>0UL; i-- ) {
     proposed_lockouts_index = i - 1UL;
     if( FD_UNLIKELY( proposed_lockouts_indexes_to_filter[ proposed_lockouts_index ]>=filter_votes_index ) ) {
+      FD_LOG_NOTICE(("HIT THIS CASE"));
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 

@@ -99,6 +99,7 @@ fd_executor_lookup_native_program( fd_accdb_entry_t const * meta,
 
   if( FD_UNLIKELY( !is_native_program ) ) {
     if( FD_UNLIKELY( !fd_executor_pubkey_is_bpf_loader( (fd_pubkey_t*)meta->owner ) ) ) {
+      FD_LOG_NOTICE(("HIT THIS CASE"));
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
   }
@@ -112,6 +113,7 @@ fd_executor_lookup_native_program( fd_accdb_entry_t const * meta,
   uchar has_migrated;
   if( FD_UNLIKELY( fd_is_migrating_builtin_program( bank, lookup_pubkey, &has_migrated ) && has_migrated ) ) {
     *native_prog_fn = NULL;
+    FD_LOG_NOTICE(("HIT THIS CASE"));
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
@@ -122,6 +124,7 @@ fd_executor_lookup_native_program( fd_accdb_entry_t const * meta,
 
   if( FD_UNLIKELY( !fd_executor_program_is_active( bank, lookup_pubkey ) ) ) {
     *native_prog_fn = NULL;
+    FD_LOG_NOTICE(("HIT THIS CASE"));
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
@@ -938,6 +941,7 @@ fd_instr_stack_push( fd_runtime_t *      runtime,
                                                     instr->program_id,
                                                     &program_id_pubkey );
   if( FD_UNLIKELY( err ) ) {
+    FD_LOG_NOTICE(("HIT THIS CASE"));
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
@@ -1086,6 +1090,7 @@ fd_execute_instr( fd_runtime_t *      runtime,
     instr_exec_result = native_prog_fn( ctx );
   } else {
     /* Unknown program. In this case specifically, we should not log the program id. */
+    FD_LOG_NOTICE(("HIT THIS CASE"));
     instr_exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     FD_TXN_PREPARE_ERR_OVERWRITE( txn_out );
     FD_TXN_ERR_FOR_LOG_INSTR( txn_out, instr_exec_result, txn_out->err.exec_err_idx );
@@ -1126,6 +1131,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_txn_out_t *      txn_out ) {
   int writable[ MAX_TX_ACCOUNT_LOCKS ];
   uchar const * pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
+  fd_pubkey_t executable_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     pubkeys[ i ] = txn_out->accounts.keys[ i ].uc;
     writable[ i ] = fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
@@ -1158,7 +1164,10 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
 
     writable[ executable_account_cnt ] = 0;
-    pubkeys[ executable_account_cnt ] = program_loader_state->inner.program.programdata_address.uc;
+    /* Keep the derived programdata address in stable storage until
+       fd_accdb_acquire_b() consumes the pubkey array below. */
+    executable_pubkeys[ executable_account_cnt ] = program_loader_state->inner.program.programdata_address;
+    pubkeys[ executable_account_cnt ] = executable_pubkeys[ executable_account_cnt ].uc;
     executable_account_cnt++;
   }
 

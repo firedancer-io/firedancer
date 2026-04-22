@@ -243,6 +243,7 @@ struct fd_txn_out {
     ulong                       tips;                      /* Jito tips paid during execution */
 
     ulong                       signature_count;           /* Number of signatures in the transaction */
+    fd_signature_t              signature;                 /* First transaction signature */
     int                         is_simple_vote;            /* Whether the transaction is a simple vote */
   } details;
 
