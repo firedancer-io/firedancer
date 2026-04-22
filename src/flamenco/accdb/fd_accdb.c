@@ -1151,7 +1151,7 @@ background_compact( fd_accdb_t * accdb,
 }
 
 #define RESERVATION_TYPE_SIMPLE            (0)
-#define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1) 
+#define RESERVATION_TYPE_MAYBE_PROGRAMDATA (1)
 #define RESERVATION_TYPE_ALREADY_RESERVED  (2)
 
 static void
@@ -1204,14 +1204,17 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       fd_accdb_acc_t const * candidate_acc = &accdb->acc_pool[ acc ];
       uint next_acc = FD_VOLATILE_CONST( candidate_acc->map.next );
 
-      if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation && fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) || memcmp( pubkeys[ i ], candidate_acc->key.pubkey, 32UL ) ) {
+      if( FD_UNLIKELY( (candidate_acc->key.generation>root_generation &&
+                        fd_accdb_acc_fork_id(candidate_acc)!=fork_id.val &&
+                        !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate_acc) )) ) ||
+                        memcmp( pubkeys[ i ], candidate_acc->key.pubkey, 32UL ) ) {
         acc = next_acc;
         continue;
       }
 
       break;
     }
-    
+
     if( FD_UNLIKELY( acc==UINT_MAX ) ) accs[ i ] = NULL;
     else                               accs[ i ] = &accdb->acc_pool[ acc ];
   }
@@ -2219,7 +2222,7 @@ fd_accdb_exists( fd_accdb_t *       accdb,
 
     break;
   }
-  
+
   if( FD_UNLIKELY( acc==UINT_MAX ) ) return 0;
   else                               return !!accdb->acc_pool[ acc ].lamports;
 }
@@ -2243,7 +2246,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
 
     break;
   }
-  
+
   if( FD_UNLIKELY( acc==UINT_MAX ) ) return ULONG_MAX;
   else                               return accdb->acc_pool[ acc ].lamports;
 }

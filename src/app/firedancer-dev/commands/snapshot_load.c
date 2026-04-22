@@ -204,7 +204,7 @@ accounts_hist_reset( accounts_hist_t * hist ) {
   hist->token_cnt = 0UL;
 }
 
-static inline void
+static inline void FD_FN_UNUSED
 accounts_hist_update( accounts_hist_t * hist,
                       ulong             account_sz ) {
   hist->total_cnt += 1UL;

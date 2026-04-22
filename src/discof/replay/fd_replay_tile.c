@@ -1102,6 +1102,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
     }
 
+    static const fd_accdb_fork_id_t accdb_root = { .val = USHORT_MAX };
+    bank->accdb_fork_id = fd_accdb_attach_child( ctx->accdb, accdb_root );
+
     ulong snapshot_slot = bank->f.slot;
 
     fd_hash_t bank_hash = bank->f.bank_hash;

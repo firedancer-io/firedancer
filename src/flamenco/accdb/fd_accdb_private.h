@@ -157,7 +157,7 @@ struct fd_accdb_cache_key {
 
 typedef struct fd_accdb_cache_key fd_accdb_cache_key_t;
 
-struct __attribute__((packed)) fd_accdb_acc {
+struct fd_accdb_acc {
   fd_accdb_cache_key_t key;
 
   struct {
@@ -171,13 +171,14 @@ struct __attribute__((packed)) fd_accdb_acc {
     uint cache_idx;
   };
 
+  uint   executable_size;
+
   ulong  lamports;
 
   /* Pack offset and fork_id together into a single ulong to pack the
      struct into a single 64 byte cache line.  This is a performance win
      of 2-3%. */
   ulong  offset_fork;
-  uint   executable_size;
 };
 
 typedef struct fd_accdb_acc fd_accdb_acc_t;

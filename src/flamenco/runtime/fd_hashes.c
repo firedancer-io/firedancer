@@ -38,6 +38,12 @@ fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
         lthash of the accounts modified in this slot
      )
   */
+  FD_BASE58_ENCODE_32_BYTES( prev_bank_hash->hash, prev_bank_hash_b58 );
+  FD_LOG_WARNING(("PREV BANK HASH %s", prev_bank_hash_b58));
+  FD_BASE58_ENCODE_32_BYTES( lthash->bytes, lthash_b58 );
+  FD_LOG_WARNING(("LTHASH %s", lthash_b58));
+
+
   fd_sha256_t sha;
   fd_sha256_init( &sha );
   fd_sha256_append( &sha, prev_bank_hash, sizeof( fd_hash_t ) );
