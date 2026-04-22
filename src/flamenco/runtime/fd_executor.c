@@ -786,8 +786,8 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
      instruction execution).  This must happen after the fee has been
      deducted so that the balance check in fd_executor_txn_check sees
      the post-fee-deduction value as the starting point. */
-  // TODO: IS THIS RIGHT? GOING TO MAKE THE LTHASH WRONG?
-  fee_payer->prior_lamports = fee_payer->lamports;
+  // // TODO: IS THIS RIGHT? GOING TO MAKE THE LTHASH WRONG?
+  // fee_payer->prior_lamports = fee_payer->lamports;
 
   txn_out->details.execution_fee = execution_fee;
   txn_out->details.priority_fee  = priority_fee;
