@@ -1158,7 +1158,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
 
     writable[ executable_account_cnt ] = 0;
-    pubkeys[ executable_account_cnt ] = txn_out->accounts.keys[ i ].uc;
+    pubkeys[ executable_account_cnt ] = program_loader_state->inner.program.programdata_address.uc;
     executable_account_cnt++;
   }
 
