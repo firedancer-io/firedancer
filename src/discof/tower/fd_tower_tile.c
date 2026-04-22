@@ -12,6 +12,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -1571,6 +1572,12 @@ privileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( !strcmp( tile->tower.vote_account, "" ) ) ) FD_LOG_ERR(( "missing [paths.vote_account]" ));
     ctx->vote_account[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.vote_account, /* pubkey only: */ 1 ) );
   }
+
+  ulong node_info_obj_id = fd_pod_query_ulong( topo->props, "node_info", ULONG_MAX ); FD_TEST( node_info_obj_id!=ULONG_MAX );
+  fd_node_info_box_t * node_info = fd_node_info_box_join( fd_topo_obj_laddr( topo, node_info_obj_id ) );  FD_TEST( node_info );
+  fd_node_info_write_begin( node_info );
+  node_info->info.vote_account = *ctx->vote_account;
+  fd_node_info_write_end( node_info );
 
   ctx->auth_vtr = auth_vtr_join( auth_vtr_new( auth_vtr ) );
   for( ulong i=0UL; i<tile->tower.authorized_voter_paths_cnt; i++ ) {

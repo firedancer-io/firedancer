@@ -20,6 +20,7 @@
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/node_info/fd_node_info.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
@@ -417,6 +418,8 @@ struct fd_replay_tile {
 
   fd_pubkey_t      identity_pubkey[1];
   ulong            identity_idx;
+
+  fd_node_info_box_t * node_info; /* shared */
 
   fd_keyswitch_t * keyswitch;
   int              halt_leader;
@@ -994,6 +997,11 @@ maybe_switch_identity( fd_replay_tile_t * ctx ) {
   FD_LOG_DEBUG(( "keyswitch: switching identity" ));
 
   memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );
+
+  fd_node_info_write_begin( ctx->node_info );
+  ctx->node_info->info.identity = *ctx->identity_pubkey;
+  fd_node_info_write_end  ( ctx->node_info );
+
   fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
 
   /* The next leader slot will be incorrect now that the identity has
@@ -2601,6 +2609,78 @@ maybe_verify_genesis_timestamp( fd_replay_tile_t * ctx ) {
 }
 
 static void
+update_metric_identity_balance( fd_replay_tile_t *  ctx,
+                                fd_xid_t const *    xid,
+                                fd_pubkey_t const * identity ) {
+  fd_accdb_ro_t ro[1];
+  ulong identity_balance = 0UL;
+  if( fd_accdb_open_ro( ctx->accdb, ro, xid, identity ) ) {
+    identity_balance = fd_accdb_ref_lamports( ro );
+    fd_accdb_close_ro( ctx->accdb, ro );
+  }
+  FD_MGAUGE_SET( REPLAY, MY_IDENTITY_LAMPORTS, identity_balance );
+}
+
+static void
+update_metric_epoch_credits( fd_replay_tile_t *  ctx,
+                             fd_bank_t const *   bank,
+                             fd_xid_t const *    xid,
+                             fd_pubkey_t const * vote_key ) {
+  fd_accdb_ro_t ro[1];
+  ulong epoch_credits    = 0UL;
+  if( fd_accdb_open_ro( ctx->accdb, ro, xid, vote_key ) ) {
+    fd_vote_state_versioned_t vsv[1];
+    if( fd_vote_state_versioned_deserialize( vsv, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ) ) {
+      fd_vote_epoch_credits_t const * ec = fd_vsv_get_epoch_credits( vsv );
+      if( !deq_fd_vote_epoch_credits_t_empty( ec ) ) {
+        fd_vote_epoch_credits_t const * last_ec = deq_fd_vote_epoch_credits_t_peek_tail_const( ec );
+        if( last_ec->epoch==bank->f.epoch ) {
+          epoch_credits = deq_fd_vote_epoch_credits_t_peek_tail_const( ec )->credits;
+        }
+      }
+    }
+    fd_accdb_close_ro( ctx->accdb, ro );
+  }
+  FD_MGAUGE_SET( REPLAY, MY_EPOCH_CREDITS,              epoch_credits    );
+}
+
+static void
+update_metric_active_stake( fd_bank_t const *   bank,
+                            fd_pubkey_t const * vote_key ) {
+  ulong my_active_stake  = 0UL;
+  ulong tot_active_stake = bank->f.total_epoch_stake;
+
+  ulong stake = 0UL;
+  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+    fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( bank );
+    fd_top_votes_query( top_votes, vote_key, NULL, &stake, NULL, NULL, NULL );
+  } else {
+    fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
+    fd_vote_stakes_query_t_1( vote_stakes, bank->vote_stakes_fork_id, vote_key, &stake, NULL, NULL );
+  }
+
+  FD_MGAUGE_SET( REPLAY, MY_ACTIVE_STAKE_LAMPORTS,      my_active_stake  );
+  FD_MGAUGE_SET( REPLAY, CLUSTER_ACTIVE_STAKE_LAMPORTS, tot_active_stake );
+}
+
+static void
+update_metric_balances( fd_replay_tile_t * ctx,
+                        fd_bank_t *        bank ) {
+
+  fd_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_node_info_t node_info[1]; fd_node_info_read( node_info, ctx->node_info );
+  if( !fd_pubkey_is_zero( &node_info->identity ) ) {
+    update_metric_identity_balance( ctx, &xid, &node_info->identity );
+  }
+
+  if( !fd_pubkey_is_zero( &node_info->vote_account ) ) {
+    update_metric_epoch_credits( ctx, bank, &xid, &node_info->vote_account );
+    update_metric_active_stake (      bank,       &node_info->vote_account );
+  }
+
+}
+
+static void
 process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
                                     fd_stem_context_t *               stem,
                                     fd_tower_slot_confirmed_t const * msg ) {
@@ -2614,7 +2694,6 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
 
   ulong bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
-
 
   if( FD_UNLIKELY( !bank ) ) {
     FD_BASE58_ENCODE_32_BYTES( msg->block_id.key, block_id_cstr );
@@ -2633,6 +2712,8 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_OC_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+  update_metric_balances( ctx, bank );
 }
 
 static inline int
@@ -2661,6 +2742,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
       ctx->has_genesis_timestamp = 1;
       ctx->genesis_timestamp = meta->creation_time_seconds;
       *ctx->genesis_hash = meta->genesis_hash;
+      fd_node_info_write_begin( ctx->node_info );
+      ctx->node_info->info.genesis_hash = *ctx->genesis_hash;
+      fd_node_info_write_end( ctx->node_info );
       if( FD_LIKELY( meta->bootstrap ) ) {
         boot_genesis( ctx, stem, meta );
       } else {
@@ -2787,6 +2871,14 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
   ctx->identity_idx         = 0UL;
+
+  ulong node_info_obj_id = fd_pod_query_ulong( topo->props, "node_info", ULONG_MAX );
+  FD_TEST( node_info_obj_id!=ULONG_MAX );
+  ctx->node_info = fd_node_info_box_join( fd_topo_obj_laddr( topo, node_info_obj_id ) );
+  FD_TEST( ctx->node_info );
+  fd_node_info_write_begin( ctx->node_info );
+  ctx->node_info->info.identity = *ctx->identity_pubkey;
+  fd_node_info_write_end( ctx->node_info );
 
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
     tile->replay.bundle.enabled = 0;
