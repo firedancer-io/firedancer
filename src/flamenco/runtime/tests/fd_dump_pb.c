@@ -358,7 +358,7 @@ dump_blockhash_queue( fd_bank_t *                             bank,
     fd_blockhash_info_t const * ele   = fd_blockhash_deq_iter_ele_const( bhq->d.deque, iter );
     fd_exec_test_blockhash_queue_entry_t * entry = &entries[bhq_size-cnt-1UL];
     fd_memcpy( entry->blockhash, ele->hash.uc, sizeof(fd_hash_t) );
-    entry->lamports_per_signature = ele->fee_calculator.lamports_per_signature;
+    entry->lamports_per_signature = ele->lamports_per_signature;
   }
 
   *entries_out = entries;

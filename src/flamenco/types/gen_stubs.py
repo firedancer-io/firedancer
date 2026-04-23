@@ -60,8 +60,7 @@ postambletypes = set()
 # Map from primitive types to their corresponding bincode function names
 # This allows the code generator to emit the correct function calls for each type
 simpletypes = dict()
-for t,t2 in [("char","int8"),
-             ("uchar","uint8"),
+for t,t2 in [("uchar","uint8"),
              ("double","double"),
              ("short","int16"),
              ("ushort","uint16"),
@@ -75,7 +74,6 @@ for t,t2 in [("char","int8"),
 # Used for memory allocation and size calculations
 fixedsizetypes = dict()
 for t,t2 in [("bool",1),
-             ("char",1),
              ("uchar",1),
              ("short",2),
              ("ushort",2),
@@ -93,7 +91,6 @@ for t,t2 in [("bool",1),
 # These types can be serialized directly without special offset handling
 flattypes = {
   "bool",
-  "char",
   "uchar",
   "short",
   "ushort",
@@ -111,7 +108,7 @@ flattypes = {
 # These types can be used in fuzzing without special validation
 # (e.g. ulong is in here, but bool is not because not all bit patterns are valid bools)
 fuzzytypes = {
-    "char", "uchar",
+    "uchar",
     "short", "ushort",
     "int", "uint",
     "long", "ulong",
@@ -213,7 +210,6 @@ class PrimitiveMember(TypeNode):
 
     # Map from primitive type names to functions that emit C struct member declarations
     emitMemberMap = {
-        "char" :      lambda n: print(f'  char {n};',      file=header),
         "double" :    lambda n: print(f'  double {n};',    file=header),
         "long" :      lambda n: print(f'  long {n};',      file=header),
         "uint" :      lambda n: print(f'  uint {n};',      file=header),
@@ -244,7 +240,6 @@ class PrimitiveMember(TypeNode):
         return self.type in fuzzytypes
 
     emitDecodeFootprintMap = {
-        "char" :      lambda indent: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "double" :    lambda indent: print(f'{indent}  err = fd_bincode_double_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "long" :      lambda indent: print(f'{indent}  err = fd_bincode_uint64_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uint" :      lambda indent: print(f'{indent}  err = fd_bincode_uint32_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
@@ -260,7 +255,6 @@ class PrimitiveMember(TypeNode):
             PrimitiveMember.emitDecodeFootprintMap[self.type](indent)
 
     emitDecodeMap = {
-        "char" :      lambda n, indent: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
         "double" :    lambda n, indent: print(f'{indent}  fd_bincode_double_decode_unsafe( &self->{n}, ctx );', file=body),
         "long" :      lambda n, indent: print(f'{indent}  fd_bincode_uint64_decode_unsafe( (ulong *) &self->{n}, ctx );', file=body),
         "uint" :      lambda n, indent: print(f'{indent}  fd_bincode_uint32_decode_unsafe( &self->{n}, ctx );', file=body),
@@ -280,7 +274,6 @@ class PrimitiveMember(TypeNode):
             PrimitiveMember.emitDecodeMap[self.type](self.name, indent)
 
     emitEncodeMap = {
-        "char" :      lambda n, indent: print(f'{indent}  err = fd_bincode_uint8_encode( (uchar)(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "double" :    lambda n, indent: print(f'{indent}  err = fd_bincode_double_encode( self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "long" :      lambda n, indent: print(f'{indent}  err = fd_bincode_uint64_encode( (ulong)self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uint" :      lambda n, indent: print(f'{indent}  err = fd_bincode_uint32_encode( self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
@@ -300,7 +293,6 @@ class PrimitiveMember(TypeNode):
             PrimitiveMember.emitEncodeMap[self.type](self.name, indent)
 
     emitSizeMap = {
-        "char" :      lambda indent: print(f'{indent}  size += sizeof(char);', file=body),
         "double" :    lambda indent: print(f'{indent}  size += sizeof(double);', file=body),
         "long" :      lambda indent: print(f'{indent}  size += sizeof(long);', file=body),
         "uint" :      lambda indent: print(f'{indent}  size += sizeof(uint);', file=body),

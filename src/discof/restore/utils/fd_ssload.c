@@ -51,9 +51,9 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
       FD_LOG_HEXDUMP_NOTICE(( "info", info, sizeof(fd_blockhash_info_t) ));
       FD_LOG_ERR(( "Corrupt snapshot: duplicate blockhash queue index %lu", idx ));
     }
-    info->exists         = 1;
+    info->exists = 1;
     fd_memcpy( info->hash.uc, elem->hash, 32UL );
-    info->fee_calculator.lamports_per_signature = elem->lamports_per_signature;
+    info->lamports_per_signature = elem->lamports_per_signature;
     fd_blockhash_map_idx_insert( blockhashes->map, idx, blockhashes->d.deque );
   }
 }

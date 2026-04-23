@@ -126,23 +126,13 @@ fd_sysvar_cache_last_restart_slot_read( fd_sysvar_cache_t const * cache ) {
   return fd_type_pun_const( (uchar const *)cache + pos->data_off );
 }
 
-fd_block_block_hash_entry_t const * /* deque */
-fd_sysvar_cache_recent_hashes_join_const(
-    fd_sysvar_cache_t const * cache
-) {
-  if( FD_UNLIKELY( !fd_sysvar_cache_recent_hashes_is_valid( cache ) ) ) return NULL;
-  fd_recent_block_hashes_global_t * var = (void *)cache->obj_recent_hashes;
-  fd_block_block_hash_entry_t * deq = deq_fd_block_block_hash_entry_t_join( (uchar *)var+var->hashes_offset );
-  if( FD_UNLIKELY( !deq ) ) FD_LOG_CRIT(( "recent blockhashes sysvar corruption detected" ));
-  return deq; /* demote to const ptr */
-}
-
-void
-fd_sysvar_cache_recent_hashes_leave_const(
-    fd_sysvar_cache_t const *           sysvar_cache,
-    fd_block_block_hash_entry_t const * hashes_deque
-) {
-  (void)sysvar_cache; (void)hashes_deque;
+int
+fd_sysvar_cache_recent_hashes_is_empty( fd_sysvar_cache_t const * sysvar_cache ) {
+  fd_sysvar_desc_t const * desc = &sysvar_cache->desc[ FD_SYSVAR_recent_hashes_IDX ];
+  if( FD_UNLIKELY( !( desc->flags & FD_SYSVAR_FLAG_VALID ) ) ) return 1;
+  FD_TEST( desc->data_sz >= sizeof(ulong) );
+  ulong len = FD_LOAD( ulong, sysvar_cache->bin_recent_hashes );
+  return len == 0UL;
 }
 
 fd_slot_hash_t const *
@@ -207,12 +197,7 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
   ulong const   data_sz = desc->data_sz;
 
   if( FD_UNLIKELY( !pos->decode ) ) {
-    if( FD_UNLIKELY( data_sz < pos->data_max ) ) {
-      FD_LOG_DEBUG(( "Failed to decode sysvar %s with data_sz=%lu: too small",
-                     pos->name, data_sz ));
-      return EINVAL;
-    }
-    if( FD_UNLIKELY( pos->validate && pos->validate( data ) ) ) {
+    if( FD_UNLIKELY( !pos->validate( data, data_sz ) ) ) {
       FD_LOG_DEBUG(( "Failed to validate sysvar %s with data_sz=%lu",
                      pos->name, data_sz ));
       return EINVAL;
@@ -240,3 +225,87 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
 
   return 0;
 }
+
+#define TYPES_CALLBACKS( name, suf )                                   \
+  .decode_footprint = fd_##name##_decode_footprint,                    \
+  .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf
+
+static int
+fd_sysvar_validate_clock( uchar const * data, ulong data_sz ) {
+  (void)data;
+  return data_sz >= sizeof(fd_sol_sysvar_clock_t );
+}
+
+static int
+fd_sysvar_validate_rent( uchar const * data, ulong data_sz ) {
+  (void)data;
+  return data_sz >= sizeof(fd_rent_t );
+}
+
+static int
+fd_sysvar_validate_last_restart_slot( uchar const * data, ulong data_sz ) {
+  (void)data;
+  return data_sz >= sizeof(ulong);
+}
+
+static int
+fd_sysvar_validate_epoch_rewards( uchar const * data, ulong data_sz ) {
+  if( FD_UNLIKELY( data_sz < sizeof(fd_sysvar_epoch_rewards_t) ) ) return 0;
+  fd_sysvar_epoch_rewards_t ew = FD_LOAD( fd_sysvar_epoch_rewards_t, data );
+  uchar active = ew.active;
+  if( FD_UNLIKELY( active!=0 && active!=1 ) ) return 0;
+  return 1;
+}
+
+static int
+fd_sysvar_validate_epoch_schedule( uchar const * data, ulong data_sz ) {
+  if( FD_UNLIKELY( data_sz < sizeof(fd_epoch_schedule_t) ) ) return 0;
+  fd_epoch_schedule_t es = FD_LOAD( fd_epoch_schedule_t, data );
+  uchar warmup = es.warmup;
+  if( FD_UNLIKELY( warmup!=0 && warmup!=1 ) ) return 0;
+  return 1;
+}
+
+fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
+  [FD_SYSVAR_clock_IDX] =
+    { .name="clock",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_clock            ), .data_max=FD_SYSVAR_CLOCK_BINCODE_SZ,
+      .validate=fd_sysvar_validate_clock },
+  [FD_SYSVAR_epoch_rewards_IDX] =
+    { .name="epoch rewards",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_rewards    ), .data_max=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ,
+      .validate=fd_sysvar_validate_epoch_rewards },
+  [FD_SYSVAR_epoch_schedule_IDX] =
+    { .name="epoch schedule",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_schedule   ), .data_max=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ,
+      .validate=fd_sysvar_validate_epoch_schedule },
+  [FD_SYSVAR_last_restart_slot_IDX] =
+    { .name="last restart slot",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_last_restart_slot), .data_max=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ,
+      .validate=fd_sysvar_validate_last_restart_slot },
+  [FD_SYSVAR_recent_hashes_IDX] =
+    { .name="recent blockhashes",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_recent_hashes    ), .data_max=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ,
+      .validate=fd_sysvar_recent_hashes_validate },
+  [FD_SYSVAR_rent_IDX] =
+    { .name="rent",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_rent             ), .data_max=FD_SYSVAR_RENT_BINCODE_SZ,
+      .validate=fd_sysvar_validate_rent },
+  [FD_SYSVAR_slot_hashes_IDX] =
+    { .name="slot hashes",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_slot_hashes      ), .data_max=FD_SYSVAR_SLOT_HASHES_BINCODE_SZ,
+      .obj_off =offsetof(fd_sysvar_cache_t, obj_slot_hashes      ), .obj_max =FD_SYSVAR_SLOT_HASHES_FOOTPRINT,
+      TYPES_CALLBACKS( slot_hashes, _global ) },
+  [FD_SYSVAR_slot_history_IDX] =
+    { .name="slot history",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_slot_history     ), .data_max=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ,
+      .obj_off =offsetof(fd_sysvar_cache_t, obj_slot_history     ), .obj_max =FD_SYSVAR_SLOT_HISTORY_FOOTPRINT,
+      TYPES_CALLBACKS( slot_history, _global ) },
+  [FD_SYSVAR_stake_history_IDX] =
+    { .name="stake history",
+      .data_off=offsetof(fd_sysvar_cache_t, bin_stake_history    ), .data_max=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ,
+      .obj_off =offsetof(fd_sysvar_cache_t, obj_stake_history    ), .obj_max =FD_SYSVAR_STAKE_HISTORY_FOOTPRINT,
+      TYPES_CALLBACKS( stake_history, ) },
+};
+
+#undef TYPES_CALLBACKS
