@@ -47,7 +47,7 @@ FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, epoch                ) == 16UL,  "vm c
 FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, leader_schedule_epoch) == 24UL,  "vm clock layout mismatch"    );
 FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, unix_timestamp       ) == 32UL,  "vm clock layout mismatch"    );
 
-struct fd_vm_epoch_rewards {
+struct __attribute__((aligned(16))) fd_vm_epoch_rewards {
   ulong       distribution_starting_block_height;
   ulong       num_partitions;
   fd_hash_t   parent_blockhash;
@@ -55,6 +55,7 @@ struct fd_vm_epoch_rewards {
   ulong       total_rewards;
   ulong       distributed_rewards;
   uchar       active; /* 0 or 1 */
+  uchar       padding_[15];
 };
 typedef struct fd_vm_epoch_rewards fd_vm_epoch_rewards_t;
 FD_STATIC_ASSERT( sizeof(fd_vm_epoch_rewards_t) == 96UL, "vm epoch rewards size mismatch" );

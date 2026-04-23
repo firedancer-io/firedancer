@@ -10,7 +10,7 @@ FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, warmup                      )==
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_epoch          )==0x11UL,                              layout );
 FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_slot           )==0x19UL,                              layout );
 FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==0x21UL,                              layout );
-FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )>=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ, layout );
 
 static void
 test_sysvar_epoch_schedule_bounds( void ) {

@@ -13,7 +13,7 @@ FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, total_rewards            
 FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, distributed_rewards                )==0x48UL,                             layout );
 FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, active                             )==0x50UL,                             layout );
 FD_STATIC_ASSERT( sizeof  ( fd_sysvar_epoch_rewards_t                                     )==0x51UL,                             layout );
-FD_STATIC_ASSERT( sizeof  ( fd_sysvar_epoch_rewards_t                                     )>=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ, layout );
+FD_STATIC_ASSERT( sizeof  ( fd_sysvar_epoch_rewards_t                                     )==FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ, layout );
 
 static void
 test_sysvar_epoch_rewards_bounds( void ) {
