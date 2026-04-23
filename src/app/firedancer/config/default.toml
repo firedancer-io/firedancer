@@ -379,19 +379,45 @@ telemetry = true
 
     # At startup we must choose which full/incremental snapshots to use
     # to initiate catchup.  Snapshots may come from the local disk, from
-    # gossip peers that advertise RPC server addresses, or from external
-    # HTTP servers.
+    # gossip peers that advertise an RPC address, or from external
+    # HTTP(S) servers.
     #
-    # When no sources are configured, the newest local snapshots in the
-    # snapshots directory on disk will be used.  If there are no local
-    # snapshots, the validator will exit with an error.
+    # There are two ways to configure remote snapshot sources:
     #
-    # If multiple sources and peers are available, the one with the
-    # lowest latency and fastest download will be automatically selected.
-    # Sometimes, if a slightly slower peer is serving a newer snapshot
-    # than a faster peer, the slower peer will be selected if it will
-    # enable full validator startup to complete earlier, due to reduced
-    # catchup time once the snapshot is loaded.
+    #  1. `servers`: External HTTP(S) snapshot servers that are not part
+    #     of the gossip network (e.g. CDNs, dedicated snapshot mirrors).
+    #
+    #  2. `gossip`: Validators in the gossip network that advertise an
+    #     RPC service.  Peers are discovered via gossip and become
+    #     eligible based on the snapshot information they advertise.
+    #     Peers are identified by their public key.
+    #
+    # These two mechanisms are independent.  If you want to download
+    # from a specific gossip peer, add its public key to
+    # `gossip.allow_list` rather than adding its RPC address to
+    # `servers`.  In general, the `servers` list is intended for hosts
+    # that are not gossip peers.
+    #
+    # Local snapshots on disk are considered separately from remote
+    # sources.  A local full or incremental snapshot is usable only
+    # if it is recent enough according to the configured age
+    # thresholds.  If a local snapshot passes that recency check,
+    # it is used without being ranked against remote peers.
+    #
+    # Remote sources (configured servers and allowed gossip peers)
+    # are ranked by the same scoring algorithm: a combination of
+    # measured ping latency and a slots-behind penalty.  This
+    # favors nearby peers serving recent snapshots.  Unreachable
+    # remote sources are skipped.
+    #
+    # To force a fresh download, remove local snapshots from the
+    # snapshots directory before starting the validator.
+    #
+    # If snapshot downloading is enabled but no source provides a
+    # downloadable snapshot and no local snapshot is recent enough,
+    # the validator will exit with an error.  If downloading is
+    # fully disabled and no local snapshot exists, the validator
+    # will not start.
     #
     # Snapshot download is hard to trust, as the protocol has no way to
     # fully verify the downloaded contents (snapshots are not signed nor
@@ -428,33 +454,49 @@ telemetry = true
         max_local_full_effective_age = 1000
         max_local_incremental_age = 50
 
-        # If any HTTP server URLs are listed, the following paths will be
-        # fetched from these servers to determine if they have a snapshot
-        # available:
+        # External HTTP(S) snapshot servers that are not part of the
+        # gossip network.  Use this for CDNs, dedicated snapshot
+        # mirrors, or any host that serves snapshots over HTTP(S) but
+        # does not participate in gossip.
+        #
+        # Prefer adding gossip peers via the `gossip` subsection
+        # instead of listing their RPC address here.  A gossip
+        # peer whose RPC address also appears in `servers` will be
+        # treated as two independent sources: once via gossip and
+        # once as a server, wasting resources.  Besides, if the
+        # peer is blacklisted (via `gossip.block_list` or after a
+        # failed download), it can reappear as a server candidate
+        # within seconds, effectively bypassing the blacklist.
+        #
+        # For each listed server, the following paths will be fetched
+        # via HTTP HEAD to determine if a snapshot is available:
         #
         #   - /snapshot.tar.bz2
         #   - /incremental-snapshot.tar.bz2
         #
-        # If these servers have snapshots at the given paths, they will
-        # be considered as trusted sources for downloading snapshots.
-        #
-        # The given URLs must contain the protocol (HTTP or HTTPS),
-        # the host (which can be an IPv4 address or a domain name),
-        # and the port number.  No path should be given (as the
-        # aforementioned paths are always used).  Example URLs:
+        # Each entry must include a host (IPv4 address or domain
+        # name) and a port number.  A scheme (http:// or https://)
+        # may be prepended; if omitted, HTTP is assumed.  For
+        # https:// entries the port may be omitted and defaults to
+        # 443.  No path should be given (the aforementioned paths
+        # are always used).  Examples:
         #
         #   - http://snapshots.example.com:8899
-        #   - https://1.2.3.4:443
+        #   - https://snapshots.example.com
+        #   - 1.2.3.4:8899
         servers = []
 
         [snapshots.sources.gossip]
             # Allow downloading snapshots from arbitrary gossip peers
-            # that are hosting a snapshot server.  This may allow faster
-            # snapshot download if a peer in a local data-center is
-            # serving a recent snapshot, but it is extremely dangerous
-            # as the peer could serve you a specially crafted malicious
-            # snapshot that may appear to be valid even after catchup
-            # is complete.
+            # that advertise an RPC address (via gossip).  Snapshots
+            # are served over HTTP on the advertised RPC port.  This
+            # may allow faster snapshot download if a peer in a local
+            # data-center is serving a recent snapshot.
+            #
+            # Keep in mind that downloading from a random gossip peer
+            # is extremely dangerous as the peer could serve you a
+            # specially crafted malicious snapshot that may appear to
+            # be valid even after catchup is complete.
             #
             # WARNING: This option defaults to true.  Consider setting
             # this to false and providing explicitly trusted sources.
@@ -464,13 +506,13 @@ telemetry = true
             # identified by the given base58-encoded public keys.  In
             # order to be used, a given peer must be advertising an RPC
             # service via gossip and the advertised IP address and port
-            # must be reachable (and pingable) from your validator.
+            # must be reachable from your validator.
             allow_list = []
 
             # Do not attempt downloads from the given base58-encoded
-            # gossip public keys.  For an example, this can be useful
-            # if a peer is frequently selected by the automatic logic
-            # but does not yield successful / usable snapshots.
+            # gossip public keys.  For example, this can be useful if
+            # a peer is frequently selected by the automatic logic but
+            # does not yield successful or usable snapshots.
             block_list = []
 
 [consensus]
