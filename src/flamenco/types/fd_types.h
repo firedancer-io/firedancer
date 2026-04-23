@@ -166,21 +166,6 @@ typedef struct fd_recent_block_hashes_global fd_recent_block_hashes_global_t;
 static FD_FN_UNUSED fd_block_block_hash_entry_t * fd_recent_block_hashes_hashes_join( fd_recent_block_hashes_global_t * type ) { // deque
   return type->hashes_offset ? (fd_block_block_hash_entry_t *)deq_fd_block_block_hash_entry_t_join( fd_type_pun( (uchar *)type + type->hashes_offset ) ) : NULL;
 }
-/* Encoded Size: Dynamic */
-struct fd_slot_meta {
-  ulong slot;
-  ulong consumed;
-  ulong received;
-  long first_shred_timestamp;
-  ulong last_index;
-  ulong parent_slot;
-  ulong next_slot_len;
-  ulong* next_slot;
-  uchar is_connected;
-};
-typedef struct fd_slot_meta fd_slot_meta_t;
-#define FD_SLOT_META_ALIGN alignof(fd_slot_meta_t)
-
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14 */
 /* Encoded Size: Fixed (81 bytes) */
 struct fd_sysvar_epoch_rewards {
@@ -307,13 +292,6 @@ void * fd_recent_block_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void * fd_recent_block_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_recent_block_hashes_encode_global( fd_recent_block_hashes_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_recent_block_hashes_size_global( fd_recent_block_hashes_global_t const * self );
-
-void fd_slot_meta_new( fd_slot_meta_t * self );
-int fd_slot_meta_encode( fd_slot_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_slot_meta_size( fd_slot_meta_t const * self );
-static inline ulong fd_slot_meta_align( void ) { return FD_SLOT_META_ALIGN; }
-int fd_slot_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_slot_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_sysvar_epoch_rewards_new( fd_sysvar_epoch_rewards_t * self );
 int fd_sysvar_epoch_rewards_encode( fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );

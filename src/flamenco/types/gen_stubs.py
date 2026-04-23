@@ -186,7 +186,7 @@ class PrimitiveMember(TypeNode):
     These are the fundamental building blocks that map directly to C primitive types.
 
     Attributes:
-        type: The primitive type name (e.g., "ulong", "char*")
+        type: The primitive type name (e.g., "ulong")
         decode: Whether this field should be decoded
         encode: Whether this field should be encoded
     """
@@ -214,7 +214,6 @@ class PrimitiveMember(TypeNode):
     # Map from primitive type names to functions that emit C struct member declarations
     emitMemberMap = {
         "char" :      lambda n: print(f'  char {n};',      file=header),
-        "char*" :     lambda n: print(f'  char* {n};',     file=header),
         "double" :    lambda n: print(f'  double {n};',    file=header),
         "long" :      lambda n: print(f'  long {n};',      file=header),
         "uint" :      lambda n: print(f'  uint {n};',      file=header),
@@ -282,7 +281,6 @@ class PrimitiveMember(TypeNode):
 
     emitEncodeMap = {
         "char" :      lambda n, indent: print(f'{indent}  err = fd_bincode_uint8_encode( (uchar)(self->{n}), ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "char*" :     lambda n, indent: print(f'{indent}  err = fd_bincode_cstr_encode( self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "double" :    lambda n, indent: print(f'{indent}  err = fd_bincode_double_encode( self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "long" :      lambda n, indent: print(f'{indent}  err = fd_bincode_uint64_encode( (ulong)self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
         "uint" :      lambda n, indent: print(f'{indent}  err = fd_bincode_uint32_encode( self->{n}, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
