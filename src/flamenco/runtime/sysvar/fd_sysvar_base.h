@@ -24,8 +24,6 @@
 #define FD_SYSVAR_SLOT_HASHES_FOOTPRINT    ( 20528UL)
 
 #define FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ  (131097UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/slot_history.rs#L65 */
-#define FD_SYSVAR_SLOT_HISTORY_ALIGN       (     8UL)
-#define FD_SYSVAR_SLOT_HISTORY_FOOTPRINT   (131120UL)
 
 #define FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ( 16392UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/stake_history.rs#L66 */
 #define FD_SYSVAR_STAKE_HISTORY_ALIGN      (     8UL)
