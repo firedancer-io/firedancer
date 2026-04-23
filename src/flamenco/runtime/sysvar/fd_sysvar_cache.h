@@ -58,7 +58,6 @@ struct fd_sysvar_cache {
   uchar bin_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_FOOTPRINT        ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_history      [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_slot_history      [ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_stake_history     [ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_stake_history     [ FD_SYSVAR_STAKE_HISTORY_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
 
@@ -298,17 +297,6 @@ static inline int
 fd_sysvar_cache_slot_history_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, slot_history );
 }
-
-fd_slot_history_global_t const *
-fd_sysvar_cache_slot_history_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
-
-void
-fd_sysvar_cache_slot_history_leave_const(
-    fd_sysvar_cache_t const *        sysvar_cache,
-    fd_slot_history_global_t const * slot_history
-);
 
 /* fd_sysvar_cache_stake_history_{join,leave}_const {attach,detach} the
    caller {from,to} the "stake history" sysvar.  Behavior analogous to

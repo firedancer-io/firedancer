@@ -1,52 +1,11 @@
 #include "fd_sysvar_slot_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../../accdb/fd_accdb_sync.h"
+#include "../fd_accdb_svm.h"
 
-/* FIXME These constants should be header defines */
-
-/* TODO: move into separate bitvec library */
 #define FD_SLOT_HISTORY_BITS_PER_BLOCK (8UL * sizeof(ulong))
 
 #define FD_SLOT_HISTORY_BLOCKS_LEN (FD_SLOT_HISTORY_MAX_ENTRIES / FD_SLOT_HISTORY_BITS_PER_BLOCK)
-
-void
-fd_sysvar_slot_history_set( fd_slot_history_global_t * history,
-                            ulong                      i ) {
-  if( FD_UNLIKELY( i > history->next_slot && i - history->next_slot >= FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
-    FD_LOG_WARNING(( "Ignoring out of bounds (i=%lu next_slot=%lu)", i, history->next_slot ));
-    return;
-  }
-
-  ulong * blocks     = (ulong *)((uchar*)history + history->bits_bitvec_offset);
-  ulong   blocks_len = history->bits_bitvec_len;
-
-  // Skipped slots, delete them from history
-  if( FD_UNLIKELY( blocks_len == 0 ) ) return;
-  for( ulong j = history->next_slot; j < i; j++ ) {
-    ulong block_idx = (j / FD_SLOT_HISTORY_BITS_PER_BLOCK) % (blocks_len);
-    blocks[ block_idx ] &= ~( 1UL << ( j % FD_SLOT_HISTORY_BITS_PER_BLOCK ) );
-  }
-  ulong block_idx = (i / FD_SLOT_HISTORY_BITS_PER_BLOCK) % (blocks_len);
-  blocks[ block_idx ] |= ( 1UL << ( i % FD_SLOT_HISTORY_BITS_PER_BLOCK ) );
-}
-
-
-void
-fd_sysvar_slot_history_write_history( fd_bank_t *                bank,
-                                      fd_accdb_user_t *          accdb,
-                                      fd_funk_txn_xid_t const *  xid,
-                                      fd_capture_ctx_t *         capture_ctx,
-                                      fd_slot_history_global_t * history ) {
-  uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ] = {0};
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = slot_history_mem,
-    .dataend = slot_history_mem + FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ
-  };
-  int err = fd_slot_history_encode_global( history, &ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "fd_slot_history_encode_global failed" ));
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_slot_history_id, slot_history_mem, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
-}
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
 
@@ -55,122 +14,130 @@ fd_sysvar_slot_history_init( fd_bank_t *               bank,
                              fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
                              fd_capture_ctx_t *        capture_ctx ) {
-  /* Create a new slot history instance */
+  uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
+  uchar * p = data;
 
-  /* We need to construct the gaddr-aware slot history object */
-  uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] = {0};
-  fd_slot_history_global_t * history = (fd_slot_history_global_t *)slot_history_mem;
-  ulong *                    blocks  = (ulong *)fd_ulong_align_up( (ulong)((uchar*)history + sizeof(fd_slot_history_global_t)), alignof(ulong) );
+  /* has_bits */
+  *p = 1;
+  p++;
 
-  history->next_slot          = bank->f.slot + 1UL;
-  history->bits_bitvec_offset = (ulong)((uchar*)blocks - (uchar*)history);
-  history->bits_len           = FD_SLOT_HISTORY_MAX_ENTRIES;
-  history->bits_bitvec_len    = FD_SLOT_HISTORY_BLOCKS_LEN;
-  history->has_bits           = 1;
+  /* bits_bitvec_len */
+  FD_STORE( ulong, p, FD_SLOT_HISTORY_BLOCKS_LEN );
+  p += sizeof(ulong);
 
-  /* TODO: handle slot != 0 init case */
-  fd_sysvar_slot_history_set( history, bank->f.slot );
-  fd_sysvar_slot_history_write_history( bank, accdb, xid, capture_ctx, history );
+  /* content */
+  fd_memset( p, 0, FD_SLOT_HISTORY_BLOCKS_LEN * sizeof(ulong) );
+  p += FD_SLOT_HISTORY_BLOCKS_LEN * sizeof(ulong);
+
+  /* bits_len */
+  FD_STORE( ulong, p, FD_SLOT_HISTORY_MAX_ENTRIES );
+  p += sizeof(ulong);
+
+  /* next_slot */
+  FD_STORE( ulong, p, bank->f.slot + 1UL );
+  p += sizeof(ulong);
+
+  FD_STATIC_ASSERT( FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ == 1 + sizeof(ulong) + FD_SLOT_HISTORY_BLOCKS_LEN * sizeof(ulong) + sizeof(ulong) + sizeof(ulong), "bin code size mismatch" );
+
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_slot_history_id, data, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
-int
+void
 fd_sysvar_slot_history_update( fd_bank_t *               bank,
                                fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_capture_ctx_t *        capture_ctx ) {
-  /* Set current_slot, and update next_slot */
-  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, key ) ) ) FD_LOG_ERR(( "slot history account does not exist, cannot continue" ));
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_accdb_ref_data_const( ro ),
-    .dataend = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_accdb_ref_data_sz( ro )
-  };
+  ulong cur_slot = bank->f.slot;
 
-  uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] = {0};
-  fd_slot_history_global_t * history = fd_slot_history_decode_global( slot_history_mem, &ctx );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_HEXDUMP_ERR(( "corrupt slot history sysvar", fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) ));
-  fd_accdb_close_ro( accdb, ro );
+  fd_accdb_rw_t rw[1];
+  fd_accdb_svm_update_t update[1];
+  if( FD_UNLIKELY( !fd_accdb_svm_open_rw( accdb, bank, xid, rw, update, &fd_sysvar_slot_history_id, 0UL, 0 ) ) ) {
+    FD_LOG_ERR(( "state is missing slot history sysvar" ));
+  }
+  if( FD_UNLIKELY( 0!=memcmp( fd_accdb_ref_owner( rw->ro ), &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
+    FD_LOG_ERR(( "slot history sysvar not owned by sysvar owner" ));
+  }
+  uchar * data    = fd_accdb_ref_data   ( rw );
+  ulong   data_sz = fd_accdb_ref_data_sz( rw->ro );
+  if( FD_UNLIKELY( data_sz < 25UL || data[0]!=1 ) ) {
+    FD_LOG_HEXDUMP_ERR(( "invalid slot history sysvar", data, data_sz ));
+  }
+  ulong bits_bitvec_len = FD_LOAD( ulong, data+1 );
+  if( FD_UNLIKELY( !bits_bitvec_len ) ) {
+    fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
+    return;
+  }
+  ulong min_sz = 25UL + bits_bitvec_len * sizeof(ulong);
+  if( FD_UNLIKELY( data_sz < min_sz ) ) {
+    FD_LOG_ERR(( "invalid slot history sysvar: data_sz too small (%lu, required %lu)", data_sz, min_sz ));
+  }
+  uchar * bits      = data + 9UL;
+  uchar * footer    = data + 9UL + bits_bitvec_len * sizeof(ulong);
+  ulong   next_slot = FD_LOAD( ulong, footer+8UL );
 
-  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  fd_sysvar_slot_history_set( history, bank->f.slot );
-  history->next_slot = bank->f.slot + 1;
-
-  fd_sysvar_slot_history_write_history( bank, accdb, xid, capture_ctx, history );
-
-  return 0;
-}
-
-fd_slot_history_global_t *
-fd_sysvar_slot_history_read( fd_accdb_user_t *         accdb,
-                             fd_funk_txn_xid_t const * xid,
-                             uchar                     out_mem[ static FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] ) {
-  /* Set current_slot, and update next_slot */
-
-  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
-
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, key ) ) ) {
-    FD_LOG_CRIT(( "slot history account does not exist, cannot continue" ));
+  /* https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/slot-history/src/lib.rs#L62-L74 */
+  if( FD_UNLIKELY( cur_slot > next_slot && cur_slot - next_slot >= FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
+    fd_memset( bits, 0, bits_bitvec_len * sizeof(ulong) );
+  } else {
+    for( ulong i=next_slot; i<cur_slot; i++ ) {
+      ulong   block_idx = (i / FD_SLOT_HISTORY_BITS_PER_BLOCK) % bits_bitvec_len;
+      uchar * word      = &bits[ block_idx*sizeof(ulong) ];
+      FD_STORE( ulong, word, FD_LOAD( ulong, word ) & (~(1UL << (i % FD_SLOT_HISTORY_BITS_PER_BLOCK))) );
+    }
   }
 
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
+  /* new slot */
+  ulong   block_idx = (cur_slot / FD_SLOT_HISTORY_BITS_PER_BLOCK) % bits_bitvec_len;
+  uchar * word      = &bits[ block_idx*sizeof(ulong) ];
+  FD_STORE( ulong, word, FD_LOAD( ulong, word ) | (1UL << (cur_slot % FD_SLOT_HISTORY_BITS_PER_BLOCK)) );
 
-  ulong data_len = fd_accdb_ref_data_sz( ro );
-  if( FD_UNLIKELY( data_len>FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
-    FD_LOG_ERR(( "corrupt slot history sysvar: sysvar data is too large (%lu bytes)", data_len ));
-  }
+  FD_STORE( ulong, footer+8UL, cur_slot+1UL );
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_accdb_ref_data_const( ro ),
-    .dataend = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_accdb_ref_data_sz( ro )
-  };
-  fd_slot_history_global_t * history = fd_slot_history_decode_global( out_mem, &ctx );
-  fd_accdb_close_ro( accdb, ro );
-  return history;
+  fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
 }
 
 int
-fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
-                                  ulong                            slot ) {
+fd_sysvar_slot_history_validate( uchar const * data,
+                                 ulong         sz ) {
+  if( FD_UNLIKELY( sz < 25UL )    ) return 0;
+  if( FD_UNLIKELY( data[0] != 1 ) ) return 0;
+  ulong blocks_len = FD_LOAD( ulong, data+1 );
+  ulong min_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( blocks_len, sizeof(ulong), &min_sz ) ) ) return 0;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( min_sz, 25UL, &min_sz ) ) ) return 0;
+  if( FD_UNLIKELY( sz < min_sz ) ) return 0;
+  return 1;
+}
 
-  ulong * blocks = (ulong *)((uchar*)history + history->bits_bitvec_offset);
-  if( FD_UNLIKELY( !blocks ) ) {
-    FD_LOG_ERR(( "Unable to find slot history blocks" ));
-  }
-  ulong blocks_len = history->bits_bitvec_len;
+fd_slot_history_view_t *
+fd_sysvar_slot_history_view( fd_slot_history_view_t * view,
+                             uchar const *            data,
+                             ulong                    sz ) {
+  if( FD_UNLIKELY( !fd_sysvar_slot_history_validate( data, sz ) ) ) return NULL;
+  ulong blocks_len = FD_LOAD( ulong, data+1 );
+  uchar const * footer = data + 9UL + blocks_len * sizeof(ulong);
+  view->bits       = data + 9UL;
+  view->blocks_len = blocks_len;
+  view->bits_len   = FD_LOAD( ulong, footer    );
+  view->next_slot  = FD_LOAD( ulong, footer+8UL );
+  return view;
+}
 
-  if( slot > history->next_slot - 1UL ) {
+int
+fd_sysvar_slot_history_find_slot( fd_slot_history_view_t const * view,
+                                  ulong                          slot ) {
+  if( FD_UNLIKELY( !view->blocks_len ) ) return FD_SLOT_HISTORY_SLOT_NOT_FOUND;
+  if( slot > view->next_slot - 1UL ) {
     return FD_SLOT_HISTORY_SLOT_FUTURE;
-  } else if ( slot < fd_ulong_sat_sub( history->next_slot, FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
-    return FD_SLOT_HISTORY_SLOT_TOO_OLD;
-  } else {
-    ulong block_idx = (slot / FD_SLOT_HISTORY_BITS_PER_BLOCK) % blocks_len;
-    if( blocks[ block_idx ] & ( 1UL << ( slot % FD_SLOT_HISTORY_BITS_PER_BLOCK ) ) ) {
-      return FD_SLOT_HISTORY_SLOT_FOUND;
-    } else {
-      return FD_SLOT_HISTORY_SLOT_NOT_FOUND;
-    }
   }
-}
-
-ulong
-fd_sysvar_slot_history_newest( fd_slot_history_global_t const * history ) {
-  FD_TEST( history->has_bits );
-  return history->next_slot - 1UL;
-}
-
-ulong
-fd_sysvar_slot_history_len( fd_slot_history_global_t const * history ) {
-  FD_TEST( history->has_bits );
-  return history->bits_len;
+  if( slot < fd_ulong_sat_sub( view->next_slot, FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
+    return FD_SLOT_HISTORY_SLOT_TOO_OLD;
+  }
+  ulong block_idx = (slot / FD_SLOT_HISTORY_BITS_PER_BLOCK) % view->blocks_len;
+  ulong word      = FD_LOAD( ulong, view->bits + block_idx*sizeof(ulong) );
+  if( word & (1UL << (slot % FD_SLOT_HISTORY_BITS_PER_BLOCK)) ) {
+    return FD_SLOT_HISTORY_SLOT_FOUND;
+  }
+  return FD_SLOT_HISTORY_SLOT_NOT_FOUND;
 }
