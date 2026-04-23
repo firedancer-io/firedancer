@@ -1108,8 +1108,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
   `peer_cnt` is FD_TEST-ed to be less than or equal FD_GUI_MAX_PEER_CNT.
   For every new peer that is added an existing peer will be removed or was still free.
   And adding a new peer is done at most `peer_cnt` times. */
-  ulong const * header = (ulong const *)fd_type_pun_const( msg );
-  ulong peer_cnt = header[ 0 ];
+  ulong peer_cnt = FD_LOAD( ulong, msg );
 
   FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
 
@@ -1122,7 +1121,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
   ulong removed_cnt = 0UL;
   fd_pubkey_t removed[ FD_GUI_MAX_PEER_CNT ] = {0};
 
-  uchar const * data = (uchar const *)(header+1UL);
+  uchar const * data = msg + sizeof(ulong);
   for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
     int found = 0;
     for( ulong j=0UL; j<peer_cnt; j++ ) {
@@ -1156,67 +1155,67 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
 
     if( FD_UNLIKELY( !found ) ) {
       fd_memcpy( gui->gossip.peers[ gui->gossip.peer_cnt ].pubkey->uc, data+i*(58UL+12UL*6UL), 32UL );
-      gui->gossip.peers[ gui->gossip.peer_cnt ].wallclock = *(ulong const *)(data+i*(58UL+12UL*6UL)+32UL);
-      gui->gossip.peers[ gui->gossip.peer_cnt ].shred_version = *(ushort const *)(data+i*(58UL+12UL*6UL)+40UL);
-      gui->gossip.peers[ gui->gossip.peer_cnt ].has_version = *(data+i*(58UL+12UL*6UL)+42UL);
+      gui->gossip.peers[ gui->gossip.peer_cnt ].wallclock = FD_LOAD( ulong, data+i*(58UL+12UL*6UL)+32UL );
+      gui->gossip.peers[ gui->gossip.peer_cnt ].shred_version = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+40UL );
+      gui->gossip.peers[ gui->gossip.peer_cnt ].has_version = FD_LOAD( uchar, data+i*(58UL+12UL*6UL)+42UL );
       if( FD_LIKELY( gui->gossip.peers[ gui->gossip.peer_cnt ].has_version ) ) {
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.major = *(ushort const *)(data+i*(58UL+12UL*6UL)+43UL);
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.minor = *(ushort const *)(data+i*(58UL+12UL*6UL)+45UL);
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.patch = *(ushort const *)(data+i*(58UL+12UL*6UL)+47UL);
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.has_commit = *(data+i*(58UL+12UL*6UL)+49UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.major = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+43UL );
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.minor = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+45UL );
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.patch = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+47UL );
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.has_commit = FD_LOAD( uchar, data+i*(58UL+12UL*6UL)+49UL );
         if( FD_LIKELY( gui->gossip.peers[ gui->gossip.peer_cnt ].version.has_commit ) ) {
-          gui->gossip.peers[ gui->gossip.peer_cnt ].version.commit = *(uint const *)(data+i*(58UL+12UL*6UL)+50UL);
+          gui->gossip.peers[ gui->gossip.peer_cnt ].version.commit = FD_LOAD( uint, data+i*(58UL+12UL*6UL)+50UL );
         }
-        gui->gossip.peers[ gui->gossip.peer_cnt ].version.feature_set = *(uint const *)(data+i*(58UL+12UL*6UL)+54UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].version.feature_set = FD_LOAD( uint, data+i*(58UL+12UL*6UL)+54UL );
       }
 
       for( ulong j=0UL; j<12UL; j++ ) {
-        gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].ipv4 = *(uint const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL);
-        gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].port = *(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
+        gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].ipv4 = FD_LOAD( uint, data+i*(58UL+12UL*6UL)+58UL+j*6UL );
+        gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].port = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL );
       }
 
       gui->gossip.peer_cnt++;
     } else {
-      int peer_updated = gui->gossip.peers[ found_idx ].shred_version!=*(ushort const *)(data+i*(58UL+12UL*6UL)+40UL) ||
-                         // gui->gossip.peers[ found_idx ].wallclock!=*(ulong const *)(data+i*(58UL+12UL*6UL)+32UL) ||
-                         gui->gossip.peers[ found_idx ].has_version!=*(data+i*(58UL+12UL*6UL)+42UL);
+      int peer_updated = gui->gossip.peers[ found_idx ].shred_version!=FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+40UL ) ||
+                         // gui->gossip.peers[ found_idx ].wallclock!=FD_LOAD( ulong, data+i*(58UL+12UL*6UL)+32UL ) ||
+                         gui->gossip.peers[ found_idx ].has_version!=FD_LOAD( uchar, data+i*(58UL+12UL*6UL)+42UL );
 
       if( FD_LIKELY( !peer_updated && gui->gossip.peers[ found_idx ].has_version ) ) {
-        peer_updated = gui->gossip.peers[ found_idx ].version.major!=*(ushort const *)(data+i*(58UL+12UL*6UL)+43UL) ||
-                        gui->gossip.peers[ found_idx ].version.minor!=*(ushort const *)(data+i*(58UL+12UL*6UL)+45UL) ||
-                        gui->gossip.peers[ found_idx ].version.patch!=*(ushort const *)(data+i*(58UL+12UL*6UL)+47UL) ||
-                        gui->gossip.peers[ found_idx ].version.has_commit!=*(data+i*(58UL+12UL*6UL)+49UL) ||
-                        (gui->gossip.peers[ found_idx ].version.has_commit && gui->gossip.peers[ found_idx ].version.commit!=*(uint const *)(data+i*(58UL+12UL*6UL)+50UL)) ||
-                        gui->gossip.peers[ found_idx ].version.feature_set!=*(uint const *)(data+i*(58UL+12UL*6UL)+54UL);
+        peer_updated = gui->gossip.peers[ found_idx ].version.major!=FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+43UL ) ||
+                        gui->gossip.peers[ found_idx ].version.minor!=FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+45UL ) ||
+                        gui->gossip.peers[ found_idx ].version.patch!=FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+47UL ) ||
+                        gui->gossip.peers[ found_idx ].version.has_commit!=FD_LOAD( uchar, data+i*(58UL+12UL*6UL)+49UL ) ||
+                        (gui->gossip.peers[ found_idx ].version.has_commit && gui->gossip.peers[ found_idx ].version.commit!=FD_LOAD( uint, data+i*(58UL+12UL*6UL)+50UL )) ||
+                        gui->gossip.peers[ found_idx ].version.feature_set!=FD_LOAD( uint, data+i*(58UL+12UL*6UL)+54UL );
       }
 
       if( FD_LIKELY( !peer_updated ) ) {
         for( ulong j=0UL; j<12UL; j++ ) {
-          peer_updated = gui->gossip.peers[ found_idx ].sockets[ j ].ipv4!=*(uint const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL) ||
-                          gui->gossip.peers[ found_idx ].sockets[ j ].port!=*(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
+          peer_updated = gui->gossip.peers[ found_idx ].sockets[ j ].ipv4!=FD_LOAD( uint, data+i*(58UL+12UL*6UL)+58UL+j*6UL ) ||
+                          gui->gossip.peers[ found_idx ].sockets[ j ].port!=FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL );
           if( FD_LIKELY( peer_updated ) ) break;
         }
       }
 
       if( FD_UNLIKELY( peer_updated ) ) {
         updated[ update_cnt++ ] = found_idx;
-        gui->gossip.peers[ found_idx ].shred_version = *(ushort const *)(data+i*(58UL+12UL*6UL)+40UL);
-        gui->gossip.peers[ found_idx ].wallclock = *(ulong const *)(data+i*(58UL+12UL*6UL)+32UL);
-        gui->gossip.peers[ found_idx ].has_version = *(data+i*(58UL+12UL*6UL)+42UL);
+        gui->gossip.peers[ found_idx ].shred_version = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+40UL );
+        gui->gossip.peers[ found_idx ].wallclock = FD_LOAD( ulong, data+i*(58UL+12UL*6UL)+32UL );
+        gui->gossip.peers[ found_idx ].has_version = FD_LOAD( uchar, data+i*(58UL+12UL*6UL)+42UL );
         if( FD_LIKELY( gui->gossip.peers[ found_idx ].has_version ) ) {
-          gui->gossip.peers[ found_idx ].version.major = *(ushort const *)(data+i*(58UL+12UL*6UL)+43UL);
-          gui->gossip.peers[ found_idx ].version.minor = *(ushort const *)(data+i*(58UL+12UL*6UL)+45UL);
-          gui->gossip.peers[ found_idx ].version.patch = *(ushort const *)(data+i*(58UL+12UL*6UL)+47UL);
-          gui->gossip.peers[ found_idx ].version.has_commit = *(data+i*(58UL+12UL*6UL)+49UL);
+          gui->gossip.peers[ found_idx ].version.major = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+43UL );
+          gui->gossip.peers[ found_idx ].version.minor = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+45UL );
+          gui->gossip.peers[ found_idx ].version.patch = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+47UL );
+          gui->gossip.peers[ found_idx ].version.has_commit = FD_LOAD( uchar, data+i*(58UL+12UL*6UL)+49UL );
           if( FD_LIKELY( gui->gossip.peers[ found_idx ].version.has_commit ) ) {
-            gui->gossip.peers[ found_idx ].version.commit = *(uint const *)(data+i*(58UL+12UL*6UL)+50UL);
+            gui->gossip.peers[ found_idx ].version.commit = FD_LOAD( uint, data+i*(58UL+12UL*6UL)+50UL );
           }
-          gui->gossip.peers[ found_idx ].version.feature_set = *(uint const *)(data+i*(58UL+12UL*6UL)+54UL);
+          gui->gossip.peers[ found_idx ].version.feature_set = FD_LOAD( uint, data+i*(58UL+12UL*6UL)+54UL );
         }
 
         for( ulong j=0UL; j<12UL; j++ ) {
-          gui->gossip.peers[ found_idx ].sockets[ j ].ipv4 = *(uint const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL);
-          gui->gossip.peers[ found_idx ].sockets[ j ].port = *(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
+          gui->gossip.peers[ found_idx ].sockets[ j ].ipv4 = FD_LOAD( uint, data+i*(58UL+12UL*6UL)+58UL+j*6UL );
+          gui->gossip.peers[ found_idx ].sockets[ j ].port = FD_LOAD( ushort, data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL );
         }
       }
     }
@@ -1234,8 +1233,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
                                    uchar const * msg ) {
   /* See fd_gui_handle_gossip_update for why `gui->vote_account.vote_account_cnt`
   is guaranteed to be in [0, FD_GUI_MAX_PEER_CNT]. */
-  ulong const * header = (ulong const *)fd_type_pun_const( msg );
-  ulong peer_cnt = header[ 0 ];
+  ulong peer_cnt = FD_LOAD( ulong, msg );
 
   FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
 
@@ -1248,7 +1246,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
   ulong removed_cnt = 0UL;
   fd_pubkey_t removed[ FD_GUI_MAX_PEER_CNT ] = {0};
 
-  uchar const * data = (uchar const *)(header+1UL);
+  uchar const * data = msg + sizeof(ulong);
   for( ulong i=0UL; i<gui->vote_account.vote_account_cnt; i++ ) {
     int found = 0;
     for( ulong j=0UL; j<peer_cnt; j++ ) {
@@ -1284,34 +1282,34 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
       fd_memcpy( gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].vote_account->uc, data+i*112UL, 32UL );
       fd_memcpy( gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].pubkey->uc, data+i*112UL+32UL, 32UL );
 
-      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].activated_stake = *(ulong const *)(data+i*112UL+64UL);
-      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].last_vote = *(ulong const *)(data+i*112UL+72UL);
-      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].root_slot = *(ulong const *)(data+i*112UL+80UL);
-      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].epoch_credits = *(ulong const *)(data+i*112UL+88UL);
-      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].commission = *(data+i*112UL+96UL);
-      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].delinquent = *(data+i*112UL+97UL);
+      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].activated_stake = FD_LOAD( ulong, data+i*112UL+64UL );
+      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].last_vote = FD_LOAD( ulong, data+i*112UL+72UL );
+      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].root_slot = FD_LOAD( ulong, data+i*112UL+80UL );
+      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].epoch_credits = FD_LOAD( ulong, data+i*112UL+88UL );
+      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].commission = FD_LOAD( uchar, data+i*112UL+96UL );
+      gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].delinquent = FD_LOAD( uchar, data+i*112UL+97UL );
 
       gui->vote_account.vote_account_cnt++;
     } else {
       int peer_updated =
         memcmp( gui->vote_account.vote_accounts[ found_idx ].pubkey->uc, data+i*112UL+32UL, 32UL ) ||
-        gui->vote_account.vote_accounts[ found_idx ].activated_stake != *(ulong const *)(data+i*112UL+64UL) ||
-        // gui->vote_account.vote_accounts[ found_idx ].last_vote       != *(ulong const *)(data+i*112UL+72UL) ||
-        // gui->vote_account.vote_accounts[ found_idx ].root_slot       != *(ulong const *)(data+i*112UL+80UL) ||
-        // gui->vote_account.vote_accounts[ found_idx ].epoch_credits   != *(ulong const *)(data+i*112UL+88UL) ||
-        gui->vote_account.vote_accounts[ found_idx ].commission      != *(data+i*112UL+96UL) ||
-        gui->vote_account.vote_accounts[ found_idx ].delinquent      != *(data+i*112UL+97UL);
+        gui->vote_account.vote_accounts[ found_idx ].activated_stake != FD_LOAD( ulong, data+i*112UL+64UL ) ||
+        // gui->vote_account.vote_accounts[ found_idx ].last_vote       != FD_LOAD( ulong, data+i*112UL+72UL ) ||
+        // gui->vote_account.vote_accounts[ found_idx ].root_slot       != FD_LOAD( ulong, data+i*112UL+80UL ) ||
+        // gui->vote_account.vote_accounts[ found_idx ].epoch_credits   != FD_LOAD( ulong, data+i*112UL+88UL ) ||
+        gui->vote_account.vote_accounts[ found_idx ].commission      != FD_LOAD( uchar, data+i*112UL+96UL ) ||
+        gui->vote_account.vote_accounts[ found_idx ].delinquent      != FD_LOAD( uchar, data+i*112UL+97UL );
 
       if( FD_UNLIKELY( peer_updated ) ) {
         updated[ update_cnt++ ] = found_idx;
 
         fd_memcpy( gui->vote_account.vote_accounts[ found_idx ].pubkey->uc, data+i*112UL+32UL, 32UL );
-        gui->vote_account.vote_accounts[ found_idx ].activated_stake = *(ulong const *)(data+i*112UL+64UL);
-        gui->vote_account.vote_accounts[ found_idx ].last_vote = *(ulong const *)(data+i*112UL+72UL);
-        gui->vote_account.vote_accounts[ found_idx ].root_slot = *(ulong const *)(data+i*112UL+80UL);
-        gui->vote_account.vote_accounts[ found_idx ].epoch_credits = *(ulong const *)(data+i*112UL+88UL);
-        gui->vote_account.vote_accounts[ found_idx ].commission = *(data+i*112UL+96UL);
-        gui->vote_account.vote_accounts[ found_idx ].delinquent = *(data+i*112UL+97UL);
+        gui->vote_account.vote_accounts[ found_idx ].activated_stake = FD_LOAD( ulong, data+i*112UL+64UL );
+        gui->vote_account.vote_accounts[ found_idx ].last_vote = FD_LOAD( ulong, data+i*112UL+72UL );
+        gui->vote_account.vote_accounts[ found_idx ].root_slot = FD_LOAD( ulong, data+i*112UL+80UL );
+        gui->vote_account.vote_accounts[ found_idx ].epoch_credits = FD_LOAD( ulong, data+i*112UL+88UL );
+        gui->vote_account.vote_accounts[ found_idx ].commission = FD_LOAD( uchar, data+i*112UL+96UL );
+        gui->vote_account.vote_accounts[ found_idx ].delinquent = FD_LOAD( uchar, data+i*112UL+97UL );
       }
     }
   }
@@ -2020,22 +2018,22 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
 }
 
 static void
-fd_gui_handle_reset_slot_legacy( fd_gui_t * gui,
-                                 ulong *    msg,
-                                 long       now ) {
-  ulong last_landed_vote = msg[ 0 ];
+fd_gui_handle_reset_slot_legacy( fd_gui_t *    gui,
+                                 uchar const * msg,
+                                 long          now ) {
+  ulong last_landed_vote = FD_LOAD( ulong, msg );
 
-  ulong parent_cnt = msg[ 1 ];
+  ulong parent_cnt = FD_LOAD( ulong, msg + 8UL );
   FD_TEST( parent_cnt<4096UL );
 
-  ulong _slot = msg[ 2 ];
+  ulong _slot = FD_LOAD( ulong, msg + 16UL );
 
   for( ulong i=0UL; i<parent_cnt; i++ ) {
-    ulong parent_slot = msg[2UL+i];
+    ulong parent_slot = FD_LOAD( ulong, msg + (2UL+i)*8UL );
     fd_gui_slot_t * slot = fd_gui_get_slot( gui, parent_slot );
     if( FD_UNLIKELY( !slot ) ) {
       ulong parent_parent_slot = ULONG_MAX;
-      if( FD_UNLIKELY( i!=parent_cnt-1UL) ) parent_parent_slot = msg[ 3UL+i ];
+      if( FD_UNLIKELY( i!=parent_cnt-1UL) ) parent_parent_slot = FD_LOAD( ulong, msg + (3UL+i)*8UL );
       fd_gui_clear_slot( gui, parent_slot, parent_parent_slot );
     }
   }
@@ -2082,7 +2080,7 @@ fd_gui_handle_reset_slot_legacy( fd_gui_t * gui,
     int should_republish = slot->must_republish;
     slot->must_republish = 0;
 
-    if( FD_UNLIKELY( parent_slot!=msg[2UL+parent_slot_idx] ) ) {
+    if( FD_UNLIKELY( parent_slot!=FD_LOAD( ulong, msg + (2UL+parent_slot_idx)*8UL ) ) ) {
       /* We are between two parents in the rooted chain, which means
          we were skipped. */
       if( FD_UNLIKELY( !slot->skipped ) ) {
@@ -2184,29 +2182,29 @@ fd_gui_handle_reset_slot_legacy( fd_gui_t * gui,
 }
 
 static void
-fd_gui_handle_completed_slot( fd_gui_t * gui,
-                              ulong *    msg,
-                              long       now ) {
+fd_gui_handle_completed_slot( fd_gui_t *    gui,
+                              uchar const * msg,
+                              long          now ) {
 
   /* This is the slot used by frontend clients as the "startup slot". In
      certain boot conditions, we don't receive this slot from Agave, so
      we include a bit of a hacky assignment here to make sure it is
      always present. */
   if( FD_UNLIKELY( gui->summary.startup_progress.startup_ledger_max_slot==ULONG_MAX ) ) {
-    gui->summary.startup_progress.startup_ledger_max_slot = msg[ 0 ];
+    gui->summary.startup_progress.startup_ledger_max_slot = FD_LOAD( ulong, msg );
   }
 
-  ulong _slot                    = msg[ 0 ];
-  uint  total_txn_count          = (uint)msg[ 1 ];
-  uint  nonvote_txn_count        = (uint)msg[ 2 ];
-  uint  failed_txn_count         = (uint)msg[ 3 ];
-  uint  nonvote_failed_txn_count = (uint)msg[ 4 ];
-  uint  compute_units            = (uint)msg[ 5 ];
-  ulong transaction_fee          = msg[ 6 ];
-  ulong priority_fee             = msg[ 7 ];
-  ulong tips                     = msg[ 8 ];
-  ulong _parent_slot             = msg[ 9 ];
-  ulong max_compute_units        = msg[ 10 ];
+  ulong _slot                    = FD_LOAD( ulong, msg );
+  uint  total_txn_count          = (uint)FD_LOAD( ulong, msg + 1UL*8UL );
+  uint  nonvote_txn_count        = (uint)FD_LOAD( ulong, msg + 2UL*8UL );
+  uint  failed_txn_count         = (uint)FD_LOAD( ulong, msg + 3UL*8UL );
+  uint  nonvote_failed_txn_count = (uint)FD_LOAD( ulong, msg + 4UL*8UL );
+  uint  compute_units            = (uint)FD_LOAD( ulong, msg + 5UL*8UL );
+  ulong transaction_fee          = FD_LOAD( ulong, msg + 6UL*8UL );
+  ulong priority_fee             = FD_LOAD( ulong, msg + 7UL*8UL );
+  ulong tips                     = FD_LOAD( ulong, msg + 8UL*8UL );
+  ulong _parent_slot             = FD_LOAD( ulong, msg + 9UL*8UL );
+  ulong max_compute_units        = FD_LOAD( ulong, msg + 10UL*8UL );
 
   fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, _parent_slot );
@@ -2261,9 +2259,9 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
 }
 
 static void
-fd_gui_handle_rooted_slot_legacy( fd_gui_t * gui,
-                                  ulong *    msg ) {
-  ulong _slot = msg[ 0 ];
+fd_gui_handle_rooted_slot_legacy( fd_gui_t *    gui,
+                                  uchar const * msg ) {
+  ulong _slot = FD_LOAD( ulong, msg );
 
   // FD_LOG_WARNING(( "Got rooted slot %lu", _slot ));
 
@@ -2342,20 +2340,20 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
 
 static void
 fd_gui_handle_balance_update( fd_gui_t *    gui,
-                              ulong const * msg ) {
-  switch( msg[ 0 ] ) {
+                              uchar const * msg ) {
+  switch( FD_LOAD( ulong, msg ) ) {
     case 0UL:
-      gui->summary.identity_account_balance = msg[ 1 ];
+      gui->summary.identity_account_balance = FD_LOAD( ulong, msg + 8UL );
       fd_gui_printf_identity_balance( gui );
       fd_http_server_ws_broadcast( gui->http );
       break;
     case 1UL:
-      gui->summary.vote_account_balance = msg[ 1 ];
+      gui->summary.vote_account_balance = FD_LOAD( ulong, msg + 8UL );
       fd_gui_printf_vote_balance( gui );
       fd_http_server_ws_broadcast( gui->http );
       break;
     default:
-      FD_LOG_ERR(( "balance: unknown account type: %lu", msg[ 0 ] ));
+      FD_LOG_ERR(( "balance: unknown account type: %lu", FD_LOAD( ulong, msg ) ));
   }
 }
 
@@ -2385,25 +2383,25 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
       uchar is_full_snapshot = msg[ 1 ];
       if( FD_LIKELY( is_full_snapshot ) ) {
           gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT;
-          gui->summary.startup_progress.startup_full_snapshot_slot = *((ulong *)(msg + 2));
-          gui->summary.startup_progress.startup_full_snapshot_peer_ip_addr = *((uint *)(msg + 10));
-          gui->summary.startup_progress.startup_full_snapshot_peer_port = *((ushort *)(msg + 14));
-          gui->summary.startup_progress.startup_full_snapshot_total_bytes = *((ulong *)(msg + 16));
-          gui->summary.startup_progress.startup_full_snapshot_current_bytes = *((ulong *)(msg + 24));
-          gui->summary.startup_progress.startup_full_snapshot_elapsed_secs = *((double *)(msg + 32));
-          gui->summary.startup_progress.startup_full_snapshot_remaining_secs = *((double *)(msg + 40));
-          gui->summary.startup_progress.startup_full_snapshot_throughput = *((double *)(msg + 48));
+          gui->summary.startup_progress.startup_full_snapshot_slot = FD_LOAD( ulong, msg + 2 );
+          gui->summary.startup_progress.startup_full_snapshot_peer_ip_addr = FD_LOAD( uint, msg + 10 );
+          gui->summary.startup_progress.startup_full_snapshot_peer_port = FD_LOAD( ushort, msg + 14 );
+          gui->summary.startup_progress.startup_full_snapshot_total_bytes = FD_LOAD( ulong, msg + 16 );
+          gui->summary.startup_progress.startup_full_snapshot_current_bytes = FD_LOAD( ulong, msg + 24 );
+          gui->summary.startup_progress.startup_full_snapshot_elapsed_secs = FD_LOAD( double, msg + 32 );
+          gui->summary.startup_progress.startup_full_snapshot_remaining_secs = FD_LOAD( double, msg + 40 );
+          gui->summary.startup_progress.startup_full_snapshot_throughput = FD_LOAD( double, msg + 48 );
           FD_LOG_INFO(( "progress: downloading full snapshot: slot=%lu", gui->summary.startup_progress.startup_full_snapshot_slot ));
       } else {
           gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT;
-          gui->summary.startup_progress.startup_incremental_snapshot_slot = *((ulong *)(msg + 2));
-          gui->summary.startup_progress.startup_incremental_snapshot_peer_ip_addr = *((uint *)(msg + 10));
-          gui->summary.startup_progress.startup_incremental_snapshot_peer_port = *((ushort *)(msg + 14));
-          gui->summary.startup_progress.startup_incremental_snapshot_total_bytes = *((ulong *)(msg + 16));
-          gui->summary.startup_progress.startup_incremental_snapshot_current_bytes = *((ulong *)(msg + 24));
-          gui->summary.startup_progress.startup_incremental_snapshot_elapsed_secs = *((double *)(msg + 32));
-          gui->summary.startup_progress.startup_incremental_snapshot_remaining_secs = *((double *)(msg + 40));
-          gui->summary.startup_progress.startup_incremental_snapshot_throughput = *((double *)(msg + 48));
+          gui->summary.startup_progress.startup_incremental_snapshot_slot = FD_LOAD( ulong, msg + 2 );
+          gui->summary.startup_progress.startup_incremental_snapshot_peer_ip_addr = FD_LOAD( uint, msg + 10 );
+          gui->summary.startup_progress.startup_incremental_snapshot_peer_port = FD_LOAD( ushort, msg + 14 );
+          gui->summary.startup_progress.startup_incremental_snapshot_total_bytes = FD_LOAD( ulong, msg + 16 );
+          gui->summary.startup_progress.startup_incremental_snapshot_current_bytes = FD_LOAD( ulong, msg + 24 );
+          gui->summary.startup_progress.startup_incremental_snapshot_elapsed_secs = FD_LOAD( double, msg + 32 );
+          gui->summary.startup_progress.startup_incremental_snapshot_remaining_secs = FD_LOAD( double, msg + 40 );
+          gui->summary.startup_progress.startup_incremental_snapshot_throughput = FD_LOAD( double, msg + 48 );
           FD_LOG_INFO(( "progress: downloading incremental snapshot: slot=%lu", gui->summary.startup_progress.startup_incremental_snapshot_slot ));
       }
       break;
@@ -3006,13 +3004,13 @@ fd_gui_plugin_message( fd_gui_t *   gui,
 
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:
-      fd_gui_handle_rooted_slot_legacy( gui, (ulong *)msg );
+      fd_gui_handle_rooted_slot_legacy( gui, msg );
       break;
     case FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED:
-      fd_gui_handle_optimistically_confirmed_slot( gui, ((ulong *)msg)[0] );
+      fd_gui_handle_optimistically_confirmed_slot( gui, FD_LOAD( ulong, msg ) );
       break;
     case FD_PLUGIN_MSG_SLOT_COMPLETED: {
-      fd_gui_handle_completed_slot( gui, (ulong *)msg, now );
+      fd_gui_handle_completed_slot( gui, msg, now );
       break;
     }
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
@@ -3021,14 +3019,14 @@ fd_gui_plugin_message( fd_gui_t *   gui,
       break;
     }
     case FD_PLUGIN_MSG_SLOT_START: {
-      ulong slot = ((ulong *)msg)[ 0 ];
-      ulong parent_slot = ((ulong *)msg)[ 1 ];
+      ulong slot = FD_LOAD( ulong, msg );
+      ulong parent_slot = FD_LOAD( ulong, (uchar const *)msg + 8UL );
       fd_gui_handle_slot_start( gui, slot, parent_slot, now );
       break;
     }
     case FD_PLUGIN_MSG_SLOT_END: {
-      ulong slot = ((ulong *)msg)[ 0 ];
-      ulong cus_used = ((ulong *)msg)[ 1 ];
+      ulong slot = FD_LOAD( ulong, msg );
+      ulong cus_used = FD_LOAD( ulong, (uchar const *)msg + 8UL );
       fd_gui_handle_slot_end( gui, slot, cus_used, now );
       break;
     }
@@ -3045,11 +3043,11 @@ fd_gui_plugin_message( fd_gui_t *   gui,
       break;
     }
     case FD_PLUGIN_MSG_SLOT_RESET: {
-      fd_gui_handle_reset_slot_legacy( gui, (ulong *)msg, now );
+      fd_gui_handle_reset_slot_legacy( gui, msg, now );
       break;
     }
     case FD_PLUGIN_MSG_BALANCE: {
-      fd_gui_handle_balance_update( gui, (ulong *)msg );
+      fd_gui_handle_balance_update( gui, msg );
       break;
     }
     case FD_PLUGIN_MSG_START_PROGRESS: {

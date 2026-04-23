@@ -516,7 +516,8 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/cpi.rs#L367-L378 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
-    if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions && acc_info->data_box_addr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                 \
+    if( FD_UNLIKELY( vm->syscall_parameter_address_restrictions &&                                                                                 \
+                     vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ) >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                \
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );                                                                          \
       return FD_VM_SYSCALL_ERR_INVALID_POINTER;                                                                                                    \
     }                                                                                                                                              \

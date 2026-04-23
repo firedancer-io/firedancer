@@ -463,6 +463,7 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
   /* Promote any found accounts to writable accounts */
 
   req_cnt = 0UL;
+  ulong release_cnt = 0UL;
   for( ulong i=0UL; i<cnt; i++ ) {
     void const *    addr_i   = (void const *)( (ulong)addr0 + i*32UL );
     fd_accdb_rw_t * rw       = &rw0[ i ];
@@ -473,9 +474,11 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
       /* Mutable record found, modify in-place */
 
       if( FD_UNLIKELY( !flag_create && fd_accdb_ref_lamports( rw->ro )==0UL ) ) {
-        /* Tombstone */
+        /* Tombstone found in funk - no vinyl ACQUIRE was sent for this
+           account, so skip without incrementing req_cnt. */
         fd_funk_rec_write_unlock( v2->funk, rec );
-        goto not_found;
+        memset( rw, 0, sizeof(fd_accdb_ref_t) );
+        continue;
       }
 
       ulong  acc_orig_sz = fd_accdb_ref_data_sz( rw->ro );
@@ -500,9 +503,11 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
 
       fd_accdb_ro_t * ro = rw->ro;
       if( FD_UNLIKELY( !flag_create && fd_accdb_ref_lamports( ro )==0UL ) ) {
-        /* Tombstone */
+        /* Tombstone found in funk - no vinyl ACQUIRE was sent for this
+           account, so skip without incrementing req_cnt. */
         fd_funk_rec_read_unlock( v2->funk, rec );
-        goto not_found;
+        memset( rw, 0, sizeof(fd_accdb_ref_t) );
+        continue;
       }
 
       ulong  acc_orig_sz = fd_accdb_ref_data_sz( ro );
@@ -541,27 +546,22 @@ fd_accdb_user_v2_open_rw_multi( fd_accdb_user_t *         accdb,
     int req_err = req_err0[ req_cnt ];
     if( req_err ) {
       /* Record not found in vinyl either (truly does not exist)
-         If CREATE flag was requested, create it in funk */
+         Nothing was acquired, so no release needed. */
       if( FD_UNLIKELY( req_err!=FD_VINYL_ERR_KEY ) ) {
         FD_LOG_CRIT(( "vinyl tile ACQUIRE request failed: %i-%s", req_err, fd_vinyl_strerror( req_err ) ));
       }
-not_found:
-      if( flag_create ) {
-        fd_accdb_funk_create( v2->funk, rw, txn, addr_i, data_max0[ i ] );
-        fd_funk_rec_write_lock_uncontended( v2->funk, (fd_funk_rec_t *)rw->ref->user_data );
-        accdb->base.rw_active++;
-      } else {
-        memset( rw, 0, sizeof(fd_accdb_ref_t) );
-      }
       req_cnt++;
-      continue;
+      goto not_found;
     }
 
-    /* Record found in vinyl */
+    /* Record found in vinyl - compact val_gaddr for later RELEASE */
 
-    ulong               req_val_gaddr = req_val_gaddr0[ req_cnt ];
-    fd_account_meta_t * src_meta      = fd_wksp_laddr_fast( data_wksp, req_val_gaddr );
-    uchar const *       src_data      = (uchar *)( src_meta+1 );
+    ulong req_val_gaddr           = req_val_gaddr0[ req_cnt ];
+    req_val_gaddr0[ release_cnt ] = req_val_gaddr;
+    release_cnt++;
+    req_cnt++;
+    fd_account_meta_t * src_meta  = fd_wksp_laddr_fast( data_wksp, req_val_gaddr );
+    uchar const *       src_data  = (uchar *)( src_meta+1 );
 
     if( FD_UNLIKELY( src_meta->lamports==0UL ) ) goto not_found; /* tombstone */
 
@@ -590,24 +590,39 @@ not_found:
     fd_accdb_funk_prep_create( rw, v2->funk, txn, addr_i, val, val_sz, val_max );
     fd_funk_rec_write_lock_uncontended( v2->funk, (fd_funk_rec_t *)rw->ref->user_data );
 
-    req_cnt++;
     accdb->base.rw_active++;
     accdb->base.created_cnt++;
+    continue;
+
+not_found:
+    if( flag_create ) {
+      fd_accdb_funk_create( v2->funk, rw, txn, addr_i, data_max0[ i ] );
+      fd_funk_rec_write_lock_uncontended( v2->funk, (fd_funk_rec_t *)rw->ref->user_data );
+      accdb->base.rw_active++;
+    } else {
+      memset( rw, 0, sizeof(fd_accdb_ref_t) );
+    }
   }
 
-  /* Send "RELEASE" batch (reuse val_gaddr values),
-     and wait for response */
+  /* Send "RELEASE" batch for entries that were successfully ACQUIREd
+     from vinyl (compacted into req_val_gaddr0[0..release_cnt)). */
 
-  if( req_cnt ) {
+  if( release_cnt ) {
     ulong req_id = v2->vinyl_req_id++;
     memset( fd_vinyl_req_batch_comp( req_pool, batch_idx ), 0, sizeof(fd_vinyl_comp_t) );
-    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, req_cnt );
+    fd_vinyl_req_send_batch( rq, req_pool, req_wksp, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, 0UL, batch_idx, release_cnt );
 
     while( FD_VOLATILE_CONST( comp->seq )!=1UL ) FD_SPIN_PAUSE();
     FD_COMPILER_MFENCE();
     int comp_err = FD_VOLATILE_CONST( comp->err );
     if( FD_UNLIKELY( comp_err!=FD_VINYL_SUCCESS ) ) {
       FD_LOG_CRIT(( "vinyl tile rejected my RELEASE request: %i-%s", comp_err, fd_vinyl_strerror( comp_err ) ));
+    }
+    for( ulong i=0UL; i<release_cnt; i++ ) {
+      int req_err = req_err0[ i ];
+      if( FD_UNLIKELY( req_err!=FD_VINYL_SUCCESS ) ) {
+        FD_LOG_CRIT(( "vinyl tile RELEASE request failed: %i-%s", req_err, fd_vinyl_strerror( req_err ) ));
+      }
     }
   }
 
