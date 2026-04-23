@@ -475,6 +475,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
+  out_fds[ out_cnt++ ] = 123461; /* accounts db */
 
   return out_cnt;
 }
