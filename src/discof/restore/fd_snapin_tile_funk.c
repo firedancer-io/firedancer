@@ -39,8 +39,9 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   fd_funk_rec_prepare_t prepare[1];
   if( FD_LIKELY( !rec ) ) {
     should_publish = 1;
-    rec = fd_funk_rec_prepare( funk, ctx->xid, &id, prepare, NULL );
-    FD_TEST( rec );
+    int err;
+    rec = fd_funk_rec_prepare( funk, ctx->xid, &id, prepare, &err );
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "failed to prepare funk record for account insertion at slot %lu (err=%d%s)", result->account_header.slot, err, err==FD_FUNK_ERR_REC ? ", increase [accounts.rec_max]" : "" ));
   }
 
   fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
@@ -196,7 +197,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     fd_funk_rec_t * r = rec[ i ];
     if( FD_LIKELY( !r ) ) {  /* optimize for new account */
       r = fd_funk_rec_pool_acquire( funk->rec_pool );
-      FD_TEST( r );
+      if( FD_UNLIKELY( !r ) ) FD_LOG_ERR(( "funk record pool exhausted while loading snapshot batch (increase [accounts.rec_max])" ));
       ulong rec_idx = (ulong)( r - rec_tbl );
 
       fd_funk_txn_xid_copy( r->pair.xid, ctx->xid );
@@ -225,7 +226,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     } else {  /* existing record for key found */
       fd_account_meta_t const * existing = fd_funk_val( r, funk->wksp );
       if( FD_UNLIKELY( !existing ) ) FD_LOG_HEXDUMP_NOTICE(( "r", r, sizeof(fd_funk_rec_t) ));
-      FD_TEST( existing );
+      if( FD_UNLIKELY( !existing ) ) FD_LOG_ERR(( "corrupt funk record: existing record has no value" ));
       if( existing->slot > slot ) {
         rec[ i ] = NULL;  /* skip record if existing value is newer */
         /* send the skipped account to the subtracting hash tile */
@@ -237,13 +238,13 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
         ctx->dup_capitalization = fd_ulong_sat_add( ctx->dup_capitalization, existing->lamports );
         fd_snapin_send_duplicate_account( ctx, existing->lamports, (uchar const *)existing + sizeof(fd_account_meta_t), existing->dlen, existing->executable, existing->owner, pubkey, 1, &early_exit );
       } else { /* slot==existing->slot */
-        FD_TEST( 0 );
+        FD_LOG_ERR(( "corrupt snapshot: duplicate account in same slot (slot=%lu)", slot ));
       }
 
       if( FD_LIKELY( early_exit ) ) {
         /* buffer account batch if not already buffered */
         if( FD_LIKELY( result && i<FD_SSPARSE_ACC_BATCH_MAX-1UL ) ) {
-          FD_TEST( ctx->buffered_batch.batch_cnt==0UL );
+          if( FD_UNLIKELY( ctx->buffered_batch.batch_cnt!=0UL ) ) FD_LOG_ERR(( "unexpected non-empty buffered batch during early exit (batch_cnt=%lu i=%lu slot=%lu)", ctx->buffered_batch.batch_cnt, i, slot ));
           fd_memcpy( ctx->buffered_batch.batch, result->account_batch.batch, sizeof(uchar const*)*FD_SSPARSE_ACC_BATCH_MAX );
           ctx->buffered_batch.slot          = result->account_batch.slot;
           ctx->buffered_batch.batch_cnt     = result->account_batch.batch_cnt;
