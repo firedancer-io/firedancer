@@ -1157,6 +1157,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   fd_pubkey_t programdata_keys[ MAX_TX_ACCOUNT_LOCKS ];
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     fd_accdb_entry_t * entry = &txn_out->accounts.account[ i ];
+    runtime->accounts.refcnt[i] = 0UL;
     if( FD_UNLIKELY( memcmp( entry->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
     fd_bpf_state_t program_loader_state[1];
     int err = fd_bpf_loader_program_get_state( &txn_out->accounts.account[ i ], program_loader_state );
