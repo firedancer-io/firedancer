@@ -4,7 +4,7 @@
 
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h"
-#include "../../../discof/replay/fd_replay_tile.c"
+#include "../../../discof/replay/fd_replay_tile_private.h"
 
 #include <stdio.h>
 #include <unistd.h>
