@@ -391,6 +391,8 @@ struct ctx {
     ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
     ulong repaired_slots;
     ulong current_slot;
+    ulong last_requested_slot;
+    ulong last_requested_orphan;
     ulong sign_tile_unavail;
     ulong rerequest;
     ulong malformed_ping;
@@ -466,7 +468,6 @@ sign_map_remove( ctx_t * ctx,
 static void
 send_packet( ctx_t             * ctx,
              fd_stem_context_t * stem,
-             int                 is_intake,
              uint                dst_ip_addr,
              ushort              dst_port,
              uint                src_ip_addr,
@@ -476,7 +477,7 @@ send_packet( ctx_t             * ctx,
   ctx->metrics->send_pkt_cnt++;
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_ctx->mem, ctx->net_out_ctx->chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
-  *hdr = *(is_intake ? ctx->intake_hdr : ctx->serve_hdr);
+  *hdr = *ctx->intake_hdr;
 
   fd_ip4_hdr_t * ip4 = hdr->ip4;
   ip4->saddr       = src_ip_addr;
@@ -657,9 +658,7 @@ after_sign( ctx_t             * ctx,
   /* Find which sign tile sent this response and increment its credits */
   for( uint i = 0; i < ctx->repair_sign_cnt; i++ ) {
     if( ctx->repair_sign_out_ctx[i].in_idx == in_idx ) {
-      if( ctx->repair_sign_out_ctx[i].credits < ctx->repair_sign_out_ctx[i].max_credits ) {
-        ctx->repair_sign_out_ctx[i].credits++;
-      }
+      if( FD_LIKELY( ctx->repair_sign_out_ctx[i].credits < ctx->repair_sign_out_ctx[i].max_credits ) ) ctx->repair_sign_out_ctx[i].credits++;
       break;
     }
   }
@@ -676,7 +675,7 @@ after_sign( ctx_t             * ctx,
     if( FD_LIKELY( peer && peer->ping ) ) peer->ping--; /* prevent underflow if the peer was removed/readded */
 
     fd_memcpy( pending->msg.pong.sig, ctx->sign_buf, 64UL );
-    send_packet( ctx, stem, 1, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    send_packet( ctx, stem, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
     return;
   }
 
@@ -687,7 +686,7 @@ after_sign( ctx_t             * ctx,
   /* This is a warmup message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.slot == 0 ) ) {
     fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
-    if( FD_UNLIKELY( peer ) ) send_packet( ctx, stem, 1, peer->ip4, peer->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    if( FD_UNLIKELY( peer ) ) send_packet( ctx, stem, peer->ip4, peer->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
     else { /* This is a warmup request for a peer that is no longer active.  There's no reason to pick another peer for a warmup rq, so just drop it. */ }
     return;
   }
@@ -718,7 +717,11 @@ after_sign( ctx_t             * ctx,
     fd_inflights_request_insert( ctx->inflights, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
     fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
   }
-  send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+
+  if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_ORPHAN ) ) ctx->metrics->last_requested_orphan = pending->msg.orphan.slot;
+  else                                                            ctx->metrics->last_requested_slot   = pending->msg.shred.slot;
+
+  send_packet( ctx, stem, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
 }
 
 static int
@@ -1379,6 +1382,10 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_policy_peer_pool_used( ctx->policy->peers.pool ) );
   FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL, ctx->metrics->sign_tile_unavail );
   FD_MCNT_SET( REPAIR, REREQUEST_QUEUE,   ctx->metrics->rerequest );
+
+  FD_MGAUGE_SET( REPAIR, LAST_REQUESTED_SLOT,   ctx->metrics->last_requested_slot );
+  FD_MGAUGE_SET( REPAIR, LAST_REQUESTED_ORPHAN, ctx->metrics->last_requested_orphan );
+  FD_MGAUGE_SET( REPAIR, INFLIGHT_REQUESTS,     fd_inflight_pool_used( ctx->inflights->pool ) - ctx->inflights->popped_cnt );
 
   FD_MCNT_SET      ( REPAIR, TOTAL_PKT_COUNT, ctx->metrics->send_pkt_cnt   );
   FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES,  ctx->metrics->sent_pkt_types );

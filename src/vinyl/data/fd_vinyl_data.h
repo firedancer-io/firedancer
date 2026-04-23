@@ -344,10 +344,25 @@ struct __attribute((aligned(FD_VINYL_DATA_ALIGN))) fd_vinyl_data {
   fd_vinyl_data_vol_t * vol;             /* Vols, indexed [0,vol_cnt), in raw shared memory region */
   ulong                 vol_cnt;         /* Num vols, in [0,FD_VINYL_DATA_VOL_MAX) */
   ulong                 vol_idx_free;    /* Idx of first free volume if in [0,vol_cnt), no free volumes o.w. */
+  ulong                 inactive_stack_max; /* Upper bound on inactive stack depth for any szc (cycle detection in free) */
   struct {
     fd_vinyl_data_obj_t * active;        /* active superblock for this size class */
     fd_vinyl_data_obj_t * inactive_top;  /* top of the inactive superblock stack for this size class */
   } superblock[ FD_VINYL_DATA_SZC_CNT ];
+
+  /* Diagnostic counters (near-zero cost, single increment per
+     alloc/free).  Dumped at crash time by fd_vinyl_data_diag_log. */
+
+  struct {
+    ulong alloc_cnt;              /* Successful alloc calls (including recursive superblock splits) */
+    ulong free_cnt;               /* Successful free calls (including recursive superblock coalesces, excluding no-op free(NULL)) */
+    ulong alloc_from_active_cnt;  /* Alloc served from active superblock */
+    ulong alloc_from_inactive_cnt;/* Alloc served from inactive stack */
+    ulong alloc_from_parent_cnt;  /* Alloc split from parent szc */
+    ulong alloc_from_volume_cnt;  /* Alloc consumed a fresh volume */
+    ulong free_coalesce_cnt;      /* Free coalesced a superblock to parent */
+    ulong free_volume_reclaim_cnt;/* Free returned a volume to free stack */
+  } diag;
 };
 
 typedef struct fd_vinyl_data fd_vinyl_data_t;
@@ -472,6 +487,19 @@ fd_vinyl_data_reset( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
 
 int
 fd_vinyl_data_verify( fd_vinyl_data_t const * data );
+
+/* fd_vinyl_data_diag_log dumps diagnostic state about the data cache.
+   Intended to be called immediately before a CRIT on alloc failure.
+   szc_req is the sizeclass that failed.  line/line_cnt give the cache
+   line array for per-line utilization stats (NULL/0 to skip). */
+
+struct fd_vinyl_line;
+
+void
+fd_vinyl_data_diag_log( fd_vinyl_data_t const *      data,
+                        ulong                        szc_req,
+                        struct fd_vinyl_line const * line,
+                        ulong                        line_cnt );
 
 FD_PROTOTYPES_END
 

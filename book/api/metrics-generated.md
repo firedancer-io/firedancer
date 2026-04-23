@@ -886,6 +886,9 @@
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">pong</span>"} | counter | What types of client messages are we sending (Pong) |
 | <span class="metrics-name">repair_&#8203;repaired_&#8203;slots</span> | counter | Until which slots have we fully repaired |
 | <span class="metrics-name">repair_&#8203;current_&#8203;slot</span> | counter | Our view of the current cluster slot, max slot received |
+| <span class="metrics-name">repair_&#8203;last_&#8203;requested_&#8203;slot</span> | gauge | The last slot we requested a single shred for |
+| <span class="metrics-name">repair_&#8203;last_&#8203;requested_&#8203;orphan</span> | gauge | The last slot we requested an orphan for |
+| <span class="metrics-name">repair_&#8203;inflight_&#8203;requests</span> | gauge | How many requests are currently in the inflight queue, excludes orphans and highest window requests |
 | <span class="metrics-name">repair_&#8203;request_&#8203;peers</span> | counter | How many peers have we requested |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;tile_&#8203;unavail</span> | counter | How many times no sign tiles were available to send request |
 | <span class="metrics-name">repair_&#8203;eager_&#8203;repair_&#8203;aggresses</span> | counter | How many times we pass eager repair threshold |

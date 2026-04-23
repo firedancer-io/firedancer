@@ -255,6 +255,7 @@ struct fd_tower_tile {
 
   int    halt_signing;
   int    hard_fork_fatal;
+  int    wfs;           /* 1 if booted with wait_for_supermajority */
   ushort shred_version;
   int    init; /* 1 after ghost_init has been called */
 
@@ -955,7 +956,12 @@ query_vote_accs( fd_tower_tile_t *            ctx,
   fd_accdb_ro_pipe_fini( ro_pipe );
 
   /* Reconcile our local tower with the on-chain tower (stored inside
-     our vote account). */
+     our vote account).
+
+     Skip reconciliation on the first replay_slot_completed if booted
+     with wait_for_supermajority.  This prevents spurious lockout_check
+     failures (slot <= last_vote_slot) and threshold_check failures
+     (deep stale tower with no voter support) */
 
   *our_vote_acct_bal    = ULONG_MAX;
   *found_our_vote_acct  = 0;
@@ -967,7 +973,12 @@ query_vote_accs( fd_tower_tile_t *            ctx,
     *our_vote_acct_bal = fd_accdb_ref_lamports( reconcile_ro );
     fd_memcpy( ctx->our_vote_acct, fd_accdb_ref_data_const( reconcile_ro ), ctx->our_vote_acct_sz );
     fd_accdb_close_ro( ctx->accdb, reconcile_ro );
-    fd_tower_reconcile( ctx->tower, ctx->our_vote_acct );
+    int skip_reconcile = !ctx->init && ctx->wfs;
+    if( FD_LIKELY( !skip_reconcile ) ) {
+      fd_tower_reconcile( ctx->tower, ctx->our_vote_acct );
+    } else {
+      FD_LOG_NOTICE(( "wait_for_supermajority: skipping tower reconcile on init slot %lu", slot_completed->slot ));
+    }
   }
 
   return total_stake;
@@ -1296,6 +1307,7 @@ init_choreo( void                 * scratch,
 
   ctx->halt_signing    = 0;
   ctx->hard_fork_fatal = tile->tower.hard_fork_fatal;
+  ctx->wfs             = tile->tower.wait_for_supermajority;
   ctx->shred_version   = 0;
   ctx->init            = 0;
   ctx->tower->root     = ULONG_MAX;

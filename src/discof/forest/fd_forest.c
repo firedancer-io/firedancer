@@ -48,6 +48,8 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max ) );
   void * subtlist = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_subtlist_align(), fd_forest_subtlist_footprint(         ) );
 
+    /* indexers */
+
   void * requestd = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_requests_align(), fd_forest_requests_footprint( ele_max ) );
   void * reqslist = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_reqslist_align(), fd_forest_reqslist_footprint(         ) );
   void * reqspool = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_reqspool_align(), fd_forest_reqspool_footprint( ele_max ) );
@@ -68,6 +70,8 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   forest->subtrees_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_subtrees_join( fd_forest_subtrees_new( subtrees, ele_max, seed        ) ) );
   forest->orphaned_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_orphaned_join( fd_forest_orphaned_new( orphaned, ele_max, seed        ) ) );
   forest->subtlist_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_subtlist_join( fd_forest_subtlist_new( subtlist                       ) ) );
+
+  /* indexers */
 
   forest->requests_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_requests_join( fd_forest_requests_new( requestd, ele_max, seed        ) ) );
   forest->reqslist_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_reqslist_join( fd_forest_reqslist_new( reqslist                       ) ) );
@@ -1737,24 +1741,6 @@ fd_forest_iter_done( fd_forest_iter_t * iter, fd_forest_t * forest ) {
 }
 
 #include <stdio.h>
-
-static void
-preorder( fd_forest_t const * forest, fd_forest_blk_t const * ele ) {
-  fd_forest_blk_t const * pool  = fd_forest_pool_const( forest );
-  fd_forest_blk_t const * child = fd_forest_pool_ele_const( pool, ele->child );
-  printf( "%lu ", ele->slot );
-  while( FD_LIKELY( child ) ) {
-    preorder( forest, child );
-    child = fd_forest_pool_ele_const( pool, child->sibling );
-  }
-}
-
-void
-fd_forest_preorder_print( fd_forest_t const * forest ) {
-  FD_LOG_NOTICE( ( "\n\n[Preorder]" ) );
-  preorder( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ) );
-  printf( "\n\n" );
-}
 
 #define FD_FOREST_ORPHANED_PRINT_MAX_DEPTH 500UL
 

@@ -343,14 +343,14 @@ run_monitor( config_t const * config,
         ulong cur_hkeep_ticks      = cur->regime_ticks[0]+cur->regime_ticks[1]+cur->regime_ticks[2];
         ulong prv_hkeep_ticks      = prv->regime_ticks[0]+prv->regime_ticks[1]+prv->regime_ticks[2];
 
-        ulong cur_wait_ticks       = cur->regime_ticks[3]+cur->regime_ticks[6];
-        ulong prv_wait_ticks       = prv->regime_ticks[3]+prv->regime_ticks[6];
+        ulong cur_wait_ticks       = cur->regime_ticks[6];
+        ulong prv_wait_ticks       = prv->regime_ticks[6];
 
         ulong cur_backp_ticks      = cur->regime_ticks[5];
         ulong prv_backp_ticks      = prv->regime_ticks[5];
 
-        ulong cur_processing_ticks = cur->regime_ticks[4]+cur->regime_ticks[7];
-        ulong prv_processing_ticks = prv->regime_ticks[4]+prv->regime_ticks[7];
+        ulong cur_processing_ticks = cur->regime_ticks[3]+cur->regime_ticks[4]+cur->regime_ticks[7];
+        ulong prv_processing_ticks = prv->regime_ticks[3]+prv->regime_ticks[4]+prv->regime_ticks[7];
 
         PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_hkeep_ticks,      prv_hkeep_ticks,      0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
         PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_wait_ticks,       prv_wait_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
