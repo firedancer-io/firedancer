@@ -3,6 +3,11 @@
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_sync.h"
 
+static int
+validate( fd_epoch_schedule_t const * schedule ) {
+  return schedule->warmup!=0 && schedule->warmup!=1;
+}
+
 fd_epoch_schedule_t *
 fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
                           ulong                 epoch_len,
@@ -38,17 +43,7 @@ fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
                                 fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule ) {
 
-  uchar enc[ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ] = {0};
-
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = enc,
-    .dataend = enc + FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ
-  };
-  if( FD_UNLIKELY( fd_epoch_schedule_encode( epoch_schedule, &ctx ) ) ) {
-    FD_LOG_ERR(( "fd_epoch_schedule_encode failed" ));
-  }
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_schedule_id, enc, FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_schedule_id, epoch_schedule, sizeof(fd_epoch_schedule_t) );
 }
 
 fd_epoch_schedule_t *
@@ -57,6 +52,11 @@ fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
                                fd_epoch_schedule_t *     out ) {
   fd_accdb_ro_t ro[1];
   if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_epoch_schedule_id ) ) ) {
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )!=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ) ) {
+    fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
 
@@ -69,12 +69,15 @@ fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
     return NULL;
   }
 
-  fd_epoch_schedule_t * rc = fd_bincode_decode_static(
-      epoch_schedule, out,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
+  memcpy( out, fd_accdb_ref_data_const( ro ), sizeof(fd_epoch_schedule_t) );
+
+  if( FD_UNLIKELY( validate( out ) ) ) {
+    fd_accdb_close_ro( accdb, ro );
+    return NULL;
+  }
+
   fd_accdb_close_ro( accdb, ro );
-  return rc;
+  return out;
 }
 
 void
@@ -145,7 +148,6 @@ fd_slot_to_epoch( fd_epoch_schedule_t const * schedule,
     ulong epoch_len = 1UL<<( epoch + (ulong)fd_uint_find_lsb( FD_EPOCH_LEN_MIN ) );
           offset    = slot - ( epoch_len - FD_EPOCH_LEN_MIN );
   } else {
-    // FD_LOG_WARNING(("First %lu slots per epoch %lu", schedule->first_normal_slot, schedule->slots_per_epoch));
     if( FD_UNLIKELY( schedule->slots_per_epoch == 0UL ) ) {
       FD_LOG_WARNING(( "zero slots_per_epoch returning first_normal_epoch %lu", schedule->first_normal_epoch ));
       if( out_offset_opt ) *out_offset_opt = 0UL;

@@ -1,5 +1,12 @@
 #include "fd_sysvar_rent.h"
 
+FD_STATIC_ASSERT( alignof ( fd_rent_t                          )==0x01UL,                    layout );
+FD_STATIC_ASSERT( offsetof( fd_rent_t, lamports_per_uint8_year )==0x00UL,                    layout );
+FD_STATIC_ASSERT( offsetof( fd_rent_t, exemption_threshold     )==0x08UL,                    layout );
+FD_STATIC_ASSERT( offsetof( fd_rent_t, burn_percent            )==0x10UL,                    layout );
+FD_STATIC_ASSERT( sizeof  ( fd_rent_t                          )==0x11UL,                    layout );
+FD_STATIC_ASSERT( sizeof  ( fd_rent_t                          )==FD_SYSVAR_RENT_BINCODE_SZ, layout );
+
 static void
 test_sysvar_rent_bounds( void ) {
   /* Real sysvar account observed on-chain */
@@ -9,11 +16,6 @@ test_sysvar_rent_bounds( void ) {
     0x64
   };
   FD_TEST( sizeof(data)==FD_SYSVAR_RENT_BINCODE_SZ );
-  fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+sizeof(data) };
-  ulong obj_sz = 0UL;
-  FD_TEST( fd_rent_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
-  FD_TEST( obj_sz==FD_SYSVAR_RENT_FOOTPRINT );
-  FD_TEST( fd_rent_align()==FD_SYSVAR_RENT_ALIGN );
 }
 
 struct fd_rent_exempt_fixture {

@@ -13,28 +13,6 @@ struct fd_fee_calculator {
 typedef struct fd_fee_calculator fd_fee_calculator_t;
 #define FD_FEE_CALCULATOR_ALIGN alignof(fd_fee_calculator_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11 */
-/* Encoded Size: Fixed (17 bytes) */
-struct fd_rent {
-  ulong lamports_per_uint8_year;
-  double exemption_threshold;
-  uchar burn_percent;
-};
-typedef struct fd_rent fd_rent_t;
-#define FD_RENT_ALIGN alignof(fd_rent_t)
-
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/epoch_schedule.rs#L26 */
-/* Encoded Size: Fixed (33 bytes) */
-struct fd_epoch_schedule {
-  ulong slots_per_epoch;
-  ulong leader_schedule_slot_offset;
-  uchar warmup;
-  ulong first_normal_epoch;
-  ulong first_normal_slot;
-};
-typedef struct fd_epoch_schedule fd_epoch_schedule_t;
-#define FD_EPOCH_SCHEDULE_ALIGN alignof(fd_epoch_schedule_t)
-
 /* https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L17 */
 /* Encoded Size: Fixed (24 bytes) */
 struct fd_stake_history_entry {
@@ -166,20 +144,6 @@ typedef struct fd_recent_block_hashes_global fd_recent_block_hashes_global_t;
 static FD_FN_UNUSED fd_block_block_hash_entry_t * fd_recent_block_hashes_hashes_join( fd_recent_block_hashes_global_t * type ) { // deque
   return type->hashes_offset ? (fd_block_block_hash_entry_t *)deq_fd_block_block_hash_entry_t_join( fd_type_pun( (uchar *)type + type->hashes_offset ) ) : NULL;
 }
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14 */
-/* Encoded Size: Fixed (81 bytes) */
-struct fd_sysvar_epoch_rewards {
-  ulong distribution_starting_block_height;
-  ulong num_partitions;
-  fd_hash_t parent_blockhash;
-  fd_w_u128_t total_points;
-  ulong total_rewards;
-  ulong distributed_rewards;
-  uchar active;
-};
-typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
-#define FD_SYSVAR_EPOCH_REWARDS_ALIGN alignof(fd_sysvar_epoch_rewards_t)
-
 
 FD_PROTOTYPES_BEGIN
 
@@ -193,24 +157,6 @@ static inline int fd_fee_calculator_decode_footprint( fd_bincode_decode_ctx_t * 
   return 0;
 }
 void * fd_fee_calculator_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_rent_new( fd_rent_t * self ) { fd_memset( self, 0, sizeof(fd_rent_t) ); }
-int fd_rent_encode( fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_rent_size( fd_rent_t const * self ) { (void)self; return 17UL; }
-static inline ulong fd_rent_align( void ) { return FD_RENT_ALIGN; }
-static inline int fd_rent_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_rent_t);
-  if( (ulong)ctx->data + 17UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_rent_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_epoch_schedule_new( fd_epoch_schedule_t * self );
-int fd_epoch_schedule_encode( fd_epoch_schedule_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_epoch_schedule_size( fd_epoch_schedule_t const * self ) { (void)self; return 33UL; }
-static inline ulong fd_epoch_schedule_align( void ) { return FD_EPOCH_SCHEDULE_ALIGN; }
-int fd_epoch_schedule_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_epoch_schedule_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_stake_history_entry_new( fd_stake_history_entry_t * self ) { fd_memset( self, 0, sizeof(fd_stake_history_entry_t) ); }
 int fd_stake_history_entry_encode( fd_stake_history_entry_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -292,13 +238,6 @@ void * fd_recent_block_hashes_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
 void * fd_recent_block_hashes_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 int fd_recent_block_hashes_encode_global( fd_recent_block_hashes_global_t const * self, fd_bincode_encode_ctx_t * ctx );
 ulong fd_recent_block_hashes_size_global( fd_recent_block_hashes_global_t const * self );
-
-void fd_sysvar_epoch_rewards_new( fd_sysvar_epoch_rewards_t * self );
-int fd_sysvar_epoch_rewards_encode( fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_sysvar_epoch_rewards_size( fd_sysvar_epoch_rewards_t const * self ) { (void)self; return 81UL; }
-static inline ulong fd_sysvar_epoch_rewards_align( void ) { return FD_SYSVAR_EPOCH_REWARDS_ALIGN; }
-int fd_sysvar_epoch_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_sysvar_epoch_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 

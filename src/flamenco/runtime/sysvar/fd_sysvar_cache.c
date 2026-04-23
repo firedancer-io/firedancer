@@ -207,10 +207,14 @@ fd_sysvar_obj_restore( fd_sysvar_cache_t *     cache,
   ulong const   data_sz = desc->data_sz;
 
   if( FD_UNLIKELY( !pos->decode ) ) {
-    /* Sysvar is directly stored - does not need to be deserialized */
     if( FD_UNLIKELY( data_sz < pos->data_max ) ) {
-      FD_LOG_DEBUG(( "Failed to decode sysvar %s with data_sz=%lu: decode failed",
-                    pos->name, data_sz ));
+      FD_LOG_DEBUG(( "Failed to decode sysvar %s with data_sz=%lu: too small",
+                     pos->name, data_sz ));
+      return EINVAL;
+    }
+    if( FD_UNLIKELY( pos->validate && pos->validate( data ) ) ) {
+      FD_LOG_DEBUG(( "Failed to validate sysvar %s with data_sz=%lu",
+                     pos->name, data_sz ));
       return EINVAL;
     }
     desc->flags |= FD_SYSVAR_FLAG_VALID;

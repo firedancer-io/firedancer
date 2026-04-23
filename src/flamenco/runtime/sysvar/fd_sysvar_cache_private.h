@@ -7,10 +7,10 @@
 #define FD_SYSVAR_CACHE_MAGIC (0x1aa5ecb2a49b600aUL) /* random number */
 
 #define FD_SYSVAR_SIMPLE_ITER( SIMPLE_SYSVAR ) \
-SIMPLE_SYSVAR( clock,             CLOCK,             sol_sysvar_clock             ) \
-SIMPLE_SYSVAR( epoch_rewards,     EPOCH_REWARDS,     sysvar_epoch_rewards         ) \
-SIMPLE_SYSVAR( epoch_schedule,    EPOCH_SCHEDULE,    epoch_schedule               ) \
-SIMPLE_SYSVAR( rent,              RENT,              rent                         )
+SIMPLE_SYSVAR( clock,          CLOCK,          sol_sysvar_clock     ) \
+SIMPLE_SYSVAR( epoch_rewards,  EPOCH_REWARDS,  sysvar_epoch_rewards ) \
+SIMPLE_SYSVAR( epoch_schedule, EPOCH_SCHEDULE, epoch_schedule       ) \
+SIMPLE_SYSVAR( rent,           RENT,           rent                 )
 
 /* Declare a perfect hash table mapping sysvar IDs to sysvar cache slots
    Hashes bytes [8,12) of each sysvar address. */
@@ -60,14 +60,35 @@ struct fd_sysvar_pos {
 
   char const * name;
 
+  /* sysvars either have a decode function (along with a decode
+     footprint) function for complex type decodes or a validate function
+     for sysvars that are simple types that can be simply memcpy'd and
+     validated. */
+
   int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
   void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
+  /* returns 0 if valid, non-zero (-1) otherwise */
+  int    (* validate)( void const * data );
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
 
 #define TYPES_CALLBACKS( name, suf )                                   \
   .decode_footprint = fd_##name##_decode_footprint,                    \
   .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf
+
+static inline int
+fd_sysvar_validate_epoch_rewards( void const * data ) {
+  uchar active = ((fd_sysvar_epoch_rewards_t *)data)->active;
+  if( FD_UNLIKELY( active!=0 && active!=1 ) ) return -1;
+  return 0;
+}
+
+static inline int
+fd_sysvar_validate_epoch_schedule( void const * data ) {
+  uchar warmup = ((fd_epoch_schedule_t *)data)->warmup;
+  if( FD_UNLIKELY( warmup!=0 && warmup!=1 ) ) return -1;
+  return 0;
+}
 
 static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [FD_SYSVAR_clock_IDX] =
@@ -76,18 +97,14 @@ static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [FD_SYSVAR_epoch_rewards_IDX] =
     { .name="epoch rewards",
       .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_rewards    ), .data_max=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_epoch_rewards    ), .obj_max =FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT,
-      TYPES_CALLBACKS( sysvar_epoch_rewards, ) },
+      .validate=fd_sysvar_validate_epoch_rewards },
   [FD_SYSVAR_epoch_schedule_IDX] =
     { .name="epoch schedule",
       .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_schedule   ), .data_max=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_epoch_schedule   ), .obj_max =FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT,
-      TYPES_CALLBACKS( epoch_schedule, ) },
+      .validate=fd_sysvar_validate_epoch_schedule },
   [FD_SYSVAR_last_restart_slot_IDX] =
     { .name="last restart slot",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_last_restart_slot), .data_max=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_last_restart_slot), .obj_max =FD_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT,
-    },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_last_restart_slot), .data_max=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ },
   [FD_SYSVAR_recent_hashes_IDX] =
     { .name="recent blockhashes",
       .data_off=offsetof(fd_sysvar_cache_t, bin_recent_hashes    ), .data_max=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ,
@@ -95,9 +112,7 @@ static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
       TYPES_CALLBACKS( recent_block_hashes, _global ) },
   [FD_SYSVAR_rent_IDX] =
     { .name="rent",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_rent             ), .data_max=FD_SYSVAR_RENT_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_rent             ), .obj_max =FD_SYSVAR_RENT_FOOTPRINT,
-      TYPES_CALLBACKS( rent, ) },
+      .data_off=offsetof(fd_sysvar_cache_t, bin_rent             ), .data_max=FD_SYSVAR_RENT_BINCODE_SZ },
   [FD_SYSVAR_slot_hashes_IDX] =
     { .name="slot hashes",
       .data_off=offsetof(fd_sysvar_cache_t, bin_slot_hashes      ), .data_max=FD_SYSVAR_SLOT_HASHES_BINCODE_SZ,
