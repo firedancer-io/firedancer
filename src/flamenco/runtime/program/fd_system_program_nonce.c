@@ -866,6 +866,7 @@ fd_check_transaction_age( fd_bank_t *         bank,
         /* Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
            successfully. */
+
         txn_out->accounts.nonce_idx_in_txn = instr_accts[ 0 ];
         /* Now figure out the state that the nonce account should
            advance to. */

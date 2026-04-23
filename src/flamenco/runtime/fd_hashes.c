@@ -78,12 +78,12 @@ fd_hashes_update_simple( fd_lthash_value_t *       lthash_post, /* out */
   /* Add the new hash of the account to the bank lthash */
   fd_lthash_add( bank_lthash, lthash_post );
 
-  if( bank->f.slot==406545832 ) {
-    FD_BASE58_ENCODE_32_BYTES( pubkey, pubkey_b58 );
-    FD_BASE58_ENCODE_32_BYTES( lthash_prev->bytes, lthash_prev_b58 );
-    FD_BASE58_ENCODE_32_BYTES( lthash_post->bytes, lthash_post_b58 );
-    FD_LOG_WARNING(("PUBKEY %s LTHASH PREV %s LTHASH POST %s", pubkey_b58, lthash_prev_b58, lthash_post_b58));
-  }
+  // if( bank->f.slot==406545832 ) {
+  //   FD_BASE58_ENCODE_32_BYTES( pubkey, pubkey_b58 );
+  //   FD_BASE58_ENCODE_32_BYTES( lthash_prev->bytes, lthash_prev_b58 );
+  //   FD_BASE58_ENCODE_32_BYTES( lthash_post->bytes, lthash_post_b58 );
+  //   FD_LOG_WARNING(("PUBKEY %s LTHASH PREV %s LTHASH POST %s", pubkey_b58, lthash_prev_b58, lthash_post_b58));
+  // }
 
   fd_bank_lthash_end_locking_modify( bank );
 
