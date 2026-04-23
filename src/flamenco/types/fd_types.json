@@ -3,7 +3,6 @@
   "name": "fd_runtime_types",
   "extra_header": [
       "#include \"fd_bincode.h\"",
-      "#include \"../../ballet/utf8/fd_utf8.h\"",
       "#include \"fd_types_custom.h\""
   ],
   "entries": [
@@ -28,23 +27,6 @@
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9",
       "agave": "solana_fee_calculator::FeeCalculator"
-    },
-    {
-      "name": "slot_pair",
-      "type": "struct",
-      "archival": "true",
-      "fields": [
-        { "name": "slot", "type": "ulong" },
-        { "name": "val", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "hard_forks",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "hard_forks", "type": "vector", "element": "slot_pair" }
-      ]
     },
     {
       "name": "stake_history_entry",
@@ -115,28 +97,6 @@
       "fields": [
           { "name": "hashes", "type": "deque", "element": "block_block_hash_entry", "min": 151 }
       ]
-    },
-    {
-      "name": "slot_meta",
-      "type": "struct",
-      "fields": [
-          { "name": "slot", "type": "ulong" },
-          { "name": "consumed", "type": "ulong" },
-          { "name": "received", "type": "ulong" },
-          { "name": "first_shred_timestamp", "type": "long" },
-          { "name": "last_index", "type": "ulong" },
-          { "name": "parent_slot", "type": "ulong" },
-          { "name": "next_slot", "type": "vector", "element": "ulong"},
-          { "name": "is_connected", "type": "uchar" }
-      ]
-    },
-    {
-      "name": "sysvar_fees",
-      "type": "struct",
-      "fields": [
-        { "name": "fee_calculator", "type": "fee_calculator" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21"
     }
   ]
 }

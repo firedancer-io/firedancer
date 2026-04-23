@@ -152,6 +152,7 @@ main( int     argc,
   strcpy( tile->name, "rpc" );
   tile->rpc.max_live_slots = 16UL;
   tile->rpc.send_buffer_size_mb = 64UL;
+  tile->rpc.accdb_max_depth = 16UL;
   tile->id_keyswitch_obj_id = keyswitch_obj->id;
 
   fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
@@ -175,6 +176,125 @@ main( int     argc,
       "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}",
       "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32005,\"message\":\"Node is unhealthy\",\"data\":{\"slotsBehind\":null}},\"id\":1}"
   );
+
+  /* -- getMultipleAccounts -- */
+
+  fd_funk_t funk_join[1];
+  fd_funk_t * funk = fd_funk_join( funk_join, shfunk, shlocks );
+  FD_TEST( funk );
+
+  ctx->banks[0].slot = 42UL;
+  ctx->processed_idx = 0UL;
+  ctx->confirmed_idx = 0UL;
+  ctx->finalized_idx = 0UL;
+
+  fd_funk_txn_xid_t root_xid;
+  fd_funk_txn_xid_set_root( &root_xid );
+  fd_funk_txn_xid_t test_xid = { .ul = { 42UL, 0UL } };
+  fd_funk_txn_prepare( funk, &root_xid, &test_xid );
+
+  /* Account A: 4 bytes of data, 1000000 lamports */
+  fd_pubkey_t addr_a;
+  memset( addr_a.uc, 0xAA, 32 );
+  uchar owner_a[32];
+  memset( owner_a, 0xBB, 32 );
+  uchar data_a[4] = { 0x01, 0x02, 0x03, 0x04 };
+  {
+    fd_accdb_rw_t rw[1];
+    FD_TEST( fd_accdb_open_rw( ctx->accdb, rw, &test_xid, addr_a.uc, 64UL, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE ) );
+    fd_accdb_ref_lamports_set( rw, 1000000UL );
+    fd_accdb_ref_owner_set( rw, owner_a );
+    fd_accdb_ref_data_set( ctx->accdb, rw, data_a, sizeof(data_a) );
+    fd_accdb_close_rw( ctx->accdb, rw );
+  }
+
+  /* Account B: 2 bytes of data, 500000 lamports */
+  fd_pubkey_t addr_b;
+  memset( addr_b.uc, 0xCC, 32 );
+  uchar owner_b[32];
+  memset( owner_b, 0xDD, 32 );
+  uchar data_b[2] = { 0xFE, 0xED };
+  {
+    fd_accdb_rw_t rw[1];
+    FD_TEST( fd_accdb_open_rw( ctx->accdb, rw, &test_xid, addr_b.uc, 64UL, FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE ) );
+    fd_accdb_ref_lamports_set( rw, 500000UL );
+    fd_accdb_ref_owner_set( rw, owner_b );
+    fd_accdb_ref_data_set( ctx->accdb, rw, data_b, sizeof(data_b) );
+    fd_accdb_close_rw( ctx->accdb, rw );
+  }
+
+  FD_BASE58_ENCODE_32_BYTES( addr_a.uc, addr_a_b58 );
+  FD_BASE58_ENCODE_32_BYTES( addr_b.uc, addr_b_b58 );
+  FD_BASE58_ENCODE_32_BYTES( owner_a, owner_a_b58 );
+  FD_BASE58_ENCODE_32_BYTES( owner_b, owner_b_b58 );
+
+  fd_pubkey_t addr_missing;
+  memset( addr_missing.uc, 0x11, 32 );
+  FD_BASE58_ENCODE_32_BYTES( addr_missing.uc, addr_missing_b58 );
+
+  char req_buf[8192];
+  char res_buf[4096];
+
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[\"not-an-array\"]}",
+      "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: string \\\"not-an-array\\\", expected a sequence.\"},\"id\":1}" );
+
+  /* too many accounts (101) */
+  {
+    char * p = fd_cstr_init( req_buf );
+    p = fd_cstr_append_cstr( p, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[" );
+    for( int i=0; i<101; i++ ) {
+      if( i>0 ) p = fd_cstr_append_char( p, ',' );
+      p = fd_cstr_append_printf( p, "\"%s\"", addr_a_b58 );
+    }
+    p = fd_cstr_append_cstr( p, "]]}" );
+    fd_cstr_fini( p );
+
+    expect_rpc_response( ctx, req_buf,
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Too many accounts provided; max 100\"},\"id\":1}" );
+  }
+
+  /* empty array */
+  expect_rpc_response( ctx,
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[]]}",
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":42},\"value\":[]}}" );
+
+  /* mix of existing and missing accounts */
+  {
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\",\"%s\",\"%s\"],{\"encoding\":\"base64\"}]}",
+        addr_a_b58, addr_missing_b58, addr_b_b58 ) );
+
+    FD_TEST( fd_cstr_printf_check( res_buf, sizeof(res_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":42},\"value\":["
+        "{\"executable\":false,\"lamports\":1000000,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":4,\"data\":[\"AQIDBA==\",\"base64\"]},"
+        "null,"
+        "{\"executable\":false,\"lamports\":500000,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":2,\"data\":[\"/u0=\",\"base64\"]}"
+        "]}}",
+        owner_a_b58, owner_b_b58 ) );
+
+    expect_rpc_response( ctx, req_buf, res_buf );
+  }
+
+  /* all missing accounts */
+  {
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\",\"%s\"],{\"encoding\":\"base64\"}]}",
+        addr_missing_b58, addr_missing_b58 ) );
+
+    expect_rpc_response( ctx, req_buf,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"context\":{\"apiVersion\":\"" FD_RPC_AGAVE_API_VERSION "\",\"slot\":42},\"value\":[null,null]}}" );
+  }
+
+  /* invalid pubkey in the middle of array */
+  {
+    FD_TEST( fd_cstr_printf_check( req_buf, sizeof(req_buf), NULL,
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getMultipleAccounts\",\"params\":[[\"%s\",\"not-a-valid-pubkey\",\"%s\"]]}",
+        addr_a_b58, addr_b_b58 ) );
+
+    expect_rpc_response( ctx, req_buf,
+        "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid param: Invalid\"},\"id\":1}" );
+  }
 
   /* Don't bother with cleanup since all resources are reclaimed by the
      kernel on return. */
