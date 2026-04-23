@@ -154,6 +154,18 @@ minify( fd_ledger_args_t * args ) {
   /* TODO: Currently, the address signatures column family isn't copied as it
            is indexed on the pubkey. */
 
+  rocksdb_flushoptions_t * flush_options = rocksdb_flushoptions_create();
+  rocksdb_flushoptions_set_wait( flush_options, 1 );
+  char * flush_err = NULL;
+  rocksdb_flush_cfs( mini_rocksdb.db, flush_options,
+                     &mini_rocksdb.cf_handles[ 1 ],
+                     FD_ROCKSDB_CF_CNT - 1, &flush_err );
+  if( FD_UNLIKELY( flush_err ) ) {
+    FD_LOG_WARNING(( "minify: flushing minified rocksdb failed: %s", flush_err ));
+    rocksdb_free( flush_err );
+  }
+  rocksdb_flushoptions_destroy( flush_options );
+
   fd_rocksdb_destroy( &big_rocksdb );
   fd_rocksdb_destroy( &mini_rocksdb );
 }
