@@ -173,7 +173,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
         (delta from last vote slot to current slot * slot duration).
         https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
     ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
-    long  estimate = last_vote_timestamp + (long)(offset / NS_IN_S);
+    long  estimate = fd_long_sat_add( last_vote_timestamp, (long)(offset / NS_IN_S) );
 
     /* For each timestamp, accumulate the stake from E-2.  If the entry
         for the timestamp doesn't exist yet, insert it.  Otherwise,
@@ -243,7 +243,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
         (delta from last vote slot to current slot * slot duration).
         https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
     ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
-    long  estimate = last_vote_timestamp + (long)(offset / NS_IN_S);
+    long  estimate = fd_long_sat_add( last_vote_timestamp, (long)(offset / NS_IN_S) );
 
     /* For each timestamp, accumulate the stake from E-2.  If the entry
         for the timestamp doesn't exist yet, insert it.  Otherwise,
