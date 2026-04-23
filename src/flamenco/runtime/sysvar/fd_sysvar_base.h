@@ -50,7 +50,6 @@ struct fd_sysvar_epoch_rewards {
   ulong       total_rewards;
   ulong       distributed_rewards;
   uchar       active; /* 0 or 1 */
-  uchar       padding_[15];
 };
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 
@@ -58,7 +57,6 @@ struct fd_rent {
   ulong  lamports_per_uint8_year;
   double exemption_threshold;
   uchar  burn_percent;
-  uchar  padding_[7];
 };
 typedef struct fd_rent fd_rent_t;
 

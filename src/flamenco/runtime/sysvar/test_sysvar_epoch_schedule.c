@@ -1,4 +1,5 @@
 #include "fd_sysvar_epoch_schedule.h"
+#include "test_sysvar_cache_util.h"
 
 #include <stddef.h>
 
@@ -158,8 +159,39 @@ test_sysvar_epoch_schedule_testnet( void ) {
   FD_TEST( fd_epoch_slot_cnt( &schedule, 14UL )==432000UL );
 }
 
+static void
+test_sysvar_epoch_schedule_invalid_warmup( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_is_valid( env->sysvar_cache )==0 );
+
+  env->bank->f.rent = (fd_rent_t) {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 100
+  };
+
+  /* The write path persists raw account data, so this creates an invalid sysvar. */
+  fd_epoch_schedule_t const schedule = {
+    .slots_per_epoch             = 432000UL,
+    .leader_schedule_slot_offset = 432000UL,
+    .warmup                      = 2,
+    .first_normal_epoch          = 0UL,
+    .first_normal_slot           = 0UL
+  };
+  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &schedule );
+
+  FD_TEST( !fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_is_valid( env->sysvar_cache )==0 );
+
+  fd_epoch_schedule_t restored;
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( env->sysvar_cache, &restored )==NULL );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
 void
-test_sysvar_epoch_schedule( void ) {
+test_sysvar_epoch_schedule( fd_wksp_t * wksp ) {
   test_sysvar_epoch_schedule_bounds();
   test_sysvar_epoch_schedule_edge_case();
   for( fd_epoch_schedule_t const * vec = fd_epoch_schedule_test_vectors;
@@ -168,4 +200,5 @@ test_sysvar_epoch_schedule( void ) {
     test_epoch_schedule       ( vec );
   }
   test_sysvar_epoch_schedule_testnet();
+  test_sysvar_epoch_schedule_invalid_warmup( wksp );
 }
