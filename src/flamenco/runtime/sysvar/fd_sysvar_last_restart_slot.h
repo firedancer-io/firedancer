@@ -47,13 +47,6 @@ fd_sysvar_last_restart_slot_read( fd_accdb_user_t *         accdb,
                                   fd_funk_txn_xid_t const * xid,
                                   ulong                     sentinel );
 
-/* fd_sysvar_last_restart_slot_derive derives the "last restart slot"
-   value (return value) from a bank's "hard forks" list. */
-
-ulong
-fd_sysvar_last_restart_slot_derive( fd_hard_forks_global_t const * hard_forks,
-                                    ulong                          current_slot );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_last_restart_slot_h */

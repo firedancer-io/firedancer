@@ -29,23 +29,6 @@
       "agave": "solana_fee_calculator::FeeCalculator"
     },
     {
-      "name": "slot_pair",
-      "type": "struct",
-      "archival": "true",
-      "fields": [
-        { "name": "slot", "type": "ulong" },
-        { "name": "val", "type": "ulong" }
-      ]
-    },
-    {
-      "name": "hard_forks",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "hard_forks", "type": "vector", "element": "slot_pair" }
-      ]
-    },
-    {
       "name": "rent",
       "type": "struct",
       "fields": [

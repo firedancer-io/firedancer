@@ -27,31 +27,6 @@ fd_sysvar_last_restart_slot_init( fd_bank_t *               bank,
   fd_sysvar_last_restart_slot_write( bank, accdb, xid, capture_ctx, 0UL );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.3.2/runtime/src/bank.rs#L2217 */
-
-ulong
-fd_sysvar_last_restart_slot_derive(
-    fd_hard_forks_global_t const * hard_forks,
-    ulong                          current_slot
-) {
-
-  if( FD_UNLIKELY( hard_forks->hard_forks_len == 0 ) ) {
-    /* SIMD-0047: The first restart slot should be `0` */
-    return 0UL;
-  }
-
-  fd_slot_pair_t const * head = fd_hard_forks_hard_forks_join( (fd_hard_forks_global_t *)hard_forks );
-  fd_slot_pair_t const * tail = head + hard_forks->hard_forks_len - 1UL;
-
-  for( fd_slot_pair_t const *pair = tail; pair >= head; pair-- ) {
-    if( pair->slot <= current_slot ) {
-      return pair->slot;
-    }
-  }
-
-  return 0UL;
-}
-
 ulong
 fd_sysvar_last_restart_slot_read( fd_accdb_user_t *         accdb,
                                   fd_funk_txn_xid_t const * xid,
