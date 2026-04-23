@@ -613,7 +613,7 @@ background_advance_root( fd_accdb_t *       accdb,
      advances the root by exactly one slot (the immediate child of the
      current root).  Skipping levels is not supported. */
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  FD_LOG_WARNING(( "Advancing root from %hu to %hu", accdb->shmem->root_fork_id.val, fork_id.val ));
+  // FD_LOG_WARNING(( "Advancing root from %hu to %hu", accdb->shmem->root_fork_id.val, fork_id.val ));
   FD_TEST( fork->shmem->parent_id.val==accdb->shmem->root_fork_id.val );
   FD_TEST( fork->shmem->parent_id.val!=USHORT_MAX );
 
@@ -733,7 +733,7 @@ void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {
   wait_cmd( accdb );
-  FD_LOG_WARNING(( "Submitted advance_root for fork_id %hu, current %hu", fork_id.val, accdb->shmem->root_fork_id.val ));
+  // FD_LOG_WARNING(( "Submitted advance_root for fork_id %hu, current %hu", fork_id.val, accdb->shmem->root_fork_id.val ));
   submit_cmd( accdb, FD_ACCDB_CMD_ADVANCE_ROOT, fork_id.val );
 }
 
