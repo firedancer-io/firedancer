@@ -912,24 +912,39 @@ query_vote_accs( fd_tower_tile_t *            ctx,
   fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
 
-  for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, iter_mem );
-       !fd_top_votes_iter_done( top_votes_t_2, iter );
-       fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
-    fd_pubkey_t vote_acc;
-    ulong stake;
-    int is_valid = fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL );
-    if( FD_UNLIKELY( !is_valid ) ) continue;
+#define BATCH 128UL
+  fd_pubkey_t      vote_accs[ BATCH ];
+  ulong            stakes[ BATCH ];
+  uchar const *    pubkeys[ BATCH ];
+  int              writable[ BATCH ];
+  fd_accdb_entry_t entries[ BATCH ];
 
-    fd_accdb_entry_t entry = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, vote_acc.uc );
-    if( FD_UNLIKELY( !entry.lamports ) ) continue;
+  fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, iter_mem );
+  while( !fd_top_votes_iter_done( top_votes_t_2, iter ) ) {
+    ulong batch_n = 0UL;
+    while( !fd_top_votes_iter_done( top_votes_t_2, iter ) && batch_n<BATCH ) {
+      int is_valid = fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_accs[ batch_n ], NULL, &stakes[ batch_n ], NULL, NULL, NULL );
+      fd_top_votes_iter_next( top_votes_t_2, iter );
+      if( FD_UNLIKELY( !is_valid ) ) continue;
+      pubkeys[ batch_n ]  = vote_accs[ batch_n ].uc;
+      writable[ batch_n ] = 0;
+      batch_n++;
+    }
+    if( FD_UNLIKELY( !batch_n ) ) continue;
 
-    FD_TEST( fd_vsv_is_correct_size_owner_and_init( entry.owner, entry.data, entry.data_len ) );
-    count_vote_acc( ctx, slot_completed, ghost_blk, &vote_acc, stake, entry.data, entry.data_len );
+    fd_accdb_acquire( ctx->accdb, bank->accdb_fork_id, batch_n, pubkeys, writable, entries );
 
-    total_stake += stake;
-    prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_acc, stake, prev_voter_idx );
-    fd_accdb_unread_one( ctx->accdb, &entry );
+    for( ulong j=0UL; j<batch_n; j++ ) {
+      if( FD_UNLIKELY( !entries[ j ].lamports ) ) continue;
+      FD_TEST( fd_vsv_is_correct_size_owner_and_init( entries[ j ].owner, entries[ j ].data, entries[ j ].data_len ) );
+      count_vote_acc( ctx, slot_completed, ghost_blk, &vote_accs[ j ], stakes[ j ], entries[ j ].data, entries[ j ].data_len );
+      total_stake += stakes[ j ];
+      prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_accs[ j ], stakes[ j ], prev_voter_idx );
+    }
+
+    fd_accdb_release( ctx->accdb, batch_n, entries );
   }
+#undef BATCH
 
   /* Reconcile our local tower with the on-chain tower (stored inside
      our vote account).
