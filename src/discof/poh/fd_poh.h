@@ -367,6 +367,7 @@ typedef struct fd_poh_out_private fd_poh_out_t;
 
 struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
   int state;
+  int wfs_paused; /* 1 if wait_for_supermajority is active; PoH should not advance */
 
   /* Static configuration determined at genesis creation time.  See
      long comment above for more information. */
@@ -520,6 +521,9 @@ fd_poh1_mixin( fd_poh_t *          poh,
                uchar const *       hash,
                ulong               txn_cnt,
                fd_txn_p_t const *  txns );
+
+void
+fd_poh_wfs_done( fd_poh_t * poh );
 
 /* fd_poh_update_max_microblocks: Tighten the upper bound on
    max_microblocks_per_slot using the latest bound from pack.

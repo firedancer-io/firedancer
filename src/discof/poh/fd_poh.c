@@ -80,6 +80,7 @@ fd_poh_new( void * shmem ) {
 
   poh->hashcnt_per_tick = ULONG_MAX;
   poh->state = STATE_UNINIT;
+  poh->wfs_paused = 0;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( poh->magic ) = FD_POH_MAGIC;
@@ -215,6 +216,7 @@ fd_poh_reset( fd_poh_t *          poh,
 
   if( FD_UNLIKELY( poh->state!=STATE_FOLLOWER ) ) transition_to_follower( poh, stem, 0 );
   if( FD_UNLIKELY( poh->slot==poh->next_leader_slot ) ) poh->state = STATE_WAITING_FOR_BANK;
+
 }
 
 void
@@ -264,6 +266,12 @@ fd_poh_must_tick( fd_poh_t const * poh ) {
 int
 fd_poh_must_publish_skipped_tick( fd_poh_t const * poh ) {
   return poh->state==STATE_LEADER && poh->last_slot<poh->slot;
+}
+
+void
+fd_poh_wfs_done( fd_poh_t * poh ) {
+  poh->wfs_paused = 0;
+  poh->reset_slot_start_ns = fd_log_wallclock();
 }
 
 void
@@ -350,6 +358,7 @@ fd_poh_advance( fd_poh_t *          poh,
                 int *               opt_poll_in,
                 int *               charge_busy ) {
   if( FD_UNLIKELY( poh->state==STATE_UNINIT || poh->state==STATE_WAITING_FOR_RESET ) ) return;
+  if( FD_UNLIKELY( poh->wfs_paused ) ) return;
   if( FD_UNLIKELY( poh->state==STATE_WAITING_FOR_BANK ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay tile, do not do any hashing. */
@@ -593,10 +602,14 @@ fd_poh_advance( fd_poh_t *          poh,
     }
     case STATE_WAITING_FOR_SLOT:
     case STATE_FOLLOWER: {
-      if( FD_UNLIKELY( !(poh->hashcnt%poh->hashcnt_per_tick ) ) ) {
+      if( FD_UNLIKELY( !(poh->hashcnt%poh->hashcnt_per_tick ) && poh->next_leader_slot!=ULONG_MAX ) ) {
         /* We finished a tick while not leader... save the current hash
            so it can be played back into the bank when we become the
-           leader. */
+           leader.
+
+           If next_leader_slot is ULONG_MAX, we have no upcoming leader
+           slot and these tick hashes will never be published, so we
+           skip storing them. */
         ulong tick_idx = (poh->slot*poh->ticks_per_slot+poh->hashcnt/poh->hashcnt_per_tick)%MAX_SKIPPED_TICKS;
         fd_memcpy( poh->skipped_tick_hashes[ tick_idx ], poh->hash, 32UL );
 
