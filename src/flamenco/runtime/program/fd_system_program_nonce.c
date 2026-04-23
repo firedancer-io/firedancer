@@ -820,24 +820,31 @@ fd_check_transaction_age( fd_bank_t *         bank,
        is active)
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L110-L111 */
   if( FD_UNLIKELY( !fd_runtime_account_is_writable_idx( txn_in, txn_out, nonce_idx ) ) ) {
+    FD_LOG_NOTICE(("HIT THIS"));
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, require_static_nonce_account ) &&
                    nonce_idx>=TXN( txn_in->txn )->acct_addr_cnt ) ) {
+                    FD_LOG_NOTICE(("HIT THIS"));
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   fd_accdb_entry_t * nonce_entry = &txn_out->accounts.account[ nonce_idx ];
-  if( FD_UNLIKELY( !nonce_entry->lamports ) ) return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
+  if( FD_UNLIKELY( !nonce_entry->lamports ) ) {
+    FD_LOG_NOTICE(("HIT THIS"));
+    return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
   if( FD_UNLIKELY( memcmp( nonce_entry->owner, fd_solana_system_program_id.uc, 32UL ) ) ) {
+    FD_LOG_NOTICE(("HIT THIS"));
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   fd_nonce_state_versions_t state[1];
   if( FD_UNLIKELY( fd_nonce_state_versions_decode( state, nonce_entry->data, nonce_entry->data_len ) ) ) {
+    FD_LOG_HEXDUMP_NOTICE(("HIT THIS", nonce_entry->data, nonce_entry->data_len));
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
@@ -846,10 +853,12 @@ fd_check_transaction_age( fd_bank_t *         bank,
      not a legacy nonce nor uninitialized. If this is the case, then we can
      verify by comparing the decoded durable nonce to the recent blockhash */
   if( FD_UNLIKELY( state->version != FD_NONCE_VERSION_CURRENT ) ) {
+    FD_LOG_NOTICE(("HIT THIS"));
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   if( FD_UNLIKELY( state->kind != FD_NONCE_STATE_INITIALIZED ) ) {
+    FD_LOG_NOTICE(("HIT THIS"));
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
@@ -871,7 +880,10 @@ fd_check_transaction_age( fd_bank_t *         bank,
         /* Now figure out the state that the nonce account should
            advance to. */
         nonce_entry = &txn_out->accounts.account[ instr_accts[ 0UL ] ];
-        if( FD_UNLIKELY( !nonce_entry->lamports ) ) return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
+        if( FD_UNLIKELY( !nonce_entry->lamports ) ) {
+          FD_LOG_NOTICE(("HIT THIS"));
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
+        }
 
         fd_blockhashes_t const *    blockhashes     = &bank->f.block_hash_queue;
         fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
@@ -893,13 +905,17 @@ fd_check_transaction_age( fd_bank_t *         bank,
 
         ulong written = 0UL;
         int err = fd_nonce_state_versions_encode( &new_state, txn_out->accounts.nonce_rollback_data, txn_out->accounts.nonce_rollback_data_len, &written );
-        if( FD_UNLIKELY( err ) ) return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
+        if( FD_UNLIKELY( err ) ) {
+          FD_LOG_NOTICE(("HIT THIS"));
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
+        }
 
         return FD_RUNTIME_EXECUTE_SUCCESS;
       }
     }
   }
   /* This means that the blockhash was not found */
+  FD_LOG_NOTICE(("HIT THIS"));
   return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
 
 }

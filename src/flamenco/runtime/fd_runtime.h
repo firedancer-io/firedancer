@@ -269,7 +269,7 @@ struct fd_txn_out {
 
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */
     ulong nonce_rollback_data_len;
-    uchar nonce_rollback_data[ FD_SYSTEM_PROGRAM_NONCE_DLEN ];
+    uchar nonce_rollback_data[ FD_RUNTIME_ACC_SZ_MAX ];
     ulong fee_payer_rollback_lamports;
 
     /* Backing buffer for the sysvar instructions account.  This account

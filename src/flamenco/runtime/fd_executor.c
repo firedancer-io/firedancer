@@ -752,9 +752,11 @@ fd_executor_create_rollback_fee_payer_account( fd_txn_in_t const * txn_in,
 
   if( FD_LIKELY( !fee_payer ) ) fee_payer = &txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
 
-  /* Deduct the transaction fees from the rollback account. Because of
-     prior checks, this should never fail. */
-  FD_TEST( fee_payer->lamports>=total_fee );
+  if( fee_payer->lamports< total_fee ) {
+    FD_BASE58_ENCODE_64_BYTES( txn_out->details.signature.uc, txn_signature_b58 );
+    FD_LOG_WARNING(("TXN %s", txn_signature_b58 ));
+  }
+
   txn_out->accounts.fee_payer_rollback_lamports = fee_payer->lamports;
 }
 
