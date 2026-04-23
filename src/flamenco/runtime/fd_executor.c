@@ -1254,13 +1254,10 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
              double-counting the update. */
           if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] &&
                            (prev_txn_out->accounts.stake_update[ j ] ||
-                            prev_txn_out->accounts.vote_update[ j ] ||
-                            prev_txn_out->accounts.new_vote[ j ]) ) ) {
+                            prev_txn_out->accounts.vote_update[ j ] ) ) ) {
             prev_txn_out->accounts.stake_update[ j ] = 0;
             prev_txn_out->accounts.vote_update[ j ]  = 0;
-            prev_txn_out->accounts.new_vote[ j ]     = 0;
           }
-
           break;
         }
       }

@@ -18,6 +18,7 @@ struct fd_new_vote_ele {
   fd_pubkey_t pubkey;
   uint        next;
   uint        prev;
+  uchar       is_tombstone;
 };
 typedef struct fd_new_vote_ele fd_new_vote_ele_t;
 
@@ -71,6 +72,11 @@ fd_new_votes_evict_fork( fd_new_votes_t * new_votes,
 
 void
 fd_new_votes_insert( fd_new_votes_t *    new_votes,
+                     ushort              fork_idx,
+                     fd_pubkey_t const * pubkey );
+
+void
+fd_new_votes_remove( fd_new_votes_t *    new_votes,
                      ushort              fork_idx,
                      fd_pubkey_t const * pubkey );
 
@@ -130,7 +136,8 @@ void
 fd_new_votes_iter_next( fd_new_votes_iter_t * iter );
 
 fd_pubkey_t const *
-fd_new_votes_iter_ele( fd_new_votes_iter_t const * iter );
+fd_new_votes_iter_ele( fd_new_votes_iter_t const * iter,
+                       int *                       is_tombstone );
 
 void
 fd_new_votes_iter_fini( fd_new_votes_iter_t * iter );

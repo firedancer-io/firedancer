@@ -139,6 +139,8 @@ int main( int argc, char * argv[] ) {
     FD_TEST( fd_new_votes_iter_done( it ) );
     fd_new_votes_iter_fini( it );
   }
+  int is_tombstone = 0;
+
 
   /* Root-only: apply a fork so root has {a, b}, iterate with no fork
      indices -- should yield exactly 2 entries. */
@@ -148,11 +150,13 @@ int main( int argc, char * argv[] ) {
     fd_new_votes_insert( nv, f, &pk_b );
     fd_new_votes_apply_delta( nv, f );
 
+
     ulong cnt = 0UL;
     int saw_a = 0, saw_b = 0;
     fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, iter_mem );
     for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
-      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it );
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
+      if( is_tombstone ) continue;
       if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
       if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
       cnt++;
@@ -173,7 +177,8 @@ int main( int argc, char * argv[] ) {
     int saw_a = 0, saw_b = 0;
     fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, &f, 1UL, iter_mem );
     for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
-      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it );
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
+      if( is_tombstone ) continue;
       if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
       if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
       cnt++;
@@ -202,7 +207,7 @@ int main( int argc, char * argv[] ) {
     int saw_a = 0, saw_b = 0, saw_c = 0;
     fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, &f1x, 1UL, iter_mem );
     for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
-      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it );
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
       if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
       if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
       if( fd_pubkey_eq( pk, &pk_c ) ) saw_c = 1;
@@ -234,7 +239,7 @@ int main( int argc, char * argv[] ) {
     int saw_a = 0, saw_b = 0, saw_c = 0;
     fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, fks, 2UL, iter_mem );
     for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
-      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it );
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
       if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
       if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
       if( fd_pubkey_eq( pk, &pk_c ) ) saw_c = 1;

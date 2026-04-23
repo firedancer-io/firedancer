@@ -2126,6 +2126,11 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         clock_sysvar
     );
 
+    if( FD_LIKELY( !rc ) ) {
+      ctx->txn_out->accounts.rm_vote[ ctx->instr->accounts[0].index_in_transaction ] = 1;
+    }
+
+
     break;
   }
 
