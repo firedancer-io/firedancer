@@ -392,8 +392,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     offset for each slot, and stick it into the appropriate bank in
     our chain. */
 
-  FD_TEST( blockhashes_len<=301UL );
-  FD_TEST( blockhashes_len>0UL );
+  if( FD_UNLIKELY( blockhashes_len>301UL ) ) FD_LOG_ERR(( "blockhashes_len %lu exceeds max 301", blockhashes_len ));
+  if( FD_UNLIKELY( blockhashes_len==0UL ) ) FD_LOG_ERR(( "blockhashes_len is zero" ));
 
   ulong seq_min = ULONG_MAX;
   for( ulong i=0UL; i<blockhashes_len; i++ ) seq_min = fd_ulong_min( seq_min, blockhashes[ i ].hash_index );
@@ -450,7 +450,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
   uchar * _map = fd_alloca_check( alignof(blockhash_map_t), blockhash_map_footprint( 1024UL ) );
   blockhash_map_t * blockhash_map = blockhash_map_join( blockhash_map_new( _map, 1024UL, ctx->seed ) );
-  FD_TEST( blockhash_map );
+  if( FD_UNLIKELY( !blockhash_map ) ) FD_LOG_ERR(( "failed to create blockhash map" ));
 
   fd_blockhash_entry_t blockhash_pool[ 151UL ];
   for( ulong i=0UL; i<chain_len; i++ ) {
@@ -467,7 +467,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   /* Now load the blockhash offsets for these blockhashes ... */
-  FD_TEST( ctx->blockhash_offsets_len ); /* Must be at least one else nothing would be rooted */
+  if( FD_UNLIKELY( !ctx->blockhash_offsets_len ) ) FD_LOG_ERR(( "blockhash_offsets_len is zero, nothing would be rooted" ));
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;
     fd_memcpy( key.uc, ctx->blockhash_offsets[ i ].blockhash, 32UL );
@@ -672,7 +672,8 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                  fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
-  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
+  if( FD_UNLIKELY( !( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu ) ) )
+    FD_LOG_ERR(( "invalid frag: chunk=%lu chunk0=%lu wmark=%lu sz=%lu mtu=%lu", chunk, ctx->in.chunk0, ctx->in.wmark, sz, ctx->in.mtu ));
 
   if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
     fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch );
@@ -1035,7 +1036,8 @@ returnable_frag( fd_snapin_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
-  FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) )
+    FD_LOG_ERR(( "received frag while in SHUTDOWN state" ));
 
   ctx->stem = stem;
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );

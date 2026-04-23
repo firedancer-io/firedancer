@@ -34,7 +34,7 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
   FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
   ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-  FD_TEST( pair_sz<=ctx->hash_out.mtu );
+  if( FD_UNLIKELY( pair_sz>ctx->hash_out.mtu ) ) FD_LOG_ERR(( "pair_sz %lu exceeds mtu %lu", pair_sz, ctx->hash_out.mtu ));
   uchar * pair    = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
 
   uchar * dst     = pair;
@@ -129,7 +129,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
     ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-    FD_TEST( pair_sz<=ctx->hash_out.mtu );
+    if( FD_UNLIKELY( pair_sz>ctx->hash_out.mtu ) ) FD_LOG_ERR(( "pair_sz %lu exceeds mtu %lu", pair_sz, ctx->hash_out.mtu ));
 
     uchar * dst     = pair;
     ulong   dst_rem = pair_sz;
