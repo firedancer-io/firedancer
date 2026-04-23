@@ -3,7 +3,6 @@
 #define HEADER_FD_RUNTIME_TYPES
 
 #include "fd_bincode.h"
-#include "../../ballet/utf8/fd_utf8.h"
 #include "fd_types_custom.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L9 */

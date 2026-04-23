@@ -3,7 +3,6 @@
   "name": "fd_runtime_types",
   "extra_header": [
       "#include \"fd_bincode.h\"",
-      "#include \"../../ballet/utf8/fd_utf8.h\"",
       "#include \"fd_types_custom.h\""
   ],
   "entries": [
