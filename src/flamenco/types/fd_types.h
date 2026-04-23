@@ -14,35 +14,6 @@ struct fd_fee_calculator {
 typedef struct fd_fee_calculator fd_fee_calculator_t;
 #define FD_FEE_CALCULATOR_ALIGN alignof(fd_fee_calculator_t)
 
-/* Encoded Size: Fixed (16 bytes) */
-struct fd_slot_pair {
-  ulong slot;
-  ulong val;
-};
-typedef struct fd_slot_pair fd_slot_pair_t;
-#define FD_SLOT_PAIR_ALIGN alignof(fd_slot_pair_t)
-
-/* Encoded Size: Dynamic */
-struct fd_hard_forks {
-  ulong hard_forks_len;
-  fd_slot_pair_t * hard_forks;
-};
-typedef struct fd_hard_forks fd_hard_forks_t;
-#define FD_HARD_FORKS_ALIGN alignof(fd_hard_forks_t)
-
-struct fd_hard_forks_global {
-  ulong hard_forks_len;
-  ulong hard_forks_offset;
-};
-typedef struct fd_hard_forks_global fd_hard_forks_global_t;
-#define FD_HARD_FORKS_GLOBAL_ALIGN alignof(fd_hard_forks_global_t)
-
-FD_FN_UNUSED static fd_slot_pair_t * fd_hard_forks_hard_forks_join( fd_hard_forks_global_t const * struct_mem ) { // vector
-  return struct_mem->hard_forks_offset ? (fd_slot_pair_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->hard_forks_offset ) : NULL;
-}
-FD_FN_UNUSED static void fd_hard_forks_hard_forks_update( fd_hard_forks_global_t * struct_mem, fd_slot_pair_t * vec ) {
-  struct_mem->hard_forks_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
-}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/rent.rs#L11 */
 /* Encoded Size: Fixed (17 bytes) */
 struct fd_rent {
@@ -238,27 +209,6 @@ static inline int fd_fee_calculator_decode_footprint( fd_bincode_decode_ctx_t * 
   return 0;
 }
 void * fd_fee_calculator_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_slot_pair_new( fd_slot_pair_t * self ) { fd_memset( self, 0, sizeof(fd_slot_pair_t) ); }
-int fd_slot_pair_encode( fd_slot_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_slot_pair_size( fd_slot_pair_t const * self ) { (void)self; return 16UL; }
-static inline ulong fd_slot_pair_align( void ) { return FD_SLOT_PAIR_ALIGN; }
-static inline int fd_slot_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_slot_pair_t);
-  if( (ulong)ctx->data + 16UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_slot_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_hard_forks_new( fd_hard_forks_t * self );
-int fd_hard_forks_encode( fd_hard_forks_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_hard_forks_size( fd_hard_forks_t const * self );
-static inline ulong fd_hard_forks_align( void ) { return FD_HARD_FORKS_ALIGN; }
-int fd_hard_forks_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_hard_forks_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_hard_forks_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_hard_forks_encode_global( fd_hard_forks_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_hard_forks_size_global( fd_hard_forks_global_t const * self );
 
 static inline void fd_rent_new( fd_rent_t * self ) { fd_memset( self, 0, sizeof(fd_rent_t) ); }
 int fd_rent_encode( fd_rent_t const * self, fd_bincode_encode_ctx_t * ctx );
