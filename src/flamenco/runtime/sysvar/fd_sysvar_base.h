@@ -42,7 +42,7 @@ struct fd_sysvar_clock {
 };
 typedef struct fd_sysvar_clock fd_sol_sysvar_clock_t;
 
-struct fd_sysvar_epoch_rewards {
+struct __attribute__((packed)) fd_sysvar_epoch_rewards {
   ulong       distribution_starting_block_height;
   ulong       num_partitions;
   fd_hash_t   parent_blockhash;
@@ -53,7 +53,7 @@ struct fd_sysvar_epoch_rewards {
 };
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 
-struct fd_rent {
+struct __attribute__((packed)) fd_rent {
   ulong  lamports_per_uint8_year;
   double exemption_threshold;
   uchar  burn_percent;

@@ -25,7 +25,13 @@ FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, warmup                     ) 
 FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, first_normal_epoch         ) == 24UL,     "vm epoch schedule layout mismatch"    );
 FD_STATIC_ASSERT( offsetof(fd_vm_epoch_schedule_t, first_normal_slot          ) == 32UL,     "vm epoch schedule layout mismatch"    );
 
-typedef fd_rent_t fd_vm_rent_t;
+struct fd_vm_rent {
+  ulong  lamports_per_uint8_year;
+  double exemption_threshold;
+  uchar  burn_percent;
+  uchar  padding_[7];
+};
+typedef struct fd_vm_rent fd_vm_rent_t;
 FD_STATIC_ASSERT( sizeof(fd_vm_rent_t) == 24UL, "vm rent size mismatch" );
 FD_STATIC_ASSERT( alignof(fd_vm_rent_t) == FD_VM_ALIGN_RUST_SYSVAR_RENT,   "vm rent alignment mismatch" );
 FD_STATIC_ASSERT( offsetof(fd_vm_rent_t, lamports_per_uint8_year) == 0UL,  "vm rent layout mismatch"    );
@@ -41,7 +47,16 @@ FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, epoch                ) == 16UL,  "vm c
 FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, leader_schedule_epoch) == 24UL,  "vm clock layout mismatch"    );
 FD_STATIC_ASSERT( offsetof(fd_vm_clock_t, unix_timestamp       ) == 32UL,  "vm clock layout mismatch"    );
 
-typedef fd_sysvar_epoch_rewards_t fd_vm_epoch_rewards_t;
+struct fd_vm_epoch_rewards {
+  ulong       distribution_starting_block_height;
+  ulong       num_partitions;
+  fd_hash_t   parent_blockhash;
+  fd_w_u128_t total_points;
+  ulong       total_rewards;
+  ulong       distributed_rewards;
+  uchar       active; /* 0 or 1 */
+};
+typedef struct fd_vm_epoch_rewards fd_vm_epoch_rewards_t;
 FD_STATIC_ASSERT( sizeof(fd_vm_epoch_rewards_t) == 96UL, "vm epoch rewards size mismatch" );
 FD_STATIC_ASSERT( alignof(fd_vm_epoch_rewards_t) == FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS,     "vm epoch rewards alignment mismatch" );
 FD_STATIC_ASSERT( offsetof(fd_vm_epoch_rewards_t, distribution_starting_block_height) == 0UL,  "vm epoch rewards layout mismatch"    );
