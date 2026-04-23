@@ -118,6 +118,15 @@ gossip_activity_update_fn( void *                           _ctx,
   /* gossvf should filter out messages with mismatching shred version */
   FD_TEST( ci->shred_version==ctx->my_contact_info->shred_version );
 
+  /* To match Agave's tvu_peers() filter, require a valid TVU UDP
+     socket for the ACTIVE path. */
+  if( FD_LIKELY( change_type==FD_GOSSIP_ACTIVITY_CHANGE_TYPE_ACTIVE ) ) {
+    fd_ip4_port_t tvu_addr;
+    tvu_addr.addr = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].is_ipv6 ? 0U : ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].ip4;
+    tvu_addr.port = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].port;
+    if( FD_UNLIKELY( !tvu_addr.l ) ) return;
+  }
+
   /* If identity is not found in ctx->wfs_stakes the peer is likely
      unstaked and can be ignored. */
   ulong stake_idx = fd_stake_weight_key_sort_split( ctx->wfs_stakes, ctx->wfs_stakes_cnt, (fd_stake_weight_t){ .key = *identity } );
