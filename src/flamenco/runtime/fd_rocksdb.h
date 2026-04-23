@@ -70,43 +70,8 @@ struct fd_rocksdb {
   rocksdb_writeoptions_t *        wo;
 };
 typedef struct fd_rocksdb fd_rocksdb_t;
-#define FD_ROCKSDB_FOOTPRINT sizeof(fd_rocksdb_t)
-#define FD_ROCKSDB_ALIGN (8UL)
-
-/* root column iterator */
-struct fd_rocksdb_root_iter {
-  fd_rocksdb_t *                  db;
-  rocksdb_iterator_t*             iter;
-};
-typedef struct fd_rocksdb_root_iter fd_rocksdb_root_iter_t;
-#define FD_ROCKSDB_ROOT_ITER_FOOTPRINT sizeof(fd_rocksdb_root_iter_t)
-#define FD_ROCKSDB_ROOT_ITER_ALIGN (8UL)
 
 FD_PROTOTYPES_BEGIN
-
-void *
-fd_rocksdb_root_iter_new( void * shiter );
-
-fd_rocksdb_root_iter_t *
-fd_rocksdb_root_iter_join( void * iter );
-
-void *
-fd_rocksdb_root_iter_leave( fd_rocksdb_root_iter_t * iter );
-
-fd_slot_meta_t *
-fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * iter,
-                           fd_rocksdb_t *           db,
-                           ulong                    slot );
-
-fd_slot_meta_t *
-fd_rocksdb_root_iter_next( fd_rocksdb_root_iter_t * iter );
-
-int
-fd_rocksdb_root_iter_slot( fd_rocksdb_root_iter_t * self,
-                           ulong *                  slot );
-
-void
-fd_rocksdb_root_iter_destroy( fd_rocksdb_root_iter_t * iter );
 
 /* fd_rocksdb_init: Returns a pointer to a description of the error on failure
 
@@ -152,10 +117,6 @@ fd_rocksdb_last_slot( fd_rocksdb_t * db,
 ulong
 fd_rocksdb_first_slot( fd_rocksdb_t * db,
                        char **        err );
-
-fd_slot_meta_t * /* libc heap */
-fd_rocksdb_get_meta( fd_rocksdb_t *   db,
-                     ulong            slot );
 
 /* fd_rocksdb_copy_over_slot_indexed_range copies over all entries for a
    given column family index into another rocksdb assuming that the key

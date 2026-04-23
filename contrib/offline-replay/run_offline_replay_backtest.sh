@@ -340,8 +340,7 @@ while true; do
                     --rocksdb $LEDGER_DIR/rocksdb \
                     --minified-rocksdb $MISMATCH_DIR/rocksdb \
                     --start-slot $PREVIOUS_ROOTED_SLOT \
-                    --end-slot $MINIMIZED_END_SLOT \
-                    --copy-txn-status 0 >> $LOG 2>&1
+                    --end-slot $MINIMIZED_END_SLOT >> $LOG 2>&1
                 status=$?
                 sleep 10
 

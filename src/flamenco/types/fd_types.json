@@ -121,20 +121,6 @@
       ]
     },
     {
-      "name": "slot_meta",
-      "type": "struct",
-      "fields": [
-          { "name": "slot", "type": "ulong" },
-          { "name": "consumed", "type": "ulong" },
-          { "name": "received", "type": "ulong" },
-          { "name": "first_shred_timestamp", "type": "long" },
-          { "name": "last_index", "type": "ulong" },
-          { "name": "parent_slot", "type": "ulong" },
-          { "name": "next_slot", "type": "vector", "element": "ulong"},
-          { "name": "is_connected", "type": "uchar" }
-      ]
-    },
-    {
       "name": "sysvar_epoch_rewards",
       "type": "struct",
       "fields": [
