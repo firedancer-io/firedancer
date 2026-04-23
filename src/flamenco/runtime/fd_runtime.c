@@ -1132,7 +1132,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         FD_LOG_NOTICE(("LAMPORTS %lu", nonce_account->lamports));
         FD_BASE58_ENCODE_32_BYTES( nonce_account->owner, out)
         FD_LOG_NOTICE(("OWNER %s", out));
-        FD_LOG_NOTICE(("EXECUTABLE %u", nonce_account->executable));
+        FD_LOG_NOTICE(("EXECUTABLE %d", nonce_account->executable));
       }
 
       fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx, &txn_out->details.signature );

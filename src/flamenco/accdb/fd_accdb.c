@@ -2047,6 +2047,14 @@ fd_accdb_release( fd_accdb_t *       accdb,
          recently used. */
       if( FD_LIKELY( original_cache_line ) ) original_cache_line->referenced = 1;
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+        /* acquire_cache_line via CLOCK leaves line->acc_idx pointing
+           at the prior owner.  cache_free_push consumers (CLOCK,
+           background_preevict) skip lines only when acc_idx==UINT_MAX
+           AND gen==UINT_MAX; if we leave the stale acc_idx, a future
+           CLOCK pick would call line 849/853 against the wrong acc
+           and corrupt its cache_idx/valid. */
+        destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
+        destination_cache_lines[ j ]->key.generation = UINT_MAX;
         destination_cache_lines[ j ]->refcnt    = 0;
         destination_cache_lines[ j ]->persisted = 1;
         cache_free_push( accdb, j, destination_cache_lines[ j ] );
@@ -2151,6 +2159,11 @@ fd_accdb_release( fd_accdb_t *       accdb,
       if( destination_committed[ j ] ) {
         destination_cache_lines[ j ]->referenced = 1;
       } else {
+        /* See note above (no-commit path): clear stale acc_idx/gen
+           before pushing, otherwise CLOCK can pick this line and
+           stomp the prior owner's cache_idx/valid. */
+        destination_cache_lines[ j ]->acc_idx        = UINT_MAX;
+        destination_cache_lines[ j ]->key.generation = UINT_MAX;
         destination_cache_lines[ j ]->refcnt    = 0;
         destination_cache_lines[ j ]->persisted = 1;
         cache_free_push( accdb, j, destination_cache_lines[ j ] );
