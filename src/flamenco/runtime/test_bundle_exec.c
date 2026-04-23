@@ -721,12 +721,12 @@ test_execute_bundles( fd_wksp_t * wksp ) {
   /* Program account: owned by upgradeable BPF loader, state = program pointing at programdata. */
   uchar program_data_buf[ SIZE_OF_PROGRAM ];
   {
-    fd_bpf_upgradeable_loader_state_t state;
+    fd_bpf_state_t state;
     fd_memset( &state, 0, sizeof(state) );
-    state.discriminant                    = fd_bpf_upgradeable_loader_state_enum_program;
+    state.discriminant                    = FD_BPF_STATE_PROGRAM;
     state.inner.program.programdata_address = programdata_key;
-    fd_bincode_encode_ctx_t ctx = { .data = program_data_buf, .dataend = program_data_buf + SIZE_OF_PROGRAM };
-    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &ctx ) == FD_BINCODE_SUCCESS );
+    ulong out_sz = 0UL;
+    FD_TEST( !fd_bpf_state_encode( &state, program_data_buf, SIZE_OF_PROGRAM, &out_sz ) );
   }
   create_test_account( env->accdb, &env->xid, &program_key, 1000000UL,
                       SIZE_OF_PROGRAM, program_data_buf, 5UL,
@@ -736,14 +736,14 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     A real upgrade would set slot to the current slot; we start with the pre-upgrade state. */
   uchar programdata_data_buf[ PROGRAMDATA_METADATA_SIZE ];
   {
-    fd_bpf_upgradeable_loader_state_t state;
+    fd_bpf_state_t state;
     fd_memset( &state, 0, sizeof(state) );
-    state.discriminant                                   = fd_bpf_upgradeable_loader_state_enum_program_data;
+    state.discriminant                                   = FD_BPF_STATE_PROGRAM_DATA;
     state.inner.program_data.slot                        = 5UL;
     state.inner.program_data.upgrade_authority_address   = authority_key;
     state.inner.program_data.has_upgrade_authority_address = 1;
-    fd_bincode_encode_ctx_t ctx = { .data = programdata_data_buf, .dataend = programdata_data_buf + PROGRAMDATA_METADATA_SIZE };
-    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &state, &ctx ) == FD_BINCODE_SUCCESS );
+    ulong out_sz = 0UL;
+    FD_TEST( !fd_bpf_state_encode( &state, programdata_data_buf, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   }
   create_test_account( env->accdb, &env->xid, &programdata_key, 1000000UL,
                       PROGRAMDATA_METADATA_SIZE, programdata_data_buf, 5UL,
@@ -804,14 +804,14 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     which triggers the delayed-visibility check for any same-slot invocation. */
   uchar * pd_out_data = fd_account_data( env->txn_out[0].accounts.account[ pd_idx ].meta );
   {
-    fd_bpf_upgradeable_loader_state_t upgraded;
+    fd_bpf_state_t upgraded;
     fd_memset( &upgraded, 0, sizeof(upgraded) );
-    upgraded.discriminant                                   = fd_bpf_upgradeable_loader_state_enum_program_data;
+    upgraded.discriminant                                   = FD_BPF_STATE_PROGRAM_DATA;
     upgraded.inner.program_data.slot                        = 10UL; /* now equals current slot */
     upgraded.inner.program_data.upgrade_authority_address   = authority_key;
     upgraded.inner.program_data.has_upgrade_authority_address = 1;
-    fd_bincode_encode_ctx_t ctx = { .data = pd_out_data, .dataend = pd_out_data + PROGRAMDATA_METADATA_SIZE };
-    FD_TEST( fd_bpf_upgradeable_loader_state_encode( &upgraded, &ctx ) == FD_BINCODE_SUCCESS );
+    ulong out_sz = 0UL;
+    FD_TEST( !fd_bpf_state_encode( &upgraded, pd_out_data, PROGRAMDATA_METADATA_SIZE, &out_sz ) );
   }
 
   /* Transaction 2: invoke the program WITHOUT listing programdata in the account set.
@@ -847,9 +847,9 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     fd_accdb_ro_t const * ro = &env->runtime->accounts.executable[i];
     if( !fd_pubkey_eq( fd_accdb_ref_address( ro ), &programdata_key ) ) continue;
 
-    fd_bpf_upgradeable_loader_state_t pd_state[1];
+    fd_bpf_state_t pd_state[1];
     FD_TEST( fd_bpf_loader_program_get_state( ro->meta, pd_state ) == FD_EXECUTOR_INSTR_SUCCESS );
-    FD_TEST( fd_bpf_upgradeable_loader_state_is_program_data( pd_state ) );
+    FD_TEST( pd_state->discriminant==FD_BPF_STATE_PROGRAM_DATA );
 
     /* Asserts correct (post-fix) behavior: programdata slot must reflect the bundle-updated
       state from txn1 (slot == 10), not the stale accdb state (slot == 5). */
