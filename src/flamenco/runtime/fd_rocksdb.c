@@ -25,7 +25,6 @@ fd_rocksdb_init( fd_rocksdb_t * db,
   db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS       ] = "transaction_status";
   db->cfgs[ FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES       ] = "address_signatures";
   db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS        ] = "transaction_memos";
-  db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS_INDEX ] = "transaction_status_index";
   db->cfgs[ FD_ROCKSDB_CFIDX_REWARDS                  ] = "rewards";
   db->cfgs[ FD_ROCKSDB_CFIDX_BLOCKTIME                ] = "blocktime";
   db->cfgs[ FD_ROCKSDB_CFIDX_PERF_SAMPLES             ] = "perf_samples";
@@ -79,7 +78,6 @@ fd_rocksdb_new( fd_rocksdb_t * db,
   db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS       ] = "transaction_status";
   db->cfgs[ FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES       ] = "address_signatures";
   db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS        ] = "transaction_memos";
-  db->cfgs[ FD_ROCKSDB_CFIDX_TRANSACTION_STATUS_INDEX ] = "transaction_status_index";
   db->cfgs[ FD_ROCKSDB_CFIDX_REWARDS                  ] = "rewards";
   db->cfgs[ FD_ROCKSDB_CFIDX_BLOCKTIME                ] = "blocktime";
   db->cfgs[ FD_ROCKSDB_CFIDX_PERF_SAMPLES             ] = "perf_samples";

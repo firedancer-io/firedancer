@@ -35,7 +35,7 @@ typedef struct fd_block fd_block_t;
 #include "../../ballet/shred/fd_shred.h"
 #include <rocksdb/c.h>
 
-#define FD_ROCKSDB_CF_CNT (21UL)
+#define FD_ROCKSDB_CF_CNT (20UL)
 
 #define FD_ROCKSDB_CFIDX_DEFAULT                  (0UL)
 #define FD_ROCKSDB_CFIDX_META                     (1UL)
@@ -51,13 +51,12 @@ typedef struct fd_block fd_block_t;
 #define FD_ROCKSDB_CFIDX_TRANSACTION_STATUS       (11UL)
 #define FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES       (12UL)
 #define FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS        (13UL)
-#define FD_ROCKSDB_CFIDX_TRANSACTION_STATUS_INDEX (14UL)
-#define FD_ROCKSDB_CFIDX_REWARDS                  (15UL)
-#define FD_ROCKSDB_CFIDX_BLOCKTIME                (16UL)
-#define FD_ROCKSDB_CFIDX_PERF_SAMPLES             (17UL)
-#define FD_ROCKSDB_CFIDX_BLOCK_HEIGHT             (18UL)
-#define FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         (19UL)
-#define FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         (20UL) /* Usually empty */
+#define FD_ROCKSDB_CFIDX_REWARDS                  (14UL)
+#define FD_ROCKSDB_CFIDX_BLOCKTIME                (15UL)
+#define FD_ROCKSDB_CFIDX_PERF_SAMPLES             (16UL)
+#define FD_ROCKSDB_CFIDX_BLOCK_HEIGHT             (17UL)
+#define FD_ROCKSDB_CFIDX_OPTIMISTIC_SLOTS         (18UL)
+#define FD_ROCKSDB_CFIDX_MERKLE_ROOT_META         (19UL) /* Usually empty */
 
 /* Solana rocksdb client */
 struct fd_rocksdb {
