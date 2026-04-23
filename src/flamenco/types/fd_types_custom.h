@@ -59,14 +59,18 @@ fd_signature_eq( fd_signature_t const * a,
 
 FD_PROTOTYPES_BEGIN
 
-#define fd_hash_check_zero(_x) (!((_x)->ul[0] | (_x)->ul[1] | (_x)->ul[2] | (_x)->ul[3]))
+static inline _Bool
+fd_hash_is_zero( fd_hash_t const * hash ) {
+  return ( hash->ul[0] | hash->ul[1] | hash->ul[2] | hash->ul[3] ) == 0UL;
+}
+
 #define fd_hash_set_zero(_x)   {((_x)->ul[0] = 0); ((_x)->ul[1] = 0); ((_x)->ul[2] = 0); ((_x)->ul[3] = 0);}
 
 #define fd_pubkey_new                     fd_hash_new
 #define fd_pubkey_encode                  fd_hash_encode
 #define fd_pubkey_destroy                 fd_hash_destroy
 #define fd_pubkey_size                    fd_hash_size
-#define fd_pubkey_check_zero              fd_hash_check_zero
+#define fd_pubkey_is_zero                 fd_hash_is_zero
 #define fd_pubkey_set_zero                fd_hash_set_zero
 #define fd_pubkey_decode_inner            fd_hash_decode_inner
 #define fd_pubkey_decode_footprint        fd_hash_decode_footprint

@@ -910,6 +910,10 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">replay_&#8203;my_&#8203;identity_&#8203;lamports</span> | gauge | Approximate identity key balance in lamports as of optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;my_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Approximate active stake in lamports as of optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;cluster_&#8203;active_&#8203;stake_&#8203;lamports</span> | gauge | Approximate total active stake in the cluster in lamports as of optimistically confirmed slot |
+| <span class="metrics-name">replay_&#8203;my_&#8203;epoch_&#8203;credits</span> | gauge | Approximate epoch credits as of optimistically confirmed slot |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;acquire</span> | counter | Count of store slock acquires for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;release</span> | counter | Count of store slock releases for query |
 | <span class="metrics-name">replay_&#8203;store_&#8203;query_&#8203;wait</span> | histogram | Time in seconds spent waiting to acquire the slock for query |

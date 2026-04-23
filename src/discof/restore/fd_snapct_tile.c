@@ -1190,7 +1190,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info->idx;
       if( FD_UNLIKELY( !fd_pubkey_eq( &entry->pubkey, pubkey ) ) ) {
         /* Initialize the new gossip entry, which may or may not be allowed */
-        FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
+        FD_TEST( fd_pubkey_is_zero( &entry->pubkey ) );
         entry->pubkey      = *pubkey;
         entry->rpc_addr.l  = 0UL;
         if( ctx->config.sources.gossip.allow_any ) {
