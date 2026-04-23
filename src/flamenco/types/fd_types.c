@@ -983,29 +983,6 @@ ulong fd_slot_meta_size( fd_slot_meta_t const * self ) {
   return size;
 }
 
-int fd_sysvar_fees_encode( fd_sysvar_fees_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_fee_calculator_encode( &self->fee_calculator, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_sysvar_fees_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 8UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 8UL );
-  return 0;
-}
-static void fd_sysvar_fees_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_sysvar_fees_t * self = (fd_sysvar_fees_t *)struct_mem;
-  fd_fee_calculator_decode_inner( &self->fee_calculator, alloc_mem, ctx );
-}
-void * fd_sysvar_fees_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_sysvar_fees_t * self = (fd_sysvar_fees_t *)mem;
-  fd_sysvar_fees_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_sysvar_fees_t);
-  void * * alloc_mem = &alloc_region;
-  fd_sysvar_fees_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
 int fd_sysvar_epoch_rewards_encode( fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_bincode_uint64_encode( self->distribution_starting_block_height, ctx );

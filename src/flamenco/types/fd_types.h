@@ -211,14 +211,6 @@ struct fd_slot_meta {
 typedef struct fd_slot_meta fd_slot_meta_t;
 #define FD_SLOT_META_ALIGN alignof(fd_slot_meta_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/fees.rs#L21 */
-/* Encoded Size: Fixed (8 bytes) */
-struct fd_sysvar_fees {
-  fd_fee_calculator_t fee_calculator;
-};
-typedef struct fd_sysvar_fees fd_sysvar_fees_t;
-#define FD_SYSVAR_FEES_ALIGN alignof(fd_sysvar_fees_t)
-
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14 */
 /* Encoded Size: Fixed (81 bytes) */
 struct fd_sysvar_epoch_rewards {
@@ -373,17 +365,6 @@ ulong fd_slot_meta_size( fd_slot_meta_t const * self );
 static inline ulong fd_slot_meta_align( void ) { return FD_SLOT_META_ALIGN; }
 int fd_slot_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_slot_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_sysvar_fees_new( fd_sysvar_fees_t * self ) { fd_memset( self, 0, sizeof(fd_sysvar_fees_t) ); }
-int fd_sysvar_fees_encode( fd_sysvar_fees_t const * self, fd_bincode_encode_ctx_t * ctx );
-static inline ulong fd_sysvar_fees_size( fd_sysvar_fees_t const * self ) { (void)self; return 8UL; }
-static inline ulong fd_sysvar_fees_align( void ) { return FD_SYSVAR_FEES_ALIGN; }
-static inline int fd_sysvar_fees_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_sysvar_fees_t);
-  if( (ulong)ctx->data + 8UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_sysvar_fees_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_sysvar_epoch_rewards_new( fd_sysvar_epoch_rewards_t * self );
 int fd_sysvar_epoch_rewards_encode( fd_sysvar_epoch_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
