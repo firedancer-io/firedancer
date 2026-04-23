@@ -245,20 +245,20 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( rent );
   runner->bank->f.rent = *rent;
 
-  fd_block_block_hash_entry_t const * deq = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
-  FD_TEST( deq );
-  if( !deq_fd_block_block_hash_entry_t_empty( deq ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( deq );
-    if( last ) {
-      fd_blockhashes_t * blockhashes = &runner->bank->f.block_hash_queue;
-      fd_blockhashes_pop_new( blockhashes );
-      fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
-      info->fee_calculator = last->fee_calculator;
+  if( !fd_sysvar_cache_recent_hashes_is_empty( sysvar_cache ) ) {
+    uchar const * rbh_data  = sysvar_cache->bin_recent_hashes;
+    ulong         rbh_len   = FD_LOAD( ulong, rbh_data );
+    ulong         entry_off = sizeof(ulong) + ((rbh_len - 1UL) * 40UL);
+    uchar const * entry     = rbh_data + entry_off;
+    FD_TEST( entry_off+40UL <= sysvar_cache->desc[ FD_SYSVAR_recent_hashes_IDX ].data_sz );
 
-      runner->bank->f.rbh_lamports_per_sig = last->fee_calculator.lamports_per_signature;
-    }
+    fd_blockhashes_t * blockhashes = &runner->bank->f.block_hash_queue;
+    fd_blockhashes_pop_new( blockhashes );
+    fd_hash_t hash = FD_LOAD( fd_hash_t, entry );
+    fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &hash );
+    info->lamports_per_signature = runner->bank->f.rbh_lamports_per_sig =
+        FD_LOAD( ulong, entry+32UL );
   }
-  fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, deq );
 
   uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {

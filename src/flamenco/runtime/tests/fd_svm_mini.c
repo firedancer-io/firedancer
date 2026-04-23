@@ -480,7 +480,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     fd_hash_t genesis_hash = {0};
     fd_memset( genesis_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
     fd_blockhash_info_t * bh_info = fd_blockhashes_push_new( bhq, &genesis_hash );
-    bh_info->fee_calculator.lamports_per_signature = 0UL;
+    bh_info->lamports_per_signature = 0UL;
     bank->f.poh = genesis_hash;
 
     /* Clock */

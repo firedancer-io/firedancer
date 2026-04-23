@@ -191,7 +191,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
     .kind                   = FD_NONCE_STATE_INITIALIZED,
     .authority              = state->authority,
     .durable_nonce          = next_durable_nonce,
-    .lamports_per_signature = blockhash->fee_calculator.lamports_per_signature
+    .lamports_per_signature = blockhash->lamports_per_signature
   };
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L59 */
@@ -232,14 +232,7 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L433-L439 */
 
-  int bhq_empty;
-  do {
-    fd_block_block_hash_entry_t const * hashes = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
-    FD_TEST( hashes ); /* validated above */
-    bhq_empty = deq_fd_block_block_hash_entry_t_empty( hashes );
-    fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, hashes );
-  } while(0);
-  if( FD_UNLIKELY( bhq_empty ) ) {
+  if( FD_UNLIKELY( fd_sysvar_cache_recent_hashes_is_empty( ctx->sysvar_cache ) ) ) {
     fd_log_collector_msg_literal( ctx, "Advance nonce account: recent blockhash list is empty" );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -512,7 +505,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     .kind                   = FD_NONCE_STATE_INITIALIZED,
     .authority              = *authorized,
     .durable_nonce          = durable_nonce,
-    .lamports_per_signature = blockhash->fee_calculator.lamports_per_signature
+    .lamports_per_signature = blockhash->lamports_per_signature
   };
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L187 */
@@ -554,14 +547,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L472-L478 */
 
-  int bhq_empty;
-  do {
-    fd_block_block_hash_entry_t const * hashes = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
-    FD_TEST( hashes ); /* validated above */
-    bhq_empty = deq_fd_block_block_hash_entry_t_empty( hashes );
-    fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, hashes );
-  } while(0);
-  if( FD_UNLIKELY( bhq_empty ) ) {
+  if( FD_UNLIKELY( fd_sysvar_cache_recent_hashes_is_empty( ctx->sysvar_cache ) ) ) {
     fd_log_collector_msg_literal( ctx, "Initialize nonce account: recent blockhash list is empty" );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -914,7 +900,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           .authority              = state->authority,
           .durable_nonce          = next_durable_nonce,
           /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank/check_transactions.rs#L88-L90 */
-          .lamports_per_signature = last_bhash_info->fee_calculator.lamports_per_signature
+          .lamports_per_signature = last_bhash_info->lamports_per_signature
         };
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
           FD_LOG_CRIT(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_SYSTEM_PROGRAM_NONCE_DLEN %lu", fd_nonce_state_versions_size( &new_state ), FD_SYSTEM_PROGRAM_NONCE_DLEN ));

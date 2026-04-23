@@ -234,7 +234,7 @@ test_advance_nonce_fee( fd_svm_mini_t * mini ) {
   fd_blockhash_info_t const * last_bh =
       fd_blockhashes_peek_last( &env.bank->f.block_hash_queue );
   FD_TEST( last_bh );
-  FD_TEST( last_bh->fee_calculator.lamports_per_signature == FEE_A );
+  FD_TEST( last_bh->lamports_per_signature == FEE_A );
 
   fd_hash_t durable_nonce;
   durable_nonce_from_blockhash( &durable_nonce, &env.genesis_hash );
@@ -342,7 +342,7 @@ test_blockhash_registration_fee( fd_svm_mini_t * mini ) {
   fd_blockhash_info_t const * last =
       fd_blockhashes_peek_last( &slot2->f.block_hash_queue );
   FD_TEST( last );
-  FD_TEST( last->fee_calculator.lamports_per_signature == 12345UL );
+  FD_TEST( last->lamports_per_signature == 12345UL );
 
   FD_LOG_NOTICE(( "test_blockhash_registration_fee: PASSED" ));
 }

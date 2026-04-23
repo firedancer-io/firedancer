@@ -16,8 +16,6 @@
 #define FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ  (8UL)
 
 #define FD_SYSVAR_RECENT_HASHES_BINCODE_SZ (  6008UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/recent_blockhashes.rs#L157 */
-#define FD_SYSVAR_RECENT_HASHES_ALIGN      (     8UL)
-#define FD_SYSVAR_RECENT_HASHES_FOOTPRINT  (  6088UL)
 
 #define FD_SYSVAR_RENT_BINCODE_SZ          (    17UL)
 

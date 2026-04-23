@@ -118,7 +118,7 @@ init_blockhash_queue( test_env_t * env ) {
   fd_hash_t dummy_hash = {0};
   fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
   fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
-  info->fee_calculator.lamports_per_signature = 0UL;
+  info->lamports_per_signature = 0UL;
 }
 
 static test_env_t *
