@@ -80,6 +80,16 @@ setup_topo_banks( fd_topo_t *  topo,
 }
 
 fd_topo_obj_t *
+setup_topo_runtime_stack( fd_topo_t *  topo,
+                          char const * wksp_name ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "rt_stack", wksp_name );
+  ulong seed;
+  FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, seed, "obj.%lu.seed", obj->id ) );
+  return obj;
+}
+
+fd_topo_obj_t *
 setup_topo_fec_sets( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        sz ) {
@@ -1222,6 +1232,16 @@ fd_topo_initialize( config_t * config ) {
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
+
+  /* runtime_stack is a shared scratch area for replay + execrp epoch
+     boundary processing.  Replay populates vote_map / vote_ele /
+     stake_points_result during fd_stakes_activate_epoch; exec tiles
+     read vote_map and write disjoint stake_points_result slots when
+     computing partitioned reward points in parallel. */
+  fd_topo_obj_t * runtime_stack_obj = setup_topo_runtime_stack( topo, "banks" );
+  /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], runtime_stack_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i   ) ], runtime_stack_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, runtime_stack_obj->id, "rt_stack" ) );
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
     if( FD_UNLIKELY( config->firedancer.runtime.concurrent_account_limit<FD_ACC_POOL_MIN_ACCOUNT_CNT_PER_BUNDLE ) ) {

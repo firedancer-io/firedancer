@@ -4,6 +4,8 @@
 #include "../../disco/store/fd_store.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
 #include "../../flamenco/progcache/fd_progcache.h"
 #include "../../funk/fd_funk.h"
@@ -282,6 +284,55 @@ fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss = {
   .footprint = rnonce_ss_footprint,
   .align     = rnonce_ss_align,
   .new       = rnonce_ss_new,
+};
+
+/* The "rt_stack" topo object owns the shared fd_runtime_stack_shmem
+   region.  Each tile attaches via fd_runtime_stack_shmem_join and then
+   allocates its own fd_runtime_stack_t handle from its tile scratch. */
+
+/* Max refresh tiles = the number of execrp tiles (each execrp tile
+   gets one per-tile refresh stash slot) plus 1 for the replay tile.
+   Replay allocates its own slot (slot_idx=0) so that any flamenco
+   code running inline on replay for testing/debugging can still use
+   the local_stake_accum path.  Execrp tiles use slots 1..exec_cnt. */
+
+static ulong
+runtime_stack_max_refresh_tiles( fd_topo_t const * topo ) {
+  return 1UL + fd_topo_tile_name_cnt( topo, "execrp" );
+}
+
+static ulong
+runtime_stack_footprint( fd_topo_t const *     topo,
+                         fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_runtime_stack_shmem_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS,
+                                           FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS,
+                                           FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS,
+                                           runtime_stack_max_refresh_tiles( topo ) );
+}
+
+static ulong
+runtime_stack_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_runtime_stack_shmem_align();
+}
+
+static void
+runtime_stack_new( fd_topo_t const *     topo,
+                   fd_topo_obj_t const * obj ) {
+  ulong seed = fd_pod_queryf_ulong( topo->props, 0UL, "obj.%lu.seed", obj->id );
+  FD_TEST( fd_runtime_stack_shmem_new( fd_topo_obj_laddr( topo, obj->id ),
+                                       FD_RUNTIME_MAX_VOTE_ACCOUNTS,
+                                       FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS,
+                                       FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS,
+                                       runtime_stack_max_refresh_tiles( topo ),
+                                       seed ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_runtime_stack = {
+  .name      = "rt_stack",
+  .footprint = runtime_stack_footprint,
+  .align     = runtime_stack_align,
+  .new       = runtime_stack_new,
 };
 
 #undef VAL

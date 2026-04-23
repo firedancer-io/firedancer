@@ -19,7 +19,7 @@ FD_PROTOTYPES_BEGIN
    For vote accounts, the limit is set to 19,000,000 because the rent
    exempt reserve of creating a valid vote account is ~0.03 SOL.  For
    each vote account, it also must be staked.  Each stake account has a
-   rent exempt value of ~0.022 SOL.  This means the cost of minting 20M
+   rent exempt value of ~0.022 SOL.  This means the cost of minting 19M
    vote accounts is:
    19,000,000 accounts * 0.02685 SOL = 510,150 SOL.
    19,000,000 accounts * 0.00228 SOL = 43,320 SOL.
@@ -44,6 +44,14 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS (2000000UL)
 #define FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS  (16384UL)
+
+/* This sizes tile-local caches for speeding up partitioned epoch
+   rewards setup.  It's not a consensus critical value.  If more
+   partitions are needed than this, the code falls backs to a slightly
+   slower path.  Assuming 2000000 stake accounts and 4096 stake accounts
+   distributed per block, it takes 489 blocks to finish partitioned
+   rewards distribution.  So round it up to 512. */
+#define FD_RUNTIME_EXPECTED_PARTITIONED_REWARD_BLOCK_CNT_MAX (512UL)
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
 

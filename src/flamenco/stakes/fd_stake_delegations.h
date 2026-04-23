@@ -113,6 +113,13 @@ struct fd_stake_delegation {
     uchar     dne_in_root;  /* Tracking for stake delegation iteration */
   };
   uchar       warmup_cooldown_rate; /* enum representing 0.25 or 0.09 */
+  uchar       is_allocated;         /* 1 if this root-pool slot is in use, 0
+                                       if free or never touched.  Maintained
+                                       by root_pool acquire/release wrappers
+                                       in fd_stake_delegations.c so the
+                                       pool-range iterator can skip released
+                                       slots without walking the map chains. */
+  uchar       _pad[ 1 ];
 };
 typedef struct fd_stake_delegation fd_stake_delegation_t;
 
@@ -120,6 +127,14 @@ struct fd_stake_delegations {
   ulong magic;
   ulong expected_stake_accounts_;
   ulong max_stake_accounts_;
+
+  /* High water mark: max_idx + 1 over all indices ever acquired from
+     the root pool.  Monotonically increasing (never decremented on
+     release).  Used by fd_stake_delegations_pool_iter_* to walk only
+     the dense prefix [0, hwm) of the root pool rather than scanning
+     the full max_stake_accounts capacity or chasing the random map
+     chains. */
+  ulong root_pool_hwm;
 
   /* Root map + pool */
   ulong map_offset_;
@@ -146,6 +161,7 @@ struct fd_stake_delegations_iter {
   fd_stake_delegation_t *        root_pool;
   fd_stake_delegation_t *        delta_pool;
   fd_stake_delegation_map_iter_t iter;
+  ulong                          iter_chain_stop;
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
@@ -377,11 +393,59 @@ fd_stake_delegations_iter_t *
 fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
                                 fd_stake_delegations_t const * stake_delegations );
 
+/* The chain range assigned to partition i is
+     [ i*chain_cnt/total_partitions, (i+1)*chain_cnt/total_partitions ). */
+fd_stake_delegations_iter_t *
+fd_stake_delegations_iter_init_partition( fd_stake_delegations_iter_t *  iter,
+                                          fd_stake_delegations_t const * stake_delegations,
+                                          ulong                          partition_idx,
+                                          ulong                          total_partitions );
+
 void
 fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter );
 
 int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter );
+
+/* Pool-range iterator.  Iterates allocated elements in the root
+   pool in index order, walking the dense prefix [0, root_pool_hwm)
+   and skipping slots whose is_allocated bit is 0.  This gives
+   sequential memory access (hardware prefetcher does the work) and
+   scales with the number of live delegations rather than the pool's
+   max capacity.
+
+   Tombstone and mark-delta semantics are preserved: if the current
+   root element has a delta_idx routing to a delta-pool element, the
+   iterator yields the delta element; tombstoned elements are
+   skipped.  So this is a drop-in substitute for the chain iterator
+   during the epoch-boundary refresh pass. */
+
+struct fd_stake_delegations_pool_iter {
+  fd_stake_delegation_t const * root_pool;
+  fd_stake_delegation_t const * delta_pool;
+  ulong                         cur;
+  ulong                         hi;
+};
+typedef struct fd_stake_delegations_pool_iter fd_stake_delegations_pool_iter_t;
+
+/* Initialize a pool-range iterator for partition [partition_idx,
+   partition_idx+1) of the dense root-pool prefix.  Partition boundaries
+   divide [0, root_pool_hwm) as evenly as possible: partition i covers
+   [ i*hwm/total_partitions, (i+1)*hwm/total_partitions ). */
+fd_stake_delegations_pool_iter_t *
+fd_stake_delegations_pool_iter_init_partition( fd_stake_delegations_pool_iter_t * iter,
+                                               fd_stake_delegations_t const *     stake_delegations,
+                                               ulong                              partition_idx,
+                                               ulong                              total_partitions );
+
+int
+fd_stake_delegations_pool_iter_done( fd_stake_delegations_pool_iter_t const * iter );
+
+void
+fd_stake_delegations_pool_iter_next( fd_stake_delegations_pool_iter_t * iter );
+
+fd_stake_delegation_t const *
+fd_stake_delegations_pool_iter_ele( fd_stake_delegations_pool_iter_t const * iter );
 
 FD_PROTOTYPES_END
 

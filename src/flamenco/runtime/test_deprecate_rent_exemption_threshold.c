@@ -225,9 +225,14 @@ test_env_create( test_env_t * env,
   env->bank = fd_banks_init_bank( env->banks );
   FD_TEST( env->bank );
 
-  env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
+  void * rt_stack_shmem_mem = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_shmem_align(), fd_runtime_stack_shmem_footprint( 2048UL, 2048UL, 2048UL, 1UL ), env->tag );
+  FD_TEST( rt_stack_shmem_mem );
+  fd_runtime_stack_shmem_t * rt_stack_shmem = fd_runtime_stack_shmem_join( fd_runtime_stack_shmem_new( rt_stack_shmem_mem, 2048UL, 2048UL, 2048UL, 1UL, 999UL ) );
+  FD_TEST( rt_stack_shmem );
+  void * rt_stack_ljoin = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 1 ), env->tag );
+  FD_TEST( rt_stack_ljoin );
+  env->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( rt_stack_ljoin, rt_stack_shmem, 1, 0UL ) );
   FD_TEST( env->runtime_stack );
-  FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) );
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );

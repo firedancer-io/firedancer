@@ -48,6 +48,37 @@ get_root_pool( fd_stake_delegations_t const * stake_delegations ) {
   return fd_type_pun( (uchar *)stake_delegations + stake_delegations->pool_offset_ );
 }
 
+/* Root-pool acquire/release wrappers that maintain is_allocated and
+   root_pool_hwm so fd_stake_delegations_pool_iter can walk a dense
+   prefix with O(1)-per-slot allocated checks.  Callers must use
+   these instead of root_pool_{ele,idx}_{acquire,release} directly
+   for the root pool. */
+
+static inline fd_stake_delegation_t *
+root_pool_acquire_tracked( fd_stake_delegations_t * stake_delegations,
+                           fd_stake_delegation_t *  root_pool ) {
+  ulong idx = root_pool_idx_acquire( root_pool );
+  if( idx+1UL > stake_delegations->root_pool_hwm ) {
+    stake_delegations->root_pool_hwm = idx + 1UL;
+  }
+  root_pool[ idx ].is_allocated = 1;
+  return &root_pool[ idx ];
+}
+
+static inline void
+root_pool_idx_release_tracked( fd_stake_delegation_t * root_pool,
+                               ulong                   idx ) {
+  root_pool[ idx ].is_allocated = 0;
+  root_pool_idx_release( root_pool, idx );
+}
+
+static inline void
+root_pool_ele_release_tracked( fd_stake_delegation_t * root_pool,
+                               fd_stake_delegation_t * ele ) {
+  ele->is_allocated = 0;
+  root_pool_ele_release( root_pool, ele );
+}
+
 static inline root_map_t *
 get_root_map( fd_stake_delegations_t const * stake_delegations ) {
   return fd_type_pun( (uchar *)stake_delegations + stake_delegations->map_offset_ );
@@ -179,6 +210,7 @@ fd_stake_delegations_new( void * mem,
   stake_delegations->effective_stake    = 0UL;
   stake_delegations->activating_stake   = 0UL;
   stake_delegations->deactivating_stake = 0UL;
+  stake_delegations->root_pool_hwm      = 0UL;
 
   fd_rwlock_new( &stake_delegations->delta_lock );
 
@@ -226,6 +258,11 @@ fd_stake_delegations_reset( fd_stake_delegations_t * stake_delegations ) {
   stake_delegations->effective_stake    = 0UL;
   stake_delegations->activating_stake   = 0UL;
   stake_delegations->deactivating_stake = 0UL;
+  /* Rewinding hwm to 0 is safe without touching stale is_allocated
+     bits in the pool: the iterator only looks at slots in [0, hwm),
+     and subsequent lazy acquires will rewrite is_allocated=1 on
+     any slot they touch via root_pool_acquire_tracked. */
+  stake_delegations->root_pool_hwm      = 0UL;
 }
 
 fd_stake_delegation_t const *
@@ -252,7 +289,7 @@ fd_stake_delegations_root_update( fd_stake_delegations_t * stake_delegations,
   fd_stake_delegation_t * stake_delegation = root_map_ele_query( map, stake_account, NULL, pool );
   if( !stake_delegation ) {
     FD_CRIT( root_pool_free( pool ), "no free stake delegations in pool" );
-    stake_delegation = root_pool_ele_acquire( pool );
+    stake_delegation = root_pool_acquire_tracked( stake_delegations, pool );
     stake_delegation->stake_account = *stake_account;
     FD_CRIT( root_map_ele_insert( map, stake_delegation, pool ), "unable to insert stake delegation into map" );
   }
@@ -277,7 +314,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
   if( FD_UNLIKELY( delegation_idx==UINT_MAX ) ) return;
 
   root_map_idx_remove( map, stake_account, delegation_idx, pool );
-  root_pool_idx_release( pool, delegation_idx );
+  root_pool_idx_release_tracked( pool, delegation_idx );
 }
 
 #if FD_HAS_DOUBLE
@@ -337,7 +374,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
 
     remove:
       root_map_idx_remove( map, address, UINT_MAX, pool );
-      root_pool_ele_release( pool, delegation );
+      root_pool_ele_release_tracked( pool, delegation );
     }
   }
   fd_accdb_ro_pipe_fini( ro_pipe );
@@ -518,7 +555,7 @@ fd_stake_delegations_iter_idx( fd_stake_delegations_iter_t * iter ) {
 
 static void
 skip_tombstones( fd_stake_delegations_iter_t * iter ) {
-  while( !root_map_iter_done( iter->iter, iter->root_map, iter->root_pool ) ) {
+  while( !fd_stake_delegations_iter_done( iter ) ) {
     fd_stake_delegation_t *       root_delegation = root_map_iter_ele( iter->iter, iter->root_map, iter->root_pool );
     fd_stake_delegation_t const * ele             = (root_delegation->delta_idx != UINT_MAX)
       ? (fd_stake_delegation_t const *)delta_pool_ele( iter->delta_pool, root_delegation->delta_idx )
@@ -540,6 +577,51 @@ fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
   iter->iter       = root_map_iter_init( iter->root_map, iter->root_pool );
   iter->delta_pool = get_delta_pool( stake_delegations );
 
+  iter->iter_chain_stop = 0UL;
+
+  skip_tombstones( iter );
+
+  return iter;
+}
+
+fd_stake_delegations_iter_t *
+fd_stake_delegations_iter_init_partition( fd_stake_delegations_iter_t *  iter,
+                                          fd_stake_delegations_t const * stake_delegations,
+                                          ulong                          partition_idx,
+                                          ulong                          total_partitions ) {
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "NULL stake_delegations" ));
+  }
+  if( FD_UNLIKELY( total_partitions==0UL || partition_idx>=total_partitions ) ) {
+    FD_LOG_CRIT(( "invalid partition idx %lu total_partitions %lu", partition_idx, total_partitions ));
+  }
+
+  iter->root_map   = get_root_map( stake_delegations );
+  iter->root_pool  = get_root_pool( stake_delegations );
+  iter->delta_pool = get_delta_pool( stake_delegations );
+
+  /* Partition i maps to [chain_lo, chain_hi).  The underlying map
+     iterator's chain_rem counts down, so the iterator starts at
+     chain_rem=chain_hi and stops once chain_rem<=chain_lo. */
+  ulong chain_cnt = root_map_chain_cnt( iter->root_map );
+  ulong chain_lo  = (partition_idx      *chain_cnt)/total_partitions;
+  ulong chain_hi  = ((partition_idx+1UL)*chain_cnt)/total_partitions;
+
+  iter->iter_chain_stop = chain_lo;
+
+  root_map_private_t const * map       = root_map_private_const( iter->root_map );
+  uint const *               chain     = root_map_private_chain_const( map );
+  ulong                      chain_rem = chain_hi;
+  ulong                      ele_idx   = root_map_private_idx_null();
+  while( chain_rem>chain_lo ) {
+    ele_idx = root_map_private_unbox( chain[ chain_rem-1UL ] );
+    if( !root_map_private_idx_is_null( ele_idx ) ) break;
+    chain_rem--;
+  }
+
+  iter->iter.chain_rem = chain_rem;
+  iter->iter.ele_idx   = ele_idx;
+
   skip_tombstones( iter );
 
   return iter;
@@ -553,7 +635,64 @@ fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
 
 int
 fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
-  return root_map_iter_done( iter->iter, iter->root_map, iter->root_pool );
+  return root_map_iter_done( iter->iter, iter->root_map, iter->root_pool ) ||
+         iter->iter.chain_rem<=iter->iter_chain_stop;
+}
+
+/* Pool-range iterator ************************************************/
+
+static inline void
+pool_iter_advance_to_valid( fd_stake_delegations_pool_iter_t * iter ) {
+  while( iter->cur<iter->hi ) {
+    fd_stake_delegation_t const * root_ele = &iter->root_pool[ iter->cur ];
+    if( FD_LIKELY( root_ele->is_allocated ) ) {
+      fd_stake_delegation_t const * ele = (root_ele->delta_idx!=UINT_MAX)
+        ? (fd_stake_delegation_t const *)delta_pool_ele_const( iter->delta_pool, root_ele->delta_idx )
+        : root_ele;
+      if( FD_LIKELY( !ele->is_tombstone ) ) return;
+    }
+    iter->cur++;
+  }
+}
+
+fd_stake_delegations_pool_iter_t *
+fd_stake_delegations_pool_iter_init_partition( fd_stake_delegations_pool_iter_t * iter,
+                                               fd_stake_delegations_t const *     stake_delegations,
+                                               ulong                              partition_idx,
+                                               ulong                              total_partitions ) {
+  if( FD_UNLIKELY( !stake_delegations ) ) FD_LOG_CRIT(( "NULL stake_delegations" ));
+  if( FD_UNLIKELY( total_partitions==0UL || partition_idx>=total_partitions ) ) {
+    FD_LOG_CRIT(( "invalid partition idx %lu total_partitions %lu", partition_idx, total_partitions ));
+  }
+
+  iter->root_pool  = get_root_pool( stake_delegations );
+  iter->delta_pool = get_delta_pool( stake_delegations );
+  ulong hwm = stake_delegations->root_pool_hwm;
+  iter->cur = (partition_idx    *hwm)/total_partitions;
+  iter->hi  = ((partition_idx+1UL)*hwm)/total_partitions;
+
+  pool_iter_advance_to_valid( iter );
+  return iter;
+}
+
+int
+fd_stake_delegations_pool_iter_done( fd_stake_delegations_pool_iter_t const * iter ) {
+  return iter->cur>=iter->hi;
+}
+
+void
+fd_stake_delegations_pool_iter_next( fd_stake_delegations_pool_iter_t * iter ) {
+  iter->cur++;
+  pool_iter_advance_to_valid( iter );
+}
+
+fd_stake_delegation_t const *
+fd_stake_delegations_pool_iter_ele( fd_stake_delegations_pool_iter_t const * iter ) {
+  fd_stake_delegation_t const * root_ele = &iter->root_pool[ iter->cur ];
+  if( FD_UNLIKELY( root_ele->delta_idx!=UINT_MAX ) ) {
+    return (fd_stake_delegation_t const *)delta_pool_ele_const( iter->delta_pool, root_ele->delta_idx );
+  }
+  return root_ele;
 }
 
 void
@@ -575,7 +714,7 @@ fd_stake_delegations_mark_delta( fd_stake_delegations_t *   stake_delegations,
 
     fd_stake_delegation_t * base_delegation = root_map_ele_query( root_map, &delta_delegation->stake_account, NULL, root_pool);
     if( FD_UNLIKELY( !base_delegation ) ) {
-      base_delegation                = root_pool_ele_acquire( root_pool );
+      base_delegation                = root_pool_acquire_tracked( stake_delegations, root_pool );
       base_delegation->stake_account = delta_delegation->stake_account;
       base_delegation->dne_in_root   = 1;
       base_delegation->delta_idx     = (uint)delta_pool_idx( delta_pool, delta_delegation );
@@ -640,7 +779,7 @@ fd_stake_delegations_unmark_delta( fd_stake_delegations_t *   stake_delegations,
       base_delegation->dne_in_root = 0;
       base_delegation->delta_idx   = UINT_MAX;
       root_map_ele_remove( root_map, &delta_delegation->stake_account, NULL, root_pool );
-      root_pool_ele_release( root_pool, base_delegation );
+      root_pool_ele_release_tracked( root_pool, base_delegation );
 
     } else {
       if( FD_LIKELY( !delta_delegation->is_tombstone ) ) {

@@ -105,7 +105,7 @@ update_next_leaders( fd_bank_t *          bank,
 
   /* Populate a compressed set of stake weights for a valid leader
      schedule. */
-  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.next_stake_weights;
+  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights->next_stake_weights;
   ulong idx = 0UL;
 
   int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
@@ -129,7 +129,7 @@ update_next_leaders( fd_bank_t *          bank,
       idx++;
     }
   }
-  runtime_stack->epoch_weights.next_stake_weights_cnt = idx;
+  runtime_stack->epoch_weights->next_stake_weights_cnt = idx;
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
@@ -141,9 +141,9 @@ update_next_leaders( fd_bank_t *          bank,
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
-  memcpy( runtime_stack->epoch_weights.next_id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  runtime_stack->epoch_weights.next_id_weights_cnt      = staked_cnt;
-  runtime_stack->epoch_weights.next_id_weights_excluded  = excluded_stake;
+  memcpy( runtime_stack->epoch_weights->next_id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  runtime_stack->epoch_weights->next_id_weights_cnt      = staked_cnt;
+  runtime_stack->epoch_weights->next_id_weights_excluded  = excluded_stake;
 }
 
 void
@@ -184,7 +184,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   /* Populate a compressed set of stake weights for a valid leader
      schedule. */
-  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights.stake_weights;
+  fd_vote_stake_weight_t * stake_weights = runtime_stack->epoch_weights->stake_weights;
   ulong idx = 0UL;
 
   int needs_compression = stake_weight_cnt>MAX_COMPRESSED_STAKE_WEIGHTS;
@@ -208,7 +208,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
       idx++;
     }
   }
-  runtime_stack->epoch_weights.stake_weights_cnt = idx;
+  runtime_stack->epoch_weights->stake_weights_cnt = idx;
 
   /* Produce truncated set of id weights to send to Shred tile for
      Turbine tree computation. */
@@ -220,9 +220,9 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     }
   }
   staked_cnt = fd_ulong_min( staked_cnt, MAX_SHRED_DESTS );
-  memcpy( runtime_stack->epoch_weights.id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
-  runtime_stack->epoch_weights.id_weights_cnt      = staked_cnt;
-  runtime_stack->epoch_weights.id_weights_excluded = excluded_stake;
+  memcpy( runtime_stack->epoch_weights->id_weights, runtime_stack->stakes.id_weights, staked_cnt * sizeof(fd_stake_weight_t) );
+  runtime_stack->epoch_weights->id_weights_cnt      = staked_cnt;
+  runtime_stack->epoch_weights->id_weights_excluded = excluded_stake;
 }
 
 /******************************************************************************/
@@ -628,105 +628,6 @@ fd_compute_and_apply_new_feature_activations( fd_bank_t *               bank,
   vote_states_prev holds the stakes at T-1
   vote_states_prev_prev holds the stakes at T-2
  */
-/* process for the start of a new epoch */
-static void
-fd_runtime_process_new_epoch( fd_banks_t *              banks,
-                              fd_bank_t *               bank,
-                              fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_capture_ctx_t *        capture_ctx,
-                              ulong                     parent_epoch,
-                              fd_runtime_stack_t *      runtime_stack ) {
-  long start = fd_log_wallclock();
-
-  fd_compute_and_apply_new_feature_activations( bank, accdb, xid, runtime_stack, capture_ctx );
-
-  /* Update the cached warmup/cooldown rate epoch now that features may
-     have changed (reduce_stake_warmup_cooldown may have just activated). */
-  bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule,
-                                                         bank->f.features.reduce_stake_warmup_cooldown,
-                                                         NULL );
-
-  /* Updates stake history sysvar accumulated values and recomputes
-     stake delegations for vote accounts. */
-
-  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
-  if( FD_UNLIKELY( !stake_delegations ) ) {
-    FD_LOG_CRIT(( "stake_delegations is NULL" ));
-  }
-
-  fd_stakes_activate_epoch( bank, runtime_stack, accdb, xid, capture_ctx, stake_delegations,
-                            &bank->f.warmup_cooldown_rate_epoch );
-
-  /* Distribute rewards.  This involves calculating the rewards for
-     every vote and stake account. */
-
-  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
-  fd_begin_partitioned_rewards( bank,
-                                accdb,
-                                xid,
-                                runtime_stack,
-                                capture_ctx,
-                                stake_delegations,
-                                parent_blockhash,
-                                parent_epoch );
-
-  fd_bank_stake_delegations_end_frontier_query( banks, bank );
-
-  /* The Agave client handles updating their stakes cache with a call to
-     update_epoch_stakes() which keys stakes by the leader schedule
-     epochs and retains up to 6 epochs of stakes.  However, to correctly
-     calculate the leader schedule, we just need to maintain the vote
-     states for the current epoch, the previous epoch, and the one
-     before that.
-     https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank.rs#L2175
-  */
-
-  /* Now that our stakes caches have been updated, we can calculate the
-     leader schedule for the upcoming epoch epoch using our new
-     vote_states_prev_prev (stakes for T-2). */
-
-  fd_runtime_update_leaders( bank, runtime_stack );
-
-  long end = fd_log_wallclock();
-  FD_LOG_NOTICE(( "starting epoch %lu at slot %lu took %.6f seconds", bank->f.epoch, bank->f.slot, (double)(end - start) / 1e9 ));
-}
-
-static void
-fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
-                                                fd_bank_t *               bank,
-                                                fd_accdb_user_t *         accdb,
-                                                fd_funk_txn_xid_t const * xid,
-                                                fd_capture_ctx_t *        capture_ctx,
-                                                fd_runtime_stack_t *      runtime_stack,
-                                                int *                     is_epoch_boundary ) {
-
-  ulong const slot = bank->f.slot;
-  if( FD_LIKELY( slot != 0UL ) ) {
-    fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
-
-    ulong prev_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.parent_slot, NULL );
-    ulong slot_idx;
-    ulong new_epoch  = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
-    if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
-      /* The block after genesis has a height of 1. */
-      bank->f.block_height = 1UL;
-    }
-
-    if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
-      FD_LOG_DEBUG(( "Epoch boundary starting" ));
-      fd_runtime_process_new_epoch( banks, bank, accdb, xid, capture_ctx, prev_epoch, runtime_stack );
-      *is_epoch_boundary = 1;
-    } else {
-      *is_epoch_boundary = 0;
-    }
-
-    fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
-  } else {
-    *is_epoch_boundary = 0;
-  }
-}
-
 
 static void
 fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
@@ -854,6 +755,190 @@ fd_features_prepopulate_upcoming( fd_bank_t *               bank,
   fd_features_restore( bank, accdb, xid );
 }
 
+/* Helper: the slot-prep work that runs after epoch boundary
+   processing (if any) has completed.  Shared between the monolithic
+   fd_runtime_block_execute_prepare and replay's parallel state
+   machine (which calls this directly at the end of phase 3). */
+void
+fd_runtime_block_execute_prepare_tail( fd_bank_t *               bank,
+                                       fd_accdb_user_t *         accdb,
+                                       fd_funk_txn_xid_t const * xid,
+                                       fd_runtime_stack_t *      runtime_stack,
+                                       fd_capture_ctx_t *        capture_ctx ) {
+  if( FD_LIKELY( bank->f.slot ) ) {
+    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
+    FD_TEST( cost_tracker );
+    fd_cost_tracker_init( cost_tracker, &bank->f.features, bank->f.slot );
+  }
+
+  fd_features_prepopulate_upcoming( bank, accdb, xid );
+
+  fd_runtime_block_sysvar_update_pre_execute( bank, accdb, xid, runtime_stack, capture_ctx );
+
+  if( FD_UNLIKELY( !fd_sysvar_cache_restore( bank, accdb, xid ) ) ) {
+    FD_LOG_ERR(( "Failed to restore sysvar cache" ));
+  }
+}
+
+/* Epoch-boundary helpers *********************************************/
+
+void
+fd_runtime_epoch_boundary_preamble( fd_banks_t *              banks,
+                                    fd_bank_t *               bank,
+                                    fd_accdb_user_t *         accdb,
+                                    fd_funk_txn_xid_t const * xid,
+                                    fd_capture_ctx_t *        capture_ctx,
+                                    fd_runtime_stack_t *      runtime_stack ) {
+  fd_compute_and_apply_new_feature_activations( bank, accdb, xid, runtime_stack, capture_ctx );
+
+  /* Update the cached warmup/cooldown rate epoch now that features may
+     have changed (reduce_stake_warmup_cooldown may have just
+     activated). */
+  bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule,
+                                                         bank->f.features.reduce_stake_warmup_cooldown,
+                                                         NULL );
+
+  /* Publish this bank's stake-delegation deltas onto the root map so
+     subsequent iteration (serial or parallel) sees the merged view.
+     Paired with fd_bank_stake_delegations_end_frontier_query in the
+     postamble. */
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
+  if( FD_UNLIKELY( !stake_delegations ) ) FD_LOG_CRIT(( "stake_delegations is NULL" ));
+
+  /* stake_history sysvar update (uses pre-increment totals on the
+     bank) + bank->f.epoch++. */
+  fd_stake_history_t stake_history[1];
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  }
+  fd_epoch_stake_history_entry_pair_t elem = {
+    .epoch = bank->f.epoch,
+    .entry = {
+      .effective    = stake_delegations->effective_stake,
+      .activating   = stake_delegations->activating_stake,
+      .deactivating = stake_delegations->deactivating_stake,
+    }
+  };
+  fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &elem );
+
+  bank->f.epoch++;
+}
+
+void
+fd_runtime_epoch_boundary_reset_vote_rewards( fd_bank_t *          bank,
+                                              fd_runtime_stack_t * runtime_stack ) {
+  runtime_stack->shmem->stake_rewards_cnt = 0UL;
+  ulong vote_ele_cnt = *fd_bank_epoch_credits_len( bank );
+  for( ulong i=0UL; i<vote_ele_cnt; i++ ) {
+    runtime_stack->stakes.vote_ele[ i ].vote_rewards = 0UL;
+  }
+}
+
+void
+fd_runtime_epoch_boundary_postamble( fd_banks_t *              banks,
+                                     fd_bank_t *               bank,
+                                     fd_accdb_user_t *         accdb,
+                                     fd_funk_txn_xid_t const * xid,
+                                     fd_capture_ctx_t *        capture_ctx,
+                                     fd_runtime_stack_t *      runtime_stack ) {
+  fd_bank_stake_delegations_end_frontier_query( banks, bank );
+  fd_runtime_update_leaders( bank, runtime_stack );
+  fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
+}
+
+/* fd_runtime_epoch_boundary_refresh runs the four-phase-0 map-reduce
+   in a single thread when VAT is not active; falls back to the
+   serial VAT refresh otherwise.  Factored out of
+   fd_runtime_epoch_boundary to keep that function readable. */
+
+static void
+fd_runtime_epoch_boundary_refresh_serial( fd_bank_t *                    bank,
+                                          fd_accdb_user_t *              accdb,
+                                          fd_funk_txn_xid_t const *      xid,
+                                          fd_runtime_stack_t *           runtime_stack,
+                                          fd_stake_delegations_t const * stake_delegations,
+                                          fd_stake_history_t const *     stake_history ) {
+  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+    fd_refresh_vote_accounts_vat( bank, accdb, xid, runtime_stack, stake_delegations,
+                                  stake_history, &bank->f.warmup_cooldown_rate_epoch );
+    return;
+  }
+
+  ulong staked_accounts = 0UL;
+  fd_refresh_vote_accounts_no_vat_pre( bank, runtime_stack, &staked_accounts );
+
+  ulong eff=0UL, act=0UL, deact=0UL;
+  int flush = fd_refresh_delegations_partitioned( bank,
+                                                  runtime_stack,
+                                                  stake_delegations,
+                                                  stake_history,
+                                                  0UL, 1UL,
+                                                  0 /* is_resume */,
+                                                  &bank->f.warmup_cooldown_rate_epoch,
+                                                  &eff, &act, &deact );
+  /* Serial path: one worker sees every unique vote account, so the
+     per-tile stash cap (expected_vote_accounts) is not exceeded in
+     practice.  If it is, the caller needs to run the parallel path
+     (where replay drives flush/resume). */
+  if( FD_UNLIKELY( flush ) ) FD_LOG_CRIT(( "refresh worker flushed in serial mode" ));
+
+  fd_refresh_delegations_merge_tile_slot( runtime_stack, runtime_stack->refresh.slot_idx, &staked_accounts );
+  fd_refresh_delegations_finalize( bank, eff, act, deact );
+  fd_refresh_vote_accounts_no_vat_post( bank, accdb, xid, runtime_stack );
+}
+
+void
+fd_runtime_epoch_boundary( fd_banks_t *              banks,
+                           fd_bank_t *               bank,
+                           fd_accdb_user_t *         accdb,
+                           fd_funk_txn_xid_t const * xid,
+                           fd_capture_ctx_t *        capture_ctx,
+                           fd_runtime_stack_t *      runtime_stack ) {
+  long ts0 = fd_log_wallclock();
+
+  ulong parent_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL );
+
+  fd_runtime_epoch_boundary_preamble( banks, bank, accdb, xid, capture_ctx, runtime_stack );
+
+  /* The frontier_query in the preamble published this bank's deltas
+     onto the root, so a root query now returns the merged view. */
+  fd_stake_delegations_t const * stake_delegations = fd_banks_stake_delegations_root_query( banks );
+  fd_stake_history_t             stake_history[1];
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
+    FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  }
+
+  /* Phase 0: refresh_delegations. */
+  fd_runtime_epoch_boundary_refresh_serial( bank, accdb, xid, runtime_stack, stake_delegations, stake_history );
+
+  /* Phase 1: reward_points. */
+  uint128 total_points  = calculate_reward_points_partitioned( bank, stake_delegations, stake_history,
+                                                               runtime_stack, 0UL, 1UL );
+  ulong   total_rewards = fd_rewards_compute_total_rewards( bank, parent_epoch, total_points );
+
+  /* Phase 2: stake_vote_rewards. */
+  fd_runtime_epoch_boundary_reset_vote_rewards( bank, runtime_stack );
+  calculate_stake_vote_rewards_partitioned( bank, stake_delegations, stake_history,
+                                            parent_epoch, total_rewards, total_points,
+                                            runtime_stack, 0UL, 1UL );
+
+  /* Phase 3: setup_stake_partitions. */
+  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  fd_begin_partitioned_rewards_init_partitions( bank, runtime_stack, capture_ctx,
+                                                parent_blockhash, total_points, total_rewards );
+  setup_stake_partitions_partitioned( bank, stake_delegations, stake_history,
+                                      runtime_stack, parent_epoch, total_rewards, total_points,
+                                      0UL, 1UL );
+  fd_begin_partitioned_rewards_finalize( bank, accdb, xid, runtime_stack, capture_ctx,
+                                         parent_blockhash, total_points, total_rewards );
+
+  fd_runtime_epoch_boundary_postamble( banks, bank, accdb, xid, capture_ctx, runtime_stack );
+
+  long ts1 = fd_log_wallclock();
+  FD_LOG_NOTICE(( "epoch boundary serial: epoch=%lu slot=%lu total=%.6f (seconds)",
+                  bank->f.epoch, bank->f.slot, (double)(ts1 - ts0) / 1e9 ));
+}
+
 void
 fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_bank_t *          bank,
@@ -864,21 +949,29 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
 
   fd_funk_txn_xid_t const xid = { .ul = { bank->f.slot, bank->idx } };
 
-  fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
+  *is_epoch_boundary = 0;
 
-  if( FD_LIKELY( bank->f.slot ) ) {
-    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
-    FD_TEST( cost_tracker );
-    fd_cost_tracker_init( cost_tracker, &bank->f.features, bank->f.slot );
+  ulong const slot = bank->f.slot;
+  if( FD_LIKELY( slot ) ) {
+    fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
+
+    ulong prev_epoch = fd_slot_to_epoch( epoch_schedule, bank->f.parent_slot, NULL );
+    ulong slot_idx;
+    ulong new_epoch  = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
+    if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) {
+      /* The block after genesis has a height of 1. */
+      bank->f.block_height = 1UL;
+    }
+
+    if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
+      fd_runtime_epoch_boundary( banks, bank, accdb, &xid, capture_ctx, runtime_stack );
+      *is_epoch_boundary = 1;
+    } else {
+      fd_distribute_partitioned_epoch_rewards( bank, accdb, &xid, capture_ctx );
+    }
   }
 
-  fd_features_prepopulate_upcoming( bank, accdb, &xid );
-
-  fd_runtime_block_sysvar_update_pre_execute( bank, accdb, &xid, runtime_stack, capture_ctx );
-
-  if( FD_UNLIKELY( !fd_sysvar_cache_restore( bank, accdb, &xid ) ) ) {
-    FD_LOG_ERR(( "Failed to restore sysvar cache" ));
-  }
+  fd_runtime_block_execute_prepare_tail( bank, accdb, &xid, runtime_stack, capture_ctx );
 }
 
 static void
@@ -1658,24 +1751,26 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     }
   }
 
-  /* fd_refresh_vote_accounts is responsible for updating the vote
-     states with the total amount of active delegated stake. It does
-     this by iterating over all active stake delegations and summing up
-     the amount of stake that is delegated to each vote account. */
+  /* Initialize vote states with the total amount of active delegated
+     stake from genesis.  Genesis pre-dates the VAT feature so we
+     always use the no_vat refresh phase. */
 
   ulong new_rate_activation_epoch = 0UL;
 
   fd_stake_history_t stake_history[1];
   fd_sysvar_stake_history_read( accdb, xid, stake_history );
 
-  fd_refresh_vote_accounts(
-      bank,
-      accdb,
-      xid,
-      runtime_stack,
-      stake_delegations,
-      stake_history,
-      &new_rate_activation_epoch );
+  ulong staked_accounts = 0UL;
+  fd_refresh_vote_accounts_no_vat_pre( bank, runtime_stack, &staked_accounts );
+  ulong eff = 0UL, act = 0UL, deact = 0UL;
+  int flush = fd_refresh_delegations_partitioned( bank, runtime_stack, stake_delegations, stake_history,
+                                                  0UL, 1UL, 0 /* is_resume */,
+                                                  &new_rate_activation_epoch,
+                                                  &eff, &act, &deact );
+  if( FD_UNLIKELY( flush ) ) FD_LOG_CRIT(( "genesis refresh worker flushed unexpectedly" ));
+  fd_refresh_delegations_merge_tile_slot( runtime_stack, runtime_stack->refresh.slot_idx, &staked_accounts );
+  fd_refresh_delegations_finalize( bank, eff, act, deact );
+  fd_refresh_vote_accounts_no_vat_post( bank, accdb, xid, runtime_stack );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_genesis_fini( vote_stakes );

@@ -305,7 +305,14 @@ FD_PROTOTYPES_BEGIN
    the bank and accounts database have been setup to execute against
    the bank: the bank has already been cloned from the parent bank and
    that the database has a transaction that is linked to the parent
-   block's xid. */
+   block's xid.
+
+   Runs serially on the caller.  When the slot being prepared crosses
+   an epoch boundary, fd_runtime_epoch_boundary is invoked inline
+   first.  Callers that want to fan the boundary work out across
+   exec tiles (see the four parallel helpers below) should instead
+   detect the boundary themselves, drive the four phases, and then
+   call fd_runtime_block_execute_prepare_tail directly. */
 
 void
 fd_runtime_block_execute_prepare( fd_banks_t *         banks,
@@ -314,6 +321,89 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_runtime_stack_t * runtime_stack,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary );
+
+/* Shared tail of slot prep: cost-tracker init, feature prepopulate,
+   sysvar update, sysvar cache restore.  Called by both
+   fd_runtime_block_execute_prepare and by the replay tile's
+   parallel-path state machine after all four parallel phases plus
+   fd_runtime_epoch_boundary_postamble have run. */
+
+void
+fd_runtime_block_execute_prepare_tail( fd_bank_t *               bank,
+                                       fd_accdb_user_t *         accdb,
+                                       fd_funk_txn_xid_t const * xid,
+                                       fd_runtime_stack_t *      runtime_stack,
+                                       fd_capture_ctx_t *        capture_ctx );
+
+/* Epoch-boundary entry points *****************************************
+
+   The epoch boundary is organized as four map-reduce phases:
+     phase 0 -- refresh_delegations (rebuild per-vote-account stakes)
+     phase 1 -- reward_points       (sum of per-delegation points)
+     phase 2 -- stake_vote_rewards  (per-delegation staker/voter rewards)
+     phase 3 -- setup_stake_partitions (bucket rewards into partitions
+                for slow-paced distribution)
+
+   Two ways to drive them:
+
+   * Serial:  call fd_runtime_epoch_boundary.  Runs the preamble +
+     all four phases with total_partitions=1 on the calling tile +
+     the postamble.  Used by tests and by replay when no exec tiles
+     are available (or when the validator_admission_ticket feature
+     is active, since the VAT refresh path is not yet parallelized).
+
+   * Parallel:  the caller (replay) calls fd_runtime_epoch_boundary_preamble
+     once, then for each phase runs
+       pre  -> dispatch map tasks to exec tiles -> reduce replies
+     inline, and finally fd_runtime_epoch_boundary_postamble + the
+     shared tail.  The map functions are in fd_stakes.h /
+     fd_rewards.h; the phase-specific helpers below (pre / reset /
+     finalize) are the non-parallelizable bookends. */
+
+void
+fd_runtime_epoch_boundary( fd_banks_t *              banks,
+                           fd_bank_t *               bank,
+                           fd_accdb_user_t *         accdb,
+                           fd_funk_txn_xid_t const * xid,
+                           fd_capture_ctx_t *        capture_ctx,
+                           fd_runtime_stack_t *      runtime_stack );
+
+/* fd_runtime_epoch_boundary_preamble runs the non-phase prologue of
+   the boundary: new feature activations, warmup/cooldown rate epoch
+   update, fd_bank_stake_delegations_frontier_query (to publish this
+   bank's deltas onto the root for iteration), stake_history sysvar
+   update, and bank->f.epoch++.  Must be called once before any of
+   the four phases. */
+
+void
+fd_runtime_epoch_boundary_preamble( fd_banks_t *              banks,
+                                    fd_bank_t *               bank,
+                                    fd_accdb_user_t *         accdb,
+                                    fd_funk_txn_xid_t const * xid,
+                                    fd_capture_ctx_t *        capture_ctx,
+                                    fd_runtime_stack_t *      runtime_stack );
+
+/* fd_runtime_epoch_boundary_reset_vote_rewards resets the shared
+   accumulators that phase 2 (stake_vote_rewards) adds into.  Must
+   be called between phase 1 (reward_points) and phase 2. */
+
+void
+fd_runtime_epoch_boundary_reset_vote_rewards( fd_bank_t *          bank,
+                                              fd_runtime_stack_t * runtime_stack );
+
+/* fd_runtime_epoch_boundary_postamble closes out the boundary after
+   all four phases and fd_begin_partitioned_rewards_finalize have run:
+   ends the frontier_query marker on stake_delegations, builds leader
+   schedules for this and the next epoch, and steps pending
+   partitioned reward distribution. */
+
+void
+fd_runtime_epoch_boundary_postamble( fd_banks_t *              banks,
+                                     fd_bank_t *               bank,
+                                     fd_accdb_user_t *         accdb,
+                                     fd_funk_txn_xid_t const * xid,
+                                     fd_capture_ctx_t *        capture_ctx,
+                                     fd_runtime_stack_t *      runtime_stack );
 
 /* fd_runtime_block_execute_finalize finishes the execution of the block
    by paying a fee out to the block leader, updating any sysvars, and

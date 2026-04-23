@@ -110,7 +110,10 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
 
 /* fd_stake_rewards_insert inserts a new stake reward for a given
    fork.  It adds it to the index and hashes it into the approporiate
-   partition. */
+   partition.  Concurrency-safe: multiple writers may call in
+   parallel on the same (stake_rewards, fork_idx); shared counters
+   are updated with atomic FAA and the index_map / partition_idxs_head
+   chains are pushed via CAS-spin. */
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
@@ -118,6 +121,68 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
                          fd_pubkey_t const *  pubkey,
                          ulong                lamports,
                          ulong                credits_observed );
+
+/* Per-worker slot reservation state for
+   fd_stake_rewards_insert_local_batched.  The insert path needs two
+   shared counters (stake_rewards->total_ele_used and
+   fork_info.ele_cnt); naively each insert would do an atomic FAA(1)
+   on both, which under N-way contention costs ~100 ns each and
+   causes false sharing on the per-slot arrays (index_ele[],
+   partition_ele[]) because workers' slots end up interleaved.
+   Instead we reserve chunks of FD_STAKE_REWARDS_RESERVATION_CHUNK
+   slots at a time with a single FAA per chunk and hand them out
+   locally -- per-insert path has no atomics.  A worker's reserved
+   slots are also contiguous, so the writes to index_ele[] and
+   partition_ele[] stay within cache lines that the worker exclusively
+   owns: no coherence ping-pong with other workers.
+
+   Initialize to all zeros for a fresh worker session.  The terminal
+   over-reservation (up to CHUNK-1 slots unused by each worker) is
+   harmless: consumers walk the partition linked lists and never see
+   unused slots.  Callers must ensure stake_rewards->max_stake_accounts
+   exceeds (actual_inserts + (CHUNK-1)*num_workers). */
+
+#define FD_STAKE_REWARDS_RESERVATION_CHUNK (64U)
+
+struct fd_stake_rewards_reservation {
+  uint total_ele_next;  /* next slot to consume from index_ele pool reservation */
+  uint total_ele_end;   /* one past last reserved index_ele slot */
+  uint fork_ele_next;   /* next slot to consume from partition_ele reservation */
+  uint fork_ele_end;    /* one past last reserved partition_ele slot */
+};
+typedef struct fd_stake_rewards_reservation fd_stake_rewards_reservation_t;
+
+/* Local-batched insert.  Identical to fd_stake_rewards_insert except:
+   (a) the per-insert CAS-spin push onto fork_info.partition_idxs_head[]
+   is deferred -- caller supplies per-partition local_heads /
+   local_tails scratch arrays and must later invoke
+   fd_stake_rewards_splice_local to publish them;
+   (b) atomic FAAs on total_ele_used and fork_info.ele_cnt are batched
+   via a per-worker reservation state (see above). */
+
+void
+fd_stake_rewards_insert_local_batched( fd_stake_rewards_t *             stake_rewards,
+                                       uchar                            fork_idx,
+                                       fd_pubkey_t const *              pubkey,
+                                       ulong                            lamports,
+                                       ulong                            credits_observed,
+                                       uint *                           local_heads,
+                                       uint *                           local_tails,
+                                       fd_stake_rewards_reservation_t * reservation );
+
+/* fd_stake_rewards_splice_local splices per-partition local chains
+   onto the shared fork_info.partition_idxs_head[] via one CAS-spin
+   per non-empty partition.  The caller's local_heads / local_tails
+   arrays must be sized >= fork_info.partition_cnt and populated by
+   prior fd_stake_rewards_insert_local_batched calls.  On return the
+   local chains are logically drained (the local arrays are not
+   modified in place; the caller may reset them for reuse). */
+
+void
+fd_stake_rewards_splice_local( fd_stake_rewards_t * stake_rewards,
+                               uchar                fork_idx,
+                               uint const *         local_heads,
+                               uint const *         local_tails );
 
 /* Iterator for iterating over the stake rewards for a given fork and
    partition.  The caller should not interleave any other iteration or

@@ -29,6 +29,7 @@
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_vinyl_req_pool.h"
 #include "../../flamenco/rewards/fd_rewards.h"
+#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../disco/topo/fd_wksp_mon.h"
@@ -476,8 +477,60 @@ struct fd_replay_tile {
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 
-  ulong                runtime_stack_seed;
   fd_runtime_stack_t * runtime_stack;
+
+  ulong exec_cnt;
+
+  /* Epoch boundary orchestration.  Replay drives two sequential
+     parallel phases between _begin and _finish:
+
+       phase=1 (FD_EPOCH_BOUNDARY_PHASE_REWARD_POINTS):
+         N workers run calculate_reward_points_partitioned.  Replies
+         carry partial points which we sum into points_sum.  On the
+         last reply we compute total_rewards, reset the accumulators,
+         and transition to phase=2.
+
+       phase=2 (FD_EPOCH_BOUNDARY_PHASE_STAKE_VOTE_REWARDS):
+         N workers run calculate_stake_vote_rewards_partitioned.
+         Replies carry no payload; accumulation is atomic in shmem.
+         On the last reply we call _finish_parallel and resume
+         replay_block_start.
+
+     phase==0 means the replay tile is not in a boundary wait. */
+  struct {
+    uint    phase;                /* 0=none, 1=REFRESH_DELEGATIONS, 2=REWARD_POINTS, 3=STAKE_VOTE_REWARDS, 4=SETUP_REWARD_PARTS */
+    ulong   bank_idx;
+    ulong   slot;
+    ulong   parent_bank_idx;
+    ulong   parent_epoch;
+    ulong   done_cnt;             /* replies received for the current phase */
+    uint128 points_sum;           /* populated during reward_points phase */
+    ulong   total_rewards;        /* derived once reward_points phase completes */
+
+    /* Refresh-delegations phase state.  Workers accumulate into per-
+       tile local stashes; replay merges each tile's slot into the
+       shared map as replies come in (flush or done).  refresh_*_totals
+       accumulate scalar stake totals across all workers.  If a tile's
+       stash fills up, it publishes a flush reply -- replay drains that
+       specific slot and sends a resume frag back to that tile, so
+       done_cnt only counts final done replies (is_flush==0). */
+    ulong   refresh_staked_accounts;
+    ulong   refresh_total_effective;
+    ulong   refresh_total_activating;
+    ulong   refresh_total_deactivating;
+    ulong   refresh_flush_cnt;
+
+    /* Timing (wallclock ns) for each parallel phase.  start_ts is
+       captured when the boundary is first detected (before _begin);
+       dispatch_ts is captured right after dispatching all tasks for
+       the current phase; first_reply_ts / last_reply_ts bracket the
+       replies.  The full end-to-end duration is logged once the
+       boundary has been fully processed. */
+    long    start_ts;
+    long    dispatch_ts;
+    long    first_reply_ts;
+    long    last_reply_ts;
+  } epoch_boundary;
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;
@@ -492,7 +545,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),    sizeof(fd_replay_tile_t) );
-  l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),     fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) );
+  l = FD_LAYOUT_APPEND( l, fd_runtime_stack_align(),     fd_runtime_stack_footprint( 1 /* include_replay_private */ ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),   sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),      fd_block_id_map_footprint( chain_cnt ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
@@ -601,21 +654,21 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 
   fd_epoch_info_msg_t * epoch_info_msg = fd_chunk_to_laddr( ctx->epoch_out->mem, ctx->epoch_out->chunk );
 
-  epoch_info_msg->staked_vote_cnt   = current_epoch ? runtime_stack->epoch_weights.next_stake_weights_cnt : runtime_stack->epoch_weights.stake_weights_cnt;
-  epoch_info_msg->staked_id_cnt     = current_epoch ? runtime_stack->epoch_weights.next_id_weights_cnt    : runtime_stack->epoch_weights.id_weights_cnt;
+  epoch_info_msg->staked_vote_cnt   = current_epoch ? runtime_stack->epoch_weights->next_stake_weights_cnt : runtime_stack->epoch_weights->stake_weights_cnt;
+  epoch_info_msg->staked_id_cnt     = current_epoch ? runtime_stack->epoch_weights->next_id_weights_cnt    : runtime_stack->epoch_weights->id_weights_cnt;
   epoch_info_msg->epoch_schedule    = *schedule;
   epoch_info_msg->features          = *features;
   epoch_info_msg->epoch             = epoch;
   epoch_info_msg->start_slot        = fd_epoch_slot0( schedule, epoch );
   epoch_info_msg->slot_cnt          = fd_epoch_slot_cnt( schedule, epoch );
-  epoch_info_msg->excluded_id_stake = current_epoch ? runtime_stack->epoch_weights.next_id_weights_excluded : runtime_stack->epoch_weights.id_weights_excluded;
+  epoch_info_msg->excluded_id_stake = current_epoch ? runtime_stack->epoch_weights->next_id_weights_excluded : runtime_stack->epoch_weights->id_weights_excluded;
 
   fd_vote_stake_weight_t * stake_weights = fd_type_pun( epoch_info_msg + 1 );
-  fd_vote_stake_weight_t * src_stake_weights = current_epoch ? runtime_stack->epoch_weights.next_stake_weights : runtime_stack->epoch_weights.stake_weights;
+  fd_vote_stake_weight_t * src_stake_weights = current_epoch ? runtime_stack->epoch_weights->next_stake_weights : runtime_stack->epoch_weights->stake_weights;
   memcpy( stake_weights, src_stake_weights, epoch_info_msg->staked_vote_cnt * sizeof(fd_vote_stake_weight_t) );
 
   fd_stake_weight_t * id_weights = fd_epoch_info_msg_id_weights( epoch_info_msg );
-  fd_stake_weight_t * src_id_weights = current_epoch ? runtime_stack->epoch_weights.next_id_weights : runtime_stack->epoch_weights.id_weights;
+  fd_stake_weight_t * src_id_weights = current_epoch ? runtime_stack->epoch_weights->next_id_weights : runtime_stack->epoch_weights->id_weights;
   fd_memcpy( id_weights, src_id_weights, epoch_info_msg->staked_id_cnt * sizeof(fd_stake_weight_t) );
 
   ulong epoch_info_sz = fd_epoch_info_msg_sz( epoch_info_msg->staked_vote_cnt , epoch_info_msg->staked_id_cnt );
@@ -632,7 +685,207 @@ publish_epoch_info( fd_replay_tile_t *  ctx,
 /* Transaction execution state machine helpers                        */
 /**********************************************************************/
 
+#define FD_EPOCH_BOUNDARY_PHASE_NONE                 (0U)
+#define FD_EPOCH_BOUNDARY_PHASE_REFRESH_DELEGATIONS  (1U)
+#define FD_EPOCH_BOUNDARY_PHASE_REWARD_POINTS        (2U)
+#define FD_EPOCH_BOUNDARY_PHASE_STAKE_VOTE_REWARDS   (3U)
+#define FD_EPOCH_BOUNDARY_PHASE_SETUP_REWARD_PARTS   (4U)
+
+/* dispatch_epoch_refresh_delegations_tasks publishes one
+   FD_EXECRP_TT_EPOCH_REFRESH_DELEGATIONS task to each execrp tile at
+   the start of the epoch boundary so the per-tile refresh workers
+   accumulate their partition of stake_delegations into a local
+   dedup stash.  is_resume=0 on the initial dispatch. */
+
 static void
+dispatch_epoch_refresh_delegations_tasks( fd_replay_tile_t *  ctx,
+                                          fd_stem_context_t * stem,
+                                          fd_bank_t *         bank ) {
+  fd_replay_out_link_t * exec_out = ctx->exec_out;
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    fd_execrp_epoch_refresh_delegations_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    exec_msg->bank_idx         = bank->idx;
+    exec_msg->partition_idx    = i;
+    exec_msg->total_partitions = ctx->exec_cnt;
+    exec_msg->is_resume        = 0;
+    bank->refcnt++;
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     (FD_EXECRP_TT_EPOCH_REFRESH_DELEGATIONS<<32) | i,
+                     exec_out->chunk,
+                     sizeof(*exec_msg),
+                     0UL, 0UL,
+                     fd_frag_meta_ts_comp( fd_tickcount() ) );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+  }
+}
+
+/* dispatch_epoch_refresh_delegations_resume publishes a single
+   is_resume=1 task to one specific exec tile, used after replay has
+   drained that tile's local stash following a flush reply. */
+
+static void
+dispatch_epoch_refresh_delegations_resume( fd_replay_tile_t *  ctx,
+                                           fd_stem_context_t * stem,
+                                           fd_bank_t *         bank,
+                                           ulong               exec_tile_idx ) {
+  fd_replay_out_link_t * exec_out = ctx->exec_out;
+  fd_execrp_epoch_refresh_delegations_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+  exec_msg->bank_idx         = bank->idx;
+  exec_msg->partition_idx    = exec_tile_idx;
+  exec_msg->total_partitions = ctx->exec_cnt;
+  exec_msg->is_resume        = 1;
+  bank->refcnt++;
+  fd_stem_publish( stem,
+                   exec_out->idx,
+                   (FD_EXECRP_TT_EPOCH_REFRESH_DELEGATIONS<<32) | exec_tile_idx,
+                   exec_out->chunk,
+                   sizeof(*exec_msg),
+                   0UL, 0UL,
+                   fd_frag_meta_ts_comp( fd_tickcount() ) );
+  exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+}
+
+/* dispatch_epoch_reward_points_tasks publishes one
+   FD_EXECRP_TT_EPOCH_REWARD_POINTS task to each execrp tile so they
+   each compute a partition of the reward points in parallel.
+   exec_cnt tasks are published with (partition_idx, total_partitions)
+   = (i, exec_cnt) for i in [0, exec_cnt). */
+
+static void
+dispatch_epoch_reward_points_tasks( fd_replay_tile_t *  ctx,
+                                    fd_stem_context_t * stem,
+                                    fd_bank_t *         bank ) {
+  fd_replay_out_link_t * exec_out = ctx->exec_out;
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    fd_execrp_epoch_reward_points_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    exec_msg->bank_idx         = bank->idx;
+    exec_msg->partition_idx    = i;
+    exec_msg->total_partitions = ctx->exec_cnt;
+    bank->refcnt++;
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     (FD_EXECRP_TT_EPOCH_REWARD_POINTS<<32) | i,
+                     exec_out->chunk,
+                     sizeof(*exec_msg),
+                     0UL, 0UL,
+                     fd_frag_meta_ts_comp( fd_tickcount() ) );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+  }
+}
+
+/* dispatch_epoch_stake_vote_rewards_tasks publishes one
+   FD_EXECRP_TT_EPOCH_CALC_STAKE_VOTE_REWARDS task to each execrp
+   tile after the reward_points phase has completed and
+   total_rewards has been computed.  Each task receives the
+   precomputed total_rewards / total_points and processes its
+   partition of stake delegations using atomic adds for shared
+   accumulators. */
+
+static void
+dispatch_epoch_stake_vote_rewards_tasks( fd_replay_tile_t *  ctx,
+                                         fd_stem_context_t * stem,
+                                         fd_bank_t *         bank,
+                                         ulong               rewarded_epoch,
+                                         ulong               total_rewards,
+                                         uint128             total_points ) {
+  fd_replay_out_link_t * exec_out = ctx->exec_out;
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    fd_execrp_epoch_calc_stake_vote_rewards_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    exec_msg->bank_idx         = bank->idx;
+    exec_msg->partition_idx    = i;
+    exec_msg->total_partitions = ctx->exec_cnt;
+    exec_msg->rewarded_epoch   = rewarded_epoch;
+    exec_msg->total_rewards    = total_rewards;
+    exec_msg->total_points     = total_points;
+    bank->refcnt++;
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     (FD_EXECRP_TT_EPOCH_CALC_STAKE_VOTE_REWARDS<<32) | i,
+                     exec_out->chunk,
+                     sizeof(*exec_msg),
+                     0UL, 0UL,
+                     fd_frag_meta_ts_comp( fd_tickcount() ) );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+  }
+}
+
+/* dispatch_epoch_setup_reward_partitions_tasks publishes one
+   FD_EXECRP_TT_EPOCH_SETUP_REWARD_PARTITIONS task to each execrp
+   tile after the stake_vote_rewards phase has completed and
+   fd_begin_partitioned_rewards_init_partitions has initialized the
+   bank's stake_rewards structure for the current fork.  Workers run
+   setup_stake_partitions_partitioned concurrently; their inserts are
+   coordinated through the concurrency-safe fd_stake_rewards_insert. */
+
+static void
+dispatch_epoch_setup_reward_partitions_tasks( fd_replay_tile_t *  ctx,
+                                              fd_stem_context_t * stem,
+                                              fd_bank_t *         bank,
+                                              ulong               rewarded_epoch,
+                                              ulong               total_rewards,
+                                              uint128             total_points ) {
+  fd_replay_out_link_t * exec_out = ctx->exec_out;
+  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
+    fd_execrp_epoch_setup_reward_partitions_msg_t * exec_msg = fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    exec_msg->bank_idx         = bank->idx;
+    exec_msg->partition_idx    = i;
+    exec_msg->total_partitions = ctx->exec_cnt;
+    exec_msg->rewarded_epoch   = rewarded_epoch;
+    exec_msg->total_rewards    = total_rewards;
+    exec_msg->total_points     = total_points;
+    bank->refcnt++;
+    fd_stem_publish( stem,
+                     exec_out->idx,
+                     (FD_EXECRP_TT_EPOCH_SETUP_REWARD_PARTITIONS<<32) | i,
+                     exec_out->chunk,
+                     sizeof(*exec_msg),
+                     0UL, 0UL,
+                     fd_frag_meta_ts_comp( fd_tickcount() ) );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
+  }
+}
+
+/* replay_block_start_resume runs the portion of block_start that must
+   run after epoch boundary processing is complete: publish epoch info
+   (if we took the boundary), compute max tick height, and set poh
+   params on the scheduler.  It also marks the BLOCK_START task done.
+
+   Called either inline from replay_block_start in the non-boundary
+   case, or from the EPOCH_REWARD_POINTS completion path when all
+   exec tiles have replied. */
+
+static void
+replay_block_start_resume( fd_replay_tile_t *  ctx,
+                           fd_stem_context_t * stem,
+                           fd_bank_t *         bank,
+                           fd_bank_t *         parent_bank,
+                           int                 is_epoch_boundary ) {
+  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 0 );
+
+  ulong max_tick_height;
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->f.ticks_per_slot, bank->f.slot, &max_tick_height ) ) ) {
+    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", bank->f.slot, parent_bank->f.ticks_per_slot ));
+  }
+  bank->f.max_tick_height = max_tick_height;
+  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.hashes_per_tick, &parent_bank->f.poh );
+
+  fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+
+  FD_LOG_DEBUG(( "replay_block_start_resume: bank_idx=%lu slot=%lu", bank->idx, bank->f.slot ));
+}
+
+/* replay_block_start runs the setup portion of block_start and kicks
+   off epoch-boundary processing.
+
+   Returns 1 if block_start completed synchronously (caller should
+   treat the BLOCK_START task as done).  Returns 0 if an epoch
+   boundary fired and reward point tasks have been dispatched to exec
+   tiles; the replay tile is now in the epoch_boundary wait state and
+   the remainder of block_start (including fd_sched_task_done for
+   BLOCK_START) will run once all exec tiles reply. */
+
+static int
 replay_block_start( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
                     ulong               bank_idx,
@@ -670,20 +923,71 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_attach_child( ctx->progcache,   &parent_xid, &xid );
 
-  /* Update required runtime state and handle potential boundary. */
+  /* Update required runtime state and handle potential boundary.
+     Two code paths, chosen by worker count + feature flags:
+       * use_parallel: exec tiles are available and VAT is off -- we
+         detect the boundary inline and drive the four-phase state
+         machine by dispatching tasks to exec tiles.  The monolithic
+         prepare is NOT called; we call the epoch_boundary bookends
+         and the shared tail ourselves after the state machine
+         completes.
+       * !use_parallel: call the monolithic fd_runtime_block_execute_prepare
+         which runs the entire boundary serially (if any) plus tail. */
+  int   is_epoch_boundary = 0;
+  long  boundary_start_ts = fd_log_wallclock();
+  int   use_parallel      = (ctx->exec_cnt>0UL) && !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket );
 
-  int is_epoch_boundary = 0;
-  fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
-  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_epoch_info( ctx, stem, bank, 0 );
-
-  ulong max_tick_height;
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_compute_max_tick_height( parent_bank->f.ticks_per_slot, slot, &max_tick_height ) ) ) {
-    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, parent_bank->f.ticks_per_slot ));
+  if( FD_UNLIKELY( !use_parallel ) ) {
+    fd_runtime_block_execute_prepare( ctx->banks, bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx,
+                                      &is_epoch_boundary );
+    replay_block_start_resume( ctx, stem, bank, parent_bank, is_epoch_boundary );
+    return 1;
   }
-  bank->f.max_tick_height = max_tick_height;
-  fd_sched_set_poh_params( ctx->sched, bank->idx, bank->f.tick_height, bank->f.max_tick_height, bank->f.hashes_per_tick, &parent_bank->f.poh );
 
-  FD_LOG_DEBUG(( "replay_block_start: bank_idx=%lu slot=%lu parent_bank_idx=%lu", bank_idx, slot, parent_bank_idx ));
+  /* Parallel path: detect boundary inline. */
+  if( FD_LIKELY( slot ) ) {
+    fd_epoch_schedule_t const * sched = &bank->f.epoch_schedule;
+    ulong prev_epoch = fd_slot_to_epoch( sched, bank->f.parent_slot, NULL );
+    ulong slot_idx;
+    ulong new_epoch  = fd_slot_to_epoch( sched, slot, &slot_idx );
+    if( FD_UNLIKELY( slot_idx==1UL && new_epoch==0UL ) ) bank->f.block_height = 1UL;
+    is_epoch_boundary = ( prev_epoch<new_epoch || !slot_idx );
+  }
+
+  if( FD_UNLIKELY( is_epoch_boundary ) ) {
+    /* Run the preamble + phase 0 pre.  The four-phase state machine
+       takes over from here via process_exec_task_done. */
+    fd_runtime_epoch_boundary_preamble( ctx->banks, bank, ctx->accdb, &xid, ctx->capture_ctx, ctx->runtime_stack );
+
+    ctx->epoch_boundary.bank_idx                   = bank_idx;
+    ctx->epoch_boundary.slot                       = slot;
+    ctx->epoch_boundary.parent_bank_idx            = parent_bank_idx;
+    ctx->epoch_boundary.parent_epoch               = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL );
+    ctx->epoch_boundary.done_cnt                   = 0UL;
+    ctx->epoch_boundary.points_sum                 = 0;
+    ctx->epoch_boundary.total_rewards              = 0UL;
+    ctx->epoch_boundary.refresh_staked_accounts    = 0UL;
+    ctx->epoch_boundary.refresh_total_effective    = 0UL;
+    ctx->epoch_boundary.refresh_total_activating   = 0UL;
+    ctx->epoch_boundary.refresh_total_deactivating = 0UL;
+    ctx->epoch_boundary.refresh_flush_cnt          = 0UL;
+    ctx->epoch_boundary.start_ts                   = boundary_start_ts;
+    ctx->epoch_boundary.first_reply_ts             = 0L;
+    ctx->epoch_boundary.last_reply_ts              = 0L;
+
+    fd_refresh_vote_accounts_no_vat_pre( bank, ctx->runtime_stack, &ctx->epoch_boundary.refresh_staked_accounts );
+    ctx->epoch_boundary.phase       = FD_EPOCH_BOUNDARY_PHASE_REFRESH_DELEGATIONS;
+    dispatch_epoch_refresh_delegations_tasks( ctx, stem, bank );
+    ctx->epoch_boundary.dispatch_ts = fd_log_wallclock();
+    return 0;
+  }
+
+  /* Non-boundary parallel path: step partitioned reward distribution
+     then run the shared tail. */
+  fd_distribute_partitioned_epoch_rewards( bank, ctx->accdb, &xid, ctx->capture_ctx );
+  fd_runtime_block_execute_prepare_tail( bank, ctx->accdb, &xid, ctx->runtime_stack, ctx->capture_ctx );
+  replay_block_start_resume( ctx, stem, bank, parent_bank, 0 /* is_epoch_boundary */ );
+  return 1;
 }
 
 static void
@@ -1757,6 +2061,14 @@ replay( fd_replay_tile_t *  ctx,
 
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
 
+  /* Freeze dispatch while we're mid-epoch-boundary waiting for exec
+     tiles to return their partitioned results (either the
+     reward_points phase or the stake_vote_rewards phase).  Completion
+     is driven by process_exec_task_done; this keeps sched from
+     handing us any new work that could race with the boundary
+     state. */
+  if( FD_UNLIKELY( ctx->epoch_boundary.phase!=FD_EPOCH_BOUNDARY_PHASE_NONE ) ) return 0;
+
   int charge_busy = 0;
   fd_sched_task_t task[ 1 ];
   if( FD_UNLIKELY( !fd_sched_task_next_ready( ctx->sched, task ) ) ) {
@@ -1767,8 +2079,14 @@ replay( fd_replay_tile_t *  ctx,
 
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
-      replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX, NULL );
+      /* replay_block_start returns 0 if an epoch boundary fired and
+         the remainder of the task is deferred until all exec tiles
+         reply with partitioned reward points.  In that case
+         fd_sched_task_done will be called from
+         process_exec_task_done's EPOCH_REWARD_POINTS completion. */
+      if( replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot ) ) {
+        /* Already marked done inside replay_block_start_resume. */
+      }
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
@@ -2390,6 +2708,260 @@ process_exec_task_done( fd_replay_tile_t *          ctx,
       }
       break;
     }
+    case FD_EXECRP_TT_EPOCH_REFRESH_DELEGATIONS: {
+      if( FD_UNLIKELY( ctx->epoch_boundary.phase!=FD_EPOCH_BOUNDARY_PHASE_REFRESH_DELEGATIONS ) ) {
+        FD_LOG_CRIT(( "unexpected EPOCH_REFRESH_DELEGATIONS reply in phase %u (exec_tile_idx=%lu)", ctx->epoch_boundary.phase, exec_tile_idx ));
+      }
+      if( FD_UNLIKELY( bank->idx!=ctx->epoch_boundary.bank_idx ) ) {
+        FD_LOG_CRIT(( "EPOCH_REFRESH_DELEGATIONS reply for bank_idx=%lu, expected %lu", bank->idx, ctx->epoch_boundary.bank_idx ));
+      }
+
+      long reply_ts = fd_log_wallclock();
+      if( !ctx->epoch_boundary.first_reply_ts ) ctx->epoch_boundary.first_reply_ts = reply_ts;
+      ctx->epoch_boundary.last_reply_ts = reply_ts;
+
+      fd_execrp_epoch_refresh_delegations_done_msg_t * rd = msg->epoch_refresh_delegations;
+      fd_bank_t * eb_bank = fd_banks_bank_query( ctx->banks, ctx->epoch_boundary.bank_idx );
+      FD_TEST( eb_bank );
+
+      /* Fold this tile's partial scalar totals into the global. */
+      ctx->epoch_boundary.refresh_total_effective    += rd->total_effective;
+      ctx->epoch_boundary.refresh_total_activating   += rd->total_activating;
+      ctx->epoch_boundary.refresh_total_deactivating += rd->total_deactivating;
+
+      /* Drain this tile's local stash into the shared stake_accum_map.
+         Exec tile N writes to refresh slot (1 + N) -- slot 0 is
+         reserved for the replay tile's own ljoin. */
+      fd_refresh_delegations_merge_tile_slot( ctx->runtime_stack,
+                                              1UL + exec_tile_idx,
+                                              &ctx->epoch_boundary.refresh_staked_accounts );
+
+      if( FD_UNLIKELY( rd->is_flush ) ) {
+        /* Overflow: send the tile a resume frag so it picks up
+           iteration where it left off.  Do not touch done_cnt. */
+        ctx->epoch_boundary.refresh_flush_cnt++;
+        dispatch_epoch_refresh_delegations_resume( ctx, stem, eb_bank, exec_tile_idx );
+        break;
+      }
+
+      ctx->epoch_boundary.done_cnt++;
+      if( ctx->epoch_boundary.done_cnt<ctx->exec_cnt ) break;
+
+      /* All tiles done.  Finalize scalar totals onto the bank, run
+         Phase B+C, log, and transition to REWARD_POINTS. */
+      long phase0_parallel = ctx->epoch_boundary.last_reply_ts  - ctx->epoch_boundary.dispatch_ts;
+      long phase0_first    = ctx->epoch_boundary.first_reply_ts - ctx->epoch_boundary.dispatch_ts;
+      long phase0_spread   = ctx->epoch_boundary.last_reply_ts  - ctx->epoch_boundary.first_reply_ts;
+
+      fd_refresh_delegations_finalize( eb_bank,
+                                       ctx->epoch_boundary.refresh_total_effective,
+                                       ctx->epoch_boundary.refresh_total_activating,
+                                       ctx->epoch_boundary.refresh_total_deactivating );
+
+      fd_funk_txn_xid_t eb_xid = { .ul = { eb_bank->f.slot, eb_bank->idx } };
+      fd_refresh_vote_accounts_no_vat_post( eb_bank, ctx->accdb, &eb_xid, ctx->runtime_stack );
+
+      FD_LOG_NOTICE(( "epoch boundary phase 0 (refresh_delegations): exec_cnt=%lu parallel=%.6f first_reply=%.6f spread=%.6f flushes=%lu staked_accounts=%lu effective=%lu activating=%lu deactivating=%lu",
+                      ctx->exec_cnt,
+                      (double)phase0_parallel / 1e9,
+                      (double)phase0_first    / 1e9,
+                      (double)phase0_spread   / 1e9,
+                      ctx->epoch_boundary.refresh_flush_cnt,
+                      ctx->epoch_boundary.refresh_staked_accounts,
+                      ctx->epoch_boundary.refresh_total_effective,
+                      ctx->epoch_boundary.refresh_total_activating,
+                      ctx->epoch_boundary.refresh_total_deactivating ));
+
+      /* Dispatch phase 1 (reward points). */
+      ctx->epoch_boundary.phase          = FD_EPOCH_BOUNDARY_PHASE_REWARD_POINTS;
+      ctx->epoch_boundary.done_cnt       = 0UL;
+      ctx->epoch_boundary.first_reply_ts = 0L;
+      ctx->epoch_boundary.last_reply_ts  = 0L;
+      dispatch_epoch_reward_points_tasks( ctx, stem, eb_bank );
+      ctx->epoch_boundary.dispatch_ts = fd_log_wallclock();
+      break;
+    }
+    case FD_EXECRP_TT_EPOCH_REWARD_POINTS: {
+      if( FD_UNLIKELY( ctx->epoch_boundary.phase!=FD_EPOCH_BOUNDARY_PHASE_REWARD_POINTS ) ) {
+        FD_LOG_CRIT(( "unexpected EPOCH_REWARD_POINTS reply in phase %u (exec_tile_idx=%lu)", ctx->epoch_boundary.phase, exec_tile_idx ));
+      }
+      if( FD_UNLIKELY( bank->idx!=ctx->epoch_boundary.bank_idx ) ) {
+        FD_LOG_CRIT(( "EPOCH_REWARD_POINTS reply for bank_idx=%lu, expected %lu", bank->idx, ctx->epoch_boundary.bank_idx ));
+      }
+
+      long reply_ts = fd_log_wallclock();
+      if( !ctx->epoch_boundary.first_reply_ts ) ctx->epoch_boundary.first_reply_ts = reply_ts;
+      ctx->epoch_boundary.last_reply_ts = reply_ts;
+
+      ctx->epoch_boundary.points_sum += msg->epoch_reward_points->points;
+      ctx->epoch_boundary.done_cnt++;
+
+      if( ctx->epoch_boundary.done_cnt<ctx->exec_cnt ) break;
+
+      /* Phase 1 done.  Log the timing and advance to phase 2. */
+      long phase1_parallel = ctx->epoch_boundary.last_reply_ts - ctx->epoch_boundary.dispatch_ts;
+      long phase1_first    = ctx->epoch_boundary.first_reply_ts - ctx->epoch_boundary.dispatch_ts;
+      long phase1_spread   = ctx->epoch_boundary.last_reply_ts  - ctx->epoch_boundary.first_reply_ts;
+
+      fd_bank_t * eb_bank = fd_banks_bank_query( ctx->banks, ctx->epoch_boundary.bank_idx );
+      FD_TEST( eb_bank );
+
+      /* Compute total_rewards and reset the accumulators that exec
+         tiles will atomically add into during phase 2. */
+      ctx->epoch_boundary.total_rewards = fd_rewards_compute_total_rewards( eb_bank,
+                                                                            ctx->epoch_boundary.parent_epoch,
+                                                                            ctx->epoch_boundary.points_sum );
+      /* Reset counters and per-vote-account accumulators for phase 2. */
+      ctx->runtime_stack->shmem->stake_rewards_cnt = 0UL;
+      ulong vote_ele_cnt = *fd_bank_epoch_credits_len( eb_bank );
+      FD_LOG_NOTICE(("vote_ele_cnt %lu", vote_ele_cnt));
+      for( ulong i=0UL; i<vote_ele_cnt; i++ ) {
+        ctx->runtime_stack->stakes.vote_ele[i].vote_rewards = 0UL;
+      }
+
+      FD_LOG_NOTICE(( "epoch boundary phase 1 (reward_points): exec_cnt=%lu parallel=%.6f first_reply=%.6f spread=%.6f total_points=%lu total_rewards=%lu slot=%lu bank_idx=%lu",
+                      ctx->exec_cnt,
+                      (double)phase1_parallel / 1e9,
+                      (double)phase1_first    / 1e9,
+                      (double)phase1_spread   / 1e9,
+                      (ulong)ctx->epoch_boundary.points_sum,
+                      ctx->epoch_boundary.total_rewards,
+                      eb_bank->f.slot,
+                      eb_bank->idx ));
+
+      /* Dispatch phase 2. */
+      ctx->epoch_boundary.phase          = FD_EPOCH_BOUNDARY_PHASE_STAKE_VOTE_REWARDS;
+      ctx->epoch_boundary.done_cnt       = 0UL;
+      ctx->epoch_boundary.first_reply_ts = 0L;
+      ctx->epoch_boundary.last_reply_ts  = 0L;
+
+      ulong rewarded_epoch = ctx->epoch_boundary.parent_epoch;
+      dispatch_epoch_stake_vote_rewards_tasks( ctx, stem, eb_bank,
+                                               rewarded_epoch,
+                                               ctx->epoch_boundary.total_rewards,
+                                               ctx->epoch_boundary.points_sum );
+      ctx->epoch_boundary.dispatch_ts = fd_log_wallclock();
+      break;
+    }
+    case FD_EXECRP_TT_EPOCH_CALC_STAKE_VOTE_REWARDS: {
+      if( FD_UNLIKELY( ctx->epoch_boundary.phase!=FD_EPOCH_BOUNDARY_PHASE_STAKE_VOTE_REWARDS ) ) {
+        FD_LOG_CRIT(( "unexpected EPOCH_CALC_STAKE_VOTE_REWARDS reply in phase %u (exec_tile_idx=%lu)", ctx->epoch_boundary.phase, exec_tile_idx ));
+      }
+      if( FD_UNLIKELY( bank->idx!=ctx->epoch_boundary.bank_idx ) ) {
+        FD_LOG_CRIT(( "EPOCH_CALC_STAKE_VOTE_REWARDS reply for bank_idx=%lu, expected %lu", bank->idx, ctx->epoch_boundary.bank_idx ));
+      }
+
+      long reply_ts = fd_log_wallclock();
+      if( !ctx->epoch_boundary.first_reply_ts ) ctx->epoch_boundary.first_reply_ts = reply_ts;
+      ctx->epoch_boundary.last_reply_ts = reply_ts;
+
+      ctx->epoch_boundary.done_cnt++;
+      if( ctx->epoch_boundary.done_cnt<ctx->exec_cnt ) break;
+
+      /* Phase 2 done.  Transition to phase 3 (setup_stake_partitions):
+         run the init_partitions bridge to set up the bank's
+         stake_rewards structure, then dispatch N parallel tasks. */
+      fd_bank_t * eb_bank = fd_banks_bank_query( ctx->banks, ctx->epoch_boundary.bank_idx );
+      FD_TEST( eb_bank );
+
+      long phase2_parallel = ctx->epoch_boundary.last_reply_ts - ctx->epoch_boundary.dispatch_ts;
+      long phase2_first    = ctx->epoch_boundary.first_reply_ts - ctx->epoch_boundary.dispatch_ts;
+      long phase2_spread   = ctx->epoch_boundary.last_reply_ts  - ctx->epoch_boundary.first_reply_ts;
+
+      FD_LOG_NOTICE(( "epoch boundary phase 2 (stake_vote_rewards): exec_cnt=%lu parallel=%.6f first_reply=%.6f spread=%.6f slot=%lu bank_idx=%lu",
+                      ctx->exec_cnt,
+                      (double)phase2_parallel / 1e9,
+                      (double)phase2_first    / 1e9,
+                      (double)phase2_spread   / 1e9,
+                      eb_bank->f.slot,
+                      eb_bank->idx ));
+
+      /* Initialize stake_rewards fork with the final num_partitions. */
+      fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( &eb_bank->f.block_hash_queue );
+      fd_begin_partitioned_rewards_init_partitions( eb_bank,
+                                                    ctx->runtime_stack,
+                                                    ctx->capture_ctx,
+                                                    parent_blockhash,
+                                                    ctx->epoch_boundary.points_sum,
+                                                    ctx->epoch_boundary.total_rewards );
+
+      /* Dispatch phase 3. */
+      ctx->epoch_boundary.phase          = FD_EPOCH_BOUNDARY_PHASE_SETUP_REWARD_PARTS;
+      ctx->epoch_boundary.done_cnt       = 0UL;
+      ctx->epoch_boundary.first_reply_ts = 0L;
+      ctx->epoch_boundary.last_reply_ts  = 0L;
+
+      ulong rewarded_epoch_p3 = ctx->epoch_boundary.parent_epoch;
+      dispatch_epoch_setup_reward_partitions_tasks( ctx, stem, eb_bank,
+                                                    rewarded_epoch_p3,
+                                                    ctx->epoch_boundary.total_rewards,
+                                                    ctx->epoch_boundary.points_sum );
+      ctx->epoch_boundary.dispatch_ts = fd_log_wallclock();
+      break;
+    }
+    case FD_EXECRP_TT_EPOCH_SETUP_REWARD_PARTITIONS: {
+      if( FD_UNLIKELY( ctx->epoch_boundary.phase!=FD_EPOCH_BOUNDARY_PHASE_SETUP_REWARD_PARTS ) ) {
+        FD_LOG_CRIT(( "unexpected EPOCH_SETUP_REWARD_PARTITIONS reply in phase %u (exec_tile_idx=%lu)", ctx->epoch_boundary.phase, exec_tile_idx ));
+      }
+      if( FD_UNLIKELY( bank->idx!=ctx->epoch_boundary.bank_idx ) ) {
+        FD_LOG_CRIT(( "EPOCH_SETUP_REWARD_PARTITIONS reply for bank_idx=%lu, expected %lu", bank->idx, ctx->epoch_boundary.bank_idx ));
+      }
+
+      long reply_ts = fd_log_wallclock();
+      if( !ctx->epoch_boundary.first_reply_ts ) ctx->epoch_boundary.first_reply_ts = reply_ts;
+      ctx->epoch_boundary.last_reply_ts = reply_ts;
+
+      ctx->epoch_boundary.done_cnt++;
+      if( ctx->epoch_boundary.done_cnt<ctx->exec_cnt ) break;
+
+      /* Phase 3 done.  Run the post-partitions finalize and resume
+         the deferred tail of replay_block_start. */
+      fd_bank_t * eb_bank = fd_banks_bank_query( ctx->banks, ctx->epoch_boundary.bank_idx );
+      FD_TEST( eb_bank );
+      fd_bank_t * eb_parent_bank = fd_banks_bank_query( ctx->banks, ctx->epoch_boundary.parent_bank_idx );
+      FD_TEST( eb_parent_bank );
+
+      long phase3_parallel = ctx->epoch_boundary.last_reply_ts - ctx->epoch_boundary.dispatch_ts;
+      long phase3_first    = ctx->epoch_boundary.first_reply_ts - ctx->epoch_boundary.dispatch_ts;
+      long phase3_spread   = ctx->epoch_boundary.last_reply_ts  - ctx->epoch_boundary.first_reply_ts;
+
+      long finish_ts0 = fd_log_wallclock();
+      /* Phase 3 workers already ran setup_stake_partitions_partitioned
+         inclusive of their own splice, and fd_begin_partitioned_rewards_init_partitions
+         ran at phase 2->3 transition.  All that's left is the
+         post-partitions finalize + the boundary postamble + the
+         shared tail. */
+      fd_funk_txn_xid_t const eb_xid = { .ul = { eb_bank->f.slot, eb_bank->idx } };
+      fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last_hash( &eb_bank->f.block_hash_queue );
+      fd_begin_partitioned_rewards_finalize( eb_bank, ctx->accdb, &eb_xid, ctx->runtime_stack, ctx->capture_ctx,
+                                             parent_blockhash,
+                                             ctx->epoch_boundary.points_sum,
+                                             ctx->epoch_boundary.total_rewards );
+      fd_runtime_epoch_boundary_postamble( ctx->banks, eb_bank, ctx->accdb, &eb_xid, ctx->capture_ctx, ctx->runtime_stack );
+      fd_runtime_block_execute_prepare_tail( eb_bank, ctx->accdb, &eb_xid, ctx->runtime_stack, ctx->capture_ctx );
+      long finish_ts1 = fd_log_wallclock();
+
+      FD_LOG_NOTICE(( "epoch boundary phase 3 (setup_stake_partitions): exec_cnt=%lu parallel=%.6f first_reply=%.6f spread=%.6f finish=%.6f slot=%lu bank_idx=%lu",
+                      ctx->exec_cnt,
+                      (double)phase3_parallel / 1e9,
+                      (double)phase3_first    / 1e9,
+                      (double)phase3_spread   / 1e9,
+                      (double)(finish_ts1 - finish_ts0) / 1e9,
+                      eb_bank->f.slot,
+                      eb_bank->idx ));
+
+      replay_block_start_resume( ctx, stem, eb_bank, eb_parent_bank, 1 /* is_epoch_boundary */ );
+
+      long boundary_end_ts = fd_log_wallclock();
+      FD_LOG_NOTICE(( "epoch boundary end-to-end: total=%.6f exec_cnt=%lu slot=%lu bank_idx=%lu (seconds)",
+                      (double)(boundary_end_ts - ctx->epoch_boundary.start_ts) / 1e9,
+                      ctx->exec_cnt,
+                      eb_bank->f.slot,
+                      eb_bank->idx ));
+
+      memset( &ctx->epoch_boundary, 0, sizeof(ctx->epoch_boundary) );
+      break;
+    }
     default: FD_LOG_CRIT(( "unexpected sig 0x%lx", sig ));
   }
 
@@ -2816,10 +3388,6 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_rng_secure( &ctx->initial_block_id, sizeof(fd_hash_t) ) ) ) {
     FD_LOG_CRIT(( "fd_rng_secure failed" ));
   }
-
-  if( FD_UNLIKELY( !fd_rng_secure( &ctx->runtime_stack_seed, sizeof(ulong) ) ) ) {
-    FD_LOG_CRIT(( "fd_rng_secure failed" ));
-  }
 }
 
 static void
@@ -2831,7 +3399,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
-  void * runtime_stack_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),    fd_runtime_stack_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS ) );
+  void * runtime_stack_ljoin= FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),    fd_runtime_stack_footprint( 1 /* include_replay_private */ ) );
   void * block_id_arr_mem   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
@@ -2846,7 +3414,13 @@ unprivileged_init( fd_topo_t *      topo,
     block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
   }
 
-  ctx->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( runtime_stack_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS, FD_RUNTIME_EXPECTED_STAKE_ACCOUNTS, ctx->runtime_stack_seed ) );
+  ulong runtime_stack_obj_id = fd_pod_query_ulong( topo->props, "rt_stack", ULONG_MAX );
+  FD_TEST( runtime_stack_obj_id!=ULONG_MAX );
+  fd_runtime_stack_shmem_t * runtime_stack_shmem = fd_runtime_stack_shmem_join( fd_topo_obj_laddr( topo, runtime_stack_obj_id ) );
+  FD_TEST( runtime_stack_shmem );
+  /* refresh_slot_idx=0 is reserved for the replay tile. */
+  FD_TEST( fd_runtime_stack_new( runtime_stack_ljoin, runtime_stack_shmem, 1 /* include_replay_private */, 0UL /* refresh_slot_idx */ ) );
+  ctx->runtime_stack = fd_runtime_stack_join( runtime_stack_ljoin );
   FD_TEST( ctx->runtime_stack );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
@@ -2977,11 +3551,14 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, tile->replay.fec_max, ctx->reasm_seed ) );
   FD_TEST( ctx->reasm );
 
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, fd_topo_tile_name_cnt( topo, "execrp" ) ) );
+  ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "execrp" );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, ctx->rng, tile->replay.sched_depth, tile->replay.max_live_slots, ctx->exec_cnt ) );
   FD_TEST( ctx->sched );
 
   ctx->in_cnt          = tile->in_cnt;
   ctx->execrp_idle_cnt = 0UL;
+
+  memset( &ctx->epoch_boundary, 0, sizeof(ctx->epoch_boundary) );
 
   FD_TEST( fd_vinyl_req_pool_new( vinyl_req_pool_mem, 1UL, 1UL ) );
 

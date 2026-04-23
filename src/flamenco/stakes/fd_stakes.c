@@ -398,7 +398,7 @@ get_vote_credits( uchar const *        account_data,
   epoch_credits->base_credits = base;
 }
 
-static void
+void
 fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
                               fd_accdb_user_t *              accdb,
                               fd_funk_txn_xid_t const *      xid,
@@ -450,7 +450,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
     fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, &stake_delegation->vote_account, NULL, stake_accum_pool );
     if( FD_UNLIKELY( !stake_accum ) ) {
-      if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
+      if( FD_UNLIKELY( staked_accounts>=runtime_stack->shmem->max_vote_accounts ) ) {
         FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
       }
       stake_accum = &runtime_stack->stakes.stake_accum[ staked_accounts ];
@@ -596,53 +596,40 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
   *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
 }
 
-static void
-fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
-                                 fd_accdb_user_t *              accdb,
-                                 fd_funk_txn_xid_t const *      xid,
-                                 fd_runtime_stack_t *           runtime_stack,
-                                 fd_stake_delegations_t const * stake_delegations,
-                                 fd_stake_history_t const *     history,
-                                 ulong *                        new_rate_activation_epoch ) {
-  fd_vote_rewards_map_t * vote_reward_map = runtime_stack->stakes.vote_map;
-  fd_vote_rewards_map_reset( vote_reward_map );
-  ulong vote_reward_cnt = 0UL;
+/* Split-phase entry points for the parallel delegation refresh.
+   These factor the work in fd_refresh_vote_accounts_no_vat into
+   (a) a sequential pre-seed that runs on replay, (b) a per-tile
+   worker that processes one partition of stake_delegations into a
+   local dedup stash, (c) a replay-side merge pass that folds one
+   tile's stash into the shared stake_accum_map, and (d) a finalize
+   step + a sequential post pass.  See fd_stakes.h for the high-level
+   protocol. */
 
-  /* First accumulate stakes across all delegations for all vote
-     accounts.  At this point, don't care if they are valid accounts or
-     if they will be inserted into the top votes set. */
-
+void
+fd_refresh_vote_accounts_no_vat_pre( fd_bank_t *          bank,
+                                     fd_runtime_stack_t * runtime_stack,
+                                     ulong *              staked_accounts_out ) {
   fd_stake_accum_t *     stake_accum_pool = runtime_stack->stakes.stake_accum;
   fd_stake_accum_map_t * stake_accum_map  = runtime_stack->stakes.stake_accum_map;
 
-  ushort parent_idx = bank->vote_stakes_fork_id;
+  fd_vote_rewards_map_t * vote_reward_map = runtime_stack->stakes.vote_map;
+  fd_vote_rewards_map_reset( vote_reward_map );
+  fd_stake_accum_map_reset( stake_accum_map );
 
-  fd_stake_accum_map_reset( runtime_stack->stakes.stake_accum_map );
-  ulong epoch              = bank->f.epoch;
-  ulong total_stake        = 0UL;
-  ulong total_activating   = 0UL;
-  ulong total_deactivating = 0UL;
-  ulong staked_accounts    = 0UL;
+  ushort parent_idx     = bank->vote_stakes_fork_id;
+  ulong  staked_accounts = 0UL;
 
-  /* Seed stake_accum_map with all vote accounts from the parent fork
-     with zero stake. The delegation loop below will update the stake
-     for any account that has active delegations.
-
-     In Agave, refresh_vote_accounts() builds delegated_stakes from
-     stake_delegations, but then iterates vote_accounts.iter(), instead
-     of the delegated_stakes map, so they never actually remove any
-     entries from the vote_accounts while refreshing. */
   fd_vote_stakes_t * vs = fd_bank_vote_stakes( bank );
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem_vs[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vs, parent_idx, iter_mem_vs );
-        !fd_vote_stakes_fork_iter_done( vs, parent_idx, vs_iter );
-        fd_vote_stakes_fork_iter_next( vs, parent_idx, vs_iter ) ) {
+       !fd_vote_stakes_fork_iter_done( vs, parent_idx, vs_iter );
+       fd_vote_stakes_fork_iter_next( vs, parent_idx, vs_iter ) ) {
     fd_pubkey_t vs_pubkey;
     fd_vote_stakes_fork_iter_ele( vs, parent_idx, vs_iter, &vs_pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
-    if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
+    if( FD_UNLIKELY( staked_accounts>=runtime_stack->shmem->max_vote_accounts ) ) {
       FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
     }
-    fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+    fd_stake_accum_t * sa = &stake_accum_pool[ staked_accounts ];
     sa->pubkey = vs_pubkey;
     sa->stake  = 0UL;
     fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
@@ -655,65 +642,168 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   ulong            forks_cnt = fd_banks_new_votes_fork_indices( bank, fork_indices );
 
   uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
-  fd_new_votes_iter_t * iter = fd_new_votes_iter_init( new_votes, fork_indices, forks_cnt, iter_mem );
-  for( ; !fd_new_votes_iter_done( iter ); fd_new_votes_iter_next( iter ) ) {
-    fd_pubkey_t const * pubkey = fd_new_votes_iter_ele( iter );
-    fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, pubkey, NULL, stake_accum_pool );
-    if( FD_LIKELY( !stake_accum ) ) {
-      fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
+  fd_new_votes_iter_t * nv_iter = fd_new_votes_iter_init( new_votes, fork_indices, forks_cnt, iter_mem );
+  for( ; !fd_new_votes_iter_done( nv_iter ); fd_new_votes_iter_next( nv_iter ) ) {
+    fd_pubkey_t const * pubkey = fd_new_votes_iter_ele( nv_iter );
+    fd_stake_accum_t * existing = fd_stake_accum_map_ele_query( stake_accum_map, pubkey, NULL, stake_accum_pool );
+    if( FD_LIKELY( !existing ) ) {
+      if( FD_UNLIKELY( staked_accounts>=runtime_stack->shmem->max_vote_accounts ) ) {
+        FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
+      }
+      fd_stake_accum_t * sa = &stake_accum_pool[ staked_accounts ];
       sa->pubkey = *pubkey;
       sa->stake  = 0UL;
       fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
       staked_accounts++;
     }
   }
-  fd_new_votes_iter_fini( iter );
+  fd_new_votes_iter_fini( nv_iter );
 
-  /* Now accumulate vote stakes for all stake delegations. */
+  *staked_accounts_out = staked_accounts;
+}
 
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
+int
+fd_refresh_delegations_partitioned( fd_bank_t *                    bank,
+                                    fd_runtime_stack_t *           runtime_stack,
+                                    fd_stake_delegations_t const * stake_delegations,
+                                    fd_stake_history_t const *     history,
+                                    ulong                          partition_idx,
+                                    ulong                          total_partitions,
+                                    int                            is_resume,
+                                    ulong *                        new_rate_activation_epoch,
+                                    ulong *                        out_effective,
+                                    ulong *                        out_activating,
+                                    ulong *                        out_deactivating ) {
+  ulong epoch = bank->f.epoch;
+  ulong cap   = fd_runtime_stack_refresh_local_cap( runtime_stack->shmem->expected_vote_accounts );
 
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
+  fd_stake_accum_t *        local_pool = runtime_stack->refresh.local_stake_accum;
+  fd_stake_accum_map_t *    local_map  = runtime_stack->refresh.local_stake_accum_map;
+  ulong *                   local_cnt  = runtime_stack->refresh.local_stake_accum_cnt;
+  fd_refresh_tile_state_t * state      = runtime_stack->refresh.local_state;
 
-    fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating(
-        stake_delegation,
-        epoch,
-        history,
-        new_rate_activation_epoch );
-    total_stake        += new_entry.effective;
+  fd_stake_delegations_pool_iter_t iter_[1];
+  fd_stake_delegations_pool_iter_t * iter;
+  if( is_resume ) {
+    iter = fd_stake_delegations_pool_iter_init_partition( iter_, stake_delegations, partition_idx, total_partitions );
+    iter->cur = state->saved_iter_cur;
+    iter->hi  = state->saved_iter_hi;
+  } else {
+    fd_stake_accum_map_reset( local_map );
+    *local_cnt = 0UL;
+    memset( state, 0, sizeof(*state) );
+    iter = fd_stake_delegations_pool_iter_init_partition( iter_, stake_delegations, partition_idx, total_partitions );
+  }
+
+  ulong total_effective    = 0UL;
+  ulong total_activating   = 0UL;
+  ulong total_deactivating = 0UL;
+
+  while( !fd_stake_delegations_pool_iter_done( iter ) ) {
+    fd_stake_delegation_t const * deleg = fd_stake_delegations_pool_iter_ele( iter );
+
+    fd_stake_accum_t * accum = fd_stake_accum_map_ele_query( local_map, &deleg->vote_account, NULL, local_pool );
+
+    if( FD_UNLIKELY( !accum && *local_cnt>=cap ) ) {
+      /* Local stash full.  Save iterator state (this delegation has
+         NOT been processed yet -- do not touch scalars) and return a
+         flush indicator.  Replay must drain the slot and send a
+         resume message before the worker can continue. */
+      state->saved_iter_cur       = iter->cur;
+      state->saved_iter_hi        = iter->hi;
+      state->in_progress          = 1UL;
+      *out_effective    = total_effective;
+      *out_activating   = total_activating;
+      *out_deactivating = total_deactivating;
+      return 1;
+    }
+
+    fd_stake_history_entry_t new_entry = fd_stakes_activating_and_deactivating( deleg, epoch, history, new_rate_activation_epoch );
+    total_effective    += new_entry.effective;
     total_activating   += new_entry.activating;
     total_deactivating += new_entry.deactivating;
 
-    fd_stake_accum_t * stake_accum = fd_stake_accum_map_ele_query( stake_accum_map, &stake_delegation->vote_account, NULL, stake_accum_pool );
-    if( FD_UNLIKELY( !stake_accum ) ) {
-      if( FD_UNLIKELY( staked_accounts>=runtime_stack->max_vote_accounts ) ) {
-        FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts" ));
-      }
-      stake_accum = &runtime_stack->stakes.stake_accum[ staked_accounts ];
-      stake_accum->pubkey = stake_delegation->vote_account;
-      stake_accum->stake  = new_entry.effective;
-      fd_stake_accum_map_ele_insert( stake_accum_map, stake_accum, stake_accum_pool );
-      staked_accounts++;
+    if( !accum ) {
+      accum = &local_pool[ *local_cnt ];
+      accum->pubkey = deleg->vote_account;
+      accum->stake  = new_entry.effective;
+      fd_stake_accum_map_ele_insert( local_map, accum, local_pool );
+      (*local_cnt)++;
     } else {
-      stake_accum->stake += new_entry.effective;
+      accum->stake += new_entry.effective;
+    }
+
+    fd_stake_delegations_pool_iter_next( iter );
+  }
+
+  state->in_progress = 0UL;
+  *out_effective    = total_effective;
+  *out_activating   = total_activating;
+  *out_deactivating = total_deactivating;
+  return 0;
+}
+
+void
+fd_refresh_delegations_merge_tile_slot( fd_runtime_stack_t * runtime_stack,
+                                        ulong                slot_idx,
+                                        ulong *              staked_accounts_inout ) {
+  fd_runtime_stack_shmem_t * shmem       = runtime_stack->shmem;
+  fd_stake_accum_t *         shared_pool = runtime_stack->stakes.stake_accum;
+  fd_stake_accum_map_t *     shared_map  = runtime_stack->stakes.stake_accum_map;
+
+  fd_stake_accum_t *     tile_pool    = fd_runtime_stack_shmem_refresh_pool( shmem, slot_idx );
+  fd_stake_accum_map_t * tile_map     = fd_runtime_stack_shmem_refresh_map_join( shmem, slot_idx );
+  ulong *                tile_cnt_ptr = fd_runtime_stack_shmem_refresh_cnt( shmem, slot_idx );
+  ulong                  tile_cnt        = *tile_cnt_ptr;
+  ulong                  staked_accounts = *staked_accounts_inout;
+
+  for( ulong i=0UL; i<tile_cnt; i++ ) {
+    fd_stake_accum_t * local  = &tile_pool[ i ];
+    fd_stake_accum_t * shared = fd_stake_accum_map_ele_query( shared_map, &local->pubkey, NULL, shared_pool );
+    if( shared ) {
+      shared->stake += local->stake;
+    } else {
+      if( FD_UNLIKELY( staked_accounts>=shmem->max_vote_accounts ) ) {
+        FD_LOG_ERR(( "invariant violation: staked_accounts >= max_vote_accounts during merge" ));
+      }
+      shared = &shared_pool[ staked_accounts ];
+      shared->pubkey = local->pubkey;
+      shared->stake  = local->stake;
+      fd_stake_accum_map_ele_insert( shared_map, shared, shared_pool );
+      staked_accounts++;
     }
   }
 
-  /* Only update total_*_stake at the epoch boundary.  These values
-     are snapshots of the stake totals for the current epoch. */
+  /* Clear the slot so the worker can reuse it on resume (or so the
+     next epoch starts clean). */
+  fd_stake_accum_map_reset( tile_map );
+  *tile_cnt_ptr = 0UL;
+
+  *staked_accounts_inout = staked_accounts;
+}
+
+void
+fd_refresh_delegations_finalize( fd_bank_t * bank,
+                                 ulong       total_effective,
+                                 ulong       total_activating,
+                                 ulong       total_deactivating ) {
   bank->f.total_activating_stake   = total_activating;
   bank->f.total_deactivating_stake = total_deactivating;
-  bank->f.total_effective_stake    = total_stake;
+  bank->f.total_effective_stake    = total_effective;
+}
 
-  /* Copy the top votes set for the t-1 epoch into the t-2 epoch now
-     that the epoch boundary is being crossed.  Reset the existing t-1
-     top votes set to prepare it for insertion.  Refresh the states of
-     the t-2 top votes set: figure out if the account still exists and
-     what the last vote timestamp and slot are. */
+void
+fd_refresh_vote_accounts_no_vat_post( fd_bank_t *               bank,
+                                      fd_accdb_user_t *         accdb,
+                                      fd_funk_txn_xid_t const * xid,
+                                      fd_runtime_stack_t *      runtime_stack ) {
+  fd_stake_accum_t *      stake_accum_pool = runtime_stack->stakes.stake_accum;
+  fd_stake_accum_map_t *  stake_accum_map  = runtime_stack->stakes.stake_accum_map;
+  fd_vote_rewards_map_t * vote_reward_map  = runtime_stack->stakes.vote_map;
+  ushort                  parent_idx       = bank->vote_stakes_fork_id;
+  ulong                   vote_reward_cnt  = 0UL;
 
+  /* Phase B: refresh top votes. */
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
   fd_memcpy( top_votes_t_2, top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
@@ -744,14 +834,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
     fd_accdb_close_ro( accdb, vote_ro );
   }
 
-  /* Now for each staked vote account, figure out if it is a valid
-     account and insert into the vote stakes (an account can not exist
-     but still be inserted into the vote stakes if it existed in the
-     previous epoch or vice versa).  The only condition an account is
-     not inserted into the vote stakes is if it didn't exist at the end
-     of the t-2 epoch and the end of the t-1 epoch assuming we are
-     transitioning into epoch t. */
-
+  /* Phase C: votestakes. */
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             child_idx   = fd_vote_stakes_new_child( vote_stakes );
   bank->vote_stakes_fork_id      = child_idx;
@@ -820,83 +903,6 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
         bank->f.epoch );
   }
   *fd_bank_epoch_credits_len( bank ) = vote_reward_cnt;
-}
-
-/* We need to update the amount of stake that each vote account has for
-   the given epoch.  This can only be done after the stake history
-   sysvar has been updated.  We also cache the stakes for each of the
-   vote accounts for the previous epoch.
-
-   https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L471 */
-void
-fd_refresh_vote_accounts( fd_bank_t *                    bank,
-                          fd_accdb_user_t *              accdb,
-                          fd_funk_txn_xid_t const *      xid,
-                          fd_runtime_stack_t *           runtime_stack,
-                          fd_stake_delegations_t const * stake_delegations,
-                          fd_stake_history_t const *     history,
-                          ulong *                        new_rate_activation_epoch ) {
-  /* If validator_admission_ticket is enabled, the top 2000 vote
-     accounts for every epoch (the agave epoch stakes), are stored in
-     the top votes set.  If the feature is not active, there is no
-     stake-based filtering on the vote accounts that are eligible for
-     receving rewards/being included in the leader schedule computation.
-     Once the feature is active, only the top vote accounts will be
-     tracked for historical stake/node_account/commission lookups.
-     The non vat code path uses the vote stakes data structure as it
-     considers all vote/stake accounts. */
-  if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-    fd_refresh_vote_accounts_vat( bank, accdb, xid, runtime_stack, stake_delegations, history, new_rate_activation_epoch );
-  } else {
-    fd_refresh_vote_accounts_no_vat( bank, accdb, xid, runtime_stack, stake_delegations, history, new_rate_activation_epoch );
-  }
-}
-
-/* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
-void
-fd_stakes_activate_epoch( fd_bank_t *                    bank,
-                          fd_runtime_stack_t *           runtime_stack,
-                          fd_accdb_user_t *              accdb,
-                          fd_funk_txn_xid_t const *      xid,
-                          fd_capture_ctx_t *             capture_ctx,
-                          fd_stake_delegations_t const * stake_delegations,
-                          ulong *                        new_rate_activation_epoch ) {
-
-  /* We can update our stake history sysvar based on the bank stake values.
-     Afterward, we can refresh the stake values for the vote accounts. */
-
-  fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-  }
-
-  fd_epoch_stake_history_entry_pair_t elem = {
-    .epoch = bank->f.epoch,
-    .entry = {
-      .effective    = stake_delegations->effective_stake,
-      .activating   = stake_delegations->activating_stake,
-      .deactivating = stake_delegations->deactivating_stake,
-    }
-  };
-  fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &elem );
-
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-  }
-
-  /* Now increment the epoch and recompute the stakes for the vote
-     accounts for the new epoch value. */
-
-  bank->f.epoch = bank->f.epoch + 1UL;
-
-  fd_refresh_vote_accounts( bank,
-                            accdb,
-                            xid,
-                            runtime_stack,
-                            stake_delegations,
-                            stake_history,
-                            new_rate_activation_epoch );
-
 }
 
 

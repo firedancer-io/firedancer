@@ -294,6 +294,33 @@ epoch_duration_in_years( fd_bank_t const * bank,
   return (double)slots_in_epoch / (double)bank->f.slots_per_year;
 }
 
+static void
+calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   bank,
+                                            ulong                               prev_epoch_capitalization,
+                                            ulong                               prev_epoch,
+                                            fd_prev_epoch_inflation_rewards_t * rewards );
+
+/* fd_rewards_compute_total_rewards is the bridge-phase helper called
+   by the replay tile between the parallel reward_points phase and
+   the parallel calculate_stake_vote_rewards phase.
+
+   It returns the total_rewards value (validator_rewards, in
+   lamports) that will be passed to every parallel worker.  Matches
+   the gating logic that used to live inside calculate_validator_
+   rewards: rewards is zeroed out if total_points==0. */
+
+ulong
+fd_rewards_compute_total_rewards( fd_bank_t const * bank,
+                                  ulong             prev_epoch,
+                                  uint128           total_points ) {
+  fd_prev_epoch_inflation_rewards_t rewards;
+  calculate_previous_epoch_inflation_rewards( bank,
+                                              bank->f.capitalization,
+                                              prev_epoch,
+                                              &rewards );
+  return total_points>0UL ? rewards.validator_rewards : 0UL;
+}
+
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank.rs#L2128 */
 static void
 calculate_previous_epoch_inflation_rewards( fd_bank_t const *                   bank,
@@ -337,25 +364,25 @@ fd_rewards_get_reward_distribution_num_blocks( fd_epoch_schedule_t const * epoch
   return get_reward_distribution_num_blocks( epoch_schedule, slot, total_stake_accounts );
 }
 
-/* Calculates epoch reward points from stake/vote accounts.
-   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L445 */
-static uint128
+uint128
 calculate_reward_points_partitioned( fd_bank_t *                    bank,
                                      fd_stake_delegations_t const * stake_delegations,
                                      fd_stake_history_t const *     stake_history,
-                                     fd_runtime_stack_t *           runtime_stack ) {
+                                     fd_runtime_stack_t *           runtime_stack,
+                                     ulong                          partition_idx,
+                                     ulong                          total_partitions ) {
   /* Calculate the points for each stake delegation */
   uint128 total_points = 0;
 
   fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
 
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
-    ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
+  fd_stake_delegations_pool_iter_t iter_[1];
+  for( fd_stake_delegations_pool_iter_t * iter = fd_stake_delegations_pool_iter_init_partition( iter_, stake_delegations, partition_idx, total_partitions );
+       !fd_stake_delegations_pool_iter_done( iter );
+       fd_stake_delegations_pool_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_pool_iter_ele( iter );
+    ulong                         stake_delegation_idx = iter->cur;
 
     /* Note that we don't check minimum delegation here, as there are
        no plans to activate stake_minimum_delegation_for_rewards.
@@ -363,12 +390,12 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
        below the minimum delegation here. However we don't do this yet,
        to ensure that we audit the feature properly if this happens. */
 
-    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+    uint idx = (uint)fd_vote_rewards_map_idx_query_const( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
-    if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
+    if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->shmem->expected_stake_accounts ) ) {
       stake_points_result = stake_points_result_;
     } else {
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
@@ -388,84 +415,101 @@ calculate_reward_points_partitioned( fd_bank_t *                    bank,
   return total_points;
 }
 
-/* Calculates epoch rewards for stake/vote accounts.
-   Returns vote rewards, stake rewards, and the sum of all stake rewards
-   in lamports.
+/* calculate_stake_vote_rewards_partitioned is the parallel primitive
+   for the stake / vote rewards computation phase.  Each exec tile
+   invokes this with its own partition_idx in [0, total_partitions),
+   and writes:
 
-   In the future, the calculation will be cached in the snapshot, but
-   for now we just re-calculate it (as Agave does).
-   calculate_stake_vote_rewards is responsible for calculating
-   stake account rewards based off of a combination of the
-   stake delegation state as well as the vote account. If this
-   calculation is done at the end of an epoch, we can just use the
-   vote states at the end of the current epoch. However, because we
-   are presumably booting up a node in the middle of rewards
-   distribution, we need to make sure that we are using the vote
-   states from the end of the previous epoch.
+     * runtime_stack->stakes.stake_rewards_result[stake_delegation_idx]
+       -- per-delegation slot, no contention across partitions.  Only
+       written for in-cache delegations (idx < expected_stake_accounts);
+       out-of-cache delegations are still processed but use a
+       stack-local buffer (setup_stake_partitions will recompute them
+       serially, matching the serial path's handling).
 
-   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L323 */
-static void
-calculate_stake_vote_rewards( fd_bank_t *                    bank,
-                              fd_stake_delegations_t const * stake_delegations,
-                              fd_capture_ctx_t *             capture_ctx FD_PARAM_UNUSED,
-                              fd_stake_history_t const *     stake_history,
-                              ulong                          rewarded_epoch,
-                              ulong                          total_rewards,
-                              uint128                        total_points,
-                              fd_runtime_stack_t *           runtime_stack,
-                              int                            is_recalculation ) {
+     * runtime_stack->stakes.vote_ele[idx].vote_rewards           (+=)
+       -- shared with other partitions whose delegations reference
+       the same vote account.  Accumulated with
+       FD_ATOMIC_FETCH_AND_ADD so replay sees the correct sum after
+       all exec tiles have replied.
 
-  runtime_stack->stakes.stake_rewards_cnt = 0UL;
+     * runtime_stack->shmem->stake_rewards_cnt                    (+=)
+       -- shared counter, same atomic treatment.
 
-  fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
+   The caller must:
+     - have previously populated stake_points_result[] via
+       calculate_reward_points_partitioned for in-cache
+       delegations.  Out-of-cache delegations have their stake
+       points recomputed inline here (same as the serial path).
+     - have reset stake_rewards_cnt to 0 and vote_ele[].vote_rewards
+       to 0 on the replay tile BEFORE dispatching (since exec tiles
+       are additive).
+     - pass the same total_rewards / total_points to every partition.
 
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
-    ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
+   No capture_ctx is accepted: solcap capture of per-stake reward
+   events is a debugging affordance that is only wired through the
+   serial fd_calculate_stake_vote_rewards path. */
 
-    /* Note that we don't check minimum delegation here, as there are
-       no plans to activate stake_minimum_delegation_for_rewards.
-       If this changes we need to skip stake accounts that are
-       below the minimum delegation here. However we don't do this yet,
-       to ensure that we audit the feature properly if this happens. */
+void
+calculate_stake_vote_rewards_partitioned( fd_bank_t *                    bank,
+                                          fd_stake_delegations_t const * stake_delegations,
+                                          fd_stake_history_t const *     stake_history,
+                                          ulong                          rewarded_epoch,
+                                          ulong                          total_rewards,
+                                          uint128                        total_points,
+                                          fd_runtime_stack_t *           runtime_stack,
+                                          ulong                          partition_idx,
+                                          ulong                          total_partitions ) {
+  fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
+  fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  ulong                   local_cnt    = 0UL;
 
-    fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
-    if( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) {
+  fd_stake_delegations_pool_iter_t iter_[1];
+  for( fd_stake_delegations_pool_iter_t * iter = fd_stake_delegations_pool_iter_init_partition( iter_, stake_delegations, partition_idx, total_partitions );
+       !fd_stake_delegations_pool_iter_done( iter );
+       fd_stake_delegations_pool_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_pool_iter_ele( iter );
+    ulong                         stake_delegation_idx = iter->cur;
+
+    /* calculated_stake_rewards: write to the per-idx cache slot for
+       in-cache delegations; for out-of-cache delegations, use a
+       stack-local buffer (matches the serial path -- those entries
+       are always recomputed later by setup_stake_partitions). */
+    fd_calculated_stake_rewards_t   calculated_stake_rewards_[1];
+    fd_calculated_stake_rewards_t * calculated_stake_rewards;
+    int out_of_cache = stake_delegation_idx>=runtime_stack->shmem->expected_stake_accounts;
+    if( FD_UNLIKELY( out_of_cache ) ) {
       calculated_stake_rewards = calculated_stake_rewards_;
     } else {
       calculated_stake_rewards = &runtime_stack->stakes.stake_rewards_result[ stake_delegation_idx ];
     }
     calculated_stake_rewards->success = 0;
 
-    fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
-    fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
-    uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+    /* _const: no move-to-front, safe to call concurrently from
+       multiple exec tiles. */
+    uint idx = (uint)fd_vote_rewards_map_idx_query_const( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
     if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
+    /* stake_points_result: read from cache for in-cache delegations;
+       for out-of-cache delegations the reward_points phase couldn't
+       have cached anything, so recompute using bank + stake_history
+       like the serial path does. */
     fd_calculated_stake_points_t   stake_points_result_[1];
     fd_calculated_stake_points_t * stake_points_result;
-    if( is_recalculation || FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
+    if( FD_UNLIKELY( out_of_cache ) ) {
       fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
-
-      /* We have not cached the stake points yet if we are recalculating
-         stake rewards so we need to recalculate them. */
-      calculate_stake_points_and_credits(
-          epoch_credits,
-          stake_history,
-          stake_delegation,
-          &bank->f.warmup_cooldown_rate_epoch,
-          stake_points_result_ );
+      calculate_stake_points_and_credits( epoch_credits,
+                                          stake_history,
+                                          stake_delegation,
+                                          &bank->f.warmup_cooldown_rate_epoch,
+                                          stake_points_result_ );
       stake_points_result = stake_points_result_;
     } else {
       stake_points_result = &runtime_stack->stakes.stake_points_result[ stake_delegation_idx ];
     }
 
     /* redeem_rewards is actually just responsible for calculating the
-       vote and stake rewards for each stake account.  It does not do
-       rewards redemption: it is a misnomer. */
+       vote and stake rewards for each stake account. */
     int err = redeem_rewards(
         stake_delegation,
         idx,
@@ -476,61 +520,79 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         stake_points_result,
         calculated_stake_rewards );
 
-    if( FD_UNLIKELY( err!=0 ) ) {
-      continue;
-    }
+    if( FD_UNLIKELY( err!=0 ) ) continue;
 
     calculated_stake_rewards->success = 1;
 
-    if( capture_ctx && capture_ctx->capture_solcap ) {
-      fd_capture_link_write_stake_reward_event( capture_ctx,
-                                                bank->f.slot,
-                                                stake_delegation->stake_account,
-                                                stake_delegation->vote_account,
-                                                runtime_stack->stakes.vote_ele[ idx ].commission,
-                                                (long)calculated_stake_rewards->voter_rewards,
-                                                (long)calculated_stake_rewards->staker_rewards,
-                                                (long)calculated_stake_rewards->new_credits_observed );
-    }
+    /* Multiple delegations share a vote account; accumulate concurrently. */
+    FD_ATOMIC_FETCH_AND_ADD( &runtime_stack->stakes.vote_ele[ idx ].vote_rewards,
+                             calculated_stake_rewards->voter_rewards );
+    local_cnt++;
+  }
 
-    runtime_stack->stakes.vote_ele[ idx ].vote_rewards += calculated_stake_rewards->voter_rewards;
-    runtime_stack->stakes.stake_rewards_cnt++;
+  if( local_cnt ) {
+    FD_ATOMIC_FETCH_AND_ADD( &runtime_stack->shmem->stake_rewards_cnt, local_cnt );
   }
 }
 
-static void
-setup_stake_partitions( fd_bank_t *                    bank,
-                        fd_stake_history_t const *     stake_history,
-                        fd_stake_delegations_t const * stake_delegations,
-                        fd_runtime_stack_t *           runtime_stack,
-                        fd_hash_t const *              parent_blockhash,
-                        ulong                          starting_block_height,
-                        uint                           num_partitions,
-                        ulong                          rewarded_epoch,
-                        ulong                          total_rewards,
-                        uint128                        total_points ) {
 
+
+/* setup_stake_partitions_partitioned is the parallel primitive for
+   populating the bank's stake_rewards partition lists.  Each exec
+   tile invokes this with its own partition_idx in [0, total_partitions).
+   fd_stake_rewards_insert is now concurrency safe (CAS-spin push
+   onto partition_idxs_head + atomic fetch-and-add on the counters),
+   so workers can insert in parallel without additional
+   coordination.
+
+   The caller (replay) must have already invoked
+   fd_begin_partitioned_rewards_init_partitions, which calls
+   fd_stake_rewards_init with the final num_partitions derived from
+   stake_rewards_cnt and publishes the fork_idx on
+   bank->stake_rewards_fork_id. */
+
+void
+setup_stake_partitions_partitioned( fd_bank_t *                    bank,
+                                    fd_stake_delegations_t const * stake_delegations,
+                                    fd_stake_history_t const *     stake_history,
+                                    fd_runtime_stack_t *           runtime_stack,
+                                    ulong                          rewarded_epoch,
+                                    ulong                          total_rewards,
+                                    uint128                        total_points,
+                                    ulong                          partition_idx,
+                                    ulong                          total_partitions ) {
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
-  uchar fork_idx = fd_stake_rewards_init( stake_rewards, bank->f.epoch, parent_blockhash, starting_block_height, (uint)num_partitions );
-  bank->stake_rewards_fork_id = fork_idx;
+  uchar                fork_idx      = bank->stake_rewards_fork_id;
 
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_iter_ele( iter );
-    ulong                         stake_delegation_idx = fd_stake_delegations_iter_idx( iter );
+  /* Initialize per-worker local partition chains to empty.  Only the
+     range [0, partition_cnt) is used during this worker run. */
+  uint * local_heads = runtime_stack->setup_stake_scratch.local_heads;
+  uint * local_tails = runtime_stack->setup_stake_scratch.local_tails;
+  uint   partition_cnt = fd_stake_rewards_num_partitions( stake_rewards, fork_idx );
+  for( uint p=0U; p<partition_cnt; p++ ) local_heads[ p ] = UINT_MAX;
+  /* local_tails is only read for partitions with non-empty chains, so
+     initializing local_heads to UINT_MAX is sufficient. */
 
-    fd_calculated_stake_rewards_t calculated_stake_rewards_[1];
-    fd_calculated_stake_rewards_t * calculated_stake_rewards = NULL;
+  fd_stake_rewards_reservation_t reservation = {0};
 
-    if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->expected_stake_accounts ) ) {
+  fd_stake_delegations_pool_iter_t iter_[1];
+  for( fd_stake_delegations_pool_iter_t * iter = fd_stake_delegations_pool_iter_init_partition( iter_, stake_delegations, partition_idx, total_partitions );
+       !fd_stake_delegations_pool_iter_done( iter );
+       fd_stake_delegations_pool_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation     = fd_stake_delegations_pool_iter_ele( iter );
+    ulong                         stake_delegation_idx = iter->cur;
 
+    fd_calculated_stake_rewards_t   calculated_stake_rewards_[1];
+    fd_calculated_stake_rewards_t * calculated_stake_rewards;
+
+    if( FD_UNLIKELY( stake_delegation_idx>=runtime_stack->shmem->expected_stake_accounts ) ) {
+      /* OOB: recompute inline (no cache slot available) -- same
+         pattern as the serial setup_stake_partitions. */
       calculated_stake_rewards = calculated_stake_rewards_;
 
-      fd_vote_rewards_t * vote_ele = runtime_stack->stakes.vote_ele;
+      fd_vote_rewards_t *     vote_ele     = runtime_stack->stakes.vote_ele;
       fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
-      uint idx = (uint)fd_vote_rewards_map_idx_query( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
+      uint idx = (uint)fd_vote_rewards_map_idx_query_const( vote_ele_map, &stake_delegation->vote_account, UINT_MAX, vote_ele );
       if( FD_UNLIKELY( idx==UINT_MAX ) ) continue;
 
       fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ idx ];
@@ -543,9 +605,6 @@ setup_stake_partitions( fd_bank_t *                    bank,
           &bank->f.warmup_cooldown_rate_epoch,
           stake_points_result );
 
-      /* redeem_rewards is actually just responsible for calculating the
-         vote and stake rewards for each stake account.  It does not do
-         rewards redemption: it is a misnomer. */
       int err = redeem_rewards(
           stake_delegation,
           idx,
@@ -562,195 +621,127 @@ setup_stake_partitions( fd_bank_t *                    bank,
 
     if( FD_UNLIKELY( !calculated_stake_rewards->success ) ) continue;
 
-    fd_stake_rewards_insert(
-      stake_rewards,
-      fork_idx,
-      &stake_delegation->stake_account,
-      calculated_stake_rewards->staker_rewards,
-      calculated_stake_rewards->new_credits_observed
-    );
+    fd_stake_rewards_insert_local_batched( stake_rewards,
+                                           fork_idx,
+                                           &stake_delegation->stake_account,
+                                           calculated_stake_rewards->staker_rewards,
+                                           calculated_stake_rewards->new_credits_observed,
+                                           local_heads,
+                                           local_tails,
+                                           &reservation );
   }
+
+  /* Splice per-partition local chains onto the shared heads.  One
+     CAS-spin per non-empty partition. */
+  fd_stake_rewards_splice_local( stake_rewards, fork_idx, local_heads, local_tails );
 }
 
-/* Calculate epoch reward and return vote and stake rewards.
+/* fd_begin_partitioned_rewards_init_partitions is the replay-side
+   bridge between the parallel stake_vote_rewards phase and the
+   parallel setup_stake_partitions phase.  Given the final
+   stake_rewards_cnt (populated by exec tiles), it computes
+   num_partitions, calls fd_stake_rewards_init, and publishes the
+   fork index on bank->stake_rewards_fork_id so subsequent exec-tile
+   workers can reference it.  Also emits the solcap stake_rewards
+   "begin" capture event. */
 
-   https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L273 */
-static uint128
-calculate_validator_rewards( fd_bank_t *                    bank,
-                             fd_accdb_user_t *              accdb,
-                             fd_funk_txn_xid_t const *      xid,
-                             fd_runtime_stack_t *           runtime_stack,
-                             fd_stake_delegations_t const * stake_delegations,
-                             fd_capture_ctx_t *             capture_ctx,
-                             ulong                          rewarded_epoch,
-                             ulong *                        rewards_out ) {
-
-  fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
-  }
-
-  /* Calculate the epoch reward points from stake/vote accounts */
-  uint128 total_points = calculate_reward_points_partitioned(
-      bank,
-      stake_delegations,
-      stake_history,
-      runtime_stack );
-
-  /* If there are no points, then we set the rewards to 0. */
-  *rewards_out = total_points>0UL ? *rewards_out: 0UL;
-
+void
+fd_begin_partitioned_rewards_init_partitions( fd_bank_t *           bank,
+                                              fd_runtime_stack_t *  runtime_stack,
+                                              fd_capture_ctx_t *    capture_ctx,
+                                              fd_hash_t const *     parent_blockhash,
+                                              uint128               total_points,
+                                              ulong                 total_rewards ) {
   if( capture_ctx && capture_ctx->capture_solcap ) {
-    ulong epoch = bank->f.epoch;
-    ulong slot  = bank->f.slot;
     fd_capture_link_write_stake_rewards_begin( capture_ctx,
-                                               slot,
-                                               epoch,
-                                               epoch-1UL, /* FIXME: this is not strictly correct */
-                                               *rewards_out,
+                                               bank->f.slot,
+                                               bank->f.epoch,
+                                               bank->f.epoch-1UL, /* FIXME: not strictly correct */
+                                               total_rewards,
                                                (ulong)total_points );
   }
 
-  /* Calculate the stake and vote rewards for each account. We want to
-     use the vote states from the end of the current_epoch. */
-  calculate_stake_vote_rewards(
-      bank,
-      stake_delegations,
-      capture_ctx,
-      stake_history,
-      rewarded_epoch,
-      *rewards_out,
-      total_points,
-      runtime_stack,
-      0 );
+  ulong starting_block_height = bank->f.block_height + REWARD_CALCULATION_NUM_BLOCKS;
+  uint  num_partitions        = get_reward_distribution_num_blocks( &bank->f.epoch_schedule,
+                                                                    bank->f.slot,
+                                                                    runtime_stack->shmem->stake_rewards_cnt );
 
-  fd_hash_t const * parent_blockhash      = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
-  ulong             starting_block_height = bank->f.block_height + REWARD_CALCULATION_NUM_BLOCKS;
-  uint              num_partitions        = get_reward_distribution_num_blocks( &bank->f.epoch_schedule,
-                                                                                bank->f.slot,
-                                                                                runtime_stack->stakes.stake_rewards_cnt );
-
-  setup_stake_partitions(
-      bank,
-      stake_history,
-      stake_delegations,
-      runtime_stack,
-      parent_blockhash,
-      starting_block_height,
-      num_partitions,
-      rewarded_epoch,
-      *rewards_out,
-      total_points );
-
-  return total_points;
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  uchar fork_idx = fd_stake_rewards_init( stake_rewards, bank->f.epoch, parent_blockhash, starting_block_height, num_partitions );
+  bank->stake_rewards_fork_id = fork_idx;
 }
 
-/* Calculate rewards from previous epoch to prepare for partitioned distribution.
+/* fd_begin_partitioned_rewards_finalize is the replay-side
+   post-setup-stake-partitions entry point: after the parallel
+   setup_stake_partitions phase has populated the bank's stake_rewards
+   partition lists, replay calls this to distribute vote-account
+   rewards, verify the calculated totals, publish summary state on
+   runtime_stack, and initialize the epoch_rewards sysvar. */
 
-   https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L277 */
-static void
-calculate_rewards_for_partitioning( fd_bank_t *                            bank,
-                                    fd_accdb_user_t *                      accdb,
-                                    fd_funk_txn_xid_t const *              xid,
-                                    fd_runtime_stack_t *                   runtime_stack,
-                                    fd_stake_delegations_t const *         stake_delegations,
-                                    fd_capture_ctx_t *                     capture_ctx,
-                                    ulong                                  prev_epoch,
-                                    fd_partitioned_rewards_calculation_t * result ) {
-  fd_prev_epoch_inflation_rewards_t rewards;
+void
+fd_begin_partitioned_rewards_finalize( fd_bank_t *                    bank,
+                                       fd_accdb_user_t *              accdb,
+                                       fd_funk_txn_xid_t const *      xid,
+                                       fd_runtime_stack_t *           runtime_stack,
+                                       fd_capture_ctx_t *             capture_ctx,
+                                       fd_hash_t const *              parent_blockhash,
+                                       uint128                        total_points,
+                                       ulong                          total_rewards ) {
+  long ts0 = fd_log_wallclock();
 
-  calculate_previous_epoch_inflation_rewards( bank,
-                                              bank->f.capitalization,
-                                              prev_epoch,
-                                              &rewards );
-
-  ulong total_rewards = rewards.validator_rewards;
-
-  uint128 points = calculate_validator_rewards( bank,
-                                                accdb,
-                                                xid,
-                                                runtime_stack,
-                                                stake_delegations,
-                                                capture_ctx,
-                                                prev_epoch,
-                                                &total_rewards );
-
-  /* The agave client does not partition the stake rewards until the
-     first distribution block.  We calculate the partitions during the
-     boundary. */
-  result->validator_points             = points;
-  result->validator_rewards            = total_rewards;
-  result->validator_rate               = rewards.validator_rate;
-  result->foundation_rate              = rewards.foundation_rate;
-  result->prev_epoch_duration_in_years = rewards.prev_epoch_duration_in_years;
-  result->capitalization               = bank->f.capitalization;
-}
-
-/* Calculate rewards from previous epoch and distribute vote rewards
-   https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L148 */
-static void
-calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    bank,
-                                               fd_accdb_user_t *              accdb,
-                                               fd_funk_txn_xid_t const *      xid,
-                                               fd_runtime_stack_t *           runtime_stack,
-                                               fd_stake_delegations_t const * stake_delegations,
-                                               fd_capture_ctx_t *             capture_ctx,
-                                               ulong                          prev_epoch ) {
-
+  /* Distribute vote-account rewards.  vote_ele[].vote_rewards was
+     accumulated in parallel by exec tiles; we're the single
+     consumer. */
   fd_vote_rewards_t *     vote_ele_pool = runtime_stack->stakes.vote_ele;
   fd_vote_rewards_map_t * vote_ele_map  = runtime_stack->stakes.vote_map;
-
-  /* First we must compute the stake and vote rewards for the just
-     completed epoch.  We store the stake account rewards and vote
-     states rewards in the bank */
-
-  fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
-  calculate_rewards_for_partitioning( bank,
-                                      accdb,
-                                      xid,
-                                      runtime_stack,
-                                      stake_delegations,
-                                      capture_ctx,
-                                      prev_epoch,
-                                      rewards_calc_result );
-
-
-  /* Iterate over all the vote reward nodes and distribute the rewards
-     to the vote accounts.  After each reward has been paid out,
-     calcualte the lthash for each vote account. */
   ulong distributed_rewards = 0UL;
   for( fd_vote_rewards_map_iter_t iter = fd_vote_rewards_map_iter_init( vote_ele_map, vote_ele_pool );
        !fd_vote_rewards_map_iter_done( iter, vote_ele_map, vote_ele_pool );
        iter = fd_vote_rewards_map_iter_next( iter, vote_ele_map, vote_ele_pool ) ) {
-
     uint idx = (uint)fd_vote_rewards_map_iter_idx( iter, vote_ele_map, vote_ele_pool );
     fd_vote_rewards_t * ele = &vote_ele_pool[idx];
 
     ulong rewards = runtime_stack->stakes.vote_ele[ idx ].vote_rewards;
-    if( rewards==0UL ) {
-      continue;
-    }
+    if( rewards==0UL ) continue;
 
-    /* Credit rewards to vote account (creating a new system account if
-       it does not exist) */
     fd_pubkey_t const * vote_pubkey = &ele->pubkey;
     fd_accdb_svm_credit( accdb, bank, xid, capture_ctx, vote_pubkey, rewards );
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
   }
 
+  long ts1 = fd_log_wallclock();
+
   /* Verify that we didn't pay any more than we expected to */
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
   ulong total_stake_rewards = fd_stake_rewards_total_rewards( stake_rewards, bank->stake_rewards_fork_id );
 
-  ulong total_rewards = fd_ulong_sat_add( distributed_rewards, total_stake_rewards );
-  if( FD_UNLIKELY( rewards_calc_result->validator_rewards<total_rewards ) ) {
+  ulong total_paid = fd_ulong_sat_add( distributed_rewards, total_stake_rewards );
+  if( FD_UNLIKELY( total_rewards<total_paid ) ) {
     FD_LOG_CRIT(( "Unexpected rewards calculation result" ));
   }
 
   runtime_stack->stakes.distributed_rewards = distributed_rewards;
-  runtime_stack->stakes.total_rewards       = rewards_calc_result->validator_rewards;
-  runtime_stack->stakes.total_points.ud     = rewards_calc_result->validator_points;
+  runtime_stack->stakes.total_rewards       = total_rewards;
+  runtime_stack->stakes.total_points.ud     = total_points;
+
+  ulong distribution_starting_block_height = bank->f.block_height + REWARD_CALCULATION_NUM_BLOCKS;
+  uint  num_partitions_final = fd_stake_rewards_num_partitions( fd_bank_stake_rewards_query( bank ), bank->stake_rewards_fork_id );
+
+  fd_sysvar_epoch_rewards_init( bank,
+                                accdb,
+                                xid,
+                                capture_ctx,
+                                runtime_stack->stakes.distributed_rewards,
+                                distribution_starting_block_height,
+                                num_partitions_final,
+                                runtime_stack->stakes.total_rewards,
+                                runtime_stack->stakes.total_points.ud,
+                                parent_blockhash );
+
+  FD_LOG_NOTICE(( "begin_rewards_finalize breakdown: distribute_vote_rewards=%.6f (seconds)",
+                  (double)(ts1 - ts0) / 1e9 ));
 }
+
 
 /* Distributes a single partitioned reward to a single stake account */
 static int
@@ -904,51 +895,6 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
 
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L102
 */
-void
-fd_begin_partitioned_rewards( fd_bank_t *                    bank,
-                              fd_accdb_user_t *              accdb,
-                              fd_funk_txn_xid_t const *      xid,
-                              fd_runtime_stack_t *           runtime_stack,
-                              fd_capture_ctx_t *             capture_ctx,
-                              fd_stake_delegations_t const * stake_delegations,
-                              fd_hash_t const *              parent_blockhash,
-                              ulong                          parent_epoch ) {
-
-  calculate_rewards_and_distribute_vote_rewards(
-      bank,
-      accdb,
-      xid,
-      runtime_stack,
-      stake_delegations,
-      capture_ctx,
-      parent_epoch );
-
-  /* Once the rewards for vote accounts have been distributed and stake
-     account rewards have been calculated, we can now set our epoch
-     reward status to be active and we can initialize the epoch rewards
-     sysvar.  This sysvar is then deleted once all of the partitioned
-     stake rewards have been distributed.
-
-     The Agave client calculates the partitions for each stake reward
-     when the first distribution block is reached.  The Firedancer
-     client differs here since we hash the partitions during the epoch
-     boundary. */
-
-  ulong distribution_starting_block_height = bank->f.block_height + REWARD_CALCULATION_NUM_BLOCKS;
-  uint  num_partitions                     = fd_stake_rewards_num_partitions( fd_bank_stake_rewards_query( bank ), bank->stake_rewards_fork_id );
-
-  fd_sysvar_epoch_rewards_init(
-      bank,
-      accdb,
-      xid,
-      capture_ctx,
-      runtime_stack->stakes.distributed_rewards,
-      distribution_starting_block_height,
-      num_partitions,
-      runtime_stack->stakes.total_rewards,
-      runtime_stack->stakes.total_points.ud,
-      parent_blockhash );
-}
 
 /*
     Re-calculates partitioned stake rewards.
@@ -961,7 +907,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_accdb_user_t *         accdb,
                                             fd_funk_txn_xid_t const * xid,
                                             fd_runtime_stack_t *      runtime_stack,
-                                            fd_capture_ctx_t *        capture_ctx ) {
+                                            fd_capture_ctx_t *        capture_ctx FD_PARAM_UNUSED ) {
 
   /* If the snapshot was loaded while partitioned epoch rewards is
      active, then the vote rewards map must be populated with the state
@@ -1043,28 +989,40 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     FD_LOG_CRIT(( "stake_delegations is NULL" ));
   }
 
-  calculate_stake_vote_rewards(
-      bank,
-      stake_delegations,
-      capture_ctx,
-      stake_history,
-      rewarded_epoch,
-      epoch_rewards_sysvar->total_rewards,
-      epoch_rewards_sysvar->total_points.ud,
-      runtime_stack,
-      1 );
+  /* Recompute the stake-vote-rewards result cache with one worker
+     (serial).  The caller-supplied vote_ele array must be zeroed
+     first so the atomic adds don't start from garbage. */
+  runtime_stack->shmem->stake_rewards_cnt = 0UL;
+  ulong vote_ele_cnt = *fd_bank_epoch_credits_len( bank );
+  for( ulong i=0UL; i<vote_ele_cnt; i++ ) runtime_stack->stakes.vote_ele[ i ].vote_rewards = 0UL;
 
-  setup_stake_partitions(
-      bank,
-      stake_history,
-      stake_delegations,
-      runtime_stack,
-      &epoch_rewards_sysvar->parent_blockhash,
-      epoch_rewards_sysvar->distribution_starting_block_height,
-      (uint)epoch_rewards_sysvar->num_partitions,
-      rewarded_epoch,
-      epoch_rewards_sysvar->total_rewards,
-      epoch_rewards_sysvar->total_points.ud );
+  calculate_stake_vote_rewards_partitioned( bank,
+                                            stake_delegations,
+                                            stake_history,
+                                            rewarded_epoch,
+                                            epoch_rewards_sysvar->total_rewards,
+                                            epoch_rewards_sysvar->total_points.ud,
+                                            runtime_stack,
+                                            0UL, 1UL );
+
+  /* Reinitialize stake_rewards fork using the snapshotted
+     partition_cnt / starting_block_height (not the values
+     fd_begin_partitioned_rewards_init_partitions would recompute). */
+  fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
+  bank->stake_rewards_fork_id = fd_stake_rewards_init( stake_rewards,
+                                                       bank->f.epoch,
+                                                       &epoch_rewards_sysvar->parent_blockhash,
+                                                       epoch_rewards_sysvar->distribution_starting_block_height,
+                                                       (uint)epoch_rewards_sysvar->num_partitions );
+
+  setup_stake_partitions_partitioned( bank,
+                                      stake_delegations,
+                                      stake_history,
+                                      runtime_stack,
+                                      rewarded_epoch,
+                                      epoch_rewards_sysvar->total_rewards,
+                                      epoch_rewards_sysvar->total_points.ud,
+                                      0UL, 1UL );
 
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
 }

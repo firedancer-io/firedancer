@@ -461,6 +461,13 @@ backtest_topo( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
+  /* runtime_stack shared by replay and exec tiles (used for parallel
+     epoch-boundary reward points computation). */
+  fd_topo_obj_t * runtime_stack_obj = setup_topo_runtime_stack( topo, "banks" );
+  fd_topob_tile_uses( topo, replay_tile, runtime_stack_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], runtime_stack_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, runtime_stack_obj->id, "rt_stack" ) );
+
   /* txncache_obj shared by replay, snapin, and execrp tiles */
   fd_topob_wksp( topo, "txncache"    );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",

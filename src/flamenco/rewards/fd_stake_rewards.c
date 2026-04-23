@@ -56,11 +56,15 @@ typedef struct partition_ele partition_ele_t;
 struct fork_info {
   uint  ele_cnt;
   uint  partition_cnt;
+  /* Per-partition singly-linked list head.  Inserts CAS-push onto
+     this head, so iteration yields elements in LIFO order.  No tail
+     pointer: downstream consumers iterate the full list without
+     caring about order (see fd_distribute_partitioned_epoch_rewards
+     in fd_rewards.c -- LTHash updates are commutative and
+     lamports_distributed is a scalar sum). */
   uint  partition_idxs_head[MAX_PARTITIONS_PER_EPOCH];
-  uint  partition_idxs_tail[MAX_PARTITIONS_PER_EPOCH];
   ulong starting_block_height;
   ulong total_stake_rewards;
-
 };
 typedef struct fork_info fork_info_t;
 
@@ -144,6 +148,7 @@ fd_stake_rewards_new( void * shmem,
   }
 
   ulong map_chain_cnt = index_map_chain_cnt_est( expected_stake_accs );
+  FD_LOG_WARNING(("index_map chain_cnt %lu", map_chain_cnt));
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_stake_rewards_t * stake_rewards  = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_rewards_align(), sizeof(fd_stake_rewards_t) );
@@ -234,10 +239,23 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
   stake_rewards->fork_info[fork_idx].ele_cnt               = 0UL;
   stake_rewards->fork_info[fork_idx].total_stake_rewards   = 0UL;
   memset( stake_rewards->fork_info[fork_idx].partition_idxs_head, 0xFF, sizeof(stake_rewards->fork_info[fork_idx].partition_idxs_head) );
-  memset( stake_rewards->fork_info[fork_idx].partition_idxs_tail, 0xFF, sizeof(stake_rewards->fork_info[fork_idx].partition_idxs_tail) );
 
   return fork_idx;
 }
+
+/* fd_stake_rewards_insert is concurrency safe: multiple writers may
+   call it simultaneously on the same (stake_rewards, fork_idx).
+   Shared counters are updated with atomic fetch-and-add; the
+   index_map chain and partition_idxs_head lists are pushed with a
+   CAS-spin, matching the style of fd_txncache_insert_txn.
+
+   The index_map dedup lookup uses the const variant (no
+   move-to-front) so that concurrent readers cannot corrupt chain
+   order.  It is the caller's responsibility to ensure that concurrent
+   inserts do not use the same (pubkey, lamports, credits_observed)
+   key; if they did, duplicates could end up in the map.  This is
+   satisfied in practice because stake_delegations are unique per
+   stake_account within an epoch boundary pass. */
 
 void
 fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
@@ -254,50 +272,173 @@ fd_stake_rewards_insert( fd_stake_rewards_t * stake_rewards,
     .credits_observed = credits_observed,
   };
 
-  uint index = (uint)index_map_idx_query( index_map, &index_key, UINT_MAX, index_ele );
+  uint index = (uint)index_map_idx_query_const( index_map, &index_key, UINT_MAX, index_ele );
   if( FD_LIKELY( index==UINT_MAX ) ) {
-    index = stake_rewards->total_ele_used;
-    stake_rewards->total_ele_used++;
+    /* Allocate a fresh index_pool slot.  Atomic fetch-and-add: each
+       concurrent caller gets a unique index. */
+    index = FD_ATOMIC_FETCH_AND_ADD( &stake_rewards->total_ele_used, 1U );
     if( FD_UNLIKELY( index>=stake_rewards->max_stake_accounts ) ) {
       FD_LOG_CRIT(( "invariant violation: index>=stake_rewards->max_stake_accounts" ));
     }
     index_ele_t * ele = (index_ele_t *)index_ele + index;
     ele->index_key = index_key;
-    index_map_ele_insert( index_map, ele, index_ele );
+
+    index_map_private_t * map_priv  = index_map_private( index_map );
+    uint *                chain     = index_map_private_chain( map_priv );
+    ulong                 chain_idx = index_map_private_chain_idx( &index_key, map_priv->seed, map_priv->chain_cnt );
+    uint *                head      = &chain[ chain_idx ];
+    for(;;) {
+      uint current = *head;
+      ele->next = current;
+      FD_COMPILER_MFENCE();
+      if( FD_LIKELY( FD_ATOMIC_CAS( head, current, (uint)index )==current ) ) break;
+      FD_SPIN_PAUSE();
+    }
   }
 
-  /* We have an invariant that there can never be more than 8192 entries
-     in a partition. */
   fd_siphash13_t   sip[1] = {0};
   fd_siphash13_t * hasher = fd_siphash13_init( sip, 0UL, 0UL );
   hasher = fd_siphash13_append( hasher, stake_rewards->parent_blockhash.hash, sizeof(fd_hash_t) );
   fd_siphash13_append( hasher, (uchar const *)pubkey->uc, sizeof(fd_pubkey_t) );
-  ulong hash64 = fd_siphash13_fini( hasher );
-
+  ulong hash64          = fd_siphash13_fini( hasher );
   ulong partition_index = (ulong)((uint128)stake_rewards->fork_info[fork_idx].partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
-  uint curr_fork_len = stake_rewards->fork_info[fork_idx].ele_cnt;
-  if( FD_UNLIKELY( curr_fork_len>=stake_rewards->max_stake_accounts ) ) {
+  uint curr_fork_len = FD_ATOMIC_FETCH_AND_ADD( &stake_rewards->fork_info[fork_idx].ele_cnt, 1U );
+  if( FD_UNLIKELY( (ulong)curr_fork_len>=stake_rewards->max_stake_accounts ) ) {
     FD_LOG_CRIT(( "invariant violation: curr_fork_len>=stake_rewards->max_stake_accounts" ));
   }
 
   partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, curr_fork_len );
   partition_ele->index = index;
-  partition_ele->next  = UINT_MAX;
 
-  int is_first_ele = stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_index] == UINT_MAX;
-
-  if( FD_LIKELY( !is_first_ele ) ) {
-    partition_ele_t * prev_partition_ele = get_partition_ele( stake_rewards, fork_idx, stake_rewards->fork_info[fork_idx].partition_idxs_tail[partition_index] );
-    prev_partition_ele->next = curr_fork_len;
-    stake_rewards->fork_info[fork_idx].partition_idxs_tail[partition_index] = curr_fork_len;
-  } else {
-    stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_index] = curr_fork_len;
-    stake_rewards->fork_info[fork_idx].partition_idxs_tail[partition_index] = curr_fork_len;
+  /* CAS-spin push onto the partition's head (Treiber-stack style). */
+  uint * head = &stake_rewards->fork_info[fork_idx].partition_idxs_head[partition_index];
+  for(;;) {
+    uint current = *head;
+    partition_ele->next = current;
+    FD_COMPILER_MFENCE();
+    if( FD_LIKELY( FD_ATOMIC_CAS( head, current, curr_fork_len )==current ) ) break;
+    FD_SPIN_PAUSE();
   }
 
-  stake_rewards->fork_info[fork_idx].ele_cnt++;
-  stake_rewards->fork_info[fork_idx].total_stake_rewards += lamports;
+  FD_ATOMIC_FETCH_AND_ADD( &stake_rewards->fork_info[fork_idx].total_stake_rewards, lamports );
+}
+
+/* Local-batched variant of fd_stake_rewards_insert: same behavior
+   except the per-insert CAS-spin on fork_info.partition_idxs_head[]
+   is replaced by an O(1) push onto the caller's local_heads /
+   local_tails chain for this partition, and the two shared FAAs on
+   total_ele_used / fork_info.ele_cnt are amortized via the
+   reservation struct.  The caller must invoke
+   fd_stake_rewards_splice_local once after its insert run to publish
+   the local chains onto the shared partition heads. */
+
+void
+fd_stake_rewards_insert_local_batched( fd_stake_rewards_t *             stake_rewards,
+                                       uchar                            fork_idx,
+                                       fd_pubkey_t const *              pubkey,
+                                       ulong                            lamports,
+                                       ulong                            credits_observed,
+                                       uint *                           local_heads,
+                                       uint *                           local_tails,
+                                       fd_stake_rewards_reservation_t * reservation ) {
+  index_ele_t * index_ele = get_index_pool( stake_rewards );
+  index_map_t * index_map = get_index_map( stake_rewards );
+
+  index_key_t index_key = {
+    .pubkey           = *pubkey,
+    .lamports         = lamports,
+    .credits_observed = credits_observed,
+  };
+
+  uint index = (uint)index_map_idx_query_const( index_map, &index_key, UINT_MAX, index_ele );
+
+  if( FD_LIKELY( index==UINT_MAX ) ) {
+    /* Reserve an index_ele slot from the worker's chunk.  One FAA
+       per chunk (K=FD_STAKE_REWARDS_RESERVATION_CHUNK) instead of
+       one FAA per insert. */
+    if( reservation->total_ele_next==reservation->total_ele_end ) {
+      uint chunk_start = FD_ATOMIC_FETCH_AND_ADD( &stake_rewards->total_ele_used, FD_STAKE_REWARDS_RESERVATION_CHUNK );
+      reservation->total_ele_next = chunk_start;
+      reservation->total_ele_end  = chunk_start + FD_STAKE_REWARDS_RESERVATION_CHUNK;
+    }
+    index = reservation->total_ele_next++;
+    if( FD_UNLIKELY( index>=stake_rewards->max_stake_accounts ) ) {
+      FD_LOG_CRIT(( "invariant violation: index>=stake_rewards->max_stake_accounts" ));
+    }
+    index_ele_t * ele = (index_ele_t *)index_ele + index;
+    ele->index_key = index_key;
+
+    index_map_private_t * map_priv  = index_map_private( index_map );
+    uint *                chain     = index_map_private_chain( map_priv );
+    ulong                 chain_idx = index_map_private_chain_idx( &index_key, map_priv->seed, map_priv->chain_cnt );
+    uint *                head      = &chain[ chain_idx ];
+    for(;;) {
+      uint current = *head;
+      ele->next = current;
+      FD_COMPILER_MFENCE();
+      if( FD_LIKELY( FD_ATOMIC_CAS( head, current, (uint)index )==current ) ) break;
+      FD_SPIN_PAUSE();
+    }
+  }
+
+  fd_siphash13_t   sip[1] = {0};
+  fd_siphash13_t * hasher = fd_siphash13_init( sip, 0UL, 0UL );
+  hasher = fd_siphash13_append( hasher, stake_rewards->parent_blockhash.hash, sizeof(fd_hash_t) );
+  fd_siphash13_append( hasher, (uchar const *)pubkey->uc, sizeof(fd_pubkey_t) );
+  ulong hash64          = fd_siphash13_fini( hasher );
+  ulong partition_index = (ulong)((uint128)stake_rewards->fork_info[fork_idx].partition_cnt * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
+
+  /* Reserve a partition_ele slot from the worker's chunk (batched
+     FAA on fork_info.ele_cnt). */
+  if( reservation->fork_ele_next==reservation->fork_ele_end ) {
+    uint chunk_start = FD_ATOMIC_FETCH_AND_ADD( &stake_rewards->fork_info[fork_idx].ele_cnt, FD_STAKE_REWARDS_RESERVATION_CHUNK );
+    reservation->fork_ele_next = chunk_start;
+    reservation->fork_ele_end  = chunk_start + FD_STAKE_REWARDS_RESERVATION_CHUNK;
+  }
+  uint curr_fork_len = reservation->fork_ele_next++;
+  if( FD_UNLIKELY( (ulong)curr_fork_len>=stake_rewards->max_stake_accounts ) ) {
+    FD_LOG_CRIT(( "invariant violation: curr_fork_len>=stake_rewards->max_stake_accounts" ));
+  }
+
+  partition_ele_t * partition_ele = get_partition_ele( stake_rewards, fork_idx, curr_fork_len );
+  partition_ele->index = index;
+
+  /* Push onto local chain for this partition. */
+  uint prev_head = local_heads[ partition_index ];
+  if( prev_head==UINT_MAX ) {
+    local_tails[ partition_index ] = curr_fork_len;
+    partition_ele->next            = UINT_MAX;
+  } else {
+    partition_ele->next            = prev_head;
+  }
+  local_heads[ partition_index ] = curr_fork_len;
+
+  FD_ATOMIC_FETCH_AND_ADD( &stake_rewards->fork_info[fork_idx].total_stake_rewards, lamports );
+}
+
+void
+fd_stake_rewards_splice_local( fd_stake_rewards_t * stake_rewards,
+                               uchar                fork_idx,
+                               uint const *         local_heads,
+                               uint const *         local_tails ) {
+  uint   partition_cnt = stake_rewards->fork_info[fork_idx].partition_cnt;
+  uint * shared_heads  = stake_rewards->fork_info[fork_idx].partition_idxs_head;
+
+  for( uint p=0U; p<partition_cnt; p++ ) {
+    uint local_head = local_heads[ p ];
+    if( local_head==UINT_MAX ) continue;
+
+    partition_ele_t * tail_ele = get_partition_ele( stake_rewards, fork_idx, local_tails[ p ] );
+    uint *            head     = &shared_heads[ p ];
+    for(;;) {
+      uint current = *head;
+      tail_ele->next = current;
+      FD_COMPILER_MFENCE();
+      if( FD_LIKELY( FD_ATOMIC_CAS( head, current, local_head )==current ) ) break;
+      FD_SPIN_PAUSE();
+    }
+  }
 }
 
 void

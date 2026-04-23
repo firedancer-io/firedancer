@@ -20,6 +20,15 @@ setup_topo_banks( fd_topo_t *  topo,
                   ulong        max_fork_width,
                   int          larger_max_cost_per_block );
 
+/* Allocates and registers the shared runtime_stack topo object.  Wire
+   up every replay + execrp tile that will join it via
+   fd_topob_tile_uses with FD_SHMEM_JOIN_MODE_READ_WRITE, and publish
+   its id under the "runtime_stack" pod key so tiles can find it. */
+
+fd_topo_obj_t *
+setup_topo_runtime_stack( fd_topo_t *  topo,
+                          char const * wksp_name );
+
 void
 setup_topo_funk( fd_topo_t *  topo,
                  ulong        max_account_records,

@@ -121,9 +121,16 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->runtime = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t), sizeof(fd_runtime_t), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime ) ) goto bail2;
   runner->runtime->accounts.executable_cnt = 0UL;
-  runner->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), wksp_tag );
-  if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
-  if( FD_UNLIKELY( !fd_runtime_stack_join( fd_runtime_stack_new( runner->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) ) ) goto bail2;
+  {
+    void * rt_stack_shmem_mem = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_shmem_align(), fd_runtime_stack_shmem_footprint( 2048UL, 2048UL, 2048UL, 1UL ), wksp_tag );
+    if( FD_UNLIKELY( !rt_stack_shmem_mem ) ) goto bail2;
+    fd_runtime_stack_shmem_t * rt_stack_shmem = fd_runtime_stack_shmem_join( fd_runtime_stack_shmem_new( rt_stack_shmem_mem, 2048UL, 2048UL, 2048UL, 1UL, 999UL ) );
+    if( FD_UNLIKELY( !rt_stack_shmem ) ) goto bail2;
+    void * rt_stack_ljoin = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 1 ), wksp_tag );
+    if( FD_UNLIKELY( !rt_stack_ljoin ) ) goto bail2;
+    runner->runtime_stack = fd_runtime_stack_join( fd_runtime_stack_new( rt_stack_ljoin, rt_stack_shmem, 1, 0UL ) );
+    if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
+  }
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;

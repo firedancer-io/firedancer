@@ -8,11 +8,15 @@
 #include "../../discof/fd_accdb_topo.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
+#include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 #include "../../flamenco/progcache/fd_progcache_user.h"
+#include "../../flamenco/rewards/fd_rewards.h"
+#include "../../flamenco/stakes/fd_stakes.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include <time.h>
@@ -82,6 +86,7 @@ struct fd_execrp_tile {
   uchar                 tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
 
   fd_runtime_t runtime[1];
+  fd_runtime_stack_t * runtime_stack;
 
   struct {
     ulong sigverify_cnt;
@@ -111,6 +116,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND(   l, alignof(fd_execrp_tile_t),    sizeof(fd_execrp_tile_t)                             );
+  l = FD_LAYOUT_APPEND(   l, fd_runtime_stack_align(),     fd_runtime_stack_footprint( 0 /* include_replay_private */ ) );
   l = FD_LAYOUT_APPEND(   l, fd_capture_ctx_align(),       fd_capture_ctx_footprint()                           );
   l = FD_LAYOUT_APPEND(   l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t)                          );
   if( FD_UNLIKELY( strlen( tile->execrp.dump_proto_dir ) ) ) {
@@ -295,12 +301,85 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.poh_hash_cnt += msg->hashcnt;
         break;
       }
+      case FD_EXECRP_TT_EPOCH_REWARD_POINTS: {
+        fd_execrp_epoch_reward_points_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx = msg->bank_idx;
+
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
+        fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
+        fd_stake_history_t stake_history[ 1 ];
+        FD_TEST( fd_sysvar_stake_history_read( ctx->accdb, &xid, stake_history ) );
+        out_msg->epoch_reward_points->points = calculate_reward_points_partitioned( ctx->bank, fd_banks_stake_delegations_root_query( ctx->banks ), stake_history, ctx->runtime_stack, msg->partition_idx, msg->total_partitions );
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_EPOCH_REWARD_POINTS<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
+      case FD_EXECRP_TT_EPOCH_CALC_STAKE_VOTE_REWARDS: {
+        fd_execrp_epoch_calc_stake_vote_rewards_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx = msg->bank_idx;
+        out_msg->epoch_calc_stake_vote_rewards->partition_idx = msg->partition_idx;
+
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
+        fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
+        fd_stake_history_t stake_history[ 1 ];
+        FD_TEST( fd_sysvar_stake_history_read( ctx->accdb, &xid, stake_history ) );
+        calculate_stake_vote_rewards_partitioned( ctx->bank, fd_banks_stake_delegations_root_query( ctx->banks ), stake_history, msg->rewarded_epoch, msg->total_rewards, msg->total_points, ctx->runtime_stack, msg->partition_idx, msg->total_partitions );
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_EPOCH_CALC_STAKE_VOTE_REWARDS<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
+      case FD_EXECRP_TT_EPOCH_SETUP_REWARD_PARTITIONS: {
+        fd_execrp_epoch_setup_reward_partitions_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx = msg->bank_idx;
+        out_msg->epoch_setup_reward_partitions->partition_idx = msg->partition_idx;
+
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
+        fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
+        fd_stake_history_t stake_history[ 1 ];
+        FD_TEST( fd_sysvar_stake_history_read( ctx->accdb, &xid, stake_history ) );
+        setup_stake_partitions_partitioned( ctx->bank, fd_banks_stake_delegations_root_query( ctx->banks ), stake_history, ctx->runtime_stack, msg->rewarded_epoch, msg->total_rewards, msg->total_points, msg->partition_idx, msg->total_partitions );
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_EPOCH_SETUP_REWARD_PARTITIONS<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
+      case FD_EXECRP_TT_EPOCH_REFRESH_DELEGATIONS: {
+        fd_execrp_epoch_refresh_delegations_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        fd_execrp_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->execrp_replay_out->mem, ctx->execrp_replay_out->chunk );
+        out_msg->bank_idx = msg->bank_idx;
+        out_msg->epoch_refresh_delegations->partition_idx = msg->partition_idx;
+
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
+        fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
+        fd_stake_history_t stake_history[ 1 ];
+        FD_TEST( fd_sysvar_stake_history_read( ctx->accdb, &xid, stake_history ) );
+
+        ulong eff=0UL, act=0UL, deact=0UL;
+        int flush = fd_refresh_delegations_partitioned( ctx->bank, ctx->runtime_stack, fd_banks_stake_delegations_root_query( ctx->banks ), stake_history, msg->partition_idx, msg->total_partitions, msg->is_resume, &ctx->bank->f.warmup_cooldown_rate_epoch, &eff, &act, &deact );
+        out_msg->epoch_refresh_delegations->is_flush           = flush;
+        out_msg->epoch_refresh_delegations->total_effective    = eff;
+        out_msg->epoch_refresh_delegations->total_activating   = act;
+        out_msg->epoch_refresh_delegations->total_deactivating = deact;
+        fd_stem_publish( stem, ctx->execrp_replay_out->idx, (FD_EXECRP_TT_EPOCH_REFRESH_DELEGATIONS<<32)|ctx->tile_idx, ctx->execrp_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*out_msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
+        break;
+      }
       default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));
     }
   } else FD_LOG_CRIT(( "invalid in_idx %lu", in_idx ));
 
   return 0;
 }
+
+static void
+privileged_init( fd_topo_t *      topo      FD_PARAM_UNUSED,
+                 fd_topo_tile_t * tile      FD_PARAM_UNUSED ) {}
 
 extern FD_TL int fd_wksp_oom_silent;
 
@@ -311,6 +390,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_execrp_tile_t * ctx    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_execrp_tile_t),  sizeof(fd_execrp_tile_t) );
+  void * runtime_stack_ljoin= FD_SCRATCH_ALLOC_APPEND( l, fd_runtime_stack_align(),   fd_runtime_stack_footprint( 0 /* include_replay_private */ ) );
   void * capture_ctx_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),     fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
   void * txn_dump_ctx_mem   = NULL;
@@ -486,6 +566,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->fuzz.enabled             = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;
 
+  ulong runtime_stack_obj_id = fd_pod_query_ulong( topo->props, "rt_stack", ULONG_MAX );
+  FD_TEST( runtime_stack_obj_id!=ULONG_MAX );
+  fd_runtime_stack_shmem_t * runtime_stack_shmem = fd_runtime_stack_shmem_join( fd_topo_obj_laddr( topo, runtime_stack_obj_id ) );
+  FD_TEST( runtime_stack_shmem );
+  /* refresh_slot_idx = 1 + execrp tile_idx (slot 0 is reserved for replay). */
+  FD_TEST( fd_runtime_stack_new( runtime_stack_ljoin, runtime_stack_shmem, 0 /* include_replay_private */, 1UL + ctx->tile_idx /* refresh_slot_idx */ ) );
+  ctx->runtime_stack = fd_runtime_stack_join( runtime_stack_ljoin );
+  FD_TEST( ctx->runtime_stack );
+
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );
 
@@ -540,6 +629,7 @@ fd_topo_run_tile_t fd_tile_execrp = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
