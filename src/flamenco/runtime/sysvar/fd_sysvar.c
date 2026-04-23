@@ -28,11 +28,6 @@ fd_sysvar_account_update( fd_bank_t *               bank,
       min_bal, 0,
       FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE
   );
-
-  if( FD_UNLIKELY( fd_log_level_logfile()<=0 || fd_log_level_stderr()<=0 ) ) {
-    char name[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( address->uc, NULL, name );
-    FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu", name, sz ));
-  }
 }
 
 int

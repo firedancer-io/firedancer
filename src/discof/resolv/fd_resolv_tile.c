@@ -292,6 +292,7 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   ulong const               slot         = ctx->bank->f.slot;
   fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache;
   fd_slot_hash_t const *    slot_hashes  = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
+  if( FD_UNLIKELY( !slot_hashes ) ) FD_LOG_ERR(( "missing slot hashes sysvar" ));
 
   /* Write indirect addrs into here */
   fd_acct_addr_t * indir_addrs = fd_txn_m_alut( txnm );
