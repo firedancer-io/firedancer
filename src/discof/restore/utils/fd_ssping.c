@@ -8,6 +8,7 @@
 
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -168,48 +169,54 @@ fd_ssping_new( void *                 shmem,
      We could probe for which are open with fcntl( fd, F_GETFD ), but
      that's racy.  Another way to do it is to read /proc/fd, but that's
      a bit gross from here, and still racy.  A third way to do it is to
-     allocate a few more and hope that is enough to find a contiguous
-     region.  All this happens during privileged_init, so we have a lot
-     of control over it, and in practice, I think either solution would
-     be fine.  We'll go with the overallocation solution. */
-#define MAX_FDESC_ALLOC_ATTEMPT 128UL
-  /* If we started allocating a range of contiguous file descriptors,
-     but found it wasn't big enough for our uses, we stash it in
-     bad_fdesc_allocs to close it later. */
-  fd_ssping_sockfd_range_t bad_fdesc_allocs[ MAX_FDESC_ALLOC_ATTEMPT ];
-  ulong bad_fdesc_alloc_cnt = 0UL;
+     allocate until we find a contiguous region.  All this happens
+     during privileged_init, so we have a lot of control over it, and in
+     practice, I think any solution would be fine.  We'll go with the
+     looping allocation solution. */
 
-  /* Start with one fd to make the code cleaner.  We definitely don't
-     need to worry about FD_SSPING_FD_CNT==0 */
-  int fd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, IPPROTO_TCP );
-  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "socket(SOCK_STREAM,IPPROTO_TCP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int min_fd;
+  int max_fd;
+  int base_fd = 0;
+  while( 1 ) {
+    int i;
+    int success   = 1;
+    int next_base = 0;
+    for( i=0; i<(int)FD_SSPING_FD_CNT; i++ ) {
+      int fd0 = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, IPPROTO_TCP );
+      if( FD_UNLIKELY( -1==fd0 ) ) FD_LOG_ERR(( "socket(SOCK_STREAM,IPPROTO_TCP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int min_fd = fd;
-  int max_fd = fd;
-
-  while( (ulong)(max_fd-min_fd)<FD_SSPING_FD_CNT-1UL ) {
-    int fd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, IPPROTO_TCP );
-    if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "socket(SOCK_STREAM,IPPROTO_TCP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-    if( FD_LIKELY( fd==max_fd+1 ) ) {
-      /* The happy case, we're still extending a contiguous range */
-      max_fd = fd;
+      if( FD_LIKELY( fd0!=base_fd+i ) ) {
+        int fd = fcntl( fd0, F_DUPFD, base_fd+i );
+        if( FD_UNLIKELY( -1==fd           ) ) FD_LOG_ERR(( "fcntl( %i, F_DUPFD, %i ) failed (%i-%s)", fd0, base_fd+i, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==close( fd0 ) ) ) FD_LOG_ERR(( "close(%i) failed (%i-%s)", fd0, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( fd!=base_fd+i ) ) {
+          if( FD_UNLIKELY( -1==close( fd ) ) ) FD_LOG_ERR(( "close(%i) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
+          success = 0;
+          next_base = fd_int_max( fd, fd0 );
+          /* Close our partial progress and try again.  If this keeps
+             failing, eventually one of the syscalls will return an
+             error, and we'll abort. */
+          break;
+        }
+      }
+      /* At this point, [base_fd, base_fd+i] are properly initialized
+         sockets. */
+    }
+    if( FD_UNLIKELY( !success ) ) {
+      /* We were able to allocate [base_fd, base_fd+i), but base_fd+i
+         must have been taken.  Close everything we allocated, and
+         restart the process from a larger base_fd. */
+      for( int _i=0; _i<i; _i++ ) {
+        if( FD_UNLIKELY( -1==close( base_fd+_i ) ) ) FD_LOG_ERR(( "close(%i) failed (%i-%s)", base_fd+_i, errno, fd_io_strerror( errno ) ));
+      }
+      base_fd = fd_int_max( base_fd+i+1, next_base );
     } else {
-      if( FD_UNLIKELY( bad_fdesc_alloc_cnt==128UL ) ) FD_LOG_ERR(( "could not allocate %lu contiguous sockets", FD_SSPING_FD_CNT ));
-      bad_fdesc_allocs[ bad_fdesc_alloc_cnt++ ] = (fd_ssping_sockfd_range_t) { .min_fd = min_fd, .max_fd = max_fd };
-      min_fd = fd;
-      max_fd = fd;
+      min_fd = base_fd;
+      max_fd = base_fd+i-1;
+      break;
     }
   }
 
-  /* At this point, [min_fd, max_fd] are the sockets we'll use, and
-     max_fd - min_fd == FD_SSPING_FD_CNT-1.  We should close the
-     extraneous ones though. */
-  for( ulong i=0UL; i<bad_fdesc_alloc_cnt; i++ ) {
-    for( int j=bad_fdesc_allocs[ i ].min_fd; j<=bad_fdesc_allocs[ i ].max_fd; j++ ) {
-      close( j );
-    }
-  }
 
   for( ulong i=0UL; i<FD_SSPING_FD_CNT; i++ ) {
     int tcp_nodelay = 1;
