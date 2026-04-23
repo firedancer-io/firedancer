@@ -80,6 +80,7 @@ fd_poh_new( void * shmem ) {
 
   poh->hashcnt_per_tick = ULONG_MAX;
   poh->state = STATE_UNINIT;
+  poh->wfs_paused = 0;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( poh->magic ) = FD_POH_MAGIC;
@@ -267,6 +268,12 @@ fd_poh_must_publish_skipped_tick( fd_poh_t const * poh ) {
 }
 
 void
+fd_poh_wfs_done( fd_poh_t * poh ) {
+  poh->wfs_paused = 0;
+  poh->reset_slot_start_ns = fd_log_wallclock();
+}
+
+void
 fd_poh_update_max_microblocks( fd_poh_t * poh,
                                ulong      new_max ) {
   ulong inflated = new_max + 1UL;
@@ -350,6 +357,7 @@ fd_poh_advance( fd_poh_t *          poh,
                 int *               opt_poll_in,
                 int *               charge_busy ) {
   if( FD_UNLIKELY( poh->state==STATE_UNINIT || poh->state==STATE_WAITING_FOR_RESET ) ) return;
+  if( FD_UNLIKELY( poh->wfs_paused ) ) return;
   if( FD_UNLIKELY( poh->state==STATE_WAITING_FOR_BANK ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay tile, do not do any hashing. */
