@@ -994,12 +994,16 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
   if( FD_LIKELY( entry->prior_data || entry->lamports ) ) {
     fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, entry->owner, entry->lamports, entry->executable, entry->data, entry->data_len, bank, capture_ctx );
     if( FD_UNLIKELY( fd_pubkey_eq( pubkey, &fd_runtime_debug_lthash_account ) ) ) {
+
       FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+      FD_BASE58_ENCODE_32_BYTES( entry->owner, owner_b58 );
       FD_BASE58_ENCODE_64_BYTES( txn_signature ? txn_signature->uc : NULL, txn_signature_b58 );
       FD_BASE58_ENCODE_32_BYTES( lthash_prev->bytes, lthash_prev_b58 );
       FD_BASE58_ENCODE_32_BYTES( lthash_post->bytes, lthash_post_b58 );
-      FD_LOG_WARNING(( "TARGET ACCOUNT LTHASH slot=%lu txn=%s pubkey=%s lthash_prev=%s lthash_post=%s",
-                       bank->f.slot, txn_signature_b58, pubkey_b58, lthash_prev_b58, lthash_post_b58 ));
+      FD_LOG_WARNING(( "TARGET ACCOUNT LTHASH slot=%lu txn=%s pubkey=%s owner=%s lamports=%lu executable=%d data_len=%lu lthash_prev=%s lthash_post=%s",
+                       bank->f.slot, txn_signature_b58, pubkey_b58, owner_b58, entry->lamports, entry->executable, entry->data_len, lthash_prev_b58, lthash_post_b58 ));
+      if( FD_LIKELY( entry->data_len ) ) FD_LOG_HEXDUMP_WARNING(( "TARGET ACCOUNT DATA", entry->data, entry->data_len ));
+      else                               FD_LOG_WARNING(( "TARGET ACCOUNT DATA <empty>" ));
     }
   }
 }
