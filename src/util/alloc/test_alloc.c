@@ -1,18 +1,22 @@
-#define _POSIX_C_SOURCE 200809L  /* open_memstream */
 #include "../fd_util.h"
-#include <stdio.h>
-#include <stdlib.h>
 
 #if FD_HAS_HOSTED
 
-FD_STATIC_ASSERT( FD_ALLOC_ALIGN               == 4096UL, unit_test );
-FD_STATIC_ASSERT( FD_ALLOC_FOOTPRINT           ==20480UL, unit_test );
+/* FIXME: consider moving declaration of fd_alloc_fprintf into an
+   fd_alloc_private.h?  (Or using a void * to get rid of stdio.h).  */
+
+#include <stdio.h>
+
+int
+fd_alloc_fprintf( fd_alloc_t * join,
+                  FILE *       stream );
+
+/* FIXME: ADD INTERPROCESS TESTING MODES TOO. */
+
+FD_STATIC_ASSERT( FD_ALLOC_ALIGN               ==  128UL, unit_test );
+FD_STATIC_ASSERT( FD_ALLOC_FOOTPRINT           ==32768UL, unit-test );
 FD_STATIC_ASSERT( FD_ALLOC_MALLOC_ALIGN_DEFAULT==   16UL, unit_test );
 FD_STATIC_ASSERT( FD_ALLOC_JOIN_CGROUP_HINT_MAX==   15UL, unit_test );
-
-/* This is a torture test for same thread allocation */
-/* FIXME: IDEALLY SHOULD ADD TORTURE TEST FOR MALLOC / FREE PAIRS SPLIT
-   BETWEEN THREADS AND ADD ADD INTERPROCESS TESTING MODES. */
 
 static int    _go;
 static void * _shalloc;
@@ -20,12 +24,8 @@ static ulong  _alloc_cnt;
 static ulong  _align_max;
 static ulong  _sz_max;
 
-/* TODO consider moving declaration of fd_alloc_fprintf into an
-        fd_tile_private.h */
-
-int
-fd_alloc_fprintf( fd_alloc_t * join,
-                  FILE *       stream );
+/* This is a torture test for concurrent allocation where free is done
+   on the same that did the alloc. */
 
 static int
 test_main( int     argc,
@@ -33,23 +33,20 @@ test_main( int     argc,
   (void)argc; (void)argv;
 
   ulong tile_idx = fd_tile_idx();
+  ulong tile_cnt = fd_tile_cnt(); (void)tile_cnt;
 
   void * shalloc   = FD_VOLATILE_CONST( _shalloc   );
   ulong  alloc_cnt = FD_VOLATILE_CONST( _alloc_cnt );
   ulong  align_max = FD_VOLATILE_CONST( _align_max );
   ulong  sz_max    = FD_VOLATILE_CONST( _sz_max    );
 
-  ulong print_interval          = (1UL<<fd_ulong_find_msb_w_default( alloc_cnt>>2, 1 ));
-  ulong FD_FN_UNUSED print_mask = (print_interval<<1)-1UL;
-
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
   fd_alloc_t * alloc = fd_alloc_join( shalloc, tile_idx );
-
   FD_TEST( fd_alloc_join_cgroup_hint( alloc )==(tile_idx & FD_ALLOC_JOIN_CGROUP_HINT_MAX) );
-  FD_TEST( fd_alloc_join_cgroup_hint( fd_alloc_join_cgroup_hint_set( alloc, 1UL ) )==1UL  );
 
 # define OUTSTANDING_MAX 128UL
+
   ulong   sz [ OUTSTANDING_MAX ];
   uchar * mem[ OUTSTANDING_MAX ];
   ulong   pat[ OUTSTANDING_MAX ];
@@ -60,22 +57,16 @@ test_main( int     argc,
 
   while( !FD_VOLATILE( _go ) ) FD_SPIN_PAUSE();
 
-  for( ulong i=0UL; i<2UL*alloc_cnt; i++ ) {
-
-    #if !FD_HAS_DEEPASAN
-    if( (i & print_mask)==print_interval )  {
-      char * info    = NULL;
-      ulong  info_sz = 0UL;
-      FILE * stream = open_memstream( &info, &info_sz );
-      FD_TEST( stream );
-      int print_sz = fd_alloc_fprintf( alloc, stream );
-      FD_TEST( print_sz>0 );
-      FD_TEST( 0==fclose( stream ) );
-      FD_LOG_INFO(( "fd_alloc_fprintf printed %lu bytes", info_sz ));
-      FD_LOG_DEBUG(( "fd_alloc_fprintf said:\n%*s", (int)(info_sz&INT_MAX), info ));
-      free( info );
+  ulong diag_rem = 0UL;
+  for( ulong i=0UL; i<(2UL*alloc_cnt); i++ ) {
+    if( FD_UNLIKELY( !diag_rem ) ) {
+      if( FD_UNLIKELY( !tile_idx ) ) {
+        FD_LOG_NOTICE(( "Iter %lu of %lu", i, 2UL*alloc_cnt ));
+        FD_TEST( fd_alloc_fprintf( alloc, stdout )>0 );
+      }
+      diag_rem = 500000UL;
     }
-    #endif
+    diag_rem--;
 
     /* Determine if we should alloc or free this iteration.  If j==0,
        there are no outstanding allocs to free so we must alloc.  If
@@ -96,21 +87,15 @@ test_main( int     argc,
       ulong align    = fd_ulong_if( lg_align==lg_align_max+1, 0UL, 1UL<<lg_align );
 
       sz[j] = fd_rng_ulong_roll( rng, sz_max+1UL );
-      #if FD_HAS_DEEPASAN
-      /* Enforce 8 byte alignment requirements */
-      align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
-      sz[j] = fd_ulong_if( sz[j] < FD_ASAN_ALIGN, FD_ASAN_ALIGN, sz[j] ); 
-      #endif
 
       /* Allocate it */
 
       ulong max;
       mem[j] = (uchar *)fd_alloc_malloc_at_least( alloc, align, sz[j], &max );
 
-      #if FD_HAS_DEEPASAN
-      if ( mem[j] && sz[j] )
-        FD_TEST( fd_asan_query( mem[j], sz[j] ) == NULL );
-      #endif
+#     if FD_HAS_DEEPASAN
+      if( mem[j] && max ) FD_TEST( !fd_asan_query( mem[j], max ) );
+#     endif
 
       /* Check if the value is sane */
 
@@ -152,12 +137,18 @@ test_main( int     argc,
 
       /* Free the allocation */
 
+#     if FD_HAS_DEEPASAN
+      if( mem[k] && sz[k] ) FD_TEST( !fd_asan_query( mem[k], sz[k] ) );
+#     endif
+
       fd_alloc_free( alloc, mem[k] );
 
-      #if FD_HAS_DEEPASAN
-      if ( mem[k] && sz[k] )
-          FD_TEST( fd_asan_query( mem[k], sz[k] ) != NULL );
-      #endif
+#     if FD_HAS_DEEPASAN
+      /* It is possible another thread might reuse mem between the above
+         free and the below query.  So we only do this test if we are
+         running non-concurrent. */
+      if( tile_cnt==1UL && mem[k] && sz[k] ) FD_TEST( fd_asan_query( mem[k], sz[k] ) );
+#     endif
 
       /* Remove from outstanding allocations */
 
@@ -174,7 +165,10 @@ test_main( int     argc,
   return 0;
 }
 
-#define TEST2_SLOT_MAX 64
+/* This is a torture test for concurrent allocation where free can
+   be done on a different thread that did the alloc. */
+
+#define TEST2_SLOT_MAX 4096
 
 static struct __attribute__((aligned(128))) {
   ulong   lock;
@@ -190,6 +184,7 @@ test2_main( int     argc,
   (void)argc; (void)argv;
 
   ulong tile_idx = fd_tile_idx();
+  ulong tile_cnt = fd_tile_cnt(); (void)tile_cnt;
 
   void * shalloc   = FD_VOLATILE_CONST( _shalloc   );
   ulong  alloc_cnt = FD_VOLATILE_CONST( _alloc_cnt );
@@ -199,12 +194,22 @@ test2_main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
   fd_alloc_t * alloc = fd_alloc_join( shalloc, tile_idx );
+  FD_TEST( fd_alloc_join_cgroup_hint( alloc )==(tile_idx & FD_ALLOC_JOIN_CGROUP_HINT_MAX) );
 
   int lg_align_max = fd_ulong_find_msb( align_max );
 
   while( !FD_VOLATILE( _go ) ) FD_SPIN_PAUSE();
 
+  ulong diag_rem = 0UL;
   for( ulong i=0UL; i<(2UL*alloc_cnt); i++ ) {
+    if( FD_UNLIKELY( !diag_rem ) ) {
+      if( FD_UNLIKELY( !tile_idx ) ) {
+        FD_LOG_NOTICE(( "Iter %lu of %lu", i, 2UL*alloc_cnt ));
+        FD_TEST( fd_alloc_fprintf( alloc, stdout )>0 );
+      }
+      diag_rem = 500000UL;
+    }
+    diag_rem--;
 
     /* Pick a random slot and lock it */
 
@@ -234,6 +239,10 @@ test2_main( int     argc,
 
       ulong max;
       mem = (uchar *)fd_alloc_malloc_at_least( alloc, align, sz, &max );
+
+#     if FD_HAS_DEEPASAN
+      if( mem && max ) FD_TEST( !fd_asan_query( mem, max ) );
+#     endif
 
       /* Check if the value is sane */
 
@@ -273,12 +282,23 @@ test2_main( int     argc,
 
       ulong b;
       for( b=0UL; (b+7UL)<sz; b+=8UL )
-        if( (*(ulong *)(mem+b))!=pat ) { FD_LOG_WARNING(( "On tile %lu, memory corruption detected", tile_idx )); break; }
-      for( ; b<sz; b++ ) if( mem[b]!=((uchar)src) ) { FD_LOG_WARNING(( "On tile %lu, memory corruption detected", tile_idx )); break; }
+        if( (*(ulong *)(mem+b))!=pat ) { FD_LOG_ERR(( "On tile %lu, memory corruption detected", tile_idx )); break; }
+      for( ; b<sz; b++ ) if( mem[b]!=((uchar)src) ) { FD_LOG_ERR(( "On tile %lu, memory corruption detected", tile_idx )); break; }
 
       /* Free the allocation */
 
+#     if FD_HAS_DEEPASAN
+      if( mem && sz ) FD_TEST( !fd_asan_query( mem, sz ) );
+#     endif
+
       fd_alloc_free( alloc, mem );
+
+#     if FD_HAS_DEEPASAN
+      /* It is possible another thread might reuse mem between the above
+         free and the below query.  So we only do this test if we are
+         running non-concurrent. */
+      if( tile_cnt==1UL && mem && sz ) FD_TEST( fd_asan_query( mem, sz ) );
+#     endif
 
       /* Remove from outstanding allocations */
 
@@ -295,10 +315,16 @@ test2_main( int     argc,
   return 0;
 }
 
+#include "fd_alloc_cfg.h"
+
+FD_STATIC_ASSERT( (0UL<FD_ALLOC_SIZECLASS_CNT) && (FD_ALLOC_SIZECLASS_CNT<=FD_ALLOC_SIZECLASS_MAX), increase_sizeclass_max );
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  ulong sz_max_default = 37UL << 10;
 
   char const * name      = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,            NULL );
   char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
@@ -306,12 +332,44 @@ main( int     argc,
   ulong        near_cpu  = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
   ulong        alloc_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--alloc-cnt", NULL,       1048576UL );
   ulong        align_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--align-max", NULL,           256UL );
-  ulong        sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,         73728UL );
+  ulong        sz_max    = fd_env_strip_cmdline_ulong( &argc, &argv, "--sz-max",    NULL,  sz_max_default );
   ulong        tag       = fd_env_strip_cmdline_ulong( &argc, &argv, "--tag",       NULL,          1234UL );
   ulong        tile_cnt  = fd_tile_cnt();
   int          paired    = fd_env_strip_cmdline_int  ( &argc, &argv, "--paired",    NULL,               1 );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_cnt, 0UL ) );
+
+  FD_LOG_NOTICE(( "Testing sizeclass configuration" ));
+
+  FD_TEST( fd_ulong_is_pow2( FD_ALLOC_SUPERBLOCK_ALIGN ) );
+  FD_TEST( FD_ALLOC_SIZECLASS_ITER_MAX==(ulong)(1UL+(ulong)fd_ulong_find_msb_w_default( FD_ALLOC_SIZECLASS_CNT-1UL, -1 )) );
+  FD_TEST( FD_ALLOC_FOOTPRINT_SMALL_THRESH<=(ulong)fd_alloc_sizeclass_cfg[ FD_ALLOC_SIZECLASS_CNT-1UL ].block_footprint );
+
+  ulong block_footprint = 0UL;
+  for( ulong sizeclass=0UL; sizeclass<FD_ALLOC_SIZECLASS_CNT; sizeclass++ ) {
+    ulong block_footprint_prev = block_footprint;
+
+    /**/  block_footprint  = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_footprint;
+    ulong parent_sizeclass = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].parent_sizeclass;
+    ulong block_cnt        = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].block_cnt;
+    ulong cgroup_mask      = (ulong)fd_alloc_sizeclass_cfg[ sizeclass ].cgroup_mask;
+
+    FD_TEST( block_footprint > block_footprint_prev                                             ); /* Sorted by block_footprint */
+    FD_TEST( fd_ulong_is_aligned( block_footprint, FD_ALLOC_SUPERBLOCK_ALIGN )                  ); /* Valid block_footprint */
+    FD_TEST( (2UL<=block_cnt) & (block_cnt<=64UL)                                               ); /* Valid block_cnt */
+    FD_TEST( (cgroup_mask<=FD_ALLOC_JOIN_CGROUP_HINT_MAX) & fd_ulong_is_pow2( cgroup_mask+1UL ) ); /* Valid cgroup_mask */
+
+    /* parent_sizeclass blocks can only a superblock for this sizeclass */
+    ulong superblock_footprint = 24UL + block_footprint*block_cnt;
+    if( FD_LIKELY( (sizeclass<parent_sizeclass) & (parent_sizeclass<FD_ALLOC_SIZECLASS_CNT) ) ) { /* nested superblock */
+      FD_TEST( superblock_footprint<=(ulong)fd_alloc_sizeclass_cfg[ parent_sizeclass ].block_footprint );
+    } else { /* root superblock */
+      FD_TEST( parent_sizeclass==FD_ALLOC_SIZECLASS_CNT );
+      FD_TEST( superblock_footprint<=FD_ALLOC_ROOT_SUPERBLOCK_FOOTPRINT );
+    }
+  }
+
+  FD_LOG_NOTICE(( "Testing constructors" ));
 
   fd_wksp_t * wksp;
   if( name ) {
@@ -339,17 +397,25 @@ main( int     argc,
 
   void * shalloc = fd_alloc_new( shmem, tag ); FD_TEST( shalloc==shmem );
 
+  FD_LOG_NOTICE(( "Testing join" ));
+
   FD_TEST( !fd_alloc_join( NULL,        0UL ) );  /* NULL shalloc */
   FD_TEST( !fd_alloc_join( (void *)1UL, 0UL ) );  /* misaligned shalloc */
   FD_TEST( !fd_alloc_join( dummy_mem,   0UL ) );  /* bad magic */
 
   fd_alloc_t * alloc = fd_alloc_join( shalloc, 0UL ); FD_TEST( alloc );
 
-  FD_TEST( !fd_alloc_leave( NULL ) );  /* NULL join */
-  FD_TEST( fd_alloc_leave( alloc )==shalloc );
+  FD_LOG_NOTICE(( "Testing accessors" ));
 
   FD_TEST( fd_alloc_wksp( NULL  )==NULL ); FD_TEST( fd_alloc_tag( NULL  )==0UL );
   FD_TEST( fd_alloc_wksp( alloc )==wksp ); FD_TEST( fd_alloc_tag( alloc )==tag );
+
+  FD_TEST( fd_alloc_join_cgroup_hint( alloc )==0UL );
+  for( ulong idx=0UL; idx<64UL; idx++ ) {
+    ulong cgroup_hint = fd_ulong_hash( idx );
+    fd_alloc_t * alloc2 = fd_alloc_join_cgroup_hint_set( alloc, cgroup_hint );
+    FD_TEST( fd_alloc_join_cgroup_hint( alloc2 )==(cgroup_hint & FD_ALLOC_JOIN_CGROUP_HINT_MAX) );
+  }
 
   FD_LOG_NOTICE(( "Testing is_empty" ));
 
@@ -400,6 +466,9 @@ main( int     argc,
 #   undef BIT_PATTERN
 
   } while(0);
+
+  FD_TEST( !fd_alloc_leave( NULL ) );  /* NULL join */
+  FD_TEST( fd_alloc_leave( alloc )==shalloc );
 
   FD_LOG_NOTICE(( "Running torture test with --alloc-cnt %lu, --align-max %lu, --sz-max %lu, --paired %i on %lu tile(s)",
                   alloc_cnt, align_max, sz_max, paired, tile_cnt ));

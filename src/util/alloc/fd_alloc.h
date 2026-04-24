@@ -124,12 +124,10 @@
 /* FD_ALLOC_{ALIGN,FOOTPRINT} give the required alignment and footprint
    needed for a wksp allocation to be suitable as a fd_alloc.  ALIGN is
    an integer pointer of 2 and FOOTPRINT is an integer multiple of
-   ALIGN.  These are provided to facilitate compile time declarations.
-   4096 for ALIGN has been is picked to be normal-page like and match
-   the minimum alignment of a fd_wksp_alloc. */
+   ALIGN.  These are provided to facilitate compile time declarations. */
 
-#define FD_ALLOC_ALIGN     (4096UL)
-#define FD_ALLOC_FOOTPRINT (20480UL)
+#define FD_ALLOC_ALIGN     (128UL)
+#define FD_ALLOC_FOOTPRINT sizeof(fd_alloc_t)
 
 /* FD_ALLOC_MALLOC_ALIGN_DEFAULT gives the alignment that will be used
    when the user does not specify an alignment.  This will be an integer
@@ -144,10 +142,102 @@
 
 #define FD_ALLOC_JOIN_CGROUP_HINT_MAX (15UL)
 
-/* A "fd_alloc_t *" is an opaque handle of an fd_alloc. */
+/* A fd_alloc_t is a quasi-opaque handle of a fd_alloc (sizeof and
+   alignof work but the internals should not be used directly). */
 
-struct fd_alloc;
-typedef struct fd_alloc fd_alloc_t;
+struct fd_alloc_private;
+typedef struct fd_alloc_private fd_alloc_t;
+
+/* fd_alloc private API ***********************************************/
+
+/* FD_ALLOC_MAGIC is an ideally unique number that specifies the precise
+   memory layout of a fd_alloc */
+
+#define FD_ALLOC_MAGIC (0xF17EDA2C37A110C2UL) /* FIRE DANCER ALLOC version 2 */
+
+/* FD_ALLOC_SIZECLASS_MAX is the maximum number of sizeclasses supported
+   by fd_alloc. */
+
+#define FD_ALLOC_SIZECLASS_MAX (240UL)
+
+struct __attribute__((aligned(FD_ALLOC_ALIGN))) fd_alloc_private {
+
+  ulong magic;    /* ==FD_ALLOC_MAGIC */
+  ulong wksp_off; /* Offset of the first byte of this structure from the start of the wksp */
+  ulong tag;      /* tag that will be used by this allocator.  Positive. */
+
+  uchar _[ FD_ALLOC_ALIGN - 3UL*sizeof(ulong) ]; /* Padding to FD_ALLOC_ALIGN */
+
+  /* active_slot[ sizeclass + FD_ALLOC_SIZECLASS_MAX*cgroup ] is the
+     global address of the superblock in circulation that is preferred
+     for sizeclass allocations done by a caller in concurrency group
+     cgroup.  0 if there is no active superblock currently for
+     (sizeclass,cgroup).  Note that this is stored compactly but
+     organized such that concurrent operations from different cgroups
+     are unlikely to create false sharing. */
+
+  ulong active_slot[ FD_ALLOC_SIZECLASS_MAX*(FD_ALLOC_JOIN_CGROUP_HINT_MAX+1UL) ];
+
+  /* inactive_stack[ sizeclass ] gives the top of stack of inactive
+     superblocks in circulation stack for sizeclass or 0 if the stack is
+     empty.  This is versioned global address with a 17-bit version
+     number in the least significant bits and a 50-bit gaddr encoded in
+     47-bits in the most significant bits (the 3 least significant bits
+     of a superblock gaddr are zero given FD_ALLOC_SUPERBLOCK_ALIGN is
+     at least 8).  This means that fd_alloc can be backed by wksp up to
+     ~1 PiB in size. */
+
+  ulong inactive_stack[ FD_ALLOC_SIZECLASS_MAX ];
+
+  /* Padding to FD_ALLOC_ALIGN here */
+
+};
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_alloc_private_join_alloc returns the local address of the alloc
+   for a join. */
+
+FD_FN_CONST static inline fd_alloc_t *
+fd_alloc_private_join_alloc( fd_alloc_t * join ) {
+  return (fd_alloc_t *)(((ulong)join) & ~FD_ALLOC_JOIN_CGROUP_HINT_MAX);
+}
+
+/* fd_alloc_private_wksp returns the wksp backing alloc.  Assumes alloc
+   is a non-NULL pointer in the caller's address space to the fd_alloc
+   (not a join handle). */
+
+FD_FN_PURE static inline fd_wksp_t *
+fd_alloc_private_wksp( fd_alloc_t * alloc ) {
+  return (fd_wksp_t *)(((ulong)alloc) - alloc->wksp_off);
+}
+
+/* fd_alloc_private_delete allows fine grained control over how much
+   cleanup of the underlying wksp is done.
+
+   - level<=0 indicates to do no wksp cleanup (the user can manually
+     cleanup left over allocations and so forth with APIs like
+     fd_wksp_tag_free).
+
+   - level==1 indicates to do a quick cleanup (assuming the application
+     freed all allocations done by this allocator, all wksp usage
+     _except_ the shalloc itself will be freed).  fd_alloc_delete is a
+     thin wrapper to this with level==1.
+
+   - level>1 indicates to do a deep cleanup.  This will free all wksp
+     locations that match fd_alloc's wksp tag.  IMPORTANT SAFETY TIP!
+     If shalloc was allocated with the same tag, this also will also
+     free shalloc too!  IMPORTANT SAFETY TIP!  Tf any other wksp
+     allocations used this tag, this will also free all those
+     allocations too! */
+
+void *
+fd_alloc_private_delete( void * shalloc,
+                         int    level );
+
+FD_PROTOTYPES_END
+
+/* End of private API *************************************************/
 
 FD_PROTOTYPES_BEGIN
 
@@ -260,8 +350,17 @@ fd_alloc_join_cgroup_hint_set( fd_alloc_t * join,
    fd_alloc_tag returns the tag that will be used for allocations from
    this workspace. */
 
-FD_FN_PURE fd_wksp_t * fd_alloc_wksp( fd_alloc_t * join ); // NULL indicates NULL join
-FD_FN_PURE ulong       fd_alloc_tag ( fd_alloc_t * join ); // Positive, 0 indicates NULL join
+FD_FN_PURE static inline fd_wksp_t * // NULL indicates NULL join
+fd_alloc_wksp( fd_alloc_t * join ) {
+  fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
+  return FD_LIKELY( alloc ) ? fd_alloc_private_wksp( alloc ) : NULL;
+}
+
+FD_FN_PURE static inline ulong // Positive, 0 indicates NULL join
+fd_alloc_tag( fd_alloc_t * join ) {
+  fd_alloc_t * alloc = fd_alloc_private_join_alloc( join );
+  return FD_LIKELY( alloc ) ? alloc->tag : 0UL;
+}
 
 /* fd_alloc_malloc_at_least allocates at least sz bytes with alignment
    of at least align from the wksp backing the fd_alloc.  join is a
@@ -326,6 +425,9 @@ fd_alloc_malloc( fd_alloc_t * join,
   ulong max[1];
   return fd_alloc_malloc_at_least( join, align, sz, max );
 }
+
+/* FIXME: consider a fd_alloc_avail API that returns the max bytes avail
+   at an allocation? */
 
 /* fd_alloc_free frees the outstanding allocation whose first byte is
    pointed to by laddr in the caller's local address space.  join is a

@@ -123,4 +123,3 @@ ALLOC=$("$BIN"/fd_alloc_ctl tag "$TAG_META" new "$WKSP" "$TAG_ALLOC" || fail new
 echo Log N/A
 echo pass
 exit 0
-
