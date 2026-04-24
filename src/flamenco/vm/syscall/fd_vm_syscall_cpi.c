@@ -149,8 +149,8 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     fd_pubkey_t const * caller_pubkey = NULL;
     int err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, caller_idx, &caller_pubkey );
     if( FD_UNLIKELY( err ) ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, err, instr_ctx->txn_out->err.exec_err_idx );
-      return err;
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
     /* Check that the account is not read-only in the caller but writable in the callee */
