@@ -1263,33 +1263,36 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 # endif
 
   uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
-  if( FD_UNLIKELY( merkle_recvd( ele, fec_idx )
-                   && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[fec_idx].mr.key, mr_b58 );
-    FD_BASE58_ENCODE_32_BYTES( mr->key, mr_recv_b58 );
-    FD_LOG_WARNING(( "fd_forest_fec_insert: fec_resolver inserted a version of slot %lu fec_set_idx %u we dont have recorded. current_mr %s, received_mr %s", slot, fec_set_idx, mr_b58, mr_recv_b58 ));
-    /* there are two cases:
 
-       (1) the first and common case is that we've received a mix of
-           shreds from equivocating FEC siblings A & B.  In forest we
-           have recorded hash = { 0 } for this fec set because we've
-           received a mix of merkle roots, so we nulled the FEC set.
-           Let's say fec_resolver then completes version B, and delivers
-           it.  We can safely overwrite our null merkle root with B
-           because we know we must've received all the data for version
-           B!
-       (2) the second case is that we get two FEC completion msgs:
-           one for both version B and A. They get completed, one after
-           the other. In this case we've first overwritten from { 0 } to
-           B.  But if version A arrives, what should we do?  If B
-           is the correct version, but we choose to overwrite the fec
-           when A arrive, then we need to ask ask shred to
-           re-deliver the FEC set.  Since we don't know at this time if
-           B or A is correct, we optimize for case 1, and overwrite the
-           merkle root with the new one. */
-    // overwrite the merkle root with the new one
-    ele->merkle_roots[fec_idx].mr  = *mr;
-    ele->merkle_roots[fec_idx].cmr = *cmr;
+  if( FD_UNLIKELY( merkle_recvd( ele, fec_idx ) && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
+    if( FD_UNLIKELY( merkle_verified( ele, fec_idx + 1 ) && !fd_hash_eq( &ele->merkle_roots[fec_idx + 1].cmr, mr ) ) ) {
+      /* reject if the fec is verified and the merkle root doesn't match */
+      return ele;
+    } else {
+      /* overwrite the merkle root with the new one */
+      FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[fec_idx].mr.key, mr_b58 );
+      FD_BASE58_ENCODE_32_BYTES( mr->key, mr_recv_b58 );
+      FD_LOG_WARNING(( "fd_forest_fec_insert: fec_resolver inserted a version of slot %lu fec_set_idx %u we dont have recorded. current_mr %s, received_mr %s", slot, fec_set_idx, mr_b58, mr_recv_b58 ));
+      /* there are two cases:
+         (1) the first and common case is that we've received a mix of
+         shreds from equivocating FEC siblings A & B.  In forest we have
+         recorded hash = { invalid_mr } for this fec set because we've
+         received a mix of merkle roots, so we nulled the FEC set. Let's
+         say fec_resolver then completes version B, and delivers it.  We
+         can safely overwrite our null merkle root with B because we know
+         we must've received all the data for version B!
+
+         (2) the second case is that we get two FEC completion msgs: one
+         for both version B and A. They get completed, one after the
+         other.  We first overwriten from { invalid_mr } to B.  But if
+         version A arrives, what should we do?  If B is the correct
+         version, but we choose to overwrite the fec when A arrive, then
+         we need to ask ask shred to re-deliver the FEC set. Since we
+         don't know at this time if B or A is correct, we optimize for
+         case 1, and overwrite the merkle root with the new one. */
+      ele->merkle_roots[fec_idx].mr  = *mr;
+      ele->merkle_roots[fec_idx].cmr = *cmr;
+    }
   }
 
   if( FD_UNLIKELY( slot_complete && ele->child != ULONG_MAX ) ) {

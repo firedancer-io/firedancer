@@ -1644,6 +1644,71 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( fd_forest_fini( forest ) ) ) );
 }
 
+void
+test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
+  /* A conflicting FEC_COMPLETE arrives for an FEC index that has
+     already been chain-verified.  The merkle root metadata doesn't get
+     overwritten. */
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_init( forest, 0 );
+
+  fd_hash_t mr_0   = (fd_hash_t){ .key = { 0 } };
+  fd_hash_t mr_1   = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_3_0 = (fd_hash_t){ .key = { 30 } }; /* correct FEC 0 mr */
+  fd_hash_t mr_3_1 = (fd_hash_t){ .key = { 31 } }; /* correct FEC 1 mr = block_id */
+
+  /* Conflicting FEC 1 merkle roots */
+  fd_hash_t mr_3_1_bad = (fd_hash_t){ .key = { 99 } };
+  fd_hash_t cmr_bad    = (fd_hash_t){ .key = { 98 } };
+
+  /* Set up ancestry: root=0 -> slot 1 -> slot 2 -> slot 3 */
+  fd_forest_blk_insert( forest, 1, 0, NULL );
+  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0 );
+  fd_forest_blk_insert( forest, 2, 1, NULL );
+  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1 );
+
+  /* Insert correct version of slot 3: 2 FEC sets, parent=2 */
+  fd_forest_blk_insert( forest, 3, 2, NULL );
+  /* FEC 0: shreds 0-31 */
+  fd_forest_fec_insert( forest, 3, 2, 31, 0, 0, 0, &mr_3_0, &mr_2 );
+  /* FEC 1: shreds 32-63, slot_complete=1 */
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0 );
+
+  fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
+  FD_TEST( ele->complete_idx == 63 );
+
+  /* Chain-verify with the correct block_id.  Both FEC 1 and FEC 0
+     should be verified, and chain_confirmed should be set. */
+  fd_forest_blk_t * fail = fd_forest_fec_chain_verify( forest, ele, &mr_3_1 );
+  FD_TEST( !fail ); /* NULL means full success */
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+
+  fd_hash_t saved_mr  = ele->merkle_roots[1].mr;
+  fd_hash_t saved_cmr = ele->merkle_roots[1].cmr;
+  FD_TEST( fd_hash_eq( &saved_mr, &mr_3_1 ) );
+
+  /* Now a conflicting FEC_COMPLETE arrives for FEC 1 (fec_set_idx=32)
+     with a different merkle root.  This is the bug scenario: without
+     the fix, this would overwrite the verified merkle entry. */
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1_bad, &cmr_bad );
+
+  /* The verified merkle root must NOT have been overwritten */
+  FD_TEST( fd_hash_eq( &ele->merkle_roots[1].mr,  &saved_mr  ) );
+  FD_TEST( fd_hash_eq( &ele->merkle_roots[1].cmr, &saved_cmr ) );
+
+  /* The block should still be chain-confirmed */
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( fd_forest_fini( forest ) ) ) );
+}
 
 
 int
@@ -1680,6 +1745,7 @@ main( int argc, char ** argv ) {
   test_eqvoc_blk_wrong_parent( wksp );
   test_parent_update( wksp );
   test_eqvoc_different_slot_size( wksp );
+  test_fec_complete_no_poison_verified( wksp );
 
   fd_halt();
   return 0;
