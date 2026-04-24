@@ -3,8 +3,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../funk/fd_funk.h"
-#include "../../util/io_uring/fd_io_uring_setup.h"
-#include "../../util/io_uring/fd_io_uring_register.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
@@ -14,8 +12,6 @@
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
-
-#define URING_DEPTH 1024
 
 struct fd_snapzp {
   fd_funk_t funk[1];
@@ -31,8 +27,6 @@ struct fd_snapzp {
   ulong idle_cnt;
 
   fd_snapmk_batch_t * batch;
-
-  fd_io_uring_t ring[1];
 
   int fd;
   ulong volatile * file_off;
@@ -61,7 +55,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t),  sizeof(fd_snapzp_t) );
-  l = FD_LAYOUT_APPEND( l, FD_SHMEM_HUGE_PAGE_SZ, fd_io_uring_shmem_footprint( URING_DEPTH, URING_DEPTH ) );
   l = FD_LAYOUT_APPEND( l, 4096UL,                RAW_BUF_SZ          );
   l = FD_LAYOUT_APPEND( l, 4096UL,                COMP_BUF_SZ         );
   return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
@@ -71,8 +64,7 @@ static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
-  fd_snapzp_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  void *        ioring_buf = FD_SCRATCH_ALLOC_APPEND( l, FD_SHMEM_HUGE_PAGE_SZ, fd_io_uring_shmem_footprint( URING_DEPTH, URING_DEPTH ) );
+  fd_snapzp_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
   memset( ctx, 0, sizeof(fd_snapzp_t) );
 
   char const * out_path = "/data/r/firedancer/snapout.zst";
@@ -81,18 +73,6 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "open(%s) failed: %s", out_path, fd_io_strerror( errno ) ));
   }
   ctx->fd = fd;
-
-  uint uring_depth = URING_DEPTH;
-  fd_io_uring_params_t params[1];
-  fd_io_uring_params_init( params, uring_depth );
-
-  if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ring, params, ioring_buf, uring_depth, uring_depth ) ) ) {
-    FD_LOG_ERR(( "fd_io_uring_init_shmem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  if( FD_UNLIKELY( fd_io_uring_enable_rings( ctx->ring->ioring_fd )<0 ) ) {
-    FD_LOG_ERR(( "io_uring_enable_rings failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
 }
 
 static void
@@ -100,7 +80,6 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_snapzp_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  /*                     */FD_SCRATCH_ALLOC_APPEND( l, FD_SHMEM_HUGE_PAGE_SZ, fd_io_uring_shmem_footprint( URING_DEPTH, URING_DEPTH ) );
   uchar *       raw_buf  = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,               RAW_BUF_SZ          );
   uchar *       comp_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,               COMP_BUF_SZ         );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
