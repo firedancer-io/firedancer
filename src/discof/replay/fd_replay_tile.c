@@ -2291,6 +2291,9 @@ admin_snap_create( fd_replay_tile_t *  ctx,
     return;
   }
 
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  bank->refcnt++;
+
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, 0UL, 0UL, 0UL, 0UL );
   admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_SUCCESS );
   ctx->is_creating_snap = 1;
@@ -2448,6 +2451,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_SNAPMK: {
       ctx->is_creating_snap = 0;
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+      FD_TEST( bank->refcnt>0UL );
+      bank->refcnt--;
       break;
     }
     default:
