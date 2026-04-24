@@ -10,8 +10,6 @@
 
 /* Funk rooted record iterator (thread-safe) */
 
-#define CHAIN_MAX (4096UL) /* ought to be enough */
-
 struct fd_snapmk {
   fd_funk_t funk[1];
 
