@@ -12,6 +12,10 @@ $(call make-unit-test,test_bundle_client_wraparound,test_bundle_client_wraparoun
 $(call run-unit-test,test_bundle_client_wraparound)
 $(call make-fuzz-test,fuzz_bundle_client,fuzz_bundle_client,fd_disco fd_waltz fd_flamenco fd_tango fd_ballet fd_util,$(OPENSSL_LIBS))
 $(call make-fuzz-test,fuzz_bundle_auth_resp,fuzz_bundle_auth_resp,fd_disco fd_waltz fd_flamenco fd_tango fd_ballet fd_util,$(OPENSSL_LIBS))
+ifdef FD_HAS_DOUBLE
+$(call make-unit-test,test_bundle_tile,test_bundle_tile,fd_disco fd_waltz fd_flamenco fd_tango fd_ballet fd_util,$(OPENSSL_LIBS))
+$(call run-unit-test,test_bundle_tile)
+endif
 endif
 
 ifdef FD_HAS_HOSTED
