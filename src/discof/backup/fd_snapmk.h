@@ -53,7 +53,8 @@
 
 #define SNAPMK_ORIG_BATCH       1 /* account batch */
 #define SNAPMK_ORIG_FLUSH       2 /* flush pending batch */
-#define SNAPMK_ORIG_DONE        3
+#define SNAPMK_ORIG_RESET       3 /* reset state */
+#define SNAPMK_ORIG_DONE        4
 
 struct __attribute__((aligned(64))) fd_snapmk_batch {
   ulong val_gaddr[ FUNK_SCAN_PARA ];

@@ -3,6 +3,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../funk/fd_funk.h"
+#include "../../util/archive/fd_tar.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
@@ -26,6 +27,8 @@ struct fd_snapzp {
 
   ulong idle_cnt;
 
+  ulong               kind_id;
+  ulong               frame_id;
   fd_snapmk_batch_t * batch;
 
   int fd;
@@ -42,8 +45,9 @@ struct fd_snapzp {
 typedef struct fd_snapzp fd_snapzp_t;
 
 #define RAW_BUF_SZ  (32UL<<20) /* FIXME make this configurable */
+#define COMP_HEAD   522 /* raw tar header block */
 #define COMP_BOUND  ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
-#define COMP_BUF_SZ FD_ULONG_ALIGN_UP( COMP_BOUND+8UL, 4096UL )
+#define COMP_BUF_SZ FD_ULONG_ALIGN_UP( COMP_HEAD+COMP_BOUND+8UL, 4096UL )
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -90,17 +94,29 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->zst = ZSTD_createCCtx(); /* FIXME no libc alloc */
   FD_TEST( ctx->zst );
-  ulong zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, 1 );
+  ulong zst_err;
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, 1 );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
     FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_compressionLevel=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_stableInBuffer, 1 );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_stableInBuffer=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_stableOutBuffer, 1 );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_stableOutBuffer=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
   ctx->raw = raw_buf;
   ctx->raw_buf  = (ZSTD_inBuffer){ .src = raw_buf,  .size = RAW_BUF_SZ };
-  ctx->comp_buf = (ZSTD_outBuffer){ .dst = comp_buf, .size = COMP_BUF_SZ };
+  ctx->comp_buf = (ZSTD_outBuffer){ .dst = comp_buf+COMP_HEAD, .size = COMP_BUF_SZ-COMP_HEAD };
 
   FD_TEST( tile->in_cnt==1UL );
   FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[0] ].name, "snapmk_zp" ) );
   ctx->batch = topo->links[ tile->in_link_id[0] ].dcache;
+
+  ctx->kind_id = tile->kind_id;
+  ctx->frame_id = 0UL;
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.zp_fseq_id ) ); FD_TEST( zp_fseq );
   ctx->file_off = fd_fseq_app_laddr( zp_fseq );
@@ -149,7 +165,16 @@ before_credit( fd_snapzp_t *       ctx,
 
 static void
 flush( fd_snapzp_t * ctx ) {
-  /* Cannot extend input buffer, finish frame */
+  /* Align input frame by 512 bytes */
+  ulong content_usz = ctx->raw_buf.size;
+  ulong content_asz = fd_ulong_align_up( content_usz, 512UL );
+  if( content_asz > content_usz ) {
+    FD_TEST( content_asz <= RAW_BUF_SZ );
+    fd_memset( ctx->raw + content_usz, 0, content_asz - content_usz );
+    ctx->raw_buf.size = content_asz;
+  }
+
+  /* Finish content compression frame */
   long t0 = fd_tickcount();
   ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_end );
   if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
@@ -164,14 +189,40 @@ flush( fd_snapzp_t * ctx ) {
   ctx->raw_buf.pos  = 0UL;
   ctx->raw_buf.size = 0UL;
 
+  /* Prepend compression frame with a TAR header */
+  uchar * comp_head = (uchar *)ctx->comp_buf.dst - COMP_HEAD;
+  memcpy( comp_head, (uchar[]){0x28,0xB5,0x2F,0xFD,0x60,0x00,0x01,0x01,0x10,0x00}, 10 );
+  fd_tar_meta_t meta = {
+    .magic    = "ustar ",
+    .mode     = "644",
+    .uid      = "0",
+    .gid      = "0",
+    .typeflag = FD_TAR_TYPE_REGULAR,
+    .chksum   = "        "
+  };
+  (void)fd_tar_meta_set_size( &meta, content_usz );
+  /* Generate a unique file name */
+  ulong frame_id = ctx->frame_id++;
+  ulong vec_id   = (frame_id * SNAPZP_TILE_MAX) + ctx->kind_id;
+  char * p = fd_cstr_init( meta.name );
+  p = fd_cstr_append_cstr( p, "accounts/0." );
+  p = fd_cstr_append_ulong_as_text( p, 0, 0, vec_id, fd_ulong_base10_dig_cnt( vec_id ) );
+  fd_cstr_fini( p );
+  /* Checksum */
+  ulong check = 0UL;
+  for( ulong i=0UL; i<FD_TAR_BLOCK_SZ; i++ ) check += meta.raw[ i ];
+  fd_tar_set_octal( meta.chksum, sizeof(meta.chksum), check );
+  memcpy( comp_head+10, &meta, sizeof(fd_tar_meta_t) );
+
   /* Align to block size with a skippable frame */
-  ulong aligned_pos = fd_ulong_align_up( ctx->comp_buf.pos, 4096UL );
-  ulong pad_sz      = aligned_pos - ctx->comp_buf.pos;
+  ulong comp_usz = COMP_HEAD + ctx->comp_buf.pos;
+  ulong comp_asz = fd_ulong_align_up( comp_usz, 4096UL );
+  ulong pad_sz   = comp_asz - comp_usz;
   if( FD_UNLIKELY( pad_sz>0UL && pad_sz<8UL ) ) {
-    aligned_pos += 4096UL;
-    pad_sz      += 4096UL;
+    comp_asz += 4096UL;
+    pad_sz   += 4096UL;
   }
-  FD_TEST( aligned_pos <= COMP_BUF_SZ );
+  FD_TEST( comp_asz <= COMP_BUF_SZ );
   if( FD_LIKELY( pad_sz>0UL ) ) {
     uchar * tail = (uchar *)ctx->comp_buf.dst + ctx->comp_buf.pos;
     FD_STORE( uint, tail,   ZSTD_MAGIC_SKIPPABLE_START );
@@ -179,14 +230,14 @@ flush( fd_snapzp_t * ctx ) {
     fd_memset( tail+8, 0, pad_sz-8 );
   }
 
-  ulong off = __atomic_fetch_add( ctx->file_off, aligned_pos, __ATOMIC_RELAXED );
-  FD_TEST( fd_ulong_is_aligned( off, 4096UL ) );
-  FD_TEST( fd_ulong_is_aligned( aligned_pos, 4096UL ) );
-  if( FD_UNLIKELY( pwrite( ctx->fd, ctx->comp_buf.dst, aligned_pos, (long)off )!=(long)aligned_pos ) ) {
+  ulong off = __atomic_fetch_add( ctx->file_off, comp_asz, __ATOMIC_RELAXED );
+  FD_TEST( fd_ulong_is_aligned( off,      4096UL ) );
+  FD_TEST( fd_ulong_is_aligned( comp_asz, 4096UL ) );
+  if( FD_UNLIKELY( pwrite( ctx->fd, comp_head, comp_asz, (long)off )!=(long)comp_asz ) ) {
     FD_LOG_ERR(( "pwrite failed: %i-%s", errno, fd_io_strerror( errno ) ));
   }
   long t2 = fd_tickcount();
-  ctx->metrics.bytes_written    += aligned_pos;
+  ctx->metrics.bytes_written    += comp_asz;
   ctx->metrics.io_blocked_ticks += (ulong)( t2 - t1 );
 
   ctx->comp_buf.pos = 0UL;
@@ -271,6 +322,9 @@ returnable_frag( fd_snapzp_t *       ctx,
   switch( orig ) {
   case SNAPMK_ORIG_FLUSH:
     flush( ctx );
+    break;
+  case SNAPMK_ORIG_RESET:
+    ctx->frame_id = 0UL;
     break;
   default:
     FD_LOG_CRIT(( "unknown snapzp instruction %lu (seq=%lu)", orig, seq ));
