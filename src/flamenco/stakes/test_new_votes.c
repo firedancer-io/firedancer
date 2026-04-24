@@ -128,10 +128,77 @@ int main( int argc, char * argv[] ) {
   fd_new_votes_reset( nv );
   FD_TEST( fd_new_votes_cnt( nv )==0UL );
 
-  /* ---- Iterator tests ---- */
+  /* Tombstone removes a pubkey that already exists in root. */
+  {
+    ushort f_root = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f_root, &pk_a );
+    fd_new_votes_apply_delta( nv, f_root );
+    FD_TEST( fd_new_votes_cnt( nv )==1UL );
+
+    ushort f_tomb = fd_new_votes_new_fork( nv );
+    fd_new_votes_remove( nv, f_tomb, &pk_a );
+    FD_TEST( fd_new_votes_cnt( nv )==2UL );
+
+    fd_new_votes_apply_delta( nv, f_tomb );
+    FD_TEST( fd_new_votes_cnt( nv )==0UL );
+    fd_new_votes_reset( nv );
+  }
+
+  /* Tombstone for a pubkey not present in root is a drained no-op. */
+  {
+    ushort f = fd_new_votes_new_fork( nv );
+    fd_new_votes_remove( nv, f, &pk_a );
+    FD_TEST( fd_new_votes_cnt( nv )==1UL );
+
+    fd_new_votes_apply_delta( nv, f );
+    FD_TEST( fd_new_votes_cnt( nv )==0UL );
+    fd_new_votes_reset( nv );
+  }
+
+  /* Insert then remove in one fork should leave no visible pubkey. */
+  {
+    ushort f = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f, &pk_a );
+    fd_new_votes_remove( nv, f, &pk_a );
+    FD_TEST( fd_new_votes_cnt( nv )==2UL );
+
+    fd_new_votes_apply_delta( nv, f );
+    FD_TEST( fd_new_votes_cnt( nv )==0UL );
+    fd_new_votes_reset( nv );
+  }
 
   uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)))
     iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
+
+  /* If a root pubkey is tombstoned and then recreated in-order, the
+     recreated entry should remain after the delta drains. */
+  {
+    ushort f_root = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f_root, &pk_a );
+    fd_new_votes_apply_delta( nv, f_root );
+    FD_TEST( fd_new_votes_cnt( nv )==1UL );
+
+    ushort f_recreate = fd_new_votes_new_fork( nv );
+    fd_new_votes_remove( nv, f_recreate, &pk_a );
+    fd_new_votes_insert( nv, f_recreate, &pk_a );
+    FD_TEST( fd_new_votes_cnt( nv )==3UL );
+
+    fd_new_votes_apply_delta( nv, f_recreate );
+    FD_TEST( fd_new_votes_cnt( nv )==1UL );
+
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, iter_mem );
+    FD_TEST( !fd_new_votes_iter_done( it ) );
+    int is_tombstone = 0;
+    fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
+    FD_TEST( !is_tombstone );
+    FD_TEST( fd_pubkey_eq( pk, &pk_a ) );
+    fd_new_votes_iter_next( it );
+    FD_TEST( fd_new_votes_iter_done( it ) );
+    fd_new_votes_iter_fini( it );
+    fd_new_votes_reset( nv );
+  }
+
+  /* ---- Iterator tests ---- */
 
   /* Empty root, no forks: iterator is immediately done. */
   {
@@ -190,6 +257,26 @@ int main( int argc, char * argv[] ) {
     fd_new_votes_reset( nv );
   }
 
+  /* Fork-only tombstones should still be surfaced by iteration. */
+  {
+    ushort f = fd_new_votes_new_fork( nv );
+    fd_new_votes_remove( nv, f, &pk_a );
+
+    ulong cnt = 0UL;
+    int saw_a_tombstone = 0;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, &f, 1UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
+      if( fd_pubkey_eq( pk, &pk_a ) && is_tombstone ) saw_a_tombstone = 1;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==1UL );
+    FD_TEST( saw_a_tombstone );
+    fd_new_votes_evict_fork( nv, f );
+    fd_new_votes_reset( nv );
+  }
+
   /* Root + fork with dedup: root has {a, b}, fork has {b, c}.
      Iterator should yield {a, b} from root then {c} from fork
      (b skipped as duplicate).  Total = 3. */
@@ -217,6 +304,63 @@ int main( int argc, char * argv[] ) {
     FD_TEST( cnt==3UL );
     FD_TEST( saw_a && saw_b && saw_c );
     fd_new_votes_evict_fork( nv, f1x );
+    fd_new_votes_reset( nv );
+  }
+
+  /* A fork tombstone for a pubkey already in root should be skipped by
+     iterator dedup against the root map. */
+  {
+    ushort f_root = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f_root, &pk_a );
+    fd_new_votes_apply_delta( nv, f_root );
+
+    ushort f_tomb = fd_new_votes_new_fork( nv );
+    fd_new_votes_remove( nv, f_tomb, &pk_a );
+
+    ulong cnt = 0UL;
+    int saw_a = 0;
+    int saw_tombstone = 0;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, &f_tomb, 1UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
+      if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
+      if( is_tombstone ) saw_tombstone = 1;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==1UL );
+    FD_TEST( saw_a );
+    FD_TEST( !saw_tombstone );
+    fd_new_votes_evict_fork( nv, f_tomb );
+    fd_new_votes_reset( nv );
+  }
+
+  /* While a root entry is still present, iterator should emit it once
+     and suppress a fork tombstone/reinsert sequence for that pubkey. */
+  {
+    ushort f_root = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f_root, &pk_a );
+    fd_new_votes_apply_delta( nv, f_root );
+
+    ushort f_recreate = fd_new_votes_new_fork( nv );
+    fd_new_votes_remove( nv, f_recreate, &pk_a );
+    fd_new_votes_insert( nv, f_recreate, &pk_a );
+
+    ulong cnt = 0UL;
+    int saw_a = 0;
+    int saw_tombstone = 0;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, &f_recreate, 1UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
+      if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
+      if( is_tombstone ) saw_tombstone = 1;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==1UL );
+    FD_TEST( saw_a );
+    FD_TEST( !saw_tombstone );
+    fd_new_votes_evict_fork( nv, f_recreate );
     fd_new_votes_reset( nv );
   }
 
@@ -273,6 +417,31 @@ int main( int argc, char * argv[] ) {
     fd_new_votes_iter_fini( it );
     FD_TEST( cnt==2UL );
     fd_new_votes_evict_fork( nv, fdup );
+    fd_new_votes_reset( nv );
+  }
+
+  /* Duplicate pubkeys across fork dlists should both be yielded when
+     the pubkey is not present in root. */
+  {
+    ushort fks[2];
+    fks[0] = fd_new_votes_new_fork( nv );
+    fks[1] = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, fks[0], &pk_a );
+    fd_new_votes_insert( nv, fks[1], &pk_a );
+
+    ulong cnt = 0UL;
+    ulong saw_a = 0UL;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, fks, 2UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
+      if( !is_tombstone && fd_pubkey_eq( pk, &pk_a ) ) saw_a++;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==2UL );
+    FD_TEST( saw_a==2UL );
+    fd_new_votes_evict_fork( nv, fks[0] );
+    fd_new_votes_evict_fork( nv, fks[1] );
     fd_new_votes_reset( nv );
   }
 

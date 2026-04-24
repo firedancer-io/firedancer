@@ -624,7 +624,6 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   ulong total_deactivating = 0UL;
   ulong staked_accounts    = 0UL;
 
-
   /* Populate stake_accum_map with all vote accounts from the parent fork
      with zero stake. */
 
@@ -645,6 +644,11 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       fd_stake_accum_map_ele_insert( stake_accum_map, sa, stake_accum_pool );
       staked_accounts++;
     } else if( FD_UNLIKELY( is_tombstone ) ) {
+      /* The staked_accounts are bump allocated and in rare cases we
+         remove entries from the stake_accum_map, we may leak a few
+         entries from the total number of staked accounts.  In practice
+         this is okay because very few entries will leak and the array
+         is greatly overprovisioned compared to present mainnet load. */
       fd_stake_accum_map_ele_remove( stake_accum_map, pubkey, NULL, stake_accum_pool );
     }
   }

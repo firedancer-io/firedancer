@@ -1252,7 +1252,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
       }
       if( txn_out->accounts.rm_vote[i] &&
-          FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+          !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
         fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
         fd_new_votes_remove( new_votes, bank->new_votes_fork_id, pubkey );
       }
