@@ -1772,9 +1772,13 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) return;
+  if( FD_UNLIKELY( !ctx->is_booted || !ctx->wfs_complete ) ) {
+    ctx->frontier_evict_warned = 0;
+    return;
+  }
 
   if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
+    ctx->frontier_evict_warned = 0;
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1790,6 +1794,7 @@ after_credit( fd_replay_tile_t *  ctx,
                    ctx->block_id_arr[ ctx->leader_bank->idx ].slot==ctx->leader_bank->f.slot ) ) {
 
     fini_leader_bank( ctx, stem );
+    ctx->frontier_evict_warned = 0;
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1806,6 +1811,7 @@ after_credit( fd_replay_tile_t *  ctx,
   /* If the published_root is not caught up to the consensus root, then
      we should try to advance the published root. */
   if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx && advance_published_root( ctx ) ) ) {
+    ctx->frontier_evict_warned = 0;
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1818,6 +1824,7 @@ after_credit( fd_replay_tile_t *  ctx,
     fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_idx } };
     fd_accdb_cancel    ( ctx->accdb_admin, &xid );
     fd_progcache_cancel( ctx->progcache,   &xid );
+    ctx->frontier_evict_warned = 0;
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1875,6 +1882,7 @@ after_credit( fd_replay_tile_t *  ctx,
      with potentially suboptimal scheduling than to leave them idle
      while a burst of FEC sets gets ingested. */
   if( FD_LIKELY( replay( ctx, stem ) ) ) {
+    ctx->frontier_evict_warned = 0;
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1901,6 +1909,7 @@ after_credit( fd_replay_tile_t *  ctx,
   if( FD_LIKELY( (ctx->execrp_idle_cnt>=2UL*ctx->in_cnt||ctx->is_leader||fd_reasm_free( ctx->reasm )<=1UL) && can_process_fec( ctx, &evict_banks ) ) ) {
     fd_reasm_fec_t * fec = fd_reasm_pop( ctx->reasm );
     process_fec_set( ctx, stem, fec );
+    ctx->frontier_evict_warned = 0;
     *charge_busy = 1;
     *opt_poll_in = 0;
     ctx->execrp_idle_cnt = 0UL;
@@ -1908,13 +1917,17 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( evict_banks ) ) {
-    FD_LOG_WARNING(( "banks are full and partially executed frontier banks are being evicted" ));
+    if( FD_UNLIKELY( !ctx->frontier_evict_warned ) ) {
+      FD_LOG_WARNING(( "banks are full and partially executed frontier banks are being evicted" ));
+      ctx->frontier_evict_warned = 1;
+    }
     fd_banks_get_frontier( ctx->banks, ctx->frontier_indices, &ctx->frontier_cnt );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
   }
 
+  ctx->frontier_evict_warned = 0;
   ctx->execrp_idle_cnt++;
 }
 
@@ -2480,6 +2493,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->runtime_stack );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
+  ctx->frontier_evict_warned = 0;
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );

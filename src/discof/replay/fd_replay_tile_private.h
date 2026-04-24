@@ -107,6 +107,7 @@ struct fd_replay_tile {
   fd_sched_t * sched;
   ulong        in_cnt;
   ulong        execrp_idle_cnt;
+  int          frontier_evict_warned;
 
   ulong                vote_tracker_seed;
   fd_vote_tracker_t *  vote_tracker;
