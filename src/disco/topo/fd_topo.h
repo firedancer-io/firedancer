@@ -689,6 +689,10 @@ struct fd_topo_tile {
     struct {
       ulong zp_fseq_id;
     } snapzp;
+
+    struct {
+      ulong zp_fseq_id;
+    } snapmk;
   };
 };
 

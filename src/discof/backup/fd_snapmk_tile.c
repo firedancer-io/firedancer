@@ -7,6 +7,7 @@
 #include "../../util/pod/fd_pod.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 /* Funk rooted record iterator (thread-safe) */
 
@@ -22,7 +23,9 @@ struct fd_snapmk {
   ulong out_ready;         /* bit set */
   ulong out_flush_pending; /* bit set */
 
-  ulong in_idle_cnt;
+  int              out_fd;
+  ulong volatile * zp_file_off;
+  ulong            in_idle_cnt;
 
   ulong chain;
   ulong chain1;
@@ -41,10 +44,11 @@ privileged_init( fd_topo_t *      topo,
   memset( ctx, 0, sizeof(fd_snapmk_t) );
 
   char const * out_path = "/data/r/firedancer/snapout.zst";
-  int fd = open( out_path, O_CREAT|O_WRONLY|O_TRUNC, 0644 );
+  int fd = open( out_path, O_CREAT|O_WRONLY, 0644 );
   if( FD_UNLIKELY( fd<0 ) ) {
     FD_LOG_ERR(( "open(%s) failed: %s", out_path, fd_io_strerror( errno ) ));
   }
+  ctx->out_fd = fd;
 }
 
 static void
@@ -56,6 +60,9 @@ unprivileged_init( fd_topo_t *      topo,
   ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, locks_obj_id ) ) );
+
+  ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.zp_fseq_id ) ); FD_TEST( zp_fseq );
+  ctx->zp_file_off = fd_fseq_app_laddr( zp_fseq );
 
   for( ulong i=0UL; i < tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -102,12 +109,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo; (void)tile;
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = ctx->out_fd;
   return out_cnt;
 }
 
@@ -248,6 +256,10 @@ snap_begin( fd_snapmk_t * ctx ) {
     FD_LOG_ERR(( "invariant violation: snapshot creation requested state is %u", ctx->state ));
     return;
   }
+  if( FD_UNLIKELY( ftruncate( ctx->out_fd, 0 ) ) ) {
+    FD_LOG_ERR(( "ftruncate failed: %s", fd_io_strerror( errno ) ));
+  }
+  *ctx->zp_file_off = 0UL;
   ctx->state = SNAPMK_STATE_ACCOUNTS;
   ctx->chain = 0UL;
   ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );

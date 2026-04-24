@@ -1246,6 +1246,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   if(snapmk_enabled)  {fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );}
+  if(snapmk_enabled)  {fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], zp_fseq,  FD_SHMEM_JOIN_MODE_READ_WRITE );}
   FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FOR(snapzp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapzp", i   ) ], zp_fseq,  FD_SHMEM_JOIN_MODE_READ_WRITE );
 
@@ -1941,6 +1942,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->solcap.recent_slots_per_file = config->capture.recent_slots_per_file;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) {
+
+    tile->snapmk.zp_fseq_id = fd_pod_query_ulong( config->topo.props, "snapzp.fseq", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapzp" ) ) ) {
 
