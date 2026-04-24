@@ -1,6 +1,6 @@
 #include "../fd_vinyl.h"
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_SZC_CNT==327UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_SZC_CNT==83UL, unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_TYPE_FREEVOL   ==0xf7eef7eef7eef7eeUL, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_TYPE_ALLOC     ==0xa11ca11ca11ca11cUL, unit_test );
@@ -11,10 +11,10 @@ FD_STATIC_ASSERT( FD_VINYL_DATA_OBJ_GUARD_SZ==0UL, unit_test );
 FD_STATIC_ASSERT( alignof(fd_vinyl_data_obj_t)==FD_VINYL_BSTREAM_BLOCK_SZ, unit_test );
 FD_STATIC_ASSERT( sizeof (fd_vinyl_data_obj_t)==FD_VINYL_BSTREAM_BLOCK_SZ, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_VOL_FOOTPRINT==34078592UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_VOL_FOOTPRINT==41944192UL, unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_DATA_ALIGN    == 128UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_DATA_FOOTPRINT==5376UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_ALIGN    ==alignof(fd_vinyl_data_t), unit_test );
+FD_STATIC_ASSERT( FD_VINYL_DATA_FOOTPRINT==sizeof (fd_vinyl_data_t), unit_test );
 
 FD_STATIC_ASSERT( alignof(fd_vinyl_data_vol_t)==FD_VINYL_BSTREAM_BLOCK_SZ,   unit_test );
 FD_STATIC_ASSERT( sizeof (fd_vinyl_data_vol_t)==FD_VINYL_DATA_VOL_FOOTPRINT, unit_test );
