@@ -1297,9 +1297,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
       break;
     }
-    if( FD_UNLIKELY( accs[ i ] && !writable[ i ] && !accs[ i ]->lamports ) ) accs[ i ] = NULL;
-    else if( FD_UNLIKELY( acc==UINT_MAX ) )                                  accs[ i ] = NULL;
+    if( FD_UNLIKELY( acc==UINT_MAX ) )                                       accs[ i ] = NULL;
     else                                                                     accs[ i ] = &accdb->acc_pool[ acc ];
+    if( FD_UNLIKELY( accs[ i ] && !writable[ i ] && !accs[ i ]->lamports ) ) accs[ i ] = NULL;
   }
 
   // STEP 2.
