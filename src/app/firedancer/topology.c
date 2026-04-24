@@ -837,6 +837,8 @@ fd_topo_initialize( config_t * config ) {
       /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_pack",      0UL                                                );
     }
 
+    if( leader_enabled ) fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "replay_out",     0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+
     if( config->tiles.gui.enabled ) { /* GUI is the only consumer of bundle_status */
       fd_topob_wksp( topo, "bundle_status" );
       /* bundle_status must be kind of deep, to prevent exhausting

@@ -21,14 +21,22 @@
 #include <netinet/in.h> /* AF_INET */
 #include <netinet/tcp.h> /* TCP_FASTOPEN_CONNECT (seccomp) */
 #include "../../waltz/resolv/fd_netdb.h"
+#include "../../discof/replay/fd_replay_tile.h"
 
 #include "generated/fd_bundle_tile_seccomp.h"
 
 /* Provided by fdctl/firedancer version.c */
 extern char const fdctl_version_string[];
 
+#define IN_KIND_REPLAY_OUT (1)
+
 #define STEM_BURST (5UL)
 FD_STATIC_ASSERT( FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE<=STEM_BURST, stem_burst );
+
+/* hysteresis thresholds to avoid bouncing (e.g. during forks) */
+#define FD_BUNDLE_SLEEP_THRESHOLD_SLOTS   (450UL)
+#define FD_BUNDLE_WAKE_THRESHOLD_SLOTS    (400UL)
+#define FD_BUNDLE_SLEEP_CHECK_INTERVAL_NS ((long)5e9)
 
 FD_FN_CONST static ulong
 scratch_align( void ) {
@@ -51,6 +59,44 @@ loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   /* Leftover space for OpenSSL allocations */
   return 1UL<<26; /* 64 MiB */
+}
+
+static void
+fd_bundle_tile_maybe_sleep( fd_bundle_tile_t * ctx, long now_ns ) {
+  if( FD_UNLIKELY( !ctx->replay_in.mem ) ) return;
+  if( FD_LIKELY( now_ns < ctx->sleep_check_ns ) ) return;
+  ctx->sleep_check_ns = now_ns + FD_BUNDLE_SLEEP_CHECK_INTERVAL_NS;
+
+  ulong next_leader_slot = ctx->next_leader_slot;
+  ulong reset_slot       = ctx->reset_slot;
+
+  /* Either don't know the leader schedule yet or have no upcoming
+     leader slots.  Sleep. */
+  if( FD_UNLIKELY( next_leader_slot==ULONG_MAX || reset_slot==ULONG_MAX ) ) {
+    if( !ctx->sleep_mode ) {
+      ctx->sleep_mode = 1;
+      FD_LOG_INFO(( "Bundle tile entering sleep mode: no upcoming leader slots" ));
+    }
+    return;
+  }
+
+  ulong slots_until_leader = fd_ulong_sat_sub( next_leader_slot, reset_slot );
+
+  if( ctx->sleep_mode ) {
+    if( slots_until_leader <= FD_BUNDLE_WAKE_THRESHOLD_SLOTS ) {
+      ctx->sleep_mode = 0;
+      ctx->last_bundle_status_log_nanos = now_ns;
+      FD_LOG_INFO(( "Bundle tile waking up: next leader slot %lu (~%lu slots away)", next_leader_slot, slots_until_leader ));
+    }
+  } else {
+    /* reset_slot stays at/near next_leader_slot throughout a leader
+       rotation and only jumps to the next rotation after leadership
+       ends, so this cannot trigger mid-rotation. */
+    if( slots_until_leader > FD_BUNDLE_SLEEP_THRESHOLD_SLOTS ) {
+      ctx->sleep_mode = 1;
+      FD_LOG_INFO(( "Bundle tile entering sleep mode: next leader slot %lu (~%lu slots away)", next_leader_slot, slots_until_leader ));
+    }
+  }
 }
 
 static inline void
@@ -85,9 +131,12 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MGAUGE_SET( BUNDLE, HEAP_SIZE,       usage->total_sz );
   FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
 
-  int bundle_status = fd_bundle_client_status( ctx );
-  FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
-  ctx->bundle_status_recent = (uchar)bundle_status;
+  int status = fd_bundle_client_status( ctx );
+  ulong state = (ulong)status;
+  if( FD_UNLIKELY( ctx->sleep_mode ) ) state = FD_BUNDLE_STATE_SLEEPING;
+
+  FD_MGAUGE_SET( BUNDLE, STATE, state );
+  ctx->bundle_status_recent = (uchar)state;
 }
 
 void
@@ -96,7 +145,8 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   int  status          = fd_bundle_client_status( ctx );
   long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
   long now_ns          = fd_log_wallclock();
-  if( FD_UNLIKELY( status!=FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
+
+  if( FD_UNLIKELY( !ctx->sleep_mode && status!=FD_BUNDLE_STATE_CONNECTED && now_ns>log_next_ns ) ) {
     FD_LOG_WARNING(( "No bundle server connection in the last %ld seconds", log_interval_ns/(long)1e9 ) );
     ctx->last_bundle_status_log_nanos = now_ns;
   }
@@ -105,7 +155,10 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
     fd_memcpy( ctx->auther.pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->defer_reset = 1;
+    ctx->sleep_check_ns = 0;
   }
+
+  fd_bundle_tile_maybe_sleep( ctx, now_ns );
 }
 
 static void
@@ -131,8 +184,6 @@ fd_bundle_tile_publish_block_engine_update(
             FD_IP4_ADDR_FMT,
             FD_IP4_ADDR_FMT_ARGS( ctx->server_ip4_addr ) );
 
-  update->status = (uchar)ctx->bundle_status_recent;
-
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
   fd_stem_publish(
       stem,
@@ -148,11 +199,58 @@ fd_bundle_tile_publish_block_engine_update(
 }
 
 static void
+during_frag( fd_bundle_tile_t * ctx,
+             ulong              in_idx,
+             ulong              seq    FD_PARAM_UNUSED,
+             ulong              sig,
+             ulong              chunk,
+             ulong              sz     FD_PARAM_UNUSED,
+             ulong              ctl    FD_PARAM_UNUSED ) {
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
+    if( FD_LIKELY( sig!=REPLAY_SIG_RESET ) ) return;
+    if( FD_UNLIKELY( chunk<ctx->replay_in.chunk0 || chunk>ctx->replay_in.wmark || sz!=sizeof(fd_poh_reset_t) ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in.chunk0, ctx->replay_in.wmark ));
+
+    fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->replay_in.mem, chunk );
+    ctx->next_leader_slot_staged = reset->next_leader_slot;
+    ctx->reset_slot_staged       = reset->completed_slot;
+  }
+}
+
+static void
+after_frag( fd_bundle_tile_t *  ctx,
+            ulong               in_idx,
+            ulong               seq    FD_PARAM_UNUSED,
+            ulong               sig,
+            ulong               sz     FD_PARAM_UNUSED,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
+    if( FD_LIKELY( sig!=REPLAY_SIG_RESET ) ) return;
+    ctx->next_leader_slot = ctx->next_leader_slot_staged;
+    ctx->reset_slot       = ctx->reset_slot_staged;
+  }
+}
+
+static void
 before_credit( fd_bundle_tile_t *  ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   if( FD_UNLIKELY( !ctx->stem ) ) {
     ctx->stem = stem;
+  }
+
+  if( FD_UNLIKELY( ctx->sleep_mode ) ) {
+    if( ctx->tcp_sock>=0 ) {
+      fd_bundle_client_reset( ctx );
+      /* Override backoff so we don't treat this as an error */
+      ctx->backoff_until = 0;
+      ctx->backoff_iter  = 0;
+    }
+    return;
   }
 
   if( pending_txn_empty( ctx->pending_txns ) ) {
@@ -439,8 +537,28 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->keepalive_interval = (long)tile->bundle.keepalive_interval_nanos;
 
   ctx->bundle_status_plugin = 127;
-  ctx->bundle_status_recent = FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
+  ctx->bundle_status_recent = (uchar)FD_BUNDLE_STATE_DISCONNECTED;
   ctx->last_bundle_status_log_nanos = fd_log_wallclock();
+
+  FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
+  int has_replay_in = 0;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( !strcmp( link->name, "replay_out" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;
+      fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+      ctx->replay_in.mem    = link_wksp->wksp;
+      ctx->replay_in.chunk0 = fd_dcache_compact_chunk0( ctx->replay_in.mem, link->dcache );
+      ctx->replay_in.wmark  = fd_dcache_compact_wmark ( ctx->replay_in.mem, link->dcache, link->mtu );
+      has_replay_in = 1;
+    }
+  }
+
+  ctx->next_leader_slot = ULONG_MAX;
+  ctx->reset_slot       = ULONG_MAX;
+  ctx->sleep_mode       = has_replay_in; /* start asleep until we learn leader schedule */
+  ctx->sleep_check_ns   = 0;
+  if( !has_replay_in ) memset( &ctx->replay_in, 0, sizeof(ctx->replay_in) );
 
   fd_bundle_tile_parse_endpoint( ctx, tile );
 
@@ -501,6 +619,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING fd_bundle_tile_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 
