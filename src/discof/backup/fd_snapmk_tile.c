@@ -43,11 +43,6 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( fd<0 ) ) {
     FD_LOG_ERR(( "open(%s) failed: %s", out_path, fd_io_strerror( errno ) ));
   }
-
-  long dt = -fd_log_wallclock();
-  fallocate( fd, 0, 0, 1UL<<32 );
-  dt += fd_log_wallclock();
-  FD_LOG_NOTICE(( "fallocate took %g sec", (double)dt/1e9 ));
 }
 
 static void
