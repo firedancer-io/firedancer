@@ -30,7 +30,10 @@ fd_accdb_svm_open_rw( fd_bank_t *             bank,
                       fd_pubkey_t const *     pubkey,
                       int                     create ) {
   fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
-  if( FD_UNLIKELY( !entry.lamports && !create ) ) return entry;
+  if( FD_UNLIKELY( !entry.lamports && !create ) ) {
+    fd_accdb_unwrite_one( accdb, &entry );
+    return entry;
+  }
 
   update->lamports_before = entry.lamports;
 
@@ -133,7 +136,10 @@ fd_accdb_svm_remove( fd_bank_t *         bank,
                      fd_capture_ctx_t *  capture_ctx,
                      fd_pubkey_t const * pubkey ) {
   fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) return 0UL;
+  if( FD_UNLIKELY( !entry.lamports ) ) {
+    fd_accdb_unwrite_one( accdb, &entry );
+    return 0UL;
+  }
 
   ulong burned = entry.lamports;
 

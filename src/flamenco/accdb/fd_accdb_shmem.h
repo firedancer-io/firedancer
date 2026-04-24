@@ -10,16 +10,10 @@
 typedef struct fd_accdb_shmem_private fd_accdb_shmem_t;
 
 struct fd_accdb_shmem_metrics {
-   /* Local to tile?*/
-   ulong bytes_read;
-   ulong bytes_written;
-   ulong accounts_read;
-   ulong accounts_written;
-
-   /* Global */
    ulong accounts_total;
    ulong accounts_capacity;
    ulong disk_allocated_bytes;
+   ulong disk_current_bytes;
    ulong disk_used_bytes;
    int   in_compaction;
    ulong compactions_requested;
@@ -30,6 +24,27 @@ struct fd_accdb_shmem_metrics {
 };
 
 typedef struct fd_accdb_shmem_metrics fd_accdb_shmem_metrics_t;
+
+struct fd_accdb_metrics {
+  ulong acquire_calls;
+  ulong accounts_acquired;
+  ulong writable_accounts_acquired;
+  ulong accounts_evicted;
+  ulong accounts_missed;
+  ulong accounts_waited;
+  ulong accounts_deleted;
+
+  ulong acquire_failed;
+
+  ulong bytes_read;
+  ulong read_ops;
+  ulong bytes_written;
+  ulong write_ops;
+
+  ulong bytes_copied;
+};
+
+typedef struct fd_accdb_metrics fd_accdb_metrics_t;
 
 FD_PROTOTYPES_BEGIN
 

@@ -528,6 +528,17 @@
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but failed to execute) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not (Transaction did not land) |
 | <span class="metrics-name">execle_&#8203;compute_&#8203;units_&#8203;total</span> | counter | Estimated number of compute units executed since tile start |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
 
 </div>
 
@@ -910,6 +921,17 @@
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;used_&#8203;part_&#8203;median_&#8203;bytes</span> | gauge | Median used heap partition size in program cache |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;used_&#8203;part_&#8203;mean_&#8203;bytes</span> | gauge | Mean used heap partition size in program cache |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;time_&#8203;seconds</span> | counter | Total time in seconds spent doing program cache tasks |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
 | <span class="metrics-name">replay_&#8203;runtime_&#8203;status</span> | gauge | Solana runtime status (0=initializing 1=loaded) |
 
 </div>
@@ -970,6 +992,17 @@
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Number of bytes evicted from program cache |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;total_&#8203;seconds</span> | counter | Total time in seconds spent on program cache operations |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;load_&#8203;seconds</span> | counter | Total time in seconds spent loading programs |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
 
 </div>
 
@@ -981,17 +1014,26 @@
 |--------|------|-------------|
 | <span class="metrics-name">accdb_&#8203;accounts_&#8203;total</span> | gauge | Total number of accounts currently in the account database |
 | <span class="metrics-name">accdb_&#8203;accounts_&#8203;capacity</span> | gauge | Total capacity of accounts that can be stored in the account database |
-| <span class="metrics-name">accdb_&#8203;bytes_&#8203;read</span> | counter | Total number of bytes read from the account database |
-| <span class="metrics-name">accdb_&#8203;bytes_&#8203;written</span> | counter | Total number of bytes written to the account database |
-| <span class="metrics-name">accdb_&#8203;accounts_&#8203;read</span> | counter | Total number of accounts read from the account database |
-| <span class="metrics-name">accdb_&#8203;accounts_&#8203;written</span> | counter | Total number of accounts written to the account database |
 | <span class="metrics-name">accdb_&#8203;accounts_&#8203;relocated</span> | counter | Total number of accounts moved in the account database during compaction |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;allocated_&#8203;bytes</span> | gauge | Total allocated size of the account database on disk |
+| <span class="metrics-name">accdb_&#8203;disk_&#8203;current_&#8203;bytes</span> | gauge | Total written-through size of the account database on disk, excluding never-written partition tail space |
 | <span class="metrics-name">accdb_&#8203;disk_&#8203;used_&#8203;bytes</span> | gauge | Total size of the account database on disk that is currently used |
 | <span class="metrics-name">accdb_&#8203;in_&#8203;compaction</span> | gauge | 1 if a compaction is currently in progress, 0 if not |
 | <span class="metrics-name">accdb_&#8203;compactions_&#8203;requested</span> | counter | Total number of compactions requested on the account database |
 | <span class="metrics-name">accdb_&#8203;compactions_&#8203;completed</span> | counter | Total number of compactions fully completed on the account database, less than or equal to the requested amount |
 | <span class="metrics-name">accdb_&#8203;accounts_&#8203;relocated_&#8203;bytes</span> | counter | Total number of bytes moved in the account database during compaction |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;deleted</span> | counter | Number of accounts deleted from the account database |
 
 </div>
 
@@ -1055,6 +1097,17 @@
 | <span class="metrics-name">tower_&#8203;votes_&#8203;already_&#8203;voted</span> | counter | Voter already voted for this slot |
 | <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;slot</span> | counter | Vote txn was for a slot we haven't replayed |
 | <span class="metrics-name">tower_&#8203;votes_&#8203;unknown_&#8203;block_&#8203;id</span> | counter | Vote txn was for a block id we don't recognize |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts acquired from the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;acquired_&#8203;writable</span> | counter | Number of accounts acquired from the account database which were writable |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;evicted</span> | counter | Number of accounts evicted from the account database cache to make space |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;write_&#8203;ops</span> | counter | Number of write operations performed on the account database |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied within the account database |
 
 </div>
 

@@ -152,6 +152,8 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, VM_REGIME_INTERPRETER, exec_ticks                            );
 
   FD_MCNT_SET( EXECRP, COMPUTE_UNITS_TOTAL, runtime->metrics.cu_cum );
+
+  FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
 
 static void

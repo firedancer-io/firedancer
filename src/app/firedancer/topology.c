@@ -1313,7 +1313,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "execrp" ) ) ) {
 
     tile->execrp.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX ); FD_TEST( tile->execrp.txncache_obj_id !=ULONG_MAX );
-    tile->execrp.accdb_obj_id    = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX ); FD_TEST( tile->execrp.accdb_obj_id !=ULONG_MAX );
+    tile->execrp.accdb_obj_id    = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );    FD_TEST( tile->execrp.accdb_obj_id   !=ULONG_MAX );
 
     tile->execrp.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
@@ -1399,6 +1399,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "execle" ) ) ) {
 
     tile->execle.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
+    tile->execle.accdb_obj_id    = fd_pod_query_ulong( config->topo.props, "accdb",    ULONG_MAX ); FD_TEST( tile->execle.accdb_obj_id!=ULONG_MAX );
     tile->execle.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {

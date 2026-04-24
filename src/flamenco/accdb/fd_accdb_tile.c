@@ -7,7 +7,6 @@
 #include "fd_accdb.h"
 
 #include <fcntl.h>
-#include <errno.h>
 
 struct fd_accdb_tile_ctx {
   fd_accdb_t * accdb;
@@ -32,21 +31,22 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_accdb_tile_ctx_t * ctx ) {
-  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_metrics( ctx->accdb );
+  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( ctx->accdb );
 
   FD_MGAUGE_SET( ACCDB, ACCOUNTS_TOTAL,         metrics->accounts_total );
   FD_MGAUGE_SET( ACCDB, ACCOUNTS_CAPACITY,      metrics->accounts_capacity );
-  FD_MCNT_SET( ACCDB, BYTES_READ,               metrics->bytes_read );
-  FD_MCNT_SET( ACCDB, BYTES_WRITTEN,            metrics->bytes_written );
-  FD_MCNT_SET( ACCDB, ACCOUNTS_READ,            metrics->accounts_read );
-  FD_MCNT_SET( ACCDB, ACCOUNTS_WRITTEN,         metrics->accounts_written );
   FD_MCNT_SET( ACCDB, ACCOUNTS_RELOCATED,       metrics->accounts_relocated );
   FD_MGAUGE_SET( ACCDB, DISK_ALLOCATED_BYTES,   metrics->disk_allocated_bytes );
+  FD_MGAUGE_SET( ACCDB, DISK_CURRENT_BYTES,     metrics->disk_current_bytes );
   FD_MGAUGE_SET( ACCDB, DISK_USED_BYTES,        metrics->disk_used_bytes );
   FD_MGAUGE_SET( ACCDB, IN_COMPACTION,          (ulong)metrics->in_compaction );
   FD_MCNT_SET( ACCDB, COMPACTIONS_REQUESTED,    metrics->compactions_requested );
   FD_MCNT_SET( ACCDB, COMPACTIONS_COMPLETED,    metrics->compactions_completed );
   FD_MCNT_SET( ACCDB, ACCOUNTS_RELOCATED_BYTES, metrics->accounts_relocated_bytes );
+
+  fd_accdb_metrics_t const * rt = fd_accdb_metrics( ctx->accdb );
+  FD_ACCDB_METRICS_WRITE( ACCDB, rt );
+  FD_MCNT_SET( ACCDB, ACCDB_ACCOUNTS_DELETED, rt->accounts_deleted );
 }
 
 static inline void

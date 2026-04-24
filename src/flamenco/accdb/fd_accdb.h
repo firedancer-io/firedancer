@@ -364,12 +364,40 @@ void
 fd_accdb_background( fd_accdb_t * accdb,
                      int *        charge_busy );
 
-/* fd_accdb_metrics returns a pointer to the shared metrics counters
+/* fd_accdb_shmetrics returns a pointer to the shared metrics counters
    for the given accdb instance.  The returned pointer remains valid
    for the lifetime of the underlying shmem. */
 
 fd_accdb_shmem_metrics_t const *
+fd_accdb_shmetrics( fd_accdb_t * accdb );
+
+/* fd_accdb_metrics returns a pointer to the per-thread metrics counters
+   for the given accdb instance.  The returned pointer remains valid
+   for the lifetime of the underlying shmem. */
+
+fd_accdb_metrics_t const *
 fd_accdb_metrics( fd_accdb_t * accdb );
+
+/* FD_ACCDB_METRICS_WRITE publishes the per-joiner accdb runtime metrics
+   for tile prefix TILE.  TILE must be a tile that declares the
+   AccdbAccountsAcquired/... counters in metrics.xml (e.g. EXECLE,
+   EXECRP, REPLAY, TOWER, ACCDB).  m must be a fd_accdb_metrics_t const *
+   for the joiner whose counters should be published. */
+
+#define FD_ACCDB_METRICS_WRITE( TILE, m ) do {                                              \
+    fd_accdb_metrics_t const * _m = (m);                                                    \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED,          _m->accounts_acquired          ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED_WRITABLE, _m->writable_accounts_acquired ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_EVICTED,           _m->accounts_evicted           ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_MISSED,            _m->accounts_missed            ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,            _m->accounts_waited            ); \
+    FD_MCNT_SET( TILE, ACCDB_AQUIRE_FAILED,              _m->acquire_failed             ); \
+    FD_MCNT_SET( TILE, ACCDB_BYTES_READ,                 _m->bytes_read                 ); \
+    FD_MCNT_SET( TILE, ACCDB_READ_OPS,                   _m->read_ops                   ); \
+    FD_MCNT_SET( TILE, ACCDB_BYTES_WRITTEN,              _m->bytes_written              ); \
+    FD_MCNT_SET( TILE, ACCDB_WRITE_OPS,                  _m->write_ops                  ); \
+    FD_MCNT_SET( TILE, ACCDB_BYTES_COPIED,               _m->bytes_copied               ); \
+  } while(0)
 
 FD_PROTOTYPES_END
 

@@ -373,8 +373,8 @@ fd_accdb_shmem_new( void * shmem,
     else                                                               accdb->cache_class_used[ c ].val = 0UL;
   }
 
-  memset( accdb->metrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );
-  accdb->metrics->accounts_capacity = max_accounts;
+  memset( accdb->shmetrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );
+  accdb->shmetrics->accounts_capacity = max_accounts;
 
   accdb->cmd_op      = FD_ACCDB_CMD_IDLE;
   accdb->cmd_fork_id = USHORT_MAX;
@@ -415,8 +415,8 @@ fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
     FD_LOG_NOTICE(( "compaction of layer %u partition %lu started", (uint)layer, partition_pool_idx( partition_pool, partition ) ));
   }
   compaction_dlist_ele_push_tail( compaction_dlist, partition, partition_pool );
-  accdb->metrics->in_compaction = 1;
-  accdb->metrics->compactions_requested++;
+  accdb->shmetrics->in_compaction = 1;
+  accdb->shmetrics->compactions_requested++;
 }
 
 void

@@ -199,6 +199,15 @@ static ulong event_bytes_written_samples_idx = 0UL;
 static ulong event_bytes_written_samples[ 100UL ];
 static ulong event_bytes_read_samples_idx = 0UL;
 static ulong event_bytes_read_samples[ 100UL ];
+static ulong accdb_samples_idx = 0UL;
+static ulong accdb_acquired_samples[ 200UL ];
+static ulong accdb_writable_samples[ 200UL ];
+static ulong accdb_missed_samples  [ 200UL ];
+static ulong accdb_evicted_samples [ 200UL ];
+static ulong accdb_waited_samples  [ 200UL ];
+static ulong accdb_bytes_rd_samples[ 200UL ];
+static ulong accdb_bytes_wr_samples[ 200UL ];
+static ulong accdb_bytes_cp_samples[ 200UL ];
 // static ulong rps_samples_idx = 0UL;
 // static ulong rps_samples[ 100UL ];
 
@@ -403,44 +412,163 @@ write_snapshots( config_t const * config,
     100.0-snapwr_idle_pct-snapwr_backp_pct );
 }
 
+static long
+diff_tile_idx( ulong const * prev_tile,
+               ulong const * cur_tile,
+               ulong         tile_idx,
+               ulong         metric_off ) {
+  return (long)cur_tile [ tile_idx*FD_METRICS_TOTAL_SZ+metric_off ] -
+         (long)prev_tile[ tile_idx*FD_METRICS_TOTAL_SZ+metric_off ];
+}
+
+static void
+accdb_per_tile_offsets( char const * name,
+                        ulong *      offs /* 8 entries: acquired, writable, missed, evicted, waited, rd, wr, cp */ ) {
+  if(      !strcmp( name, "execle" ) ) {
+    offs[0]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
+    offs[2]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_EVICTED          );
+    offs[4]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_WAITED           ); offs[5]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_READ                );
+    offs[6]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_WRITTEN             ); offs[7]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_COPIED              );
+  } else if( !strcmp( name, "execrp" ) ) {
+    offs[0]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
+    offs[2]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_EVICTED          );
+    offs[4]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_WAITED           ); offs[5]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_READ                );
+    offs[6]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_WRITTEN             ); offs[7]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_COPIED              );
+  } else if( !strcmp( name, "replay" ) ) {
+    offs[0]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
+    offs[2]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_EVICTED          );
+    offs[4]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_WAITED           ); offs[5]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_READ                );
+    offs[6]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_WRITTEN             ); offs[7]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_COPIED              );
+  } else if( !strcmp( name, "tower" ) ) {
+    offs[0]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED          ); offs[1]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE );
+    offs[2]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_MISSED            ); offs[3]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_EVICTED           );
+    offs[4]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_WAITED            ); offs[5]=MIDX(COUNTER,TOWER,ACCDB_BYTES_READ                 );
+    offs[6]=MIDX(COUNTER,TOWER,ACCDB_BYTES_WRITTEN              ); offs[7]=MIDX(COUNTER,TOWER,ACCDB_BYTES_COPIED               );
+  } else if( !strcmp( name, "accdb" ) ) {
+    offs[0]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_ACQUIRED          ); offs[1]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE );
+    offs[2]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_MISSED            ); offs[3]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_EVICTED           );
+    offs[4]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_WAITED            ); offs[5]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_READ                 );
+    offs[6]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_WRITTEN              ); offs[7]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_COPIED               );
+  } else {
+    for( ulong i=0UL; i<8UL; i++ ) offs[i] = ULONG_MAX;
+  }
+}
+
+static void
+sample_accdb( config_t const * config,
+              ulong const *    prev_tile,
+              ulong const *    cur_tile ) {
+  long acquired = 0L, writable = 0L, missed = 0L, evicted = 0L, waited = 0L;
+  long bytes_rd = 0L, bytes_wr = 0L, bytes_cp = 0L;
+
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    ulong offs[8];
+    accdb_per_tile_offsets( config->topo.tiles[ i ].name, offs );
+    if( offs[0]==ULONG_MAX ) continue;
+    acquired += diff_tile_idx( prev_tile, cur_tile, i, offs[0] );
+    writable += diff_tile_idx( prev_tile, cur_tile, i, offs[1] );
+    missed   += diff_tile_idx( prev_tile, cur_tile, i, offs[2] );
+    evicted  += diff_tile_idx( prev_tile, cur_tile, i, offs[3] );
+    waited   += diff_tile_idx( prev_tile, cur_tile, i, offs[4] );
+    bytes_rd += diff_tile_idx( prev_tile, cur_tile, i, offs[5] );
+    bytes_wr += diff_tile_idx( prev_tile, cur_tile, i, offs[6] );
+    bytes_cp += diff_tile_idx( prev_tile, cur_tile, i, offs[7] );
+  }
+
+  ulong slot = accdb_samples_idx % (sizeof(accdb_acquired_samples)/sizeof(accdb_acquired_samples[0]));
+  accdb_acquired_samples[ slot ] = (ulong)acquired;
+  accdb_writable_samples[ slot ] = (ulong)writable;
+  accdb_missed_samples  [ slot ] = (ulong)missed;
+  accdb_evicted_samples [ slot ] = (ulong)evicted;
+  accdb_waited_samples  [ slot ] = (ulong)waited;
+  accdb_bytes_rd_samples[ slot ] = (ulong)bytes_rd;
+  accdb_bytes_wr_samples[ slot ] = (ulong)bytes_wr;
+  accdb_bytes_cp_samples[ slot ] = (ulong)bytes_cp;
+  accdb_samples_idx++;
+}
+
 static uint
 write_accdb( config_t const * config,
              ulong const *    cur_tile ) {
-  (void)config; (void)cur_tile;
-  return 0; // TODO!!
+  ulong accdb_tile_idx = fd_topo_find_tile( &config->topo, "accdb", 0UL );
+  if( accdb_tile_idx==ULONG_MAX ) return 0U;
 
-//   ulong accdb_tile_idx  = fd_topo_find_tile( &config->topo, "accdb",  0UL );
-//   ulong snapwm_tile_idx = fd_topo_find_tile( &config->topo, "snapwm", 0UL );
-//   ulong snapwr_tile_idx = fd_topo_find_tile( &config->topo, "snapwr", 0UL );
-//   if( accdb_tile_idx ==ULONG_MAX ) return 0U;
-//   if( snapwm_tile_idx==ULONG_MAX ) return 0U;
-//   if( snapwr_tile_idx==ULONG_MAX ) return 0U;
-// 
-//   ulong snapwr_state = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, STATE ) ];
-//   ulong used_bytes   = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FILE_USED_BYTES     ) ];
-//   ulong cap_bytes    = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FILE_CAPACITY_BYTES ) ];
-//   ulong acct_cnt     = cur_tile[ snapwm_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
-//   if( snapwr_state==4 ) {
-//     used_bytes = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, DISK_USED_BYTES      ) ];
-//     cap_bytes  = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, DISK_ALLOCATED_BYTES ) ];
-//     acct_cnt   = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, ACCOUNTS_TOTAL       ) ];
-//   }
-// 
-//   double data_pct  = 100.0*(double)used_bytes/(double)cap_bytes;
-//   double used_gb   = (double)used_bytes/1e9;
-//   double index_pct = 100.0*(double)acct_cnt/(double)config->firedancer.accounts.max_accounts;
-// 
-//   ulong rps_sum = 0UL;
-//   ulong num_rps_samples = fd_ulong_min( rps_samples_idx, sizeof(rps_samples)/sizeof(rps_samples[0]) );
-//   for( ulong i=0UL; i<num_rps_samples; i++ ) rps_sum += rps_samples[ i ];
-//   char * rps_str = COUNTF( 100.0*(double)rps_sum/(double)num_rps_samples );
-// 
-//   PRINT( "💾 " BOLD GREEN "ACCOUNTS...." RESET UNBOLD
-//          " " BOLD "DATA"  UNBOLD " %4.1f%% (%.1f GB) "
-//          " " BOLD "INDEX" UNBOLD " %4.1f%% (%.1fM) "
-//          " " BOLD "RPS"   UNBOLD " %s" CLEARLN "\n",
-//     data_pct, used_gb, index_pct, (double)acct_cnt/1e6, rps_str );
-//   return 1;
+  ulong const * t = cur_tile + accdb_tile_idx*FD_METRICS_TOTAL_SZ;
+
+  ulong acct_cnt        = t[ MIDX( GAUGE,   ACCDB, ACCOUNTS_TOTAL        ) ];
+  ulong acct_cap        = t[ MIDX( GAUGE,   ACCDB, ACCOUNTS_CAPACITY     ) ];
+  ulong used_bytes      = t[ MIDX( GAUGE,   ACCDB, DISK_USED_BYTES       ) ];
+  ulong current_bytes   = t[ MIDX( GAUGE,   ACCDB, DISK_CURRENT_BYTES    ) ];
+  ulong alloc_bytes     = t[ MIDX( GAUGE,   ACCDB, DISK_ALLOCATED_BYTES  ) ];
+  ulong in_compaction   = t[ MIDX( GAUGE,   ACCDB, IN_COMPACTION         ) ];
+  ulong compact_req     = t[ MIDX( COUNTER, ACCDB, COMPACTIONS_REQUESTED ) ];
+  ulong compact_done    = t[ MIDX( COUNTER, ACCDB, COMPACTIONS_COMPLETED ) ];
+
+  ulong  frag_bytes  = current_bytes>used_bytes ? current_bytes-used_bytes : 0UL;
+  double data_gb     = (double)alloc_bytes/1e9;
+  double live_gb     = (double)used_bytes/1e9;
+  double frag_gb     = (double)frag_bytes/1e9;
+  double frag_pct    = current_bytes ? 100.0*(double)frag_bytes/(double)current_bytes : 0.0;
+  double index_pct   = acct_cap      ? 100.0*(double)acct_cnt/(double)acct_cap        : 0.0;
+
+  PRINT( "💾 " BOLD GREEN "ACCOUNTS...." RESET UNBOLD
+         " " BOLD "DISK"          UNBOLD " %.1f GB"
+         " " BOLD "LIVE DATA"     UNBOLD " %.1f GB"
+         " " BOLD "FRAGMENTATION" UNBOLD " %.1f GB (%4.1f%%)"
+         " " BOLD "INDEX"         UNBOLD " %4.1f%% (%.1fM / %.1fM)"
+         " " BOLD "COMPACTION"    UNBOLD " %s (%lu / %lu)" CLEARLN "\n",
+    data_gb, live_gb, frag_gb, frag_pct,
+    index_pct, (double)acct_cnt/1e6, (double)acct_cap/1e6,
+    in_compaction ? "running" : "idle", compact_done, compact_req );
+
+  ulong const cap = sizeof(accdb_acquired_samples)/sizeof(accdb_acquired_samples[0]);
+  ulong n = fd_ulong_min( accdb_samples_idx, cap );
+  if( !n ) n = 1UL;
+
+  ulong sum_acq = 0UL, sum_wr = 0UL, sum_miss = 0UL, sum_evict = 0UL, sum_wait = 0UL;
+  ulong sum_brd = 0UL, sum_bwr = 0UL, sum_bcp = 0UL;
+  for( ulong i=0UL; i<n; i++ ) {
+    sum_acq   += accdb_acquired_samples[ i ];
+    sum_wr    += accdb_writable_samples[ i ];
+    sum_miss  += accdb_missed_samples  [ i ];
+    sum_evict += accdb_evicted_samples [ i ];
+    sum_wait  += accdb_waited_samples  [ i ];
+    sum_brd   += accdb_bytes_rd_samples[ i ];
+    sum_bwr   += accdb_bytes_wr_samples[ i ];
+    sum_bcp   += accdb_bytes_cp_samples[ i ];
+  }
+
+  /* Snap interval is 10ms, so per-second rate = mean diff * 100. */
+  double acquired = 100.0*(double)sum_acq  /(double)n;
+  double writable = 100.0*(double)sum_wr   /(double)n;
+  double missed   = 100.0*(double)sum_miss /(double)n;
+  double evicted  = 100.0*(double)sum_evict/(double)n;
+  double waited   = 100.0*(double)sum_wait /(double)n;
+  double bytes_rd = 100.0*(double)sum_brd  /(double)n;
+  double bytes_wr = 100.0*(double)sum_bwr  /(double)n;
+  double bytes_cp = 100.0*(double)sum_bcp  /(double)n;
+
+  double hit_pct = acquired>0.0 ? 100.0*(acquired-missed)/acquired : 0.0;
+
+  char * read_str  = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, (long)bytes_rd );
+  char * write_str = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, (long)bytes_wr );
+  char * copy_str  = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL, (long)bytes_cp );
+  char * acq_str   = COUNTF( acquired );
+  char * wr_str    = COUNTF( writable );
+  char * miss_str  = COUNTF( missed   );
+  char * evict_str = COUNTF( evicted  );
+  char * wait_str  = COUNTF( waited   );
+
+  PRINT( "               "
+         " " BOLD "ACQUIRE" UNBOLD " %s /s (%s wr /s)"
+         " " BOLD "HIT"     UNBOLD " %5.1f%%"
+         " " BOLD "MISS"    UNBOLD " %s /s"
+         " " BOLD "EVICT"   UNBOLD " %s /s"
+         " " BOLD "WAIT"    UNBOLD " %s /s"
+         " " BOLD "IO"      UNBOLD " %s rd %s wr %s cp" CLEARLN "\n",
+    acq_str, wr_str, hit_pct, miss_str, evict_str, wait_str,
+    read_str, write_str, copy_str );
+  return 2;
 }
 
 static uint
@@ -867,6 +995,7 @@ run( config_t const * config,
       event_bytes_written_samples_idx++;
       event_bytes_read_samples[ event_bytes_read_samples_idx%(sizeof(event_bytes_read_samples)/sizeof(event_bytes_read_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, BYTES_READ ) );
       event_bytes_read_samples_idx++;
+      sample_accdb( config, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ );
       // rps_samples[ rps_samples_idx%(sizeof(rps_samples)/sizeof(rps_samples[0])) ] = (ulong)(
       //     diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_UNCHANGED_NONEXIST ) ) +
       //     diff_tile( config, "execrp", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EXECRP, TXN_ACCOUNT_CHANGES_CREATED            ) ) +

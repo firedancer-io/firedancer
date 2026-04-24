@@ -460,7 +460,7 @@ struct fd_accdb_shmem_private {
   ulong joiner_cnt __attribute__((aligned(64)));
   ulong deferred_free_dlist_off;
 
-  fd_accdb_shmem_metrics_t metrics[1];
+  fd_accdb_shmem_metrics_t shmetrics[1];
 
   /* Command slot for T1 -> T2 offloading of advance_root / purge.
      Padded to its own cache line to avoid false sharing with the
@@ -472,6 +472,7 @@ struct fd_accdb_shmem_private {
 
   uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
   ushort cmd_fork_id;                               /* argument       */
+
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
