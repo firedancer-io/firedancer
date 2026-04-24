@@ -413,6 +413,7 @@ main( int     argc,
   ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
   ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
   ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
+  ctx->shred_out->idx    = 0UL;
 
   /* Initialize out link mcache chunks (RX links) */
   ulong frame_off = 0UL;
@@ -508,12 +509,14 @@ main( int     argc,
 
   /* Stem publish context for RX */
   ulong cr_avail    = ULONG_MAX;
+  int   out_reliable = 0;
   fd_stem_context_t stem[1] = {{
     .mcaches             = &rx_link->mcache,
     .seqs                = &ctx->shred_out->seq,
     .depths              = &link_depth,
     .cr_avail            = &cr_avail,
-    .cr_decrement_amount = 0UL
+    .cr_decrement_amount = 0UL,
+    .out_reliable        = &out_reliable
   }};
 
   struct __attribute__((packed)) {
@@ -893,6 +896,7 @@ main( int     argc,
     FD_TEST( (ulong)rx_mline_frame == (ulong)rx_ring_pkt );
     FD_TEST( mline->sz==before_credit_expected_sz );
     FD_TEST( fd_memeq( rx_mline_frame, before_credit_expected, before_credit_expected_sz ) );
+    FD_TEST( stem->seqs[0]==fd_seq_inc( fd_frag_meta_seq_query( mline ), 1UL ) );
 
     /* before_frag - test tx routing **********************************/
 
