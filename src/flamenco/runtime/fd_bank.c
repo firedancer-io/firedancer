@@ -624,8 +624,17 @@ fd_bank_apply_deltas( fd_banks_t * banks,
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
   fd_new_votes_t *         new_votes         = fd_banks_get_new_votes( banks );
 
+  /* Apply the delta for the current bank into the root for the stake
+     delegations. */
+
+  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache );
+  fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, stake_delegations, bank->stake_delegations_fork_id );
+
   /* The stake_delegations root has crossed an epoch boundary.  The
-     stake totals for the current root need to be updated. */
+     stake totals for the current root need to be updated since the full
+     set of stake delegations are computed with a different epoch.
+     Also reset the set of new votes since we are done tracking the
+     previous epoch's new vote accounts. */
   fd_bank_t * old_root = fd_banks_root( banks );
   if( old_root->f.epoch!=bank->f.epoch ) {
     stake_delegations->effective_stake    = bank->f.total_effective_stake;
@@ -634,39 +643,10 @@ fd_bank_apply_deltas( fd_banks_t * banks,
     fd_new_votes_reset_root( new_votes );
   }
 
-  /* Naively what we want to do is iterate from the old root to the new
-     root and apply the delta to the full state iteratively. */
-
-  /* First, gather all of the pool indicies that we want to apply deltas
-     for in reverse order starting from the new root. We want to exclude
-     the old root since its delta has been applied previously. */
-  ushort sd_pool_indices[ banks->max_total_banks ];
-  ushort nv_pool_indices[ banks->max_total_banks ];
-  ulong  pool_indices_len = 0UL;
-
-  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
-
-  fd_bank_t * curr_bank = fd_banks_pool_ele( bank_pool, bank->idx );
-  while( !!curr_bank ) {
-    FD_LOG_DEBUG(( "applying bank delta (bank_idx=%lu, sd_fork_idx=%u, nv_fork_idx=%u)", curr_bank->idx, curr_bank->stake_delegations_fork_id, curr_bank->new_votes_fork_id ));
-    if( curr_bank->stake_delegations_fork_id!=USHORT_MAX ) {
-      sd_pool_indices[pool_indices_len] = curr_bank->stake_delegations_fork_id;
-      nv_pool_indices[pool_indices_len] = curr_bank->new_votes_fork_id;
-      pool_indices_len++;
-    }
-    curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
-  }
-
-  /* We have populated all of the indicies that we need to apply deltas
-     from in reverse order. */
-
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache );
-  for( ulong i=pool_indices_len; i>0; i-- ) {
-    ushort sd_idx = sd_pool_indices[i-1UL];
-    ushort nv_idx = nv_pool_indices[i-1UL];
-    fd_stake_delegations_apply_fork_delta( bank->f.epoch, stake_history, &bank->f.warmup_cooldown_rate_epoch, stake_delegations, sd_idx );
-    fd_new_votes_apply_delta( new_votes, nv_idx );
-  }
+  /* Apply the delta for the current bank into the root for the new
+     votes.  Do this at the end in case there was a new vote account
+     created in the current bank. */
+  fd_new_votes_apply_delta( new_votes, bank->new_votes_fork_id );
 }
 
 static inline void
@@ -774,6 +754,8 @@ fd_banks_advance_root( fd_banks_t * banks,
   FD_CRIT( old_root->refcnt==0UL, "refcnt for old root bank is nonzero" );
 
   fd_bank_t * new_root = fd_banks_pool_ele( bank_pool, root_bank_idx );
+
+  FD_TEST( new_root->parent_idx==old_root->idx );
 
   fd_bank_apply_deltas( banks, new_root );
 
