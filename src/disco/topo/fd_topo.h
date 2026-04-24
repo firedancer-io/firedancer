@@ -685,6 +685,10 @@ struct fd_topo_tile {
     struct {
       ulong accdb_max_depth;
     } resolv;
+
+    struct {
+      ulong zp_fseq_id;
+    } snapzp;
   };
 };
 

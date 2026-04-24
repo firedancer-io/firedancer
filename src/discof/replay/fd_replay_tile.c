@@ -2194,18 +2194,18 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
   }
 
   if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_forks_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
-    ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
+    // ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
 
-    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_forks_cnts, ctx->hard_forks_cnt );
+    // ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_forks_cnts, ctx->hard_forks_cnt );
 
-    if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
-      FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
-      FD_LOG_ERR(( "Your genesis.bin file at `%s` combined with the hard_forks from the loaded snapshot have produced "
-                   "a shred version of %hu but the entrypoint you connected to on boot reported a shred version of %hu. "
-                   "This likely means that the genesis.bin file you have is for a different cluster than the one you "
-                   "are trying to connect to, you can delete it and restart the node to download the correct genesis "
-                   "file automatically.", ctx->genesis_path, actual_shred_version, expected_shred_version ));
-    }
+    // if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
+    //   FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
+    //   FD_LOG_ERR(( "Your genesis.bin file at `%s` combined with the hard_forks from the loaded snapshot have produced "
+    //                "a shred version of %hu but the entrypoint you connected to on boot reported a shred version of %hu. "
+    //                "This likely means that the genesis.bin file you have is for a different cluster than the one you "
+    //                "are trying to connect to, you can delete it and restart the node to download the correct genesis "
+    //                "file automatically.", ctx->genesis_path, actual_shred_version, expected_shred_version ));
+    // }
   }
 }
 

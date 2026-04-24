@@ -1,10 +1,12 @@
+#define _GNU_SOURCE
 #include "fd_snapmk.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/pod/fd_pod.h"
-//#include "../../util/archive/fd_tar.h"
+#include <errno.h>
+#include <fcntl.h>
 
 /* Funk rooted record iterator (thread-safe) */
 
@@ -33,10 +35,27 @@ typedef struct fd_snapmk fd_snapmk_t;
 #define IN_KIND_REPLAY 1
 
 static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  memset( ctx, 0, sizeof(fd_snapmk_t) );
+
+  char const * out_path = "/data/r/firedancer/snapout.zst";
+  int fd = open( out_path, O_CREAT|O_WRONLY|O_TRUNC, 0644 );
+  if( FD_UNLIKELY( fd<0 ) ) {
+    FD_LOG_ERR(( "open(%s) failed: %s", out_path, fd_io_strerror( errno ) ));
+  }
+
+  long dt = -fd_log_wallclock();
+  fallocate( fd, 0, 0, 1UL<<32 );
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "fallocate took %g sec", (double)dt/1e9 ));
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  memset( ctx, 0, sizeof(fd_snapmk_t) );
   ctx->state = SNAPMK_STATE_IDLE;
 
   ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
@@ -251,6 +270,7 @@ fd_topo_run_tile_t fd_tile_snapmk = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run
 };

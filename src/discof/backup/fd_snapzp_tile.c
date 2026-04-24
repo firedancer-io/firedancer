@@ -10,6 +10,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
@@ -33,6 +34,9 @@ struct fd_snapzp {
 
   fd_io_uring_t ring[1];
 
+  int fd;
+  ulong volatile * file_off;
+
   struct {
     ulong accounts_compressed;
     ulong bytes_compressed;
@@ -42,7 +46,7 @@ typedef struct fd_snapzp fd_snapzp_t;
 
 #define RAW_BUF_SZ  (32UL<<20) /* FIXME make this configurable */
 #define COMP_BOUND  ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
-#define COMP_BUF_SZ FD_ULONG_ALIGN_UP( COMP_BOUND+8UL, 512UL )
+#define COMP_BUF_SZ FD_ULONG_ALIGN_UP( COMP_BOUND+8UL, 4096UL )
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -73,6 +77,7 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( fd<0 ) ) {
     FD_LOG_ERR(( "open(%s) failed: %s", out_path, fd_io_strerror( errno ) ));
   }
+  ctx->fd = fd;
 
   uint uring_depth = URING_DEPTH;
   fd_io_uring_params_t params[1];
@@ -114,6 +119,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( tile->in_cnt==1UL );
   FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[0] ].name, "snapmk_zp" ) );
   ctx->batch = topo->links[ tile->in_link_id[0] ].dcache;
+
+  ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapzp.zp_fseq_id ) ); FD_TEST( zp_fseq );
+  ctx->file_off = fd_fseq_app_laddr( zp_fseq );
 }
 
 static ulong
@@ -182,11 +190,11 @@ append_account( fd_snapzp_t * ctx,
     ctx->raw_buf.size = 0UL;
 
     /* Align to block size with a skippable frame */
-    ulong aligned_pos = fd_ulong_align_up( ctx->comp_buf.pos, 512UL );
+    ulong aligned_pos = fd_ulong_align_up( ctx->comp_buf.pos, 4096UL );
     ulong pad_sz      = aligned_pos - ctx->comp_buf.pos;
     if( FD_UNLIKELY( pad_sz>0UL && pad_sz<8UL ) ) {
-      aligned_pos += 512UL;
-      pad_sz      += 512UL;
+      aligned_pos += 4096UL;
+      pad_sz      += 4096UL;
     }
     FD_TEST( aligned_pos <= COMP_BUF_SZ );
     if( FD_LIKELY( pad_sz>0UL ) ) {
@@ -196,6 +204,13 @@ append_account( fd_snapzp_t * ctx,
       fd_memset( tail+8, 0, pad_sz-8 );
     }
 
+    ulong off = __atomic_fetch_add( ctx->file_off, aligned_pos, __ATOMIC_RELAXED );
+    FD_LOG_NOTICE(( "off %lu aligned_pos %lu", off, aligned_pos ));
+    FD_TEST( fd_ulong_is_aligned( off, 4096UL ) );
+    FD_TEST( fd_ulong_is_aligned( aligned_pos, 4096UL ) );
+    if( FD_UNLIKELY( pwrite( ctx->fd, ctx->comp_buf.dst, aligned_pos, (long)off )!=(long)aligned_pos ) ) {
+      FD_LOG_ERR(( "pwrite failed: %i-%s", errno, fd_io_strerror( errno ) ));
+    }
 
     ctx->comp_buf.pos = 0UL;
   }
@@ -254,7 +269,7 @@ returnable_frag( fd_snapzp_t *       ctx,
 static void
 metrics_write( fd_snapzp_t * ctx ) {
   FD_MCNT_SET( SNAPZP, ACCOUNTS_COMPRESSED, ctx->metrics.accounts_compressed );
-  FD_MCNT_SET( SNAPZP, BYTES_COMPRESSED, ctx->metrics.bytes_compressed );
+  FD_MCNT_SET( SNAPZP, BYTES_COMPRESSED,    ctx->metrics.bytes_compressed    );
 }
 
 #define STEM_BURST 1UL
