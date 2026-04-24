@@ -1,3 +1,4 @@
+#include "../bundle/fd_bundle_tile.h"
 #include "../metrics/fd_metrics.h"
 #include "../stem/fd_stem.h"
 #include "../topo/fd_topo.h"
@@ -231,12 +232,15 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
   ulong bundle_cnt    = ctx->tiles.bundle_cnt;
   ulong bundle_health = fd_ulong_if( bundle_cnt>0UL, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
   if( FD_LIKELY( bundle_cnt ) ) {
-    int any_connected = 0;
+    int any_ok = 0;
     for( ulong i=0UL; i<bundle_cnt; i++ ) {
       volatile ulong * m = ctx->metrics[ ctx->tiles.bundle_tile_idx[ i ] ];
-      if( FD_LIKELY( m[ FD_METRICS_GAUGE_BUNDLE_CONNECTED_OFF ]==1UL ) ) any_connected = 1;
+      ulong state = m[ FD_METRICS_GAUGE_BUNDLE_STATE_OFF ];
+      /* Healthy if connected OR deliberately sleeping */
+      if( FD_LIKELY( state==FD_BUNDLE_STATE_CONNECTED ||
+                     state==FD_BUNDLE_STATE_SLEEPING ) ) any_ok = 1;
     }
-    bundle_health = fd_ulong_if( any_connected, FD_DIAG_HEALTH_HEALTHY, FD_DIAG_HEALTH_UNHEALTHY );
+    bundle_health = fd_ulong_if( any_ok, FD_DIAG_HEALTH_HEALTHY, FD_DIAG_HEALTH_UNHEALTHY );
   }
 
   ulong tower_idx   = ctx->tiles.tower_idx;

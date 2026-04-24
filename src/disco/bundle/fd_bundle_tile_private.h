@@ -175,6 +175,12 @@ struct fd_bundle_tile {
   uchar bundle_status_plugin;  /* last 'plugin' update written */
   uchar bundle_status_logged;
   long  last_bundle_status_log_nanos;
+
+  /* Leader-slot-aware sleep mode */
+  int                    is_frankendancer;          /* based on the existence of replay tile */
+  volatile ulong const * replay_metrics;            /* pointer to replay (or pohh for Frankendancer) metrics page */
+  int                    sleep_mode;                /* 1 means sleeping, 0 means connecting/connected */
+  long                   sleep_check_ns;            /* next wallclock time to re-evaluate sleeping */
 };
 
 typedef struct fd_bundle_tile fd_bundle_tile_t;

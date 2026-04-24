@@ -371,7 +371,7 @@ metric introduced.
     <gauge name="HeapFreeBytes" summary="Approx free space in workspace" />
     <counter name="ShredstreamHeartbeats" summary="Number of ShredStream heartbeats successfully sent" />
     <counter name="Keepalives" summary="Number of HTTP/2 PINGs acknowledged by server" />
-    <gauge name="Connected" summary="1 if connected to the bundle server, 0 if not" />
+    <gauge name="State" summary="Bundle tile state: 0=disconnected, 1=connecting, 2=connected, 3=sleeping" />
     <gauge name="RttSample" summary="Latest RTT sample at scrape time (nanoseconds)" />
     <gauge name="RttSmoothed" summary="RTT moving average (nanoseconds)" />
     <gauge name="RttVar" summary="RTT variance (nanoseconds)" />
@@ -705,6 +705,8 @@ metric introduced.
     <histogram name="BundleInitializeDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
         <summary>Delay in starting the slot caused by loading the information needed to generate the bundle crank transactions</summary>
     </histogram>
+    <gauge name="NextLeaderSlot" summary="The next slot where this validator will be leader, or 0 if unknown" />
+    <gauge name="ResetSlot" summary="The slot we last reset onto, or 0 if unknown" />
 </tile>
 
 <tile name="poh">

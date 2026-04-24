@@ -1840,6 +1840,8 @@ metrics_write( fd_pohh_tile_t * ctx ) {
   FD_MHIST_COPY( POHH, FIRST_MICROBLOCK_DELAY_SECONDS,  ctx->first_microblock_delay );
   FD_MHIST_COPY( POHH, SLOT_DONE_DELAY_SECONDS,         ctx->slot_done_delay        );
   FD_MHIST_COPY( POHH, BUNDLE_INITIALIZE_DELAY_SECONDS, ctx->bundle_init_delay      );
+  FD_MGAUGE_SET( POHH, NEXT_LEADER_SLOT, ctx->next_leader_slot==ULONG_MAX ? 0UL : ctx->next_leader_slot );
+  FD_MGAUGE_SET( POHH, RESET_SLOT,       ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
 }
 
 static int

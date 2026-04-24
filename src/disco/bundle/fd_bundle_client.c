@@ -414,11 +414,8 @@ fd_bundle_client_log_status( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( connected_now!=connected_before ) ) {
     long ts = fd_log_wallclock();
     if( FD_LIKELY( ts-(ctx->last_bundle_status_log_nanos) >= (long)1e6 ) ) {
-      if( connected_now ) {
-        FD_LOG_NOTICE(( "Connected to bundle server" ));
-      } else {
-        FD_LOG_WARNING(( "Disconnected from bundle server" ));
-      }
+      if( connected_now ) FD_LOG_INFO(( "Connected to bundle server" ));
+      else                FD_LOG_INFO(( "Disconnected from bundle server" ));
       ctx->last_bundle_status_log_nanos = ts;
       ctx->bundle_status_logged = (uchar)status;
     }
@@ -560,7 +557,7 @@ fd_bundle_client_visit_pb_bundle_txn(
   }
 
   if( FD_UNLIKELY( packet.data.size == 0 ) ) {
-    FD_LOG_WARNING(( "Bundle server delivered an empty packet, ignoring" ));
+    FD_LOG_INFO(( "Bundle server delivered an empty packet, ignoring" ));
     return true;
   }
 
