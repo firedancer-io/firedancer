@@ -12,6 +12,16 @@ fd_feature_t *
 fd_feature_decode( fd_feature_t * feature,
                    uchar const *  data,
                    ulong          data_sz ) {
+  if( FD_UNLIKELY( !data_sz ) ) return NULL;
+  int is_active = data[0];
+  if( FD_UNLIKELY( is_active>1 ) ) return NULL;
+  if( is_active==0 ) {
+    *feature = (fd_feature_t){
+      .is_active       = 0,
+      .activation_slot = ULONG_MAX
+    };
+    return feature;
+  }
   if( FD_UNLIKELY( data_sz < sizeof(fd_feature_t) ) ) return NULL;
   *feature = FD_LOAD( fd_feature_t, data );
   if( FD_UNLIKELY( feature->is_active>1 ) ) return NULL;
