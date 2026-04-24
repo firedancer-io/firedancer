@@ -52,12 +52,6 @@
 
 #define FD_GOSSIP_MESSAGE_MAX_CRDS (17UL)
 
-#define FD_GOSSIP_DUPLICATE_SHRED_MAX_CHUNK_SZ  (1055UL)
-#define FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL (26UL)
-#define FD_GOSSIP_PRUNE_MAX_PRUNES              (36UL)
-#define FD_GOSSIP_BLOOM_MAX_KEYS                (152UL)
-#define FD_GOSSIP_BLOOM_MAX_BITS                (151UL)
-
 #define FD_GOSSIP_FAILED_NO_CONTACT_INFO (1)
 #define FD_GOSSIP_FAILED_WALLCLOCK       (2)
 
@@ -157,7 +151,7 @@ struct fd_gossip_duplicate_shred {
   uchar  num_chunks;
   uchar  chunk_index;
   ulong  chunk_len;
-  uchar  chunk[ FD_GOSSIP_DUPLICATE_SHRED_MAX_CHUNK_SZ ];
+  uchar  chunk[ 1055UL ];
 };
 
 typedef struct fd_gossip_duplicate_shred fd_gossip_duplicate_shred_t;
@@ -188,7 +182,7 @@ struct fd_gossip_snapshot_hashes {
   struct {
     ulong slot;
     uchar hash[ 32UL ];
-  } incremental[ FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL ];
+  } incremental[ 26UL ];
 };
 
 typedef struct fd_gossip_snapshot_hashes fd_gossip_snapshot_hashes_t;
@@ -294,10 +288,10 @@ typedef struct fd_gossip_value fd_gossip_value_t;
 
 struct fd_gossip_bloom {
   ulong keys_len;
-  ulong keys[ FD_GOSSIP_BLOOM_MAX_KEYS ];
+  ulong keys[ 152UL ];
   ulong bits_cap;
   ulong bits_len;
-  ulong bits[ FD_GOSSIP_BLOOM_MAX_BITS ];
+  ulong bits[ 151UL ];
   ulong num_bits_set;
 };
 
@@ -354,7 +348,7 @@ struct fd_gossip_prune {
   uchar sender[ 32UL ];
   uchar pubkey[ 32UL ];
   ulong prunes_len;
-  uchar prunes[ FD_GOSSIP_PRUNE_MAX_PRUNES ][ 32UL ];
+  uchar prunes[ 36UL ][ 32UL ];
   uchar signature[ 64UL ];
   uchar destination[ 32UL ];
   ulong wallclock;

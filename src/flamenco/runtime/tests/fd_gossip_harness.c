@@ -118,11 +118,11 @@ reparse_contact_info_extra( fd_spad_t *                          spad,
                                  sockets_len * sizeof(fd_exec_test_gossip_socket_entry_t) );
     for( ushort i=0; i<sockets_len; i++ ) {
       NEED( 2UL );
-      ci->sockets[i].key   = (uint32_t)*p; p++; sz--;
-      ci->sockets[i].index = (uint32_t)*p; p++; sz--;
+      ci->sockets[i].key   = *p; p++; sz--;
+      ci->sockets[i].index = *p; p++; sz--;
       ushort offset = 0;
       if( FD_UNLIKELY( !read_varint_u16( &offset, &p, &sz ) ) ) return;
-      ci->sockets[i].offset = (uint32_t)offset;
+      ci->sockets[i].offset = offset;
     }
   }
 
@@ -279,7 +279,8 @@ convert_crds_data( fd_spad_t *                          spad,
     out->data.duplicate_shred.num_chunks  = val->duplicate_shred->num_chunks;
     out->data.duplicate_shred.chunk_index = val->duplicate_shred->chunk_index;
     out->data.duplicate_shred.chunk       = val->duplicate_shred->chunk_len
-                                              ? alloc_bytes( spad, val->duplicate_shred->chunk, val->duplicate_shred->chunk_len )
+                                              ? alloc_bytes( spad, val->duplicate_shred->chunk,
+                                                             val->duplicate_shred->chunk_len )
                                               : NULL;
     break;
   default:

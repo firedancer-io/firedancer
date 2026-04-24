@@ -300,7 +300,6 @@ deser_snapshot_hashes( fd_gossip_value_t * value,
   CHECK( value->snapshot_hashes->full_slot<MAX_SLOT );
   READ_BYTES( value->snapshot_hashes->full_hash, 32UL, payload, payload_sz );
   READ_U64( value->snapshot_hashes->incremental_len, payload, payload_sz );
-  CHECK( value->snapshot_hashes->incremental_len<=FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL );
   for( ulong i=0UL; i<value->snapshot_hashes->incremental_len; i++ ) {
     READ_U64( value->snapshot_hashes->incremental[ i ].slot, payload, payload_sz );
     CHECK( value->snapshot_hashes->incremental[ i ].slot<MAX_SLOT );
@@ -537,7 +536,6 @@ deser_bitvec_u64( fd_gossip_bloom_t * bloom,
 
   READ_U64( bloom->bits_cap, payload, payload_sz );
   CHECK( bloom->bits_cap );
-  CHECK( bloom->bits_cap<=FD_GOSSIP_BLOOM_MAX_BITS );
   ulong dummy;
   CHECK( !__builtin_mul_overflow( bloom->bits_cap, 8UL, &dummy ) );
   READ_BYTES( bloom->bits, bloom->bits_cap*8UL, payload, payload_sz );
@@ -553,7 +551,6 @@ deser_pull_request( fd_gossip_message_t * message,
                     ulong *               payload_sz,
                     ulong                 original_sz ) {
   READ_U64( message->pull_request->crds_filter->filter->keys_len, payload, payload_sz );
-  CHECK( message->pull_request->crds_filter->filter->keys_len<=FD_GOSSIP_BLOOM_MAX_KEYS );
   for( ulong i=0UL; i<message->pull_request->crds_filter->filter->keys_len; i++ ) {
     READ_U64( message->pull_request->crds_filter->filter->keys[ i ], payload, payload_sz );
   }
@@ -579,7 +576,6 @@ deser_pull_response( fd_gossip_message_t * message,
                      ulong                 original_sz ) {
   READ_BYTES( message->pull_response->from, 32UL, payload, payload_sz );
   READ_U64( message->pull_response->values_len, payload, payload_sz );
-  CHECK( message->pull_response->values_len<=FD_GOSSIP_MESSAGE_MAX_CRDS );
   for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
     message->pull_response->values[ i ].offset = original_sz-*payload_sz;
     CHECK( deser_value( &message->pull_response->values[ i ], payload, payload_sz ) );
@@ -595,7 +591,6 @@ deser_push( fd_gossip_message_t * message,
             ulong                 original_sz ) {
   READ_BYTES( message->push->from, 32UL, payload, payload_sz );
   READ_U64( message->push->values_len, payload, payload_sz );
-  CHECK( message->push->values_len<=FD_GOSSIP_MESSAGE_MAX_CRDS );
   for( ulong i=0UL; i<message->push->values_len; i++ ) {
     message->push->values[ i ].offset = original_sz-*payload_sz;
     CHECK( deser_value( &message->push->values[ i ], payload, payload_sz ) );
@@ -612,7 +607,6 @@ deser_prune( fd_gossip_message_t * message,
   READ_BYTES( message->prune->pubkey, 32UL, payload, payload_sz );
   CHECK( !memcmp( message->prune->sender, message->prune->pubkey, 32UL ) );
   READ_U64( message->prune->prunes_len, payload, payload_sz );
-  CHECK( message->prune->prunes_len<=FD_GOSSIP_PRUNE_MAX_PRUNES );
   for( ulong i=0UL; i<message->prune->prunes_len; i++ ) {
     READ_BYTES( message->prune->prunes[ i ], 32UL, payload, payload_sz );
   }
