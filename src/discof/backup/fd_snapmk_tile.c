@@ -16,9 +16,11 @@ struct fd_snapmk {
   uint state;
   fd_funk_scan_t scan[1];
 
+  ulong zp_cnt; /* [0,zp_cnt] out links are to zp */
   ulong out_meta_idx;
-  ulong out_cnt;
-  ulong out_ready; /* bit set */
+
+  ulong out_ready;         /* bit set */
+  ulong out_flush_pending; /* bit set */
 
   ulong in_idle_cnt;
 
@@ -67,8 +69,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->out_cnt >= 2 );
   FD_TEST( tile->out_cnt <= SNAPZP_TILE_MAX );
-  ctx->out_cnt = tile->out_cnt - 1UL;
-  for( ulong i=0UL; i < tile->out_cnt - 1; i++ ) {
+  ctx->zp_cnt = tile->out_cnt - 1UL;
+  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ i ] ];
     if( 0!=strcmp( link->name, "snapmk_zp" ) ) {
       FD_LOG_ERR(( "Unexpected output link \"%s\"", link->name ));
@@ -132,10 +134,20 @@ static void
 update_flow_control( fd_snapmk_t *             ctx,
                      fd_stem_context_t const * stem ) {
   ulong out_ready = 0UL;
-  for( ulong i=0UL; i < ctx->out_cnt; i++ ) {
+  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
     out_ready |= fd_ulong_if( !!stem->cr_avail[ i ], 1UL<<i, 0UL );
   }
   ctx->out_ready = out_ready;
+}
+
+static int
+all_out_links_caught_up( fd_snapmk_t *             ctx,
+                         fd_stem_context_t const * stem ) {
+  _Bool caught_up = 1;
+  for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
+    if( stem->cr_avail[ i ] < stem->depths[ i ] ) caught_up = 0;
+  }
+  return caught_up;
 }
 
 /* check_credit is called every run loop iteration */
@@ -162,6 +174,16 @@ check_credit( fd_snapmk_t *       ctx,
       }
     }
     break;
+  case SNAPMK_STATE_ACCOUNTS_FLUSH:
+    /* Block until all zp tiles are caught up */
+    if( !all_out_links_caught_up( ctx, stem ) ) {
+      *is_backpressured = 1;
+      return;
+    }
+    /* Send a flush packet */
+    *is_backpressured = 0;
+    *charge_busy      = 1;
+    break;
   }
 }
 
@@ -179,19 +201,38 @@ after_credit( fd_snapmk_t *       ctx,
     ulong seq = stem->seqs[ out_idx ];
     ctx->scan->batch = ctx->batch[ out_idx ] + (seq & (stem->depths[ out_idx ]-1));
     fd_funk_scan_refill( ctx->scan, ctx->chain );
-    fd_stem_publish( stem, (ulong)out_idx, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_BATCH, 0, 0, 0 );
+    fd_stem_publish( stem, (ulong)out_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
     _Bool blocked = !stem->cr_avail[ out_idx ];
     ctx->out_ready &= blocked ? ~fd_ulong_mask_bit( out_idx ) : ULONG_MAX;
     ctx->chain += FUNK_SCAN_PARA;
     if( FD_UNLIKELY( ctx->chain >= ctx->chain1 ) ) {
+      FD_LOG_NOTICE(( "Done compressing accounts, waiting for I/O" ));
       ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
+      ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
       break;
     }
     *charge_busy = 1;
     break;
   }
   case SNAPMK_STATE_ACCOUNTS_FLUSH: {
-    FD_COMPILER_MFENCE();
+    if( FD_UNLIKELY( !ctx->out_flush_pending ) ) {
+      FD_LOG_NOTICE(( "Writing manifest" ));
+      ctx->state = SNAPMK_STATE_MANIFEST;
+      return;
+    }
+    /* Broadcast FLUSH packets */
+    for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
+      if( !fd_ulong_extract_bit( ctx->out_flush_pending, (int)i ) ) continue;
+      if( !stem->cr_avail[ i ] ) continue;
+      ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_FLUSH, 0, 0, 0 );
+      fd_stem_publish( stem, i, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
+      ctx->out_flush_pending &= ~fd_ulong_mask_bit( (int)i );
+      *charge_busy = 1;
+    }
+    break;
+  }
+  case SNAPMK_STATE_MANIFEST: {
     ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
     fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
     ctx->state = SNAPMK_STATE_IDLE;

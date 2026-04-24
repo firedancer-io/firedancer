@@ -148,6 +148,51 @@ before_credit( fd_snapzp_t *       ctx,
 }
 
 static void
+flush( fd_snapzp_t * ctx ) {
+  /* Cannot extend input buffer, finish frame */
+  long t0 = fd_tickcount();
+  ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_end );
+  if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
+    FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) failed: %s", ZSTD_getErrorName( ret ) ));
+  }
+  if( FD_UNLIKELY( ret!=0UL ) ) {
+    FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) did not finish frame" ));
+  }
+  long t1 = fd_tickcount();
+  ctx->metrics.compress_ticks += (ulong)( t1 - t0 );
+  FD_TEST( ctx->raw_buf.pos == ctx->raw_buf.size );
+  ctx->raw_buf.pos  = 0UL;
+  ctx->raw_buf.size = 0UL;
+
+  /* Align to block size with a skippable frame */
+  ulong aligned_pos = fd_ulong_align_up( ctx->comp_buf.pos, 4096UL );
+  ulong pad_sz      = aligned_pos - ctx->comp_buf.pos;
+  if( FD_UNLIKELY( pad_sz>0UL && pad_sz<8UL ) ) {
+    aligned_pos += 4096UL;
+    pad_sz      += 4096UL;
+  }
+  FD_TEST( aligned_pos <= COMP_BUF_SZ );
+  if( FD_LIKELY( pad_sz>0UL ) ) {
+    uchar * tail = (uchar *)ctx->comp_buf.dst + ctx->comp_buf.pos;
+    FD_STORE( uint, tail,   ZSTD_MAGIC_SKIPPABLE_START );
+    FD_STORE( uint, tail+4, (uint)( pad_sz-8 ) );
+    fd_memset( tail+8, 0, pad_sz-8 );
+  }
+
+  ulong off = __atomic_fetch_add( ctx->file_off, aligned_pos, __ATOMIC_RELAXED );
+  FD_TEST( fd_ulong_is_aligned( off, 4096UL ) );
+  FD_TEST( fd_ulong_is_aligned( aligned_pos, 4096UL ) );
+  if( FD_UNLIKELY( pwrite( ctx->fd, ctx->comp_buf.dst, aligned_pos, (long)off )!=(long)aligned_pos ) ) {
+    FD_LOG_ERR(( "pwrite failed: %i-%s", errno, fd_io_strerror( errno ) ));
+  }
+  long t2 = fd_tickcount();
+  ctx->metrics.bytes_written    += aligned_pos;
+  ctx->metrics.io_blocked_ticks += (ulong)( t2 - t1 );
+
+  ctx->comp_buf.pos = 0UL;
+}
+
+static void
 append_account( fd_snapzp_t * ctx,
                 ulong         rec_idx,
                 ulong         val_gaddr,
@@ -155,52 +200,13 @@ append_account( fd_snapzp_t * ctx,
   fd_funk_rec_t const *     rec       = &ctx->funk->rec_pool->ele[ rec_idx ];
   fd_account_meta_t const * val       = fd_wksp_laddr_fast( ctx->funk->wksp, val_gaddr );
   ulong                     raw_chunk = sizeof(snap_acc_hdr_t) + data_sz;
-  ctx->metrics.accounts_compressed++;
-  ctx->metrics.bytes_compressed += raw_chunk;
 
   if( FD_UNLIKELY( ctx->raw_buf.size+raw_chunk > RAW_BUF_SZ ) ) {
-    /* Cannot extend input buffer, finish frame */
-    long t0 = fd_tickcount();
-    ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_end );
-    if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
-      FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) failed: %s", ZSTD_getErrorName( ret ) ));
-    }
-    if( FD_UNLIKELY( ret!=0UL ) ) {
-      FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) did not finish frame" ));
-    }
-    long t1 = fd_tickcount();
-    ctx->metrics.compress_ticks += (ulong)( t1 - t0 );
-    FD_TEST( ctx->raw_buf.pos == ctx->raw_buf.size );
-    ctx->raw_buf.pos  = 0UL;
-    ctx->raw_buf.size = 0UL;
-
-    /* Align to block size with a skippable frame */
-    ulong aligned_pos = fd_ulong_align_up( ctx->comp_buf.pos, 4096UL );
-    ulong pad_sz      = aligned_pos - ctx->comp_buf.pos;
-    if( FD_UNLIKELY( pad_sz>0UL && pad_sz<8UL ) ) {
-      aligned_pos += 4096UL;
-      pad_sz      += 4096UL;
-    }
-    FD_TEST( aligned_pos <= COMP_BUF_SZ );
-    if( FD_LIKELY( pad_sz>0UL ) ) {
-      uchar * tail = (uchar *)ctx->comp_buf.dst + ctx->comp_buf.pos;
-      FD_STORE( uint, tail,   ZSTD_MAGIC_SKIPPABLE_START );
-      FD_STORE( uint, tail+4, (uint)( pad_sz-8 ) );
-      fd_memset( tail+8, 0, pad_sz-8 );
-    }
-
-    ulong off = __atomic_fetch_add( ctx->file_off, aligned_pos, __ATOMIC_RELAXED );
-    FD_TEST( fd_ulong_is_aligned( off, 4096UL ) );
-    FD_TEST( fd_ulong_is_aligned( aligned_pos, 4096UL ) );
-    if( FD_UNLIKELY( pwrite( ctx->fd, ctx->comp_buf.dst, aligned_pos, (long)off )!=(long)aligned_pos ) ) {
-      FD_LOG_ERR(( "pwrite failed: %i-%s", errno, fd_io_strerror( errno ) ));
-    }
-    long t2 = fd_tickcount();
-    ctx->metrics.bytes_written    += aligned_pos;
-    ctx->metrics.io_blocked_ticks += (ulong)( t2 - t1 );
-
-    ctx->comp_buf.pos = 0UL;
+    flush( ctx );
   }
+
+  ctx->metrics.accounts_compressed++;
+  ctx->metrics.bytes_compressed += raw_chunk;
 
   /* Append account to buffer */
   snap_acc_hdr_t hdr = {
@@ -230,6 +236,20 @@ append_account( fd_snapzp_t * ctx,
   }
 }
 
+static void
+process_batch( fd_snapzp_t * ctx,
+               ulong         seq ) {
+  fd_snapmk_batch_t const * batch = ctx->batch + (seq & 31UL); /* FIXME depth mask hardcoded */
+  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
+    ulong rec_idx = batch->rec_idx[ i ];
+    ulong val_gaddr = batch->val_gaddr[ i ];
+    uint  data_sz   = batch->data_sz[ i ];
+    if( val_gaddr != ULONG_MAX ) {
+      append_account( ctx, rec_idx, val_gaddr, data_sz );
+    }
+  }
+}
+
 static int
 returnable_frag( fd_snapzp_t *       ctx,
                  ulong               in_idx,
@@ -241,16 +261,19 @@ returnable_frag( fd_snapzp_t *       ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)in_idx; (void)sig; (void)chunk; (void)sz; (void)ctl; (void)tsorig; (void)tspub; (void)stem;
+  (void)in_idx; (void)sig; (void)chunk; (void)sz; (void)tsorig; (void)tspub; (void)stem;
   ctx->idle_cnt = 0UL;
-  fd_snapmk_batch_t const * batch = ctx->batch + (seq & 31UL); /* FIXME depth mask hardcoded */
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    ulong rec_idx = batch->rec_idx[ i ];
-    ulong val_gaddr = batch->val_gaddr[ i ];
-    uint  data_sz   = batch->data_sz[ i ];
-    if( val_gaddr != ULONG_MAX ) {
-      append_account( ctx, rec_idx, val_gaddr, data_sz );
-    }
+  ulong orig = fd_frag_meta_ctl_orig( ctl );
+  if( FD_LIKELY( orig == SNAPMK_ORIG_BATCH ) ) {
+    process_batch( ctx, seq );
+    return 0;
+  }
+  switch( orig ) {
+  case SNAPMK_ORIG_FLUSH:
+    flush( ctx );
+    break;
+  default:
+    FD_LOG_CRIT(( "unknown snapzp instruction %lu (seq=%lu)", orig, seq ));
   }
   return 0;
 }

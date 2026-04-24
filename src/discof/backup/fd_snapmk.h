@@ -46,14 +46,14 @@
 #define SNAPMK_STATE_ACCOUNTS       1 /* writing accounts */
 #define SNAPMK_STATE_ACCOUNTS_FLUSH 2 /* done writing accounts, flush pipeline */
 #define SNAPMK_STATE_MANIFEST       3 /* writing manifest */
-#define SNAPMK_STATE_FAIL           4 /* error state, doing cleanup */
+#define SNAPMK_STATE_DONE           4 /* done, notify replay tile */
+#define SNAPMK_STATE_FAIL           5 /* error state, doing cleanup */
 
 /* snapmk message types (frag_meta orig field) */
 
 #define SNAPMK_ORIG_BATCH       1 /* account batch */
-#define SNAPMK_ORIG_CREATE_FULL 2 /* create a full snapshot */
-#define SNAPMK_ORIG_DONE        3 /* done */
-#define SNAPMK_ORIG_ERROR       4 /* error */
+#define SNAPMK_ORIG_FLUSH       2 /* flush pending batch */
+#define SNAPMK_ORIG_DONE        3
 
 struct __attribute__((aligned(64))) fd_snapmk_batch {
   ulong val_gaddr[ FUNK_SCAN_PARA ];

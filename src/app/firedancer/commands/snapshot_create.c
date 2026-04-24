@@ -128,7 +128,7 @@ snapshot_create_cmd_fn( args_t *   args,
     ulong accounts_delta     = accounts_processed - accounts_processed_prev;
     ulong sz_delta           = tot_sz - tot_sz_prev;
     char buf[ 64 ];
-    FD_LOG_NOTICE(( "  accounts=%7.2g/s  data=%s",
+    FD_LOG_NOTICE(( "  accounts=%3.2e/s  data=%s",
       (double)accounts_delta * (1e9/(double)period),
       fmt_bytes( buf, sizeof(buf), (double)sz_delta * (1e9/(double)period) ) ));
     accounts_processed_prev = accounts_processed;
