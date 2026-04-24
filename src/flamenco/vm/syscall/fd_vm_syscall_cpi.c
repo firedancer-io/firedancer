@@ -17,7 +17,7 @@ fd_vm_prepare_instruction populates instruction_accounts and instruction_account
 with the instruction accounts ready for execution.
 
 The majority of this logic is taken from
-https://github.com/solana-labs/solana/blob/v1.17.22/program-runtime/src/invoke_context.rs#L535,
+https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L311-L455,
 and is not vm-specific, but a part of the runtime.
 TODO: should we move this out of the CPI section?
 
@@ -81,7 +81,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
   /* Normalize the privileges of each instruction account in the callee, after de-duping
      the account references.
-    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L540-L595 */
+    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L327-L367 */
   for( ulong i=0UL; i<callee_instr->acct_cnt; i++ ) {
     ushort index_in_transaction = callee_instr->accounts[i].index_in_transaction;
     ushort index_in_caller      = callee_instr->accounts[i].index_in_caller;
@@ -140,25 +140,30 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   }
 
   /* Check the normalized account permissions for privilege escalation.
-     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L596-L624 */
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L369-L419 */
   for( ulong i = 0; i < deduplicated_instruction_accounts_cnt; i++ ) {
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
 
-    /* https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L390-L393 */
-    fd_guarded_borrowed_account_t borrowed_caller_acct = {0};
-    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, instruction_account->index_in_caller, &borrowed_caller_acct );
+    /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L393-L403 */
+    ushort caller_idx                 = instruction_account->index_in_caller;
+    fd_pubkey_t const * caller_pubkey = NULL;
+    int err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, caller_idx, &caller_pubkey );
+    if( FD_UNLIKELY( err ) ) {
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
 
     /* Check that the account is not read-only in the caller but writable in the callee */
-    if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
+    if( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable_idx( instr_ctx->instr, caller_idx ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( caller_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
-    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.pubkey, signers, signers_cnt) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.pubkey->uc, id_b58 );
+    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_instr_acc_is_signer_idx( instr_ctx->instr, caller_idx, NULL ) || fd_vm_syscall_cpi_is_signer( caller_pubkey, signers, signers_cnt ) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( caller_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_out->err.exec_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
@@ -173,7 +178,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     /* Failing this condition is technically impossible, but it is probably safest to keep this in
        so that we throw InstructionError::NotEnoughAccountKeys at the same point at Solana does,
        in the event any surrounding code is changed.
-       https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L625-L633 */
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L345-L366 */
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
       callee_instr->accounts[i].is_writable = !!(instruction_accounts[i].is_writable);
@@ -185,27 +190,9 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   }
 
   /* Obtain the program account index and return a MissingAccount error if not found.
-    https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L430-L435 */
+    https://github.com/anza-xyz/agave/blob/v4.0.0-beta.7/program-runtime/src/invoke_context.rs#L421-L436 */
   int program_idx = fd_exec_instr_ctx_find_idx_of_instr_account( instr_ctx, callee_program_id_pubkey );
   if( FD_UNLIKELY( program_idx == -1 ) ) {
-    FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
-    fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-  }
-
-  /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found.
-    Borrow the program account here.
-    https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L436-L437 */
-  fd_guarded_borrowed_account_t borrowed_program_account = {0};
-  int err = fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, (ushort)program_idx, &borrowed_program_account );
-  if( FD_UNLIKELY( err ) ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, err, instr_ctx->txn_out->err.exec_err_idx );
-    return err;
-  }
-
-  if( FD_UNLIKELY( err ) ) {
-    /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
     FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
     fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
     FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_out, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_out->err.exec_err_idx );
