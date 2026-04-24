@@ -4,6 +4,7 @@
 /* fd_rewards.h provides APIs for distributing Solana staking rewards. */
 
 #include "../stakes/fd_stake_delegations.h"
+#include "../runtime/sysvar/fd_sysvar_base.h"
 
 struct fd_prev_epoch_inflation_rewards {
   ulong  validator_rewards;

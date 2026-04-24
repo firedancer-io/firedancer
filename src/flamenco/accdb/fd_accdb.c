@@ -1297,9 +1297,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
       break;
     }
-
-    if( FD_UNLIKELY( acc==UINT_MAX ) ) accs[ i ] = NULL;
-    else                               accs[ i ] = &accdb->acc_pool[ acc ];
+    if( FD_UNLIKELY( accs[ i ] && !writable[ i ] && !accs[ i ]->lamports ) ) accs[ i ] = NULL;
+    else if( FD_UNLIKELY( acc==UINT_MAX ) )                                  accs[ i ] = NULL;
+    else                                                                     accs[ i ] = &accdb->acc_pool[ acc ];
   }
 
   // STEP 2.
@@ -1911,6 +1911,8 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
   }
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
+    FD_TEST( !writable[ i ] ); /* programdata always read-only */
+
     ulong h = fd_accdb_hash( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
     uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ h ] );
     fd_accdb_acc_t * acc = NULL;
@@ -1924,6 +1926,8 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
       acc = candidate;
       break;
     }
+
+    if( FD_UNLIKELY( acc && !acc->lamports ) ) acc = NULL;
 
     if( FD_UNLIKELY( !acc && !writable[ i ] ) ) continue;
     if( FD_LIKELY( acc ) ) {

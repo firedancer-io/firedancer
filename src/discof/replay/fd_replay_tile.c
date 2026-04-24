@@ -1,3 +1,4 @@
+#include "fd_replay_tile.h"
 #include "fd_replay_tile_private.h"
 #include "fd_sched.h"
 #include "fd_execrp.h"

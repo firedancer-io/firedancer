@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 #define HEADER_fd_src_discof_replay_fd_replay_tile_private_h
 
-#include "fd_replay_tile.h"
 #include "fd_vote_tracker.h"
 #include "../../disco/topo/fd_wksp_mon.h"
 #include "../../disco/store/fd_store.h"
@@ -9,7 +8,6 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_sched.h"
-#include "../../flamenco/accdb/fd_accdb_admin.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
