@@ -192,7 +192,6 @@ after_credit( fd_snapmk_t *       ctx,
     ctx->chain += FUNK_SCAN_PARA;
     if( FD_UNLIKELY( ctx->chain >= ctx->chain1 ) ) {
       ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
-      FD_LOG_NOTICE(( "DONE" ));
       break;
     }
     *charge_busy = 1;
@@ -203,6 +202,7 @@ after_credit( fd_snapmk_t *       ctx,
     ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
     fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
     ctx->state = SNAPMK_STATE_IDLE;
+    FD_LOG_NOTICE(( "Snapshot creation finished" ));
     break;
   }
   }
@@ -218,7 +218,7 @@ snap_begin( fd_snapmk_t * ctx ) {
   ctx->chain = 0UL;
   ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );
   fd_funk_scan_init( ctx->scan, ctx->funk );
-  FD_LOG_NOTICE(( "START" ));
+  FD_LOG_NOTICE(( "Snapshot creation started" ));
 }
 
 static int
