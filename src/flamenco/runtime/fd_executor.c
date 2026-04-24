@@ -1252,11 +1252,15 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
              had queued an update to the vote/stakes caches and is
              writable in the new transaction, unmark the update to avoid
              double-counting the update. */
-          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] &&
-                           (prev_txn_out->accounts.stake_update[ j ] ||
-                            prev_txn_out->accounts.vote_update[ j ] ) ) ) {
-            prev_txn_out->accounts.stake_update[ j ] = 0;
-            prev_txn_out->accounts.vote_update[ j ]  = 0;
+          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] ) ) {
+            if( prev_txn_out->accounts.stake_update[ j ] ) {
+              prev_txn_out->accounts.stake_update[ j ] = 0;
+              txn_out->accounts.stake_update[ idx ] = 1;
+            }
+            if( prev_txn_out->accounts.vote_update[ j ] ) {
+              prev_txn_out->accounts.vote_update[ j ] = 0;
+              txn_out->accounts.vote_update[ idx ] = 1;
+            }
           }
           break;
         }
