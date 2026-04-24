@@ -40,6 +40,9 @@ struct fd_snapzp {
   struct {
     ulong accounts_compressed;
     ulong bytes_compressed;
+    ulong bytes_written;
+    ulong io_blocked_ticks;
+    ulong compress_ticks;
   } metrics;
 };
 typedef struct fd_snapzp fd_snapzp_t;
@@ -178,6 +181,7 @@ append_account( fd_snapzp_t * ctx,
 
   if( FD_UNLIKELY( ctx->raw_buf.size+raw_chunk > RAW_BUF_SZ ) ) {
     /* Cannot extend input buffer, finish frame */
+    long t0 = fd_tickcount();
     ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_end );
     if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
       FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) failed: %s", ZSTD_getErrorName( ret ) ));
@@ -185,6 +189,8 @@ append_account( fd_snapzp_t * ctx,
     if( FD_UNLIKELY( ret!=0UL ) ) {
       FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) did not finish frame" ));
     }
+    long t1 = fd_tickcount();
+    ctx->metrics.compress_ticks += (ulong)( t1 - t0 );
     FD_TEST( ctx->raw_buf.pos == ctx->raw_buf.size );
     ctx->raw_buf.pos  = 0UL;
     ctx->raw_buf.size = 0UL;
@@ -205,12 +211,14 @@ append_account( fd_snapzp_t * ctx,
     }
 
     ulong off = __atomic_fetch_add( ctx->file_off, aligned_pos, __ATOMIC_RELAXED );
-    FD_LOG_NOTICE(( "off %lu aligned_pos %lu", off, aligned_pos ));
     FD_TEST( fd_ulong_is_aligned( off, 4096UL ) );
     FD_TEST( fd_ulong_is_aligned( aligned_pos, 4096UL ) );
     if( FD_UNLIKELY( pwrite( ctx->fd, ctx->comp_buf.dst, aligned_pos, (long)off )!=(long)aligned_pos ) ) {
       FD_LOG_ERR(( "pwrite failed: %i-%s", errno, fd_io_strerror( errno ) ));
     }
+    long t2 = fd_tickcount();
+    ctx->metrics.bytes_written    += aligned_pos;
+    ctx->metrics.io_blocked_ticks += (ulong)( t2 - t1 );
 
     ctx->comp_buf.pos = 0UL;
   }
@@ -234,7 +242,9 @@ append_account( fd_snapzp_t * ctx,
 
   /* Do some work */
   if( FD_UNLIKELY( ctx->raw_buf.size - ctx->raw_buf.pos >= (128UL<<10) ) ) {
+    long start = fd_tickcount();
     ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_continue );
+    ctx->metrics.compress_ticks += (ulong)( fd_tickcount()-start );
     if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
       FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_continue) failed: %s", ZSTD_getErrorName( ret ) ));
     }
@@ -268,8 +278,11 @@ returnable_frag( fd_snapzp_t *       ctx,
 
 static void
 metrics_write( fd_snapzp_t * ctx ) {
-  FD_MCNT_SET( SNAPZP, ACCOUNTS_COMPRESSED, ctx->metrics.accounts_compressed );
-  FD_MCNT_SET( SNAPZP, BYTES_COMPRESSED,    ctx->metrics.bytes_compressed    );
+  FD_MCNT_SET( SNAPZP, ACCOUNTS_COMPRESSED,         ctx->metrics.accounts_compressed );
+  FD_MCNT_SET( SNAPZP, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed    );
+  FD_MCNT_SET( SNAPZP, BYTES_WRITTEN,               ctx->metrics.bytes_written       );
+  FD_MCNT_SET( SNAPZP, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_blocked_ticks    );
+  FD_MCNT_SET( SNAPZP, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks      );
 }
 
 #define STEM_BURST 1UL

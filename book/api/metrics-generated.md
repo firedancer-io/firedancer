@@ -1356,7 +1356,10 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">snapzp_&#8203;accounts_&#8203;compressed</span> | counter | Number of accounts processed |
-| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;compressed</span> | counter | Number of bytes compressed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;compressed</span> | counter | Number of raw bytes compressed |
+| <span class="metrics-name">snapzp_&#8203;bytes_&#8203;written</span> | counter | Number of bytes compressed bytes written |
+| <span class="metrics-name">snapzp_&#8203;io_&#8203;blocked_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time blocked on I/O |
+| <span class="metrics-name">snapzp_&#8203;compress_&#8203;duration_&#8203;seconds</span> | counter | Cumulative time spent compressing accounts |
 
 </div>
 

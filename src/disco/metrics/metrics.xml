@@ -1198,7 +1198,10 @@ metric introduced.
 
 <tile name="snapzp">
     <counter name="AccountsCompressed" summary="Number of accounts processed" />
-    <counter name="BytesCompressed" summary="Number of bytes compressed" />
+    <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
+    <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
+    <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
+    <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing accounts" />
 </tile>
 
 <tile name="metric">
