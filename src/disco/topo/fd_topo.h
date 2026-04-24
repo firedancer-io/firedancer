@@ -523,6 +523,8 @@ struct fd_topo_tile {
     } forktest;
 
     struct {
+      ulong accdb_obj_id;
+
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;

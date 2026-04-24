@@ -208,22 +208,20 @@ fd_accdb_join( void * shaccdb ) {
   return (fd_accdb_t*)shaccdb;
 }
 
-/* wait_cmd blocks until any previously submitted T1 -> T2 command has
-   been completed by T2.  If no command is in flight (cmd_op is idle),
-   returns immediately.  Must be called from T1 before submitting a new
-   command or performing inline fork operations. */
+/* T1 -> T2 cmd channel.  Two states on cmd_op:
+
+     IDLE     - no cmd in flight
+     non-IDLE - cmd pending; T2 will process it then flip back to IDLE
+
+   T1 submits by writing fork_id then cmd_op (non-IDLE).  T2 processes
+   by reading fork_id then writing cmd_op = IDLE.  T1 waits for IDLE
+   before submitting again, so T2 never sees a half-written cmd and
+   never re-processes the same cmd. */
 
 static inline void
 wait_cmd( fd_accdb_t * accdb ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
-  if( FD_LIKELY( FD_VOLATILE_CONST( shmem->cmd_op )==FD_ACCDB_CMD_IDLE ) ) return;
-  for(;;) {
-    if( FD_LIKELY( FD_VOLATILE_CONST( shmem->cmd_done ) ) ) break;
-    FD_SPIN_PAUSE();
-  }
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( shmem->cmd_done ) = 0;
-  FD_VOLATILE( shmem->cmd_op )   = FD_ACCDB_CMD_IDLE;
+  while( FD_VOLATILE_CONST( shmem->cmd_op )!=FD_ACCDB_CMD_IDLE ) FD_SPIN_PAUSE();
   FD_COMPILER_MFENCE();
 }
 
@@ -603,17 +601,12 @@ remove_children( fd_accdb_t *              accdb,
 static void
 background_advance_root( fd_accdb_t *       accdb,
                          fd_accdb_fork_id_t fork_id ) {
-  if( fork_id.val==accdb->shmem->root_fork_id.val ) {
-    return;
-  }
-
   drain_deferred_frees( accdb );
 
   /* The caller guarantees that rooting is sequential: each call
      advances the root by exactly one slot (the immediate child of the
      current root).  Skipping levels is not supported. */
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  // FD_LOG_WARNING(( "Advancing root from %hu to %hu", accdb->shmem->root_fork_id.val, fork_id.val ));
   FD_TEST( fork->shmem->parent_id.val==accdb->shmem->root_fork_id.val );
   FD_TEST( fork->shmem->parent_id.val!=USHORT_MAX );
 
@@ -733,7 +726,6 @@ void
 fd_accdb_advance_root( fd_accdb_t *       accdb,
                        fd_accdb_fork_id_t fork_id ) {
   wait_cmd( accdb );
-  // FD_LOG_WARNING(( "Submitted advance_root for fork_id %hu, current %hu", fork_id.val, accdb->shmem->root_fork_id.val ));
   submit_cmd( accdb, FD_ACCDB_CMD_ADVANCE_ROOT, fork_id.val );
 }
 
@@ -2720,7 +2712,7 @@ fd_accdb_background( fd_accdb_t * accdb,
     }
 
     FD_COMPILER_MFENCE();
-    FD_VOLATILE( shmem->cmd_done ) = 1;
+    FD_VOLATILE( shmem->cmd_op ) = FD_ACCDB_CMD_IDLE;
     *charge_busy = 1;
     return;
   }

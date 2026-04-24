@@ -1165,13 +1165,14 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
                       fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "invalid out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   }
+  out_fds[ out_cnt++ ] = 123461; /* accounts db */
 
   return out_cnt;
 }

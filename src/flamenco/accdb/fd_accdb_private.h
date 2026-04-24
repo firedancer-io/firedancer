@@ -472,7 +472,6 @@ struct fd_accdb_shmem_private {
 
   uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
   ushort cmd_fork_id;                               /* argument       */
-  int    cmd_done;                                  /* 0=pending 1=done */
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };

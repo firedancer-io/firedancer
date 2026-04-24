@@ -32,8 +32,8 @@ FD_PROTOTYPES_BEGIN
    241,000,000 * 0.000005 = 1,205 SOL.
    This brings our total cost to 550,685 SOL. */
 
-#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000000UL)
-#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (241000000UL)
+#define FD_RUNTIME_MAX_VOTE_ACCOUNTS  (19000UL)
+#define FD_RUNTIME_MAX_STAKE_ACCOUNTS (2410000UL)
 
 /* The expected stake and vote account values are based on observed
    values on mainnet and testnet allowing for some growth.  These are

@@ -1048,6 +1048,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
+  ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+(snapshots_enabled ? 2UL : 0UL);
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots,
@@ -1055,12 +1056,19 @@ fd_topo_initialize( config_t * config ) {
       8192UL,
       1UL<<35UL,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
-      execrp_tile_cnt+3UL );
+      accdb_joiners );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( snapshots_enabled ) ) {
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    /* The snapwr tile doesn't actually need the accdb object, it just
+       writes to its file descriptor without needing the memory mapped,
+       but the supervisor process wont give it the file descriptor
+       unless it think it has it mapped in the topology. */
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
+  
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
@@ -1325,6 +1333,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       fd_cstr_ncpy( tile->tower.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->tower.authorized_voter_paths[ i ]) );
     }
 
+    tile->tower.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
     tile->tower.wait_for_supermajority = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;

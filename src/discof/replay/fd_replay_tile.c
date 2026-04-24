@@ -1667,7 +1667,6 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
   ulong advanceable_root_slot = bank->f.slot;
-  // FD_LOG_NOTICE(("ADVANCING ROOT TO %lu", advanceable_root_slot));
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
   long t1 = fd_tickcount();
   fd_progcache_xid_t xid = { .ul[0] = advanceable_root_slot, .ul[1] = bank->idx };
@@ -2624,7 +2623,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_FN_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
 
-  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), 123461 );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 

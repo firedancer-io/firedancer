@@ -25,7 +25,7 @@ fsync: (eq (arg 0) logfile_fd)
 # startup: sleep until snapshot loaded
 clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
 
-# accdb: write to the accounts database
+# accounts database: write to the accounts database
 #
 # Users of the accounts database may need to write data to persistent
 # storage if the cache is full (to complete an eviction).
@@ -33,9 +33,16 @@ clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)
 # arg 0 is the file descriptor to write to.
 pwritev2: (eq (arg 0) accounts_fd)
 
-# accdb: read from the accounts database
+# accounts database: read from the accounts database
 #
 # Users of the accounts database may need to read data into the cache.
 #
 # arg 0 is the file descriptor to read from
-pread64: (eq (arg 0) accounts_fd)
+preadv2: (eq (arg 0) accounts_fd)
+
+# accounts database: allocate more space from the disk
+#
+# The accounts database allocates more space from the underlying storage
+# device in chunks, as it runs out.
+fallocate: (and (eq (arg 0) accounts_fd)
+                (eq (arg 1) 0))

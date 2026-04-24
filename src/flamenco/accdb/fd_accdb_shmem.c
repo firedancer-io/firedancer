@@ -378,7 +378,6 @@ fd_accdb_shmem_new( void * shmem,
 
   accdb->cmd_op      = FD_ACCDB_CMD_IDLE;
   accdb->cmd_fork_id = USHORT_MAX;
-  accdb->cmd_done    = 0;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( accdb->magic ) = FD_ACCDB_SHMEM_MAGIC;

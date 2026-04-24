@@ -256,6 +256,7 @@ handle_control_frag( fd_snapwr_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       fd_ssparse_reset( ctx->ssparse );
+      fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
         ctx->metrics.full_bytes_read        = 0UL;

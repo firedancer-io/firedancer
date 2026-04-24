@@ -26,11 +26,13 @@ fsync: (eq (arg 0) logfile_fd)
 # data that is not in the hot cache.
 pread64: (eq (arg 0) accounts_fd)
 
-# accounts database: write to the disk
+# accdb: write to the accounts database
 #
-# The accounts database needs to write to the disk to update account
-# data.
-pwrite64: (eq (arg 0) accounts_fd)
+# Users of the accounts database may need to write data to persistent
+# storage if the cache is full (to complete an eviction).
+#
+# arg 0 is the file descriptor to write to.
+pwritev2: (eq (arg 0) accounts_fd)
 
 # accounts database: allocate more space from the disk
 #

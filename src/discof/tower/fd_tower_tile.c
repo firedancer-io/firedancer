@@ -1255,11 +1255,16 @@ scratch_align( void ) {
 
 static fd_tower_tile_t *
 init_choreo( void                 * scratch,
+             fd_topo_t const      * topo,
              fd_topo_tile_t const * tile ) {
   ulong slot_max    = fd_ulong_pow2_up( tile->tower.max_live_slots );
   ulong blk_max     = slot_max * EQVOC_MAX;
   ulong fec_max     = slot_max * FD_SHRED_BLK_MAX / FD_FEC_SHRED_CNT;
   ulong pub_max     = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
+
+  void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->tower.accdb_obj_id );
+  fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
+  FD_TEST( accdb_shmem );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t)                                       );
@@ -1271,6 +1276,7 @@ init_choreo( void                 * scratch,
   void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   void  * scratch_tower = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
+  void  * accdb         = FD_SCRATCH_ALLOC_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots )              );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   (void)auth_vtr; /* privileged_init */
   ctx->eqvoc              = fd_eqvoc_join              ( fd_eqvoc_new              ( eqvoc, slot_max, fec_max, PER_VTR_MAX, VTR_MAX, ctx->seed ) );
@@ -1281,6 +1287,7 @@ init_choreo( void                 * scratch,
   ctx->scratch_tower      = fd_tower_vote_join         ( fd_tower_vote_new         ( scratch_tower )                                             );
   ctx->publishes          = publishes_join             ( publishes_new             ( publishes, pub_max )                                        );
   ctx->mleaders           = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem )                                         );
+  ctx->accdb              = fd_accdb_join              ( fd_accdb_new              ( accdb, _accdb_shmem, 123461 )                               );
 
   FD_TEST( ctx->eqvoc );
   FD_TEST( ctx->ghost );
@@ -1290,6 +1297,7 @@ init_choreo( void                 * scratch,
   FD_TEST( ctx->scratch_tower );
   FD_TEST( ctx->publishes );
   FD_TEST( ctx->mleaders );
+  FD_TEST( ctx->accdb );
 
   memset( ctx->duplicate_chunks, 0, sizeof(ctx->duplicate_chunks) );
   memset( &ctx->compact_tower_sync_serde, 0, sizeof(ctx->compact_tower_sync_serde) );
@@ -1327,6 +1335,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
+  l = FD_LAYOUT_APPEND( l, fd_accdb_align(),         fd_accdb_footprint( tile->tower.max_live_slots )              );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1605,7 +1614,7 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-  fd_tower_tile_t * ctx = init_choreo( scratch, tile );
+  fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
 
   ctx->wksp               = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->identity_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
@@ -1659,7 +1668,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd );
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd, 123461U );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }
 
@@ -1672,7 +1681,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<5UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -1680,6 +1689,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   if( FD_LIKELY( ctx->checkpt_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->checkpt_fd;
   if( FD_LIKELY( ctx->restore_fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->restore_fd;
+  out_fds[ out_cnt++ ] = 123461; /* accounts database */
+
   return out_cnt;
 }
 

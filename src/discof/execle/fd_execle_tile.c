@@ -717,7 +717,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_fd_execle_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), 123461 );
   return sock_filter_policy_fd_execle_tile_instr_cnt;
 }
 
