@@ -162,7 +162,7 @@ deser_vote_txn( fd_gossip_vote_t * vote,
     }
     ushort data_len;
     READ_U16_VARINT( data_len, payload, payload_sz );
-    uchar data[ FD_TPU_MTU ];
+    uchar data[ 1232UL ];
     READ_BYTES( data, data_len, payload, payload_sz );
     if( FD_LIKELY( i==0UL ) ) {
       CHECK( accounts_len );
@@ -234,12 +234,10 @@ deser_bitvec_u8_epoch_slots( uchar const ** payload,
   ulong bits_cap;
   READ_U64( bits_cap, payload, payload_sz );
   CHECK( bits_cap );
-  ulong bits_cap_x8;
-  CHECK( !__builtin_mul_overflow( bits_cap, 8UL, &bits_cap_x8 ) );
   SKIP_BYTES( bits_cap, payload, payload_sz );
   ulong bits_cnt;
   READ_U64( bits_cnt, payload, payload_sz );
-  CHECK( bits_cnt==bits_cap_x8 );
+  CHECK( bits_cnt==bits_cap*8UL );
   return 1;
 }
 
@@ -454,12 +452,10 @@ deser_bitvec_u8_restart_last_voted_fork_slots( uchar const ** payload,
   ulong bits_cap;
   READ_U64( bits_cap, payload, payload_sz );
   CHECK( bits_cap );
-  ulong bits_cap_x8;
-  CHECK( !__builtin_mul_overflow( bits_cap, 8UL, &bits_cap_x8 ) );
   SKIP_BYTES( bits_cap, payload, payload_sz );
   ulong bits_cnt;
   READ_U64( bits_cnt, payload, payload_sz );
-  CHECK( bits_cnt<=bits_cap_x8 );
+  CHECK( bits_cnt<=bits_cap*8UL );
   return 1;
 }
 
@@ -644,7 +640,7 @@ fd_gossip_message_deserialize( fd_gossip_message_t * message,
   ulong * payload_sz = &_payload_sz;
   ulong original_sz = _payload_sz;
 
-  CHECK( _payload_sz<=FD_TPU_MTU );
+  CHECK( _payload_sz<=1232UL );
   READ_ENUM( message->tag, FD_GOSSIP_MESSAGE_CNT, payload, payload_sz );
 
   switch( message->tag ){

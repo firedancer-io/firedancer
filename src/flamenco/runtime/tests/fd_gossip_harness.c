@@ -369,8 +369,11 @@ convert_gossip_msg( fd_spad_t *                 spad,
     pr->has_filter = true;
     pr->filter.has_filter = true;
     convert_bloom( spad, msg->pull_request->crds_filter->filter, &pr->filter.filter );
-    pr->filter.mask      = msg->pull_request->crds_filter->mask;
     pr->filter.mask_bits = msg->pull_request->crds_filter->mask_bits;
+    /* Agave canonicalizes the mask by setting all (64-mask_bits) low bits to 1.
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/gossip/src/crds_gossip_pull.rs#L152-L155 */
+    ulong lsb_mask = (pr->filter.mask_bits>=64U) ? 0UL : (ULONG_MAX >> pr->filter.mask_bits);
+    pr->filter.mask = msg->pull_request->crds_filter->mask | lsb_mask;
     pr->has_value = true;
     convert_crds_value( spad, msg->pull_request->contact_info, raw_in, &pr->value );
     break;
@@ -426,6 +429,8 @@ fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
                           ulong *               out_sz,
                           uchar const *         in,
                           ulong                 in_sz ) {
+  if( FD_UNLIKELY( in_sz>FD_TPU_MTU ) ) FD_LOG_CRIT(( "gossip input %lu bytes exceeds MTU %lu, check fuzzer configuration", in_sz, FD_TPU_MTU ));
+
   fd_gossip_message_t * msg = fd_spad_alloc( runner->spad, alignof(fd_gossip_message_t), sizeof(fd_gossip_message_t) );
   fd_memset( msg, 0, sizeof(fd_gossip_message_t) );
   fd_exec_test_gossip_effects_t effects = FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO;
