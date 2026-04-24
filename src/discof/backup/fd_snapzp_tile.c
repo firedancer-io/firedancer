@@ -1,12 +1,20 @@
-//#include "fd_snapmk.h"
+#define _GNU_SOURCE
+#include "fd_snapmk.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../funk/fd_funk.h"
+#include "../../util/io_uring/fd_io_uring_setup.h"
+#include "../../util/io_uring/fd_io_uring_register.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
-#include "fd_snapmk.h"
+
+#include <errno.h>
+#include <fcntl.h>
+
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
+
+#define URING_DEPTH 1024
 
 struct fd_snapzp {
   fd_funk_t funk[1];
@@ -23,6 +31,8 @@ struct fd_snapzp {
 
   fd_snapmk_batch_t * batch;
 
+  fd_io_uring_t ring[1];
+
   struct {
     ulong accounts_compressed;
     ulong bytes_compressed;
@@ -31,21 +41,50 @@ struct fd_snapzp {
 typedef struct fd_snapzp fd_snapzp_t;
 
 #define RAW_BUF_SZ  (32UL<<20) /* FIXME make this configurable */
-#define COMP_BUF_SZ ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
+#define COMP_BOUND  ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
+#define COMP_BUF_SZ FD_ULONG_ALIGN_UP( COMP_BOUND+8UL, 512UL )
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 4096UL;
+  return FD_SHMEM_HUGE_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
-  l = FD_LAYOUT_APPEND( l, 4096UL,               RAW_BUF_SZ          );
-  l = FD_LAYOUT_APPEND( l, 4096UL,               COMP_BUF_SZ         );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t),  sizeof(fd_snapzp_t) );
+  l = FD_LAYOUT_APPEND( l, FD_SHMEM_HUGE_PAGE_SZ, fd_io_uring_shmem_footprint( URING_DEPTH, URING_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, 4096UL,                RAW_BUF_SZ          );
+  l = FD_LAYOUT_APPEND( l, 4096UL,                COMP_BUF_SZ         );
+  return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
+}
+
+static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  fd_snapzp_t * ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
+  void *        ioring_buf = FD_SCRATCH_ALLOC_APPEND( l, FD_SHMEM_HUGE_PAGE_SZ, fd_io_uring_shmem_footprint( URING_DEPTH, URING_DEPTH ) );
+  memset( ctx, 0, sizeof(fd_snapzp_t) );
+
+  char const * out_path = "/data/r/firedancer/snapout.zst";
+  int fd = open( out_path, O_CREAT|O_WRONLY|O_DIRECT, 0644 );
+  if( FD_UNLIKELY( fd<0 ) ) {
+    FD_LOG_ERR(( "open(%s) failed: %s", out_path, fd_io_strerror( errno ) ));
+  }
+
+  uint uring_depth = URING_DEPTH;
+  fd_io_uring_params_t params[1];
+  fd_io_uring_params_init( params, uring_depth );
+
+  if( FD_UNLIKELY( !fd_io_uring_init_shmem( ctx->ring, params, ioring_buf, uring_depth, uring_depth ) ) ) {
+    FD_LOG_ERR(( "fd_io_uring_init_shmem failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( fd_io_uring_enable_rings( ctx->ring->ioring_fd )<0 ) ) {
+    FD_LOG_ERR(( "io_uring_enable_rings failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 }
 
 static void
@@ -53,10 +92,10 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_snapzp_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
+  /*                     */FD_SCRATCH_ALLOC_APPEND( l, FD_SHMEM_HUGE_PAGE_SZ, fd_io_uring_shmem_footprint( URING_DEPTH, URING_DEPTH ) );
   uchar *       raw_buf  = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,               RAW_BUF_SZ          );
   uchar *       comp_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,               COMP_BUF_SZ         );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  memset( ctx, 0, sizeof(fd_snapzp_t) );
 
   ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
@@ -131,7 +170,6 @@ append_account( fd_snapzp_t * ctx,
 
   if( FD_UNLIKELY( ctx->raw_buf.size+raw_chunk > RAW_BUF_SZ ) ) {
     /* Cannot extend input buffer, finish frame */
-    ctx->comp_buf.pos = 0UL;
     ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, ZSTD_e_end );
     if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
       FD_LOG_ERR(( "ZSTD_compressStream2(ZSTD_e_end) failed: %s", ZSTD_getErrorName( ret ) ));
@@ -142,6 +180,24 @@ append_account( fd_snapzp_t * ctx,
     FD_TEST( ctx->raw_buf.pos == ctx->raw_buf.size );
     ctx->raw_buf.pos  = 0UL;
     ctx->raw_buf.size = 0UL;
+
+    /* Align to block size with a skippable frame */
+    ulong aligned_pos = fd_ulong_align_up( ctx->comp_buf.pos, 512UL );
+    ulong pad_sz      = aligned_pos - ctx->comp_buf.pos;
+    if( FD_UNLIKELY( pad_sz>0UL && pad_sz<8UL ) ) {
+      aligned_pos += 512UL;
+      pad_sz      += 512UL;
+    }
+    FD_TEST( aligned_pos <= COMP_BUF_SZ );
+    if( FD_LIKELY( pad_sz>0UL ) ) {
+      uchar * tail = (uchar *)ctx->comp_buf.dst + ctx->comp_buf.pos;
+      FD_STORE( uint, tail,   ZSTD_MAGIC_SKIPPABLE_START );
+      FD_STORE( uint, tail+4, (uint)( pad_sz-8 ) );
+      fd_memset( tail+8, 0, pad_sz-8 );
+    }
+
+
+    ctx->comp_buf.pos = 0UL;
   }
 
   /* Append account to buffer */
@@ -215,6 +271,7 @@ fd_topo_run_tile_t fd_tile_snapzp = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run
 };

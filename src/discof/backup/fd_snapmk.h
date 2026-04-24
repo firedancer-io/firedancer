@@ -50,7 +50,7 @@
 
 /* snapmk message types (frag_meta orig field) */
 
-#define SNAPMK_ORIG_ACCOUNT     1 /* account frag */
+#define SNAPMK_ORIG_BATCH       1 /* account batch */
 #define SNAPMK_ORIG_CREATE_FULL 2 /* create a full snapshot */
 #define SNAPMK_ORIG_DONE        3 /* done */
 #define SNAPMK_ORIG_ERROR       4 /* error */
