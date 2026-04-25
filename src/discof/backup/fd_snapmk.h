@@ -43,9 +43,9 @@
 /* snapmk state machine */
 
 #define SNAPMK_STATE_IDLE           0 /* clean, waiting for job */
-#define SNAPMK_STATE_ACCOUNTS       1 /* writing accounts */
-#define SNAPMK_STATE_ACCOUNTS_FLUSH 2 /* done writing accounts, flush pipeline */
-#define SNAPMK_STATE_MANIFEST       3 /* writing manifest */
+#define SNAPMK_STATE_MANIFEST       1 /* writing manifest */
+#define SNAPMK_STATE_ACCOUNTS       2 /* writing accounts */
+#define SNAPMK_STATE_ACCOUNTS_FLUSH 3 /* done writing accounts, flush pipeline */
 #define SNAPMK_STATE_DONE           4 /* done, notify replay tile */
 #define SNAPMK_STATE_FAIL           5 /* error state, doing cleanup */
 

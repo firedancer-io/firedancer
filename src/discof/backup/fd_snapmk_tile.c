@@ -204,6 +204,9 @@ after_credit( fd_snapmk_t *       ctx,
               int *               charge_busy ) {
   (void)poll_in;
   switch( ctx->state ) {
+  case SNAPMK_STATE_MANIFEST: {
+    break;
+  }
   case SNAPMK_STATE_ACCOUNTS: {
     int out_idx = fd_ulong_find_lsb( ctx->out_ready );
     ulong seq = stem->seqs[ out_idx ];
@@ -224,9 +227,10 @@ after_credit( fd_snapmk_t *       ctx,
     break;
   }
   case SNAPMK_STATE_ACCOUNTS_FLUSH: {
-    if( FD_UNLIKELY( !ctx->out_flush_pending ) ) {
-      FD_LOG_NOTICE(( "Writing manifest" ));
-      ctx->state = SNAPMK_STATE_MANIFEST;
+    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
+    fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
+    ctx->state = SNAPMK_STATE_IDLE;
+    FD_LOG_NOTICE(( "Snapshot creation finished" ));
       return;
     }
     /* Broadcast FLUSH packets */
@@ -240,14 +244,6 @@ after_credit( fd_snapmk_t *       ctx,
     }
     break;
   }
-  case SNAPMK_STATE_MANIFEST: {
-    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
-    fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
-    ctx->state = SNAPMK_STATE_IDLE;
-    FD_LOG_NOTICE(( "Snapshot creation finished" ));
-    break;
-  }
-  }
 }
 
 static void
@@ -260,7 +256,7 @@ snap_begin( fd_snapmk_t * ctx ) {
     FD_LOG_ERR(( "ftruncate failed: %s", fd_io_strerror( errno ) ));
   }
   *ctx->zp_file_off = 0UL;
-  ctx->state = SNAPMK_STATE_ACCOUNTS;
+  ctx->state = SNAPMK_STATE_MANIFEST;
   ctx->chain = 0UL;
   ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );
   fd_funk_scan_init( ctx->scan, ctx->funk );
