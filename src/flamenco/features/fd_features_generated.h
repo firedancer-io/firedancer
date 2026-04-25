@@ -275,7 +275,7 @@ union fd_features {
     /* 0x9e11ee2f4bbcb608 */ ulong enable_bls12_381_syscall;
     /* 0x010f656d89a4e808 */ ulong enable_alt_bn128_g2_syscalls;
     /* 0xfc12b1cef363afa7 */ ulong switch_to_chacha8_turbine;
-    /* 0x3727b6b01b8a6c1c */ ulong bls_pubkey_management_in_vote_account;
+    /* 0xe24990064fed4a91 */ ulong bls_pubkey_management_in_vote_account;
     /* 0xa5ce8f931961b80c */ ulong relax_programdata_account_check_migration;
     /* 0xf55c421c9eccc012 */ ulong remove_simple_vote_from_cost_model;
     /* 0x7428565ab3b6d152 */ ulong limit_instruction_accounts;

@@ -156,8 +156,6 @@ fd_bls12_381_pairing_syscall( uchar       r[ 48*12 ], /* GT element */
 /* fd_bls12_381_proof_of_possession_verify verifies proof of possession
    `proof` for the public key `public_key` against a message `msg` of
    size `msg_sz`.  The function returns 0 on success, -1 on failure.
-   Note: it is responsibility of the caller to include the bytes of
-   the public key also in `msg`.
 
    For context, see:
    https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-bls-signature-06#section-3.3.3

@@ -1780,8 +1780,8 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, bls_pubkey_management_in_vote_account)>>3,
-    .id                        = {"\x1c\x6c\x8a\x1b\xb0\xb6\x27\x37\xd6\xc4\x05\x8b\x2f\x29\x96\x0b\x09\x31\xa0\xd5\xcd\x5f\x9d\x1a\xbb\x2a\xc0\x3a\xc6\x9f\xb6\x36"},
-                                 /* 2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq */
+    .id                        = {"\x91\x4a\xed\x4f\x06\x90\x49\xe2\x5e\x23\xe0\x40\x1c\x0d\xe5\x76\x01\x89\x67\xae\x10\x0d\x78\xf4\xfa\xb2\x4b\xb4\x34\xdf\x2a\x32"},
+                                 /* AnAP9zPV4KL7czAPQbFhpDKV2tx7g4UGNbK9wvXwjaRo */
     .name                      = "bls_pubkey_management_in_vote_account",
     .cleaned_up                = 0 },
 
@@ -2126,7 +2126,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_256 0x9e11ee2f4bbcb608UL, .val = &ids[256]
 #define MAP_PERFECT_257 0x010f656d89a4e808UL, .val = &ids[257]
 #define MAP_PERFECT_258 0xfc12b1cef363afa7UL, .val = &ids[258]
-#define MAP_PERFECT_259 0x3727b6b01b8a6c1cUL, .val = &ids[259]
+#define MAP_PERFECT_259 0xe24990064fed4a91UL, .val = &ids[259]
 #define MAP_PERFECT_260 0xa5ce8f931961b80cUL, .val = &ids[260]
 #define MAP_PERFECT_261 0xf55c421c9eccc012UL, .val = &ids[261]
 #define MAP_PERFECT_262 0x7428565ab3b6d152UL, .val = &ids[262]
