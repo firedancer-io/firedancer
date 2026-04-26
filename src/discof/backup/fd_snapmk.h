@@ -35,7 +35,7 @@
    - snapmk streams manifest data to an in-memory queue
    - snapzp copies and compresses manifest data */
 
-#include "../../util/fd_util_base.h"
+#include "../../util/archive/fd_tar.h"
 
 #define FUNK_SCAN_PARA 64
 #define SNAPZP_TILE_MAX (64UL)
@@ -43,11 +43,12 @@
 /* snapmk state machine */
 
 #define SNAPMK_STATE_IDLE           0 /* clean, waiting for job */
-#define SNAPMK_STATE_MANIFEST       1 /* writing manifest */
-#define SNAPMK_STATE_ACCOUNTS       2 /* writing accounts */
-#define SNAPMK_STATE_ACCOUNTS_FLUSH 3 /* done writing accounts, flush pipeline */
-#define SNAPMK_STATE_DONE           4 /* done, notify replay tile */
-#define SNAPMK_STATE_FAIL           5 /* error state, doing cleanup */
+#define SNAPMK_STATE_TAR_HEADERS    1
+#define SNAPMK_STATE_MANIFEST       2 /* writing manifest */
+#define SNAPMK_STATE_ACCOUNTS       3 /* writing accounts */
+#define SNAPMK_STATE_ACCOUNTS_FLUSH 4 /* done writing accounts, flush pipeline */
+#define SNAPMK_STATE_DONE           5 /* done, notify replay tile */
+#define SNAPMK_STATE_FAIL           6 /* error state, doing cleanup */
 
 /* snapmk message types (frag_meta orig field) */
 
@@ -109,5 +110,34 @@ fd_funk_scan_init( fd_funk_scan_t *  scan,
 void
 fd_funk_scan_refill( fd_funk_scan_t * scan,
                      ulong            chain );
+
+FD_FN_UNUSED static fd_tar_meta_t *
+fd_snapmk_tar_file_hdr( fd_tar_meta_t * tar_meta,
+                        ulong           sz ) {
+  *tar_meta = (fd_tar_meta_t){
+    .magic    = "ustar ",
+    .mode     = "644",
+    .uid      = "0",
+    .gid      = "0",
+    .typeflag = FD_TAR_TYPE_REGULAR,
+    .chksum   = "        "
+  };
+  (void)fd_tar_meta_set_size( tar_meta, sz );
+  return tar_meta;
+}
+
+FD_FN_UNUSED static fd_tar_meta_t *
+fd_snapmk_tar_dir_hdr( fd_tar_meta_t * tar_meta ) {
+  *tar_meta = (fd_tar_meta_t){
+    .magic    = "ustar ",
+    .mode     = "755",
+    .uid      = "0",
+    .gid      = "0",
+    .typeflag = FD_TAR_TYPE_DIR,
+    .chksum   = "        "
+  };
+  (void)fd_tar_meta_set_size( tar_meta, 0UL );
+  return tar_meta;
+}
 
 #endif /* HEADER_fd_src_discof_backup_fd_snapmk_h */

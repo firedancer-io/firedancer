@@ -11,15 +11,16 @@
 #define STATE_BANK_TRAILER           9
 #define STATE_ACCOUNT_STORAGE_ENTRY 10
 #define STATE_BANK_HASH_INFO        11
-#define STATE_EXTRA_FIELDS          12
-#define STATE_EPOCH_STAKES          13
-#define STATE_EPOCH_STAKES_STAKES   14
-#define STATE_EPOCH_STAKES_EPOCH    15
-#define STATE_EPOCH_STAKE_HISTORY   16
-#define STATE_EPOCH_TOTAL_STAKE     17
-#define STATE_NODE_VOTE_ACCOUNTS    18
-#define STATE_AUTH_VOTER            19
-#define STATE_LTHASH                20
+#define STATE_EPOCH_STAKES          12
+#define STATE_EPOCH_STAKES_STAKES   13
+#define STATE_EPOCH_STAKES_EPOCH    14
+#define STATE_EPOCH_STAKE_HISTORY   15
+#define STATE_EPOCH_TOTAL_STAKE     16
+#define STATE_NODE_VOTE_ACCOUNTS    17
+#define STATE_AUTH_VOTER            18
+#define STATE_LTHASH                19
+#define STATE_DONE                  20
+#define STATE_INIT STATE_BLOCKHASH_QUEUE
 
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
@@ -29,29 +30,51 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
   return enc;
 }
 
-__attribute__((noreturn))
-static inline void fail( void ) { FD_LOG_ERR(( "buffer overflow" )); }
+/* Size estimate */
+
+#define ENCODE_FN     static ulong manifest_estimate( fd_ssmanifest_writer_t * enc )
+#define PREP          ulong sz = 0UL;
+#define PUSH_VAL(t,n) do { sz += sizeof(t); (void)(n); } while(0)
+#define RET_EXPR      sz
+#include "fd_ssmanifest_encoder.c"
 
 ulong
-fd_snap_manifest_serialize( fd_ssmanifest_writer_t * enc,
-                            uchar out_buf[ FD_SSMANIFEST_BUF_MIN ],
-                            ulong buf_sz ) {
-  fd_bank_t const * bank = enc->bank;
-
-  uchar * p  = out_buf;
-  uchar * p1 = out_buf+buf_sz;
-# define PUSH( n ) __extension__({ \
-    ulong n_ = n; \
-    if( FD_UNLIKELY( p+n_ > p1 ) ) fail(); \
-    uchar * ret = p; \
-    p += n_; \
-    ret; \
-  })
-
-  switch( enc->state ) {
-  case STATE_BLOCKHASH_QUEUE: {
-    FD_STORE( ulong, PUSH( sizeof(ulong) ), 0UL ); /* last hash */
-    break;
+fd_snap_manifest_serialized_sz( fd_bank_t const * bank ) {
+  fd_ssmanifest_writer_t writer[1];
+  fd_ssmanifest_writer_init( writer, bank );
+  ulong sz = 0UL;
+  for(;;) {
+    ulong chunk = manifest_estimate( writer );
+    if( FD_UNLIKELY( !chunk ) ) break;
+    sz += chunk;
   }
-  }
+  return sz;
 }
+
+/* Actual encoder */
+
+__attribute__((cold,noreturn))
+static void fail( fd_ssmanifest_writer_t const * enc,
+                  ulong buf_sz,
+                  ulong line_nr ) {
+  FD_LOG_ERR(( "buffer overflow (state=%u, buf_sz=%lu, line_nr=%lu)", enc->state, buf_sz, line_nr ));
+}
+
+#define ENCODE_FN                                                         \
+  ulong                                                                   \
+  fd_snap_manifest_serialize( fd_ssmanifest_writer_t * enc,               \
+                              uchar out_buf[ FD_SSMANIFEST_BUF_MIN ],     \
+                              ulong buf_sz )
+#define PREP                                                              \
+  uchar * p  = out_buf;                                                   \
+  uchar * p1 = out_buf+buf_sz;
+#define PUSH_VAL( t, n )                                                  \
+  FD_STORE( t, __extension__({                                            \
+    /* compile time bounds check elide */                                 \
+    if( FD_UNLIKELY( p+sizeof(t) > p1 ) ) fail( enc, buf_sz, __LINE__ );  \
+    uchar * ret = p;                                                      \
+    p += sizeof(t);                                                       \
+    ret;                                                                  \
+  }), (n) )
+#define RET_EXPR (ulong)( p - out_buf )
+#include "fd_ssmanifest_encoder.c"

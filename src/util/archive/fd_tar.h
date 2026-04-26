@@ -139,6 +139,13 @@ fd_tar_meta_set_mtime( fd_tar_meta_t * meta,
   return fd_tar_set_octal( meta->mtime, sizeof(meta->mtime), mtime );
 }
 
+static inline void
+fd_tar_meta_set_chksum( fd_tar_meta_t * meta ) {
+  ulong check = 0UL;
+  for( ulong i=0UL; i<FD_TAR_BLOCK_SZ; i++ ) check += meta->raw[ i ];
+  fd_tar_set_octal( meta->chksum, sizeof(meta->chksum), check );
+}
+
 static inline int
 fd_tar_meta_init_file_default( fd_tar_meta_t * meta,
                                char const *    filename,
