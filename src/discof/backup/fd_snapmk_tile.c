@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_snapmk.h"
+#include "fd_ssmanifest_writer.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -8,6 +9,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+
+#define FD_ZSTD_LEVEL 1
+#define RAW_BUF_SZ    (32UL<<20)
+#define COMP_BUF_SZ   ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
 
 /* Funk rooted record iterator (thread-safe) */
 
@@ -32,15 +40,43 @@ struct fd_snapmk {
 
   fd_snapmk_batch_t * batch  [ FD_TOPO_MAX_TILE_OUT_LINKS ];
   ushort              in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
+
+  ZSTD_CCtx *    zst;
+  ZSTD_inBuffer  raw_buf;
+  ZSTD_outBuffer comp_buf;
+
+  uchar raw [ RAW_BUF_SZ  ];
+  uchar comp[ COMP_BUF_SZ ];
+
+  struct {
+    ulong compress_ticks;
+    ulong bytes_compressed;
+    ulong metrics_written;
+  } metrics;
 };
 typedef struct fd_snapmk fd_snapmk_t;
 
 #define IN_KIND_REPLAY 1
 
+FD_FN_CONST static inline ulong
+scratch_align( void ) {
+  return FD_SHMEM_HUGE_PAGE_SZ;
+}
+
+FD_FN_PURE static inline ulong
+scratch_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t) );
+  l = FD_LAYOUT_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
+  return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
+}
+
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-  fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  fd_snapmk_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t) );
   memset( ctx, 0, sizeof(fd_snapmk_t) );
 
   char const * out_path = "/data/r/firedancer/snapout.zst";
@@ -54,7 +90,11 @@ privileged_init( fd_topo_t *      topo,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  fd_snapmk_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
+  fd_snapmk_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t)                       );
+  void *        _zstd = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+
   ctx->state = SNAPMK_STATE_IDLE;
 
   ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
@@ -89,19 +129,24 @@ unprivileged_init( fd_topo_t *      topo,
   if( 0!=strcmp( topo->links[ tile->out_link_id[ ctx->out_meta_idx ] ].name, "snapmk_replay" ) ) {
     FD_LOG_ERR(( "Unexpected output link \"%s\"", topo->links[ tile->out_link_id[ ctx->out_meta_idx ] ].name ));
   }
-}
 
-FD_FN_CONST static inline ulong
-scratch_align( void ) {
-  return alignof(fd_snapmk_t);
-}
-
-FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t) );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+  ctx->zst = ZSTD_initStaticCStream( _zstd, ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
+  FD_TEST( ctx->zst );
+  ulong zst_err;
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, FD_ZSTD_LEVEL );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_compressionLevel) failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_stableInBuffer, 1 );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_stableInBuffer=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_stableOutBuffer, 1 );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_stableOutBuffer=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
+  ctx->raw_buf  = (ZSTD_inBuffer ){ .src = ctx->raw,  .size = 0UL         };
+  ctx->comp_buf = (ZSTD_outBuffer){ .dst = ctx->comp, .size = COMP_BUF_SZ };
 }
 
 static ulong
@@ -255,7 +300,12 @@ snap_begin( fd_snapmk_t * ctx ) {
   if( FD_UNLIKELY( ftruncate( ctx->out_fd, 0 ) ) ) {
     FD_LOG_ERR(( "ftruncate failed: %s", fd_io_strerror( errno ) ));
   }
-  *ctx->zp_file_off = 0UL;
+  *ctx->zp_file_off  = 0UL;
+  ctx->raw_buf.size  = 0UL;
+  ctx->raw_buf.pos   = 0UL;
+  ctx->comp_buf.pos  = 0UL;
+  ctx->comp_buf.size = COMP_BUF_SZ;
+
   ctx->state = SNAPMK_STATE_MANIFEST;
   ctx->chain = 0UL;
   ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );

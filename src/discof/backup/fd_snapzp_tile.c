@@ -44,7 +44,8 @@ struct fd_snapzp {
 };
 typedef struct fd_snapzp fd_snapzp_t;
 
-#define RAW_BUF_SZ  (32UL<<20) /* FIXME make this configurable */
+#define FD_ZSTD_LEVEL 1
+#define RAW_BUF_SZ    (32UL<<20) /* FIXME make this configurable */
 #define COMP_HEAD   522 /* raw tar header block */
 #define COMP_BOUND  ZSTD_COMPRESSBOUND( RAW_BUF_SZ )
 #define COMP_BUF_SZ FD_ULONG_ALIGN_UP( COMP_HEAD+COMP_BOUND+8UL, 4096UL )
@@ -61,6 +62,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapzp_t),  sizeof(fd_snapzp_t) );
   l = FD_LAYOUT_APPEND( l, 4096UL,                RAW_BUF_SZ          );
   l = FD_LAYOUT_APPEND( l, 4096UL,                COMP_BUF_SZ         );
+  l = FD_LAYOUT_APPEND( l, 32UL,                  ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
   return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
 }
 
@@ -86,18 +88,19 @@ unprivileged_init( fd_topo_t *      topo,
   fd_snapzp_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
   uchar *       raw_buf  = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,               RAW_BUF_SZ          );
   uchar *       comp_buf = FD_SCRATCH_ALLOC_APPEND( l, 4096UL,               COMP_BUF_SZ         );
+  void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ulong funk_obj_id;  FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, locks_obj_id ) ) );
 
-  ctx->zst = ZSTD_createCCtx(); /* FIXME no libc alloc */
+  ctx->zst = ZSTD_initStaticCStream( _zstd, ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
   FD_TEST( ctx->zst );
   ulong zst_err;
-  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, 1 );
+  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, FD_ZSTD_LEVEL );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
-    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_compressionLevel=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
+    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_compressionLevel) failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
   zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_stableInBuffer, 1 );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
@@ -192,15 +195,7 @@ flush( fd_snapzp_t * ctx ) {
   /* Prepend compression frame with a TAR header */
   uchar * comp_head = (uchar *)ctx->comp_buf.dst - COMP_HEAD;
   memcpy( comp_head, (uchar[]){0x28,0xB5,0x2F,0xFD,0x60,0x00,0x01,0x01,0x10,0x00}, 10 );
-  fd_tar_meta_t meta = {
-    .magic    = "ustar ",
-    .mode     = "644",
-    .uid      = "0",
-    .gid      = "0",
-    .typeflag = FD_TAR_TYPE_REGULAR,
-    .chksum   = "        "
-  };
-  (void)fd_tar_meta_set_size( &meta, content_usz );
+  fd_tar_meta_t meta; fd_snapmk_tar_file_hdr( &meta, content_usz );
   /* Generate a unique file name */
   ulong frame_id = ctx->frame_id++;
   ulong vec_id   = (frame_id * SNAPZP_TILE_MAX) + ctx->kind_id;
@@ -208,10 +203,7 @@ flush( fd_snapzp_t * ctx ) {
   p = fd_cstr_append_cstr( p, "accounts/0." );
   p = fd_cstr_append_ulong_as_text( p, 0, 0, vec_id, fd_ulong_base10_dig_cnt( vec_id ) );
   fd_cstr_fini( p );
-  /* Checksum */
-  ulong check = 0UL;
-  for( ulong i=0UL; i<FD_TAR_BLOCK_SZ; i++ ) check += meta.raw[ i ];
-  fd_tar_set_octal( meta.chksum, sizeof(meta.chksum), check );
+  fd_tar_meta_set_chksum( &meta );
   memcpy( comp_head+10, &meta, sizeof(fd_tar_meta_t) );
 
   /* Align to block size with a skippable frame */
