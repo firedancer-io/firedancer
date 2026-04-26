@@ -64,3 +64,11 @@ Firedancer is available under the [Apache 2
 license](https://www.apache.org/licenses/LICENSE-2.0). Firedancer also
 includes external libraries that are available under a variety of
 licenses. See [LICENSE](LICENSE) for the full license text.
+
+## 💰 Bounty Contribution
+
+- **Task:** SECURITY.md bounty + pre-contest audit triage for next validator upgrade
+- **Reward:** $1500
+- **Source:** GitHub-Bounty
+- **Date:** 2026-04-27
+
