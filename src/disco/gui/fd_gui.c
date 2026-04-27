@@ -3145,7 +3145,14 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
 
     fd_gui_txn_t * txn_entry = gui->txs[ (pack_txn_idx + i)%FD_GUI_TXN_HISTORY_SZ ];
-    fd_memcpy(txn_entry->signature, txn_payload->payload + txn->signature_off, FD_SHA512_HASH_SZ);
+
+    /* If execution_end already ran for this txn, the arrival timestamp
+       it stamped will match.  Preserve all existing flags. Otherwise
+       the entry is stale from a ring buffer wrap-around, so clear all
+       flags. */
+    if( FD_LIKELY( txn_entry->timestamp_arrival_nanos!=txn_payload->scheduler_arrival_time_nanos ) ) txn_entry->flags = (uchar)0;
+
+    fd_memcpy( txn_entry->signature, txn_payload->payload + txn->signature_off, FD_SHA512_HASH_SZ );
     txn_entry->timestamp_arrival_nanos     = txn_payload->scheduler_arrival_time_nanos;
     txn_entry->compute_units_requested     = cost_estimate & 0x1FFFFFU;
     txn_entry->priority_fee                = priority_rewards;
@@ -3154,9 +3161,9 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     txn_entry->source_ipv4                 = txn_payload->source_ipv4;
     txn_entry->source_tpu                  = txn_payload->source_tpu;
     txn_entry->microblock_idx              = microblock_idx;
-    txn_entry->flags                       = (uchar)FD_GUI_TXN_FLAGS_STARTED;
-    txn_entry->flags                      |= (uchar)fd_uint_if(txn_payload->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE, 0U);
-    txn_entry->flags                      |= (uchar)fd_uint_if((txn_payload->flags & FD_TXN_P_FLAGS_BUNDLE) || (txn_payload->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE), FD_GUI_TXN_FLAGS_FROM_BUNDLE, 0U);
+    txn_entry->flags                      |= (uchar)FD_GUI_TXN_FLAGS_STARTED;
+    txn_entry->flags                      |= (uchar)fd_uint_if( !!(txn_payload->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE), FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE, 0U );
+    txn_entry->flags                      |= (uchar)fd_uint_if( (txn_payload->flags & FD_TXN_P_FLAGS_BUNDLE) || (txn_payload->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE), FD_GUI_TXN_FLAGS_FROM_BUNDLE, 0U );
   }
 
   /* At the moment, bank publishes at most 1 transaction per microblock,
@@ -3198,6 +3205,14 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     fd_txn_p_t * txn_p = &txns[ i ];
 
     fd_gui_txn_t * txn_entry = gui->txs[ (pack_txn_idx + i)%FD_GUI_TXN_HISTORY_SZ ];
+
+    /* If execution_begin already ran for this txn, the arrival
+       timestamp it stamped will match.  Preserve all existing flags.
+       Otherwise the entry is stale from a ring buffer wrap-around, so
+       clear all flags. */
+    if( FD_UNLIKELY( txn_entry->timestamp_arrival_nanos!=txn_p->scheduler_arrival_time_nanos ) ) txn_entry->flags = (uchar)0;
+
+    txn_entry->timestamp_arrival_nanos   = txn_p->scheduler_arrival_time_nanos;
     txn_entry->bank_idx                  = bank_idx                             & 0x3FU;
     txn_entry->compute_units_consumed    = txn_p->execle_cu.actual_consumed_cus & 0x1FFFFFU;
     txn_entry->error_code                = (txn_p->flags >> 24)                 & 0x3FU;
@@ -3209,7 +3224,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     txn_entry->tips                      = tips;
     txn_entry->flags                    |= (uchar)FD_GUI_TXN_FLAGS_ENDED;
     txn_entry->flags                    &= (uchar)(~(uchar)FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK);
-    txn_entry->flags                    |= (uchar)fd_uint_if(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS, FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK, 0U);
+    txn_entry->flags                    |= (uchar)fd_uint_if( !!(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS), FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK, 0U );
   }
 
   lslot->txs.end_microblocks = lslot->txs.end_microblocks + (uint)txn_cnt;
