@@ -5,7 +5,6 @@
 #include "../runtime/program/vote/fd_vote_state_versioned.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
-#include "../runtime/sysvar/fd_sysvar_cache.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/fd_runtime_stack.h"
@@ -42,51 +41,6 @@ warmup_cooldown_rate( ulong current_epoch, ulong * new_rate_activation_epoch ) {
     fd_stake_warmup_cooldown_rate( current_epoch, new_rate_activation_epoch ) );
 }
 
-static fd_stake_history_entry_t const *
-fd_stake_history_ele_binary_search_const( fd_stake_history_t const * history,
-                                          ulong epoch ) {
-  ulong start = 0UL;
-  ulong end  = history->fd_stake_history_len - 1;
-
-  while ( start<=end ) {
-    ulong mid = start + ( end - start ) / 2UL;
-    if( history->fd_stake_history[mid].epoch==epoch ) {
-      return &history->fd_stake_history[mid].entry;
-    } else if( history->fd_stake_history[mid].epoch<epoch ) {
-      if ( mid==0 ) return NULL;
-      end = mid - 1;
-    } else {
-      start = mid + 1;
-    }
-  }
-  return NULL;
-}
-
-static fd_stake_history_entry_t const *
-fd_stake_history_ele_query_const( fd_stake_history_t const * history,
-                                  ulong epoch ) {
-  if( 0 == history->fd_stake_history_len ) {
-    return NULL;
-  }
-
-  if( epoch > history->fd_stake_history[0].epoch ) {
-    return NULL;
-  }
-
-  ulong off = (history->fd_stake_history[0].epoch - epoch);
-  if( off >= history->fd_stake_history_len ) {
-    return fd_stake_history_ele_binary_search_const( history, epoch );
-  }
-
-  ulong e = (off + history->fd_stake_history_offset) & (history->fd_stake_history_size - 1);
-
-  if ( history->fd_stake_history[e].epoch == epoch ) {
-    return &history->fd_stake_history[e].entry;
-  }
-
-  return fd_stake_history_ele_binary_search_const( history, epoch );
-}
-
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L728
 static effective_activating_t
 stake_and_activating( fd_delegation_t const *    self,
@@ -105,7 +59,7 @@ stake_and_activating( fd_delegation_t const *    self,
   } else if( target_epoch<self->activation_epoch ) {
     return ( effective_activating_t ){ .effective = 0, .activating = 0 };
   } else if( history &&
-              ( cluster_stake_at_activation_epoch = fd_stake_history_ele_query_const(
+              ( cluster_stake_at_activation_epoch = fd_sysvar_stake_history_query(
                     history, self->activation_epoch ) ) ) {
     ulong                            prev_epoch         = self->activation_epoch;
     fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_activation_epoch;
@@ -140,7 +94,7 @@ stake_and_activating( fd_delegation_t const *    self,
       }
 
       fd_stake_history_entry_t const * current_cluster_stake =
-          fd_stake_history_ele_query_const( history, current_epoch );
+          fd_sysvar_stake_history_query( history, current_epoch );
       if( FD_LIKELY( current_cluster_stake ) ) {
         prev_epoch         = current_epoch;
         prev_cluster_stake = current_cluster_stake;
@@ -182,7 +136,7 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
     return ( fd_stake_history_entry_t ){
         .effective = effective_stake, .deactivating = effective_stake, .activating = 0 };
   } else if( stake_history &&
-             ( cluster_stake_at_deactivation_epoch = fd_stake_history_ele_query_const( stake_history, self->deactivation_epoch ) ) ) {
+             ( cluster_stake_at_deactivation_epoch = fd_sysvar_stake_history_query( stake_history, self->deactivation_epoch ) ) ) {
     ulong                      prev_epoch         = self->deactivation_epoch;
     fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_deactivation_epoch;
 
@@ -208,7 +162,7 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
       if( current_epoch>=target_epoch ) break;
 
       fd_stake_history_entry_t const * current_cluster_stake = NULL;
-      if( ( current_cluster_stake = fd_stake_history_ele_query_const(stake_history, current_epoch ) ) ) {
+      if( ( current_cluster_stake = fd_sysvar_stake_history_query(stake_history, current_epoch ) ) ) {
         prev_epoch         = current_epoch;
         prev_cluster_stake = current_cluster_stake;
       } else {
@@ -863,23 +817,21 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   /* We can update our stake history sysvar based on the bank stake values.
      Afterward, we can refresh the stake values for the vote accounts. */
 
-  fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-  }
-
-  fd_epoch_stake_history_entry_pair_t elem = {
-    .epoch = bank->f.epoch,
-    .entry = {
-      .effective    = stake_delegations->effective_stake,
-      .activating   = stake_delegations->activating_stake,
-      .deactivating = stake_delegations->deactivating_stake,
-    }
+  fd_stake_history_entry_t elem = {
+    .epoch        = bank->f.epoch,
+    .effective    = stake_delegations->effective_stake,
+    .activating   = stake_delegations->activating_stake,
+    .deactivating = stake_delegations->deactivating_stake,
   };
   fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &elem );
 
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  fd_accdb_ro_t sh_ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, sh_ro, xid, &fd_sysvar_stake_history_id ) ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar is missing" ));
+  }
+  fd_stake_history_t stake_history[1];
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, fd_accdb_ref_data_const( sh_ro ), fd_accdb_ref_data_sz( sh_ro ) ) ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar has invalid data" ));
   }
 
   /* Now increment the epoch and recompute the stakes for the vote
@@ -895,6 +847,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                             stake_history,
                             new_rate_activation_epoch );
 
+  fd_accdb_close_ro( accdb, sh_ro );
 }
 
 

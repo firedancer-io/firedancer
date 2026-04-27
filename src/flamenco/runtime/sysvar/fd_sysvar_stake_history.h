@@ -1,44 +1,36 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_stake_history_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_stake_history_h
 
-#include "../../types/fd_types.h"
-#include "../../../funk/fd_funk_base.h"
-#include "../../accdb/fd_accdb_user.h"
-
-/* FD_SYSVAR_STAKE_HISTORY_CAP is the max number of entries that the
-   "stake history" sysvar will include.
-
-   https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/stake_history.rs#L12 */
-
-#define FD_SYSVAR_STAKE_HISTORY_CAP (512UL)
+#include "../../fd_flamenco_base.h"
+#include "../fd_bank.h"
 
 FD_PROTOTYPES_BEGIN
 
-/* The stake history sysvar contains the history of cluster-wide activations and de-activations per-epoch. Updated at the start of each epoch. */
-
-/* Initialize the stake history sysvar account. */
 void
 fd_sysvar_stake_history_init( fd_bank_t *               bank,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx );
 
-/* fd_sysvar_stake_history_read reads the stake history sysvar from funk.
-   If the account doesn't exist in funk or if the account has zero
-   lamports, this function returns NULL. */
+void
+fd_sysvar_stake_history_update( fd_bank_t *                      bank,
+                                fd_accdb_user_t *                accdb,
+                                fd_funk_txn_xid_t const *        xid,
+                                fd_capture_ctx_t *               capture_ctx,
+                                fd_stake_history_entry_t const * entry );
+
+int
+fd_sysvar_stake_history_validate( uchar const * data,
+                                  ulong         sz );
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_stake_history_t  *     stake_history );
+fd_sysvar_stake_history_view( fd_stake_history_t * view,
+                              uchar const *        data,
+                              ulong                sz );
 
-/* Update the stake history sysvar account - called during epoch boundary */
-void
-fd_sysvar_stake_history_update( fd_bank_t *                                 bank,
-                                fd_accdb_user_t *                           accdb,
-                                fd_funk_txn_xid_t const *                   xid,
-                                fd_capture_ctx_t *                          capture_ctx,
-                                fd_epoch_stake_history_entry_pair_t const * pair );
+fd_stake_history_entry_t const *
+fd_sysvar_stake_history_query( fd_stake_history_t const * view,
+                               ulong                      epoch );
 
 FD_PROTOTYPES_END
 

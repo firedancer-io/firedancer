@@ -8,6 +8,7 @@
 #include "../program/vote/fd_vote_state_versioned.h"
 #include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../sysvar/fd_sysvar_cache.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../accdb/fd_accdb_sync.h"
@@ -300,7 +301,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Initialize total_effective/activating/deactivating_stake from the
      loaded stake delegations.  These are read by fd_stakes_activate_epoch
      at epoch boundary instead of re-scanning all delegations. */
-  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache ), &bank->f.warmup_cooldown_rate_epoch, accdb, xid );
+  fd_stake_history_t sh_view[1];
+  fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, sh_view );
+  fd_stake_delegations_refresh( stake_delegations, bank->f.epoch, sh_view, &bank->f.warmup_cooldown_rate_epoch, accdb, xid );
 
   /* Finalize root fork.  Required before epoch boundary processing which
      may call fd_vote_stakes_advance_root.  See fd_vote_stakes.h. */

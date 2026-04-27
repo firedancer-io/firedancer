@@ -1,6 +1,7 @@
 #include "fd_bank.h"
 #include "fd_runtime_const.h"
 #include "../rewards/fd_stake_rewards.h"
+#include "sysvar/fd_sysvar_cache.h"
 
 fd_lthash_value_t const *
 fd_bank_lthash_locking_query( fd_bank_t * bank ) {
@@ -660,7 +661,8 @@ fd_bank_apply_deltas( fd_banks_t * banks,
   /* We have populated all of the indicies that we need to apply deltas
      from in reverse order. */
 
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache );
+  fd_stake_history_t stake_history[1];
+  fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history );
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort sd_idx = sd_pool_indices[i-1UL];
     ushort nv_idx = nv_pool_indices[i-1UL];
@@ -687,7 +689,8 @@ fd_bank_stake_delegation_mark_deltas( fd_banks_t *             banks,
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
   }
 
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache );
+  fd_stake_history_t stake_history[1];
+  fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history );
 
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];
@@ -713,7 +716,8 @@ fd_bank_stake_delegation_unmark_deltas( fd_banks_t *             banks,
     curr_bank = fd_banks_pool_ele( bank_pool, curr_bank->parent_idx );
   }
 
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache );
+  fd_stake_history_t stake_history[1];
+  fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, stake_history );
 
   for( ulong i=pool_indices_len; i>0; i-- ) {
     ushort idx = pool_indices[i-1UL];

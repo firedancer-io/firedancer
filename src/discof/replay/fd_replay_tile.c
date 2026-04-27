@@ -30,6 +30,7 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
@@ -758,10 +759,12 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
+  fd_stake_history_t sh_view[1];
+  fd_sysvar_cache_stake_history_view( &bank->f.sysvar_cache, sh_view );
   fd_stake_delegations_refresh(
       root_delegations,
       bank->f.epoch,
-      fd_sysvar_cache_stake_history_join_const( &bank->f.sysvar_cache ),
+      sh_view,
       &bank->f.warmup_cooldown_rate_epoch,
       ctx->accdb,
       &xid );

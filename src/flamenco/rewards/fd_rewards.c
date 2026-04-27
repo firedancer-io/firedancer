@@ -7,7 +7,7 @@
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
-#include "../runtime/sysvar/fd_sysvar_cache.h"
+#include "../runtime/fd_system_ids.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_accdb_svm.h"
@@ -585,9 +585,13 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                              ulong                          rewarded_epoch,
                              ulong *                        rewards_out ) {
 
+  fd_accdb_ro_t sh_ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, sh_ro, xid, &fd_sysvar_stake_history_id ) ) ) {
+    FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  }
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, fd_accdb_ref_data_const( sh_ro ), fd_accdb_ref_data_sz( sh_ro ) ) ) ) {
+    FD_LOG_ERR(( "Unable to decode stake history sysvar" ));
   }
 
   /* Calculate the epoch reward points from stake/vote accounts */
@@ -642,6 +646,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       *rewards_out,
       total_points );
 
+  fd_accdb_close_ro( accdb, sh_ro );
   return total_points;
 }
 
@@ -1033,9 +1038,13 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong const epoch          = bank->f.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
+  fd_accdb_ro_t sh_ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, sh_ro, xid, &fd_sysvar_stake_history_id ) ) ) {
+    FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  }
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, fd_accdb_ref_data_const( sh_ro ), fd_accdb_ref_data_sz( sh_ro ) ) ) ) {
+    FD_LOG_ERR(( "Unable to decode stake history sysvar" ));
   }
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
@@ -1066,5 +1075,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       epoch_rewards_sysvar->total_rewards,
       epoch_rewards_sysvar->total_points.ud );
 
+  fd_accdb_close_ro( accdb, sh_ro );
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
 }

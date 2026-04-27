@@ -21,7 +21,6 @@
    is considered non-existent. */
 
 #include "fd_sysvar_base.h"
-#include "../../types/fd_types.h"
 #include "../../accdb/fd_accdb_ref.h"
 
 #define FD_SYSVAR_CACHE_ENTRY_CNT 9
@@ -58,7 +57,6 @@ struct fd_sysvar_cache {
   uchar bin_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_history      [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_stake_history     [ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_stake_history     [ FD_SYSVAR_STAKE_HISTORY_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
 
   /* Note that two sysvars are (deliberately) missing:
      - The 'fees' sysvar was deprecated/demoted.  It is not part of the
@@ -278,25 +276,18 @@ fd_sysvar_cache_slot_history_is_valid( fd_sysvar_cache_t const * sysvar_cache ) 
   return FD_SYSVAR_IS_VALID( sysvar_cache, slot_history );
 }
 
-/* fd_sysvar_cache_stake_history_{join,leave}_const {attach,detach} the
-   caller {from,to} the "stake history" sysvar.  Behavior analogous to
-   above accessors. */
-
 static inline int
 fd_sysvar_cache_stake_history_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, stake_history );
 }
 
-fd_stake_history_t const *
-fd_sysvar_cache_stake_history_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
+/* View convenience wrappers.  These combine fd_sysvar_cache_data_query
+   with the corresponding fd_sysvar_*_view function.  Returns view on
+   success or NULL if the sysvar is invalid. */
 
-void
-fd_sysvar_cache_stake_history_leave_const(
-    fd_sysvar_cache_t const *  sysvar_cache,
-    fd_stake_history_t const * stake_history
-);
+fd_stake_history_t *
+fd_sysvar_cache_stake_history_view( fd_sysvar_cache_t const * cache,
+                                    fd_stake_history_t *      view );
 
 fd_slot_hashes_view_t *
 fd_sysvar_cache_slot_hashes_view( fd_sysvar_cache_t const * cache,

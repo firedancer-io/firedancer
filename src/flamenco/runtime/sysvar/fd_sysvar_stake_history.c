@@ -1,94 +1,112 @@
 #include "fd_sysvar_stake_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../../accdb/fd_accdb_sync.h"
-
-/* Ensure that the size declared by our header matches the minimum size
-   of the corresponding fd_types entry. */
-
-static void
-write_stake_history( fd_bank_t *               bank,
-                     fd_accdb_user_t *         accdb,
-                     fd_funk_txn_xid_t const * xid,
-                     fd_capture_ctx_t *        capture_ctx,
-                     fd_stake_history_t *      stake_history ) {
-  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
-  uchar __attribute__((aligned(FD_STAKE_HISTORY_ALIGN))) enc[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ] = {0};
-  fd_bincode_encode_ctx_t encode =
-    { .data    = enc,
-      .dataend = enc + sizeof(enc) };
-  if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(("fd_stake_history_encode failed"));
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
-}
-
-fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_stake_history_t *      stake_history ) {
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_stake_history_id ) ) ) {
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  stake_history = fd_bincode_decode_static(
-      stake_history, stake_history,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz( ro ) );
-  fd_accdb_close_ro( accdb, ro );
-  return stake_history;
-}
+#include "../fd_accdb_svm.h"
 
 void
 fd_sysvar_stake_history_init( fd_bank_t *               bank,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx ) {
-  fd_stake_history_t stake_history;
-  fd_stake_history_new( &stake_history );
-  write_stake_history( bank, accdb, xid, capture_ctx, &stake_history );
+  uchar data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_memset( data, 0, sizeof(data) );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_stake_history_id, data, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
 }
 
 void
-fd_sysvar_stake_history_update( fd_bank_t *                                 bank,
-                                fd_accdb_user_t *                           accdb,
-                                fd_funk_txn_xid_t const *                   xid,
-                                fd_capture_ctx_t *                          capture_ctx,
-                                fd_epoch_stake_history_entry_pair_t const * pair ) {
+fd_sysvar_stake_history_update( fd_bank_t *                      bank,
+                                fd_accdb_user_t *                accdb,
+                                fd_funk_txn_xid_t const *        xid,
+                                fd_capture_ctx_t *               capture_ctx,
+                                fd_stake_history_entry_t const * entry ) {
 
-  fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_CRIT(( "Failed to read stake history sysvar" ));
+  fd_accdb_rw_t rw[1];
+  fd_accdb_svm_update_t update[1];
+  if( FD_UNLIKELY( !fd_accdb_svm_open_rw( accdb, bank, xid, rw, update, &fd_sysvar_stake_history_id, 0UL, 0 ) ) ) {
+    FD_LOG_ERR(( "state is missing stake history sysvar" ));
+  }
+  if( FD_UNLIKELY( 0!=memcmp( fd_accdb_ref_owner( rw->ro ), &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
+    FD_LOG_ERR(( "stake history sysvar not owned by sysvar owner" ));
+  }
+  uchar * data    = fd_accdb_ref_data   ( rw );
+  ulong   data_sz = fd_accdb_ref_data_sz( rw->ro );
+  if( FD_UNLIKELY( data_sz < 8UL ) ) {
+    FD_LOG_ERR(( "invalid stake history sysvar" ));
   }
 
-  if( stake_history->fd_stake_history_offset == 0 ) {
-    stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
-  } else {
-    stake_history->fd_stake_history_offset--;
+  ulong len = FD_LOAD( ulong, data );
+  if( FD_UNLIKELY( len > FD_SYSVAR_STAKE_HISTORY_CAP ) ) {
+    FD_LOG_ERR(( "invalid stake history sysvar: len too large (%lu)", len ));
+  }
+  ulong min_sz = 8UL + len * 32UL;
+  if( FD_UNLIKELY( data_sz < min_sz ) ) {
+    FD_LOG_ERR(( "invalid stake history sysvar: data_sz too small (%lu, required %lu)", data_sz, min_sz ));
   }
 
-  if( stake_history->fd_stake_history_len < stake_history->fd_stake_history_size ) {
-    stake_history->fd_stake_history_len++;
+  ulong new_len = fd_ulong_min( len + 1UL, FD_SYSVAR_STAKE_HISTORY_CAP );
+  ulong shift   = fd_ulong_min( len, FD_SYSVAR_STAKE_HISTORY_CAP - 1UL );
+
+  if( shift ) {
+    memmove( data + 8UL + 32UL, data + 8UL, shift * 32UL );
   }
 
-  // This should be done with a bit mask
-  ulong idx = stake_history->fd_stake_history_offset;
+  uchar * p = data + 8UL;
+  FD_STORE( ulong, p,      entry->epoch );
+  FD_STORE( ulong, p+ 8UL, entry->effective );
+  FD_STORE( ulong, p+16UL, entry->activating );
+  FD_STORE( ulong, p+24UL, entry->deactivating );
 
-  stake_history->fd_stake_history[ idx ].epoch              = pair->epoch;
-  stake_history->fd_stake_history[ idx ].entry.activating   = pair->entry.activating;
-  stake_history->fd_stake_history[ idx ].entry.effective    = pair->entry.effective;
-  stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
+  FD_STORE( ulong, data, new_len );
 
-  write_stake_history( bank, accdb, xid, capture_ctx, stake_history );
+  fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
+}
 
+int
+fd_sysvar_stake_history_validate( uchar const * data,
+                                  ulong         sz ) {
+  if( FD_UNLIKELY( sz < 8UL ) ) return 0;
+  ulong len = FD_LOAD( ulong, data );
+  if( FD_UNLIKELY( len > FD_SYSVAR_STAKE_HISTORY_CAP ) ) return 0;
+  ulong min_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( len, 32UL, &min_sz ) ) ) return 0;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( min_sz, 8UL, &min_sz ) ) ) return 0;
+  if( FD_UNLIKELY( sz < min_sz ) ) return 0;
+  return 1;
+}
+
+fd_stake_history_t *
+fd_sysvar_stake_history_view( fd_stake_history_t * view,
+                              uchar const *        data,
+                              ulong                sz ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_validate( data, sz ) ) ) return NULL;
+  view->len     = FD_LOAD( ulong, data );
+  view->entries = fd_type_pun_const( data + 8UL );
+  return view;
+}
+
+fd_stake_history_entry_t const *
+fd_sysvar_stake_history_query( fd_stake_history_t const * view,
+                               ulong                      epoch ) {
+  if( FD_UNLIKELY( !view || !view->len ) ) return NULL;
+  if( epoch > view->entries[0].epoch ) return NULL;
+
+  ulong off = view->entries[0].epoch - epoch;
+  if( off < view->len && view->entries[off].epoch == epoch ) {
+    return &view->entries[off];
+  }
+
+  ulong lo = 0UL;
+  ulong hi = view->len - 1UL;
+  while( lo <= hi ) {
+    ulong mid = lo + ( hi - lo ) / 2UL;
+    if( view->entries[mid].epoch == epoch ) {
+      return &view->entries[mid];
+    } else if( view->entries[mid].epoch > epoch ) {
+      lo = mid + 1UL;
+    } else {
+      if( mid == 0UL ) return NULL;
+      hi = mid - 1UL;
+    }
+  }
+  return NULL;
 }

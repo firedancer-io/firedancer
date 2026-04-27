@@ -61,14 +61,7 @@ struct fd_sysvar_pos {
 
   char const * name;
 
-  /* sysvars either have a decode function (along with a decode
-     footprint) function for complex type decodes or a validate function
-     for sysvars that are simple types that can be simply memcpy'd and
-     validated. */
-
-  int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-  void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
-  int    (* validate)( uchar const * data, ulong data_sz ); /* returns 1 if valid, 0 otherwise */
+  int (* validate)( uchar const * data, ulong data_sz ); /* returns 1 if valid, 0 otherwise */
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
 

@@ -8,24 +8,14 @@
 #define FD_SYSVAR_ALIGN_MAX (16UL)
 
 #define FD_SYSVAR_CLOCK_BINCODE_SZ         (    40UL)
-
 #define FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ (    81UL)
-
 #define FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ (   33UL)
-
 #define FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ  (8UL)
-
 #define FD_SYSVAR_RECENT_HASHES_BINCODE_SZ (  6008UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/recent_blockhashes.rs#L157 */
-
 #define FD_SYSVAR_RENT_BINCODE_SZ          (    17UL)
-
 #define FD_SYSVAR_SLOT_HASHES_BINCODE_SZ   ( 20488UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/slot_hashes.rs#L69 */
-
 #define FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ  (131097UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/slot_history.rs#L65 */
-
 #define FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ( 16392UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/stake_history.rs#L66 */
-#define FD_SYSVAR_STAKE_HISTORY_ALIGN      (     8UL)
-#define FD_SYSVAR_STAKE_HISTORY_FOOTPRINT  ( 16408UL)
 
 struct fd_sysvar_clock {
   ulong slot;
@@ -76,5 +66,21 @@ struct fd_slot_hashes_view {
   ulong                  cnt;
 };
 typedef struct fd_slot_hashes_view fd_slot_hashes_view_t;
+
+#define FD_SYSVAR_STAKE_HISTORY_CAP 512UL
+
+struct fd_stake_history_entry {
+  ulong epoch;
+  ulong effective;
+  ulong activating;
+  ulong deactivating;
+};
+typedef struct fd_stake_history_entry fd_stake_history_entry_t;
+
+struct fd_stake_history {
+  fd_stake_history_entry_t const * entries;
+  ulong                            len;
+};
+typedef struct fd_stake_history fd_stake_history_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h */
