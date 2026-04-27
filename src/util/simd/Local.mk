@@ -6,6 +6,10 @@ $(call make-unit-test,test_sse_16x8,test_sse_16x8 test_sse_common,fd_util)
 $(call run-unit-test,test_sse_4x32,)
 $(call run-unit-test,test_sse_2x64,)
 $(call run-unit-test,test_sse_16x8,)
+
+$(call add-hdrs fd_nt_memcpy.h)
+$(call make-unit-test,test_nt_memcpy,test_nt_memcpy,fd_util)
+$(call run-unit-test,test_nt_memcpy)
 endif
 
 $(call add-hdrs,fd_avx.h fd_avx_wc.h fd_avx_wi.h fd_avx_wu.h fd_avx_wf.h fd_avx_wl.h fd_avx_wv.h fd_avx_wd.h fd_avx_wl.h fd_avx_wb.h)
