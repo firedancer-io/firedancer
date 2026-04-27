@@ -268,7 +268,6 @@ struct fd_bank {
   ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
   ushort                new_votes_fork_id; /* fork id used by new vote account deltas */
   ulong                 cost_tracker_pool_idx;
-  ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
@@ -443,10 +442,12 @@ fd_stake_rewards_t *
 fd_bank_stake_rewards_modify( fd_bank_t * bank );
 
 fd_epoch_leaders_t const *
-fd_bank_epoch_leaders_query( fd_bank_t const * bank );
+fd_bank_epoch_leaders_query( fd_bank_t const * bank,
+                             ulong             epoch );
 
 fd_epoch_leaders_t *
-fd_bank_epoch_leaders_modify( fd_bank_t * bank );
+fd_bank_epoch_leaders_modify( fd_bank_t * bank,
+                              ulong       epoch );
 
 fd_top_votes_t const *
 fd_bank_top_votes_t_1_query( fd_bank_t const * bank );

@@ -370,7 +370,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   ulong slot0    = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
   ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
 
-  void * leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
       leaders_mem, epoch, slot0, slot_cnt, N, stakes, 0UL ) ) );
 
