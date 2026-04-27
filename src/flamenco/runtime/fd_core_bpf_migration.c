@@ -32,7 +32,8 @@ fd_tmp_account_t *
 tmp_account_new( fd_tmp_account_t * acc,
                  ulong              acc_sz ) {
   acc->data_sz = acc_sz;
-  fd_memset( acc->data, 0, acc_sz );
+  fd_memset( acc->data,  0, acc_sz );
+  fd_memset( &acc->meta, 0, sizeof(fd_account_meta_t) );
   return acc;
 }
 
@@ -571,6 +572,8 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
                               fd_runtime_stack_t *                   runtime_stack,
                               fd_pubkey_t const *                    builtin_program_id,
                               fd_capture_ctx_t *                     capture_ctx ) {
+  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+
   target_builtin_t target[1];
   if( FD_UNLIKELY( !target_builtin_new_checked(
       target,
@@ -663,6 +666,8 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
                              fd_pubkey_t const *                    builtin_program_id,
                              fd_pubkey_t const *                    source_buffer_address,
                              fd_capture_ctx_t *                     capture_ctx ) {
+  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L327 */
   target_core_bpf_t target[1];
   if( FD_UNLIKELY( !target_core_bpf_new_checked( target, builtin_program_id, accdb, xid, runtime_stack ) ) ) {
@@ -750,6 +755,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
                                                      fd_pubkey_t const *       source_buffer_address,
                                                      int                       allow_prefunded,
                                                      fd_capture_ctx_t *        capture_ctx ) {
+  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L411-L412 */
   target_builtin_t target[1];
