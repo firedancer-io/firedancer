@@ -503,6 +503,17 @@ accdb_per_tile_offsets( char const * name,
     offs[8]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_EVICTED_CLASS     );
     offs[9]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_PREEVICTED        ); offs[10]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_PREEVICTED_CLASS );
     offs[11]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_COMMITTED_NEW_CLASS);
+  } else if( !strcmp( name, "rpc" ) ) {
+    /* RPC is a read-only accdb consumer.  It only emits the subset
+       of counters that fd_accdb_read_one_nocache touches; everything
+       else is sentinel and skipped by sample_accdb. */
+    offs[0]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_ACQUIRED); offs[1]=ULONG_MAX;
+    offs[2]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_MISSED  ); offs[3]=ULONG_MAX;
+    offs[4]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_WAITED  ); offs[5]=MIDX(COUNTER,RPC,ACCDB_BYTES_READ);
+    offs[6]=ULONG_MAX;                                 offs[7]=MIDX(COUNTER,RPC,ACCDB_BYTES_COPIED);
+    offs[8]=ULONG_MAX;
+    offs[9]=ULONG_MAX;                                 offs[10]=ULONG_MAX;
+    offs[11]=ULONG_MAX;
   } else {
     for( ulong i=0UL; i<12UL; i++ ) offs[i] = ULONG_MAX;
   }
@@ -524,20 +535,22 @@ sample_accdb( config_t const * config,
     accdb_per_tile_offsets( config->topo.tiles[ i ].name, offs );
     if( offs[0]==ULONG_MAX ) continue;
     acquired += diff_tile_idx( prev_tile, cur_tile, i, offs[0] );
-    writable += diff_tile_idx( prev_tile, cur_tile, i, offs[1] );
-    missed   += diff_tile_idx( prev_tile, cur_tile, i, offs[2] );
-    evicted  += diff_tile_idx( prev_tile, cur_tile, i, offs[3] );
-    waited   += diff_tile_idx( prev_tile, cur_tile, i, offs[4] );
-    bytes_rd += diff_tile_idx( prev_tile, cur_tile, i, offs[5] );
-    bytes_cp += diff_tile_idx( prev_tile, cur_tile, i, offs[7] );
-    long this_wr = diff_tile_idx( prev_tile, cur_tile, i, offs[6] );
-    if( !strcmp( config->topo.tiles[ i ].name, "accdb" ) ) bytes_pe += this_wr;
-    else                                                   bytes_wr += this_wr;
-    preevicted += diff_tile_idx( prev_tile, cur_tile, i, offs[9] );
+    if( offs[1]!=ULONG_MAX ) writable += diff_tile_idx( prev_tile, cur_tile, i, offs[1] );
+    if( offs[2]!=ULONG_MAX ) missed   += diff_tile_idx( prev_tile, cur_tile, i, offs[2] );
+    if( offs[3]!=ULONG_MAX ) evicted  += diff_tile_idx( prev_tile, cur_tile, i, offs[3] );
+    if( offs[4]!=ULONG_MAX ) waited   += diff_tile_idx( prev_tile, cur_tile, i, offs[4] );
+    if( offs[5]!=ULONG_MAX ) bytes_rd += diff_tile_idx( prev_tile, cur_tile, i, offs[5] );
+    if( offs[7]!=ULONG_MAX ) bytes_cp += diff_tile_idx( prev_tile, cur_tile, i, offs[7] );
+    if( offs[6]!=ULONG_MAX ) {
+      long this_wr = diff_tile_idx( prev_tile, cur_tile, i, offs[6] );
+      if( !strcmp( config->topo.tiles[ i ].name, "accdb" ) ) bytes_pe += this_wr;
+      else                                                   bytes_wr += this_wr;
+    }
+    if( offs[9]!=ULONG_MAX ) preevicted += diff_tile_idx( prev_tile, cur_tile, i, offs[9] );
     for( ulong c=0UL; c<8UL; c++ ) {
-      evicted_class      [ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[8]  + c );
-      preevicted_class   [ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[10] + c );
-      committed_new_class[ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[11] + c );
+      if( offs[8]!=ULONG_MAX  ) evicted_class      [ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[8]  + c );
+      if( offs[10]!=ULONG_MAX ) preevicted_class   [ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[10] + c );
+      if( offs[11]!=ULONG_MAX ) committed_new_class[ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[11] + c );
     }
   }
 
@@ -562,11 +575,18 @@ sample_accdb( config_t const * config,
 
 static uint
 write_accdb( config_t const * config,
-             ulong const *    cur_tile ) {
+             ulong const *    cur_tile,
+             ulong const *    prev_tile ) {
   ulong accdb_tile_idx = fd_topo_find_tile( &config->topo, "accdb", 0UL );
   if( accdb_tile_idx==ULONG_MAX ) return 0U;
 
   ulong const * t = cur_tile + accdb_tile_idx*FD_METRICS_TOTAL_SZ;
+
+  ulong accdb_total_ticks = total_regime( &cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ ] );
+  accdb_total_ticks = fd_ulong_max( accdb_total_ticks, 1UL );
+  double accdb_backp_pct = 100.0*(double)diff_tile( config, "accdb", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)accdb_total_ticks;
+  double accdb_idle_pct  = 100.0*(double)diff_tile( config, "accdb", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG  ) )/(double)accdb_total_ticks;
+  double accdb_busy_pct  = 100.0 - accdb_backp_pct - accdb_idle_pct;
 
   ulong acct_cnt        = t[ MIDX( GAUGE,   ACCDB, ACCOUNTS_TOTAL        ) ];
   ulong acct_cap        = t[ MIDX( GAUGE,   ACCDB, ACCOUNTS_CAPACITY     ) ];
@@ -589,10 +609,12 @@ write_accdb( config_t const * config,
          " " BOLD "LIVE DATA"     UNBOLD " %.1f GB"
          " " BOLD "FRAGMENTATION" UNBOLD " %.1f GB (%4.1f%%)"
          " " BOLD "INDEX"         UNBOLD " %4.1f%% (%.1fM / %.1fM)"
-         " " BOLD "COMPACTION"    UNBOLD " %s (%lu / %lu)" CLEARLN "\n",
+         " " BOLD "COMPACTION"    UNBOLD " %s (%lu / %lu)"
+         " " BOLD "BUSY"          UNBOLD " %3.0f%%" CLEARLN "\n",
     data_gb, live_gb, frag_gb, frag_pct,
     index_pct, (double)acct_cnt/1e6, (double)acct_cap/1e6,
-    in_compaction ? "running" : "idle", compact_done, compact_req );
+    in_compaction ? "running" : "idle", compact_done, compact_req,
+    accdb_busy_pct );
 
   ulong const cap = sizeof(accdb_acquired_samples)/sizeof(accdb_acquired_samples[0]);
   ulong n = fd_ulong_min( accdb_samples_idx, cap );
@@ -1061,7 +1083,7 @@ write_summary( config_t const * config,
     write_snapshots( config, cur_tile, prev_tile );
   }
 
-  lines_printed += write_accdb( config, cur_tile );
+  lines_printed += write_accdb( config, cur_tile, prev_tile );
   lines_printed += write_wfs( config, cur_tile );
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );

@@ -296,19 +296,30 @@ main_pid_namespace( void * _args ) {
       }
     }
 
-    int tile_uses_accdb = 0;
+    int tile_uses_accdb    = 0;
+    int tile_uses_accdb_ro = 0;
     for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
       fd_topo_obj_t const * obj = &config->topo.objs[ tile->uses_obj_id[ i ] ];
       if( FD_UNLIKELY( !strcmp( obj->name, "accdb" ) ) ) {
-        tile_uses_accdb = 1;
+        if( FD_UNLIKELY( tile->uses_obj_mode[ i ]==FD_SHMEM_JOIN_MODE_READ_ONLY ) ) tile_uses_accdb_ro = 1;
+        else                                                                        tile_uses_accdb    = 1;
         break;
       }
     }
 
-    if( FD_UNLIKELY( tile_uses_accdb ) ) {
+    /* snapwr writes accdb pwrite()s without joining accdb shmem, so
+       it needs the RW fd despite not appearing as an accdb obj user
+       in the topology. */
+    if( FD_UNLIKELY( tile_uses_accdb || !strcmp( tile->name, "snapwr" ) ) ) {
       if( FD_UNLIKELY( -1==fcntl( accounts_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     } else {
       if( FD_UNLIKELY( -1==fcntl( accounts_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
+    if( FD_UNLIKELY( tile_uses_accdb_ro ) ) {
+      if( FD_UNLIKELY( -1==fcntl( 123460, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    } else {
+      if( FD_UNLIKELY( -1==fcntl( 123460, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
 
     int pipefd[ 2 ];
@@ -340,6 +351,7 @@ main_pid_namespace( void * _args ) {
   }
 
   if( FD_UNLIKELY( -1==close( accounts_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( 123460       ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
@@ -785,6 +797,15 @@ initialize_accdb_fd( config_t const * config ) {
   if( FD_UNLIKELY( -1==accounts_fd ) ) FD_LOG_ERR(( "failed to open accounts.db (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==dup2( accounts_fd, 123461 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==close( accounts_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  /* Read-only fd for tiles (e.g. rpc) that consume accdb but must not
+     be able to mutate the on-disk file.  Lives at fd 123460 (one
+     below the writer fd; 123462 is reserved by XDP). */
+  int accounts_ro_fd = open( config->paths.accounts, O_RDONLY|O_NOATIME );
+  if( FD_UNLIKELY( -1==accounts_ro_fd ) ) FD_LOG_ERR(( "failed to open accounts.db read-only (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( accounts_ro_fd, 123460 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( accounts_ro_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   return 123461;
 }
 

@@ -1161,7 +1161,6 @@ gossip_frag( fd_snapct_tile_t *  ctx,
   FD_TEST( ctx->gossip_enabled );
 
   if( FD_UNLIKELY( sig==FD_GOSSIP_UPDATE_TAG_PEER_SATURATED ) ) {
-    FD_LOG_NOTICE(( "gossip peer discovery saturated" ));
     ctx->gossip.saturated = 1;
     return;
   }

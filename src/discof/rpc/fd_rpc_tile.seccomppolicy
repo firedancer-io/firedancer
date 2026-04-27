@@ -4,7 +4,11 @@
 # rpc_socket_fd: The RPC tile serves over HTTP, which is over TCP and
 #                does not use our XDP program.  It uses regular kernel
 #                sockets, so this is the socket file descriptor.
-unsigned int logfile_fd, unsigned int rpc_socket_fd
+#
+# accdb_ro_fd:   Read-only file descriptor (123460) onto the accdb data
+#                file.  The RPC tile uses preadv2 against this fd to
+#                serve account reads on cache miss.
+unsigned int logfile_fd, unsigned int rpc_socket_fd, unsigned int accdb_ro_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -64,3 +68,11 @@ close: (not (or (eq (arg 0) 2)
 
 # server: serving RPC over HTTP requires polling connections
 ppoll
+
+# accounts database: serving account reads on cache miss
+#
+# If an account is not in the in-memory cache, it will be retrieved from
+# the underlying disk.
+#
+# arg 0 is the file descriptor to read from.
+preadv2: (eq (arg 0) accdb_ro_fd)

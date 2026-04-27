@@ -3,10 +3,16 @@
 #include "generated/fd_accdb_tile_seccomp.h"
 
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../tango/fseq/fd_fseq.h"
 
 #include "fd_accdb.h"
 
 #include <fcntl.h>
+
+/* Maximum number of read-only accdb consumer fseqs the accdb tile can
+   bind external_epoch_slots[] to.  Bumped as new RO consumers are
+   added.  Today: rpc tile (optional). */
+#define FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS (8UL)
 
 struct fd_accdb_tile_ctx {
   fd_accdb_t * accdb;
@@ -86,7 +92,21 @@ unprivileged_init( fd_topo_t *      topo,
   void * _accdb_shmem = fd_topo_obj_laddr( topo, tile->accdb.accdb_obj_id );
   fd_accdb_shmem_t * accdb_shmem = fd_accdb_shmem_join( _accdb_shmem );
   FD_TEST( accdb_shmem );
-  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, 123461 ) );
+
+  /* Gather per-RO-consumer epoch fseq pointers.  Each enabled RO
+     consumer has a private fseq it owns RW; we map it RO and pass
+     the pointer to fd_accdb_new so the compaction tile's
+     deferred-free reclamation will wait on it. */
+  static ulong const * external_epoch_slots[ FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS ];
+  ulong external_epoch_cnt = 0UL;
+  if( FD_LIKELY( tile->accdb.rpc_epoch_obj_id!=ULONG_MAX ) ) {
+    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.rpc_epoch_obj_id ) );
+    FD_TEST( fseq );
+    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
+    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+  }
+
+  ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, 123461, external_epoch_cnt, external_epoch_slots ) );
   FD_TEST( ctx->accdb );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );

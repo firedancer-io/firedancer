@@ -1059,7 +1059,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
-  ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+(snapshots_enabled ? 2UL : 0UL);
+  ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+(snapshots_enabled ? 1UL : 0UL);
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots,
@@ -1074,16 +1074,29 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( snapshots_enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    /* The snapwr tile doesn't actually need the accdb object, it just
-       writes to its file descriptor without needing the memory mapped,
-       but the supervisor process wont give it the file descriptor
-       unless it think it has it mapped in the topology. */
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
   
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( FD_UNLIKELY( rpc_enabled ) ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
+
+  /* Per-RO-joiner accdb epoch fseq objects.  Each read-only accdb
+     consumer (e.g. the rpc tile) owns a small fseq that it writes its
+     current epoch into, so that the accdb compaction tile can defer
+     partition reclamation while the RO consumer is mid-read.  The
+     accdb tile maps each of these fseqs read-only and passes the
+     pointer array to fd_accdb_new via external_epoch_slots[]. */
+  if( FD_UNLIKELY( rpc_enabled ) ) {
+    fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "metric" );
+    fd_topo_tile_t * rpc_tile   = &topo->tiles[ fd_topo_find_tile( topo, "rpc",   0UL ) ];
+    fd_topo_tile_t * accdb_tile = &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ];
+    fd_topob_tile_uses( topo, rpc_tile,   fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, fseq_obj->id, "accdb_epoch.rpc" ) );
+  }
 
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
 
@@ -1358,6 +1371,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->accdb.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     tile->accdb.max_live_slots = config->firedancer.runtime.max_live_slots;
 
+    tile->accdb.rpc_epoch_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.rpc", ULONG_MAX );
+
   } else if( FD_UNLIKELY( !strcmp( tile->name, "txsend" ) ) ) {
 
     tile->txsend.txsend_src_port = config->tiles.txsend.txsend_src_port;
@@ -1485,6 +1500,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
 
     tile->rpc.max_live_slots  = config->firedancer.runtime.max_live_slots;
+
+    tile->rpc.accdb_obj_id = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
+    FD_TEST( tile->rpc.accdb_obj_id!=ULONG_MAX );
+    tile->rpc.accdb_epoch_fseq_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.rpc", ULONG_MAX );
+    FD_TEST( tile->rpc.accdb_epoch_fseq_obj_id!=ULONG_MAX );
 
     fd_cstr_ncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
 

@@ -381,6 +381,9 @@ struct fd_topo_tile {
 
       ulong max_live_slots;
 
+      ulong accdb_obj_id;
+      ulong accdb_epoch_fseq_obj_id;
+
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
     } rpc;
@@ -538,6 +541,8 @@ struct fd_topo_tile {
     struct {
       ulong accdb_obj_id;
       ulong max_live_slots;
+
+      ulong rpc_epoch_obj_id;
     } accdb;
 
     struct {

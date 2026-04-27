@@ -1415,6 +1415,12 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts read from the account database |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were not found in the account database cache and had to be read from disk |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">rpc_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied out of the account database cache on a cache hit |
 
 </div>
 

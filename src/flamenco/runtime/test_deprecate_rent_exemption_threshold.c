@@ -268,7 +268,7 @@ test_env_create( test_env_t * env,
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
   env->accdb_ljoin = fd_wksp_alloc_laddr( wksp, fd_accdb_align(), accdb_fp, env->tag );
   FD_TEST( env->accdb_ljoin );
-  FD_TEST( fd_accdb_new( env->accdb_ljoin, shmem, 0 ) );
+  FD_TEST( fd_accdb_new( env->accdb_ljoin, shmem, 0, 0UL, NULL ) );
   env->accdb = fd_accdb_join( env->accdb_ljoin );
   FD_TEST( env->accdb );
 

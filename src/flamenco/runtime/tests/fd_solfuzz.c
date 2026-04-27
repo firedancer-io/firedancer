@@ -125,7 +125,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
                           writes_per_slot, partition_cnt,
                           partition_sz, cache_footprint, 640UL, 42UL, 1UL ) );
   if( FD_UNLIKELY( !shmem ) ) goto bail1;
-  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd ) );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd, 0UL, NULL ) );
   if( FD_UNLIKELY( !accdb ) ) goto bail1;
   runner->accdb = accdb;
 

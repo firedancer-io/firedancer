@@ -87,13 +87,58 @@ fd_accdb_align( void );
 FD_FN_CONST ulong
 fd_accdb_footprint( ulong max_live_slots );
 
+/* fd_accdb_new constructs the local joiner state for an accdb writer
+   (or compaction tile).  fd is an O_RDWR fd of the on-disk file.
+
+   external_epoch_cnt and external_epoch_slots provide a list of
+   additional epoch publish slots to scan during compaction's
+   deferred-free reclamation.  These point at memory owned by other
+   processes (typically the per-tile fseq of read-only consumers like
+   the rpc tile), mapped read-only into this joiner's address space.
+   Each *external_epoch_slots[i] is updated by the owning RO joiner
+   on each epoch-protected operation (and reset to ULONG_MAX when
+   idle), and is used by this joiner's compaction scan to determine
+   when on-disk partitions can be safely reclaimed.
+
+   For joiners that do not need to track external RO consumers (i.e.
+   any joiner that is not the compaction tile, or a writer-only
+   topology), pass external_epoch_cnt=0 and external_epoch_slots=NULL.
+   The pointer array is borrowed and must remain valid for the
+   lifetime of the join. */
+
 void *
-fd_accdb_new( void *             ljoin,
-              fd_accdb_shmem_t * shmem,
-              int                fd );
+fd_accdb_new( void *              ljoin,
+              fd_accdb_shmem_t *  shmem,
+              int                 fd,
+              ulong               external_epoch_cnt,
+              ulong const **      external_epoch_slots );
 
 fd_accdb_t *
 fd_accdb_join( void * shaccdb );
+
+/* fd_accdb_join_readonly is the read-only counterpart of fd_accdb_new +
+   fd_accdb_join.  shmem_ro may point into a read-only mapping of the
+   shmem region; the function will not write to it.  my_epoch_slot_rw
+   must point at a ulong owned by this joiner that it can write to
+   (typically a private per-tile fseq that the accdb tile maps read-only
+   and passes through external_epoch_slots[] in fd_accdb_new).  fd_ro
+   must be opened O_RDONLY on the same file the writer joiner opened RW.
+
+   The joiner publishes its current epoch into *my_epoch_slot_rw on
+   entry to each epoch-protected operation (and resets to ULONG_MAX on
+   exit).  The accdb tile's compaction scan observes this slot via its
+   external_epoch_slots[] pointer and defers partition reclamation
+   accordingly, the same way it does for in-shmem joiner_epochs[].
+
+   Only fd_accdb_read_one_nocache, fd_accdb_exists, and
+   fd_accdb_lamports are supported on a readonly join; any other API is
+   undefined behavior. */
+
+fd_accdb_t *
+fd_accdb_join_readonly( void *             ljoin,
+                        fd_accdb_shmem_t * shmem_ro,
+                        ulong *            my_epoch_slot_rw,
+                        int                fd_ro );
 
 /* fd_accdb_attach_child allocates a new fork as a child of
    parent_fork_id and returns the new fork's id.  This must be done
@@ -285,7 +330,6 @@ fd_accdb_write_one( fd_accdb_t *       accdb,
                     fd_accdb_fork_id_t fork_id,
                     uchar const *      pubkey );
 
-/* TODO: Set commit, and add a version that doesn't? */
 void
 fd_accdb_unwrite_one( fd_accdb_t *       accdb,
                       fd_accdb_entry_t * entry );
@@ -298,6 +342,33 @@ int
 fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey );
+
+/* fd_accdb_read_one_nocache reads one account at fork_id into
+   caller-provided output buffers without writing to any accdb shared
+   memory.  Suitable for processes that mmap accdb read-only.
+
+   data_buf must have data_buf_sz>=FD_RUNTIME_ACC_SZ_MAX (10 MiB).
+   out_owner must point at a 32-byte buffer.  On a cache hit the bytes
+   are memcpy'd from the cache slot using a try-read-test (ABA) loop; on
+   a miss the bytes are preadv2'd directly from the disk fd that was
+   passed at join time, scattered into out_owner and data_buf in a
+   single syscall via iovec.
+
+   If the account does not exist, lamports will be zero, and all other
+   fields are undefined, otherwise lamports will be non-zero and the
+   other fields will be filled in.
+
+   The function takes no reference; nothing needs to be released. */
+
+void
+fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
+                           fd_accdb_fork_id_t fork_id,
+                           uchar const *      pubkey,
+                           ulong *            out_lamports,
+                           int *              out_executable,
+                           uchar *            out_owner,
+                           uchar *            out_data,
+                           ulong *            out_data_len );
 
 ulong
 fd_accdb_lamports( fd_accdb_t *       accdb,
@@ -416,6 +487,21 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
     FD_MCNT_SET( TILE, ACCDB_BYTES_WRITTEN,              _m->bytes_written              ); \
     FD_MCNT_SET( TILE, ACCDB_WRITE_OPS,                  _m->write_ops                  ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_COPIED,               _m->bytes_copied               ); \
+  } while(0)
+
+/* FD_ACCDB_METRICS_WRITE_RO is the read-only joiner subset of
+   FD_ACCDB_METRICS_WRITE.  It only emits the counters that
+   fd_accdb_read_one_nocache touches; tiles that join readonly
+   (e.g. RPC) declare only this subset of counters in metrics.xml. */
+
+#define FD_ACCDB_METRICS_WRITE_RO( TILE, m ) do {                                           \
+    fd_accdb_metrics_t const * _m = (m);                                                    \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED, _m->accounts_acquired ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_MISSED,   _m->accounts_missed   ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,   _m->accounts_waited   ); \
+    FD_MCNT_SET( TILE, ACCDB_BYTES_READ,        _m->bytes_read        ); \
+    FD_MCNT_SET( TILE, ACCDB_READ_OPS,          _m->read_ops          ); \
+    FD_MCNT_SET( TILE, ACCDB_BYTES_COPIED,      _m->bytes_copied      ); \
   } while(0)
 
 FD_PROTOTYPES_END

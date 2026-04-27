@@ -42,11 +42,20 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
 
   txn_pool_t txn_pool[1];
 
-  /* Pointer into shmem->joiner_epochs[ my_slot ].val.  Set to the
-     current global epoch on entry to an epoch-protected operation,
-     and ULONG_MAX on exit.  Used to determine when deferred frees
-     are safe. */
+  /* Pointer into shmem->joiner_epochs[ my_slot ].val for writer
+     joiners, or into a private per-tile fseq for read-only joiners.
+     Set to the current global epoch on entry to an epoch-protected
+     operation, and ULONG_MAX on exit.  Used to determine when
+     deferred frees are safe. */
   ulong * my_epoch_slot;
+
+  /* Read-only pointers to external epoch slots (e.g. fseqs owned by
+     RO consumer tiles like the rpc tile).  Scanned in addition to
+     shmem->joiner_epochs[] by compaction's deferred-free
+     reclamation.  Borrowed; the caller of fd_accdb_new owns the
+     storage. */
+  ulong const * const * external_epoch_slots;
+  ulong                 external_epoch_cnt;
 
   /* At most one batch of acc pool elements that have been CAS-unlinked
      from their hash chains but cannot be released back to acc_pool yet,
@@ -98,9 +107,11 @@ fd_accdb_footprint( ulong max_live_slots ) {
 }
 
 void *
-fd_accdb_new( void *             ljoin,
-              fd_accdb_shmem_t * shmem,
-              int                fd ) {
+fd_accdb_new( void *              ljoin,
+              fd_accdb_shmem_t *  shmem,
+              int                 fd,
+              ulong               external_epoch_cnt,
+              ulong const **      external_epoch_slots ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -176,6 +187,9 @@ fd_accdb_new( void *             ljoin,
   FD_TEST( epoch_idx<shmem->joiner_cnt_max );
   accdb->my_epoch_slot = &shmem->joiner_epochs[ epoch_idx ].val;
 
+  accdb->external_epoch_slots = external_epoch_slots;
+  accdb->external_epoch_cnt   = external_epoch_cnt;
+
   accdb->deferred_acc_head  = NULL;
   accdb->deferred_acc_tail  = NULL;
   accdb->deferred_acc_epoch = 0UL;
@@ -202,6 +216,106 @@ fd_accdb_join( void * shaccdb ) {
   }
 
   return (fd_accdb_t*)shaccdb;
+}
+
+fd_accdb_t *
+fd_accdb_join_readonly( void *             ljoin,
+                        fd_accdb_shmem_t * shmem,
+                        ulong *            my_epoch_slot_rw,
+                        int                fd_ro ) {
+  if( FD_UNLIKELY( !ljoin ) ) {
+    FD_LOG_WARNING(( "NULL ljoin" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)ljoin, fd_accdb_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned ljoin" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !my_epoch_slot_rw ) ) {
+    FD_LOG_WARNING(( "NULL my_epoch_slot_rw" ));
+    return NULL;
+  }
+
+  ulong max_live_slots               = shmem->max_live_slots;
+  ulong max_accounts                 = shmem->max_accounts;
+  ulong max_account_writes_per_slot  = shmem->max_account_writes_per_slot;
+  ulong partition_cnt                = shmem->partition_cnt;
+
+  ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
+  ulong txn_max   = max_live_slots * max_account_writes_per_slot;
+
+  /* Recompute the same shmem scratch layout that fd_accdb_shmem_new
+     used.  All FD_SCRATCH_ALLOC_APPEND calls here only compute pointer
+     offsets — they do not write to shmem. */
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+                             FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
+  void * _fork_pool_shmem  = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                                   );
+  void * _fork_pool_ele    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
+  void * _descends_sets    = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
+  void * _acc_map          = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
+  void * _acc_pool_shmem   = FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),               acc_pool_footprint()                                    );
+  void * _acc_pool_ele     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_acc_t),        max_accounts*sizeof(fd_accdb_acc_t)                     );
+                             FD_SCRATCH_ALLOC_APPEND( l, txn_pool_align(),               txn_pool_footprint()                                    );
+                             FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_txn_t),        txn_max*sizeof(fd_accdb_txn_t)                          );
+                             FD_SCRATCH_ALLOC_APPEND( l, partition_pool_align(),         partition_pool_footprint( partition_cnt )               );
+  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+                             FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(),       compaction_dlist_footprint()                            );
+  }
+                             FD_SCRATCH_ALLOC_APPEND( l, deferred_free_dlist_align(),    deferred_free_dlist_footprint()                         );
+
+  FD_SCRATCH_ALLOC_INIT( l2, ljoin );
+  fd_accdb_t * accdb      = FD_SCRATCH_ALLOC_APPEND( l2, fd_accdb_align(),         sizeof(fd_accdb_t)                     );
+  void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
+
+  accdb->fd    = fd_ro;
+  accdb->shmem = shmem;
+  FD_TEST( acc_pool_join( accdb->acc_pool_join, _acc_pool_shmem, _acc_pool_ele, max_accounts ) );
+  accdb->acc_pool = accdb->acc_pool_join->ele;
+  accdb->acc_map  = _acc_map;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache[ c ] = (uchar *)shmem + shmem->cache_region_off[ c ];
+
+  /* Writer-only structures: leave NULL so any accidental writer-path
+     call from a readonly joiner crashes loudly rather than corrupting
+     state. */
+  accdb->partition_pool      = NULL;
+  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) accdb->compaction_dlist[ k ] = NULL;
+  accdb->deferred_free_dlist = NULL;
+
+  FD_TEST( fork_pool_join( accdb->fork_shmem_pool, _fork_pool_shmem, _fork_pool_ele, max_live_slots ) );
+  accdb->fork_pool = _local_fork_pool;
+  for( ulong i=0UL; i<max_live_slots; i++ ) {
+    fd_accdb_fork_t * fork = &accdb->fork_pool[ i ];
+    fork->shmem    = fork_pool_ele( accdb->fork_shmem_pool, i );
+    fork->descends = descends_set_join( (uchar *)_descends_sets + i*descends_set_footprint( max_live_slots ) );
+    FD_TEST( fork->shmem );
+    FD_TEST( fork->descends );
+  }
+
+  /* my_epoch_slot_rw points at memory owned by this joiner (e.g. a
+     private per-tile fseq) that the joiner can write to.  The
+     accdb tile sees it via its external_epoch_slots[] array (mapped
+     read-only) and includes it in its compaction epoch scan.
+     Storing through this pointer is the only side effect a readonly
+     joiner has on shared state. */
+  accdb->my_epoch_slot = my_epoch_slot_rw;
+
+  /* Readonly joiners do not own external slots themselves; only the
+     compaction tile / writer joiners do. */
+  accdb->external_epoch_slots = NULL;
+  accdb->external_epoch_cnt   = 0UL;
+
+  accdb->deferred_acc_head   = NULL;
+  accdb->deferred_acc_tail   = NULL;
+  accdb->deferred_acc_epoch  = 0UL;
+  accdb->deferred_fork_head  = NULL;
+  accdb->deferred_fork_tail  = NULL;
+  accdb->deferred_fork_epoch = 0UL;
+
+  memset( accdb->metrics, 0, sizeof(fd_accdb_metrics_t) );
+
+  return accdb;
 }
 
 /* T1 -> T2 cmd channel.  Two states on cmd_op:
@@ -421,6 +535,10 @@ wait_for_epoch_drain( fd_accdb_t * accdb,
     ulong joiner_cnt = FD_VOLATILE_CONST( accdb->shmem->joiner_cnt );
     for( ulong t=0UL; t<joiner_cnt; t++ ) {
       ulong e = FD_VOLATILE_CONST( accdb->shmem->joiner_epochs[ t ].val );
+      if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
+    }
+    for( ulong t=0UL; t<accdb->external_epoch_cnt; t++ ) {
+      ulong e = FD_VOLATILE_CONST( *accdb->external_epoch_slots[ t ] );
       if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
     }
     if( FD_LIKELY( tag<min_epoch ) ) break;
@@ -1040,11 +1158,16 @@ background_compact( fd_accdb_t * accdb,
 
   /* Reclaim any deferred-free partitions whose epoch has been observed
      by all joiners (i.e. no epoch-publishing joiner could still be
-     referencing data in them). */
+     referencing data in them).  Scan writer slots [0, joiner_cnt)
+     plus each external (read-only) joiner's private epoch fseq. */
   ulong min_epoch = ULONG_MAX;
   ulong joiner_cnt = FD_VOLATILE_CONST( accdb->shmem->joiner_cnt );
   for( ulong t=0UL; t<joiner_cnt; t++ ) {
     ulong e = FD_VOLATILE_CONST( accdb->shmem->joiner_epochs[ t ].val );
+    if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
+  }
+  for( ulong t=0UL; t<accdb->external_epoch_cnt; t++ ) {
+    ulong e = FD_VOLATILE_CONST( *accdb->external_epoch_slots[ t ] );
     if( FD_LIKELY( e<min_epoch ) ) min_epoch = e;
   }
   for(;;) {
@@ -1955,8 +2078,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accs[ i ] || !writable[ i ] ) ) continue;
 
-    fd_memcpy( destination_cache_lines[ i ][ 7UL ]+1UL, original_cache_line[ i ]+1UL, FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) );
-    accdb->metrics->bytes_copied++;
+    ulong copy_sz = (ulong)FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size );
+    fd_memcpy( destination_cache_lines[ i ][ 7UL ]+1UL, original_cache_line[ i ]+1UL, copy_sz );
+    accdb->metrics->bytes_copied += copy_sz;
   }
 
   FD_COMPILER_MFENCE();
@@ -2431,6 +2555,169 @@ fd_accdb_unwrite_one( fd_accdb_t *       accdb,
   fd_accdb_release( accdb, 1UL, entry );
 }
 
+void
+fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
+                           fd_accdb_fork_id_t fork_id,
+                           uchar const *      pubkey,
+                           ulong *            out_lamports,
+                           int *              out_executable,
+                           uchar *            out_owner,
+                           uchar *            out_data,
+                           ulong *            out_data_len ) {
+  /* Publish epoch — protects against compaction freeing the partition
+     under us during the preadv2 path.  This is the only write the
+     readonly joiner makes into accdb shmem (and the pointer it stores
+     through is mapped through a separately-mmap'd writable page that
+     aliases shmem->joiner_epochs[idx]). */
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  accdb->metrics->accounts_acquired++;
+
+  /// STEP 1.
+  ///   Walk the hash chain at acc_map[hash(pubkey)] using the same
+  //    visibility test as fd_accdb_acquire_inner.  See that function
+  //    for the detailed safety argument under concurrent prepend.
+  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
+  ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
+  uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
+  fd_accdb_acc_t const * acc = NULL;
+  while( acc_idx!=UINT_MAX ) {
+    fd_accdb_acc_t const * candidate = &accdb->acc_pool[ acc_idx ];
+    uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
+    if( FD_UNLIKELY( (candidate->key.generation>root_generation &&
+                      fd_accdb_acc_fork_id(candidate)!=fork_id.val &&
+                      !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate) )) ) ||
+                     memcmp( pubkey, candidate->key.pubkey, 32UL ) ) {
+      acc_idx = next_idx;
+      continue;
+    }
+    acc = candidate;
+    break;
+  }
+
+  if( FD_UNLIKELY( !acc ) ) {
+    *out_lamports = 0UL;
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+    return;
+  }
+
+  /// STEP 2.
+  ///   Snapshot acc fields.  The acc element's metadata is effectively
+  ///   immutable from the perspective of cross-fork readers (see the
+  ///   comment block in fd_accdb.h about cross-fork reads). */
+  uint  snap_es       = FD_VOLATILE_CONST( acc->executable_size );
+  uint  snap_gen      = acc->key.generation;
+  ulong snap_lamports = acc->lamports;
+  uint  snap_cidx     = FD_VOLATILE_CONST( acc->cache_idx );
+  ulong data_len      = (ulong)FD_ACCDB_SIZE_DATA( snap_es );
+  int   executable    = FD_ACCDB_SIZE_EXEC( snap_es );
+
+  if( FD_UNLIKELY( !snap_lamports ) ) {
+    *out_lamports = 0UL;
+    FD_COMPILER_MFENCE();
+    FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+    return;
+  }
+
+  /// STEP 3.
+  ///    Cache hit fast path with try-read-test (ABA) loop.  Same
+  ///    primitives as cache_try_pin: re-check key.generation + pubkey
+  ///    before and after the bulk copy, and bail to the disk path if the
+  ///    line was claimed for eviction (refcnt ==
+  ///    FD_ACCDB_EVICT_SENTINEL).  No CAS on refcnt, we never pin the
+  ///    line.
+  if( FD_LIKELY( FD_ACCDB_SIZE_CACHE_VALID( snap_es ) && snap_cidx!=FD_ACCDB_ACC_CIDX_INVAL ) ) {
+    ulong cls = FD_ACCDB_ACC_CIDX_CLASS( snap_cidx );
+    ulong idx = FD_ACCDB_ACC_CIDX_IDX  ( snap_cidx );
+    fd_accdb_cache_line_t * line = cache_line( accdb, cls, idx );
+
+    for(;;) {
+      uint gen0 = FD_VOLATILE_CONST( line->key.generation );
+      uint rc0  = FD_VOLATILE_CONST( line->refcnt );
+      if( FD_UNLIKELY( rc0==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
+      if( FD_UNLIKELY( gen0!=snap_gen ) ) goto miss;
+      if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
+
+      FD_COMPILER_MFENCE();
+      memcpy( out_owner, line->owner, 32UL );
+      memcpy( out_data,  (uchar const *)(line+1UL), data_len );
+      FD_COMPILER_MFENCE();
+
+      uint gen1 = FD_VOLATILE_CONST( line->key.generation );
+      uint rc1  = FD_VOLATILE_CONST( line->refcnt );
+      if( FD_UNLIKELY( rc1==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
+      if( FD_UNLIKELY( gen1!=snap_gen ) ) goto miss;
+      if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
+
+      *out_lamports   = snap_lamports;
+      *out_executable = executable;
+      *out_data_len   = data_len;
+      accdb->metrics->bytes_copied += data_len;
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+      return;
+    }
+  }
+
+miss:;
+  accdb->metrics->accounts_missed++;
+
+  /// STEP 4.
+  ///   Disk path.  Spin until the writer publishes a real offset
+  ///   (matches STEP 10 of fd_accdb_acquire_inner).  Compaction may
+  ///   concurrently relocate the record, but our published epoch
+  ///   prevents the source partition from being freed until we exit
+  ///   our critical section, so the bytes at the snapshotted offset
+  ///   remain stable for the duration of the read.
+  ulong off_packed = FD_VOLATILE_CONST( acc->offset_fork );
+  if( FD_UNLIKELY( (off_packed & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) {
+    accdb->metrics->accounts_waited++;
+    while( FD_UNLIKELY( ((off_packed=FD_VOLATILE_CONST( acc->offset_fork )) & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) FD_SPIN_PAUSE();
+  }
+  ulong off = off_packed & FD_ACCDB_OFF_MASK;
+
+  struct iovec iovs[ 2 ] = {
+    { .iov_base = out_owner, .iov_len = 32UL     },
+    { .iov_base = out_data,  .iov_len = data_len },
+  };
+  ulong total = 32UL+data_len;
+  ulong start = off+offsetof( fd_accdb_disk_meta_t, owner );
+  ulong got   = 0UL;
+  int   nio   = data_len ? 2 : 1;
+  while( FD_LIKELY( got<total ) ) {
+    long result = preadv2( accdb->fd, iovs, nio, (long)(start+got), 0 );
+    if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
+    else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents", start+got, total ));
+    got += (ulong)result;
+    accdb->metrics->bytes_read += (ulong)result;
+    accdb->metrics->read_ops++;
+
+    long r = result;
+    for( int v=0; v<nio; v++ ) {
+      if( (ulong)r>=iovs[ v ].iov_len ) {
+        r -= (long)iovs[ v ].iov_len;
+        iovs[ v ].iov_len = 0UL;
+      } else {
+        iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + r;
+        iovs[ v ].iov_len -= (ulong)r;
+        break;
+      }
+    }
+  }
+
+  *out_lamports   = snap_lamports;
+  *out_executable = executable;
+  *out_data_len   = data_len;
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+}
+
 int
 fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
@@ -2509,6 +2796,8 @@ background_preevict( fd_accdb_t * accdb,
     ulong live   = init>freec ? init-freec : 0UL;
     ulong avail  = max_c-live;
     if( FD_LIKELY( avail>=shmem->cache_free_low_water[ c ] ) ) continue;
+
+    *charge_busy = 1;
 
     ulong budget  = 256UL;
     ulong evicted = 0UL;
@@ -2606,8 +2895,6 @@ background_preevict( fd_accdb_t * accdb,
       cache_free_push( accdb, c, line );
       evicted++;
     }
-
-    if( FD_UNLIKELY( evicted ) ) *charge_busy = 1;
   }
 }
 
