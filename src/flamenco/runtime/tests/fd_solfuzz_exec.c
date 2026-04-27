@@ -4,6 +4,7 @@
 #include "generated/block.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/txn.pb.h"
+#include "generated/bundle.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/elf.pb.h"
 
@@ -305,6 +306,29 @@ fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
 
   // Cleanup
   pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
+fd_solfuzz_pb_bundle_fixture( fd_solfuzz_runner_t * runner,
+                              uchar const *         in,
+                              ulong                 in_sz ) {
+  // Decode fixture
+  fd_exec_test_bundle_fixture_t fixture[1] = {0};
+  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_bundle_fixture_t_msg );
+  if( !res ) {
+    FD_LOG_WARNING(( "Invalid bundle fixture." ));
+    return 0;
+  }
+
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_bundle_run );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_bundle_effects_t_msg, runner->spad );
+  fd_spad_pop( runner->spad );
+
+  // Cleanup
+  pb_release( &fd_exec_test_bundle_fixture_t_msg, fixture );
   return ok;
 }
 

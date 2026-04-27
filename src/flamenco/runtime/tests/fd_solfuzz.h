@@ -136,6 +136,20 @@ fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
                            uchar const *         in,
                            ulong                 in_sz );
 
+/* SVM Transaction Bundle Execution */
+
+ulong
+fd_solfuzz_pb_bundle_run( fd_solfuzz_runner_t * runner,
+                          void const *          input_,
+                          void **               output_,
+                          void *                output_buf,
+                          ulong                 output_bufsz );
+
+int
+fd_solfuzz_pb_bundle_fixture( fd_solfuzz_runner_t * runner,
+                              uchar const *         in,
+                              ulong                 in_sz );
+
 /* SVM Block Execution
 
    - All sysvars must be provided
