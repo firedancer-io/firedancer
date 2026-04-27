@@ -783,13 +783,6 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L620-L626 */
   fd_executor_create_rollback_fee_payer_account( txn_in, txn_out );
 
-  /* Set the starting lamports (to avoid unbalanced lamports issues in
-     instruction execution).  This must happen after the fee has been
-     deducted so that the balance check in fd_executor_txn_check sees
-     the post-fee-deduction value as the starting point. */
-  // TODO: IS THIS RIGHT? GOING TO MAKE THE LTHASH WRONG?
-  //fee_payer->prior_lamports = fee_payer->lamports;
-
   txn_out->details.execution_fee = execution_fee;
   txn_out->details.priority_fee  = priority_fee;
 

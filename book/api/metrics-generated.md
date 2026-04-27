@@ -558,7 +558,7 @@
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
-| <span class="metrics-name">execle_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
 | <span class="metrics-name">execle_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
@@ -976,7 +976,7 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
-| <span class="metrics-name">replay_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">replay_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
@@ -1072,7 +1072,7 @@
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
-| <span class="metrics-name">execrp_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">execrp_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
@@ -1127,7 +1127,7 @@
 | <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
 | <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
 | <span class="metrics-name">accdb_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
-| <span class="metrics-name">accdb_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">accdb_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
 | <span class="metrics-name">accdb_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">accdb_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
 | <span class="metrics-name">accdb_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |
@@ -1251,7 +1251,7 @@
 | <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;committed_&#8203;new_&#8203;class</span><br/>{accdb_&#8203;cache_&#8203;class="<span class="metrics-enum">class7</span>"} | counter | Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class (1-10 MiB) |
 | <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;missed</span> | counter | Number of accounts that were needed for transaction execution but were not found in the account database cache |
 | <span class="metrics-name">tower_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait |
-| <span class="metrics-name">tower_&#8203;accdb_&#8203;aquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
+| <span class="metrics-name">tower_&#8203;accdb_&#8203;acquire_&#8203;failed</span> | counter | Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting |
 | <span class="metrics-name">tower_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
 | <span class="metrics-name">tower_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
 | <span class="metrics-name">tower_&#8203;accdb_&#8203;bytes_&#8203;written</span> | counter | Number of bytes written to the account database |

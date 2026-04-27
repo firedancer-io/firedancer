@@ -687,7 +687,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedNewClass" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsMissed" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
-    <counter name="AccdbAquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
     <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
@@ -794,7 +794,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedNewClass" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsMissed" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
-    <counter name="AccdbAquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
     <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
@@ -931,7 +931,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedNewClass" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsMissed" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
-    <counter name="AccdbAquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
     <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
@@ -1293,7 +1293,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedNewClass" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsMissed" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
-    <counter name="AccdbAquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
     <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
@@ -1399,7 +1399,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedNewClass" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsMissed" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
-    <counter name="AccdbAquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
+    <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
     <counter name="AccdbBytesWritten" summary="Number of bytes written to the account database" />
