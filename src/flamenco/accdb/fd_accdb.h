@@ -378,6 +378,21 @@ fd_accdb_shmetrics( fd_accdb_t * accdb );
 fd_accdb_metrics_t const *
 fd_accdb_metrics( fd_accdb_t * accdb );
 
+/* fd_accdb_cache_class_occupancy snapshots the current per-size-class
+   cache occupancy and capacity into the caller-provided arrays, each
+   of which must have FD_ACCDB_CACHE_CLASS_CNT entries.  used[c] is the
+   number of slots in class c that currently hold a cache entry (i.e.
+   slots that have been allocated lazily and are not sitting in the
+   free list).  max[c] is the total slot capacity of class c.  Reads
+   are done with relaxed (volatile) loads and may be momentarily
+   inconsistent with each other under contention. */
+
+void
+fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
+                                ulong *      used,
+                                ulong *      max,
+                                ulong *      reserved );
+
 /* FD_ACCDB_METRICS_WRITE publishes the per-joiner accdb runtime metrics
    for tile prefix TILE.  TILE must be a tile that declares the
    AccdbAccountsAcquired/... counters in metrics.xml (e.g. EXECLE,
@@ -389,6 +404,10 @@ fd_accdb_metrics( fd_accdb_t * accdb );
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED,          _m->accounts_acquired          ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED_WRITABLE, _m->writable_accounts_acquired ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_EVICTED,           _m->accounts_evicted           ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_EVICTED_CLASS, _m->accounts_evicted_per_class ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_PREEVICTED,        _m->accounts_preevicted        ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_PREEVICTED_CLASS, _m->accounts_preevicted_per_class ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_NEW_CLASS, _m->accounts_committed_new_per_class ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_MISSED,            _m->accounts_missed            ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,            _m->accounts_waited            ); \
     FD_MCNT_SET( TILE, ACCDB_AQUIRE_FAILED,              _m->acquire_failed             ); \

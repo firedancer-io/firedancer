@@ -35,9 +35,11 @@
 
 /* Minimum reserved slots per class.  Slots below this count are
    never eligible for background pre-eviction, ensuring a worst-case
-   5-transaction bundle (130 accounts * 5 * 2 classes) can always
-   execute fully in-memory. */
-#define FD_ACCDB_CACHE_MIN_RESERVED (1300UL)
+   5-transaction bundle (128 accounts * 5 transactions * 2) can
+   always execute fully in-memory.  The factor of 2 covers programdata:
+   each account referenced in a transaction may pull in a corresponding
+   programdata account that must also be resident in cache. */
+#define FD_ACCDB_CACHE_MIN_RESERVED (1280UL)
 
 static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
   128UL+FD_ACCDB_CACHE_META_SZ,      /* class 0: 0-128 B     */
@@ -64,13 +66,15 @@ static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
    class_cnt is populated with the slot count for each class on return.
    The sum of class_cnt[c]*slot_sz[c] will not exceed cache_footprint.
 
-   Every class gets at least 1300 entries, guaranteeing a worst case
-   5-transaction bundle (130 accounts * 5 transactions) can execute
-   fully in memory regardless of account size mix. Returns 0 if the
-   budget is too small for these minimums, or 1 on success.
+   Every class gets at least FD_ACCDB_CACHE_MIN_RESERVED (1280) entries,
+   guaranteeing a worst case 5-transaction bundle (128 accounts * 5
+   transactions, doubled to cover programdata for each account) can
+   execute fully in memory regardless of account size mix. Returns 0 if
+   the budget is too small for these minimums, or 1 on success.
 
    The algorithm:
-   1) Reserves 650 of each class off the top.
+   1) Reserves FD_ACCDB_CACHE_MIN_RESERVED (1280) of each class off the
+      top.
    2) Reserves additional per-class minimums (at most 1% of remaining
       budget per class, clamped to [1, 1024] slots).
    3) Iteratively allocates remaining budget proportional to access

@@ -39,8 +39,7 @@ pwritev2: (eq (arg 0) accounts_fd)
 # The accounts database allocates more space from the underlying storage
 # device in 1GiB chunks, as it runs out.
 fallocate: (and (eq (arg 0) accounts_fd)
-                (eq (arg 1) 0)
-                (eq (arg 3) 1073741824))
+                (eq (arg 1) 0))
 
 # accounts database: move accounts around during compaction
 #

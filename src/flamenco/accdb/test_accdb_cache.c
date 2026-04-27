@@ -28,10 +28,11 @@ main( int     argc,
       continue;
     }
 
-    /* Verify every class has at least the 1300 minimum. */
+    /* Verify every class has at least the FD_ACCDB_CACHE_MIN_RESERVED
+       minimum. */
 
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-      FD_TEST( class_cnt[c]>=1300UL );
+      FD_TEST( class_cnt[c]>=FD_ACCDB_CACHE_MIN_RESERVED );
     }
 
     /* Verify total memory does not exceed budget. */
@@ -55,8 +56,8 @@ main( int     argc,
                      100.0*(double)total/(double)footprint ));
   }
 
-  /* Edge case: budget too small for 650 minimums.  Should return
-     failure and zero all class counts. */
+  /* Edge case: budget too small for the per-class minimums.  Should
+     return failure and zero all class counts. */
 
   FD_TEST( !fd_accdb_cache_class_cnt( 1UL<<20, class_cnt ) );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {

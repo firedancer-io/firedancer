@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h
 
 #include "../../util/fd_util_base.h"
+#include "fd_accdb_cache.h"
 
 #define FD_ACCDB_SHMEM_ALIGN (128UL)
 
@@ -30,6 +31,10 @@ struct fd_accdb_metrics {
   ulong accounts_acquired;
   ulong writable_accounts_acquired;
   ulong accounts_evicted;
+  ulong accounts_evicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong accounts_preevicted;
+  ulong accounts_preevicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong accounts_committed_new_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_missed;
   ulong accounts_waited;
   ulong accounts_deleted;

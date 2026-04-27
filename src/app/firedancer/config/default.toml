@@ -534,7 +534,7 @@ telemetry = true
 
     # Keep frequently accessed accounts in memory to improve
     # performance.
-    cache_size_gib = 15
+    cache_size_gib = 14
 
 [runtime]
     # max_live_slots and max_fork_width are parameters used to size
@@ -1598,7 +1598,7 @@ telemetry = true
     #   like the accounts database.  The only memory which will not be
     #   in the dump are sensitive pages containing private key material
     #   from the running validator.
-    core_dump = "disabled"
+    core_dump = "regular"
 
     # A hard fork occurs when our validator has some implementation
     # difference in consensus rules and gets a different blockhash for

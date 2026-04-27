@@ -24,7 +24,8 @@ static uchar owner3[ 32UL ] = { 3, 0 };
 #define META_SZ (36UL)
 
 /* Cache footprint for tests: must be large enough to cover the
-   minimum 1300 slots per class (class 7 is 10 MiB each). */
+   minimum FD_ACCDB_CACHE_MIN_RESERVED (1280) slots per class
+   (class 7 is 10 MiB each). */
 #define TEST_CACHE_FOOTPRINT (16UL<<30UL)
 
 static fd_accdb_t *
@@ -115,6 +116,37 @@ accdb_write( fd_accdb_t *       accdb,
   if( data_len && data ) memcpy( ent[0].data, data, data_len );
   ent[0].commit = 1;
   fd_accdb_release( accdb, 1UL, ent );
+}
+
+void
+test_background_preevict_ignores_uninitialized_tail( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 1024UL, 64UL, 8192UL, 8192UL, 1UL<<30UL );
+
+  fd_accdb_fork_id_t root  = fd_accdb_attach_child( accdb, SENTINEL );
+  fd_accdb_fork_id_t slot1 = fd_accdb_attach_child( accdb, root );
+
+  uchar owner[ 32UL ] = { 9, 0 };
+  accdb_write( accdb, slot1, pubkey0, 1UL, NULL, 0UL, owner );
+
+  ulong cache_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_max     [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_reserved[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, cache_used, cache_max, cache_reserved );
+
+  FD_TEST( cache_used[ 0UL ]==1UL );
+  FD_TEST( cache_max[ 0UL ]>1UL );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_preevicted==0UL );
+
+  int charge_busy = 0;
+  fd_accdb_background( accdb, &charge_busy );
+
+  fd_accdb_cache_class_occupancy( accdb, cache_used, cache_max, cache_reserved );
+
+  FD_TEST( cache_used[ 0UL ]==1UL );
+  FD_TEST( fd_accdb_metrics( accdb )->accounts_preevicted==0UL );
+
+  close( fd );
 }
 
 void
@@ -872,6 +904,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_basic ..." ));
   test_basic();
+
+  FD_LOG_NOTICE(( "test_background_preevict_ignores_uninitialized_tail ..." ));
+  test_background_preevict_ignores_uninitialized_tail();
 
   FD_LOG_NOTICE(( "test_missing_readonly_account_initializes_entry ..." ));
   test_missing_readonly_account_initializes_entry();
