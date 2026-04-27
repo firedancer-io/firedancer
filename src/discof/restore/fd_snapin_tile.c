@@ -1,7 +1,6 @@
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssmsg.h"
-#include "utils/fd_vinyl_io_wd.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -53,9 +52,7 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN && !ctx->use_vinyl ) ) {
-    /* This only needs to be logged under funk.  When vinyl is enabled,
-       snapwm will log instead. */
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
     ulong accounts_dup = ctx->metrics.accounts_ignored + ctx->metrics.accounts_replaced;
     ulong accounts     = ctx->metrics.accounts_loaded  - accounts_dup;
     long  elapsed_ns   = fd_log_wallclock() - ctx->boot_timestamp;
@@ -82,9 +79,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS );
-  if( !tile->snapin.use_vinyl ) {
-    l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
-  }
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -506,10 +501,6 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     fd_txncache_insert( ctx->txncache, banks[ 0UL ].fork_id, entry->blockhash, entry->txnhash );
   }
 
-  if( !!ctx->use_vinyl && !!ctx->txncache_entries_len_vinyl_ptr ) {
-    *ctx->txncache_entries_len_vinyl_ptr = ctx->txncache_entries_len;
-  }
-
   FD_LOG_INFO(( "inserted %lu/%lu transactions into the txncache", insert_cnt, ctx->txncache_entries_len ));
 
   /* Then finalize all the banks (freezing them) and setting the txnhash
@@ -626,22 +617,10 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   if( FD_LIKELY( !ctx->lthash_disabled ) ) {
-    if( FD_LIKELY( ctx->use_vinyl ) ) {
-      fd_ssctrl_hash_result_t * data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-      /* There is padding in this struct, due to alignment, requiring
-         initialization to zero.  This message is infrequent, so the
-         overhead is negligible. */
-      fd_memset( data, 0, sizeof(fd_ssctrl_hash_result_t) );
-      fd_memcpy( &data->lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
-      data->capitalization = (long)manifest->capitalization;
-      fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXP_AND_CAPITAL, ctx->hash_out.chunk, sizeof(fd_ssctrl_hash_result_t), 0UL, 0UL, 0UL );
-      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_ssctrl_hash_result_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-    } else {
-      fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-      fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
-      fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
-      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-    }
+    fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+    fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
+    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
   }
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
@@ -817,8 +796,7 @@ static int
 validate_capitalization( fd_snapin_tile_t * ctx ) {
   /* Capitalization is checked only when lthash verification is
      enabled, since a snapshot that fails lthash would most probably
-     fail capitalization as well.  This also matches the snapshot
-     load pipeline check under vinyl. */
+     fail capitalization as well. */
   if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
   if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
     /* SnapshotError::MismatchedCapitalization
@@ -850,7 +828,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
-      fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+      fd_ssparse_batch_enable( ctx->ssparse, sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->in.pos                  = 0UL;
       ctx->txncache_entries_len    = 0UL;
@@ -860,8 +838,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
-      fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
-      fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
+      fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 
       /* Rewind metric counters (no-op unless recovering from a fail) */
       if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL ) {
@@ -912,23 +889,21 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( !ctx->use_vinyl ) {
-        if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-          FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
-          transition_malformed( ctx, stem );
-          forward_msg = 0;
-          break;
-        }
-
-        ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
-        if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
-          transition_malformed( ctx, stem );
-          forward_msg = 0;
-          break;
-        }
-
-        ctx->recovery.capitalization = ctx->capitalization;
+      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+        FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
       }
+
+      ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
+      if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
+
+      ctx->recovery.capitalization = ctx->capitalization;
 
       /* Backup metric counters */
       ctx->metrics.full_accounts_loaded   = ctx->metrics.accounts_loaded;
@@ -941,21 +916,19 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( !ctx->use_vinyl ) {
-        if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
-          if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
-          else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
-          transition_malformed( ctx, stem );
-          forward_msg = 0;
-          break;
-        }
+      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx ) ) ) {
+        if( ctx->full ) FD_LOG_WARNING(( "slot deltas verification failed for full snapshot" ));
+        else            FD_LOG_WARNING(( "slot deltas verification failed for incremental snapshot" ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
 
-        ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
-        if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
-          transition_malformed( ctx, stem );
-          forward_msg = 0;
-          break;
-        }
+      ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
+      if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
       }
 
       /* Publish any remaining funk txn */
@@ -1077,10 +1050,6 @@ privileged_init( fd_topo_t *      topo,
   fd_snapin_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
-
-  if( tile->snapin.use_vinyl ) {
-    ctx->use_vinyl = 1;
-  }
 }
 
 static inline fd_snapin_out_link_t
@@ -1113,25 +1082,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                              );
   ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
 
-  if( tile->snapin.use_vinyl ) {
-    /* snapwm needs all txn_cache data in order to verify the slot
-       deltas with the slot history.  To make this possible, snapin
-       uses the dcache of the snapin_txn link as the scratch memory.
-       The app field of the dcache is used to communicate the
-       txncache_entries_len value. */
-    fd_snapin_out_link_t snapin_txn = out1( topo, tile, "snapin_txn" );
-    FD_TEST( !!snapin_txn.mem );
-    fd_topo_link_t const * out_link_txn = &topo->links[ tile->out_link_id[ snapin_txn.idx ] ];
-    ulong depth = out_link_txn->depth;
-    FD_TEST( ( depth*snapin_txn.mtu )==( sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) );
-    ctx->txncache_entries                 = fd_chunk_to_laddr( snapin_txn.mem, snapin_txn.chunk0 );
-    FD_TEST( fd_dcache_app_sz( out_link_txn->dcache )>=sizeof(ulong) );
-    ctx->txncache_entries_len_vinyl_ptr   = (ulong*)fd_dcache_app_laddr( out_link_txn->dcache );
-    memset( ctx->txncache_entries_len_vinyl_ptr, 0, sizeof(ulong) );
-  } else {
-    ctx->txncache_entries = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
-    ctx->txncache_entries_len_vinyl_ptr = NULL;
-  }
+  ctx->txncache_entries = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
@@ -1218,18 +1169,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 
-  if( tile->snapin.use_vinyl ) {
-    ctx->use_vinyl = 1;
-  }
-
   ctx->boot_timestamp = fd_log_wallclock();
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
     1. topology-dependent link:
     | 1a. snapin_ct (no lthash verification)
-    | 1b. snapin_ls (with lthash verification, funk)
-    | 1c. snapin_wm (with lthash verification, vinyl)
+    | 1b. snapin_ls (with lthash verification)
     | - worst case: 2 messages, e.g. process_manifest (lthash) +
     |            FD_SSPARSE_ADVANCE_ACCOUNT_{HEADER,DATA,BATCH,ERROR}
     2. snapin_manif - worst case: 1 message

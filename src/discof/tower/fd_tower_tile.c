@@ -1631,7 +1631,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->tower.accdb_max_depth );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile->tower.accdb_max_depth );
 
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {

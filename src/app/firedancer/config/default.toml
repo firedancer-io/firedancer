@@ -538,66 +538,10 @@ telemetry = true
     # The entire account database is physically preallocated.
     file_size_gib = 16
 
-    # The validator keeps account changes that have not yet been
-    # finalized (rooted) by consensus in memory.  This setting controls
-    # how much memory is reserved for such account changes.
-    # If the amount of inflight account changes exceeds this limit, the
-    # validator will crash.
-    max_unrooted_account_size_gib = 16
-
-    # Keep frequently accessed accounts in memory to improve
-    # performance.
-    cache_size_gib = 8
-
-    # Delay writing of accounts to disk by a number of slots to reduce
-    # disk write rate.
-    #
-    # An account only gets written to disk when it is unchanged for more
-    # or equal the specified number of slots.
-    write_delay_slots = 64
-
-    # Keep all accounts in memory and ignore [paths.accounts].
-    #
-    # If enabled, allocates [accounts.file_size_gib] memory and ignores
-    # [accounts.{cache_size_gib,max_unrooted_account_size_gib}].
-    in_memory_only = true
-
-    # The provider determines which Linux I/O API is used.
-    # Possible values for the option are:
-    #
-    #  "io_uring" (default)
-    #   The fastest and recommended mode, but requires a recent Linux
-    #   kernel version.  Under the hood, does asynchronous parallel
-    #   accesses to disk.  [paths.accounts] should be backed by an ext4
-    #   or XFS file system, or be a block device when using this mode.
-    #
-    #  "portable"
-    #   This is the slowest mode, but it supports any kernel version
-    #   and any file system.
-    io_provider = "io_uring"
-
     # The expected mean size of recently accessed accounts.
     #
     # This heuristic is used to pack accounts into caches optimally.
     mean_account_footprint = 1024
-
-    # io_uring specific options
-    #
-    # io_uring requires a recent kernel (Linux 6.5 feature equivalent).
-    # Popular OS distributions (e.g. Ubuntu or RHEL) backport newer
-    # io_uring features to older kernel versions.
-    # FIXME Add a link to a book page with further kernel requirements,
-    #       and known working distros (e.g. RHEL 9 kernel 5.14).
-    #
-    # Firedancer uses the following io_uring extensions:
-    # - IORING_SETUP_COOP_TASKRUN (Linux 5.19)
-    # - IORING_SETUP_DEFER_TASKRUN (Linux 6.1)
-    # - IORING_SETUP_CQSIZE (Linux 5.5)
-    # - IORING_SETUP_NO_MMAP (Linux 6.5)
-    # - IORING_REGISTER_RESTRICTIONS (Linux 5.16)
-    [accounts.io_uring]
-        # Pipeline depth for parallel I/O operations.
-        queue_depth = 2048
 
 [runtime]
     # max_live_slots and max_fork_width are parameters used to size
@@ -909,20 +853,13 @@ telemetry = true
     # requests.
     sign_tile_count = 2
 
-    # How many snapshot lthash add/sub (vinyl) or add (funk) tiles to
-    # run. Snapshot lthash tiles compute the lthash of all accounts in
-    # the loaded snapshot in parallel. Too few and snapshot loading
-    # might be delayed.  Once the lthash of the accounts in a snapshot
-    # is calculated, if it does not match the validator will abort with
-    # an error.  Preferably a power of two.
+    # How many snapshot lthash add tiles to run. Snapshot lthash tiles
+    # compute the lthash of all accounts in the loaded snapshot in
+    # parallel. Too few and snapshot loading might be delayed.  Once the
+    # thash of the accounts in a snapshot is calculated, if it does not
+    # match the validator will abort with an error.  Preferably a power
+    # of two.
     snapshot_hash_tile_count = 8
-
-    # How many snapshot vinyl-based write tiles to run.  Depending on
-    # the specific hardware configuration, multiple snapwr tiles may
-    # be required to achieve high throughput.  It is also possible to
-    # tradeoff throughput and tile count.  This value is only valid
-    # when vinyl is enabled.
-    snapwr_tile_count = 2
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
