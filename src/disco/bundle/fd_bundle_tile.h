@@ -19,8 +19,12 @@ typedef struct fd_bundle_tile fd_bundle_tile_t;
 #define FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING   (1)
 #define FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED    (2)
 
+#define FD_BUNDLE_STATE_DISCONNECTED (0UL)
+#define FD_BUNDLE_STATE_CONNECTING   (1UL)
+#define FD_BUNDLE_STATE_CONNECTED    (2UL)
+#define FD_BUNDLE_STATE_SLEEPING     (3UL)
+
 struct fd_bundle_block_engine_update {
-  int status;
   char name[ 16 ];
   char url[ 256 ];
   char ip_cstr[ 40 ]; /* IPv4 or IPv6 cstr */

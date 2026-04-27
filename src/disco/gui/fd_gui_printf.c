@@ -1,6 +1,7 @@
 #include "fd_gui_printf.h"
 #include "fd_gui_config_parse.h"
 
+#include "../bundle/fd_bundle_tile.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
 #include "../../disco/fd_txn_m.h"
@@ -632,9 +633,9 @@ fd_gui_printf_block_engine( fd_gui_t * gui ) {
       jsonp_string( gui->http, "name",   gui->block_engine.name );
       jsonp_string( gui->http, "url",    gui->block_engine.url );
       jsonp_string( gui->http, "ip",     gui->block_engine.ip_cstr );
-      if( FD_LIKELY( gui->block_engine.status==1 ) )      jsonp_string( gui->http, "status", "connecting" );
-      else if( FD_LIKELY( gui->block_engine.status==2 ) ) jsonp_string( gui->http, "status", "connected" );
-      else                                                jsonp_string( gui->http, "status", "disconnected" );
+      if( FD_LIKELY( gui->block_engine.status==(int)FD_BUNDLE_STATE_CONNECTING ) )     jsonp_string( gui->http, "status", "connecting" );
+      else if( FD_LIKELY( gui->block_engine.status==(int)FD_BUNDLE_STATE_CONNECTED ) ) jsonp_string( gui->http, "status", "connected" );
+      else                                                                             jsonp_string( gui->http, "status", "disconnected" );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }

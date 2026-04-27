@@ -23,12 +23,19 @@
 #include "../../waltz/resolv/fd_netdb.h"
 
 #include "generated/fd_bundle_tile_seccomp.h"
+#include "../metrics/generated/fd_metrics_replay.h"
+#include "../metrics/generated/fd_metrics_pohh.h"
 
 /* Provided by fdctl/firedancer version.c */
 extern char const fdctl_version_string[];
 
 #define STEM_BURST (5UL)
 FD_STATIC_ASSERT( FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE<=STEM_BURST, stem_burst );
+
+/* hysteresis thresholds to avoid bouncing during forking events */
+#define FD_BUNDLE_SLEEP_THRESHOLD_SLOTS   (450UL)
+#define FD_BUNDLE_WAKE_THRESHOLD_SLOTS    (400UL)
+#define FD_BUNDLE_SLEEP_CHECK_INTERVAL_NS ((long)5e9)
 
 FD_FN_CONST static ulong
 scratch_align( void ) {
@@ -51,6 +58,52 @@ loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   /* Leftover space for OpenSSL allocations */
   return 1UL<<26; /* 64 MiB */
+}
+
+static void
+fd_bundle_tile_maybe_sleep( fd_bundle_tile_t * ctx, long now_ns ) {
+  if( FD_LIKELY( now_ns < ctx->sleep_check_ns ) ) return;
+  ctx->sleep_check_ns = now_ns + FD_BUNDLE_SLEEP_CHECK_INTERVAL_NS;
+
+  if( FD_UNLIKELY( !ctx->replay_metrics ) ) return; /* replay/pohh not found */
+
+  ulong next_leader_slot;
+  ulong reset_slot;
+  if( ctx->is_frankendancer ) {
+    next_leader_slot = ctx->replay_metrics[ FD_METRICS_GAUGE_POHH_NEXT_LEADER_SLOT_OFF ];
+    reset_slot  = ctx->replay_metrics[ FD_METRICS_GAUGE_POHH_RESET_SLOT_OFF ];
+  } else {
+    next_leader_slot = ctx->replay_metrics[ FD_METRICS_GAUGE_REPLAY_NEXT_LEADER_SLOT_OFF ];
+    reset_slot  = ctx->replay_metrics[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
+  }
+
+  /* next_leader==0 or reset_slot==0 means we either don't know the
+     leader schedule yet or have no upcoming leader slots.  Sleep. */
+  if( FD_UNLIKELY( next_leader_slot==0UL || reset_slot==0UL ) ) {
+    if( !ctx->sleep_mode ) {
+      ctx->sleep_mode = 1;
+      FD_LOG_INFO(( "Bundle tile entering sleep mode: no upcoming leader slots" ));
+    }
+    return;
+  }
+
+  ulong slots_until_leader = fd_ulong_sat_sub( next_leader_slot, reset_slot );
+
+  if( ctx->sleep_mode ) {
+    if( slots_until_leader <= FD_BUNDLE_WAKE_THRESHOLD_SLOTS ) {
+      ctx->sleep_mode = 0;
+      ctx->last_bundle_status_log_nanos = now_ns;
+      FD_LOG_INFO(( "Bundle tile waking up: next leader slot %lu (~%lu slots away)", next_leader_slot, slots_until_leader ));
+    }
+  } else {
+    /* reset_slot stays at/near next_leader_slot throughout a leader
+       rotation and only jumps to the next rotation after leadership
+       ends, so this cannot trigger mid-rotation. */
+    if( slots_until_leader > FD_BUNDLE_SLEEP_THRESHOLD_SLOTS ) {
+      ctx->sleep_mode = 1;
+      FD_LOG_INFO(( "Bundle tile entering sleep mode: next leader slot %lu (~%lu slots away)", next_leader_slot, slots_until_leader ));
+    }
+  }
 }
 
 static inline void
@@ -85,9 +138,17 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   FD_MGAUGE_SET( BUNDLE, HEAP_SIZE,       usage->total_sz );
   FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
 
-  int bundle_status = fd_bundle_client_status( ctx );
-  FD_MGAUGE_SET( BUNDLE, CONNECTED, bundle_status==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
-  ctx->bundle_status_recent = (uchar)bundle_status;
+  ulong state;
+  int status = fd_bundle_client_status( ctx );
+  switch( status ) {
+    case FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED:  state = FD_BUNDLE_STATE_CONNECTED;    break;
+    case FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING: state = FD_BUNDLE_STATE_CONNECTING;   break;
+    default:                                       state = FD_BUNDLE_STATE_DISCONNECTED; break;
+  }
+  if( FD_UNLIKELY( ctx->sleep_mode ) ) state = FD_BUNDLE_STATE_SLEEPING;
+
+  FD_MGAUGE_SET( BUNDLE, STATE, state );
+  ctx->bundle_status_recent = (uchar)state;
 }
 
 void
@@ -96,7 +157,8 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
   int  status          = fd_bundle_client_status( ctx );
   long log_next_ns     = ctx->last_bundle_status_log_nanos + log_interval_ns;
   long now_ns          = fd_log_wallclock();
-  if( FD_UNLIKELY( status!=FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
+
+  if( FD_UNLIKELY( !ctx->sleep_mode && status!=FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED && now_ns>log_next_ns ) ) {
     FD_LOG_WARNING(( "No bundle server connection in the last %ld seconds", log_interval_ns/(long)1e9 ) );
     ctx->last_bundle_status_log_nanos = now_ns;
   }
@@ -105,7 +167,10 @@ fd_bundle_tile_housekeeping( fd_bundle_tile_t * ctx ) {
     fd_memcpy( ctx->auther.pubkey, ctx->keyswitch->bytes, 32UL );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
     ctx->defer_reset = 1;
+    ctx->sleep_check_ns = 0;
   }
+
+  fd_bundle_tile_maybe_sleep( ctx, now_ns );
 }
 
 static void
@@ -131,8 +196,6 @@ fd_bundle_tile_publish_block_engine_update(
             FD_IP4_ADDR_FMT,
             FD_IP4_ADDR_FMT_ARGS( ctx->server_ip4_addr ) );
 
-  update->status = (uchar)ctx->bundle_status_recent;
-
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_bundle_now() );
   fd_stem_publish(
       stem,
@@ -153,6 +216,19 @@ before_credit( fd_bundle_tile_t *  ctx,
                int *               charge_busy ) {
   if( FD_UNLIKELY( !ctx->stem ) ) {
     ctx->stem = stem;
+  }
+
+  if( FD_UNLIKELY( ctx->sleep_mode ) ) {
+    if( ctx->tcp_sock>=0 ) {
+      fd_bundle_client_reset( ctx );
+      /* Override backoff so we don't treat this as an error */
+      ctx->backoff_until = 0;
+      ctx->backoff_iter  = 0;
+    }
+
+    /* Sleep briefly to avoid busy-spinning */
+    fd_log_sleep( (long)100e6 ); /* 100ms */
+    return;
   }
 
   if( pending_txn_empty( ctx->pending_txns ) ) {
@@ -443,8 +519,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->keepalive_interval = (long)tile->bundle.keepalive_interval_nanos;
 
   ctx->bundle_status_plugin = 127;
-  ctx->bundle_status_recent = FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
+  ctx->bundle_status_recent = (uchar)FD_BUNDLE_STATE_DISCONNECTED;
   ctx->last_bundle_status_log_nanos = fd_log_wallclock();
+
+  ulong replay_tile_idx = fd_topo_find_tile( topo, "replay", 0UL );
+  ctx->is_frankendancer = replay_tile_idx==ULONG_MAX;
+  if( FD_UNLIKELY( ctx->is_frankendancer ) ) {
+    replay_tile_idx = fd_topo_find_tile( topo, "pohh", 0UL );
+    FD_TEST( replay_tile_idx!=ULONG_MAX );
+  }
+  ctx->replay_metrics = fd_metrics_tile( topo->tiles[ replay_tile_idx ].metrics );
+  ctx->sleep_mode     = !!ctx->replay_metrics;
+  ctx->sleep_check_ns = 0;
 
   fd_bundle_tile_parse_endpoint( ctx, tile );
 

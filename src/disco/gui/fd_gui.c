@@ -5,6 +5,7 @@
 #include "../metrics/fd_metrics.h"
 #include "../../discof/gossip/fd_gossip_tile.h"
 #include "../plugin/fd_plugin.h"
+#include "../bundle/fd_bundle_tile.h"
 
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/json/cJSON.h"
@@ -1045,6 +1046,17 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
       fd_gui_run_boot_progress( gui, now );
       fd_gui_printf_boot_progress( gui );
       fd_http_server_ws_broadcast( gui->http );
+    }
+
+    ulong bundle_tile_idx = fd_topo_find_tile( gui->topo, "bundle", 0UL );
+    if( FD_LIKELY( bundle_tile_idx!=ULONG_MAX ) ) {
+      volatile ulong const * bundle_metrics = fd_metrics_tile( gui->topo->tiles[ bundle_tile_idx ].metrics );
+      int cur_state = (int)bundle_metrics[ MIDX( GAUGE, BUNDLE, STATE ) ];
+      if( FD_UNLIKELY( cur_state != gui->block_engine.status ) ) {
+        gui->block_engine.status = cur_state;
+        fd_gui_printf_block_engine( gui );
+        fd_http_server_ws_broadcast( gui->http );
+      }
     }
 
     gui->next_sample_100millis += 100L*1000L*1000L;
@@ -2485,8 +2497,6 @@ fd_gui_handle_block_engine_update( fd_gui_t *                              gui,
   fd_memcpy( gui->block_engine.name,    update->name,    name_len+1UL );
   fd_memcpy( gui->block_engine.url,     update->url,     url_len+1UL );
   fd_memcpy( gui->block_engine.ip_cstr, update->ip_cstr, ip_cstr_len+1UL );
-
-  gui->block_engine.status = update->status;
 
   fd_gui_printf_block_engine( gui );
   fd_http_server_ws_broadcast( gui->http );
