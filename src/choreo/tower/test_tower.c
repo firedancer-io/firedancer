@@ -790,263 +790,7 @@ test_case_1c_switch_fail( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_case_1c_switch_fail passed" ));
 }
 
-void
-test_reconcile_voted_block_id( fd_wksp_t * wksp ) {
 
-  /* Scenario: staked primary / unstaked backup.  The backup voted down
-     a minority fork (slots 10, 11, 12) while the primary voted down
-     the majority fork (slots 20, 21, 22).  The primary's votes landed
-     on chain.  When the backup calls fd_tower_reconcile, its local
-     tower should be replaced with the on-chain tower, and voted_block_id
-     must be set for every slot in the new tower.
-
-         /-- 10 -- 11 -- 12   (minority fork, backup voted here locally)
-     1 - 2
-         \-- 20 -- 21 -- 22   (majority fork, primary voted on chain)
-  */
-
-  ulong blk_max = 64;
-
-  ulong vtr_max = 2;
-
-  void * tower_mem  = fd_wksp_alloc_laddr( wksp, fd_tower_align(),        fd_tower_footprint( blk_max, vtr_max ),                   1UL );
-
-  fd_tower_t *        tower  = fd_tower_join       ( fd_tower_new       ( tower_mem, blk_max, vtr_max, 0UL    ) );
-  FD_TEST( tower );
-  FD_TEST( tower );
-
-  /* Build the fork tree.  Both forks share slots 1 and 2. */
-
-  fd_tower_blk_t * blk;
-
-  blk = fd_tower_blocks_insert( tower, 1, ULONG_MAX );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {1}};
-  blk->voted = 1;    blk->voted_block_id = (fd_hash_t){.ul = {1}};
-
-  blk = fd_tower_blocks_insert( tower, 2, 1 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {2}};
-  blk->voted = 1;    blk->voted_block_id = (fd_hash_t){.ul = {2}};
-
-  /* Minority fork (backup voted here locally). */
-
-  blk = fd_tower_blocks_insert( tower, 10, 2 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {10}};
-  blk->voted = 1;    blk->voted_block_id = (fd_hash_t){.ul = {10}};
-
-  blk = fd_tower_blocks_insert( tower, 11, 10 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {11}};
-  blk->voted = 1;    blk->voted_block_id = (fd_hash_t){.ul = {11}};
-
-  blk = fd_tower_blocks_insert( tower, 12, 11 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {12}};
-  blk->voted = 1;    blk->voted_block_id = (fd_hash_t){.ul = {12}};
-
-  /* Majority fork (primary voted on chain).  The backup must have
-     replayed these too since it observed the on-chain vote account. */
-
-  blk = fd_tower_blocks_insert( tower, 20, 2 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {20}};
-
-  blk = fd_tower_blocks_insert( tower, 21, 20 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {21}};
-
-  blk = fd_tower_blocks_insert( tower, 22, 21 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {22}};
-
-  /* Backup's local tower: voted down the minority fork.  Note the
-     backup never set voted_block_id for slots 20, 21, 22 because it
-     never voted for them itself. */
-
-  push_vote( tower, 1 );
-  push_vote( tower, 2 );
-  push_vote( tower, 10 );
-  push_vote( tower, 11 );
-  push_vote( tower, 12 );
-
-  /* Construct a mock on-chain vote account (v3) reflecting the
-     primary's votes: tower is [1, 2, 20, 21, 22] with no root. */
-
-  fd_vote_acc_t __attribute__((aligned(8))) vote_acc;
-  memset( &vote_acc, 0, sizeof(vote_acc) );
-  vote_acc.kind              = FD_VOTE_ACC_V3;
-  vote_acc.v3.votes_cnt      = 5;
-  vote_acc.v3.votes[0]       = (fd_vote_acc_vote_t){ .latency = 1, .slot =  1, .conf = 5 };
-  vote_acc.v3.votes[1]       = (fd_vote_acc_vote_t){ .latency = 1, .slot =  2, .conf = 4 };
-  vote_acc.v3.votes[2]       = (fd_vote_acc_vote_t){ .latency = 1, .slot = 20, .conf = 3 };
-  vote_acc.v3.votes[3]       = (fd_vote_acc_vote_t){ .latency = 1, .slot = 21, .conf = 2 };
-  vote_acc.v3.votes[4]       = (fd_vote_acc_vote_t){ .latency = 1, .slot = 22, .conf = 1 };
-
-  /* Set the root option to "no root" (ULONG_MAX).  In a v3 vote
-     account, the root option byte follows the last vote entry. */
-
-  uchar * root_option = (uchar *)&vote_acc.v3.votes[5];
-  *root_option = 0; /* no root */
-
-  /* The backup's local tower top is slot 12, but the on-chain tower
-     top is slot 22.  Since 22 > 12, reconcile should replace the
-     local tower with the on-chain one. */
-
-  tower->root = 0; /* root is before all slots */
-  fd_tower_reconcile( tower, (uchar const *)&vote_acc );
-
-  /* Verify the tower now matches the on-chain tower: [1, 2, 20, 21, 22].
-     But slots <= local_root (0) are filtered, so all 5 remain. */
-
-  FD_TEST( fd_tower_vote_cnt( tower->votes ) == 5 );
-  FD_TEST( fd_tower_vote_peek_index_const( tower->votes, 0 )->slot ==  1 );
-  FD_TEST( fd_tower_vote_peek_index_const( tower->votes, 1 )->slot ==  2 );
-  FD_TEST( fd_tower_vote_peek_index_const( tower->votes, 2 )->slot == 20 );
-  FD_TEST( fd_tower_vote_peek_index_const( tower->votes, 3 )->slot == 21 );
-  FD_TEST( fd_tower_vote_peek_index_const( tower->votes, 4 )->slot == 22 );
-
-  /* The key invariant: voted_block_id is set for every slot in the
-     tower after reconcile.  This is the bug fix being tested -- slots
-     20, 21, 22 were never locally voted for by the backup, but
-     reconcile should set voted = 1 and voted_block_id = replayed_block_id
-     for these slots. */
-
-  for( ulong i = 0; i < fd_tower_vote_cnt( tower->votes ); i++ ) {
-    ulong vote_slot = fd_tower_vote_peek_index_const( tower->votes, i )->slot;
-    fd_tower_blk_t * vote_blk = fd_tower_blocks_query( tower, vote_slot );
-    FD_TEST( vote_blk );
-    FD_TEST( vote_blk->voted );
-    FD_TEST( 0==memcmp( &vote_blk->voted_block_id, &vote_blk->replayed_block_id, sizeof(fd_hash_t) ) );
-  }
-  /* make sure 10, 11, 12 have voted unset */
-  for( ulong voted = 10; voted <= 12; voted++ ) {
-    fd_tower_blk_t * vote_blk = fd_tower_blocks_query( tower, voted );
-    FD_TEST( !vote_blk->voted );
-  }
-
-  FD_LOG_NOTICE(( "test_reconcile_voted_block_id passed" ));
-}
-
-void
-test_reconcile_on_chain_root_ahead( fd_wksp_t * wksp ) {
-
-  /* Scenario: the backup validator's local root is behind the on-chain
-     root.  This can happen during normal operation when the staked
-     validator has been voting and rooting ahead of the backup.
-
-     Reconcile should still adopt the on-chain tower even when
-     on_chain_root > local_root.
-
-     The on-chain tower has 31 votes (slots 2..32) with root at 1.
-     The backup's local tower only voted [0, 1] with local_root at 0.
-     Since on_chain_root (1) > local_root (0), the old code would skip
-     reconcile entirely.  The fix ensures we always adopt.
-
-     After reconcile, the tower is full (31 votes).  The next push_vote
-     should pop the bottom (slot 2) as the new root, skipping past
-     the local_root (0) and on_chain_root (1). */
-
-  ulong blk_max  = 128;
-  ulong vtr_max  = 2;
-
-  void * tower_mem  = fd_wksp_alloc_laddr( wksp, fd_tower_align(),        fd_tower_footprint( blk_max, vtr_max ),                   1UL );
-
-  fd_tower_t *        tower  = fd_tower_join       ( fd_tower_new       ( tower_mem, blk_max, vtr_max, 0UL    ) );
-  FD_TEST( tower );
-  FD_TEST( tower );
-
-  fd_tower_blk_t * blk;
-
-  /* Slots 0 and 1 and 2: backup voted here locally. */
-
-  blk = fd_tower_blocks_insert( tower, 0, ULONG_MAX );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {0}};
-  blk->voted = 1;    blk->voted_block_id = (fd_hash_t){.ul = {0}};
-
-  blk = fd_tower_blocks_insert( tower, 1, 0 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {1}};
-  blk->voted = 1;    blk->voted_block_id = (fd_hash_t){.ul = {1}};
-
-  blk = fd_tower_blocks_insert( tower, 2, 1 );
-  blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {34}};
-  blk->voted = 1;    blk->voted_block_id = (fd_hash_t){.ul = {34}};
-
-
-  /* Slots 3..33: majority fork (on-chain votes).  We need 31 on-chain
-     votes (slots 3..33) to fill the tower, plus slot 34 for the next
-     vote that triggers rooting. */
-
-  for( ulong s = 3; s <= 33; s++ ) {
-    ulong parent = s == 3 ? 1 : s - 1;
-    blk = fd_tower_blocks_insert( tower, s, parent );
-    blk->replayed = 1; blk->replayed_block_id = (fd_hash_t){.ul = {s}};
-  }
-
-  /* Backup's local tower: voted [0, 1, 2]. */
-
-  push_vote( tower, 0 );
-  push_vote( tower, 1 );
-  push_vote( tower, 2 );
-
-  /* Construct a mock on-chain vote account (v3) with 32 votes
-     (slots 3..33) and root at 1.  This fills the tower to capacity. */
-
-  uchar __attribute__((aligned(8))) vote_acc_buf[ sizeof(fd_vote_acc_t) + 9 ];
-  memset( vote_acc_buf, 0, sizeof(vote_acc_buf) );
-  fd_vote_acc_t * vote_acc = (fd_vote_acc_t *)vote_acc_buf;
-  vote_acc->kind         = FD_VOTE_ACC_V3;
-  vote_acc->v3.votes_cnt = 31;
-  for( ulong i = 0; i < 31; i++ ) {
-    vote_acc->v3.votes[i] = (fd_vote_acc_vote_t){ .latency = 1, .slot = i + 3, .conf = (uint)(31 - i) };
-  }
-
-  /* Set root to 1.  The root option byte follows the last vote entry,
-     then 8 bytes of root slot. */
-
-  uchar * root_option = vote_acc_buf + offsetof(fd_vote_acc_t, v3.votes) + 31*sizeof(fd_vote_acc_vote_t);
-  *root_option = 1; /* has root */
-  ulong root_val = 1UL;
-  memcpy( root_option + 1, &root_val, sizeof(ulong) ); /* root = slot 1 */
-
-  /* local_root (0) < on_chain_root (1).  Reconcile should still adopt
-     the on-chain tower. */
-
-  tower->root = 0;
-  fd_tower_reconcile( tower, vote_acc_buf );
-
-  /* Verify the tower now matches the on-chain tower: 31 votes,
-     slots [3, 3, ..., 33]. */
-
-  FD_TEST( fd_tower_vote_cnt( tower->votes ) == 31 );
-  for( ulong i = 0; i < 31; i++ ) {
-    FD_TEST( fd_tower_vote_peek_index_const( tower->votes, i )->slot == i + 3 );
-  }
-
-  /* Verify voted_block_id is set for the adopted slots. */
-
-  for( ulong i = 0; i < fd_tower_vote_cnt( tower->votes ); i++ ) {
-    ulong vote_slot = fd_tower_vote_peek_index_const( tower->votes, i )->slot;
-    fd_tower_blk_t * vote_blk = fd_tower_blocks_query( tower, vote_slot );
-    FD_TEST( vote_blk );
-    FD_TEST( vote_blk->voted );
-    FD_TEST( 0==memcmp( &vote_blk->voted_block_id, &vote_blk->replayed_block_id, sizeof(fd_hash_t) ) );
-  }
-
-  /* Verify old local votes (0, 1, 2 have voted unset.  It's also
-     possible the on_chain_root is ahead of our local root.  In this
-     case, our local root is technically !voted now, since we have
-     updated our tower to match the on-chain tower.  But this is not
-     a problem because the next vote we make will pop the on_chain_root
-     which we set above voted=1. */
-
-  FD_TEST( !fd_tower_blocks_query( tower, 0 )->voted );
-  FD_TEST( !fd_tower_blocks_query( tower, 1 )->voted );
-  FD_TEST( !fd_tower_blocks_query( tower, 2 )->voted );
-
-  /* The tower is full (31 votes).  The next push_vote should pop the
-     bottom (slot 3) as the new root, skipping past local_root (0) and
-     on_chain_root (1), also pruning 2 */
-
-  FD_TEST( fd_tower_vote_full( tower->votes ) );
-  ulong new_root = push_vote( tower, 34 );
-  FD_TEST( new_root == 3 );
-
-  FD_LOG_NOTICE(( "test_reconcile_on_chain_root_ahead passed" ));
-}
 
 void
 test_vtr_valid_join( fd_wksp_t * wksp ) {
@@ -1085,6 +829,284 @@ test_vtr_valid_join( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
 }
 
+/* test_reconcile_boot: on boot the local tower is empty with
+   root set to the snapshot slot.  The on-chain tower (from the vote
+   account) has votes for slots after the snapshot.  Reconcile should
+   overwrite the local tower with the on-chain votes and adopt the
+   on-chain root, backfilling voted_block_id from replayed_block_id. */
+
+void
+test_reconcile_boot( fd_wksp_t * wksp ) {
+  ulong blk_max = 64;
+  ulong vtr_max = 2;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, vtr_max ), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 0UL ) );
+  FD_TEST( tower );
+
+  ulong snapshot_slot = 100;
+  tower->root = snapshot_slot;
+
+  /* Simulate replaying slots 100..105 after booting from a snapshot at
+     slot 100.  The on-chain tower is read back from the vote account
+     after each replay.  Each replay advances the on-chain state:
+
+     After replaying 100 (snapshot): on-chain empty (no votes yet).
+     After replaying 101: on-chain has vote for 101.
+     After replaying 102: on-chain has votes for 101, 102.
+     ...
+     After replaying 105: on-chain has votes for 101..105, root 100. */
+
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) onchain_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * onchain_votes = fd_tower_vote_join( fd_tower_vote_new( onchain_mem ) );
+
+  fd_tower_blk_t * blk;
+
+  /* Replay slot 100 (snapshot slot).  On-chain tower still empty at
+     this point — reconcile is a no-op. */
+
+  blk                    = fd_tower_blocks_insert( tower, 100, 99 );
+  blk->replayed          = 1;
+  blk->replayed_block_id = ( fd_hash_t ){ .ul = { 100 } };
+  fd_tower_reconcile( tower, onchain_votes, ULONG_MAX );
+
+  /* Replay slot 101.  On-chain vote account now shows vote for 101,
+     root 100. */
+
+  blk                    = fd_tower_blocks_insert( tower, 101, 100 );
+  blk->replayed          = 1;
+  blk->replayed_block_id = ( fd_hash_t ){ .ul = { 101 } };
+  fd_tower_vote_push_tail( onchain_votes, (fd_tower_vote_t){ .slot = 101, .conf = 1 } );
+  fd_tower_reconcile( tower, onchain_votes, 100 );
+
+  /* Replay slots 102..105.  On-chain accumulates votes. */
+
+  for( ulong s = 102; s <= 105; s++ ) {
+    blk                    = fd_tower_blocks_insert( tower, s, s - 1 );
+    blk->replayed          = 1;
+    blk->replayed_block_id = ( fd_hash_t ){ .ul = { s } };
+    fd_tower_vote_push_tail( onchain_votes, (fd_tower_vote_t){ .slot = s, .conf = 1 } );
+    fd_tower_reconcile( tower, onchain_votes, 100 );
+  }
+
+  /* After final reconcile: on-chain tip (105) > local tip so local
+     tower is overwritten.  Root stays at snapshot_slot (100) since
+     local_root (100) == onchain_root (100). */
+
+  FD_TEST( fd_tower_vote_peek_tail( tower->votes )->slot==105 );
+  FD_TEST( fd_tower_vote_cnt( tower->votes )==5 );
+  FD_TEST( tower->root==snapshot_slot );
+
+  /* Verify: voted and voted_block_id backfilled from replayed_block_id
+     for all on-chain vote slots. */
+
+  for( ulong s = 101; s <= 105; s++ ) {
+    blk = fd_tower_blocks_query( tower, s );
+    FD_TEST( blk );
+    FD_TEST( blk->voted == 1 );
+    FD_TEST( 0 == memcmp( &blk->voted_block_id, &blk->replayed_block_id, sizeof( fd_hash_t ) ) );
+  }
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_reconcile_boot" ));
+}
+
+/* test_reconcile_ha: in a HA setup the backup's local tower
+   may lag behind the primary's on-chain tower.  Reconcile should
+   overwrite the backup's local tower with primary's tower that has
+   landed on-chain.
+
+   Sub-cases:
+     1. On-chain tip ahead, on-chain root ahead → adopt on-chain root
+     2. On-chain tip ahead, local root ahead → keep local root, drop
+        on-chain votes <= local root
+     3. On-chain tip <= local tip (no-op) */
+
+void
+test_reconcile_ha( fd_wksp_t * wksp ) {
+  ulong blk_max   = 64;
+  ulong voter_max = 2;
+
+  /* ---- Sub-case 1: on-chain root ahead of local root ---- */
+
+  {
+    void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+    FD_TEST( tower );
+
+    tower->root = 10;
+
+    /* Local tower: votes for 11, 12. */
+
+    for( ulong s = 11; s <= 15; s++ ) {
+      fd_tower_blk_t * blk = fd_tower_blocks_insert( tower, s, s - 1 );
+      blk->replayed = 1;
+      blk->replayed_block_id = (fd_hash_t){ .ul = { s } };
+    }
+    push_vote( tower, 11 );
+    push_vote( tower, 12 );
+
+    /* On-chain tower: votes for 13, 14, 15.  Root = 12 (ahead of local
+       root 10). */
+
+    uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) onchain_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+    fd_tower_vote_t * onchain = fd_tower_vote_join( fd_tower_vote_new( onchain_mem ) );
+    fd_tower_vote_push_tail( onchain, (fd_tower_vote_t){ .slot = 13, .conf = 3 } );
+    fd_tower_vote_push_tail( onchain, (fd_tower_vote_t){ .slot = 14, .conf = 2 } );
+    fd_tower_vote_push_tail( onchain, (fd_tower_vote_t){ .slot = 15, .conf = 1 } );
+
+    fd_tower_reconcile( tower, onchain, 12 );
+
+    /* On-chain root (12) > local root (10) → adopt on-chain root. */
+
+    FD_TEST( tower->root == 12 );
+
+    /* Local votes overwritten with on-chain votes. */
+
+    FD_TEST( fd_tower_vote_cnt( tower->votes ) == 3 );
+    FD_TEST( fd_tower_vote_peek_head_const( tower->votes )->slot == 13 );
+    FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot == 15 );
+
+    /* Backfilled: backup didn't vote for 13..15. */
+
+    for( ulong s = 13; s <= 15; s++ ) {
+      fd_tower_blk_t * blk = fd_tower_blocks_query( tower, s );
+      FD_TEST( blk && blk->voted == 1 );
+      FD_TEST( 0 == memcmp( &blk->voted_block_id, &blk->replayed_block_id, sizeof(fd_hash_t) ) );
+    }
+
+    fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  }
+
+  /* ---- Sub-case 2: local root ahead of on-chain root ----
+     On-chain votes <= local root should be dropped. */
+
+  {
+    void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+    FD_TEST( tower );
+
+    tower->root = 20;
+
+    for( ulong s = 18; s <= 25; s++ ) {
+      fd_tower_blk_t * blk = fd_tower_blocks_insert( tower, s, s - 1 );
+      blk->replayed = 1;
+      blk->replayed_block_id = (fd_hash_t){ .ul = { s } };
+    }
+    push_vote( tower, 21 );
+    push_vote( tower, 22 );
+
+    /* On-chain: root 15, votes for 18..25.  Tip 25 > local tip 22. */
+
+    uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) onchain_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+    fd_tower_vote_t * onchain = fd_tower_vote_join( fd_tower_vote_new( onchain_mem ) );
+    for( ulong s = 18; s <= 25; s++ ) {
+      fd_tower_vote_push_tail( onchain, (fd_tower_vote_t){ .slot = s, .conf = 26 - s } );
+    }
+
+    fd_tower_reconcile( tower, onchain, 15 );
+
+    /* Local root kept (20 > 15).  Votes 18..20 dropped. */
+
+    FD_TEST( tower->root == 20 );
+    FD_TEST( fd_tower_vote_cnt( tower->votes ) == 5 );
+    FD_TEST( fd_tower_vote_peek_head_const( tower->votes )->slot == 21 );
+    FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot == 25 );
+
+    fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  }
+
+  /* ---- Sub-case 3: on-chain tip <= local tip (no-op) ---- */
+
+  {
+    void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+    fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+    FD_TEST( tower );
+
+    tower->root = 10;
+
+    for( ulong s = 11; s <= 15; s++ ) {
+      fd_tower_blk_t * blk = fd_tower_blocks_insert( tower, s, s - 1 );
+      blk->replayed = 1;
+      blk->replayed_block_id = (fd_hash_t){ .ul = { s } };
+    }
+    push_vote( tower, 11 );
+    push_vote( tower, 12 );
+    push_vote( tower, 13 );
+    push_vote( tower, 14 );
+    push_vote( tower, 15 );
+
+    /* On-chain tower: votes for 11..13.  Tip 13 <= local tip 15. */
+
+    uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) onchain_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+    fd_tower_vote_t * onchain = fd_tower_vote_join( fd_tower_vote_new( onchain_mem ) );
+    fd_tower_vote_push_tail( onchain, (fd_tower_vote_t){ .slot = 11, .conf = 3 } );
+    fd_tower_vote_push_tail( onchain, (fd_tower_vote_t){ .slot = 12, .conf = 2 } );
+    fd_tower_vote_push_tail( onchain, (fd_tower_vote_t){ .slot = 13, .conf = 1 } );
+
+    fd_tower_reconcile( tower, onchain, 10 );
+
+    /* No-op: local tower unchanged. */
+
+    FD_TEST( tower->root == 10 );
+    FD_TEST( fd_tower_vote_cnt( tower->votes ) == 5 );
+    FD_TEST( fd_tower_vote_peek_tail_const( tower->votes )->slot == 15 );
+
+    fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  }
+
+  FD_LOG_NOTICE(( "pass: test_reconcile_ha" ));
+}
+
+/* test_reconcile_ha_eqvoc: backup missed a vote for an equivocating
+   slot.  The primary voted for block 3 but the backup only replayed
+   block 3' (the version that eventually gets duplicate-confirmed).
+   Reconcile should backfill voted_block_id with replayed_block_id (3'),
+   which is correct because the primary will converge to the DC block.
+
+        2
+       / \
+      3   3' (confirmed, replayed by backup) */
+
+void
+test_reconcile_ha_eqvoc( fd_wksp_t * wksp ) {
+  ulong blk_max   = 64;
+  ulong voter_max = 2;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+  FD_TEST( tower );
+
+  /* Backup: root 2, no votes.  Replayed slot 3 as block 3'
+     (block_id = {3, 0xA}), not block 3 ({3}). */
+
+  tower->root = 2;
+
+  fd_tower_blk_t * blk3 = fd_tower_blocks_insert( tower, 3, 2 );
+  blk3->replayed          = 1;
+  blk3->replayed_block_id = (fd_hash_t){ .ul = { 3, 0xA } };
+
+  /* On-chain (primary's): root 2, one vote for slot 3. */
+
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) onchain_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * onchain = fd_tower_vote_join( fd_tower_vote_new( onchain_mem ) );
+  fd_tower_vote_push_tail( onchain, (fd_tower_vote_t){ .slot = 3, .conf = 1 } );
+
+  fd_tower_reconcile( tower, onchain, 2 );
+
+  FD_TEST( tower->root == 2 );
+  FD_TEST( fd_tower_vote_cnt( tower->votes ) == 1 );
+  FD_TEST( fd_tower_vote_peek_head_const( tower->votes )->slot == 3 );
+
+  /* Backfilled voted_block_id from replayed_block_id (3', not 3). */
+
+  FD_TEST( blk3->voted == 1 );
+  FD_TEST( blk3->voted_block_id.ul[1] == 0xA );
+
+  fd_wksp_free_laddr( fd_tower_delete( fd_tower_leave( tower ) ) );
+  FD_LOG_NOTICE(( "pass: test_reconcile_ha_eqvoc" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1110,8 +1132,9 @@ main( int argc, char ** argv ) {
   test_case_1c_switch_pass( wksp );
   test_case_1c_switch_fail( wksp );
 
-  test_reconcile_voted_block_id( wksp );
-  test_reconcile_on_chain_root_ahead( wksp );
+  test_reconcile_boot( wksp );
+  test_reconcile_ha( wksp );
+  test_reconcile_ha_eqvoc( wksp );
 
   test_vtr_valid_join( wksp );
 
