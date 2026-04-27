@@ -189,6 +189,10 @@ fd_accdb_v2_advance_root( fd_accdb_admin_t *        accdb_,
   }
   fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( query );
 
+  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
+    FD_LOG_CRIT(( "fd_accdb_v2_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
+  }
+
   if( FD_LIKELY( fd_accdb_log_enabled ) )
     FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: advancing root",
                   (void *)txn,
