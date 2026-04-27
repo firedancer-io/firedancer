@@ -47,6 +47,7 @@ struct fd_snapmk {
   fd_wksp_t *            replay_in_mem;
   fd_ssmanifest_writer_t manifest_writer[1];
   ulong                  manifest_pad;
+  long                   start_time;
 
   ZSTD_CCtx *    zst;
   ZSTD_inBuffer  raw_buf;
@@ -59,7 +60,7 @@ struct fd_snapmk {
     ulong compress_ticks;
     ulong io_ticks;
     ulong bytes_compressed;
-    ulong metrics_written;
+    ulong bytes_written;
   } metrics;
 };
 typedef struct fd_snapmk fd_snapmk_t;
@@ -288,6 +289,7 @@ flush_buffer( fd_snapmk_t *     ctx,
     FD_LOG_ERR(( "fd_io_write did not write full buffer (expected %lu bytes, wrote %lu bytes)", comp_sz, comp_wr_ ));
   }
   long t2 = fd_tickcount();
+  ctx->metrics.bytes_written += comp_sz;
   ctx->metrics.io_ticks += (ulong)( t2 - t1 );
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
@@ -415,7 +417,6 @@ after_credit( fd_snapmk_t *       ctx,
     ctx->out_ready &= blocked ? ~fd_ulong_mask_bit( out_idx ) : ULONG_MAX;
     ctx->chain += FUNK_SCAN_PARA;
     if( FD_UNLIKELY( ctx->chain >= ctx->chain1 ) ) {
-      FD_LOG_NOTICE(( "Done compressing accounts, waiting for I/O" ));
       ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
       ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
       break;
@@ -437,7 +438,8 @@ after_credit( fd_snapmk_t *       ctx,
       ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
       fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
       ctx->state = SNAPMK_STATE_IDLE;
-      FD_LOG_NOTICE(( "Snapshot creation finished" ));
+      FD_LOG_NOTICE(( "Snapshot created in %.3f seconds",
+                      (double)( fd_log_wallclock() - ctx->start_time )/1e9 ));
     }
     break;
   }
@@ -477,6 +479,7 @@ snap_begin( fd_snapmk_t * ctx,
   ctx->chain = 0UL;
   ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );
   fd_funk_scan_init( ctx->scan, ctx->funk );
+  ctx->start_time = fd_log_wallclock();
   FD_LOG_NOTICE(( "Snapshot creation started" ));
 }
 
@@ -513,7 +516,11 @@ returnable_frag( fd_snapmk_t *       ctx,
 
 static void
 metrics_write( fd_snapmk_t * ctx ) {
-  FD_MGAUGE_SET( SNAPMK, ACTIVE, ctx->state!=SNAPMK_STATE_IDLE );
+  FD_MGAUGE_SET( SNAPMK, ACTIVE,                      ctx->state!=SNAPMK_STATE_IDLE );
+  FD_MCNT_SET(   SNAPMK, BYTES_COMPRESSED,            ctx->metrics.bytes_compressed );
+  FD_MCNT_SET(   SNAPMK, BYTES_WRITTEN,               ctx->metrics.bytes_written    );
+  FD_MCNT_SET(   SNAPMK, IO_BLOCKED_DURATION_SECONDS, ctx->metrics.io_ticks         );
+  FD_MCNT_SET(   SNAPMK, COMPRESS_DURATION_SECONDS,   ctx->metrics.compress_ticks   );
 }
 
 #define STEM_BURST 1UL
