@@ -643,6 +643,50 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "txsend_sign",   "txsend_sign",   128UL,                                    FD_TXN_MTU,                    1UL ); /* TODO: Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_txsend",   "sign_txsend",   128UL,                                    sizeof(fd_ed25519_sig_t)*2UL,  1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
+  /* shred -> repair -> replay data flow
+     ========================================================
+                         ┌─────────┐
+          net_shred      │         │  gossip_out      replay_epoch
+     ───────────────────►│  SHRED  │◄──────────────  ◄──────────────
+                         │         │  poh_shred       tower_out
+                         │         │◄──────────────  ◄──────────────
+                         │         │  ipecho_out
+                         │         │◄──────────────
+                         └────┬────┘
+                              │
+                              │ shred_out
+                              │ (completed FEC sets)
+                              ▼
+                         ┌─────────┐
+          net_repair     │         │  gossip_out      replay_out
+     ───────────────────►│ REPAIR  │◄──────────────  ◄──────────────
+          genesi_out     │         │  shred_out       tower_out
+     ───────────────────►│         │◄──────────────  ◄──────────────
+                         │         │  snapin_manif
+                         │         │◄──────────────
+                         └────┬────┘
+                              │
+                              │ repair_out
+                              │ (repaired FEC sets)
+                              ▼
+                         ┌─────────┐
+          genesi_out     │         │  tower_out       gossip_out
+     ───────────────────►│ REPLAY  │◄──────────────  ◄──────────────
+          ipecho_out     │         │  txsend_out      poh_replay
+     ───────────────────►│         │◄──────────────  ◄──────────────
+          execrp_replay  │         │  resolv_replay   snapin_manif
+     ───────────────────►│         │◄──────────────  ◄──────────────
+                         └────┬────┘
+                              │ replay_out
+                              │ (replayed reassembled FEC sets)
+                ┌─────────────┼──────────────┐
+                ▼             ▼              ▼
+          replay_out    replay_epoch    replay_execrp
+          (to repair,  (to shred,      (to execrp
+           tower,       gossip,          tiles)
+           dedup,       gossvf,
+           pack, etc)   txsend)                                  */
+
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",     "shred_out",     shred_depth,                              sizeof(fd_shred_message_t),    3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
   /**/                 fd_topob_link( topo, "repair_out",    "repair_out",    shred_depth,                              sizeof(fd_fec_complete_t),   1UL );
   /**/                 fd_topob_link( topo, "tower_out",     "tower_out",     16384UL,                                  sizeof(fd_tower_msg_t),        2UL ); /* conf + slot_done. see explanation in fd_tower_tile.h for link_depth */

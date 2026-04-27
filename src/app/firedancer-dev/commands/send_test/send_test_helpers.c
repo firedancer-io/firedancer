@@ -204,10 +204,13 @@ encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
   ulong const vote_slot = root+30;
 
   /* Create minimal mock tower with one vote */
-  uchar votes_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
-  fd_tower_vote_t * votes = fd_tower_vote_join( fd_tower_vote_new( votes_mem ) );
-  fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
-  fd_tower_t tower[1] = {{ .root = root, .votes = votes }};
+  ulong blk_max = 4;
+  ulong vtr_max = 4;
+  uchar tower_mem[ 1<<20 ] __attribute__((aligned(128)));
+  FD_TEST( fd_tower_footprint( blk_max, vtr_max )<=sizeof(tower_mem) );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, vtr_max, 42UL ) );
+  fd_tower_publish( tower, root );
+  fd_tower_vote_push_tail( fd_tower_votes( tower ), (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
 
   /* Mock values */
   fd_hash_t test_hash = {0};

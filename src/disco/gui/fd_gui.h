@@ -14,7 +14,7 @@
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../choreo/tower/fd_tower.h"
-#include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../choreo/tower/fd_tower_serde.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/types/fd_types_custom.h"
 #include "../../util/fd_util_base.h"
@@ -716,7 +716,7 @@ struct fd_gui {
   ulong pack_txn_idx; /* The pack index of the most recently received transaction */
 
   ulong tower_cnt;
-  fd_vote_acc_vote_t tower[ FD_TOWER_VOTE_MAX ];
+  fd_lat_vote_t tower[ FD_TOWER_VOTE_MAX ];
 
   struct {
     int has_block_engine;

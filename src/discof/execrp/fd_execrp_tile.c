@@ -4,7 +4,7 @@
 #include "../../discof/fd_startup.h"
 
 #include "../../ballet/sha256/fd_sha256.h" /* fd_sha256_hash_32_repeated */
-#include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../choreo/tower/fd_tower_serde.h"
 #include "../../discof/fd_accdb_topo.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"

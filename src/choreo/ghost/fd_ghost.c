@@ -28,7 +28,7 @@
 
 /* fd_ghost_t is the top-level structure that holds the root of the
    tree, as well as the memory pools and map structures for tracking
-   ghost eles and votes.
+   ghost blocks and voters.
 
    These structures are bump-allocated and laid out contiguously in
    memory from the fd_ghost_t * pointer which points to the beginning of
@@ -44,53 +44,17 @@
    | vtr_map            |
    ---------------------- */
 
-struct __attribute__((aligned(128UL))) fd_ghost {
-  ulong root;           /* pool idx of the root tree element */
-  ulong wksp_gaddr;     /* wksp gaddr of fd_ghost in the backing wksp */
-  ulong blk_pool_gaddr; /* memory offset of the blk_pool */
-  ulong blk_map_gaddr;  /* memory offset of the blk_map */
-  ulong vtr_pool_gaddr; /* memory offset of the vtr_pool */
-  ulong vtr_map_gaddr;  /* memory offset of the vtr_map */
-  ulong width;          /* incrementally updated width of the fork tree */
-};
-
 typedef fd_ghost_blk_t blk_pool_t;
 typedef fd_ghost_vtr_t vtr_pool_t;
 
-/* wksp returns the local join to the wksp backing the
-   ghost.  The lifetime of the returned pointer is at least as
-   long as the lifetime of the local join.  Assumes ghost is a
-   current local join. */
-
-FD_FN_PURE static inline fd_wksp_t *
-wksp( fd_ghost_t const * ghost ) {
-  return (fd_wksp_t *)( ((ulong)ghost) - ghost->wksp_gaddr );
-}
-
-static inline blk_pool_t *
-blk_pool( fd_ghost_t * ghost ) {
-  return (blk_pool_t *)fd_wksp_laddr_fast( wksp( ghost ), ghost->blk_pool_gaddr );
-}
-
-static inline blk_pool_t const *
-blk_pool_const( fd_ghost_t const * ghost ) {
-  return (blk_pool_t const *)fd_wksp_laddr_fast( wksp( ghost ), ghost->blk_pool_gaddr );
-}
-
-static inline blk_map_t *
-blk_map( fd_ghost_t * ghost ) {
-  return (blk_map_t *)fd_wksp_laddr_fast( wksp( ghost ), ghost->blk_map_gaddr );
-}
-
-static inline vtr_pool_t *
-vtr_pool( fd_ghost_t * ghost ) {
-  return (vtr_pool_t *)fd_wksp_laddr_fast( wksp( ghost ), ghost->vtr_pool_gaddr );
-}
-
-static inline vtr_map_t *
-vtr_map( fd_ghost_t * ghost ) {
-  return (vtr_map_t *)fd_wksp_laddr_fast( wksp( ghost ), ghost->vtr_map_gaddr );
-}
+struct __attribute__((aligned(128UL))) fd_ghost {
+  ulong          root;     /* pool idx of the root tree element */
+  blk_pool_t *   blk_pool; /* pool of ghost blocks */
+  blk_map_t *    blk_map;  /* map chain of ghost blocks */
+  vtr_pool_t *   vtr_pool; /* pool of ghost voters */
+  vtr_map_t *    vtr_map;  /* map chain of ghost voters */
+  ulong          width;    /* incrementally updated width of the fork tree */
+};
 
 ulong
 fd_ghost_align( void ) {
@@ -139,31 +103,24 @@ fd_ghost_new( void * shmem,
     return NULL;
   }
 
-  fd_wksp_t * wksp = fd_wksp_containing( shmem );
-  if( FD_UNLIKELY( !wksp ) ) {
-    FD_LOG_WARNING(( "shmem must be part of a workspace" ));
-    return NULL;
-  }
-
   fd_memset( shmem, 0, footprint );
 
   ulong blk_chain_cnt = blk_map_chain_cnt_est( blk_max );
   ulong vtr_chain_cnt = vtr_map_chain_cnt_est( vtr_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_ghost_t * ghost    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ghost_t), sizeof(fd_ghost_t)                  );
-  void *       blk_pool = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),    blk_pool_footprint( blk_max )       );
-  void *       blk_map  = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),     blk_map_footprint ( blk_chain_cnt ) );
-  void *       vtr_pool = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),    vtr_pool_footprint( vtr_max )       );
-  void *       vtr_map  = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),     vtr_map_footprint ( vtr_chain_cnt ) );
+  fd_ghost_t * ghost        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ghost_t), sizeof(fd_ghost_t)                  );
+  void *       blk_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),    blk_pool_footprint( blk_max )       );
+  void *       blk_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),     blk_map_footprint ( blk_chain_cnt ) );
+  void *       vtr_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),    vtr_pool_footprint( vtr_max )       );
+  void *       vtr_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),     vtr_map_footprint ( vtr_chain_cnt ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_ghost_align() ) == (ulong)shmem + footprint );
 
-  ghost->root           = ULONG_MAX;
-  ghost->wksp_gaddr     = fd_wksp_gaddr_fast( wksp, ghost );
-  ghost->blk_pool_gaddr = fd_wksp_gaddr_fast( wksp, blk_pool_join( blk_pool_new ( blk_pool, blk_max             ) ) );
-  ghost->blk_map_gaddr  = fd_wksp_gaddr_fast( wksp, blk_map_join ( blk_map_new  ( blk_map,  blk_chain_cnt, seed ) ) );
-  ghost->vtr_pool_gaddr = fd_wksp_gaddr_fast( wksp, vtr_pool_join( vtr_pool_new ( vtr_pool, vtr_max             ) ) );
-  ghost->vtr_map_gaddr  = fd_wksp_gaddr_fast( wksp, vtr_map_join ( vtr_map_new  ( vtr_map,  vtr_chain_cnt, seed ) ) );
+  ghost->root     = ULONG_MAX;
+  ghost->blk_pool = blk_pool_join( blk_pool_new( blk_pool_mem, blk_max             ) );
+  ghost->blk_map  = blk_map_join ( blk_map_new ( blk_map_mem,  blk_chain_cnt, seed ) );
+  ghost->vtr_pool = vtr_pool_join( vtr_pool_new( vtr_pool_mem, vtr_max             ) );
+  ghost->vtr_map  = vtr_map_join ( vtr_map_new ( vtr_map_mem,  vtr_chain_cnt, seed ) );
 
   return shmem;
 }
@@ -214,24 +171,24 @@ fd_ghost_delete( void * ghost ) {
 
 fd_ghost_blk_t *
 fd_ghost_root( fd_ghost_t * ghost ) {
-  return blk_pool_ele( blk_pool( ghost ), ghost->root );
+  return blk_pool_ele( ghost->blk_pool, ghost->root );
 }
 
 fd_ghost_blk_t *
 fd_ghost_parent( fd_ghost_t * ghost, fd_ghost_blk_t * blk ) {
-  return blk_pool_ele( blk_pool( ghost ), blk->parent );
+  return blk_pool_ele( ghost->blk_pool, blk->parent );
 }
 
 fd_ghost_blk_t *
 fd_ghost_query( fd_ghost_t       * ghost,
                 fd_hash_t  const * block_id ) {
-  return blk_map_ele_query( blk_map( ghost ), block_id, NULL, blk_pool( ghost ) );
+  return blk_map_ele_query( ghost->blk_map, block_id, NULL, ghost->blk_pool );
 }
 
 fd_ghost_blk_t *
 fd_ghost_best( fd_ghost_t     * ghost,
                fd_ghost_blk_t * root ) {
-  blk_pool_t *     pool = blk_pool( ghost );
+  blk_pool_t *     pool = ghost->blk_pool;
   ulong            null = blk_pool_idx_null( pool );
   fd_ghost_blk_t * best = root;
   while( FD_LIKELY( best->child != null ) ) {
@@ -268,9 +225,9 @@ fd_ghost_best( fd_ghost_t     * ghost,
 fd_ghost_blk_t *
 fd_ghost_deepest( fd_ghost_t     * ghost,
                   fd_ghost_blk_t * root ) {
-  blk_pool_t *     pool = blk_pool( ghost );
+  blk_pool_t *     pool = ghost->blk_pool;
   ulong            null = blk_pool_idx_null( pool );
-  fd_ghost_blk_t * head = blk_map_ele_remove( blk_map( ghost ), &root->id, NULL, pool ); /* remove ele from map to reuse `.next` */
+  fd_ghost_blk_t * head = blk_map_ele_remove( ghost->blk_map, &root->id, NULL, pool ); /* remove ele from map to reuse `.next` */
   fd_ghost_blk_t * tail = head;
   fd_ghost_blk_t * prev = NULL;
 
@@ -285,14 +242,14 @@ fd_ghost_deepest( fd_ghost_t     * ghost,
   while( FD_LIKELY( head ) ) {
     fd_ghost_blk_t const * child = blk_pool_ele( pool, head->child );
     while( FD_LIKELY( child ) ) {
-      FD_TEST( blk_map_ele_remove( blk_map( ghost ), &child->id, NULL, pool ) ); /* in the tree so must be in the map */
+      FD_TEST( blk_map_ele_remove( ghost->blk_map, &child->id, NULL, pool ) ); /* in the tree so must be in the map */
       tail->next = blk_pool_idx( pool, child );
       tail       = blk_pool_ele( pool, tail->next );
       tail->next = blk_pool_idx_null( pool );
       child      = blk_pool_ele( pool, child->sibling ); /* next sibling */
     }
     fd_ghost_blk_t * next = blk_pool_ele( pool, head->next ); /* pop prune queue head */
-    blk_map_ele_insert( blk_map( ghost ), head, pool );       /* re-insert head into map */
+    blk_map_ele_insert( ghost->blk_map, head, pool );       /* re-insert head into map */
     prev = head;
     head = next;
   }
@@ -303,7 +260,7 @@ fd_ghost_deepest( fd_ghost_t     * ghost,
     fd_ghost_blk_t * ancestor = descendant;                           \
     while( FD_LIKELY( ancestor ) ) {                                  \
       if( FD_LIKELY( predicate ) ) return ancestor;                   \
-      ancestor = blk_pool_ele( blk_pool( ghost ), ancestor->parent ); \
+      ancestor = blk_pool_ele( ghost->blk_pool, ancestor->parent ); \
     }                                                                 \
     return NULL;                                                      \
   } while(0)
@@ -332,9 +289,9 @@ static fd_ghost_blk_t *
 insert( fd_ghost_t      * ghost,
         ulong             slot,
         fd_hash_t const * block_id ) {
-  fd_ghost_blk_t * pool = blk_pool( ghost );
+  fd_ghost_blk_t * pool = ghost->blk_pool;
   ulong            null = blk_pool_idx_null( pool );
-  fd_ghost_blk_t * blk  = blk_map_ele_query( blk_map( ghost ), block_id, NULL, pool );
+  fd_ghost_blk_t * blk  = blk_map_ele_query( ghost->blk_map, block_id, NULL, pool );
 
   FD_TEST( !blk ); /* duplicate insert */
   FD_TEST( blk_pool_free( pool ) ); /* ghost full */
@@ -349,7 +306,7 @@ insert( fd_ghost_t      * ghost,
   blk->stake       = 0;
   blk->total_stake = 0;
   blk->valid       = 1;
-  blk_map_ele_insert( blk_map( ghost ), blk, pool );
+  blk_map_ele_insert( ghost->blk_map, blk, pool );
   return blk;
 }
 
@@ -358,7 +315,7 @@ fd_ghost_init( fd_ghost_t      * ghost,
                ulong             slot,
                fd_hash_t const * block_id ) {
   fd_ghost_blk_t * blk = insert( ghost, slot, block_id );
-  ghost->root          = blk_pool_idx( blk_pool( ghost ), blk );
+  ghost->root          = blk_pool_idx( ghost->blk_pool, blk );
   ghost->width         = 1;
   return blk;
 }
@@ -369,9 +326,9 @@ fd_ghost_insert( fd_ghost_t      * ghost,
                  fd_hash_t const * block_id,
                  fd_hash_t const * parent_block_id ) {
   fd_ghost_blk_t * blk    = insert( ghost, slot, block_id );
-  fd_ghost_blk_t * pool   = blk_pool( ghost );
+  fd_ghost_blk_t * pool   = ghost->blk_pool;
   ulong            null   = blk_pool_idx_null( pool );
-  fd_ghost_blk_t * parent = blk_map_ele_query( blk_map( ghost ), parent_block_id, NULL, pool );
+  fd_ghost_blk_t * parent = blk_map_ele_query( ghost->blk_map, parent_block_id, NULL, pool );
   FD_TEST( parent ); /* parent must exist be in ghost */
   blk->parent  = blk_pool_idx( pool, parent );
   if( FD_LIKELY( parent->child == null ) ) {
@@ -394,7 +351,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
                      ulong               slot ) {
 
   fd_ghost_blk_t const * root = fd_ghost_root( ghost );
-  fd_ghost_vtr_t *       vtr  = vtr_map_ele_query( vtr_map( ghost ), vote_acc, NULL, vtr_pool( ghost ) );
+  fd_ghost_vtr_t *       vtr  = vtr_map_ele_query( ghost->vtr_map, vote_acc, NULL, ghost->vtr_pool );
 
   if( FD_UNLIKELY( slot==ULONG_MAX  ) ) return FD_GHOST_ERR_NOT_VOTED;
   if( FD_UNLIKELY( slot< root->slot ) ) return FD_GHOST_ERR_VOTE_TOO_OLD;
@@ -404,9 +361,9 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
     /* This vote account address has not previously voted, so add it to
        the map of voters. */
 
-    vtr       = vtr_pool_ele_acquire( vtr_pool( ghost ) );
+    vtr       = vtr_pool_ele_acquire( ghost->vtr_pool );
     vtr->addr = *vote_acc;
-    vtr_map_ele_insert( vtr_map( ghost ), vtr, vtr_pool( ghost ) );
+    vtr_map_ele_insert( ghost->vtr_map, vtr, ghost->vtr_pool );
 
   } else {
 
@@ -425,14 +382,14 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
 
     /* TODO can optimize this if they're voting for the same fork */
 
-    fd_ghost_blk_t * ancestor = blk_map_ele_query( blk_map( ghost ), &vtr->prev_block_id, NULL, blk_pool( ghost ) );
+    fd_ghost_blk_t * ancestor = blk_map_ele_query( ghost->blk_map, &vtr->prev_block_id, NULL, ghost->blk_pool );
     while( FD_LIKELY( ancestor ) ) {
       int cf = __builtin_usubl_overflow( ancestor->stake, vtr->prev_stake, &ancestor->stake );
       if( FD_UNLIKELY( cf ) ) {
         FD_BASE58_ENCODE_32_BYTES( ancestor->id.key, ancestor_id_b58 );
         FD_LOG_CRIT(( "[%s] overflow (after): %lu. subtracted: %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, vtr->prev_stake, ancestor->slot, ancestor_id_b58 ));
       }
-      ancestor = blk_pool_ele( blk_pool( ghost ), ancestor->parent );
+      ancestor = blk_pool_ele( ghost->blk_pool, ancestor->parent );
     }
   }
 
@@ -449,7 +406,7 @@ fd_ghost_count_vote( fd_ghost_t *        ghost,
       FD_BASE58_ENCODE_32_BYTES( ancestor->id.key, ancestor_id_b58 );
       FD_LOG_CRIT(( "[%s] overflow (after): %lu. added: %lu. (slot %lu, block_id: %s)", __func__, ancestor->stake, stake, ancestor->slot, ancestor_id_b58 ));
     }
-    ancestor = blk_pool_ele( blk_pool( ghost ), ancestor->parent );
+    ancestor = blk_pool_ele( ghost->blk_pool, ancestor->parent );
   }
   vtr->prev_block_id = blk->id;
   vtr->prev_stake    = stake;
@@ -461,7 +418,7 @@ void
 fd_ghost_publish( fd_ghost_t     * ghost,
                   fd_ghost_blk_t * newr ) {
 
-  fd_ghost_blk_t * pool = blk_pool( ghost );
+  fd_ghost_blk_t * pool = ghost->blk_pool;
   ulong            null = blk_pool_idx_null( pool );
   fd_ghost_blk_t * oldr = fd_ghost_root( ghost );
 
@@ -471,7 +428,7 @@ fd_ghost_publish( fd_ghost_t     * ghost,
      this context, head is the list head (not to be confused with the
      ghost head.) */
 
-  fd_ghost_blk_t * head = blk_map_ele_remove( blk_map( ghost ), &oldr->id, NULL, pool ); /* remove ele from map to reuse `.next` */
+  fd_ghost_blk_t * head = blk_map_ele_remove( ghost->blk_map, &oldr->id, NULL, pool ); /* remove ele from map to reuse `.next` */
   fd_ghost_blk_t * tail = head;
 
   /* Second, BFS down the tree, pruning all of root's ancestors and also
@@ -515,23 +472,23 @@ fd_ghost_publish( fd_ghost_t     * ghost,
 
   head->next = null;
   while( FD_LIKELY( head ) ) {
-    fd_ghost_blk_t * child = blk_pool_ele( blk_pool( ghost ), head->child );
+    fd_ghost_blk_t * child = blk_pool_ele( ghost->blk_pool, head->child );
     while( FD_LIKELY( child ) ) {                                                    /* iterate over children */
       if( FD_LIKELY( child != newr ) ) {                                             /* stop at new root */
-        tail->next = blk_map_idx_remove( blk_map( ghost ), &child->id, null, pool ); /* remove ele from map to reuse `.next` */
+        tail->next = blk_map_idx_remove( ghost->blk_map, &child->id, null, pool ); /* remove ele from map to reuse `.next` */
         FD_BASE58_ENCODE_32_BYTES( child->id.key, block_id_cstr );
-        tail       = blk_pool_ele( blk_pool( ghost ), tail->next );                  /* push onto prune queue (so descendants can be pruned) */
-        tail->next = blk_pool_idx_null( blk_pool( ghost ) );
+        tail       = blk_pool_ele( ghost->blk_pool, tail->next );                  /* push onto prune queue (so descendants can be pruned) */
+        tail->next = blk_pool_idx_null( ghost->blk_pool );
       }
-      child = blk_pool_ele( blk_pool( ghost ), child->sibling ); /* next sibling */
+      child = blk_pool_ele( ghost->blk_pool, child->sibling ); /* next sibling */
       ghost->width -= !!child; /* has a sibling == a fork to be pruned */
     }
-    fd_ghost_blk_t * next = blk_pool_ele( blk_pool( ghost ), head->next ); /* pop prune queue head */
-    blk_pool_ele_release( blk_pool( ghost ), head );                       /* free prune queue head */
+    fd_ghost_blk_t * next = blk_pool_ele( ghost->blk_pool, head->next ); /* pop prune queue head */
+    blk_pool_ele_release( ghost->blk_pool, head );                       /* free prune queue head */
     head = next;                                                           /* move prune queue head forward */
   }
   newr->parent = null;                                    /* unlink old root */
-  ghost->root  = blk_pool_idx( blk_pool( ghost ), newr ); /* replace with new root */
+  ghost->root  = blk_pool_idx( ghost->blk_pool, newr ); /* replace with new root */
 }
 
 /* mark_invalid marks the entire subtree beginning from root as invalid.
@@ -540,7 +497,7 @@ fd_ghost_publish( fd_ghost_t     * ghost,
 static void
 mark_invalid( fd_ghost_t     * ghost,
               fd_ghost_blk_t * root ) {
-  fd_ghost_blk_t * pool = blk_pool( ghost );
+  fd_ghost_blk_t * pool = ghost->blk_pool;
   fd_ghost_blk_t * curr = root;
 
   /* Loop invariant: curr has not been visited.
@@ -582,8 +539,8 @@ mark_invalid( fd_ghost_t     * ghost,
 void
 fd_ghost_confirm( fd_ghost_t      * ghost,
                   fd_hash_t const * confirmed_block_id ) {
-  fd_ghost_blk_t * pool = blk_pool( ghost );
-  fd_ghost_blk_t * blk  = blk_map_ele_query( blk_map( ghost ), confirmed_block_id, NULL, pool );
+  fd_ghost_blk_t * pool = ghost->blk_pool;
+  fd_ghost_blk_t * blk  = blk_map_ele_query( ghost->blk_map, confirmed_block_id, NULL, pool );
   if( FD_UNLIKELY( !blk ) ) return;
 
   /* Mark the confirmed block and its ancestors as valid, short-
@@ -600,8 +557,8 @@ fd_ghost_confirm( fd_ghost_t      * ghost,
 void
 fd_ghost_eqvoc( fd_ghost_t      * ghost,
                 fd_hash_t const * block_id ) {
-  fd_ghost_blk_t * pool = blk_pool( ghost );
-  fd_ghost_blk_t * blk  = blk_map_ele_query( blk_map( ghost ), block_id, NULL, pool );
+  fd_ghost_blk_t * pool = ghost->blk_pool;
+  fd_ghost_blk_t * blk  = blk_map_ele_query( ghost->blk_map, block_id, NULL, pool );
   if( FD_UNLIKELY( !blk ) ) return;
   mark_invalid( ghost, blk );
 }
@@ -614,42 +571,42 @@ fd_ghost_width( fd_ghost_t * ghost ) {
 fd_ghost_blk_t *
 fd_ghost_blk_map_remove( fd_ghost_t     * ghost,
                          fd_ghost_blk_t * blk ) {
-  return blk_map_ele_remove( blk_map( ghost ), &blk->id, NULL, blk_pool( ghost ) );
+  return blk_map_ele_remove( ghost->blk_map, &blk->id, NULL, ghost->blk_pool );
 }
 
 void
 fd_ghost_blk_map_insert( fd_ghost_t     * ghost,
                          fd_ghost_blk_t * blk ) {
-  blk_map_ele_insert( blk_map( ghost ), blk, blk_pool( ghost ) );
+  blk_map_ele_insert( ghost->blk_map, blk, ghost->blk_pool );
 }
 
 fd_ghost_blk_t *
 fd_ghost_blk_child( fd_ghost_t     * ghost,
                     fd_ghost_blk_t * blk ) {
-  return blk_pool_ele( blk_pool( ghost ), blk->child );
+  return blk_pool_ele( ghost->blk_pool, blk->child );
 }
 
 fd_ghost_blk_t *
 fd_ghost_blk_sibling( fd_ghost_t     * ghost,
                       fd_ghost_blk_t * blk ) {
-  return blk_pool_ele( blk_pool( ghost ), blk->sibling );
+  return blk_pool_ele( ghost->blk_pool, blk->sibling );
 }
 
 fd_ghost_blk_t *
 fd_ghost_blk_next( fd_ghost_t     * ghost,
                    fd_ghost_blk_t * blk ) {
-  return blk_pool_ele( blk_pool( ghost ), blk->next );
+  return blk_pool_ele( ghost->blk_pool, blk->next );
 }
 
 ulong
 fd_ghost_blk_idx( fd_ghost_t     * ghost,
                   fd_ghost_blk_t * blk ) {
-  return blk_pool_idx( blk_pool( ghost ), blk );
+  return blk_pool_idx( ghost->blk_pool, blk );
 }
 
 ulong
 fd_ghost_blk_idx_null( fd_ghost_t * ghost ) {
-  return blk_pool_idx_null( blk_pool( ghost ) );
+  return blk_pool_idx_null( ghost->blk_pool );
 }
 
 int
@@ -664,17 +621,11 @@ fd_ghost_verify( fd_ghost_t * ghost ) {
     return -1;
   }
 
-  fd_wksp_t * wksp = fd_wksp_containing( ghost );
-  if( FD_UNLIKELY( !wksp ) ) {
-    FD_LOG_WARNING(( "ghost must be part of a workspace" ));
-    return -1;
-  }
-
-  fd_ghost_blk_t const * pool = blk_pool( ghost );
+  fd_ghost_blk_t const * pool = ghost->blk_pool;
 
   /* Check every ele that exists in pool exists in map. */
 
-  if( blk_map_verify( blk_map( ghost ), blk_pool_max( pool ), pool ) ) return -1;
+  if( blk_map_verify( ghost->blk_map, blk_pool_max( pool ), pool ) ) return -1;
 
   return 0;
 }
@@ -697,7 +648,7 @@ to_cstr( fd_ghost_t const *     ghost,
          ulong                  depth ) {
   if( FD_UNLIKELY( depth>DEPTH_MAX ) ) return;
 
-  fd_ghost_blk_t const * pool = blk_pool_const( ghost );
+  fd_ghost_blk_t const * pool = (blk_pool_t const *)ghost->blk_pool;
   int n;
 
   if( FD_UNLIKELY( ele == NULL ) ) return;

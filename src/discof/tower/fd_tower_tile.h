@@ -4,7 +4,7 @@
 #include "fd_tower_slot_rooted.h"
 #include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../choreo/tower/fd_tower.h"
-#include "../../choreo/tower/fd_tower_serdes.h"
+#include "../../choreo/tower/fd_tower_serde.h"
 #include "../../disco/topo/fd_topo.h"
 
 #define FD_TOWER_SIG_SLOT_CONFIRMED (0)
@@ -168,8 +168,8 @@ struct fd_tower_slot_done {
 
   /* Our current on-chain tower with latencies optionally included. */
 
-  ulong              tower_cnt;
-  fd_vote_acc_vote_t tower[FD_TOWER_VOTE_MAX];
+  ulong         tower_cnt;
+  fd_lat_vote_t tower[FD_TOWER_VOTE_MAX];
 };
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;
 
