@@ -246,6 +246,7 @@ struct fd_topo_tile {
         ushort tpu;
         ushort tpu_quic;
         ushort repair;
+        ushort rserve;
       } ports;
     } gossip;
 
@@ -477,7 +478,6 @@ struct fd_topo_tile {
 
     struct {
       ushort  repair_intake_listen_port;
-      ushort  repair_serve_listen_port;
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
       ulong   slot_max;
@@ -487,6 +487,14 @@ struct fd_topo_tile {
       ulong   repair_sign_depth;
       ulong   repair_sign_cnt;
     } repair;
+
+    struct {
+      ushort repair_serve_listen_port;
+      char   identity_key_path[ PATH_MAX ];
+      char   shredb_path[ PATH_MAX ];
+      ulong  shred_storage_limit_gib;
+      ulong  ping_cache_entries;
+    } rserve;
 
     struct {
       ushort txsend_src_port;

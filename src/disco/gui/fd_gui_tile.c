@@ -291,7 +291,7 @@ during_frag( fd_gui_ctx_t * ctx,
       uchar * payload;
       ulong payload_sz;
       if( FD_LIKELY( fd_ip4_udp_hdr_strip( src, sz, &payload, &payload_sz, NULL, NULL, NULL ) ) ) {
-        fd_repair_msg_t const * msg = (fd_repair_msg_t const *)payload;
+        fd_repair_msg_t const * msg = (fd_repair_msg_t const *)fd_type_pun_const( payload );
         if( FD_LIKELY( msg->kind==FD_REPAIR_KIND_SHRED ) ) {
           if( FD_UNLIKELY( msg->shred.slot==0 ) ) break;
           ctx->parsed.repair_net.slot = msg->shred.slot;

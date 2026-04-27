@@ -1354,12 +1354,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
-  ctx->repair_serve_addr.port  = fd_ushort_bswap( tile->repair.repair_serve_listen_port  );
+  ctx->repair_serve_addr.port  = fd_ushort_bswap( tile->rserve.repair_serve_listen_port  );
 
   /* TODO clean these up */
   ctx->net_id = (ushort)0;
   fd_ip4_udp_hdr_init( ctx->intake_hdr, 0, 0, tile->repair.repair_intake_listen_port );
-  fd_ip4_udp_hdr_init( ctx->serve_hdr,  0, 0, tile->repair.repair_serve_listen_port  );
+  fd_ip4_udp_hdr_init( ctx->serve_hdr,  0, 0, tile->rserve.repair_serve_listen_port  );
 
   /* Repair set up */
 
