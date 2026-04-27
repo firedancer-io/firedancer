@@ -801,6 +801,10 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      first instruction account is writable; if it is, then that account
      is a durable nonce account. */
   fd_txn_instr_t const * txn_instr = &TXN( txn_in->txn )->instr[0];
+  if( FD_UNLIKELY( txn_instr->acct_cnt==0 ) ) {
+    return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+  }
+
   fd_acct_addr_t const * tx_accs   = fd_txn_get_acct_addrs( TXN( txn_in->txn ), txn_in->txn->payload );
   fd_acct_addr_t const * prog_id   = tx_accs + txn_instr->program_id;
   if( FD_UNLIKELY( memcmp( prog_id->b, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
