@@ -235,9 +235,10 @@ do_prune( fd_prune_finder_t * pf,
      Relayers covering the top min_ingress_nodes and enough cumulative
      stake to meet min_ingress_stake are kept; the rest are pruned. */
   ulong min_base = fd_ulong_min( pf->identity_stake, origin->origin_stake );
-  /* Use a wide intermediate to avoid overflow while preserving
-     floor(min_base * pct / 100) semantics. */
-  ulong min_ingress_stake = (ulong)( (((__uint128_t)min_base) * ((__uint128_t)FD_PRUNE_FINDER_STAKE_THRESHOLD_PCT)) / 100UL );
+  /* Compute floor(min_base * pct / 100) without overflow and without
+     requiring __uint128_t. */
+  ulong min_ingress_stake = (min_base / 100UL) * FD_PRUNE_FINDER_STAKE_THRESHOLD_PCT
+                          + ((min_base % 100UL) * FD_PRUNE_FINDER_STAKE_THRESHOLD_PCT) / 100UL;
 
   ulong cum_stake = 0UL;
 
