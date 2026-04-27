@@ -613,9 +613,9 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   return child_bank;
 }
 
-/* fd_bank_stake_delegation_apply_delta applies the stake
-   delegations from the new root bank to the root into a full
-   fd_stake_delegations_t object.  Also apply any new votes if needed. */
+/* fd_bank_apply_delta applies the stake delegations from the new root
+   bank to the root into the base fd_stake_delegations_t object.  Also
+   apply any new votes if needed. */
 
 static inline void
 fd_bank_apply_delta( fd_banks_t * banks,
