@@ -4,12 +4,13 @@
 #include "fd_bank.h"
 #include "fd_system_ids.h"
 #include "fd_alut.h"
+#include "sysvar/fd_sysvar_base.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_cache.h"
-#include "sysvar/fd_sysvar_slot_hashes.h"
+#include "sysvar/fd_sysvar.h"
 #include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../features/fd_features.h"
@@ -889,23 +890,16 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     /* Initialize slot hashes sysvar so the sysvar cache can serve them
        to fd_executor_setup_txn_alut_account_keys. */
 
-    uchar __attribute__((aligned(FD_SYSVAR_SLOT_HASHES_ALIGN)))
-        slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
-    fd_sysvar_slot_hashes_new( slot_hashes_mem, FD_SYSVAR_SLOT_HASHES_CAP );
-
-    fd_slot_hash_t * sh_deq = NULL;
-    fd_slot_hashes_global_t * sh_global = fd_sysvar_slot_hashes_join( slot_hashes_mem, &sh_deq );
-    FD_TEST( sh_global && sh_deq );
-
-    for( ulong i = 0UL; i < 10UL; i++ ) {
-      fd_slot_hash_t entry = { .slot = 10UL - i };
-      fd_memset( entry.hash.hash, 0, 32UL );
-      deq_fd_slot_hash_t_push_tail( sh_deq, entry );
+    uchar slot_hashes_data[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ];
+    ulong sh_cnt = 10UL;
+    FD_STORE( ulong, slot_hashes_data, sh_cnt );
+    fd_slot_hash_t * sh_entries = (fd_slot_hash_t *)( slot_hashes_data + sizeof(ulong) );
+    for( ulong i = 0UL; i < sh_cnt; i++ ) {
+      sh_entries[i].slot = 10UL - i;
+      fd_memset( sh_entries[i].hash.hash, 0, 32UL );
     }
-
-    fd_sysvar_slot_hashes_write( env->bank, env->accdb, &env->xid, NULL, sh_global );
-    fd_sysvar_slot_hashes_leave( sh_global, sh_deq );
-    fd_sysvar_slot_hashes_delete( slot_hashes_mem );
+    ulong sh_sz = sizeof(ulong) + sh_cnt * sizeof(fd_slot_hash_t);
+    fd_sysvar_account_update( env->bank, env->accdb, &env->xid, NULL, &fd_sysvar_slot_hashes_id, slot_hashes_data, sh_sz );
 
     fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid );
 

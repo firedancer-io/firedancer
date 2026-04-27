@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
+#define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
+
 #include "fd_runtime_err.h"
 #include "fd_rocksdb.h"
 #include "fd_acc_mgr.h"
@@ -12,9 +15,6 @@
 #include "../../disco/pack/fd_pack.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "program/vote/fd_vote_codec.h"
-
-#ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
-#define HEADER_fd_src_flamenco_runtime_fd_runtime_helpers_h
 
 /* Return data for syscalls */
 struct fd_txn_return_data {
@@ -47,7 +47,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
                                            fd_accdb_user_t *         accdb,
                                            fd_funk_txn_xid_t const * xid,
                                            ulong                     slot,
-                                           fd_slot_hash_t const *    hashes, /* deque */
+                                           fd_slot_hashes_view_t const * hashes,
                                            fd_acct_addr_t *          out_accts_alt );
 
 /* fd_runtime_new_fee_rate_governor_derived updates the bank's

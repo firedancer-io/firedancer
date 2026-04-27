@@ -13,10 +13,8 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
 #include "sysvar/fd_sysvar_cache.h"
-#include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_instructions.h"
 #include "sysvar/fd_sysvar_rent.h"
-#include "sysvar/fd_sysvar_slot_history.h"
 #include "tests/fd_dump_pb.h"
 
 #include "../accdb/fd_accdb_sync.h"
@@ -881,8 +879,8 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
   if( TXN( txn_in->txn )->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
     fd_sysvar_cache_t const * sysvar_cache = &bank->f.sysvar_cache;
-    fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
-    if( FD_UNLIKELY( !slot_hashes ) ) {
+    fd_slot_hashes_view_t slot_hashes_view[1];
+    if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( sysvar_cache, slot_hashes_view ) ) ) {
       FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
@@ -894,9 +892,8 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
                                                          runtime->accdb,
                                                          &xid,
                                                          bank->f.slot,
-                                                         slot_hashes,
+                                                         slot_hashes_view,
                                                          accts_alt );
-    fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
     txn_out->accounts.cnt += TXN( txn_in->txn )->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 

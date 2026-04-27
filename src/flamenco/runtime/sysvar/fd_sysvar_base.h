@@ -20,8 +20,6 @@
 #define FD_SYSVAR_RENT_BINCODE_SZ          (    17UL)
 
 #define FD_SYSVAR_SLOT_HASHES_BINCODE_SZ   ( 20488UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/slot_hashes.rs#L69 */
-#define FD_SYSVAR_SLOT_HASHES_ALIGN        (     8UL)
-#define FD_SYSVAR_SLOT_HASHES_FOOTPRINT    ( 20528UL)
 
 #define FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ  (131097UL) /* Agave v2.2.1: https://github.com/anza-xyz/solana-sdk/blob/slot-history%40v2.2.1/sysvar/src/slot_history.rs#L65 */
 
@@ -64,5 +62,19 @@ struct __attribute__((packed)) fd_epoch_schedule {
   ulong first_normal_slot;
 };
 typedef struct fd_epoch_schedule fd_epoch_schedule_t;
+
+#define FD_SYSVAR_SLOT_HASHES_CAP (512UL)
+
+struct fd_slot_hash {
+  ulong     slot;
+  fd_hash_t hash;
+};
+typedef struct fd_slot_hash fd_slot_hash_t;
+
+struct fd_slot_hashes_view {
+  fd_slot_hash_t const * elems;
+  ulong                  cnt;
+};
+typedef struct fd_slot_hashes_view fd_slot_hashes_view_t;
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h */

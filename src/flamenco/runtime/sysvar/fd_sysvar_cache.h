@@ -56,7 +56,6 @@ struct fd_sysvar_cache {
   uchar bin_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_rent              [ FD_SYSVAR_RENT_BINCODE_SZ              ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_FOOTPRINT        ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_history      [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_stake_history     [ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_stake_history     [ FD_SYSVAR_STAKE_HISTORY_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
@@ -265,29 +264,10 @@ fd_sysvar_cache_recent_hashes_is_valid( fd_sysvar_cache_t const * sysvar_cache )
 int
 fd_sysvar_cache_recent_hashes_is_empty( fd_sysvar_cache_t const * sysvar_cache );
 
-/* fd_sysvar_cache_slot_hashes_{join,leave}_const {attach,detach} the
-   caller {from,to} the slot hashes deque contained in the slot hashes
-   sysvar.
-
-   The join API returns a pointer into the sysvar cache.  If the sysvar
-   account is in an invalid state (non-existent, failed to deserialize),
-   join returns NULL. */
-
 static inline int
 fd_sysvar_cache_slot_hashes_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, slot_hashes );
 }
-
-fd_slot_hash_t const *
-fd_sysvar_cache_slot_hashes_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
-
-void
-fd_sysvar_cache_slot_hashes_leave_const(
-    fd_sysvar_cache_t const * sysvar_cache,
-    fd_slot_hash_t const *    slot_hashes
-);
 
 /* fd_sysvar_cache_slot_history_{join,leave}_const {attach,detach} the
    caller {from,to} the "slot history" sysvar.  Behavior analogous to
@@ -317,6 +297,10 @@ fd_sysvar_cache_stake_history_leave_const(
     fd_sysvar_cache_t const *  sysvar_cache,
     fd_stake_history_t const * stake_history
 );
+
+fd_slot_hashes_view_t *
+fd_sysvar_cache_slot_hashes_view( fd_sysvar_cache_t const * cache,
+                                  fd_slot_hashes_view_t *   view );
 
 FD_PROTOTYPES_END
 

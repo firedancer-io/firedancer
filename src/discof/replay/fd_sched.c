@@ -10,7 +10,9 @@
 #include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
 #include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
@@ -2087,12 +2089,18 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   /* Try to expand ALUTs. */
   int serializing = 0;
   if( alt_cnt>0UL ) {
-    uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb, alut_ctx->xid, slot_hashes_mem );
-    if( FD_LIKELY( slot_hashes_global ) ) {
-      fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
-      serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hash, sched->aluts );
-      sched->metrics->alut_success_cnt += (uint)!serializing;
+    fd_accdb_ro_t ro[1];
+    if( FD_LIKELY( fd_accdb_open_ro( alut_ctx->accdb, ro, alut_ctx->xid, &fd_sysvar_slot_hashes_id ) ) ) {
+      fd_slot_hashes_view_t slot_hashes_view[1];
+      if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view,
+                                                 fd_accdb_ref_data_const( ro ),
+                                                 fd_accdb_ref_data_sz( ro ) ) ) ) {
+        serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hashes_view, sched->aluts );
+        sched->metrics->alut_success_cnt += (uint)!serializing;
+      } else {
+        serializing = 1;
+      }
+      fd_accdb_close_ro( alut_ctx->accdb, ro );
     } else {
       serializing = 1;
     }

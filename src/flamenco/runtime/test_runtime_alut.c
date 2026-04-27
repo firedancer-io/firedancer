@@ -119,33 +119,29 @@ alloc_txn( fd_wksp_t * wksp, ulong instr_cnt, ulong addr_table_lookup_cnt ) {
   return (fd_txn_t *)mem;
 }
 
-/* Helper to create slot hash deque */
-static fd_slot_hash_t *
-create_slot_hash_deque( fd_wksp_t * wksp, ulong slot_cnt ) {
-  void * mem = fd_wksp_alloc_laddr( wksp, deq_fd_slot_hash_t_align(),
-                                    deq_fd_slot_hash_t_footprint( slot_cnt ), 1UL );
+static fd_slot_hashes_view_t *
+create_slot_hashes_view( fd_wksp_t * wksp, ulong slot_cnt ) {
+  ulong alloc_sz = sizeof(fd_slot_hashes_view_t) + slot_cnt * sizeof(fd_slot_hash_t);
+  void * mem = fd_wksp_alloc_laddr( wksp, alignof(fd_slot_hashes_view_t), alloc_sz, 1UL );
   FD_TEST( mem );
 
-  fd_slot_hash_t * hashes = deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( mem, slot_cnt ) );
-  FD_TEST( hashes );
+  fd_slot_hashes_view_t * view = (fd_slot_hashes_view_t *)mem;
+  fd_slot_hash_t * elems = (fd_slot_hash_t *)( (uchar *)mem + sizeof(fd_slot_hashes_view_t) );
+  view->elems = elems;
+  view->cnt   = slot_cnt;
 
-  /* Initialize with descending slot numbers from TEST_SLOT */
   for( ulong i = 0; i < slot_cnt; i++ ) {
-    fd_slot_hash_t slot_hash;
-    slot_hash.slot = TEST_SLOT - i;
-    memset( slot_hash.hash.hash, 0, 32 );
-    deq_fd_slot_hash_t_push_tail( hashes, slot_hash );
+    elems[i].slot = TEST_SLOT - i;
+    memset( elems[i].hash.hash, 0, 32 );
   }
 
-  return hashes;
+  return view;
 }
 
-/* Helper to destroy slot hash deque */
 static void
-destroy_slot_hash_deque( fd_slot_hash_t * hashes ) {
-  if( !hashes ) return;
-  void * mem = deq_fd_slot_hash_t_delete( deq_fd_slot_hash_t_leave( hashes ) );
-  fd_wksp_free_laddr( mem );
+destroy_slot_hashes_view( fd_slot_hashes_view_t * view ) {
+  if( !view ) return;
+  fd_wksp_free_laddr( view );
 }
 
 /* Helper function: Create a test transaction with configurable ALT references */
@@ -219,7 +215,7 @@ test_non_v0_transaction( fd_wksp_t * wksp ) {
   uchar            payload[4096];
   create_test_transaction( txn, payload, FD_TXN_VLEGACY, 0, NULL, NULL );
 
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
   /* Initialize out_accts with sentinel values to verify no modification */
@@ -243,7 +239,7 @@ test_non_v0_transaction( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 1 passed: Non-V0 returns immediately without modifying out_accts" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -259,7 +255,7 @@ test_v0_no_alts( fd_wksp_t * wksp ) {
   uchar            payload[4096];
   create_test_transaction( txn, payload, FD_TXN_V0, 0, NULL, NULL );
 
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
   /* Initialize out_accts with sentinel values */
@@ -283,7 +279,7 @@ test_v0_no_alts( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 2 passed: V0 with no ALTs returns successfully without modifying out_accts" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -302,7 +298,7 @@ test_alt_not_found( fd_wksp_t * wksp ) {
   create_test_transaction( txn, payload, FD_TXN_V0, 1, writable_counts, readonly_counts );
 
   /* Don't add the ALT account to funk - it should not be found */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
   /* Initialize out_accts with sentinel values */
@@ -334,7 +330,7 @@ test_alt_not_found( fd_wksp_t * wksp ) {
                   memory_intact ? "unchanged" : "partially modified as expected" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -366,7 +362,7 @@ test_invalid_alt_owner( fd_wksp_t * wksp ) {
   /* Add account to funk with wrong owner */
   create_test_account( ctx, &ctx->xid, alt_addr, &invalid_owner, alt_data, 56, 1000000, 0 );
 
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
   /* Initialize out_accts with sentinel values */
@@ -398,7 +394,7 @@ test_invalid_alt_owner( fd_wksp_t * wksp ) {
                   memory_intact ? "unchanged" : "partially modified as expected" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -428,7 +424,7 @@ test_alt_data_too_small( fd_wksp_t * wksp ) {
   create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
   /* Initialize out_accts with sentinel values */
@@ -460,7 +456,7 @@ test_alt_data_too_small( fd_wksp_t * wksp ) {
                   memory_intact ? "unchanged" : "partially modified as expected" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -516,7 +512,7 @@ test_invalid_discriminant( fd_wksp_t * wksp ) {
   create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, 256, 1000000, 0 );
 
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
   /* Initialize out_accts with sentinel values */
@@ -533,7 +529,7 @@ test_invalid_discriminant( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 6 passed: Uninitialized discriminant returns correct error" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -564,7 +560,7 @@ test_alt_data_not_aligned( fd_wksp_t * wksp ) {
   create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
   /* Initialize out_accts with sentinel values */
@@ -581,7 +577,7 @@ test_alt_data_not_aligned( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 7 passed: ALT data not 32-byte aligned returns correct error" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -626,7 +622,7 @@ test_deactivated_alt( fd_wksp_t * wksp ) {
                        alt_data, FD_LOOKUP_TABLE_META_SIZE + 5 * 32, 1000000, 0 );
 
   /* Set up slot hashes without the deactivation slot */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -644,7 +640,7 @@ test_deactivated_alt( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 8 passed: Deactivated ALT returns not found error" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -692,7 +688,7 @@ test_invalid_writable_index( fd_wksp_t * wksp ) {
                        alt_data, FD_LOOKUP_TABLE_META_SIZE + 10 * 32, 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -710,7 +706,7 @@ test_invalid_writable_index( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 9 passed: Invalid writable index returns correct error" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -744,7 +740,7 @@ test_invalid_readonly_index( fd_wksp_t * wksp ) {
                        alt_data, FD_LOOKUP_TABLE_META_SIZE + 8 * 32, 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -762,7 +758,7 @@ test_invalid_readonly_index( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 10 passed: Invalid readonly index returns correct error" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -795,11 +791,12 @@ test_valid_single_alt( fd_wksp_t * wksp ) {
                        alt_data, alt_data_size, 1000000, 0 );
 
   /* Set up slot hashes (needed for active address calculation) */
-  fd_slot_hash_t hashes[10];
+  fd_slot_hash_t _hashes_elems[10];
   for( int i = 0; i < 10; i++ ) {
-    hashes[i].slot = TEST_SLOT - (ulong)i;
-    memset( hashes[i].hash.hash, 0, 32 );
+    _hashes_elems[i].slot = TEST_SLOT - (ulong)i;
+    memset( _hashes_elems[i].hash.hash, 0, 32 );
   }
+  fd_slot_hashes_view_t hashes[1] = {{ .elems = _hashes_elems, .cnt = 10 }};
 
   fd_acct_addr_t   out_accts[256];
 
@@ -877,7 +874,7 @@ test_multiple_alts( fd_wksp_t * wksp ) {
                        alt_data2, sizeof(alt_data2), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes     = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes     = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -913,7 +910,7 @@ test_multiple_alts( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 12 passed: Multiple ALTs loaded successfully" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -959,7 +956,7 @@ test_partial_activation( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -983,7 +980,7 @@ test_partial_activation( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 13 passed: Partial activation handled correctly" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1029,7 +1026,7 @@ test_deactivating_alt( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes including the deactivation slot */
-  fd_slot_hash_t * hashes     = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes     = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1051,7 +1048,7 @@ test_deactivating_alt( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 14 passed: Deactivating ALT still active and loaded" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1085,7 +1082,7 @@ test_bincode_decode_failure( fd_wksp_t * wksp ) {
   create_test_account( ctx, &ctx->xid, alt_addr, &fd_solana_address_lookup_table_program_id,
                        alt_data, 256, 1000000, 0 );
 
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
   fd_acct_addr_t   out_accts[256];
 
   /* Initialize out_accts with sentinel values */
@@ -1102,7 +1099,7 @@ test_bincode_decode_failure( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 15 passed: Corrupted metadata causes decode failure" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1148,7 +1145,7 @@ test_alt_just_activated( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1173,7 +1170,7 @@ test_alt_just_activated( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 16 passed: ALT just activated in current slot loads all addresses" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1226,7 +1223,7 @@ test_growing_alt( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1251,7 +1248,7 @@ test_growing_alt( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 17 passed: Growing ALT only allows access to active addresses" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1297,7 +1294,7 @@ test_alt_deactivating_current_slot( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes including current slot */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1319,7 +1316,7 @@ test_alt_deactivating_current_slot( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 18 passed: ALT deactivating at current slot still loads" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1366,7 +1363,7 @@ test_alt_max_addresses( fd_wksp_t * wksp ) {
                        alt_data, alt_data_size, 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes     = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes     = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1390,7 +1387,7 @@ test_alt_max_addresses( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 19 passed: ALT with 256 addresses loads high indices correctly" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
   fd_wksp_free_laddr( alt_data );
 }
@@ -1437,7 +1434,7 @@ test_alt_no_authority( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1460,7 +1457,7 @@ test_alt_no_authority( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 20 passed: ALT without authority loads successfully" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1510,7 +1507,7 @@ test_alt_future_extension( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1528,7 +1525,7 @@ test_alt_future_extension( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 21 passed: Future extension not yet visible returns error" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1600,7 +1597,7 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
                        alt_data3, sizeof(alt_data3), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1626,7 +1623,7 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 22 passed: Multiple ALTs with mixed states handled correctly" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1657,7 +1654,7 @@ test_alt_zero_addresses( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1680,7 +1677,7 @@ test_alt_zero_addresses( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 23 passed: Empty ALT succeeds with no addresses loaded" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1724,7 +1721,7 @@ test_alt_duplicate_indices( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes     = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes     = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1749,7 +1746,7 @@ test_alt_duplicate_indices( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 27 passed: Duplicate indices handled correctly" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1787,7 +1784,7 @@ test_alt_all_writable( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes     = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes     = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1816,7 +1813,7 @@ test_alt_all_writable( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 24 passed: All writable addresses loaded correctly" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1854,7 +1851,7 @@ test_alt_all_readonly( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes     = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes     = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1883,7 +1880,7 @@ test_alt_all_readonly( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 25 passed: All readonly addresses loaded correctly" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -1929,7 +1926,7 @@ test_alt_deactivation_boundary( fd_wksp_t * wksp ) {
                        alt_data, sizeof(alt_data), 1000000, 0 );
 
   /* Set up slot hashes with exactly 10 entries */
-  fd_slot_hash_t * hashes = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -1951,7 +1948,7 @@ test_alt_deactivation_boundary( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 26 passed: ALT at deactivation boundary still loads" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 
@@ -2002,7 +1999,7 @@ test_max_transaction_alts( fd_wksp_t * wksp ) {
   }
 
   /* Set up slot hashes */
-  fd_slot_hash_t * hashes     = create_slot_hash_deque( wksp, 10 );
+  fd_slot_hashes_view_t * hashes     = create_slot_hashes_view( wksp, 10 );
 
   fd_acct_addr_t   out_accts[256];
 
@@ -2033,7 +2030,7 @@ test_max_transaction_alts( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "Test 28 passed: Maximum ALTs in transaction handled correctly" ));
 
   test_teardown( ctx );
-  destroy_slot_hash_deque( hashes );
+  destroy_slot_hashes_view( hashes );
   fd_wksp_free_laddr( txn );
 }
 

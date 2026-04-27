@@ -51,7 +51,7 @@ struct fd_alut_interp {
 
   fd_txn_t const *       txn;
   uchar const *          txn_payload;
-  fd_slot_hash_t const * hashes; /* deque */
+  fd_slot_hashes_view_t const * hashes;
   ulong                  slot;
 
   ulong                  alut_idx;
@@ -167,28 +167,28 @@ fd_alut_state_decode( uchar const *    data,
    not fully optimized, it aims to achieve fuzzing conformance for both
    sorted and unsorted inputs. */
 FD_FN_UNUSED static ulong
-fd_alut_slot_hashes_position( fd_slot_hash_t const * hashes, /* deque */
-                              ulong                  slot ) {
-  ulong size = deq_fd_slot_hash_t_cnt( hashes );
+fd_alut_slot_hashes_position( fd_slot_hashes_view_t const * hashes,
+                              ulong                         slot ) {
+  ulong size = hashes->cnt;
   if( FD_UNLIKELY( size==0UL ) ) return ULONG_MAX;
 
   ulong base = 0UL;
   while( size>1UL ) {
     ulong half = size / 2UL;
     ulong mid = base + half;
-    ulong mid_slot = deq_fd_slot_hash_t_peek_index_const( hashes, mid )->slot;
+    ulong mid_slot = hashes->elems[ mid ].slot;
     base = (slot>mid_slot) ? base : mid;
     size -= half;
   }
 
-  return deq_fd_slot_hash_t_peek_index_const( hashes, base )->slot==slot ? base : ULONG_MAX;
+  return hashes->elems[ base ].slot==slot ? base : ULONG_MAX;
 }
 
 /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L81-L104 */
 FD_FN_UNUSED static uchar
-fd_alut_status( fd_alut_meta_t const * state,
-                ulong                  current_slot,
-                fd_slot_hash_t const * slot_hashes /* deque */ ) {
+fd_alut_status( fd_alut_meta_t const *        state,
+                ulong                         current_slot,
+                fd_slot_hashes_view_t const * slot_hashes ) {
   if( state->deactivation_slot==ULONG_MAX ) {
     return FD_ADDRLUT_STATUS_ACTIVATED;
   }
@@ -207,9 +207,9 @@ fd_alut_status( fd_alut_meta_t const * state,
 
 /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L72-L78 */
 FD_FN_UNUSED static uchar
-fd_alut_is_active( fd_alut_meta_t const * self,
-                   ulong                  current_slot,
-                   fd_slot_hash_t const * slot_hashes  /* deque */ ) {
+fd_alut_is_active( fd_alut_meta_t const *        self,
+                   ulong                         current_slot,
+                   fd_slot_hashes_view_t const * slot_hashes ) {
   uchar status = fd_alut_status( self, current_slot, slot_hashes );
   switch( status ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:
@@ -226,11 +226,11 @@ fd_alut_is_active( fd_alut_meta_t const * self,
    in an address lookup table account.
    https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L142-L164 */
 FD_FN_UNUSED static int
-fd_alut_active_addresses_len( fd_alut_meta_t const * self,
-                              ulong                  current_slot,
-                              fd_slot_hash_t const * slot_hashes, /* deque */
-                              ulong                  addresses_len,
-                              ulong *                active_addresses_len /* out */ ) {
+fd_alut_active_addresses_len( fd_alut_meta_t const *        self,
+                              ulong                         current_slot,
+                              fd_slot_hashes_view_t const * slot_hashes,
+                              ulong                         addresses_len,
+                              ulong *                       active_addresses_len /* out */ ) {
   if( FD_UNLIKELY( !fd_alut_is_active( self, current_slot, slot_hashes ) ) ) {
     return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
   }
@@ -250,12 +250,12 @@ fd_alut_active_addresses_len( fd_alut_meta_t const * self,
    hashes until it is destroyed. */
 
 FD_FN_UNUSED static fd_alut_interp_t *
-fd_alut_interp_new( fd_alut_interp_t *     interp,
-                    fd_acct_addr_t *       out_addrs,
-                    fd_txn_t const *       txn,
-                    uchar const *          txn_payload,
-                    fd_slot_hash_t const * hashes, /* deque */
-                    ulong                  slot ) {
+fd_alut_interp_new( fd_alut_interp_t *            interp,
+                    fd_acct_addr_t *              out_addrs,
+                    fd_txn_t const *              txn,
+                    uchar const *                 txn_payload,
+                    fd_slot_hashes_view_t const * hashes,
+                    ulong                         slot ) {
   *interp = (fd_alut_interp_t){
     .out_accts_alt = out_addrs,
     .txn           = txn,
