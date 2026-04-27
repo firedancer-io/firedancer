@@ -291,10 +291,12 @@ handle_shred_version( fd_gossip_tile_ctx_t * ctx,
 
 static void
 handle_local_vote( fd_gossip_tile_ctx_t * ctx,
+                   ulong                  vote_slot,
                    fd_txn_m_t const *     txn_m,
                    fd_stem_context_t *    stem ) {
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
-  fd_gossip_push_vote( ctx->gossip, fd_txn_m_payload_const( txn_m ), txn_m->payload_sz, stem, now );
+  int err = fd_gossip_push_vote( ctx->gossip, vote_slot, fd_txn_m_payload_const( txn_m ), txn_m->payload_sz, stem, now );
+  if( FD_UNLIKELY( err ) ) FD_LOG_WARNING(( "fd_gossip_push_vote failed (%d-CRDS insert failed (stale))", err ));
 }
 
 static void
@@ -364,7 +366,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
-    case IN_KIND_TXSEND:        handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
+    case IN_KIND_TXSEND:        handle_local_vote( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
     case IN_KIND_EPOCH:         handle_epoch( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
     case IN_KIND_TOWER:         handle_local_duplicate_shred( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;

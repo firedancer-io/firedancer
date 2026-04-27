@@ -13,7 +13,6 @@
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/gossip/src/epoch_slots.rs#L16 */
 #define MAX_SLOTS_PER_EPOCH_SLOT (2048UL*8UL)
 
-#define FD_GOSSIP_VOTE_IDX_MAX (32)
 #define FD_GOSSIP_EPOCH_SLOTS_IDX_MAX (255U)
 #define FD_GOSSIP_DUPLICATE_SHRED_IDX_MAX (512U)
 
@@ -188,7 +187,7 @@ deser_vote( fd_gossip_value_t * value,
             uchar const **      payload,
             ulong *             payload_sz ) {
   READ_U8( value->vote->index, payload, payload_sz );
-  CHECK( value->vote->index<FD_GOSSIP_VOTE_IDX_MAX );
+  CHECK( value->vote->index<FD_GOSSIP_VOTE_IDX_OLD_MAX );
   READ_BYTES( value->origin, 32UL, payload, payload_sz );
 
   CHECK( deser_vote_txn( value->vote, payload, payload_sz ) );

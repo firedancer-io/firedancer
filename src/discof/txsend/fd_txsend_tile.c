@@ -465,7 +465,7 @@ handle_vote_msg( fd_txsend_tile_t *           ctx,
   }
 
   ulong msg_sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
-  fd_stem_publish( stem, ctx->txsend_out->idx, 1UL, ctx->txsend_out->chunk, msg_sz, 0UL, 0, 0 );
+  fd_stem_publish( stem, ctx->txsend_out->idx, slot_done->vote_slot, ctx->txsend_out->chunk, msg_sz, 0UL, 0UL, 0UL );
   ctx->txsend_out->chunk = fd_dcache_compact_next( ctx->txsend_out->chunk, msg_sz, ctx->txsend_out->chunk0, ctx->txsend_out->wmark );
 }
 
