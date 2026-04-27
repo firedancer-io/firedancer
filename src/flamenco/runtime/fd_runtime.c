@@ -1316,6 +1316,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     if( txn_out->accounts.is_writable[i] ) {
       fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.account[i].meta ) );
+      txn_out->accounts.account[i].meta = NULL;
     }
   }
 
@@ -1343,6 +1344,7 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     if( txn_out->accounts.is_writable[i] ) {
       fd_acc_pool_release( runtime->acc_pool, fd_type_pun( txn_out->accounts.account[i].meta ) );
+      txn_out->accounts.account[i].meta = NULL;
     } else {
       fd_accdb_close_ro( runtime->accdb, txn_out->accounts.account[i].ro );
     }
