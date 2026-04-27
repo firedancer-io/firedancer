@@ -591,7 +591,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_ip4_udp_hdr_init( ctx->net_out_hdr, FD_GOSSIP_MTU, tile->gossip.ip_addr, tile->gossip.ports.gossip );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

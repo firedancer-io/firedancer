@@ -319,14 +319,9 @@ unprivileged_init( fd_topo_t *      topo,
   }
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->execrp.max_live_slots ) );
   uchar * pc_scratch        = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
-  ulong  scratch_alloc_mem  = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-
-  if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
-    FD_LOG_ERR( ( "Scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
-      scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ),
-      scratch_alloc_mem,
-      (ulong)scratch + scratch_footprint( tile ) ) );
-  }
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   for( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
