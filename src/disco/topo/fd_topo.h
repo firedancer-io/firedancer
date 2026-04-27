@@ -183,6 +183,12 @@ struct fd_topo_tile {
       char   xdp_mode[8];
       int    zero_copy;
 
+      char poll_mode[ 16 ]; /* "prefbusy" or "softirq" */
+      uint prefbusy_timebudget_micros;
+      uint prefbusy_rx_budget;
+      long prefbusy_min_interval_nanos;
+      long prefbusy_stall_timeout_nanos;
+
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
