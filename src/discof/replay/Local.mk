@@ -6,6 +6,8 @@ ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_sched,fd_discof)
 $(call make-fuzz-test,fuzz_sched_rdisp,fuzz_sched_rdisp,fd_discof fd_disco fd_flamenco fd_funk fd_ballet fd_tango fd_util)
 endif
+$(call make-unit-test,test_replay_tile,test_replay_tile,fd_discof fd_choreo fd_disco fd_flamenco fd_vinyl fd_funk fd_tango fd_ballet fd_util)
+
 ifdef FD_HAS_ZSTD # required to load snapshot
 $(call add-objs,fd_replay_tile,fd_discof)
 

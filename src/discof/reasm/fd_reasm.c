@@ -214,6 +214,7 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
      Given roughly ~1k shreds per slot at 32 shreds per FEC, this would
      save ~32 loop iterations.  Punting given the additional complexity
      of bookkeeping and logic this would require. */
+  ulong confirmed_slot = fec ? fec->slot : ULONG_MAX;
 
   fd_reasm_fec_t * last_inserted = NULL;
   while( FD_LIKELY( fec && !fec->confirmed ) ) {
@@ -221,18 +222,19 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
 
     xid_t * xid = xid_query( reasm->xid, (fec->slot << 32) | fec->fec_set_idx, NULL );
     xid->idx    = pool_idx( pool, fec );
-    if( FD_UNLIKELY( fec->slot_complete ) ) {
+    if( FD_LIKELY( fec->slot_complete ) ) {
       xid_t * bid = xid_query( reasm->xid, ( fec->slot << 32 ) | UINT_MAX, NULL );
       bid->idx    = pool_idx( pool, fec );
     }
 
-    if( FD_LIKELY( !fec->popped && !fec->in_out ) ) {
+    if( FD_LIKELY( !fec->in_out && fec->eqvoc && fec->slot == confirmed_slot ) ) {
       /* Let's say that the delivery queue already contains A, and
          we confirm A - B - C.  We walk upwards from C, but we need to
          make sure B and C are inserted after A, and in that order. */
       if( FD_UNLIKELY( !last_inserted ) ) out_ele_push_tail( reasm->out, fec, pool );
       else                                out_ele_insert_before( reasm->out, fec, last_inserted, pool );
       fec->in_out = 1;
+      fec->popped = 0;
       last_inserted = fec;
     }
     fec = fd_reasm_parent( reasm, fec );
