@@ -3,7 +3,6 @@
 #include "../fd_system_ids.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
-#include "../../accdb/fd_accdb_sync.h"
 #include "../../log_collector/fd_log_collector.h"
 
 static int
@@ -757,10 +756,10 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    condition is met then the transaction is invalid.
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
-fd_check_transaction_age( fd_runtime_t *      runtime,
-                          fd_bank_t *         bank,
+fd_check_transaction_age( fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out ) {
+
   fd_blockhashes_t const * block_hash_queue = &bank->f.block_hash_queue;
   fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last_hash( block_hash_queue );
   if( FD_UNLIKELY( !last_blockhash ) ) {
@@ -830,43 +829,22 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
   }
 
 
-  /* Lookup the nonce account in the database OR load it from a previous
-     transaction if a bundle is being processed. */
-  fd_account_meta_t const * nonce_meta = NULL;
-  int is_found = 0;
-  if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
-    for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
-      fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
-      for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], &txn_out->accounts.keys[ nonce_idx ] ) && prev_txn_out->accounts.is_writable[j] ) {
-          is_found = 1;
-          nonce_meta = prev_txn_out->accounts.account[j].meta;
-          break;
-        }
-      }
-    }
-  }
-
-  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
-  fd_accdb_ro_t ro[1];
-  if( FD_LIKELY( !is_found ) ) {
-    if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, ro, &xid, &txn_out->accounts.keys[ nonce_idx ] ) ) ) {
-      return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
-    }
-    nonce_meta = ro->meta;
+  /* The transaction accounts were set up before this check, including
+     forwarding writable bundle accounts into the current txn_out. */
+  fd_account_meta_t const * nonce_meta = txn_out->accounts.account[ nonce_idx ].meta;
+  if( FD_UNLIKELY( !nonce_meta ) ) {
+    return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
   fd_pubkey_t const * owner_pubkey = fd_type_pun_const( nonce_meta->owner );
   if( FD_UNLIKELY( !fd_pubkey_eq( owner_pubkey, &fd_solana_system_program_id ) ) ) {
-    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   fd_nonce_state_versions_t state[1];
   if( FD_UNLIKELY( fd_nonce_state_versions_decode( state, fd_account_data( nonce_meta ), nonce_meta->dlen ) ) ) {
-    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
@@ -875,17 +853,14 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
      not a legacy nonce nor uninitialized. If this is the case, then we can
      verify by comparing the decoded durable nonce to the recent blockhash */
   if( FD_UNLIKELY( state->version != FD_NONCE_VERSION_CURRENT ) ) {
-    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   if( FD_UNLIKELY( state->kind != FD_NONCE_STATE_INITIALIZED ) ) {
-    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   if( FD_UNLIKELY( memcmp( &state->durable_nonce, recent_blockhash, sizeof(fd_hash_t) ) ) ) {
-    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE;
   }
 
@@ -932,7 +907,6 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
         txn_out->accounts.rollback_nonce = (fd_account_meta_t *)borrowed_account_data;
 
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>txn_out->accounts.rollback_nonce->dlen ) ) {
-          if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
         ulong written = 0UL;
@@ -940,16 +914,13 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
                                                          fd_account_data( txn_out->accounts.rollback_nonce ),
                                                          txn_out->accounts.rollback_nonce->dlen,
                                                          &written ) ) ) {
-          if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
-        if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
         return FD_RUNTIME_EXECUTE_SUCCESS;
       }
     }
   }
   /* This means that the blockhash was not found */
-  if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
   return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
 
 }
