@@ -38,8 +38,6 @@
 
 #include "fd_system_ids.h"
 
-#include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
-
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -1234,13 +1232,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
       fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[i];
       fd_accdb_rw_t *     account = &txn_out->accounts.account[i];
-
-      /* Tips for bundles are collected in the bank: a user submitting a
-         bundle must include a instruction that transfers lamports to
-         a specific tip account.  Tips accumulated through the slot. */
-      if( fd_pack_tip_is_tip_account( fd_type_pun_const( pubkey->uc ) ) ) {
-       txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
-      }
 
       if( txn_out->accounts.stake_update[i] ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );

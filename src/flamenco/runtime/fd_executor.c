@@ -26,6 +26,8 @@
 
 #include "../../util/bits/fd_uwide.h"
 
+#include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>   /* snprintf(3) */
@@ -1451,6 +1453,13 @@ fd_executor_txn_check( fd_runtime_t * runtime,
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( !txn_out->accounts.is_writable[i] ) continue;
+
+    /* Tips for bundles are collected in the bank: a user submitting a
+       bundle must include a instruction that transfers lamports to
+       a specific tip account.  Tips accumulated through the slot. */
+    if( fd_pack_tip_is_tip_account( fd_type_pun_const( txn_out->accounts.keys[i].uc ) ) ) {
+      txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( txn_out->accounts.account[i].ro ), runtime->accounts.starting_lamports[i] );
+    }
 
     ulong               starting_lamports = runtime->accounts.starting_lamports[i];
     ulong               starting_dlen     = runtime->accounts.starting_dlen[i];
