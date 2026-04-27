@@ -136,28 +136,6 @@
 
 </div>
 
-## Snapwr Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwr_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
-| <span class="metrics-name">snapwr_&#8203;file_&#8203;capacity_&#8203;bytes</span> | gauge | Account database file capacity in bytes |
-| <span class="metrics-name">snapwr_&#8203;file_&#8203;used_&#8203;bytes</span> | gauge | Current number of bytes used in the account database file |
-
-</div>
-
-## Snapwh Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
-
-</div>
-
 ## Snapla Tile
 
 <div class="metrics">
@@ -179,44 +157,6 @@
 | <span class="metrics-name">snapls_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
 | <span class="metrics-name">snapls_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapls_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Snapwm Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snapwm_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;loaded</span> | gauge | Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;replaced</span> | gauge | Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;ignored</span> | gauge | Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts |
-| <span class="metrics-name">snapwm_&#8203;accounts_&#8203;active</span> | gauge | Current number of accounts in index. Resets if snapshot load restarts |
-
-</div>
-
-## Snaplh Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snaplh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snaplh_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaplh_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-
-</div>
-
-## Snaplv Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">snaplv_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
-| <span class="metrics-name">snaplv_&#8203;full_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaplv_&#8203;incremental_&#8203;duplicate_&#8203;accounts_&#8203;hashed</span> | gauge | Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
 
 </div>
 
@@ -999,7 +939,6 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;reclaimed</span> | counter | Number of account database entries reclaimed (deletion rooted) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;slot_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;account_&#8203;duration_&#8203;seconds</span> | histogram | Time in seconds spent updating the rooted account store (one sample per block, normalized by account count) |
-| <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">db</span>"} | counter | Total time in seconds spent rooting accounts (Waiting on database server) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">copy</span>"} | counter | Total time in seconds spent rooting accounts (Copying account data) |
 | <span class="metrics-name">replay_&#8203;root_&#8203;elapsed_&#8203;seconds</span><br/>{root_&#8203;phase="<span class="metrics-enum">gc</span>"} | counter | Total time in seconds spent rooting accounts (Garbage collecting old account data) |
 | <span class="metrics-name">replay_&#8203;progcache_&#8203;rooted</span> | counter | Number of program cache entries rooted |
@@ -1083,44 +1022,6 @@
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Number of bytes evicted from program cache |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;total_&#8203;seconds</span> | counter | Total time in seconds spent on program cache operations |
 | <span class="metrics-name">execrp_&#8203;progcache_&#8203;duration_&#8203;load_&#8203;seconds</span> | counter | Total time in seconds spent loading programs |
-
-</div>
-
-## Accdb Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">accdb_&#8203;accounts</span> | gauge | Current number of accounts |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of read operations (Record cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of read operations (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of read operations (File access) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes read (Record cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes read (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes read (File access) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of write operations (Record cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of write operations (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of write operations (File access) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes written (Record cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes written (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes written (File access) |
-| <span class="metrics-name">accdb_&#8203;file_&#8203;capacity_&#8203;bytes</span> | gauge | Account database file capacity in bytes |
-| <span class="metrics-name">accdb_&#8203;file_&#8203;used_&#8203;bytes</span> | gauge | Current number of bytes used in account database file |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (Blocks between ancient and past have been written and forgotten (no read, no write)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (Blocks between past and present have been written (read only)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">future</span>"} | gauge | Current bstream sequence number (Blocks between future and ancient have not been written (no read, no write)) |
-| <span class="metrics-name">accdb_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
-| <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
-| <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
-| <span class="metrics-name">accdb_&#8203;account_&#8203;index_&#8203;remaining_&#8203;free</span> | gauge | Remaining free slots in the account database index (validator crashes when this number reaches zero) |
 
 </div>
 

@@ -91,17 +91,10 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.execle_tile_count                            );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
   CFG_POP      ( uint,   layout.snapshot_hash_tile_count                     );
-  CFG_POP      ( uint,   layout.snapwr_tile_count                            );
 
   CFG_POP      ( ulong,  accounts.max_accounts                               );
   CFG_POP      ( ulong,  accounts.file_size_gib                              );
-  CFG_POP      ( ulong,  accounts.max_unrooted_account_size_gib              );
-  CFG_POP      ( ulong,  accounts.cache_size_gib                             );
-  CFG_POP      ( ulong,  accounts.write_delay_slots                          );
-  CFG_POP      ( bool,   accounts.in_memory_only                             );
-  CFG_POP      ( cstr,   accounts.io_provider                                );
   CFG_POP      ( ulong,  accounts.mean_account_footprint                     );
-  CFG_POP      ( uint,   accounts.io_uring.queue_depth                       );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( bool,   runtime.fixed_fec_sets                              );

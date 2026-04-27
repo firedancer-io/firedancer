@@ -24,7 +24,6 @@ DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 DISABLE_LTHASH_VERIFICATION=true
-DB=${DB:="vinyl"}
 EXECRP_TILE_COUNT="10"
 INGEST_DEAD_SLOTS="false"
 ROOT_DISTANCE="2"
@@ -280,26 +279,11 @@ cat <<EOF > ${CONFIG_FILE}
         root_distance = $ROOT_DISTANCE
 EOF
 
-if [[ "$DB" == "funk" ]]; then
-  cat <<EOF >> ${CONFIG_FILE}
+cat <<EOF >> ${CONFIG_FILE}
 [accounts]
     file_size_gib = $FUNK_PAGES
     max_accounts = $INDEX_MAX
 EOF
-elif [[ "$DB" == "vinyl" ]]; then
-  if [[ "$INDEX_MAX" -lt "1000000" ]]; then
-    INDEX_MAX=1000000
-  fi
-  cat <<EOF >> ${CONFIG_FILE}
-[accounts]
-    in_memory_only = false
-    max_accounts = $INDEX_MAX
-    file_size_gib = $((FUNK_PAGES))
-    max_unrooted_account_size_gib = 2
-    cache_size_gib = 10
-    io_provider = "io_uring"
-EOF
-fi
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]

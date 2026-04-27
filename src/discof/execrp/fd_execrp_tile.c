@@ -372,7 +372,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join banks" ));
   }
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->execrp.accdb_max_depth );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile->execrp.accdb_max_depth );
 
   fd_progcache_init_from_topo( ctx->progcache, topo, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 

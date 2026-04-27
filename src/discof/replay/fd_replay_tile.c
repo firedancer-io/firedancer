@@ -19,10 +19,8 @@
 #include "../../discof/genesis/genesis_hash.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v1.h"
-#include "../../flamenco/accdb/fd_accdb_admin_v2.h"
 #include "../../flamenco/accdb/fd_accdb_impl_v1.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
-#include "../../flamenco/accdb/fd_vinyl_req_pool.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -111,7 +109,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),          fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_req_pool_align(),    fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
@@ -175,7 +172,6 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED,    ctx->accdb_admin->base.reclaim_cnt );
   FD_MHIST_COPY( REPLAY, ROOT_SLOT_DURATION_SECONDS,    ctx->metrics.root_slot_dur    );
   FD_MHIST_COPY( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS, ctx->metrics.root_account_dur );
-  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_DB,   (ulong)ctx->accdb_admin->base.dt_vinyl );
   FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_COPY, (ulong)ctx->accdb_admin->base.dt_copy  );
   FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
 
@@ -2467,7 +2463,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * _txncache          = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
   void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
-  void * vinyl_req_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_req_pool_align(),   fd_vinyl_req_pool_footprint( 1UL, 1UL ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
@@ -2535,8 +2530,6 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<tile->replay.enable_features_cnt; i++ ) one_off_features[ i ] = tile->replay.enable_features[i];
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
-  fd_topo_obj_t const * vinyl_data = fd_topo_find_tile_obj( topo, tile, "vinyl_data" );
-
   ulong progcache_obj_id; FD_TEST( (progcache_obj_id       = fd_pod_query_ulong( topo->props, "progcache",       ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_progcache_shmem_join( ctx->progcache, fd_topo_obj_laddr( topo, progcache_obj_id       ) ) );
 
@@ -2546,25 +2539,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
-  ulong max_depth = tile->replay.max_live_slots + tile->replay.write_delay_slots;
-  if( !vinyl_data ) {
-    FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin,
-        fd_topo_obj_laddr( topo, funk_obj_id       ),
-        fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
-  } else {
-    fd_topo_obj_t const * vinyl_rq       = fd_topo_find_tile_obj( topo, tile, "vinyl_rq" );
-    fd_topo_obj_t const * vinyl_req_pool = fd_topo_find_tile_obj( topo, tile, "vinyl_rpool" );
-    FD_TEST( fd_accdb_admin_v2_init( ctx->accdb_admin,
-        fd_topo_obj_laddr( topo, funk_obj_id       ),
-        fd_topo_obj_laddr( topo, funk_locks_obj_id ),
-        fd_topo_obj_laddr( topo, vinyl_rq->id      ),
-        topo->workspaces[ vinyl_data->wksp_id ].wksp,
-        fd_topo_obj_laddr( topo, vinyl_req_pool->id ),
-        vinyl_rq->id,
-        max_depth ) );
-    fd_accdb_admin_v2_delay_set( ctx->accdb_admin, tile->replay.write_delay_slots );
-  }
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, max_depth );
+  ulong max_depth = tile->replay.max_live_slots;
+  FD_TEST( fd_accdb_admin_v1_init( ctx->accdb_admin,
+      fd_topo_obj_laddr( topo, funk_obj_id       ),
+      fd_topo_obj_laddr( topo, funk_locks_obj_id ) ) );
+  fd_accdb_init_from_topo( ctx->accdb, topo, max_depth );
 
   fd_wksp_t * funk_wksp = fd_wksp_containing( fd_topo_obj_laddr( topo, funk_obj_id ) );
   FD_TEST( funk_wksp );
@@ -2612,8 +2591,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->in_cnt          = tile->in_cnt;
   ctx->execrp_idle_cnt = 0UL;
-
-  FD_TEST( fd_vinyl_req_pool_new( vinyl_req_pool_mem, 1UL, 1UL ) );
 
   ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, ctx->vote_tracker_seed ) );
   FD_TEST( ctx->vote_tracker );

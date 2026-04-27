@@ -178,8 +178,6 @@ run_test( char const *          test_name,
 /*  Tile definitions                                                        */
 /* ======================================================================== */
 
-/* --- Firedancer default (no snapshots, no rpc, no telemetry, no vinyl) -- */
-
 static tile_spec_t const FIREDANCER_TILES[] = {
   /* floating tiles */
   { "netlnk", 1 },

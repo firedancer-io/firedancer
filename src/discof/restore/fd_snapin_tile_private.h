@@ -13,7 +13,6 @@
 #include "../../flamenco/accdb/fd_accdb_user.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../disco/stem/fd_stem.h"
-#include "../../vinyl/meta/fd_vinyl_meta.h"
 
 /* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
    root slots Agave could possibly serve in a snapshot. */
@@ -49,7 +48,6 @@ typedef struct buffered_account_batch buffered_account_batch_t;
 struct fd_snapin_tile {
   int  state;
   uint full      : 1;       /* loading a full snapshot? */
-  uint use_vinyl : 1;       /* using vinyl-backed accdb? */
   uint lthash_disabled : 1; /* disable lthash checking? */
 
   ulong seed;
@@ -98,8 +96,7 @@ struct fd_snapin_tile {
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
 
-  ulong   txncache_entries_len;
-  ulong * txncache_entries_len_vinyl_ptr;
+  ulong txncache_entries_len;
   fd_sstxncache_entry_t * txncache_entries;
 
   fd_txncache_fork_id_t txncache_root_fork_id;
@@ -134,17 +131,6 @@ struct fd_snapin_tile {
 
   ulong gui_config_acct_sz;   /* total expected account data length (0 when not accumulating) */
   ulong gui_config_acct_off;  /* bytes accumulated so far into the current gui_out link chunk */
-
-  struct {
-    uchar * pair;
-    ulong   pair_sz;
-
-    uchar * dst;
-    ulong   dst_rem;
-    ulong   data_rem;
-
-    fd_vinyl_meta_ele_t * meta_ele;
-  } vinyl_op;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -166,18 +152,6 @@ fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
 
 FD_PROTOTYPES_END
 
-/* Vinyl APIs *********************************************************/
-
-FD_PROTOTYPES_BEGIN
-
-/* Internal APIs for inserting accounts */
-
-int fd_snapin_process_account_header_vinyl( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-int fd_snapin_process_account_data_vinyl  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-int fd_snapin_process_account_batch_vinyl ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-
-FD_PROTOTYPES_END
-
 /* Generic APIs *******************************************************/
 
 FD_PROTOTYPES_BEGIN
@@ -189,35 +163,20 @@ indicates whether to yield to stem for credit return */
 static inline int
 fd_snapin_process_account_header( fd_snapin_tile_t *            ctx,
                                   fd_ssparse_advance_result_t * result ) {
-  if( ctx->use_vinyl ) {
-    return fd_snapin_process_account_header_vinyl( ctx, result );
-  } else {
-    return fd_snapin_process_account_header_funk( ctx, result );
-  }
-  return 0;
+  return fd_snapin_process_account_header_funk( ctx, result );
 }
 
 static inline int
 fd_snapin_process_account_data( fd_snapin_tile_t *            ctx,
                                 fd_ssparse_advance_result_t * result ) {
-  if( ctx->use_vinyl ) {
-    return fd_snapin_process_account_data_vinyl( ctx, result );
-  } else {
-    return fd_snapin_process_account_data_funk( ctx, result );
-  }
-  return 0;
+  return fd_snapin_process_account_data_funk( ctx, result );
 }
 
 static inline int
 fd_snapin_process_account_batch( fd_snapin_tile_t *            ctx,
                                  fd_ssparse_advance_result_t * result,
                                  buffered_account_batch_t *    buffered_batch ) {
-  if( ctx->use_vinyl ) {
-    return fd_snapin_process_account_batch_vinyl( ctx, result );
-  } else {
-    return fd_snapin_process_account_batch_funk( ctx, result, buffered_batch );
-  }
-  return 0;
+  return fd_snapin_process_account_batch_funk( ctx, result, buffered_batch );
 }
 
 static inline void
@@ -227,13 +186,8 @@ fd_snapin_read_account( fd_snapin_tile_t *  ctx,
                         uchar *             data,
                         ulong               data_max ) {
   /* fd_snapin_read_account will no longer be required in the snapin
-     tile once funk is deprecated from the snapshot load pipeline.
-     Under vinyl, this is implemented in the snapwm tile. */
-  if( ctx->use_vinyl ) {
-    FD_LOG_ERR(( "read account is not supported under vinyl" ));
-  } else {
-    fd_snapin_read_account_funk( ctx, acct_addr, meta, data, data_max );
-  }
+     tile once funk is deprecated from the snapshot load pipeline. */
+  fd_snapin_read_account_funk( ctx, acct_addr, meta, data, data_max );
 }
 
 /* fd_snapin_send_duplicate_account sends a duplicate account message
