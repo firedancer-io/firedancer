@@ -76,7 +76,13 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
     fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
     return;
   }
-  ulong min_sz = 25UL + bits_bitvec_len * sizeof(ulong);
+  ulong min_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( bits_bitvec_len, sizeof(ulong), &min_sz ) ) ) {
+    FD_LOG_ERR(( "invalid slot history sysvar: bits_bitvec_len overflow (%lu)", bits_bitvec_len ));
+  }
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( min_sz, 25UL, &min_sz ) ) ) {
+    FD_LOG_ERR(( "invalid slot history sysvar: min_sz overflow" ));
+  }
   if( FD_UNLIKELY( data_sz < min_sz ) ) {
     FD_LOG_ERR(( "invalid slot history sysvar: data_sz too small (%lu, required %lu)", data_sz, min_sz ));
   }
