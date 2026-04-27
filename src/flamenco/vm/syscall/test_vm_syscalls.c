@@ -302,6 +302,8 @@ main( int     argc,
   );
   FD_TEST( vm_ok );
 
+  fd_vm_mark_all_pages_initialized( vm );
+
   /* Run relevant tests with and without direct mapping enabled */
   test_vm_syscall_toggle_direct_mapping( vm, 0 ); /* disable direct mapping */
 

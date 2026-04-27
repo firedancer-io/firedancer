@@ -6,6 +6,7 @@
 #include "../program/fd_bpf_loader_serialization.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../vm/fd_vm.h"
+#include "../../vm/fd_vm_private.h"
 #include "../../vm/test_vm_util.h"
 #include "generated/vm.pb.h"
 #include "../fd_bank.h"
@@ -224,16 +225,34 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   vm->reg[10] = input->vm_ctx.r10;
   vm->reg[11] = input->vm_ctx.r11;
 
-  // Override initial part of the heap, if specified the syscall fuzzer input
-  if( input->syscall_invocation.heap_prefix ) {
-    fd_memcpy( vm->heap, input->syscall_invocation.heap_prefix->bytes,
-               fd_ulong_min(input->syscall_invocation.heap_prefix->size, vm->heap_max) );
+  /* Zero the first 32 KB (16 lazy pages) of stack and heap and mark
+     them as initialized.  This covers the input data that the harness
+     places via the prefix memcpy below.  Remaining pages are left
+     uninitialized — lazy zeroing handles pages accessed during syscall
+     execution, and fd_vm_zero_uninitialized_pages cleans up untouched
+     pages after execution for deterministic comparison. */
+  ulong init_sz = 16UL * FD_VM_LAZY_PAGE_SZ;  /* 32 KB */
+  fd_memset( vm->stack, 0, init_sz );
+  vm->stack_zero_bitmap[0] |= 0xFFFFUL;
+  if( vm->heap_max ) {
+    fd_memset( vm->heap, 0, fd_ulong_min( vm->heap_max, init_sz ) );
+    vm->heap_zero_bitmap[0] |= 0xFFFFUL;
   }
 
-  // Override initial part of the stack, if specified the syscall fuzzer input
+  if( input->syscall_invocation.heap_prefix ) {
+    ulong hsz = fd_ulong_min( input->syscall_invocation.heap_prefix->size, vm->heap_max );
+    if( hsz ) {
+      fd_vm_lazy_zero_pages( vm->heap_zero_bitmap, vm->heap, 0UL, hsz );
+      fd_memcpy( vm->heap, input->syscall_invocation.heap_prefix->bytes, hsz );
+    }
+  }
+
   if( input->syscall_invocation.stack_prefix ) {
-    fd_memcpy( vm->stack, input->syscall_invocation.stack_prefix->bytes,
-               fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX) );
+    ulong ssz = fd_ulong_min( input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX );
+    if( ssz ) {
+      fd_vm_lazy_zero_pages( vm->stack_zero_bitmap, vm->stack, 0UL, ssz );
+      fd_memcpy( vm->stack, input->syscall_invocation.stack_prefix->bytes, ssz );
+    }
   }
 
   // Look up the syscall to execute
@@ -261,6 +280,12 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   if( syscall_err ) {
     fd_log_collector_program_failure( vm->instr_ctx );
   }
+
+  /* Zero any pages the VM never accessed so heap/stack contents are
+     deterministic for the effects comparison. */
+  fd_vm_zero_uninitialized_pages( vm->stack_zero_bitmap, vm->stack, FD_VM_STACK_MAX );
+  if( vm->heap_max )
+    fd_vm_zero_uninitialized_pages( vm->heap_zero_bitmap, vm->heap, vm->heap_max );
 
   /* Capture the effects */
   int exec_err = vm->instr_ctx->txn_out->err.exec_err;
