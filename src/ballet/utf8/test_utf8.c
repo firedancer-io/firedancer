@@ -395,9 +395,11 @@ main( int     argc,
   uchar mixed_buf[ 4096 ];
   fill_mixed_utf8( mixed_buf, sizeof(mixed_buf), rng );
 
-  bench_utf8_verify( ascii_buf, sizeof(ascii_buf), "pure ASCII" );
-  bench_utf8_verify( mixed_buf, sizeof(mixed_buf), "mixed UTF-8" );
-  bench_early_reject( ascii_buf );
+  if( FD_HAS_AVX512 ) {
+    bench_utf8_verify( ascii_buf, sizeof(ascii_buf), "pure ASCII" );
+    bench_utf8_verify( mixed_buf, sizeof(mixed_buf), "mixed UTF-8" );
+    bench_early_reject( ascii_buf );
+  }
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
