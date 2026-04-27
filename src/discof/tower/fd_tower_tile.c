@@ -975,7 +975,8 @@ query_vote_accs( fd_tower_tile_t *            ctx,
     fd_accdb_close_ro( ctx->accdb, reconcile_ro );
     int skip_reconcile = !ctx->init && ctx->wfs;
     if( FD_LIKELY( !skip_reconcile ) ) {
-      fd_tower_reconcile( ctx->tower, ctx->our_vote_acct );
+      ulong root; fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct );
+      fd_tower_reconcile( ctx->tower, ctx->scratch_tower, root );
     } else {
       FD_LOG_NOTICE(( "wait_for_supermajority: skipping tower reconcile on init slot %lu", slot_completed->slot ));
     }

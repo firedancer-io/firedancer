@@ -1599,8 +1599,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 1 },
 
   { .index                     = offsetof(fd_features_t, verify_retransmitter_signature)>>3,
-    .id                        = {"\x9c\xcc\xbd\x50\xa2\xed\x41\xa8\x85\x34\x23\x68\x9b\xcd\xb3\x28\xd1\x52\xd5\xe6\xfa\xcd\x2d\x3d\x8e\xbc\x54\x90\xee\x43\x96\xa6"},
-                                 /* BZ5g4hRbu5hLQQBdPyo2z9icGyJ8Khiyj3QS6dhWijTb */
+    .id                        = {"\x3b\x8e\xa0\xc8\x5b\x51\xf1\x39\x8a\xd4\xf3\xf5\x34\x19\x3d\xde\x75\xf2\x2e\x18\x6b\x4b\x21\xdc\x05\xa0\xdc\xfb\xd0\x06\xfc\x73"},
+                                 /* 51VCKU5eV6mcTc9q9ArfWELU2CqDoi13hdAjr6fHMdtv */
     .name                      = "verify_retransmitter_signature",
     .cleaned_up                = 0 },
 
@@ -1780,8 +1780,8 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, bls_pubkey_management_in_vote_account)>>3,
-    .id                        = {"\x1c\x6c\x8a\x1b\xb0\xb6\x27\x37\xd6\xc4\x05\x8b\x2f\x29\x96\x0b\x09\x31\xa0\xd5\xcd\x5f\x9d\x1a\xbb\x2a\xc0\x3a\xc6\x9f\xb6\x36"},
-                                 /* 2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq */
+    .id                        = {"\x91\x4a\xed\x4f\x06\x90\x49\xe2\x5e\x23\xe0\x40\x1c\x0d\xe5\x76\x01\x89\x67\xae\x10\x0d\x78\xf4\xfa\xb2\x4b\xb4\x34\xdf\x2a\x32"},
+                                 /* AnAP9zPV4KL7czAPQbFhpDKV2tx7g4UGNbK9wvXwjaRo */
     .name                      = "bls_pubkey_management_in_vote_account",
     .cleaned_up                = 0 },
 
@@ -2098,7 +2098,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_228 0x4d86ca23d81d6d11UL, .val = &ids[228]
 #define MAP_PERFECT_229 0x68b66c984ac5e709UL, .val = &ids[229]
 #define MAP_PERFECT_230 0x28f6b335e2fb2040UL, .val = &ids[230]
-#define MAP_PERFECT_231 0xa841eda250bdcc9cUL, .val = &ids[231]
+#define MAP_PERFECT_231 0x39f1515bc8a08e3bUL, .val = &ids[231]
 #define MAP_PERFECT_232 0x78efccd879624c0dUL, .val = &ids[232]
 #define MAP_PERFECT_233 0x494f963ae12b5106UL, .val = &ids[233]
 #define MAP_PERFECT_234 0x210aba8db8103506UL, .val = &ids[234]
@@ -2126,7 +2126,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_256 0x9e11ee2f4bbcb608UL, .val = &ids[256]
 #define MAP_PERFECT_257 0x010f656d89a4e808UL, .val = &ids[257]
 #define MAP_PERFECT_258 0xfc12b1cef363afa7UL, .val = &ids[258]
-#define MAP_PERFECT_259 0x3727b6b01b8a6c1cUL, .val = &ids[259]
+#define MAP_PERFECT_259 0xe24990064fed4a91UL, .val = &ids[259]
 #define MAP_PERFECT_260 0xa5ce8f931961b80cUL, .val = &ids[260]
 #define MAP_PERFECT_261 0xf55c421c9eccc012UL, .val = &ids[261]
 #define MAP_PERFECT_262 0x7428565ab3b6d152UL, .val = &ids[262]
