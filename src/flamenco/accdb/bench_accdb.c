@@ -77,7 +77,7 @@ static uchar dummy_owner[ 32 ] = { 0xEE };
 static uchar data_buf[ BENCH_MAX_DATA_SZ ];
 
 /* Cache footprint for benchmarks: must cover minimum
-   FD_ACCDB_CACHE_MIN_RESERVED (1280) slots per class (class 7 is 10 MiB
+   FD_ACCDB_CACHE_MIN_RESERVED slots per class (class 7 is 10 MiB
    each). */
 #define BENCH_CACHE_FOOTPRINT (16UL<<30UL)
 

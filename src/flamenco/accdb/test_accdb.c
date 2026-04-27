@@ -24,7 +24,7 @@ static uchar owner3[ 32UL ] = { 3, 0 };
 #define META_SZ (36UL)
 
 /* Cache footprint for tests: must be large enough to cover the
-   minimum FD_ACCDB_CACHE_MIN_RESERVED (1280) slots per class
+   minimum FD_ACCDB_CACHE_MIN_RESERVED slots per class
    (class 7 is 10 MiB each). */
 #define TEST_CACHE_FOOTPRINT (16UL<<30UL)
 

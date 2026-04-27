@@ -56,14 +56,13 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
     return 0;
   }
 
-  /* Phase 1: Reserve FD_ACCDB_CACHE_MIN_RESERVED (1280) of each
-     class off the top.  This guarantees worst-case 5-transaction
-     bundles (128 accounts per transaction) can execute fully in
-     memory.  Each referenced account reserves one slot in its own
-     class plus one slot for its programdata account, which may land
-     in any class.  Worst case all 640 (128*5) referenced accounts
-     and all 640 programdata accounts land in the same class:
-     640 + 640 = 1280. */
+  /* Phase 1: Reserve FD_ACCDB_CACHE_MIN_RESERVED of each class off
+     the top.  This guarantees worst-case 5-transaction bundles
+     (128 accounts per transaction) can execute fully in memory.
+     Each referenced account reserves one slot in its own class plus
+     one slot for its programdata account, which may land in any
+     class.  Worst case all referenced accounts and all programdata
+     accounts land in the same class. */
 
   ulong remaining = cache_footprint;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {

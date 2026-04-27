@@ -66,15 +66,14 @@ static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
    class_cnt is populated with the slot count for each class on return.
    The sum of class_cnt[c]*slot_sz[c] will not exceed cache_footprint.
 
-   Every class gets at least FD_ACCDB_CACHE_MIN_RESERVED (1280) entries,
+   Every class gets at least FD_ACCDB_CACHE_MIN_RESERVED entries,
    guaranteeing a worst case 5-transaction bundle (128 accounts * 5
    transactions, doubled to cover programdata for each account) can
    execute fully in memory regardless of account size mix. Returns 0 if
    the budget is too small for these minimums, or 1 on success.
 
    The algorithm:
-   1) Reserves FD_ACCDB_CACHE_MIN_RESERVED (1280) of each class off the
-      top.
+   1) Reserves FD_ACCDB_CACHE_MIN_RESERVED of each class off the top.
    2) Reserves additional per-class minimums (at most 1% of remaining
       budget per class, clamped to [1, 1024] slots).
    3) Iteratively allocates remaining budget proportional to access
