@@ -59,13 +59,13 @@ fd_topo_cpus_online( ulong cpu_idx ) {
 
 void
 fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
-  cpus->numa_node_cnt = fd_numa_node_cnt();
+  cpus->numa_node_cnt = fd_numa_node_cnt( 0 );
   cpus->cpu_cnt = fd_topo_cpu_cnt();
 
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
     cpus->cpu[ i ].idx = i;
     cpus->cpu[ i ].online = fd_topo_cpus_online( i );
-    cpus->cpu[ i ].numa_node = fd_numa_node_idx( i );
+    cpus->cpu[ i ].numa_node = fd_numa_node_idx( i, 0 );
     if( FD_LIKELY( cpus->cpu[ i ].online ) ) cpus->cpu[ i ].sibling = fd_tile_private_sibling_idx( i );
     else                                     cpus->cpu[ i ].sibling = ULONG_MAX;
   }
