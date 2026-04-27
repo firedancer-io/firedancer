@@ -680,7 +680,6 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( bank->f.epoch>fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL ) )) {
     fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
     publish_epoch_info( ctx, stem, bank, 1 );
-    fd_runtime_update_leaders( bank, ctx->runtime_stack );
   }
 
   if( ctx->rpc_enabled ) {
