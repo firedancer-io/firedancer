@@ -1,15 +1,14 @@
+telemetry = false
+
 [hugetlbfs]
-max_page_size = "huge"
+max_page_size = "normal"
 
-[accounts]
-max_accounts = 1048576
-file_size_gib = 20
-
-[runtime.limits]
+[runtime]
 max_live_slots = 512
 max_fork_width = 16
 
 [layout]
+enable_block_production = false
 verify_tile_count = 1
 execrp_tile_count = 1
 
@@ -21,3 +20,6 @@ enabled = false
 max_http_connections = 16
 max_websocket_connections = 16
 send_buffer_size_mb = 128
+
+[development]
+lazy_paging = true

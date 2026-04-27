@@ -62,6 +62,7 @@ backtest_topo( config_t * config ) {
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
+  topo->lazy_paging = config->development.lazy_paging;
 
   ulong cpu_idx = 0;
 

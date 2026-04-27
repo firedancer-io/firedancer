@@ -26,6 +26,11 @@ fd_topo_join_workspace( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,
                         int              mode,
                         int              dump ) {
+  if( FD_UNLIKELY( topo->lazy_paging ) ) {
+    fd_topo_join_workspace_lazy_paged( topo, wksp, mode, dump );
+    return;
+  }
+
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
@@ -91,6 +96,10 @@ int
 fd_topo_create_workspace( fd_topo_t *      topo,
                           fd_topo_wksp_t * wksp,
                           int              update_existing ) {
+  if( FD_UNLIKELY( topo->lazy_paging ) ) {
+    return fd_topo_create_workspace_lazy_paged( topo, wksp, update_existing );
+  }
+
   char name[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_%s.wksp", topo->app_name, wksp->name ) );
 
@@ -211,14 +220,24 @@ fd_topo_fill( fd_topo_t * topo ) {
 }
 
 FD_FN_CONST static ulong
-fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
+fd_topo_tile_stack_sz( void ) {
   /* Every tile maps an additional set of pages for the stack. */
-  (void)tile;
-  return (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
+  return FD_TILE_PRIVATE_STACK_SZ + (2UL*FD_SHMEM_HUGE_PAGE_SZ);
 }
 
 FD_FN_PURE static ulong
-fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
+fd_topo_tile_extra_huge_pages( fd_topo_t const *      topo,
+                               fd_topo_tile_t const * tile ) {
+  (void)tile;
+  if( topo->max_page_size >= FD_SHMEM_HUGE_PAGE_SZ ) {
+    return fd_topo_tile_stack_sz() / FD_SHMEM_HUGE_PAGE_SZ;
+  }
+  return 0UL;
+}
+
+FD_FN_PURE static ulong
+fd_topo_tile_extra_normal_pages( fd_topo_t const *      topo,
+                                 fd_topo_tile_t const * tile ) {
   ulong key_pages = 0UL;
   if( FD_UNLIKELY( tile->id_keyswitch_obj_id!=ULONG_MAX ) ) {
     /* Certain tiles using fd_keyload_load need normal pages to hold
@@ -232,31 +251,35 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
   }
 
   if( !strcmp( tile->name, "net" ) ) {
-      /* net tile uses normal pages to hold xsk rings */
+    /* net tile uses normal pages to hold xsk rings */
 
-      /* xdp_desc struct is in linux UAPI so its size can be
-         safely assumed */
-      ulong xdp_desc_sz_bytes    = 16UL;
-      ulong xsk_rings_sz_bytes   = 0UL;
-      ulong xdp_address_sz_bytes = sizeof(ulong);
+    /* xdp_desc struct is in linux UAPI so its size can be
+        safely assumed */
+    ulong xdp_desc_sz_bytes    = 16UL;
+    ulong xsk_rings_sz_bytes   = 0UL;
+    ulong xdp_address_sz_bytes = sizeof(ulong);
 
-      /* rx ring */
-      xsk_rings_sz_bytes += tile->xdp.xdp_rx_queue_size * xdp_desc_sz_bytes;
-      /* tx ring */
-      xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_desc_sz_bytes;
+    /* rx ring */
+    xsk_rings_sz_bytes += tile->xdp.xdp_rx_queue_size * xdp_desc_sz_bytes;
+    /* tx ring */
+    xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_desc_sz_bytes;
 
-      /* completion ring */
-      xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_address_sz_bytes;
-      /* free ring */
-      xsk_rings_sz_bytes += tile->xdp.free_ring_depth   * xdp_address_sz_bytes;
+    /* completion ring */
+    xsk_rings_sz_bytes += tile->xdp.xdp_tx_queue_size * xdp_address_sz_bytes;
+    /* free ring */
+    xsk_rings_sz_bytes += tile->xdp.free_ring_depth   * xdp_address_sz_bytes;
 
-      key_pages += fd_ulong_align_up( xsk_rings_sz_bytes, FD_SHMEM_NORMAL_PAGE_SZ ) / FD_SHMEM_NORMAL_PAGE_SZ;
+    key_pages += fd_ulong_align_up( xsk_rings_sz_bytes, FD_SHMEM_NORMAL_PAGE_SZ ) / FD_SHMEM_NORMAL_PAGE_SZ;
 
-      /* All 4 rings must store a ring header. This is 320 bytes
-         per ring as of linux v6.18.3, however could change in
-         the future so allow up to a full 4KB page per ring to
-         be safe. */
-      key_pages += 4UL;
+    /* All 4 rings must store a ring header. This is 320 bytes
+       per ring as of linux v6.18.3, however could change in
+       the future so allow up to a full 4KB page per ring to
+       be safe. */
+    key_pages += 4UL;
+  }
+
+  if( topo->max_page_size == FD_SHMEM_NORMAL_PAGE_SZ ) {
+    key_pages += fd_topo_tile_stack_sz() / FD_SHMEM_NORMAL_PAGE_SZ;
   }
 
   return key_pages;
@@ -273,8 +296,8 @@ fd_topo_mlock_max_tile1( fd_topo_t const *      topo,
   }
 
   return tile_mem +
-      fd_topo_tile_extra_huge_pages( tile ) * FD_SHMEM_HUGE_PAGE_SZ +
-      fd_topo_tile_extra_normal_pages( tile ) * FD_SHMEM_NORMAL_PAGE_SZ;
+      fd_topo_tile_extra_huge_pages  ( topo, tile ) * FD_SHMEM_HUGE_PAGE_SZ +
+      fd_topo_tile_extra_normal_pages( topo, tile ) * FD_SHMEM_NORMAL_PAGE_SZ;
 }
 
 FD_FN_PURE ulong
@@ -305,8 +328,7 @@ fd_topo_gigantic_page_cnt( fd_topo_t const * topo,
 
 FD_FN_PURE ulong
 fd_topo_huge_page_cnt( fd_topo_t const * topo,
-                       ulong             numa_idx,
-                       int               include_anonymous ) {
+                       ulong             numa_idx ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
@@ -317,22 +339,41 @@ fd_topo_huge_page_cnt( fd_topo_t const * topo,
     }
   }
 
-  /* The stack huge pages are also placed in the hugetlbfs. */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    result += fd_topo_tile_extra_huge_pages( &topo->tiles[ i ] );
+    result += fd_topo_tile_extra_huge_pages( topo, &topo->tiles[ i ] );
   }
-
-  /* No anonymous huge pages in use yet. */
-  (void)include_anonymous;
 
   return result;
 }
 
 FD_FN_PURE ulong
-fd_topo_normal_page_cnt( fd_topo_t const * topo ) {
+fd_topo_normal_page_cnt( fd_topo_t const * topo,
+                         ulong             numa_idx ) {
+  ulong result = 0UL;
+  for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
+    fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
+    if( FD_LIKELY( wksp->numa_idx!=numa_idx ) ) continue;
+    if( FD_LIKELY( wksp->page_sz==FD_SHMEM_NORMAL_PAGE_SZ ) ) {
+      result += wksp->page_cnt;
+    }
+  }
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
+    ulong tile_numa_idx = 0UL;
+    if( tile->cpu_idx<FD_TILE_MAX ) {
+      tile_numa_idx = fd_shmem_numa_idx( tile->cpu_idx );
+    }
+    if( tile_numa_idx!=numa_idx ) continue;
+    result += fd_topo_tile_extra_normal_pages( topo, tile );
+  }
+  return result;
+}
+
+FD_FN_PURE ulong
+fd_topo_extra_normal_page_cnt( fd_topo_t const * topo ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    result += fd_topo_tile_extra_normal_pages( &topo->tiles[ i ] );
+    result += fd_topo_tile_extra_normal_pages( topo, &topo->tiles[ i ] );
   }
   return result;
 }
@@ -343,6 +384,10 @@ fd_topo_mlock( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     result += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;
   }
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    result += fd_topo_tile_extra_huge_pages( topo, &topo->tiles[ i ] ) * FD_SHMEM_HUGE_PAGE_SZ;
+  }
+  result += fd_topo_extra_normal_page_cnt( topo ) * FD_SHMEM_NORMAL_PAGE_SZ;
   return result;
 }
 
@@ -377,16 +422,7 @@ fd_topo_print_log( int         stdout,
 
   PRINT( "\nSUMMARY\n" );
 
-  /* The logic to compute number of stack pages is taken from
-     fd_tile_thread.cxx, in function fd_topo_tile_stack_join, and this
-     should match that. */
-  ulong stack_pages = topo->tile_cnt * FD_SHMEM_HUGE_PAGE_SZ * ((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
-
-  /* The logic to map these private pages into memory is in utility.c,
-     under fd_keyload_load, and the amount of pages should be kept in
-     sync. */
-  ulong private_key_pages = 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
-  ulong total_bytes = fd_topo_mlock( topo ) + stack_pages + private_key_pages;
+  ulong total_bytes = fd_topo_mlock( topo );
 
   PRINT("  %23s: %lu\n", "Total Tiles", topo->tile_cnt );
   PRINT("  %23s: %lu bytes (%lu GiB + %lu MiB + %lu KiB)\n",
@@ -398,18 +434,21 @@ fd_topo_print_log( int         stdout,
 
   ulong required_gigantic_pages = 0UL;
   ulong required_huge_pages = 0UL;
+  ulong required_normal_pages = 0UL;
 
   ulong numa_node_cnt = fd_shmem_numa_cnt();
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
     required_gigantic_pages += fd_topo_gigantic_page_cnt( topo, i );
-    required_huge_pages += fd_topo_huge_page_cnt( topo, i, 0 );
+    required_huge_pages += fd_topo_huge_page_cnt( topo, i );
+    required_normal_pages += fd_topo_normal_page_cnt( topo, i );
   }
   PRINT("  %23s: %lu\n", "Required Gigantic Pages", required_gigantic_pages );
   PRINT("  %23s: %lu\n", "Required Huge Pages", required_huge_pages );
-  PRINT("  %23s: %lu\n", "Required Normal Pages", fd_topo_normal_page_cnt( topo ) );
+  if( required_normal_pages ) PRINT("  %23s: %lu\n", "Required Normal Pages", required_normal_pages );
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
     PRINT("  %23s (NUMA node %lu): %lu\n", "Required Gigantic Pages", i, fd_topo_gigantic_page_cnt( topo, i ) );
-    PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
+    PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i ) );
+    if( required_normal_pages ) PRINT("  %23s (NUMA node %lu): %lu\n", "Required Normal Pages", i, fd_topo_normal_page_cnt( topo, i ) );
   }
 
   if( FD_UNLIKELY( topo->agave_affinity_cnt>0UL ) ) {

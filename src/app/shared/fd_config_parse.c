@@ -299,6 +299,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   development.core_dump                            );
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
+  CFG_POP      ( bool,   development.lazy_paging                          );
 
   CFG_POP      ( bool,   development.gossip.allow_private_address         );
 

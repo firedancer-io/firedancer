@@ -968,9 +968,9 @@ telemetry = true
     mount_path = "/mnt/.fd"
 
     # The largest supported page size on the system.  Possible values
-    # are either "huge" (2 MiB) or "gigantic" (1 GiB).  Larger sizes
-    # yield better performance.  Smaller values may be required on
-    # virtualized environments like cloud providers.
+    # are "normal" (4 KiB), "huge" (2 MiB), or "gigantic" (1 GiB).
+    # Larger sizes yield better performance.  "normal" or "huge" may
+    # be required on virtualized environments like cloud providers.
     max_page_size = "gigantic"
 
     # Workspaces are either fully backed by "huge" or "gigantic" pages.
@@ -1699,6 +1699,14 @@ telemetry = true
     # an error if it detects a hard fork.  If false, the validator will
     # log the hard fork event and continue running.
     hard_fork_fatal = false
+
+    # If enabled, do not mlock workspaces.
+    # When combined with [hugetlbfs.max_page_size] "normal", causes the
+    # kernel to defer memory reservation to runtime via page faults.
+    # Greatly reduces production performance and but allows for instant
+    # startup.  Because memory is no longer reserved on startup, reduces
+    # apparent RSS usage until load increases, which risks OOM kills.
+    lazy_paging = false
 
     [development.gossip]
         # Under normal operating conditions, a validator should always
