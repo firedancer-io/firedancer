@@ -136,6 +136,7 @@ fd_bank_stake_rewards_modify( fd_bank_t * bank ) {
 fd_epoch_leaders_t const *
 fd_bank_epoch_leaders_query( fd_bank_t const * bank,
                              ulong             epoch ) {
+  FD_TEST( bank->f.epoch==epoch || bank->f.epoch==epoch-1UL );
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
   return (fd_epoch_leaders_t const *)fd_type_pun( (uchar *)fd_banks_get_epoch_leaders( banks_data ) + (epoch % 2UL) * banks_data->epoch_leaders_footprint );
 }
@@ -143,6 +144,7 @@ fd_bank_epoch_leaders_query( fd_bank_t const * bank,
 fd_epoch_leaders_t *
 fd_bank_epoch_leaders_modify( fd_bank_t * bank,
                               ulong       epoch ) {
+  FD_TEST( bank->f.epoch==epoch || bank->f.epoch==epoch-1UL );
   fd_banks_t * banks_data = fd_type_pun( (uchar *)bank - bank->banks_data_offset );
   return (fd_epoch_leaders_t *)fd_type_pun( (uchar *)fd_banks_get_epoch_leaders( banks_data ) + (epoch % 2UL) * banks_data->epoch_leaders_footprint );
 }
