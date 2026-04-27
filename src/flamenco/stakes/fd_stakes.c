@@ -626,12 +626,10 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
 
   /* Seed stake_accum_map with all vote accounts from the parent fork
      with zero stake. The delegation loop below will update the stake
-     for any account that has active delegations.
+     for any account that has active delegations.  This needs to be done
+     because zero-staked, active vote accounts have their historical
+     commission tracked for payouts. */
 
-     In Agave, refresh_vote_accounts() builds delegated_stakes from
-     stake_delegations, but then iterates vote_accounts.iter(), instead
-     of the delegated_stakes map, so they never actually remove any
-     entries from the vote_accounts while refreshing. */
   fd_vote_stakes_t * vs = fd_bank_vote_stakes( bank );
   uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem_vs[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
   for( fd_vote_stakes_iter_t * vs_iter = fd_vote_stakes_fork_iter_init( vs, parent_idx, iter_mem_vs );
@@ -656,7 +654,9 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
      from the parent vote_stakes set. Some iterator entries may be
      tombstones; that is harmless here because a pubkey absent from both
      the current accdb view and the parent vote_stakes view is filtered
-     out before insertion into the child vote_stakes. */
+     out before insertion into the child vote_stakes.  New vote accounts
+     with zero staked must be tracked for historical commission
+     lookups. */
 
   fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
   ushort           fork_indices[ FD_RUNTIME_MAX_FORK_CNT ];
@@ -667,7 +667,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   for( ; !fd_new_votes_iter_done( iter ); fd_new_votes_iter_next( iter ) ) {
     int                 is_tombstone = 0;
     fd_pubkey_t const * pubkey       = fd_new_votes_iter_ele( iter, &is_tombstone );
-    fd_stake_accum_t * stake_accum   = fd_stake_accum_map_ele_query( stake_accum_map, pubkey, NULL, stake_accum_pool );
+    fd_stake_accum_t *  stake_accum  = fd_stake_accum_map_ele_query( stake_accum_map, pubkey, NULL, stake_accum_pool );
     if( FD_LIKELY( !stake_accum ) ) {
       fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
       sa->pubkey = *pubkey;
