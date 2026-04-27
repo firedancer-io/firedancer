@@ -133,6 +133,8 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   ulong evict_conn_id;
   ulong evict_ws_conn_id;
 
+  ulong poll_conn_idx; /* Next connection index to service in chunked polling */
+
   void * callback_ctx;
   fd_http_server_callbacks_t callbacks;
 
