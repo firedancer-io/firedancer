@@ -243,7 +243,8 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
                          fd_runtime_t *        runtime,
                          fd_txn_in_t const *   txn_in,
                          int *                 exec_res,
-                         fd_txn_out_t *        txn_out ) {
+                         fd_txn_out_t *        txn_out,
+                         int                   reclaim_accounts ) {
 
   txn_out->err.is_committable = 1;
 
@@ -253,15 +254,16 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
-  runtime->accdb              = runner->accdb;
-  runtime->progcache          = runner->progcache;
-  runtime->status_cache       = NULL;
-  runtime->log.tracing_mem    = tracing_mem;
-  runtime->log.dumping_mem    = NULL;
-  runtime->log.capture_ctx    = NULL;
-  runtime->log.dump_proto_ctx = NULL;
-  runtime->log.txn_dump_ctx   = NULL;
-  runtime->fuzz.enabled       = 1;
+  runtime->accdb                 = runner->accdb;
+  runtime->progcache             = runner->progcache;
+  runtime->status_cache          = NULL;
+  runtime->log.tracing_mem       = tracing_mem;
+  runtime->log.dumping_mem       = NULL;
+  runtime->log.capture_ctx       = NULL;
+  runtime->log.dump_proto_ctx    = NULL;
+  runtime->log.txn_dump_ctx      = NULL;
+  runtime->fuzz.enabled          = 1;
+  runtime->fuzz.reclaim_accounts = reclaim_accounts;
 
   fd_runtime_prepare_and_execute_txn( runtime, runner->bank, txn_in, txn_out );
   *exec_res = txn_out->err.txn_err;
@@ -295,7 +297,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     runtime->acc_pool = runner->acc_pool;
     txn_in->txn = txn;
     txn_in->bundle.is_bundle = 0;
-    fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out );
+    fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out, 0 );
 
     /* Build result directly into the caller-owned output_buf */
     fd_exec_test_txn_result_t * txn_result = NULL;

@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT=../../../..
 
 # Allow overriding proto version; default pinned
-PROTO_VERSION="${PROTO_VERSION:-v6.1.1}"
+PROTO_VERSION="${PROTO_VERSION:-v6.2.0}"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/ballet/nanopb/nanopb_tag.txt)
