@@ -376,7 +376,6 @@ static char const * FLOATING[] = {
   "bencho",
   "genesi", /* FIREDANCER ONLY */
   "ipecho", /* FIREDANCER ONLY */
-  "snapwr", /* FIREDANCER ONLY */
   NULL
 };
 
@@ -387,12 +386,8 @@ static char const * STARTUP[] = {
   "snapld", /* FIREDANCER only */
   "snapdc", /* FIREDANCER only */
   "snapin", /* FIREDANCER only */
-  "snapwm", /* FIREDANCER only */
-  "snapwh", /* FIREDANCER only */
   "snapla", /* FIREDANCER only */
   "snapls", /* FIREDANCER only */
-  "snaplh", /* FIREDANCER only */
-  "snaplv", /* FIREDANCER only */
   NULL
 };
 
@@ -400,7 +395,6 @@ static char const * STARTUP[] = {
    (Must sleep until snapshot load finishes) */
 static char const * POST_START[] = {
   "resolv", /* FIREDANCER only */
-  "accdb",  /* FIREDANCER only */
   "execle", /* FIREDANCER only */
   "poh",    /* FIREDANCER only */
   "execrp", /* FIREDANCER only */

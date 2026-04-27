@@ -47,7 +47,6 @@ struct fd_accdb_admin_base {
   ulong revert_cnt;   /* abandoned by consensus */
 
   /* cumulative tickcount spent on various admin operations */
-  long dt_vinyl;  /* waiting on vinyl completinos */
   long dt_copy;   /* copying account data */
   long dt_gc;     /* garbage collecting data */
 };
