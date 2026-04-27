@@ -18,6 +18,7 @@ struct fd_new_vote_ele {
   fd_pubkey_t pubkey;
   uint        next;
   uint        prev;
+  uchar       is_tombstone;
 };
 typedef struct fd_new_vote_ele fd_new_vote_ele_t;
 
@@ -53,30 +54,58 @@ fd_new_votes_new( void * mem,
 fd_new_votes_t *
 fd_new_votes_join( void * mem );
 
+/* fd_new_votes_reset is used to reset the new votes object to its
+   initial state. */
+
 void
 fd_new_votes_reset( fd_new_votes_t * new_votes );
+
+/* fd_new_votes_reset_root is used to reset the root map to its initial
+   state.  It does not affect any of the outstanding fork deltas.  This
+   is used when a new epoch boundary is rooted: any old new vote
+   accounts are no longer relevant. */
 
 void
 fd_new_votes_reset_root( fd_new_votes_t * new_votes );
 
+/* fd_new_votes_cnt is used to count the number of elements used in the
+   shared pool between all delta/tombstone elements as well as the
+   root map. */
+
 ulong
 fd_new_votes_cnt( fd_new_votes_t const * new_votes );
+
+/* fd_new_votes_new_fork is used to allocate a new fork index from the
+   fork pool. */
 
 ushort
 fd_new_votes_new_fork( fd_new_votes_t * new_votes );
 
+/* fd_new_votes_evict_fork is used to release the fork index to the
+   fork pool.  This is not responsible for applying any elements in the
+   fork idx into the base. */
+
 void
 fd_new_votes_evict_fork( fd_new_votes_t * new_votes,
                          ushort           fork_idx );
+
+/* fd_new_votes_{insert,remove} are used to track vote accounts as they
+   are created and removed.  Insert marks a pubkey as present, remove
+   marks it as absent (and introduces a tombstone element).  */
 
 void
 fd_new_votes_insert( fd_new_votes_t *    new_votes,
                      ushort              fork_idx,
                      fd_pubkey_t const * pubkey );
 
+void
+fd_new_votes_remove( fd_new_votes_t *    new_votes,
+                     ushort              fork_idx,
+                     fd_pubkey_t const * pubkey );
+
 /* Drains the fork's delta dlist into the root map, deduplicating
    against existing root entries.  Does NOT release the fork pool
-   slot -- the caller must call fd_new_votes_evict_fork afterwards
+   slot: the caller must call fd_new_votes_evict_fork afterwards
    to return the fork index to the fork pool. */
 
 void
@@ -107,7 +136,7 @@ fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
             fd_new_votes_iter_init( nv, fork_idxs, cnt, iter_mem );
           !fd_new_votes_iter_done( iter );
           fd_new_votes_iter_next( iter ) ) {
-       fd_pubkey_t const * pk = fd_new_votes_iter_ele( iter );
+       fd_pubkey_t const * pk = fd_new_votes_iter_ele( iter, &is_t );
      }
      fd_new_votes_iter_fini( iter ); */
 
@@ -130,7 +159,8 @@ void
 fd_new_votes_iter_next( fd_new_votes_iter_t * iter );
 
 fd_pubkey_t const *
-fd_new_votes_iter_ele( fd_new_votes_iter_t const * iter );
+fd_new_votes_iter_ele( fd_new_votes_iter_t const * iter,
+                       int *                       is_tombstone );
 
 void
 fd_new_votes_iter_fini( fd_new_votes_iter_t * iter );

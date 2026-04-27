@@ -1003,8 +1003,10 @@ withdraw( fd_exec_instr_ctx_t *         ctx,
           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
           ulong                         signers_cnt,
           fd_rent_t const *             rent_sysvar,
-          fd_sol_sysvar_clock_t const * clock ) {
+          fd_sol_sysvar_clock_t const * clock,
+          int *                         deinitialized ) {
   fd_vote_state_versioned_t * versioned = &ctx->runtime->vote_program.withdraw.vote_state;
+  *deinitialized = 0;
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L860-L863 */
   int rc = get_vote_state_handler_checked( vote_account, target_version, 0, versioned );
@@ -1058,6 +1060,7 @@ withdraw( fd_exec_instr_ctx_t *         ctx,
           target_version
       );
       if( FD_UNLIKELY( rc ) ) return rc;
+      *deinitialized = 1;
     }
   } else {
     /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L892-L895 */
@@ -2114,6 +2117,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( !clock_sysvar ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
+    int deinitialized = 0;
     rc = withdraw(
         ctx,
         &me,
@@ -2123,8 +2127,14 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
         signers,
         signers_cnt,
         rent_sysvar,
-        clock_sysvar
+        clock_sysvar,
+        &deinitialized
     );
+
+    if( FD_LIKELY( !rc && deinitialized ) ) {
+      ctx->txn_out->accounts.rm_vote[ ctx->instr->accounts[0].index_in_transaction ] = 1;
+    }
+
 
     break;
   }

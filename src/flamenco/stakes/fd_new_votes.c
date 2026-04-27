@@ -269,11 +269,32 @@ fd_new_votes_insert( fd_new_votes_t *    new_votes,
 
   FD_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
   fd_new_vote_ele_t * ele = nv_pool_ele_acquire( pool );
-  ele->pubkey = *pubkey;
+  ele->pubkey       = *pubkey;
+  ele->is_tombstone = 0;
   nv_dlist_ele_push_tail( dlist, ele, pool );
 
   FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_out );
   FD_LOG_DEBUG(( "insert: pubkey=%s", pubkey_out ));
+  fd_rwlock_unwrite( &new_votes->lock );
+}
+
+void
+fd_new_votes_remove( fd_new_votes_t *    new_votes,
+                     ushort              fork_idx,
+                     fd_pubkey_t const * pubkey ) {
+  fd_rwlock_write( &new_votes->lock );
+
+  fd_new_vote_ele_t * pool  = get_pool( new_votes );
+  nv_dlist_t *        dlist = get_dlist( new_votes, fork_idx );
+
+  FD_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
+  fd_new_vote_ele_t * ele = nv_pool_ele_acquire( pool );
+  ele->pubkey       = *pubkey;
+  ele->is_tombstone = 1;
+  nv_dlist_ele_push_tail( dlist, ele, pool );
+
+  FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_out );
+  FD_LOG_DEBUG(( "remove: pubkey=%s", pubkey_out ));
   fd_rwlock_unwrite( &new_votes->lock );
 }
 
@@ -290,13 +311,29 @@ fd_new_votes_apply_delta( fd_new_votes_t * new_votes,
 
   while( !nv_dlist_is_empty( dlist, pool ) ) {
     fd_new_vote_ele_t * ele = nv_dlist_ele_pop_head( dlist, pool );
-    if( FD_UNLIKELY( nv_map_ele_query( map, &ele->pubkey, NULL, pool ) ) ) {
-      nv_pool_ele_release( pool, ele );
+    if( ele->is_tombstone ) {
+      /* If the element is a tombstone, remove it from the root map if
+         it exists and free both the root map element and the tombstone
+         element.  If the element doesn't exist in the root, just free
+         the tombstone. */
+      if( FD_UNLIKELY( nv_map_ele_query( map, &ele->pubkey, NULL, pool ) ) ) {
+        fd_new_vote_ele_t * root_ele = nv_map_ele_remove( map, &ele->pubkey, NULL, pool );
+        nv_pool_ele_release( pool, root_ele );
+        nv_pool_ele_release( pool, ele );
+      } else {
+        nv_pool_ele_release( pool, ele );
+      }
     } else {
-      nv_map_ele_insert( map, ele, pool );
+      /* If the element is not a tombstone, insert it into the root map
+         if it doesn't exist in the root and just transfer pool element
+         ownership: otherwise, just free the pool_element. */
+      if( FD_UNLIKELY( nv_map_ele_query( map, &ele->pubkey, NULL, pool ) ) ) {
+        nv_pool_ele_release( pool, ele );
+      } else {
+        nv_map_ele_insert( map, ele, pool );
+      }
     }
   }
-
   fd_rwlock_unwrite( &new_votes->lock );
 }
 
@@ -410,17 +447,20 @@ fd_new_votes_iter_next( fd_new_votes_iter_t * it ) {
 }
 
 fd_pubkey_t const *
-fd_new_votes_iter_ele( fd_new_votes_iter_t const * it ) {
+fd_new_votes_iter_ele( fd_new_votes_iter_t const * it,
+                       int *                       is_tombstone ) {
   fd_new_vote_ele_t * pool = get_pool( it->new_votes );
 
   if( it->phase==0 ) {
     nv_map_t * map = get_map( it->new_votes );
     fd_new_vote_ele_t const * ele = nv_map_iter_ele_const( it->map_iter, map, pool );
+    *is_tombstone = 0;
     return &ele->pubkey;
   }
 
   nv_dlist_t * dlist = get_dlist( it->new_votes, it->fork_idxs[ it->fork_pos ] );
   fd_new_vote_ele_t const * ele = nv_dlist_iter_ele_const( it->dlist_iter, dlist, pool );
+  *is_tombstone = ele->is_tombstone;
   return &ele->pubkey;
 }
 
