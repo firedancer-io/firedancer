@@ -427,43 +427,6 @@ write_snapshots( config_t const * config,
 }
 
 static uint
-write_accdb( config_t const * config,
-             ulong const *    cur_tile ) {
-  ulong accdb_tile_idx  = fd_topo_find_tile( &config->topo, "accdb",  0UL );
-  ulong snapwm_tile_idx = fd_topo_find_tile( &config->topo, "snapwm", 0UL );
-  ulong snapwr_tile_idx = fd_topo_find_tile( &config->topo, "snapwr", 0UL );
-  if( accdb_tile_idx ==ULONG_MAX ) return 0U;
-  if( snapwm_tile_idx==ULONG_MAX ) return 0U;
-  if( snapwr_tile_idx==ULONG_MAX ) return 0U;
-
-  ulong snapwr_state = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, STATE ) ];
-  ulong used_bytes   = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FILE_USED_BYTES     ) ];
-  ulong cap_bytes    = cur_tile[ snapwr_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWR, FILE_CAPACITY_BYTES ) ];
-  ulong acct_cnt     = cur_tile[ snapwm_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPWM, ACCOUNTS_ACTIVE ) ];
-  if( snapwr_state==4 ) {
-    used_bytes = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, FILE_USED_BYTES     ) ];
-    cap_bytes  = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, FILE_CAPACITY_BYTES ) ];
-    acct_cnt   = cur_tile[ accdb_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, ACCDB, ACCOUNTS ) ];
-  }
-
-  double data_pct  = 100.0*(double)used_bytes/(double)cap_bytes;
-  double used_gb   = (double)used_bytes/1e9;
-  double index_pct = 100.0*(double)acct_cnt/(double)config->firedancer.accounts.max_accounts;
-
-  ulong rps_sum = 0UL;
-  ulong num_rps_samples = fd_ulong_min( rps_samples_idx, sizeof(rps_samples)/sizeof(rps_samples[0]) );
-  for( ulong i=0UL; i<num_rps_samples; i++ ) rps_sum += rps_samples[ i ];
-  char * rps_str = COUNTF( 100.0*(double)rps_sum/(double)num_rps_samples );
-
-  PRINT( "💾 " BOLD GREEN "ACCOUNTS...." RESET UNBOLD
-         " " BOLD "DATA"  UNBOLD " %4.1f%% (%.1f GB) "
-         " " BOLD "INDEX" UNBOLD " %4.1f%% (%.1fM) "
-         " " BOLD "RPS"   UNBOLD " %s" CLEARLN "\n",
-    data_pct, used_gb, index_pct, (double)acct_cnt/1e6, rps_str );
-  return 1;
-}
-
-static uint
 write_wfs( config_t const * config,
            ulong const *    cur_tile ) {
   ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
@@ -771,7 +734,6 @@ write_summary( config_t const * config,
     write_snapshots( config, cur_tile, prev_tile );
   }
 
-  lines_printed += write_accdb( config, cur_tile );
   lines_printed += write_wfs( config, cur_tile );
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
