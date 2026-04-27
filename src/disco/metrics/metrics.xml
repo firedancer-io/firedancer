@@ -758,9 +758,8 @@ metric introduced.
 </tile>
 
 <enum name="RootPhase">
-    <int value="0" name="Db" label="Waiting on database server" />
-    <int value="1" name="Copy" label="Copying account data" />
-    <int value="2" name="Gc" label="Garbage collecting old account data" />
+    <int value="0" name="Copy" label="Copying account data" />
+    <int value="1" name="Gc" label="Garbage collecting old account data" />
 </enum>
 
 <tile name="replay">
@@ -1401,51 +1400,6 @@ metric introduced.
 
     <counter name="BytesWritten" summary="The total number of bytes written to the event service" />
     <counter name="BytesRead" summary="The total number of bytes read from the event service" />
-</tile>
-
-<enum name="VinylRequest">
-    <int value="0" name="Acquire" label="Acquire record" />
-    <int value="1" name="Release" label="Release record" />
-    <int value="2" name="Erase" label="Erase record" />
-</enum>
-
-<enum name="VinylBlocks">
-    <int value="0" name="Pair" label="Record" />
-    <int value="1" name="Dead" label="Record deletion" />
-    <int value="2" name="Part" label="Partition/divider" />
-</enum>
-
-<enum name="BstreamSeq">
-    <int value="0" name="Ancient" label="Blocks between ancient and past have been written and forgotten (no read, no write)" />
-    <int value="1" name="Past" label="Blocks between past and present have been written (read only)" />
-    <int value="2" name="Present" label="Blocks between present and future are being written (write only)" />
-    <int value="3" name="Future" label="Blocks between future and ancient have not been written (no read, no write)" />
-</enum>
-
-<enum name="StorageType">
-    <int value="0" name="SharedCache" label="Record cache" />
-    <int value="1" name="IoCache" label="I/O layer cache" />
-    <int value="2" name="File" label="File access" />
-</enum>
-
-<tile name="accdb">
-    <!-- user friendly metrics -->
-    <gauge name="Accounts" summary="Current number of accounts" />
-    <counter name="ReadOps" enum="StorageType" summary="Total number of read operations" />
-    <counter name="ReadBytes" enum="StorageType" summary="Total number of bytes read" />
-    <counter name="WriteOps" enum="StorageType" summary="Total number of write operations" />
-    <counter name="WriteBytes" enum="StorageType" summary="Total number of bytes written" />
-    <gauge name="FileCapacityBytes" summary="Account database file capacity in bytes" />
-    <gauge name="FileUsedBytes" summary="Current number of bytes used in account database file" />
-
-    <!-- developer metrics -->
-    <gauge name="BstreamSeq" enum="BstreamSeq" summary="Current bstream sequence number" />
-    <counter name="RequestBatches" summary="Number of request batches processed" />
-    <counter name="Requests" enum="VinylRequest" summary="Number of requests processed" />
-    <counter name="Blocks" enum="VinylBlocks" summary="Number of blocks written to bstream" />
-    <gauge name="GarbageBytes" sumary="Number of garbage bytes in bstream that have accumulated since last compaction" />
-    <counter name="CumGcBytes" summary="Total number of record bytes that were garbage collected" />
-    <gauge name="AccountIndexRemainingFree" summary="Remaining free slots in the account database index (validator crashes when this number reaches zero)" />
 </tile>
 
 </metrics>

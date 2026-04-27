@@ -93,7 +93,6 @@ enum {
 #include "fd_metrics_tower.h"
 #include "fd_metrics_gui.h"
 #include "fd_metrics_event.h"
-#include "fd_metrics_accdb.h"
 
 /* LINK IN metric properties */
 
@@ -220,7 +219,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 
 #define FD_METRICS_TOTAL_SZ (8UL*263UL)
 
-#define FD_METRICS_TILE_KIND_CNT 45
+#define FD_METRICS_TILE_KIND_CNT 44
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

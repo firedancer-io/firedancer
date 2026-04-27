@@ -102,16 +102,7 @@ struct fd_configf {
   struct {
     ulong max_accounts;
     ulong file_size_gib;
-    ulong max_unrooted_account_size_gib;
-    ulong cache_size_gib;
-    ulong write_delay_slots;
-    int   in_memory_only;
-    char  io_provider[ 12 ];
     ulong mean_account_footprint;
-
-    struct {
-      uint queue_depth;
-    } io_uring;
   } accounts;
 
   struct {

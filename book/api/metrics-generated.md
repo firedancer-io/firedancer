@@ -1086,44 +1086,6 @@
 
 </div>
 
-## Accdb Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">accdb_&#8203;accounts</span> | gauge | Current number of accounts |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of read operations (Record cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of read operations (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of read operations (File access) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes read (Record cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes read (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;read_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes read (File access) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of write operations (Record cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of write operations (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;ops</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of write operations (File access) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">shared_&#8203;cache</span>"} | counter | Total number of bytes written (Record cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">io_&#8203;cache</span>"} | counter | Total number of bytes written (I/O layer cache) |
-| <span class="metrics-name">accdb_&#8203;write_&#8203;bytes</span><br/>{storage_&#8203;type="<span class="metrics-enum">file</span>"} | counter | Total number of bytes written (File access) |
-| <span class="metrics-name">accdb_&#8203;file_&#8203;capacity_&#8203;bytes</span> | gauge | Account database file capacity in bytes |
-| <span class="metrics-name">accdb_&#8203;file_&#8203;used_&#8203;bytes</span> | gauge | Current number of bytes used in account database file |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">ancient</span>"} | gauge | Current bstream sequence number (Blocks between ancient and past have been written and forgotten (no read, no write)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">past</span>"} | gauge | Current bstream sequence number (Blocks between past and present have been written (read only)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">present</span>"} | gauge | Current bstream sequence number (Blocks between present and future are being written (write only)) |
-| <span class="metrics-name">accdb_&#8203;bstream_&#8203;seq</span><br/>{bstream_&#8203;seq="<span class="metrics-enum">future</span>"} | gauge | Current bstream sequence number (Blocks between future and ancient have not been written (no read, no write)) |
-| <span class="metrics-name">accdb_&#8203;request_&#8203;batches</span> | counter | Number of request batches processed |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">acquire</span>"} | counter | Number of requests processed (Acquire record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">release</span>"} | counter | Number of requests processed (Release record) |
-| <span class="metrics-name">accdb_&#8203;requests</span><br/>{vinyl_&#8203;request="<span class="metrics-enum">erase</span>"} | counter | Number of requests processed (Erase record) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">pair</span>"} | counter | Number of blocks written to bstream (Record) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">dead</span>"} | counter | Number of blocks written to bstream (Record deletion) |
-| <span class="metrics-name">accdb_&#8203;blocks</span><br/>{vinyl_&#8203;blocks="<span class="metrics-enum">part</span>"} | counter | Number of blocks written to bstream (Partition/divider) |
-| <span class="metrics-name">accdb_&#8203;garbage_&#8203;bytes</span> | gauge |  |
-| <span class="metrics-name">accdb_&#8203;cum_&#8203;gc_&#8203;bytes</span> | counter | Total number of record bytes that were garbage collected |
-| <span class="metrics-name">accdb_&#8203;account_&#8203;index_&#8203;remaining_&#8203;free</span> | gauge | Remaining free slots in the account database index (validator crashes when this number reaches zero) |
-
-</div>
-
 ## Tower Tile
 
 <div class="metrics">

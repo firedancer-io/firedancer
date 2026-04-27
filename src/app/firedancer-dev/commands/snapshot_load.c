@@ -9,8 +9,6 @@
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/restore/fd_snapin_tile_private.h"
-#include "../../../discof/restore/fd_snaplv_tile_private.h"
-#include "../../../discof/restore/fd_snapwm_tile_private.h"
 #include "../../../discof/restore/utils/fd_slot_delta_parser.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
@@ -50,18 +48,12 @@ snapshot_load_topo( config_t * config ) {
   setup_topo_funk( topo,
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots,
-      config->firedancer.accounts.in_memory_only
-          ? config->firedancer.accounts.file_size_gib
-          : config->firedancer.accounts.max_unrooted_account_size_gib );
+      config->firedancer.accounts.file_size_gib );
 
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
   ulong lta_tile_cnt           = config->firedancer.layout.snapshot_hash_tile_count;
   ulong snapwr_tile_cnt        = config->firedancer.layout.snapwr_tile_count;
   ulong snaplh_tile_cnt        = config->firedancer.layout.snapshot_hash_tile_count;
-
-  if( !config->firedancer.accounts.in_memory_only ) {
-    setup_topo_accdb_meta( topo, &config->firedancer );
-  }
 
 #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -90,22 +82,6 @@ snapshot_load_topo( config_t * config ) {
   fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "metric_in", ULONG_MAX, 0, 0, 0 );
   snapin_tile->allow_shutdown = 1;
 
-  /* "snapwr": Snapshot writer tile */
-  int vinyl_enabled = !config->firedancer.accounts.in_memory_only;
-  if( vinyl_enabled ) {
-
-    fd_topob_wksp( topo, "snapwm" );
-    fd_topo_tile_t * snapwm_tile = fd_topob_tile( topo, "snapwm", "snapwm", "metric_in", ULONG_MAX, 0, 0, 0 );
-    snapwm_tile->allow_shutdown = 1;
-
-    fd_topob_wksp( topo, "snapwh" );
-    fd_topo_tile_t * snapwh_tile = fd_topob_tile( topo, "snapwh", "snapwh", "metric_in", ULONG_MAX, 0, 0, 0 );
-    snapwh_tile->allow_shutdown = 1;
-
-    fd_topob_wksp( topo, "snapwr" );
-    FOR(snapwr_tile_cnt) fd_topob_tile( topo, "snapwr", "snapwr", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
-  }
-
   fd_topob_wksp( topo, "snapct_ld"    );
   fd_topob_wksp( topo, "snapld_dc"    );
   fd_topob_wksp( topo, "snapdc_in"    );
@@ -113,37 +89,16 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_wksp( topo, "snapin_manif" );
   fd_topob_wksp( topo, "snapct_repr"  );
 
-  if( vinyl_enabled ) {
-    fd_topob_wksp( topo, "snapin_txn");
-    fd_topob_wksp( topo, "snapin_wm" );
-    fd_topob_wksp( topo, "snapwm_wr" );
-  }
   if( snapshot_lthash_disabled ) {
-    if( vinyl_enabled ) {
-      fd_topob_wksp( topo, "snapwm_ct" );
-    } else {
-      fd_topob_wksp( topo, "snapin_ct" );
-    }
+    fd_topob_wksp( topo, "snapin_ct" );
   } else {
-    if( vinyl_enabled ) {
-      fd_topob_wksp( topo, "snaplh"    );
-      fd_topob_wksp( topo, "snaplv"    );
-      FOR(snaplh_tile_cnt) fd_topob_tile( topo, "snaplh", "snaplh", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
-      /**/                 fd_topob_tile( topo, "snaplv", "snaplv", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
-      fd_topob_wksp( topo, "vinyl_admin" );
-      fd_topob_wksp( topo, "snaplv_lh" );
-      fd_topob_wksp( topo, "snaplh_lv" );
-      fd_topob_wksp( topo, "snapwm_lv" );
-      fd_topob_wksp( topo, "snaplv_ct" );
-    } else {
-      fd_topob_wksp( topo, "snapla"    );
-      fd_topob_wksp( topo, "snapls"    );
-      FOR(lta_tile_cnt)  fd_topob_tile( topo, "snapla", "snapla", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
-      /**/               fd_topob_tile( topo, "snapls", "snapls", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
-      fd_topob_wksp( topo, "snapla_ls" );
-      fd_topob_wksp( topo, "snapin_ls" );
-      fd_topob_wksp( topo, "snapls_ct" );
-    }
+    fd_topob_wksp( topo, "snapla"    );
+    fd_topob_wksp( topo, "snapls"    );
+    FOR(lta_tile_cnt)  fd_topob_tile( topo, "snapla", "snapla", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
+    /**/               fd_topob_tile( topo, "snapls", "snapls", "metric_in", ULONG_MAX, 0, 0, 0 )->allow_shutdown = 1;
+    fd_topob_wksp( topo, "snapla_ls" );
+    fd_topob_wksp( topo, "snapin_ls" );
+    fd_topob_wksp( topo, "snapls_ct" );
   }
 
   fd_topob_link( topo, "snapct_ld",   "snapct_ld",     128UL,   sizeof(fd_ssctrl_init_t),       1UL );
@@ -152,58 +107,18 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,     sizeof(fd_snapshot_manifest_t), 1UL )->permit_no_consumers = 1;
   fd_topob_link( topo, "snapct_repr", "snapct_repr",   128UL,   0UL,                            1UL )->permit_no_consumers = 1;
 
-  if( vinyl_enabled ) {
-    /* snapwm needs all txn_cache data in order to verify the slot
-       deltas with the slot history.  To make this possible, snapin
-       uses the dcache of the snapin_txn link as the scratch memory.
-       The depth of the link should match that of snapin_wm, just to
-       guarantee enough mcache credits.  The mtu needs to be adjusted
-       so that the total dcache size matches what snapin requires.
-       Round up the mtu (ulong) size using: (...+(depth-1))/depth. */
-    fd_topo_link_t * snapin_txn = fd_topob_link( topo, "snapin_txn", "snapin_txn",   16UL,    (sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES+15UL/*depth-1*/)/16UL/*depth*/, 1UL );
-    /**/                          fd_topob_link( topo, "snapin_wm", "snapin_wm",     16UL,    FD_SNAPWM_PAIR_BATCH_SZ_MAX,    1UL );
-    fd_pod_insertf_ulong( topo->props, sizeof(ulong), "obj.%lu.app_sz", snapin_txn->dcache_obj_id );
-    /* snapwh and snapwr both use snapwm_wh's dcache.  snapwh sends
-       control messages to snapwr, using snapwh_wr link, instructing
-       which chunks in the dcache are ready to be consumed by snapwr. */
-    fd_topo_link_t * snapwm_wh =
-    fd_topob_link( topo, "snapwm_wh", "snapwm_wr",     64UL,    FD_SNAPWM_WR_MTU,               1UL );
-    fd_topob_link( topo, "snapwh_wr", "snapwm_wr",     64UL,    0UL,                            1UL );
-    fd_pod_insertf_ulong( topo->props, 8UL, "obj.%lu.app_sz",  snapwm_wh->dcache_obj_id );
+  if( snapshot_lthash_disabled ) {
+    fd_topob_link( topo, "snapin_ct", "snapin_ct",   128UL,  0UL,                             1UL );
+  } else {
+    FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",  "snapla_ls",   128UL,  sizeof(fd_lthash_value_t),          1UL );
+    /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   256UL,  sizeof(fd_snapshot_full_account_t), 1UL );
+    /**/              fd_topob_link( topo, "snapls_ct",  "snapls_ct",   128UL,  0UL,                                1UL );
   }
 
   if( snapshot_lthash_disabled ) {
-    if( vinyl_enabled ) {
-      fd_topob_link( topo, "snapwm_ct", "snapwm_ct",   128UL,   0UL,                            1UL );
-    } else {
-      fd_topob_link( topo, "snapin_ct", "snapin_ct",   128UL,  0UL,                             1UL );
-    }
+    fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_ct",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   } else {
-    if( vinyl_enabled ) {
-      FOR(snaplh_tile_cnt) fd_topob_link( topo, "snaplh_lv",  "snaplh_lv",    128UL,   sizeof(fd_ssctrl_hash_result_t),     1UL );
-      /**/                 fd_topob_link( topo, "snapwm_lv",  "snapwm_lv",  32768UL, FD_SNAPWM_DUP_META_BATCH_SZ,     1UL+sizeof(fd_ssctrl_hash_result_t)/FD_SNAPWM_DUP_META_BATCH_SZ ); /* snapwm forwards 1 fd_ssctrl_hash_result_t message (hash and capitalization) per snapshot load */
-      /**/                 fd_topob_link( topo, "snaplv_lh",  "snaplv_lh", 262144UL,       FD_SNAPLV_DUP_META_SZ, FD_SNAPLV_STEM_BURST ); /* FD_SNAPWM_DUP_META_BATCH_CNT_MAX times the depth of snapwm_lv */
-      /**/                 fd_topob_link( topo, "snaplv_ct",  "snaplv_ct",    128UL,                         0UL,     1UL );
-    } else {
-      FOR(lta_tile_cnt) fd_topob_link( topo, "snapla_ls",  "snapla_ls",   128UL,  sizeof(fd_lthash_value_t),          1UL );
-      /**/              fd_topob_link( topo, "snapin_ls",  "snapin_ls",   256UL,  sizeof(fd_snapshot_full_account_t), 1UL );
-      /**/              fd_topob_link( topo, "snapls_ct",  "snapls_ct",   128UL,  0UL,                                1UL );
-    }
-  }
-
-  if( snapshot_lthash_disabled ) {
-    if( vinyl_enabled ) {
-      fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapwm_ct",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    } else {
-      fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_ct",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    }
-
-  } else {
-    if( vinyl_enabled ) {
-      fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snaplv_ct",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    } else {
-      fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapls_ct", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
-    }
+    fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapls_ct", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
   }
 
   fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -216,52 +131,15 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_tile_in ( topo, "snapin",  0UL, "metric_in", "snapdc_in",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_manif", 0UL                                       );
 
-  if( vinyl_enabled ) {
-    fd_topob_tile_out( topo, "snapin", 0UL,              "snapin_wm", 0UL );
-    fd_topob_tile_in ( topo, "snapwm", 0UL, "metric_in", "snapin_wm", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_out( topo, "snapin", 0UL,              "snapin_txn",0UL );
-    fd_topob_tile_in ( topo, "snapwm", 0UL, "metric_in", "snapin_txn",0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_out( topo, "snapwm", 0UL,              "snapwm_wh", 0UL );
-    fd_topob_tile_in ( topo, "snapwh", 0UL, "metric_in", "snapwm_wh", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_out( topo, "snapwh", 0UL,              "snapwh_wr", 0UL );
-    /* snapwh and snapwr both access snapwm_wh's dcache, avoiding a
-       memcpy for every account (vinyl pair) that is being processed
-       (loaded) from the snapshot. */
-    FOR(snapwr_tile_cnt) fd_topob_tile_in ( topo, "snapwr", i, "metric_in", "snapwh_wr", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(snapwr_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", i ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwm_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-  }
   if( snapshot_lthash_disabled ) {
-    if( vinyl_enabled ) {
-      /**/              fd_topob_tile_out( topo, "snapwm", 0UL,              "snapwm_ct",  0UL                                       );
-    } else {
-      /**/              fd_topob_tile_out( topo, "snapin", 0UL,              "snapin_ct",  0UL                                       );
-    }
+    /**/              fd_topob_tile_out( topo, "snapin", 0UL,              "snapin_ct",  0UL                                       );
   } else {
-    if( vinyl_enabled ) {
-      FOR(snaplh_tile_cnt) fd_topob_tile_in ( topo, "snaplh", i,   "metric_in", "snapwh_wr",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      FOR(snaplh_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplh", i ) ], &topo->objs[ topo->links[ fd_topo_find_link( topo, "snapwm_wh", 0UL ) ].dcache_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
-      FOR(snaplh_tile_cnt) fd_topob_tile_in ( topo, "snaplh", i,   "metric_in", "snaplv_lh",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      /**/                 fd_topob_tile_out( topo, "snaplv", 0UL,              "snaplv_lh",  0UL                                       );
-      FOR(snaplh_tile_cnt) fd_topob_tile_out( topo, "snaplh", i,                "snaplh_lv",  i                                         );
-      /**/                 fd_topob_tile_in ( topo, "snaplv", 0UL, "metric_in", "snapwm_lv",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      FOR(snaplh_tile_cnt) fd_topob_tile_in ( topo, "snaplv", 0UL, "metric_in", "snaplh_lv",  i,   FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      /**/                 fd_topob_tile_out( topo, "snaplv", 0UL,              "snaplv_ct",  0UL                                       );
-      /**/                 fd_topob_tile_out( topo, "snapwm", 0UL,              "snapwm_lv",  0UL                                       );
-
-      fd_topo_obj_t * vinyl_admin_obj = setup_topo_vinyl_admin( topo, "vinyl_admin" );
-      /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-      FOR(snapwr_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwr", i   ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-      /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplv", 0UL ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-      FOR(snaplh_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snaplh", i   ) ], vinyl_admin_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-      FD_TEST( fd_pod_insertf_ulong( topo->props, vinyl_admin_obj->id, "vinyl_admin" ) );
-    } else {
-      FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapla", i,   "metric_in", "snapdc_in",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      FOR(lta_tile_cnt) fd_topob_tile_out( topo, "snapla", i,                "snapla_ls",  i                                         );
-      /**/              fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapin_ls",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapla_ls",  i,   FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-      /**/              fd_topob_tile_out( topo, "snapls", 0UL,              "snapls_ct",  0UL                                       );
-      /**/              fd_topob_tile_out( topo, "snapin", 0UL,              "snapin_ls",  0UL                                       );
-    }
+    FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapla", i,   "metric_in", "snapdc_in",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(lta_tile_cnt) fd_topob_tile_out( topo, "snapla", i,                "snapla_ls",  i                                         );
+    /**/              fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapin_ls",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(lta_tile_cnt) fd_topob_tile_in ( topo, "snapls", 0UL, "metric_in", "snapla_ls",  i,   FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/              fd_topob_tile_out( topo, "snapls", 0UL,              "snapls_ct",  0UL                                       );
+    /**/              fd_topob_tile_out( topo, "snapin", 0UL,              "snapin_ls",  0UL                                       );
   }
 
   /* snapin funk / txncache access */
@@ -272,18 +150,6 @@ snapshot_load_topo( config_t * config ) {
   fd_topob_tile_uses( topo, snapin_tile, txncache_obj,   FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.funk_obj_id     = funk_obj_id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
-  if( !config->firedancer.accounts.in_memory_only ) {
-    ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
-    ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
-
-    fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
-    fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
-
-    fd_topob_tile_uses( topo, snapin_tile, vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, snapin_tile, vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapwm", 0UL ) ], vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  }
 
   snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
@@ -319,22 +185,11 @@ snapshot_load_args( int *    pargc,
       "  --offline            Do not attempt to download snapshots\n"
       "  --no-incremental     Disable incremental snapshot loading\n"
       "  --no-watch           Do not print periodic progress updates\n"
-      "  --db <funk/vinyl>    Database engine\n"
       "  --db-sz <bytes>      Database size in bytes (e.g. 10e9 -> 10 GB)\n"
       "  --db-rec-max <num>   Database max record/account count (e.g. 10e6 -> 10M accounts)\n"
       "  --fsck               After loading, run database integrity checks\n"
       "  --lthash             After loading, recompute the account DB lthash\n"
       "  --accounts-hist      After loading, analyze account size distribution\n"
-      "\n"
-      "Vinyl database flags:\n"
-      "  --vinyl-path <path>    Path to vinyl bstream file (overrides existing files!)\n"
-      "  --vinyl-io <backend>   Vinyl I/O backend (default: bd)\n"
-      "  --cache-sz <bytes>     DB cache size in bytes (e.g. 1e9 -> 1 GB)\n"
-      "  --cache-rec-max <num>  DB cache max entry count (e.g. 1e6 -> 1M cache entries)\n"
-      "\n"
-      "Vinyl I/O backends:\n"
-      "  bd  readv/writev-style single-threaded blocking I/O\n"
-      "  mm  Memory-mapped I/O\n"
       "\n",
       stderr );
     exit( 0 );
@@ -345,17 +200,12 @@ snapshot_load_args( int *    pargc,
   _Bool        offline       = fd_env_strip_cmdline_contains( pargc, pargv, "--offline"                    )!=0;
   _Bool        no_incremental= fd_env_strip_cmdline_contains( pargc, pargv, "--no-incremental"             )!=0;
   _Bool        no_watch      = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch"                   )!=0;
-  char const * db            = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--db",           NULL, "funk" );
   float        db_sz         = fd_env_strip_cmdline_float   ( pargc, pargv, "--db-sz",        NULL, 0.0f   );
   float        db_rec_max    = fd_env_strip_cmdline_float   ( pargc, pargv, "--db-rec-max",   NULL, 0.0f   );
   _Bool        fsck          = fd_env_strip_cmdline_contains( pargc, pargv, "--fsck"                       )!=0;
   _Bool        fsck_lthash   = fd_env_strip_cmdline_contains( pargc, pargv, "--fsck-lthash"                )!=0;
   _Bool        lthash        = fd_env_strip_cmdline_contains( pargc, pargv, "--lthash"                     )!=0;
   _Bool        accounts_hist = fd_env_strip_cmdline_contains( pargc, pargv, "--accounts-hist"              )!=0;
-  char const * vinyl_path    = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--vinyl-path",   NULL, NULL   );
-  char const * vinyl_io      = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--vinyl-io",     NULL, "bd"   );
-  float        cache_sz      = fd_env_strip_cmdline_float   ( pargc, pargv, "--cache-sz",     NULL, 0.0f   );
-  float        cache_rec_max = fd_env_strip_cmdline_float   ( pargc, pargv, "--cache-rec-max",NULL, 0.0f   );
 
   fd_cstr_ncpy( args->snapshot_load.snapshot_dir, snapshot_dir, sizeof(args->snapshot_load.snapshot_dir) );
   args->snapshot_load.fsck           = fsck;
@@ -366,19 +216,10 @@ snapshot_load_args( int *    pargc,
   args->snapshot_load.no_incremental = no_incremental;
   args->snapshot_load.no_watch       = no_watch;
 
-  if(      0==strcmp( db, "funk"  ) ) args->snapshot_load.is_vinyl = 0;
-  else if( 0==strcmp( db, "vinyl" ) ) args->snapshot_load.is_vinyl = 1;
-  else FD_LOG_ERR(( "invalid --db '%s' (must be 'funk' or 'vinyl')", db ));
-
   args->snapshot_load.db_sz         = (ulong)db_sz;
   args->snapshot_load.db_rec_max    = (ulong)db_rec_max;
   args->snapshot_load.cache_sz      = (ulong)cache_sz;
   args->snapshot_load.cache_rec_max = (ulong)cache_rec_max;
-
-  fd_cstr_ncpy( args->snapshot_load.vinyl_path, vinyl_path, sizeof(args->snapshot_load.vinyl_path) );
-
-  if( FD_UNLIKELY( strlen( vinyl_io )!=2UL ) ) FD_LOG_ERR(( "invalid --vinyl-io '%s'", vinyl_io ));
-  fd_cstr_ncpy( args->snapshot_load.vinyl_io, vinyl_io, sizeof(args->snapshot_load.vinyl_io) );
 }
 
 static uint
@@ -393,54 +234,6 @@ fsck_funk( config_t * config,
   FD_TEST( fd_funk_join( funk, funk_shmem, locks_shmem ) );
   uint fsck_err = fd_accdb_fsck_funk( funk, lthash ? FD_ACCDB_FSCK_FLAGS_LTHASH : 0U );
   FD_TEST( fd_funk_leave( funk, NULL, NULL ) );
-  return fsck_err;
-}
-
-static uint
-fsck_vinyl( config_t * config,
-           _Bool       lthash ) {
-  /* Join meta index */
-
-  fd_topo_t * topo = &config->topo;
-  ulong meta_map_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX );
-  ulong meta_pool_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX );
-  FD_TEST( meta_map_id!=ULONG_MAX && meta_pool_id!=ULONG_MAX );
-  void * shmap = fd_topo_obj_laddr( topo, meta_map_id  );
-  void * shele = fd_topo_obj_laddr( topo, meta_pool_id );
-  fd_vinyl_meta_t meta[1];
-  FD_TEST( fd_vinyl_meta_join( meta, shmap, shele ) );
-
-  /* Join bstream */
-
-  int dev_fd = open( config->paths.accounts, O_RDWR|O_CLOEXEC );
-  if( FD_UNLIKELY( dev_fd<0 ) ) {
-    FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC) failed (%i-%s)",
-                 config->paths.accounts, errno, fd_io_strerror( errno ) ));
-  }
-  void * mmio    = NULL;
-  ulong  mmio_sz = 0UL;
-  int map_err = fd_io_mmio_init( dev_fd, FD_IO_MMIO_MODE_READ_WRITE, &mmio, &mmio_sz );
-  if( FD_UNLIKELY( map_err ) ) {
-    FD_LOG_ERR(( "fd_io_mmio_init(%s,rw) failed (%i-%s)",
-                 config->paths.accounts, map_err, fd_io_strerror( map_err ) ));
-  }
-  FD_TEST( 0==close( dev_fd ) );
-  ulong  io_spad_max = 1UL<<20;
-  void * io_mm       = aligned_alloc( fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( io_spad_max ) );
-  FD_TEST( io_mm );
-  fd_vinyl_io_t * io = fd_vinyl_io_mm_init( io_mm, io_spad_max, mmio, mmio_sz, 0, NULL, 0UL, 0UL );
-  FD_TEST( io );
-
-  /* Run verifier */
-
-  uint fsck_err = fd_accdb_fsck_vinyl( io, meta, lthash ? FD_ACCDB_FSCK_FLAGS_LTHASH : 0U );
-
-  /* Clean up */
-
-  FD_TEST( fd_vinyl_io_fini( io ) );
-  free( io_mm );
-  fd_io_mmio_fini( mmio, mmio_sz );
-  fd_vinyl_meta_leave( meta );
   return fsck_err;
 }
 
@@ -551,25 +344,6 @@ accounts_hist_print( accounts_hist_t const * hist ) {
 }
 
 static void
-accounts_hist_vinyl( accounts_hist_t * hist,
-                     config_t *        config ) {
-  fd_topo_t * topo = &config->topo;
-  ulong meta_map_id  = fd_pod_query_ulong( topo->props, "accdb.meta_map",  ULONG_MAX );
-  ulong meta_pool_id = fd_pod_query_ulong( topo->props, "accdb.meta_pool", ULONG_MAX );
-  FD_TEST( meta_map_id!=ULONG_MAX && meta_pool_id!=ULONG_MAX );
-  void * shmap = fd_topo_obj_laddr( topo, meta_map_id  );
-  void * shele = fd_topo_obj_laddr( topo, meta_pool_id );
-  fd_vinyl_meta_t meta[1];
-  FD_TEST( fd_vinyl_meta_join( meta, shmap, shele ) );
-
-  for( ulong ele_i=0; ele_i < fd_vinyl_meta_ele_max( meta ); ele_i++ ) {
-    fd_vinyl_meta_ele_t const * ele = meta->ele + ele_i;
-    if( FD_UNLIKELY( fd_vinyl_meta_private_ele_is_free( meta->ctx, ele ) ) ) continue;
-    accounts_hist_update( hist, (ulong)ele->phdr.info.val_sz );
-  }
-}
-
-static void
 accounts_hist_funk( accounts_hist_t * hist,
                     config_t *        config ) {
   fd_topo_t * topo = &config->topo;
@@ -613,34 +387,12 @@ fixup_config( config_t *     config,
     fd_cstr_ncpy( config->paths.snapshots, args->snapshot_load.snapshot_dir, sizeof(config->paths.snapshots) );
   }
 
-  if( args->snapshot_load.vinyl_path[0] ) {
-    fd_cstr_ncpy( config->paths.accounts, args->snapshot_load.vinyl_path, sizeof(config->paths.accounts) );
-  }
-
   if( args->snapshot_load.db_rec_max ) {
     config->firedancer.accounts.max_accounts = args->snapshot_load.db_rec_max;
   }
 
   if( args->snapshot_load.db_sz ) {
     config->firedancer.accounts.file_size_gib = fd_ulong_align_up( args->snapshot_load.db_sz, (1UL<<30) )>>30;
-  }
-
-  if( args->snapshot_load.cache_sz ) {
-    config->firedancer.accounts.cache_size_gib = fd_ulong_align_up( args->snapshot_load.cache_sz, (1UL<<30) )>>30;
-  }
-
-  if( args->snapshot_load.cache_rec_max ) {
-    config->firedancer.accounts.mean_account_footprint =
-        (config->firedancer.accounts.cache_size_gib << 30) / args->snapshot_load.cache_rec_max;
-  }
-
-  if( args->snapshot_load.is_vinyl ) {
-    config->firedancer.accounts.in_memory_only = 0;
-
-    char const * io_mode = args->snapshot_load.vinyl_io;
-    if(      0==strcmp( io_mode, "ur" ) ) fd_cstr_ncpy( config->firedancer.accounts.io_provider, "io_uring",  sizeof(config->firedancer.accounts.io_provider) );
-    else if( 0==strcmp( io_mode, "bd" ) ) fd_cstr_ncpy( config->firedancer.accounts.io_provider, "portable",  sizeof(config->firedancer.accounts.io_provider) );
-    else FD_LOG_ERR(( "unsupported --vinyl-io '%s' (valid options are 'bd' and 'ur')", io_mode ));
   }
 
   if( args->snapshot_load.offline ) {
@@ -727,7 +479,6 @@ snapshot_load_cmd_fn( args_t *   args,
 
   ulong total_off_old    = 0UL;
   ulong decomp_off_old   = 0UL;
-  ulong vinyl_off_old    = 0UL;
   ulong snapld_backp_old = 0UL;
   ulong snapld_wait_old  = 0UL;
   ulong snapdc_backp_old = 0UL;
@@ -789,7 +540,6 @@ snapshot_load_cmd_fn( args_t *   args,
                          snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ];
     ulong decomp_off   = snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_WRITTEN ) ] +
                          snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN ) ];
-    ulong vinyl_off    = snapwr_tile ? snapwr_metrics[ MIDX( GAUGE, SNAPWR, FILE_USED_BYTES ) ] : 0UL;
     ulong snapld_backp = snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
     ulong snapld_wait  = snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapld_backp;
     ulong snapdc_backp = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
@@ -828,9 +578,6 @@ snapshot_load_cmd_fn( args_t *   args,
               progress,
               (double)( total_off -total_off_old  )/1e6,
               (double)( decomp_off-decomp_off_old )/1e6 );
-      if( snapwr_tile ) {
-        printf( " vinyl=%4.0fMB/s", (double)( vinyl_off - vinyl_off_old )/1e6 );
-      }
 
       printf( " backp=(%3.0f%%,%3.0f%%,%3.0f%%",
           ( (double)( snapld_backp-snapld_backp_old )*ns_per_tick )/1e7,
@@ -881,7 +628,6 @@ snapshot_load_cmd_fn( args_t *   args,
     }
     total_off_old    = total_off;
     decomp_off_old   = decomp_off;
-    vinyl_off_old    = vinyl_off;
     snapld_backp_old = snapld_backp;
     snapld_wait_old  = snapld_wait;
     snapdc_backp_old = snapdc_backp;
@@ -908,9 +654,7 @@ snapshot_load_cmd_fn( args_t *   args,
 
   if( args->snapshot_load.fsck ) {
     FD_LOG_NOTICE(( "FSCK: starting" ));
-    uint fsck_err;
-    if( snapwr_tile ) fsck_err = fsck_vinyl( config, args->snapshot_load.fsck_lthash );
-    else              fsck_err = fsck_funk ( config, args->snapshot_load.fsck_lthash );
+    uint fsck_err = fsck_funk ( config, args->snapshot_load.fsck_lthash );
     if( !fsck_err ) {
       FD_LOG_NOTICE(( "FSCK: passed" ));
     } else {
@@ -922,8 +666,7 @@ snapshot_load_cmd_fn( args_t *   args,
     accounts_hist_t hist[1];
     accounts_hist_reset( hist );
     FD_LOG_NOTICE(( "Accounts histogram: starting" ));
-    if( snapwr_tile ) accounts_hist_vinyl( hist, config );
-    else              accounts_hist_funk ( hist, config );
+    accounts_hist_funk ( hist, config );
     FD_TEST( !accounts_hist_check( hist ) );
     accounts_hist_print( hist );
   }

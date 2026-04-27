@@ -25,14 +25,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_progcache;
 extern fd_topo_obj_callbacks_t fd_obj_cb_acc_pool;
 extern fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss;
 
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_req_pool;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_rq;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_cq;
-extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_admin;
-
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
   &fd_obj_cb_dcache,
@@ -51,19 +43,9 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_funk_locks,
   &fd_obj_cb_progcache,
   &fd_obj_cb_acc_pool,
-  &fd_obj_cb_vinyl_meta,
-  &fd_obj_cb_vinyl_meta_ele,
-  &fd_obj_cb_vinyl_data,
-  &fd_obj_cb_acc_pool,
-  &fd_obj_cb_vinyl_req_pool,
-  &fd_obj_cb_vinyl_rq,
-  &fd_obj_cb_vinyl_cq,
-  &fd_obj_cb_vinyl_admin,
   &fd_obj_cb_rnonce_ss,
   NULL,
 };
-
-extern configure_stage_t fd_cfg_stage_accdb;
 
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
@@ -73,7 +55,6 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_snapshots,
-  &fd_cfg_stage_accdb,
   NULL,
 };
 
@@ -109,7 +90,6 @@ extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execrp;
 extern fd_topo_run_tile_t fd_tile_txsend;
 extern fd_topo_run_tile_t fd_tile_tower;
-extern fd_topo_run_tile_t fd_tile_vinyl;
 extern fd_topo_run_tile_t fd_tile_solcap;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
@@ -166,7 +146,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_genesi,
 # endif
   &fd_tile_ipecho,
-  &fd_tile_vinyl,
   &fd_tile_solcap,
   NULL,
 };

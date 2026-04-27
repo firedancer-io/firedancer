@@ -123,11 +123,7 @@ fd_accdb_ref_data_set( fd_accdb_user_t * accdb,
 
 FD_PROTOTYPES_END
 
-/* Batch APIs **********************************************************
-
-   These amortize I/O wait time if paired with an asynchronous database
-   I/O engine (e.g. vinyl_io_ur).  Mostly useful for reads of accounts
-   that are not in memory cache. */
+/* Batch APIs *********************************************************/
 
 FD_PROTOTYPES_BEGIN
 

@@ -7,8 +7,8 @@ $(call add-objs,fd_snapld_tile,fd_discof)
 ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)
 endif # FD_HAS_ZSTD
-$(call add-objs,fd_snapin_tile fd_snapin_tile_funk fd_snapin_tile_vinyl,fd_discof)
-$(call add-objs,fd_snapwm_tile fd_snapwm_tile_vinyl,fd_discof)
+$(call add-objs,fd_snapin_tile fd_snapin_tile_funk,fd_discof)
+$(call add-objs,fd_snapwm_tile,fd_discof)
 endif # FD_HAS_SSE
 $(call add-objs,fd_snapwh_tile,fd_discof)
 $(call add-objs,fd_snapwr_tile,fd_discof)
@@ -45,7 +45,4 @@ $(call add-objs,utils/fd_ssresolve,fd_discof)
 $(call add-objs,utils/fd_sshttp,fd_discof)
 $(call add-objs,utils/fd_ssarchive,fd_discof)
 $(call add-objs,utils/fd_sspeer_selector,fd_discof)
-$(call add-objs,utils/fd_vinyl_io_wd,fd_discof)
-$(call add-objs,utils/fd_vinyl_admin,fd_discof)
-$(call make-unit-test,test_vinyl_admin,utils/test_vinyl_admin,fd_discof fd_flamenco fd_ballet fd_util)
 endif
