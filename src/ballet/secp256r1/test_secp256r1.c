@@ -347,6 +347,63 @@ test_secp256r1_verify( FD_FN_UNUSED fd_rng_t * rng ) {
     FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
   }
 
+  // test r >= n (r frombytes fails)
+  {
+    fd_hex_decode( sig, "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"
+                        "586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
+    fd_hex_decode( pub, "02d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
+    FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  }
+
+  // test s > (n-1)/2 (s frombytes_positive fails)
+  {
+    fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3"
+                        "7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a9", 64 );
+    FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  }
+
+  // test r=0 (scalar_is_zero r fails)
+  {
+    fd_hex_decode( sig, "0000000000000000000000000000000000000000000000000000000000000000"
+                        "586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
+    FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  }
+
+  // test s=0 (scalar_is_zero s fails)
+  {
+    fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3"
+                        "0000000000000000000000000000000000000000000000000000000000000000", 64 );
+    FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  }
+
+  // test invalid pub: wrong prefix byte (point frombytes fails)
+  {
+    fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3"
+                        "586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
+    fd_hex_decode( pub, "04d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
+    FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  }
+
+  // test invalid pub: x >= p (point frombytes fails)
+  {
+    fd_hex_decode( pub, "02ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 33 );
+    FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  }
+
+  // test invalid pub: x not on curve, no square root (point frombytes fails)
+  {
+    fd_hex_decode( pub, "02b8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
+    FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  }
+
+  // test wrong signature: valid format but r mismatches (point_eq_x fails)
+  {
+    fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d4"
+                        "586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
+    fd_hex_decode( pub, "02d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
+    FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_FAILURE );
+  }
+
   fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
   fd_hex_decode( pub, "02d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 33 );
   FD_TEST( fd_secp256r1_verify( msg, msg_sz, sig, pub, sha )==FD_SECP256R1_SUCCESS );
