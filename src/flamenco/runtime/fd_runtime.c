@@ -316,8 +316,7 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
 
   if( FD_LIKELY( fee_reward ) ) {
     fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
-    if( FD_UNLIKELY( !leaders ) ) FD_LOG_CRIT(( "fd_bank_epoch_leaders_query returned NULL" ));
-    fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, bank->f.slot );
+    fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
     if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
 
     /* Pay out reward portion of collected fees (increasing capitalization) */
