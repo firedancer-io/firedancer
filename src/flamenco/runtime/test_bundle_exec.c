@@ -47,7 +47,7 @@ struct test_env {
 
   fd_runtime_t *       runtime;
   fd_txn_in_t          txn_in;
-  fd_txn_out_t         txn_out[ 5UL];
+  fd_txn_out_t         txn_out[ 5UL ];
   fd_log_collector_t   log_collector[ 1 ];
 };
 typedef struct test_env test_env_t;

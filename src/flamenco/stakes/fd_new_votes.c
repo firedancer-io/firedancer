@@ -460,7 +460,7 @@ fd_new_votes_iter_ele( fd_new_votes_iter_t const * it,
 
   nv_dlist_t * dlist = get_dlist( it->new_votes, it->fork_idxs[ it->fork_pos ] );
   fd_new_vote_ele_t const * ele = nv_dlist_iter_ele_const( it->dlist_iter, dlist, pool );
-  if( is_tombstone ) *is_tombstone = ele->is_tombstone;
+  *is_tombstone = ele->is_tombstone;
   return &ele->pubkey;
 }
 
