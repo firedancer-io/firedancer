@@ -196,6 +196,10 @@ struct fd_replay_fec_evicted {
 };
 typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 
+struct fd_replay_snap_create {
+  ulong bank_idx;
+};
+typedef struct fd_replay_snap_create fd_replay_snap_create_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
@@ -205,6 +209,7 @@ union fd_replay_message {
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
   fd_replay_fec_evicted_t     reasm_evicted;
+  fd_replay_snap_create_t     snap_create;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

@@ -2294,7 +2294,10 @@ admin_snap_create( fd_replay_tile_t *  ctx,
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
   bank->refcnt++;
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, 0UL, 0UL, 0UL, 0UL );
+  fd_replay_snap_create_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->bank_idx = ctx->published_root_bank_idx;
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_SUCCESS );
   ctx->is_creating_snap = 1;
 }

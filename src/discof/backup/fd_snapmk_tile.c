@@ -4,6 +4,7 @@
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/pod/fd_pod.h"
 #include <errno.h>
@@ -41,6 +42,12 @@ struct fd_snapmk {
   fd_snapmk_batch_t * batch  [ FD_TOPO_MAX_TILE_OUT_LINKS ];
   ushort              in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
 
+  fd_banks_t *           banks;
+  fd_bank_t const *      bank;
+  fd_wksp_t *            replay_in_mem;
+  fd_ssmanifest_writer_t manifest_writer[1];
+  ulong                  manifest_pad;
+
   ZSTD_CCtx *    zst;
   ZSTD_inBuffer  raw_buf;
   ZSTD_outBuffer comp_buf;
@@ -50,6 +57,7 @@ struct fd_snapmk {
 
   struct {
     ulong compress_ticks;
+    ulong io_ticks;
     ulong bytes_compressed;
     ulong metrics_written;
   } metrics;
@@ -101,6 +109,11 @@ unprivileged_init( fd_topo_t *      topo,
   ulong locks_obj_id; FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, funk_obj_id ), fd_topo_obj_laddr( topo, locks_obj_id ) ) );
 
+  ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
+  FD_TEST( banks_obj_id!=ULONG_MAX );
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  FD_TEST( ctx->banks );
+
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.zp_fseq_id ) ); FD_TEST( zp_fseq );
   ctx->zp_file_off = fd_fseq_app_laddr( zp_fseq );
 
@@ -109,6 +122,8 @@ unprivileged_init( fd_topo_t *      topo,
     if( 0==strcmp( link->name, "replay_out" ) ) {
       FD_TEST( !ctx->in_kind[ i ] );
       ctx->in_kind[ i ] = IN_KIND_REPLAY;
+      fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+      ctx->replay_in_mem = link_wksp->wksp;
     } else {
       FD_LOG_ERR(( "Unexpected input link \"%s\"", link->name ));
     }
@@ -136,14 +151,6 @@ unprivileged_init( fd_topo_t *      topo,
   zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_compressionLevel, FD_ZSTD_LEVEL );
   if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
     FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_compressionLevel) failed: %s", ZSTD_getErrorName( zst_err ) ));
-  }
-  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_stableInBuffer, 1 );
-  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
-    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_stableInBuffer=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
-  }
-  zst_err = ZSTD_CCtx_setParameter( ctx->zst, ZSTD_c_stableOutBuffer, 1 );
-  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
-    FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_stableOutBuffer=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
   ctx->raw_buf  = (ZSTD_inBuffer ){ .src = ctx->raw,  .size = 0UL         };
   ctx->comp_buf = (ZSTD_outBuffer){ .dst = ctx->comp, .size = COMP_BUF_SZ };
@@ -240,6 +247,84 @@ check_credit( fd_snapmk_t *       ctx,
   }
 }
 
+static void
+flush_buffer( fd_snapmk_t *     ctx,
+              ZSTD_EndDirective directive ) {
+
+  /* Compress chunk */
+  long t0 = fd_tickcount();
+  ulong ret = ZSTD_compressStream2( ctx->zst, &ctx->comp_buf, &ctx->raw_buf, directive );
+  ctx->metrics.bytes_compressed += ctx->raw_buf.pos;
+  if( FD_UNLIKELY( ZSTD_isError( ret ) ) ) {
+    FD_LOG_ERR(( "ZSTD_compressStream2 failed: %s", ZSTD_getErrorName( ret ) ));
+  }
+
+  /* Move uncompressed bytes to left */
+  if( ctx->raw_buf.pos < ctx->raw_buf.size ) {
+    memmove( ctx->raw,
+             ctx->raw + ctx->raw_buf.pos,
+             ctx->raw_buf.size - ctx->raw_buf.pos );
+    ctx->raw_buf.size -= ctx->raw_buf.pos;
+    ctx->raw_buf.pos   = 0UL;
+  } else {
+    ctx->raw_buf.size = 0UL;
+    ctx->raw_buf.pos  = 0UL;
+  }
+  long t1 = fd_tickcount();
+  ctx->metrics.compress_ticks += (ulong)( t1 - t0 );
+
+  /* Write compressed bytes to file */
+  ulong comp_wr_;
+  ulong comp_sz = ctx->comp_buf.pos;
+  int wr_err = fd_io_write(
+      ctx->out_fd,
+      ctx->comp,
+      comp_sz, comp_sz,
+      &comp_wr_ );
+  if( FD_UNLIKELY( wr_err ) ) {
+    FD_LOG_ERR(( "fd_io_write failed: %s", fd_io_strerror( wr_err ) ));
+  }
+  if( FD_UNLIKELY( comp_wr_ != comp_sz ) ) {
+    FD_LOG_ERR(( "fd_io_write did not write full buffer (expected %lu bytes, wrote %lu bytes)", comp_sz, comp_wr_ ));
+  }
+  long t2 = fd_tickcount();
+  ctx->metrics.io_ticks += (ulong)( t2 - t1 );
+  ctx->comp_buf.pos  = 0UL;
+  ctx->comp_buf.size = COMP_BUF_SZ;
+}
+
+static void
+align_stream( fd_snapmk_t * ctx ) {
+  long off = lseek( ctx->out_fd, 0L, SEEK_CUR );
+  if( FD_UNLIKELY( off<0L ) ) {
+    FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
+  }
+  ulong uoff   = (ulong)off;
+  /* Align using skippable frame */
+  ulong aoff   = fd_ulong_align_up( uoff, 4096UL );
+  ulong pad_sz = aoff - uoff;
+  if( FD_UNLIKELY( pad_sz>0UL && pad_sz<8UL ) ) {
+    aoff   += 4096UL;
+    pad_sz += 4096UL;
+  }
+  if( pad_sz>0UL ) {
+    uchar frame_hdr[ 8 ];
+    FD_STORE( uint, frame_hdr,   ZSTD_MAGIC_SKIPPABLE_START );
+    FD_STORE( uint, frame_hdr+4, (uint)( pad_sz-8 ) );
+    ulong wr_sz_;
+    int err = fd_io_write( ctx->out_fd, frame_hdr, 8UL, 8UL, &wr_sz_ );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "fd_io_write failed: %i-%s", err, fd_io_strerror( err ) ));
+    }
+    static uchar const zero[ 4096UL ] = {0};
+    err = fd_io_write( ctx->out_fd, zero, pad_sz-8UL, pad_sz-8UL, &wr_sz_ );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "fd_io_write failed: %i-%s", err, fd_io_strerror( err ) ));
+    }
+  }
+  __atomic_store_n( ctx->zp_file_off, aoff, __ATOMIC_RELEASE );
+}
+
 /* after_credit is called if we can publish at least one frag */
 
 static void
@@ -248,8 +333,75 @@ after_credit( fd_snapmk_t *       ctx,
               int *               poll_in,
               int *               charge_busy ) {
   (void)poll_in;
+
   switch( ctx->state ) {
+  case SNAPMK_STATE_TAR_HEADERS: {
+    ulong slot = ctx->bank->f.slot;
+
+    ctx->raw_buf.pos = ctx->raw_buf.size = 0UL;
+    uchar * p = ctx->raw;
+    fd_tar_meta_t meta;
+
+    fd_snapmk_tar_file_hdr( &meta, 5UL );
+    fd_cstr_ncpy( meta.name, "version", sizeof(meta.name) );
+    fd_tar_meta_set_chksum( &meta );
+    memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+    p += sizeof(fd_tar_meta_t);
+
+    memcpy( p,   "1.2.0",       5UL );
+    memset( p+5, 0,       512UL-5UL );
+    p += 512UL;
+
+    fd_snapmk_tar_dir_hdr( &meta );
+    fd_cstr_ncpy( meta.name, "snapshots/", sizeof(meta.name) );
+    fd_tar_meta_set_chksum( &meta );
+    memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+    p += sizeof(fd_tar_meta_t);
+
+    fd_snapmk_tar_dir_hdr( &meta );
+    fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/", slot );
+    fd_tar_meta_set_chksum( &meta );
+    memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+    p += sizeof(fd_tar_meta_t);
+
+    ulong manifest_sz = fd_snap_manifest_serialized_sz( ctx->bank );
+    fd_snapmk_tar_file_hdr( &meta, manifest_sz );
+    fd_cstr_printf_check( meta.name, sizeof(meta.name), NULL, "snapshots/%lu/%lu", slot, slot );
+    fd_tar_meta_set_chksum( &meta );
+    memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+    p += sizeof(fd_tar_meta_t);
+    ctx->raw_buf.size = (ulong)( p - ctx->raw );
+    ctx->manifest_pad = fd_ulong_align_up( manifest_sz, 512UL ) - manifest_sz;
+
+    flush_buffer( ctx, ZSTD_e_end );
+    ctx->state = SNAPMK_STATE_MANIFEST;
+    *charge_busy = 1;
+    break;
+  }
   case SNAPMK_STATE_MANIFEST: {
+    if( FD_UNLIKELY( ctx->raw_buf.size + FD_SSMANIFEST_BUF_MIN > RAW_BUF_SZ ) ) {
+      flush_buffer( ctx, ZSTD_e_continue );
+      *charge_busy = 1;
+      return;
+    }
+    ulong buf_rem = FD_SSMANIFEST_BUF_MIN - ctx->raw_buf.size;
+    ulong chunk_sz = fd_snap_manifest_serialize(
+        ctx->manifest_writer,
+        (uchar *)ctx->raw_buf.src + ctx->raw_buf.size,
+        buf_rem );
+    ctx->raw_buf.size += chunk_sz;
+    if( FD_UNLIKELY( !chunk_sz ) ) {
+      flush_buffer( ctx, ZSTD_e_continue );
+      if( ctx->manifest_pad ) {
+        fd_memset( ctx->raw, 0, ctx->manifest_pad );
+        ctx->raw_buf.size = ctx->manifest_pad;
+      }
+      flush_buffer( ctx, ZSTD_e_end );
+      ctx->state = SNAPMK_STATE_ACCOUNTS;
+      align_stream( ctx );
+      *charge_busy = 1;
+      return;
+    }
     break;
   }
   case SNAPMK_STATE_ACCOUNTS: {
@@ -272,12 +424,6 @@ after_credit( fd_snapmk_t *       ctx,
     break;
   }
   case SNAPMK_STATE_ACCOUNTS_FLUSH: {
-    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
-    fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
-    ctx->state = SNAPMK_STATE_IDLE;
-    FD_LOG_NOTICE(( "Snapshot creation finished" ));
-      return;
-    }
     /* Broadcast FLUSH packets */
     for( ulong i=0UL; i < ctx->zp_cnt; i++ ) {
       if( !fd_ulong_extract_bit( ctx->out_flush_pending, (int)i ) ) continue;
@@ -287,12 +433,20 @@ after_credit( fd_snapmk_t *       ctx,
       ctx->out_flush_pending &= ~fd_ulong_mask_bit( (int)i );
       *charge_busy = 1;
     }
+    if( !ctx->out_flush_pending ) {
+      ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
+      fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
+      ctx->state = SNAPMK_STATE_IDLE;
+      FD_LOG_NOTICE(( "Snapshot creation finished" ));
+    }
     break;
+  }
   }
 }
 
 static void
-snap_begin( fd_snapmk_t * ctx ) {
+snap_begin( fd_snapmk_t * ctx,
+            ulong         bank_idx ) {
   if( FD_UNLIKELY( ctx->state != SNAPMK_STATE_IDLE ) ) {
     FD_LOG_ERR(( "invariant violation: snapshot creation requested state is %u", ctx->state ));
     return;
@@ -300,13 +454,26 @@ snap_begin( fd_snapmk_t * ctx ) {
   if( FD_UNLIKELY( ftruncate( ctx->out_fd, 0 ) ) ) {
     FD_LOG_ERR(( "ftruncate failed: %s", fd_io_strerror( errno ) ));
   }
+  if( FD_UNLIKELY( lseek( ctx->out_fd, 0, SEEK_SET )<0 ) ) {
+    FD_LOG_ERR(( "lseek failed: %s", fd_io_strerror( errno ) ));
+  }
   *ctx->zp_file_off  = 0UL;
   ctx->raw_buf.size  = 0UL;
   ctx->raw_buf.pos   = 0UL;
   ctx->comp_buf.pos  = 0UL;
   ctx->comp_buf.size = COMP_BUF_SZ;
 
-  ctx->state = SNAPMK_STATE_MANIFEST;
+  ulong zst_err = ZSTD_CCtx_reset( ctx->zst, ZSTD_reset_session_only );
+  if( FD_UNLIKELY( ZSTD_isError( zst_err ) ) ) {
+    FD_LOG_ERR(( "ZSTD_CCtx_reset failed: %s", ZSTD_getErrorName( zst_err ) ));
+  }
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
+  FD_TEST( bank );
+  ctx->bank = bank;
+  fd_ssmanifest_writer_init( ctx->manifest_writer, bank );
+
+  ctx->state = SNAPMK_STATE_TAR_HEADERS;
   ctx->chain = 0UL;
   ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );
   fd_funk_scan_init( ctx->scan, ctx->funk );
@@ -324,14 +491,16 @@ returnable_frag( fd_snapmk_t *       ctx,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-  (void)seq; (void)chunk; (void)sz; (void)ctl; (void)tsorig; (void)tspub; (void)stem;
+  (void)seq; (void)sz; (void)ctl; (void)tsorig; (void)tspub; (void)stem;
   ctx->in_idle_cnt = 0UL;
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_REPLAY:
     switch( sig ) {
-    case REPLAY_SIG_SNAP_CREATE:
-      snap_begin( ctx );
+    case REPLAY_SIG_SNAP_CREATE: {
+      fd_replay_snap_create_t const * msg = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
+      snap_begin( ctx, msg->bank_idx );
       break;
+    }
     default:
       break;
     }
