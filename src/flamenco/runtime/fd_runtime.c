@@ -1660,17 +1660,24 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
   ulong new_rate_activation_epoch = 0UL;
 
-  fd_stake_history_t stake_history[1];
-  fd_sysvar_stake_history_read( accdb, xid, stake_history );
+  {
+    fd_stake_history_t   stake_history_[1];
+    fd_accdb_ro_t        ro_[1];
+    fd_stake_history_t * stake_history = NULL;
+    fd_accdb_ro_t *      ro = fd_accdb_open_ro( accdb, ro_, xid, &fd_sysvar_stake_history_id );
+    if( ro ) stake_history = fd_sysvar_stake_history_view( stake_history_, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) );
 
-  fd_refresh_vote_accounts(
-      bank,
-      accdb,
-      xid,
-      runtime_stack,
-      stake_delegations,
-      stake_history,
-      &new_rate_activation_epoch );
+    fd_refresh_vote_accounts(
+        bank,
+        accdb,
+        xid,
+        runtime_stack,
+        stake_delegations,
+        stake_history,
+        &new_rate_activation_epoch );
+
+    if( FD_LIKELY( ro ) ) fd_accdb_close_ro( accdb, ro );
+  }
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_genesis_fini( vote_stakes );

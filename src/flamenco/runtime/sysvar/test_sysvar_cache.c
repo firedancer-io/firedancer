@@ -159,9 +159,6 @@ test_sysvar_cache_empty( void ) {
   fd_rent_t rent;
   FD_TEST( !fd_sysvar_cache_rent_read( cache1, &rent ) );
 
-  /* Test sysvar join accessors */
-  FD_TEST( !fd_sysvar_cache_stake_history_join_const( cache1 ) );
-
   /* Test leave_const */
   FD_TEST( fd_sysvar_cache_leave_const( cache1 )==cache_mem );
 

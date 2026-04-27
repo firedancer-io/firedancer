@@ -43,12 +43,6 @@ Some code is auto-generated. Do not edit generated files directly — regenerate
   ```
   Regenerates `fd_features_generated.h` and `fd_features_generated.c`.
 
-- **Types:** After changing `fd_types.json`, run:
-  ```bash
-  cd src/flamenco/types && make stubs
-  ```
-  Regenerates `fd_types.h` and `fd_types.c`.
-
 ## Fuzzing
 
 ### build fuzzer
