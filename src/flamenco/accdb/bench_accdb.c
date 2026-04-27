@@ -372,7 +372,7 @@ bench_replay( ulong   slot_cnt,
   }
   dt_total += fd_log_wallclock();
 
-  fd_accdb_shmem_metrics_t const * m = fd_accdb_metrics( accdb );
+  fd_accdb_shmem_metrics_t const * m = fd_accdb_shmetrics( accdb );
 
   double total_secs = (double)dt_total / 1e9;
   FD_LOG_NOTICE(( "bench_replay: %lu slots, %lu reads/slot, "

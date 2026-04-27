@@ -180,10 +180,10 @@ main( int     argc,
   uchar rodata[ rodata_sz ];
   memset( rodata, 0, rodata_sz );
 
-  fd_exec_instr_ctx_t instr_ctx[1];
-  fd_bank_t           bank[1];
-  fd_txn_out_t        txn_out[1];
-  fd_log_collector_t  log_collector[1];
+  static fd_exec_instr_ctx_t instr_ctx[1];
+  static fd_bank_t           bank[1];
+  static fd_txn_out_t        txn_out[1];
+  static fd_log_collector_t  log_collector[1];
   runtime->log.log_collector = log_collector;
   test_vm_minimal_exec_instr_ctx( instr_ctx, runtime, bank, txn_out );
 

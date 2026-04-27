@@ -300,10 +300,10 @@ test_compact( void ) {
   for( ulong i=0UL; i<writes_fit_in_partition; i++ ) {
     accdb_write( accdb, slot1, pubkey1, 1UL, big_data, acct_sz, owner2 );
   }
-  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_metrics( accdb );
+  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
   FD_TEST( metrics->accounts_total           == 1UL );
   FD_TEST( metrics->accounts_capacity        == 1024UL );
-  FD_TEST( metrics->accounts_written         == writes_fit_in_partition );
+  FD_TEST( fd_accdb_metrics( accdb )->write_ops == 0UL );
   FD_TEST( metrics->disk_allocated_bytes     == 0UL );
   FD_TEST( metrics->disk_used_bytes          == 0UL );
   FD_TEST( metrics->in_compaction            == 0 );
@@ -356,7 +356,7 @@ test_overwrite_same_fork( void ) {
   FD_TEST( !memcmp( d, data_c, 2UL ) );
   FD_TEST( !memcmp( owner, owner2, 32UL ) );
 
-  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_metrics( accdb );
+  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
   FD_TEST( metrics->accounts_total == 1UL );
 
   close( fd );
@@ -393,7 +393,7 @@ test_multiple_accounts( void ) {
   FD_TEST( lamports==30UL );
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
 
-  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_metrics( accdb );
+  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
   FD_TEST( metrics->accounts_total == 3UL );
 
   close( fd );
@@ -472,7 +472,7 @@ test_purge( void ) {
   FD_TEST( accdb_read( accdb, keep, pk_a, &lamports, &d, &data_len, owner ) );
   FD_TEST( lamports==100UL );
 
-  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_metrics( accdb );
+  fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
   FD_TEST( metrics->accounts_total == 1UL );
 
   close( fd );
@@ -570,7 +570,7 @@ test_deep_chain_rooting( void ) {
      the new root and its entry persists).  The first rooting (chain[0])
      does not tombstone anything because root had no txns, so 4 versions
      are removed.  10 original - 4 tombstoned = 6. */
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==6UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==6UL );
 
 # undef DEPTH
   close( fd );
@@ -608,7 +608,7 @@ test_wide_fanout_isolation( void ) {
   /* Parent should not see any of the children's writes. */
   FD_TEST( !accdb_read( accdb, parent, pubkey1, &lamports, &d, &data_len, owner ) );
 
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==SIBLINGS );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==SIBLINGS );
 
 # undef SIBLINGS
   close( fd );
@@ -644,13 +644,13 @@ test_purge_deep_subtree( void ) {
   accdb_write( accdb, drop_grandchild, pk_c, 3UL, NULL, 0UL, owner2 );
   accdb_write( accdb, keep,            pk_a, 9UL, NULL, 0UL, owner3 );
 
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==4UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==4UL );
 
   fd_accdb_purge( accdb, drop );
   drain_background( accdb );
 
   /* Only the account on the kept fork should remain. */
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==1UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
   FD_TEST( accdb_read( accdb, keep, pk_a, &lamports, &d, &data_len, owner ) );
   FD_TEST( lamports==9UL );
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
@@ -675,18 +675,18 @@ test_root_tombstones_old_version( void ) {
   fd_accdb_fork_id_t a    = fd_accdb_attach_child( accdb, root );
 
   accdb_write( accdb, root, pubkey1, 10UL, NULL, 0UL, owner2 );
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==1UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
 
   accdb_write( accdb, a, pubkey1, 20UL, NULL, 0UL, owner3 );
   /* Two index entries exist now: one for root, one for a. */
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==2UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==2UL );
 
   fd_accdb_advance_root( accdb, a );
   drain_background( accdb );
 
   /* After rooting, the older version on root should have been
      tombstoned, leaving exactly one live entry. */
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==1UL );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
 
   FD_TEST( accdb_read( accdb, a, pubkey1, &lamports, &d, &data_len, owner ) );
   FD_TEST( lamports==20UL );
@@ -725,7 +725,7 @@ test_many_accounts_hash_chains( void ) {
     accdb_write( accdb, f, pks[ i ], i+1UL, NULL, 0UL, owner2 );
   }
 
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==N_ACCTS );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==N_ACCTS );
 
   /* Read every account back and verify. */
   for( ulong i=0UL; i<N_ACCTS; i++ ) {
@@ -738,7 +738,7 @@ test_many_accounts_hash_chains( void ) {
     accdb_write( accdb, f, pks[ i ], (i+1UL)*1000UL, NULL, 0UL, owner3 );
   }
 
-  FD_TEST( fd_accdb_metrics( accdb )->accounts_total==N_ACCTS );
+  FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==N_ACCTS );
   for( ulong i=0UL; i<50UL; i++ ) {
     FD_TEST( accdb_read( accdb, f, pks[ i ], &lamports, &d, &data_len, owner ) );
     FD_TEST( lamports==(i+1UL)*1000UL );

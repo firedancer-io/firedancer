@@ -277,7 +277,7 @@ run_test( fd_wksp_t * wksp,
           ulong       num_infos,
           int         expected_err,
           ulong       expected_cus ) {
-  test_env_t env[1];
+  static test_env_t env[1];
   test_env_create( env, wksp, increase_cpi_account_info_limit, increase_tx_account_lock_limit );
 
   ulong initial_cu = env->vm->cu;

@@ -111,9 +111,12 @@ test_500_instr_accts( fd_svm_mini_t * mini ) {
   fd_pubkey_t fee_payer;
   init_test_env( mini, &bank, &xid, &fee_payer );
 
-  fd_txn_p_t   txn_p[1];
-  fd_txn_out_t txn_out[1];
-  fd_txn_in_t  txn_in[1];
+  static fd_txn_p_t   txn_p[1];
+  static fd_txn_out_t txn_out[1];
+  static fd_txn_in_t  txn_in[1];
+  fd_memset( txn_p, 0, sizeof(*txn_p) );
+  fd_memset( txn_out, 0, sizeof(*txn_out) );
+  fd_memset( txn_in, 0, sizeof(*txn_in) );
 
   bank->f.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( mini, bank, &xid, &fee_payer, txn_p, txn_out, txn_in, 500 );
@@ -130,9 +133,12 @@ test_1094_instr_accts( fd_svm_mini_t * mini ) {
   fd_pubkey_t fee_payer;
   init_test_env( mini, &bank, &xid, &fee_payer );
 
-  fd_txn_p_t   txn_p[1];
-  fd_txn_out_t txn_out[1];
-  fd_txn_in_t  txn_in[1];
+  static fd_txn_p_t   txn_p[1];
+  static fd_txn_out_t txn_out[1];
+  static fd_txn_in_t  txn_in[1];
+  fd_memset( txn_p, 0, sizeof(*txn_p) );
+  fd_memset( txn_out, 0, sizeof(*txn_out) );
+  fd_memset( txn_in, 0, sizeof(*txn_in) );
 
   bank->f.features.limit_instruction_accounts = FD_FEATURE_DISABLED;
   setup_txn( mini, bank, &xid, &fee_payer, txn_p, txn_out, txn_in, FD_INSTR_ACCT_MAX );
@@ -150,9 +156,12 @@ test_limit_instr_accts_at_limit( fd_svm_mini_t * mini ) {
   fd_pubkey_t fee_payer;
   init_test_env( mini, &bank, &xid, &fee_payer );
 
-  fd_txn_p_t   txn_p[1];
-  fd_txn_out_t txn_out[1];
-  fd_txn_in_t  txn_in[1];
+  static fd_txn_p_t   txn_p[1];
+  static fd_txn_out_t txn_out[1];
+  static fd_txn_in_t  txn_in[1];
+  fd_memset( txn_p, 0, sizeof(*txn_p) );
+  fd_memset( txn_out, 0, sizeof(*txn_out) );
+  fd_memset( txn_in, 0, sizeof(*txn_in) );
 
   bank->f.features.limit_instruction_accounts = 0UL;
   setup_txn( mini, bank, &xid, &fee_payer, txn_p, txn_out, txn_in, 255 );
@@ -168,9 +177,12 @@ test_limit_instr_accts_exceeded( fd_svm_mini_t * mini ) {
   fd_pubkey_t fee_payer;
   init_test_env( mini, &bank, &xid, &fee_payer );
 
-  fd_txn_p_t   txn_p[1];
-  fd_txn_out_t txn_out[1];
-  fd_txn_in_t  txn_in[1];
+  static fd_txn_p_t   txn_p[1];
+  static fd_txn_out_t txn_out[1];
+  static fd_txn_in_t  txn_in[1];
+  fd_memset( txn_p, 0, sizeof(*txn_p) );
+  fd_memset( txn_out, 0, sizeof(*txn_out) );
+  fd_memset( txn_in, 0, sizeof(*txn_in) );
 
   bank->f.features.limit_instruction_accounts = 0UL;
   setup_txn( mini, bank, &xid, &fee_payer, txn_p, txn_out, txn_in, 256 );
