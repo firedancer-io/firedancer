@@ -258,10 +258,10 @@ test_env_create( test_env_t * env,
   ulong const max_total_banks             = 4UL;
   ulong const max_fork_width              = 4UL;
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, joiner_cnt );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, joiner_cnt );
   env->accdb_shmem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), shmem_fp, env->tag );
   FD_TEST( env->accdb_shmem );
-  FD_TEST( fd_accdb_shmem_new( env->accdb_shmem, max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, partition_sz, cache_fp, seed, joiner_cnt ) );
+  FD_TEST( fd_accdb_shmem_new( env->accdb_shmem, max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, partition_sz, cache_fp, 640UL, seed, joiner_cnt ) );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join( env->accdb_shmem );
   FD_TEST( shmem );
 

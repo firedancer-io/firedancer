@@ -33,13 +33,17 @@
 #define FD_ACCDB_CACHE_CLASS_CNT    (8UL)
 #define FD_ACCDB_CACHE_META_SZ     (88UL)
 
-/* Minimum reserved slots per class.  Slots below this count are
-   never eligible for background pre-eviction, ensuring a worst-case
-   5-transaction bundle (128 accounts * 5 transactions * 2) can
-   always execute fully in-memory.  The factor of 2 covers programdata:
-   each account referenced in a transaction may pull in a corresponding
-   programdata account that must also be resident in cache. */
-#define FD_ACCDB_CACHE_MIN_RESERVED (1280UL)
+/* min_reserved is supplied at runtime by the caller (see
+   fd_accdb_cache_class_cnt and fd_accdb_shmem_new).  It is the minimum
+   number of slots reserved per class so a worst-case batch of
+   transactions can always execute fully in-memory.
+
+   Per transaction the worst case is 64 referenced accounts plus up to
+   63 programdata accounts (the fee payer cannot trigger a programdata
+   load), giving 64+63 = 127 slots.
+
+   Bundles enabled:  5 * (64+63) = 635  (worst case 5-transaction bundle)
+   Bundles disabled:     64+63   = 127  (worst case single transaction) */
 
 static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
   128UL+FD_ACCDB_CACHE_META_SZ,      /* class 0: 0-128 B     */
@@ -66,14 +70,15 @@ static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
    class_cnt is populated with the slot count for each class on return.
    The sum of class_cnt[c]*slot_sz[c] will not exceed cache_footprint.
 
-   Every class gets at least FD_ACCDB_CACHE_MIN_RESERVED entries,
-   guaranteeing a worst case 5-transaction bundle (128 accounts * 5
-   transactions, doubled to cover programdata for each account) can
-   execute fully in memory regardless of account size mix. Returns 0 if
-   the budget is too small for these minimums, or 1 on success.
+   Every class gets at least min_reserved entries, guaranteeing a
+   worst-case batch (64 accounts per transaction, doubled to cover
+   programdata for each account, multiplied by max simultaneous
+   transactions) can execute fully in memory regardless of account size
+   mix.  Returns 0 if the budget is too small for these minimums, or 1
+   on success.
 
    The algorithm:
-   1) Reserves FD_ACCDB_CACHE_MIN_RESERVED of each class off the top.
+   1) Reserves min_reserved of each class off the top.
    2) Reserves additional per-class minimums (at most 1% of remaining
       budget per class, clamped to [1, 1024] slots).
    3) Iteratively allocates remaining budget proportional to access
@@ -83,6 +88,7 @@ static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
 
 int
 fd_accdb_cache_class_cnt( ulong   cache_footprint,
+                          ulong   min_reserved,
                           ulong * class_cnt );
 
 ulong

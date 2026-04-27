@@ -45,6 +45,7 @@ snapshot_load_topo( config_t * config ) {
       8192UL,
       1UL<<35UL,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
+      config->tiles.bundle.enabled,
       1UL );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 

@@ -155,7 +155,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_store = {
 static ulong
 accdb_footprint( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_accdb_shmem_footprint( VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("cache_footprint"), VAL("joiner_cnt") );
+  return fd_accdb_shmem_footprint( VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("cache_footprint"), VAL("cache_min_reserved"), VAL("joiner_cnt") );
 }
 
 static ulong
@@ -167,7 +167,7 @@ accdb_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 accdb_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_accdb_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("partition_sz"), VAL("cache_footprint"), VAL("seed"), VAL("joiner_cnt") ) );
+  FD_TEST( fd_accdb_shmem_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_accounts"), VAL("max_live_slots"), VAL("max_account_writes_per_slot"), VAL("partition_cnt"), VAL("partition_sz"), VAL("cache_footprint"), VAL("cache_min_reserved"), VAL("seed"), VAL("joiner_cnt") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_accdb = {

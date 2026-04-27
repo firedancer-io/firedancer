@@ -76,10 +76,10 @@ static uchar dummy_owner[ 32 ] = { 0xEE };
 
 static uchar data_buf[ BENCH_MAX_DATA_SZ ];
 
-/* Cache footprint for benchmarks: must cover minimum
-   FD_ACCDB_CACHE_MIN_RESERVED slots per class (class 7 is 10 MiB
-   each). */
-#define BENCH_CACHE_FOOTPRINT (16UL<<30UL)
+/* Cache footprint for benchmarks: must cover BENCH_CACHE_MIN_RESERVED
+   slots per class (class 7 is 10 MiB each). */
+#define BENCH_CACHE_FOOTPRINT  (16UL<<30UL)
+#define BENCH_CACHE_MIN_RESERVED (640UL)
 
 static fd_accdb_t *
 bench_setup( int * out_fd,
@@ -93,14 +93,14 @@ bench_setup( int * out_fd,
   *out_fd = fd;
 
   ulong cache_fp = BENCH_CACHE_FOOTPRINT;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 1UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, BENCH_CACHE_MIN_RESERVED, 1UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, 42UL, 1UL ) );
+                          partition_sz, cache_fp, BENCH_CACHE_MIN_RESERVED, 42UL, 1UL ) );
   FD_TEST( shmem );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );

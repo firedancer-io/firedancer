@@ -48,6 +48,7 @@ setup_topo_accdb( fd_topo_t *  topo,
                   ulong        partition_cnt,
                   ulong        partition_sz,
                   ulong        cache_footprint,
+                  int          bundle_enabled,
                   ulong        joiner_cnt );
 
 fd_topo_obj_t *

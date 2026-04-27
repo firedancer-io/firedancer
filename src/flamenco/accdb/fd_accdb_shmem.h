@@ -62,6 +62,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
                           ulong max_account_writes_per_slot,
                           ulong partition_cnt,
                           ulong cache_footprint,
+                          ulong cache_min_reserved,
                           ulong joiner_cnt );
 
 void *
@@ -72,6 +73,7 @@ fd_accdb_shmem_new( void * shmem,
                     ulong  partition_cnt,
                     ulong  partition_sz,
                     ulong  cache_footprint,
+                    ulong  cache_min_reserved,
                     ulong  seed,
                     ulong  joiner_cnt );
 

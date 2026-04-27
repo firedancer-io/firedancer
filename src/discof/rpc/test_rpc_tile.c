@@ -128,10 +128,10 @@ main( int     argc,
 
   fd_topo_obj_t * accdb_shmem_obj = fd_topob_obj( topo, "accdb_shmem", "wksp" );
   ulong cache_fp = 1UL<<20UL;
-  ulong accdb_shmem_fp = fd_accdb_shmem_footprint( 1024UL, 16UL, 64UL, 8192UL, cache_fp, 1UL );
+  ulong accdb_shmem_fp = fd_accdb_shmem_footprint( 1024UL, 16UL, 64UL, 8192UL, cache_fp, 640UL, 1UL );
   void * accdb_shmem_mem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), accdb_shmem_fp, 1UL );
   FD_TEST( accdb_shmem_mem );
-  FD_TEST( fd_accdb_shmem_new( accdb_shmem_mem, 1024UL, 16UL, 64UL, 8192UL, 1UL<<20UL, cache_fp, 42UL, 1UL ) );
+  FD_TEST( fd_accdb_shmem_new( accdb_shmem_mem, 1024UL, 16UL, 64UL, 8192UL, 1UL<<20UL, cache_fp, 640UL, 42UL, 1UL ) );
   accdb_shmem_obj->wksp_id = topo_wksp->id;
   accdb_shmem_obj->offset  = fd_wksp_gaddr_fast( wksp, accdb_shmem_mem );
   fd_pod_insert_ulong( topo->props, "accdb", accdb_shmem_obj->id );

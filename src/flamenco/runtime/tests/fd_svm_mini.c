@@ -107,7 +107,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
-                                                    TEST_CACHE_FOOTPRINT, 1UL );
+                                                    TEST_CACHE_FOOTPRINT, 640UL, 1UL );
   ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
 
 # define WKSP_ALLOC(a,s) fd_ulong_align_up( fd_ulong_max((s),1UL), fd_ulong_max((a),FD_WKSP_ALIGN_DEFAULT) )
@@ -141,7 +141,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( limits->max_accounts, limits->max_live_slots,
                                                     TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
-                                                    TEST_CACHE_FOOTPRINT, 1UL );
+                                                    TEST_CACHE_FOOTPRINT, 640UL, 1UL );
   ulong accdb_join_sz  = fd_accdb_footprint( limits->max_live_slots );
 
   /* Allocate objects */
@@ -168,7 +168,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( accdb_shmem, limits->max_accounts, limits->max_live_slots,
                           TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
-                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 42UL, 1UL ) );
+                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 640UL, 42UL, 1UL ) );
   FD_TEST( shmem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd ) );
   FD_TEST( accdb );
@@ -416,7 +416,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( mini->accdb_shmem_mem, mini->accdb_max_accounts, mini->accdb_max_live_slots,
                           TEST_WRITES_PER_SLOT, TEST_PARTITION_CNT,
-                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 42UL, 1UL ) );
+                          TEST_PARTITION_SZ, TEST_CACHE_FOOTPRINT, 640UL, 42UL, 1UL ) );
   FD_TEST( shmem );
 
   /* Re-truncate memfd */

@@ -24,8 +24,7 @@ static uchar owner3[ 32UL ] = { 3, 0 };
 #define META_SZ (36UL)
 
 /* Cache footprint for tests: must be large enough to cover the
-   minimum FD_ACCDB_CACHE_MIN_RESERVED slots per class
-   (class 7 is 10 MiB each). */
+   per-class minimum reserved slots (class 7 is 10 MiB each). */
 #define TEST_CACHE_FOOTPRINT (16UL<<30UL)
 
 static fd_accdb_t *
@@ -40,14 +39,14 @@ test_setup( int * out_fd,
   *out_fd = fd;
 
   ulong cache_fp = TEST_CACHE_FOOTPRINT;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 1UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, 1UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, 42UL, 1UL ) );
+                          partition_sz, cache_fp, 640UL, 42UL, 1UL ) );
   FD_TEST( shmem );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
@@ -781,7 +780,7 @@ test_mainnet_footprint( void ) {
 
   FD_TEST( max_account_writes_per_slot==321280UL );
 
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 1UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_footprint, 640UL, 1UL );
   FD_TEST( shmem_fp );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
@@ -792,7 +791,7 @@ test_mainnet_footprint( void ) {
   ulong chain_cnt = fd_ulong_pow2_up( (max_accounts>>1) + (max_accounts&1UL) );
 
   ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
-  FD_TEST( fd_accdb_cache_class_cnt( cache_footprint, cache_class_max ) );
+  FD_TEST( fd_accdb_cache_class_cnt( cache_footprint, 640UL, cache_class_max ) );
 
   ulong total_cache_slots = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) total_cache_slots += cache_class_max[c];
@@ -886,7 +885,7 @@ test_mainnet_footprint( void ) {
   FD_LOG_NOTICE(( "background eviction watermarks:" ));
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     ulong max_c    = cache_class_max[ c ];
-    ulong floor_c  = fd_ulong_min( FD_ACCDB_CACHE_MIN_RESERVED, max_c );
+    ulong floor_c  = fd_ulong_min( 640UL, max_c );
     ulong headroom = ( max_c>floor_c ) ? ( max_c - floor_c ) : 0UL;
     ulong cap      = fd_ulong_min( 8192UL, (64UL<<20) / fd_accdb_cache_slot_sz[ c ] );
     ulong target   = fd_ulong_min( headroom/20UL, cap );

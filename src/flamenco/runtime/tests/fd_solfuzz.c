@@ -93,7 +93,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   ulong accdb_shmem_sz = fd_accdb_shmem_footprint( max_accounts, max_live_slots,
                                                     writes_per_slot, partition_cnt,
-                                                    cache_footprint, 1UL );
+                                                    cache_footprint, 640UL, 1UL );
   ulong accdb_join_sz  = fd_accdb_footprint( max_live_slots );
 
   fd_solfuzz_runner_t * runner       = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),                                 wksp_tag );
@@ -123,7 +123,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( accdb_shmem, max_accounts, max_live_slots,
                           writes_per_slot, partition_cnt,
-                          partition_sz, cache_footprint, 42UL, 1UL ) );
+                          partition_sz, cache_footprint, 640UL, 42UL, 1UL ) );
   if( FD_UNLIKELY( !shmem ) ) goto bail1;
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_join, shmem, accdb_fd ) );
   if( FD_UNLIKELY( !accdb ) ) goto bail1;

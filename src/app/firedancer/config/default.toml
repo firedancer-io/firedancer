@@ -534,7 +534,7 @@ telemetry = true
 
     # Keep frequently accessed accounts in memory to improve
     # performance.
-    cache_size_gib = 14
+    cache_size_gib = 2
 
 [runtime]
     # max_live_slots and max_fork_width are parameters used to size

@@ -5,6 +5,7 @@
 
 int
 fd_accdb_cache_class_cnt( ulong   cache_footprint,
+                          ulong   min_reserved,
                           ulong * class_cnt ) {
   /* Estimated max account population per class on mainnet.  Based on a
      full mainnet snapshot (1.118B accounts, 363.7 GiB, slot 393863972)
@@ -44,10 +45,10 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      headroom so allocations cover the typical hot set without wasting
      budget on classes whose live working set is tiny.
 
-     These are floors used by Phase 2: each class gets at least
-     ws_target[c] - FD_ACCDB_CACHE_MIN_RESERVED additional slots above
-     the Phase 1 base reservation, before density-based distribution.
-     Phase 3 then distributes any remaining budget by density. */
+     These are floors used by Phase 2: each class is topped up to
+     ws_target[c] above the Phase 1 base reservation, before
+     density-based distribution.  Phase 3 then distributes any remaining
+     budget by density. */
 
   static const ulong ws_target[ FD_ACCDB_CACHE_CLASS_CNT ] = {
     16384UL,  /* class 0: p99 ~13.4K, ample headroom (small slots) */
@@ -60,14 +61,14 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
       256UL,  /* class 7: p99   ~179; staging covered by MIN_RESERVED */
   };
 
-  ulong minimum_cost = FD_ACCDB_CACHE_MIN_RESERVED * ( fd_accdb_cache_slot_sz[ 0UL ] +
-                                                       fd_accdb_cache_slot_sz[ 1UL ] +
-                                                       fd_accdb_cache_slot_sz[ 2UL ] +
-                                                       fd_accdb_cache_slot_sz[ 3UL ] +
-                                                       fd_accdb_cache_slot_sz[ 4UL ] +
-                                                       fd_accdb_cache_slot_sz[ 5UL ] +
-                                                       fd_accdb_cache_slot_sz[ 6UL ] +
-                                                       fd_accdb_cache_slot_sz[ 7UL ] );
+  ulong minimum_cost = min_reserved * ( fd_accdb_cache_slot_sz[ 0UL ] +
+                                        fd_accdb_cache_slot_sz[ 1UL ] +
+                                        fd_accdb_cache_slot_sz[ 2UL ] +
+                                        fd_accdb_cache_slot_sz[ 3UL ] +
+                                        fd_accdb_cache_slot_sz[ 4UL ] +
+                                        fd_accdb_cache_slot_sz[ 5UL ] +
+                                        fd_accdb_cache_slot_sz[ 6UL ] +
+                                        fd_accdb_cache_slot_sz[ 7UL ] );
 
   if( FD_UNLIKELY( cache_footprint<minimum_cost ) ) {
     /* Budget too small to meet minimum requirement.  Return 0 to
@@ -78,26 +79,27 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
     return 0;
   }
 
-  /* Phase 1: Reserve FD_ACCDB_CACHE_MIN_RESERVED of each class off
-     the top.  This guarantees worst-case 5-transaction bundles
-     (128 accounts per transaction) can execute fully in memory.
-     Each referenced account reserves one slot in its own class plus
-     one slot for its programdata account, which may land in any
-     class.  Worst case all referenced accounts and all programdata
-     accounts land in the same class. */
+  /* Phase 1: Reserve min_reserved of each class off the top.  This
+     guarantees the worst-case batch (64 accounts per transaction,
+     doubled to cover programdata, multiplied by max simultaneous
+     transactions) can execute fully in memory.  Each referenced account
+     reserves one slot in its own class plus one slot for its
+     programdata account, which may land in any class.  Worst case all
+     referenced accounts and all programdata accounts land in the same
+     class. */
 
   ulong remaining = cache_footprint;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    class_cnt[c] = FD_ACCDB_CACHE_MIN_RESERVED;
-    remaining   -= FD_ACCDB_CACHE_MIN_RESERVED * fd_accdb_cache_slot_sz[c];
+    class_cnt[c] = min_reserved;
+    remaining   -= min_reserved * fd_accdb_cache_slot_sz[c];
   }
 
   /* Phase 2: Reserve up to ws_target[c] slots per class as a floor.
-     Phase 1 already gave each class FD_ACCDB_CACHE_MIN_RESERVED slots;
-     here we top up to ws_target[c] (or as much as remaining budget
-     allows).  This keeps tiny working sets (128K/1M/10M classes) from
-     being over-allocated and frees budget for hotter classes (8K, 2K)
-     in Phase 3. */
+     Phase 1 already gave each class min_reserved slots; here we top up
+     to ws_target[c] (or as much as remaining budget allows).  This
+     keeps tiny working sets (128K/1M/10M classes) from being
+     over-allocated and frees budget for hotter classes (8K, 2K) in
+     Phase 3. */
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     if( ws_target[c]<=class_cnt[c] ) continue;

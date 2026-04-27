@@ -59,11 +59,13 @@ fd_accdb_shmem_footprint( ulong max_accounts,
                           ulong max_account_writes_per_slot,
                           ulong partition_cnt,
                           ulong cache_footprint,
+                          ulong cache_min_reserved,
                           ulong joiner_cnt ) {
   if( FD_UNLIKELY( !max_accounts    ) ) return 0UL;
   if( FD_UNLIKELY( !max_live_slots  ) ) return 0UL;
   if( FD_UNLIKELY( !max_account_writes_per_slot) ) return 0UL;
   if( FD_UNLIKELY( !partition_cnt   ) ) return 0UL;
+  if( FD_UNLIKELY( !cache_min_reserved ) ) return 0UL;
   /* Partition indices are packed into 13 bits of accdb_offset_t
      (bits 63..51).  8192 partitions use indices 0..8191 which
      fit.  The ULONG_MAX dirty sentinel remains distinguishable
@@ -90,7 +92,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
 
   if( FD_UNLIKELY( !cache_footprint ) ) return 0UL;
   ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
-  if( FD_UNLIKELY( !fd_accdb_cache_class_cnt( cache_footprint, cache_class_max ) ) ) return 0UL;
+  if( FD_UNLIKELY( !fd_accdb_cache_class_cnt( cache_footprint, cache_min_reserved, cache_class_max ) ) ) return 0UL;
 
   ulong l;
   l = FD_LAYOUT_INIT;
@@ -122,6 +124,7 @@ fd_accdb_shmem_new( void * shmem,
                     ulong  partition_cnt,
                     ulong  partition_sz,
                     ulong  cache_footprint,
+                    ulong  cache_min_reserved,
                     ulong  seed,
                     ulong  joiner_cnt ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -246,8 +249,13 @@ fd_accdb_shmem_new( void * shmem,
     return NULL;
   }
   
+  if( FD_UNLIKELY( !cache_min_reserved ) ) {
+    FD_LOG_WARNING(( "cache_min_reserved must be non-zero" ));
+    return NULL;
+  }
+
   ulong cache_class_max[ FD_ACCDB_CACHE_CLASS_CNT ];
-  if( FD_UNLIKELY( !fd_accdb_cache_class_cnt( cache_footprint, cache_class_max ) ) ) {
+  if( FD_UNLIKELY( !fd_accdb_cache_class_cnt( cache_footprint, cache_min_reserved, cache_class_max ) ) ) {
     FD_LOG_WARNING(( "invalid cache_footprint" ));
     return NULL;
   }
@@ -322,7 +330,7 @@ fd_accdb_shmem_new( void * shmem,
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     ulong max_c       = cache_class_max[ c ];
-    ulong floor_c     = fd_ulong_min( FD_ACCDB_CACHE_MIN_RESERVED, max_c );
+    ulong floor_c     = fd_ulong_min( cache_min_reserved, max_c );
     ulong headroom    = ( max_c>floor_c ) ? ( max_c - floor_c ) : 0UL;
     ulong cap         = fd_ulong_min( 8192UL, (64UL<<20) / fd_accdb_cache_slot_sz[ c ] );
     ulong burst_floor = fd_ulong_min( 512UL, headroom/2UL );
@@ -366,12 +374,12 @@ fd_accdb_shmem_new( void * shmem,
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_region_off[ c ] = (ulong)_cache_regions[ c ] - (ulong)shmem;
 
   /* If a class has enough slots for every joiner's worst case
-     simultaneously (FD_ACCDB_CACHE_MIN_RESERVED per joiner), no
-     reservation can ever overflow.  Sentinel ULONG_MAX tells
-     acquire/release to skip the atomic counters entirely. */
+     simultaneously (cache_min_reserved per joiner), no reservation can
+     ever overflow.  Sentinel ULONG_MAX tells acquire/release to skip
+     the atomic counters entirely. */
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    if( cache_class_max[ c ]>=FD_ACCDB_CACHE_MIN_RESERVED*joiner_cnt ) accdb->cache_class_used[ c ].val = ULONG_MAX;
-    else                                                               accdb->cache_class_used[ c ].val = 0UL;
+    if( cache_class_max[ c ]>=cache_min_reserved*joiner_cnt ) accdb->cache_class_used[ c ].val = ULONG_MAX;
+    else                                                      accdb->cache_class_used[ c ].val = 0UL;
   }
 
   memset( accdb->shmetrics, 0, sizeof( fd_accdb_shmem_metrics_t ) );

@@ -139,20 +139,31 @@ setup_topo_accdb( fd_topo_t *  topo,
                   ulong        partition_cnt,
                   ulong        partition_sz,
                   ulong        cache_footprint,
+                  int          bundle_enabled,
                   ulong        joiner_cnt ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "accdb", wksp_name );
 
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
 
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_accounts,    "obj.%lu.max_accounts",     obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,  "obj.%lu.max_live_slots",   obj->id ) );
+  /* Per transaction: up to 64 referenced accounts, plus up to 63
+     programdata loads (the fee payer cannot trigger a programdata
+     load), so 64+63 = 127 slots worst case.  Bundles enabled: 5
+     transactions => 5*127 = 635 slots.  Bundles disabled: 1
+     transaction => 127 slots.  Note: the topology forces
+     tiles.bundle.enabled=0 when block production is disabled, so the
+     caller's check on tiles.bundle.enabled covers both gates. */
+  ulong cache_min_reserved = bundle_enabled ? (5UL*(64UL+63UL)) : (64UL+63UL);
+
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_accounts,       "obj.%lu.max_accounts",       obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,     "obj.%lu.max_live_slots",     obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_account_writes_per_slot, "obj.%lu.max_account_writes_per_slot", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, partition_cnt,   "obj.%lu.partition_cnt",    obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, partition_sz,    "obj.%lu.partition_sz",     obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, cache_footprint, "obj.%lu.cache_footprint",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, joiner_cnt,      "obj.%lu.joiner_cnt",       obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,            "obj.%lu.seed",             obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, partition_cnt,      "obj.%lu.partition_cnt",      obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, partition_sz,       "obj.%lu.partition_sz",       obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, cache_footprint,    "obj.%lu.cache_footprint",    obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, cache_min_reserved, "obj.%lu.cache_min_reserved", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, joiner_cnt,         "obj.%lu.joiner_cnt",         obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, seed,               "obj.%lu.seed",               obj->id ) );
 
   return obj;
 }
@@ -1056,6 +1067,7 @@ fd_topo_initialize( config_t * config ) {
       8192UL,
       1UL<<35UL,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
+      config->tiles.bundle.enabled,
       accdb_joiners );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "accdb", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
