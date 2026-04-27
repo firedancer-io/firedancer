@@ -774,7 +774,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
     fd_account_meta_t const * meta = NULL;
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       int is_found = 0;
-      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
+      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
           if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {

@@ -829,43 +829,63 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
-  fd_accdb_ro_t ro[1];
+
+  /* Lookup the nonce account in the database OR load it from a previous
+     transaction if a bundle is being processed. */
+  fd_account_meta_t const * nonce_meta = NULL;
+  int is_found = 0;
+  if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
+    for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
+      fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
+      for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
+        if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], &txn_out->accounts.keys[ nonce_idx ] ) && prev_txn_out->accounts.is_writable[j] ) {
+          is_found = 1;
+          nonce_meta = prev_txn_out->accounts.account[j].meta;
+          break;
+        }
+      }
+    }
+  }
+
   fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
-  if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, ro, &xid, &txn_out->accounts.keys[ nonce_idx ] ) ) ) {
-    return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
+  fd_accdb_ro_t ro[1];
+  if( FD_LIKELY( !is_found ) ) {
+    if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, ro, &xid, &txn_out->accounts.keys[ nonce_idx ] ) ) ) {
+      return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
+    }
+    nonce_meta = ro->meta;
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
-  fd_pubkey_t const * owner_pubkey = fd_accdb_ref_owner( ro );
+  fd_pubkey_t const * owner_pubkey = fd_type_pun_const( nonce_meta->owner );
   if( FD_UNLIKELY( !fd_pubkey_eq( owner_pubkey, &fd_solana_system_program_id ) ) ) {
-    fd_accdb_close_ro( runtime->accdb, ro );
+    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   fd_nonce_state_versions_t state[1];
-  if( FD_UNLIKELY( fd_nonce_state_versions_decode(
-      state,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) ) ) ) {
-    fd_accdb_close_ro( runtime->accdb, ro );
+  if( FD_UNLIKELY( fd_nonce_state_versions_decode( state, fd_account_data( nonce_meta ), nonce_meta->dlen ) ) ) {
+    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
-  fd_accdb_close_ro( runtime->accdb, ro );
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
   /* verify_recent_blockhash. This checks that the decoded nonce record is
      not a legacy nonce nor uninitialized. If this is the case, then we can
      verify by comparing the decoded durable nonce to the recent blockhash */
   if( FD_UNLIKELY( state->version != FD_NONCE_VERSION_CURRENT ) ) {
+    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   if( FD_UNLIKELY( state->kind != FD_NONCE_STATE_INITIALIZED ) ) {
+    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   if( FD_UNLIKELY( memcmp( &state->durable_nonce, recent_blockhash, sizeof(fd_hash_t) ) ) ) {
+    if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE;
   }
 
@@ -880,14 +900,6 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
            successfully.
          */
         txn_out->accounts.nonce_idx_in_txn = instr_accts[ 0 ];
-        /*
-           Now figure out the state that the nonce account should
-           advance to.
-         */
-        fd_accdb_ro_t nonce_ro[1];
-        if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, nonce_ro, &xid, &txn_out->accounts.keys[ instr_accts[ 0UL ] ] ) ) ) {
-          return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
-        }
 
         fd_blockhashes_t const *    blockhashes     = &bank->f.block_hash_queue;
         fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
@@ -911,16 +923,16 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
         }
         fd_memcpy( borrowed_account_data,
-                   nonce_ro->meta,
+                   nonce_meta,
                    sizeof(fd_account_meta_t) );
         fd_memcpy( borrowed_account_data+sizeof(fd_account_meta_t),
-                   fd_accdb_ref_data_const( nonce_ro ),
-                   fd_accdb_ref_data_sz   ( nonce_ro ) );
+                   fd_account_data( nonce_meta ),
+                   nonce_meta->dlen );
 
         txn_out->accounts.rollback_nonce = (fd_account_meta_t *)borrowed_account_data;
-        fd_accdb_close_ro( runtime->accdb, nonce_ro );
 
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>txn_out->accounts.rollback_nonce->dlen ) ) {
+          if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
         ulong written = 0UL;
@@ -928,13 +940,16 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
                                                          fd_account_data( txn_out->accounts.rollback_nonce ),
                                                          txn_out->accounts.rollback_nonce->dlen,
                                                          &written ) ) ) {
+          if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
+        if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
         return FD_RUNTIME_EXECUTE_SUCCESS;
       }
     }
   }
   /* This means that the blockhash was not found */
+  if( FD_LIKELY( !is_found ) ) fd_accdb_close_ro( runtime->accdb, ro );
   return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
 
 }
