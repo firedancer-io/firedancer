@@ -613,13 +613,13 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   return child_bank;
 }
 
-/* fd_bank_stake_delegation_apply_deltas applies all of the stake
-   delegations for the entire direct ancestry from the bank to the
-   root into a full fd_stake_delegations_t object. */
+/* fd_bank_stake_delegation_apply_delta applies the stake
+   delegations from the new root bank to the root into a full
+   fd_stake_delegations_t object.  Also apply any new votes if needed. */
 
 static inline void
-fd_bank_apply_deltas( fd_banks_t * banks,
-                      fd_bank_t *  bank ) {
+fd_bank_apply_delta( fd_banks_t * banks,
+                     fd_bank_t *  bank ) {
 
   fd_stake_delegations_t * stake_delegations = fd_banks_get_stake_delegations( banks );
   fd_new_votes_t *         new_votes         = fd_banks_get_new_votes( banks );
@@ -757,7 +757,7 @@ fd_banks_advance_root( fd_banks_t * banks,
 
   FD_TEST( new_root->parent_idx==old_root->idx );
 
-  fd_bank_apply_deltas( banks, new_root );
+  fd_bank_apply_delta( banks, new_root );
 
   fd_new_votes_t * new_votes = fd_banks_get_new_votes( banks );
   fd_new_votes_evict_fork( new_votes, new_root->new_votes_fork_id );
