@@ -35,7 +35,7 @@ main( int     argc,
   test_sysvar_last_restart_slot();
   test_sysvar_recent_hashes( wksp );
   test_sysvar_rent();
-  test_sysvar_slot_hashes();
+  test_sysvar_slot_hashes( wksp );
   test_sysvar_slot_history( wksp );
   test_sysvar_stake_history( wksp );
 
