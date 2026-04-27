@@ -502,7 +502,8 @@ fd_poh_begin_leader( fd_poh_t * poh,
                      ulong      hashcnt_per_tick,
                      ulong      ticks_per_slot,
                      ulong      tick_duration_ns,
-                     ulong      max_microblocks_in_slot );
+                     ulong      max_microblocks_in_slot,
+                     long       slot_start_ns );
 
 void
 fd_poh_done_packing( fd_poh_t * poh,
