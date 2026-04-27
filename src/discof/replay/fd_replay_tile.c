@@ -967,7 +967,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
   FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
 
   /* Update the poh hash in the bank.  We will want to maintain a refcnt
-     on the bank until we have recieved the block id for the block after
+     on the bank until we have received the block id for the block after
      it has been shredded. */
 
   memcpy( &ctx->leader_bank->f.poh, slot_ended->blockhash, sizeof(fd_hash_t) );
