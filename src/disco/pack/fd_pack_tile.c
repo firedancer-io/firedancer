@@ -151,10 +151,9 @@ typedef struct {
 
   fd_became_leader_t _became_leader[1];
 
-  /* The number of microblocks we have packed for the current leader
-     slot.  Will always be <= slot_max_microblocks.  We must track
-     this so that when we are done we can tell the PoH tile how many
-     microblocks to expect in the slot. */
+  /* The net number of microblocks packed for the current leader slot
+     (incremented on schedule, decremented on microblock rebate).
+     Used for the dynamic microblock cap and end-of-slot detection. */
   ulong slot_microblock_cnt;
 
   /* Counter which increments when we've finished packing for a slot */
@@ -414,7 +413,7 @@ log_end_block_metrics( fd_pack_ctx_t * ctx,
 
 static inline void
 get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int reason ) {
-    done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
+    done_packing->max_pack_idx = ctx->pack_idx;
     done_packing->end_slot_reason = reason;
     fd_pack_get_block_limits( ctx->pack, done_packing->limits_usage, done_packing->limits );
 
@@ -843,7 +842,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
       trailer->bank_idx = ctx->leader_bank_idx;
-      trailer->microblock_idx = ctx->slot_microblock_cnt;
+      trailer->microblock_idx = ctx->pack_idx;
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
       trailer->is_bundle = !!(microblock_dst->txnp->flags & FD_TXN_P_FLAGS_BUNDLE);
@@ -1202,6 +1201,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     /* For a previous slot */
     if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
 
+    ctx->slot_microblock_cnt -= ctx->rebate->rebate->microblock_cnt_rebate;
     fd_pack_rebate_cus( ctx->pack, ctx->rebate->rebate );
     ctx->pending_rebate_sz = 0UL;
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );

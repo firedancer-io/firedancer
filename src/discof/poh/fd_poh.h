@@ -320,18 +320,8 @@
 #define FD_POH_MAGIC (0xF17EDA2CE580A000) /* FIREDANCE POH V0 */
 
 /* The maximum number of microblocks that pack is allowed to pack into a
-   single slot.  This is not consensus critical, and pack could, if we
-   let it, produce as many microblocks as it wants, and the slot would
-   still be valid.
-
-   We have this here instead so that PoH can estimate slot completion,
-   and keep the hashcnt up to date as pack progresses through packing
-   the slot.  If this upper bound was not enforced, PoH could tick to
-   the last hash of the slot and have no hashes left to mixin incoming
-   microblocks from pack, so this upper bound is a coordination
-   mechanism so that PoH can progress hashcnts while the slot is active,
-   and know that pack will not need those hashcnts later to do mixins. */
-#define MAX_MICROBLOCKS_PER_SLOT (131072UL)
+   single slot  */
+#define MAX_MICROBLOCKS_PER_SLOT FD_MAX_TXN_PER_SLOT_CU
 
 /* When we are hashing in the background in case a prior leader skips
    their slot, we need to store the result of each tick hash so we can
@@ -424,9 +414,13 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
      mixin whatever future microblocks pack might produce for it.
 
      This value tracks that.  At any time, max_microblocks_per_slot
-     - microblocks_lower_bound is an upper bound on the maximum number
-     of microblocks that might still be received in this slot. */
-  ulong microblocks_lower_bound;
+     - microblocks_mixed_in is an upper bound on the maximum number
+     of microblocks that might still be received in this slot.
+
+     Only microblocks with at least one successfully executed
+     transaction count toward this limit.  Empty microblocks (failed
+     bundles, unincludable non-bundles) are not counted. */
+  ulong microblocks_mixed_in;
 
   uchar __attribute__((aligned(32UL))) reset_hash[ 32 ];
   uchar __attribute__((aligned(32UL))) hash[ 32 ];
@@ -505,8 +499,7 @@ fd_poh_begin_leader( fd_poh_t * poh,
                      ulong      max_microblocks_in_slot );
 
 void
-fd_poh_done_packing( fd_poh_t * poh,
-                     ulong      microblocks_in_slot );
+fd_poh_done_packing( fd_poh_t * poh );
 
 void
 fd_poh_advance( fd_poh_t *          poh,
