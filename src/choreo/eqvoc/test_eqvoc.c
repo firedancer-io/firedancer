@@ -639,7 +639,9 @@ test_voter_removal( void ) {
 }
 
 int
-main( void ) {
+main( int     argc,
+      char ** argv ) {
+  fd_boot( &argc, &argv );
 
   test_proof( id,       id,       FD_EQVOC_SUCCESS,         0 /* don't skip shred insert */ );
   test_proof( pay1,     pay2,     FD_EQVOC_SUCCESS_MERKLE,  0 /* don't skip shred insert */ );
@@ -692,5 +694,7 @@ main( void ) {
     teardown( eqvoc );
   }
 
+  FD_LOG_NOTICE(( "pass" ));
+  fd_halt();
   return 0;
 }
