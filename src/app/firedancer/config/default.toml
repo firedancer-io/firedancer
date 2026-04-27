@@ -924,6 +924,12 @@ telemetry = true
     # when vinyl is enabled.
     snapwr_tile_count = 2
 
+    # How many snapshot compressor tiles to run.
+    # Snapshot creation related tiles do not consume CPU while idle.
+    # If set to 0, snapshot creation and all associated tiles are
+    # disabled.
+    snapzp_tile_count = 0
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a

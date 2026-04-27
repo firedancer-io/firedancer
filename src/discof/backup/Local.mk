@@ -1,0 +1,5 @@
+$(call add-objs,fd_snapmk_tile,fd_discof)
+$(call add-objs,fd_snapzp_tile,fd_discof)
+$(call add-hdrs,fd_funk_scan.h)
+$(call add-objs,fd_funk_scan,fd_discof)
+$(call add-objs,fd_ssmanifest_writer,fd_discof)

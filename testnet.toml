@@ -1,0 +1,25 @@
+[paths]
+    accounts  = "/data/r/accounts/accounts.vinyl"
+    snapshots = "/data/r/testnet/snapshots"
+[layout]
+    snapzp_tile_count = 31
+    execrp_tile_count = 3
+    gossvf_tile_count = 1
+    verify_tile_count = 1
+[accounts]
+    in_memory_only = true
+    max_accounts = 100_000_000
+[tiles.gui]
+    enabled = false
+[runtime]
+    max_live_slots = 128
+[hugetlbfs]
+    max_page_size = "huge"
+[development.snapshots]
+    disable_lthash_verification = true
+[snapshots]
+    incremental_snapshots = false
+    [snapshots.sources]
+        max_local_full_effective_age = 1000000
+    [snapshots.sources.gossip]
+        allow_any = true

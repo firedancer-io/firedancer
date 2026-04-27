@@ -135,6 +135,8 @@ extern fd_topo_run_tile_t fd_tile_snapla;
 extern fd_topo_run_tile_t fd_tile_snapls;
 extern fd_topo_run_tile_t fd_tile_snaplh;
 extern fd_topo_run_tile_t fd_tile_snaplv;
+extern fd_topo_run_tile_t fd_tile_snapmk;
+extern fd_topo_run_tile_t fd_tile_snapzp;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -187,6 +189,8 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapls,
   &fd_tile_snaplh,
   &fd_tile_snaplv,
+  &fd_tile_snapmk,
+  &fd_tile_snapzp,
 # if FD_HAS_BZIP2
   &fd_tile_genesi,
 # endif
@@ -233,9 +237,10 @@ extern action_t fd_action_gossip_dump;
 extern action_t fd_action_monitor_gossip;
 extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
-#if FD_HAS_ROCKSDB
 extern action_t fd_action_forktest;
-#endif
+extern action_t fd_action_snapshot_create;
+extern action_t fd_action_pid;
+extern action_t fd_action_tid;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -275,9 +280,10 @@ action_t * ACTIONS[] = {
   &fd_action_monitor_gossip,
   &fd_action_watch,
   &fd_action_add_authorized_voter,
-#if FD_HAS_ROCKSDB
   &fd_action_forktest,
-#endif
+  &fd_action_snapshot_create,
+  &fd_action_pid,
+  &fd_action_tid,
   NULL,
 };
 

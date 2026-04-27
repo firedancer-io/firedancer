@@ -1199,6 +1199,22 @@ metric introduced.
     <gauge name="IncrementalDuplicateAccountsHashed" summary="Number of duplicate accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
+<tile name="snapmk">
+    <gauge name="Active" summary="State of the tile. 0=IDLE 1=ACTIVE" />
+    <counter name="AccountsCompressed" summary="Number of accounts processed" />
+    <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
+    <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
+    <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing" />
+</tile>
+
+<tile name="snapzp">
+    <counter name="AccountsCompressed" summary="Number of accounts processed" />
+    <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
+    <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
+    <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
+    <counter name="CompressDurationSeconds" converter="seconds" summary="Cumulative time spent compressing accounts" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 

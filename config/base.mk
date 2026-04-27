@@ -2,7 +2,7 @@ BASEDIR?=build
 
 OPT?=opt
 SHELL:=bash
-CPPFLAGS:=-isystem ./$(OPT)/include
+CPPFLAGS:=-isystem ./$(OPT)/include -fno-omit-frame-pointer
 RUSTFLAGS:=-C force-frame-pointers=yes
 CFLAGS=-std=c17 -fwrapv
 CXXFLAGS=-std=c++17

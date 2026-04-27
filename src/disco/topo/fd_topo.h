@@ -685,6 +685,14 @@ struct fd_topo_tile {
     struct {
       ulong accdb_max_depth;
     } resolv;
+
+    struct {
+      ulong zp_fseq_id;
+    } snapzp;
+
+    struct {
+      ulong zp_fseq_id;
+    } snapmk;
   };
 };
 
@@ -917,6 +925,29 @@ fd_topo_link_reliable_consumer_cnt( fd_topo_t const *      topo,
   }
 
   return cnt;
+}
+
+/* Given a link, find each reliable consumer's fseq object */
+
+static inline ulong
+fd_topo_find_reliable_consumers( fd_topo_t const *      topo,
+                                 fd_topo_link_t const * link,
+                                 ulong **               fseq,
+                                 ulong                  fseq_max ) {
+  ulong fseq_idx = 0UL;
+  for( ulong tile_idx=0UL; tile_idx < topo->tile_cnt; tile_idx++ ) {
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ tile_idx ];
+    for( ulong in_idx=0UL; in_idx < consumer_tile->in_cnt; in_idx++ ) {
+      if( consumer_tile->in_link_id[ in_idx ]==link->id &&
+          consumer_tile->in_link_reliable[ in_idx ] ) {
+        if( FD_UNLIKELY( fseq_idx >= fseq_max ) ) {
+          FD_LOG_ERR(( "Too many reliable consumers for link (id=%lu), increase fseq_max", link->id ));
+        }
+        fseq[ fseq_idx++ ] = consumer_tile->in_link_fseq[ in_idx ];
+      }
+    }
+  }
+  return fseq_idx;
 }
 
 FD_FN_PURE static inline ulong

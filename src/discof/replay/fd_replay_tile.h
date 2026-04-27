@@ -70,7 +70,6 @@
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
-#include "../reasm/fd_reasm.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
@@ -82,6 +81,7 @@
 #define REPLAY_SIG_TXN_EXECUTED   (6)
 #define REPLAY_SIG_REASM_EVICTED  (7)
 #define REPLAY_SIG_WFS_DONE       (8)
+#define REPLAY_SIG_SNAP_CREATE    (9)
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first
@@ -196,6 +196,10 @@ struct fd_replay_fec_evicted {
 };
 typedef struct fd_replay_fec_evicted fd_replay_fec_evicted_t;
 
+struct fd_replay_snap_create {
+  ulong bank_idx;
+};
+typedef struct fd_replay_snap_create fd_replay_snap_create_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t  slot_completed;
@@ -204,9 +208,26 @@ union fd_replay_message {
   fd_poh_reset_t              reset;
   fd_became_leader_t          became_leader;
   fd_replay_txn_executed_t    txn_executed;
-  fd_replay_fec_evicted_t          reasm_evicted;
+  fd_replay_fec_evicted_t     reasm_evicted;
+  fd_replay_snap_create_t     snap_create;
 };
 
 typedef union fd_replay_message fd_replay_message_t;
+
+/* admin cmd discriminators, stored in frag_meta.ctl.orig */
+#define REPLAY_ADMIN_CMD_SNAP_CREATE 1
+
+/* admin rsp err discriminators, stored in frag_meta.sig */
+#define REPLAY_ADMIN_SUCCESS         0
+#define REPLAY_ADMIN_ERR_BUSY        1
+#define REPLAY_ADMIN_ERR_UNSUPPORTED 2
+#define REPLAY_ADMIN_ERR_NOT_READY   3
+
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST char const *
+fd_replay_admin_strerror( ulong err );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discof_replay_fd_replay_tile_h */

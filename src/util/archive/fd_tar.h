@@ -21,7 +21,8 @@
 
 #define FD_TAR_BLOCK_SZ (512UL)
 
-struct __attribute__((packed)) fd_tar_meta {
+union __attribute__((packed)) fd_tar_meta {
+  struct __attribute__((packed)) {
 # define FD_TAR_NAME_SZ 100
 # define FD_TAR_SIZE_SZ 12
   /* 0x000 */ char name    [ FD_TAR_NAME_SZ ];
@@ -42,9 +43,11 @@ struct __attribute__((packed)) fd_tar_meta {
   /* 0x151 */ char devminor[   8 ];
   /* 0x159 */ char prefix  [ 155 ];
   /* 0x1f4 */ char padding [  12 ];
+  };
+  uchar raw[  FD_TAR_BLOCK_SZ ];
 };
 
-typedef struct fd_tar_meta fd_tar_meta_t;
+typedef union fd_tar_meta fd_tar_meta_t;
 
 /* FD_TAR_MAGIC is the only value of fd_tar_meta::magic supported by
    fd_tar. */
@@ -136,6 +139,13 @@ fd_tar_meta_set_mtime( fd_tar_meta_t * meta,
   return fd_tar_set_octal( meta->mtime, sizeof(meta->mtime), mtime );
 }
 
+static inline void
+fd_tar_meta_set_chksum( fd_tar_meta_t * meta ) {
+  ulong check = 0UL;
+  for( ulong i=0UL; i<FD_TAR_BLOCK_SZ; i++ ) check += meta->raw[ i ];
+  fd_tar_set_octal( meta->chksum, sizeof(meta->chksum), check );
+}
+
 static inline int
 fd_tar_meta_init_file_default( fd_tar_meta_t * meta,
                                char const *    filename,
@@ -166,7 +176,7 @@ fd_tar_meta_init_file_default( fd_tar_meta_t * meta,
         148UL==offsetof(meta->chksum)
         156UL==offsetof(meta->chksum)+sizeof(meta->chksum)
     */
-    checksum += (i>=148UL && i<156UL) ? 32UL : ((uchar *)meta)[ i ];
+    checksum += (i>=148UL && i<156UL) ? 32UL : meta->raw[ i ];
   }
 
   valid &= fd_tar_set_octal( meta->chksum, sizeof(meta->chksum), checksum );

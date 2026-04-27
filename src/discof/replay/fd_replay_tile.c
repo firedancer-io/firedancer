@@ -83,6 +83,8 @@
 #define IN_KIND_TXSEND     ( 8)
 #define IN_KIND_RPC        ( 9)
 #define IN_KIND_GOSSIP_OUT (10)
+#define IN_KIND_ADMIN      (11)
+#define IN_KIND_SNAPMK     (12)
 
 #define DEBUG_LOGGING 0
 
@@ -800,7 +802,9 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   }
 
   /* Signals fd_sleep_until_replay_started */
+  FD_COMPILER_MFENCE();
   FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
+  FD_COMPILER_MFENCE();
 }
 
 static inline int
@@ -2252,6 +2256,75 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+/* admin command handlers
+   every admin command must trigger one response frag */
+
+static void
+admin_respond( fd_replay_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               ulong               orig,
+               ulong               err ) {
+  ulong ctl   = fd_frag_meta_ctl( orig, 0, 0, !!err );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, ctx->admin_out_idx, err, 0UL, 0UL, ctl, 0UL, tspub );
+}
+
+static void
+admin_snap_create( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem ) {
+
+  if( FD_UNLIKELY( !ctx->supports_snap_create ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but current config cannot create snapshots. increase [layout.snapzp_tile_count]?" ));
+    admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_ERR_UNSUPPORTED );
+    return;
+  }
+
+  if( FD_UNLIKELY( !ctx->is_booted ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but client has not yet started" ));
+    admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_ERR_NOT_READY );
+    return;
+  }
+
+  if( FD_UNLIKELY( ctx->is_creating_snap ) ) {
+    FD_LOG_WARNING(( "admin requested snapshot creation, but currently busy creating another snapshot. ignoring ..." ));
+    admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_ERR_BUSY );
+    return;
+  }
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+  bank->refcnt++;
+
+  fd_replay_snap_create_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->bank_idx = ctx->published_root_bank_idx;
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SNAP_CREATE, ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_snap_create_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  admin_respond( ctx, stem, REPLAY_ADMIN_CMD_SNAP_CREATE, REPLAY_ADMIN_SUCCESS );
+  ctx->is_creating_snap = 1;
+}
+
+static void
+admin_cmd( fd_replay_tile_t *  ctx,
+           fd_stem_context_t * stem,
+           ulong               orig ) {
+  switch( orig ) {
+  case REPLAY_ADMIN_CMD_SNAP_CREATE:
+    admin_snap_create( ctx, stem );
+    break;
+  default:
+    FD_LOG_CRIT(( "unrecognized admin cmd orig=%#lx", orig ));
+  }
+}
+
+FD_FN_CONST char const *
+fd_replay_admin_strerror( ulong err ) {
+  switch( err ) {
+  case REPLAY_ADMIN_SUCCESS:         return "success";
+  case REPLAY_ADMIN_ERR_UNSUPPORTED: return "unsupported command";
+  case REPLAY_ADMIN_ERR_BUSY:        return "busy";
+  default:                           return "?";
+  }
+}
+
 static inline int
 returnable_frag( fd_replay_tile_t *  ctx,
                  ulong               in_idx,
@@ -2373,6 +2446,17 @@ returnable_frag( fd_replay_tile_t *  ctx,
       FD_TEST( bank );
       bank->refcnt--;
       FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt decremented to %lu for %s", bank->idx, bank->f.slot, bank->refcnt, ctx->in_kind[ in_idx ]==IN_KIND_RPC ? "rpc" : "gui" ));
+      break;
+    }
+    case IN_KIND_ADMIN: {
+      admin_cmd( ctx, stem, fd_frag_meta_ctl_orig( ctl ) );
+      break;
+    }
+    case IN_KIND_SNAPMK: {
+      ctx->is_creating_snap = 0;
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+      FD_TEST( bank->refcnt>0UL );
+      bank->refcnt--;
       break;
     }
     default:
@@ -2631,6 +2715,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->is_leader             = 0;
   ctx->supports_leader       = fd_topo_find_tile( topo, "pack", 0UL )!=ULONG_MAX;
+  ctx->is_creating_snap      = 0;
+  ctx->supports_snap_create  = fd_topo_find_tile( topo, "snapmk", 0UL )!=ULONG_MAX;
   ctx->reset_slot            = 0UL;
   ctx->reset_bank            = NULL;
   ctx->reset_block_id        = ctx->initial_block_id;
@@ -2678,12 +2764,18 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "txsend_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TXSEND;
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
+    else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
+    else if( !strcmp( link->name, "snapmk_replay" ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
+
+    if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {
+      FD_TEST( ( ctx->admin_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_admin", 0UL ) )!=ULONG_MAX );
+    }
   }
 
-  *ctx->epoch_out  = out1( topo, tile, "replay_epoch" ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
-  *ctx->replay_out = out1( topo, tile, "replay_out"   ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
-  *ctx->exec_out   = out1( topo, tile, "replay_execrp"  ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
+  *ctx->epoch_out  = out1( topo, tile, "replay_epoch"  ); FD_TEST( ctx->epoch_out->idx!=ULONG_MAX );
+  *ctx->replay_out = out1( topo, tile, "replay_out"    ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
+  *ctx->exec_out   = out1( topo, tile, "replay_execrp" ); FD_TEST( ctx->exec_out->idx!=ULONG_MAX );
 
   ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
 
