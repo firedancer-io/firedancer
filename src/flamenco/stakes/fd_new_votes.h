@@ -55,28 +55,28 @@ fd_new_votes_t *
 fd_new_votes_join( void * mem );
 
 /* fd_new_votes_reset is used to reset the new votes object to its
-   initial state.  This is not responsible for applying any elements in
-   the fork idx into the base. */
+   initial state. */
 
 void
 fd_new_votes_reset( fd_new_votes_t * new_votes );
 
 /* fd_new_votes_reset_root is used to reset the root map to its initial
-   state.  This is not responsible for applying any elements in the
-   fork idx into the base. */
+   state.  It does not affect any of the outstanding fork deltas.  This
+   is used when a new epoch boundary is rooted: any old new vote
+   accounts are no longer relevant. */
 
 void
 fd_new_votes_reset_root( fd_new_votes_t * new_votes );
-/* fd_new_votes_cnt is used to count the number of pubkeys in the root
-   map.  This is not responsible for applying any elements in the
-   fork idx into the base. */
+
+/* fd_new_votes_cnt is used to count the number of elements used in the
+   shared pool between all delta/tombstone elements as well as the
+   root map. */
 
 ulong
 fd_new_votes_cnt( fd_new_votes_t const * new_votes );
 
 /* fd_new_votes_new_fork is used to allocate a new fork index from the
-   fork pool.  This is not responsible for applying any elements in the
-   fork idx into the base. */
+   fork pool. */
 
 ushort
 fd_new_votes_new_fork( fd_new_votes_t * new_votes );

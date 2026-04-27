@@ -652,7 +652,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
 
   /* Add any pubkeys visible via new_votes that were not already seeded
      from the parent vote_stakes set. Some iterator entries may be
-     tombstones; that is harmless here because a pubkey absent from both
+     tombstones: that is harmless here because a pubkey absent from both
      the current accdb view and the parent vote_stakes view is filtered
      out before insertion into the child vote_stakes.  New vote accounts
      with zero staked must be tracked for historical commission
@@ -667,8 +667,9 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
   for( ; !fd_new_votes_iter_done( iter ); fd_new_votes_iter_next( iter ) ) {
     int                 is_tombstone = 0;
     fd_pubkey_t const * pubkey       = fd_new_votes_iter_ele( iter, &is_tombstone );
-    fd_stake_accum_t *  stake_accum  = fd_stake_accum_map_ele_query( stake_accum_map, pubkey, NULL, stake_accum_pool );
-    if( FD_LIKELY( !stake_accum ) ) {
+    if( FD_UNLIKELY( is_tombstone ) ) continue;
+
+    if( FD_LIKELY( !fd_stake_accum_map_ele_query( stake_accum_map, pubkey, NULL, stake_accum_pool ) ) ) {
       fd_stake_accum_t * sa = &runtime_stack->stakes.stake_accum[ staked_accounts ];
       sa->pubkey = *pubkey;
       sa->stake  = 0UL;
