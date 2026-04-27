@@ -667,6 +667,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_BURST (1UL)
 
+/* The default STEM_LAZY is derived from cr_max, which is the minimum
+   depth among all reliably-consumed output links.  The resolv_replay
+   link (depth 4096) dominates this, even though it only carries ~2-3
+   msgs/s.  This makes housekeeping fire ~16x more often than necessary.
+   We override with roughly what the default would be without accounting
+   for it. */
+#define STEM_LAZY (128000L) /* 128 us */
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_resolv_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_resolv_ctx_t)
 
