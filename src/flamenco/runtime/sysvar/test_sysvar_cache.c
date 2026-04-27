@@ -160,7 +160,6 @@ test_sysvar_cache_empty( void ) {
   FD_TEST( !fd_sysvar_cache_rent_read( cache1, &rent ) );
 
   /* Test sysvar join accessors */
-  FD_TEST( !fd_sysvar_cache_slot_hashes_join_const  ( cache1 ) );
   FD_TEST( !fd_sysvar_cache_stake_history_join_const( cache1 ) );
 
   /* Test leave_const */

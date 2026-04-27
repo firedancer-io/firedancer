@@ -15,6 +15,7 @@
 #include "../../runtime/sysvar/fd_sysvar_cache.h"
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../runtime/program/fd_vote_program.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../../stakes/fd_vote_stakes.h"
@@ -503,9 +504,15 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     /* Slot hashes (empty) */
     uchar slot_hashes_enc[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ] = {0};
 
-    /* Slot history (empty -- large, heap alloc) */
+    /* Slot history -- well-formed bincode (large, heap alloc) */
     uchar * slot_history_enc = calloc( 1, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
     FD_TEST( slot_history_enc );
+    ulong sh_blocks_len = FD_SLOT_HISTORY_MAX_ENTRIES / 64UL;
+    slot_history_enc[0] = 1; /* has_bits */
+    FD_STORE( ulong, slot_history_enc+1, sh_blocks_len );
+    uchar * sh_footer = slot_history_enc + 9UL + sh_blocks_len * sizeof(ulong);
+    FD_STORE( ulong, sh_footer,     FD_SLOT_HISTORY_MAX_ENTRIES );
+    FD_STORE( ulong, sh_footer+8UL, bank->f.slot + 1UL );
 
     /* Stake history (empty) */
     uchar stake_history_enc[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ] = {0};

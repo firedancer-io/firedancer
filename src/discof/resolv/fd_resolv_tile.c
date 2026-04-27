@@ -291,21 +291,22 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   ulong const               alut_cnt     = txn->addr_table_lookup_cnt;
   ulong const               slot         = ctx->bank->f.slot;
   fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache;
-  fd_slot_hash_t const *    slot_hashes  = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
-  if( FD_UNLIKELY( !slot_hashes ) ) FD_LOG_ERR(( "missing slot hashes sysvar" ));
+  fd_slot_hashes_t slot_hashes_view[1];
+  if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( sysvar_cache, slot_hashes_view ) ) ) {
+    FD_LOG_ERR(( "slot hashes sysvar cache is invalid" ));
+  }
 
   /* Write indirect addrs into here */
   fd_acct_addr_t * indir_addrs = fd_txn_m_alut( txnm );
 
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
   fd_alut_interp_t interp[1];
-  fd_alut_interp_new( interp, indir_addrs, txn, txn_payload, slot_hashes, slot );
+  fd_alut_interp_new( interp, indir_addrs, txn, txn_payload, slot_hashes_view, slot );
   for( ulong i=0UL; i<alut_cnt; i++ ) {
     err = peek_alut( ctx, txnm, interp, i );
     if( FD_UNLIKELY( err ) ) break;
   }
   fd_alut_interp_delete( interp );
-  fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
 
   ulong ctr_idx;
   switch( err ) {
