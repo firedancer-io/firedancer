@@ -133,7 +133,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   bank->f.capitalization = manifest->capitalization;
   bank->f.txn_count = manifest->transaction_count;
-  bank->f.parent_signature_cnt = manifest->signature_count;
+  bank->f.signature_count = manifest->signature_count;
   bank->f.tick_height = manifest->tick_height;
   bank->f.max_tick_height = manifest->max_tick_height;
   bank->f.ns_per_slot = (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } };
