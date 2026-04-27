@@ -678,8 +678,9 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( bank->f.epoch>fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL ) )) {
-    fd_runtime_update_next_leaders( bank, ctx->runtime_stack, fd_bank_vote_stakes( bank ) );
+    fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
     publish_epoch_info( ctx, stem, bank, 1 );
+    fd_runtime_update_leaders( bank, ctx->runtime_stack );
   }
 
   if( ctx->rpc_enabled ) {
@@ -784,6 +785,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     /* FIXME: This branch does not set up a new block exec ctx
        properly. Needs to do whatever prepare_new_block_execution
        does, but just hacking that in breaks stuff. */
+    fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
     fd_runtime_update_leaders( bank, ctx->runtime_stack );
 
     ulong hashcnt_per_slot = bank->f.hashes_per_tick * bank->f.ticks_per_slot;
@@ -1203,6 +1205,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->idx==0UL );
 
+    fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
     fd_runtime_update_leaders( bank, ctx->runtime_stack );
 
     /* Typically, when we cross an epoch boundary during normal

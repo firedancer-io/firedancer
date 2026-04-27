@@ -540,7 +540,7 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *          runn
   ulong ls_slot0       = fd_epoch_slot0( epoch_schedule, epoch );
   ulong slots_in_epoch = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_epoch_leaders_t const * effects_leaders = fd_bank_epoch_leaders_query( runner->bank );
+  fd_epoch_leaders_t const * effects_leaders = fd_bank_epoch_leaders_query( runner->bank, epoch );
 
   /* Fill out effects struct from the Agave epoch info */
   effects->has_leader_schedule               = 1;

@@ -31,7 +31,7 @@ read_lamports( fd_svm_mini_t *     mini,
 
 static fd_pubkey_t const *
 get_leader( fd_bank_t * bank ) {
-  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
   FD_TEST( leaders );
   fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, bank->f.slot );
   FD_TEST( leader );
@@ -141,7 +141,7 @@ test_leader_does_not_exist( fd_svm_mini_t * mini ) {
   ulong epoch    = bank->f.epoch;
   ulong slot0    = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
   ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
-  void * leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
       leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0UL ) ) );
 
@@ -192,10 +192,10 @@ test_payout_below_rent_exempt( fd_svm_mini_t * mini ) {
     .id_key   = leader_key,
     .stake    = 1000000000UL,
   };
-  ulong epoch    = bank->f.epoch;
-  ulong slot0    = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
-  ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
-  void * leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  ulong  epoch       = bank->f.epoch;
+  ulong  slot0       = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
+  ulong  slot_cnt    = bank->f.epoch_schedule.slots_per_epoch;
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
       leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0UL ) ) );
 
@@ -244,7 +244,7 @@ test_leader_not_system_owned( fd_svm_mini_t * mini ) {
   ulong epoch    = bank->f.epoch;
   ulong slot0    = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
   ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
-  void * leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
       leaders_mem, epoch, slot0, slot_cnt, 1UL, &stake, 0UL ) ) );
 

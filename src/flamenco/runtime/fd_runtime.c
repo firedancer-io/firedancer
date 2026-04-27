@@ -77,9 +77,9 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
 
 void
 fd_runtime_update_next_leaders( fd_bank_t *          bank,
-                                fd_runtime_stack_t * runtime_stack,
-                                fd_vote_stakes_t *   vote_stakes ) {
+                                fd_runtime_stack_t * runtime_stack ) {
 
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL ) + 1UL;
@@ -90,7 +90,7 @@ fd_runtime_update_next_leaders( fd_bank_t *          bank,
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( top_votes_t_1, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
 
-  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
       epoch_leaders_mem,
       epoch,
@@ -167,7 +167,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
-  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
       epoch_leaders_mem,
       epoch,
@@ -315,7 +315,7 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
   bank->f.priority_fees   = 0;
 
   if( FD_LIKELY( fee_reward ) ) {
-    fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
+    fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
     if( FD_UNLIKELY( !leaders ) ) FD_LOG_CRIT(( "fd_bank_epoch_leaders_query returned NULL" ));
     fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, bank->f.slot );
     if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
