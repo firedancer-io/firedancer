@@ -69,6 +69,7 @@ typedef struct {
   ulong *          sync;
   ulong            depth;
   ulong            seq;
+  ulong            idx;
 } fd_net_out_ctx_t;
 
 /* fd_net_flusher_t controls the pacing of XDP sendto calls for flushing
@@ -887,6 +888,7 @@ static void
 net_rx_packet( fd_net_ctx_t * ctx,
                ulong          umem_off,
                ulong          sz,
+               fd_stem_context_t * stem,
                uint *         freed_chunk ) {
 
   if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) {
@@ -1018,15 +1020,18 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong sig              = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, ip_srcaddr, proto, 14UL+8UL+iplen );
 
   /* Peek the mline for an old frame */
-  fd_frag_meta_t * mline = out->mcache + fd_mcache_line_idx( out->seq, out->depth );
+  ulong const      out_idx = out->idx;
+  ulong const      out_seq = stem->seqs[ out_idx ];
+  fd_frag_meta_t * mline   = out->mcache + fd_mcache_line_idx( out_seq, out->depth );
   *freed_chunk           = mline->chunk;
 
   /* Overwrite the mline with the new frame */
   ulong tspub            = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
+  fd_mcache_publish( out->mcache, out->depth, out_seq, sig, chunk, sz, ctl, 0, tspub );
 
   /* Wind up for the next iteration */
-  out->seq               = fd_seq_inc( out->seq, 1UL );
+  fd_stem_advance( stem, out_idx );
+  out->seq               = stem->seqs[ out_idx ];
 
   if( is_packet_gre ) ctx->metrics.rx_gre_cnt++;
   ctx->metrics.rx_pkt_cnt++;
@@ -1078,7 +1083,8 @@ net_comp_event( fd_net_ctx_t * ctx,
 static void
 net_rx_event( fd_net_ctx_t * ctx,
               fd_xsk_t *     xsk,
-              uint           rx_seq ) {
+              uint           rx_seq,
+              fd_stem_context_t * stem ) {
   /* Locate the incoming frame */
 
   fd_xdp_ring_t * rx_ring = &xsk->ring_rx;
@@ -1099,7 +1105,7 @@ net_rx_event( fd_net_ctx_t * ctx,
   /* Pass it to the receive handler */
 
   uint freed_chunk = (uint)( ctx->umem_chunk0 + (frame.addr>>FD_CHUNK_LG_SZ) );
-  net_rx_packet( ctx, frame.addr, frame.len, &freed_chunk );
+  net_rx_packet( ctx, frame.addr, frame.len, stem, &freed_chunk );
   FD_COMPILER_MFENCE();
   rx_ring->cached_cons = rx_seq+1U;
 
@@ -1153,7 +1159,7 @@ before_credit( fd_net_ctx_t *      ctx,
   /* Fire RX event if we have RX desc avail */
   if( !fd_xdp_ring_empty( &rr_xsk->ring_rx, FD_XDP_RING_ROLE_CONS ) ) {
     *charge_busy = 1;
-    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons );
+    net_rx_event( ctx, rr_xsk, rr_xsk->ring_rx.cached_cons, stem );
   } else {
     net_rx_wakeup( ctx, rr_xsk, charge_busy );
     ctx->rr_idx++;
@@ -1445,24 +1451,28 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
       ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
       ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
+      ctx->quic_out->idx    = i;
     } else if( strcmp( out_link->name, "net_shred" ) == 0 ) {
       fd_topo_link_t * shred_out = out_link;
       ctx->shred_out->mcache = shred_out->mcache;
       ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
       ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
       ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
+      ctx->shred_out->idx    = i;
     } else if( strcmp( out_link->name, "net_gossvf" ) == 0 ) {
       fd_topo_link_t * gossip_out = out_link;
       ctx->gossvf_out->mcache = gossip_out->mcache;
       ctx->gossvf_out->sync   = fd_mcache_seq_laddr( ctx->gossvf_out->mcache );
       ctx->gossvf_out->depth  = fd_mcache_depth( ctx->gossvf_out->mcache );
       ctx->gossvf_out->seq    = fd_mcache_seq_query( ctx->gossvf_out->sync );
+      ctx->gossvf_out->idx    = i;
     } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
       fd_topo_link_t * repair_out = out_link;
       ctx->repair_out->mcache = repair_out->mcache;
       ctx->repair_out->sync   = fd_mcache_seq_laddr( ctx->repair_out->mcache );
       ctx->repair_out->depth  = fd_mcache_depth( ctx->repair_out->mcache );
       ctx->repair_out->seq    = fd_mcache_seq_query( ctx->repair_out->sync );
+      ctx->repair_out->idx    = i;
     } else if( strcmp( out_link->name, "net_netlnk" ) == 0 ) {
       fd_topo_link_t * netlink_out = out_link;
       ctx->neigh4_solicit->mcache = netlink_out->mcache;
@@ -1474,6 +1484,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->txsend_out->sync   = fd_mcache_seq_laddr( ctx->txsend_out->mcache );
       ctx->txsend_out->depth  = fd_mcache_depth( ctx->txsend_out->mcache );
       ctx->txsend_out->seq    = fd_mcache_seq_query( ctx->txsend_out->sync );
+      ctx->txsend_out->idx    = i;
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }
