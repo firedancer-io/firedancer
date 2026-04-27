@@ -141,7 +141,7 @@ setup_verify_ctx( fd_verify_ctx_t * ctx, void ** mem ) {
   ctx->tcache_sync    = fd_tcache_oldest_laddr( tcache );
   ctx->tcache_ring    = fd_tcache_ring_laddr  ( tcache );
   ctx->tcache_map     = fd_tcache_map_laddr   ( tcache );
-  fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
+  *ctx->tcache_sync = fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
 
   /* ctx->sha */
   uchar * _sha = aligned_alloc( FD_SHA512_ALIGN, sizeof(fd_sha512_t)*FD_TXN_ACTUAL_SIG_MAX );
@@ -267,7 +267,7 @@ test_verify_invalid_dedup_success( void ) {
   FD_TEST( res==FD_TXN_VERIFY_SUCCESS );
 
   /* clear to test the other way */
-  fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
+  *ctx->tcache_sync = fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
 
   /* valid txn with 1 signature */
   res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
@@ -282,7 +282,7 @@ test_verify_invalid_dedup_success( void ) {
   FD_TEST( res==FD_TXN_VERIFY_DEDUP );
 
   /* clear to test with dedup==0 */
-  fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
+  *ctx->tcache_sync = fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
 
   free(payload);
   payload = load_test_txn( valid_txn_1sig, sizeof(valid_txn_1sig), &payload_sz );
