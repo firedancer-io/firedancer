@@ -7,6 +7,7 @@
 #include "../../../../util/tile/fd_tile.h"
 
 #include <errno.h>
+#include <poll.h>
 #include <unistd.h>
 #include <sys/resource.h>
 #include <linux/capability.h>
@@ -52,6 +53,10 @@ drain( int fd ) {
   int needs_reprint = 0;
 
   while( 1 ) {
+    struct pollfd pfd = { .fd = fd, .events = POLLIN };
+    int timeout_ms = 1;
+    if( 0==fd_syscall_poll( &pfd, 1, timeout_ms ) ) break;
+
     uchar buf[ 16384UL ];
     long result = read( fd, buf, sizeof(buf) );
     if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) break;

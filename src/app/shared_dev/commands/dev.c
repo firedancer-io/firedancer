@@ -161,7 +161,7 @@ dev_cmd_fn( args_t *   args,
       install_parent_signals();
 
       int pipefd[2];
-      if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( pipe2( pipefd, 0 ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       initialize_workspaces(config);
       firedancer_pid = fork();
       if( !firedancer_pid ) {
@@ -208,7 +208,7 @@ dev_cmd_fn( args_t *   args,
       fd_sys_util_exit_group( exit_code );
     } else {
       int pipefd[2];
-      if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( pipe2( pipefd, 0 ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
       if( FD_LIKELY( !args->dev.no_init_workspaces ) ) initialize_workspaces( config );
 
