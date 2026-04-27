@@ -75,10 +75,10 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-static void
-update_next_leaders( fd_bank_t *          bank,
-                     fd_runtime_stack_t * runtime_stack,
-                     fd_vote_stakes_t *   vote_stakes ) {
+void
+fd_runtime_update_next_leaders( fd_bank_t *          bank,
+                                fd_runtime_stack_t * runtime_stack,
+                                fd_vote_stakes_t *   vote_stakes ) {
 
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
@@ -158,8 +158,6 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
   ulong slot_cnt  = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-
-  update_next_leaders( bank, runtime_stack, vote_stakes );
 
   int vat_in_prev = epoch>=vat_epoch+1UL ? 1 : 0;
 
