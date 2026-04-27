@@ -3,7 +3,6 @@
 #include "../fd_system_ids.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
-#include "../../accdb/fd_accdb_sync.h"
 #include "../../log_collector/fd_log_collector.h"
 
 static int
@@ -191,7 +190,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
     .kind                   = FD_NONCE_STATE_INITIALIZED,
     .authority              = state->authority,
     .durable_nonce          = next_durable_nonce,
-    .lamports_per_signature = blockhash->fee_calculator.lamports_per_signature
+    .lamports_per_signature = blockhash->lamports_per_signature
   };
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L59 */
@@ -232,14 +231,7 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L433-L439 */
 
-  int bhq_empty;
-  do {
-    fd_block_block_hash_entry_t const * hashes = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
-    FD_TEST( hashes ); /* validated above */
-    bhq_empty = deq_fd_block_block_hash_entry_t_empty( hashes );
-    fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, hashes );
-  } while(0);
-  if( FD_UNLIKELY( bhq_empty ) ) {
+  if( FD_UNLIKELY( fd_sysvar_cache_recent_hashes_is_empty( ctx->sysvar_cache ) ) ) {
     fd_log_collector_msg_literal( ctx, "Advance nonce account: recent blockhash list is empty" );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -512,7 +504,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     .kind                   = FD_NONCE_STATE_INITIALIZED,
     .authority              = *authorized,
     .durable_nonce          = durable_nonce,
-    .lamports_per_signature = blockhash->fee_calculator.lamports_per_signature
+    .lamports_per_signature = blockhash->lamports_per_signature
   };
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L187 */
@@ -554,14 +546,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L472-L478 */
 
-  int bhq_empty;
-  do {
-    fd_block_block_hash_entry_t const * hashes = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
-    FD_TEST( hashes ); /* validated above */
-    bhq_empty = deq_fd_block_block_hash_entry_t_empty( hashes );
-    fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, hashes );
-  } while(0);
-  if( FD_UNLIKELY( bhq_empty ) ) {
+  if( FD_UNLIKELY( fd_sysvar_cache_recent_hashes_is_empty( ctx->sysvar_cache ) ) ) {
     fd_log_collector_msg_literal( ctx, "Initialize nonce account: recent blockhash list is empty" );
     ctx->txn_out->err.custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -771,10 +756,10 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    condition is met then the transaction is invalid.
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
-fd_check_transaction_age( fd_runtime_t *      runtime,
-                          fd_bank_t *         bank,
+fd_check_transaction_age( fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out ) {
+
   fd_blockhashes_t const * block_hash_queue = &bank->f.block_hash_queue;
   fd_hash_t const *        last_blockhash   = fd_blockhashes_peek_last_hash( block_hash_queue );
   if( FD_UNLIKELY( !last_blockhash ) ) {
@@ -843,29 +828,25 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
-  fd_accdb_ro_t ro[1];
-  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
-  if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, ro, &xid, &txn_out->accounts.keys[ nonce_idx ] ) ) ) {
+
+  /* The transaction accounts were set up before this check, including
+     forwarding writable bundle accounts into the current txn_out. */
+  fd_account_meta_t const * nonce_meta = txn_out->accounts.account[ nonce_idx ].meta;
+  if( FD_UNLIKELY( !nonce_meta ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
   /* verify_nonce_account */
-  fd_pubkey_t const * owner_pubkey = fd_accdb_ref_owner( ro );
+  fd_pubkey_t const * owner_pubkey = fd_type_pun_const( nonce_meta->owner );
   if( FD_UNLIKELY( !fd_pubkey_eq( owner_pubkey, &fd_solana_system_program_id ) ) ) {
-    fd_accdb_close_ro( runtime->accdb, ro );
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
 
   fd_nonce_state_versions_t state[1];
-  if( FD_UNLIKELY( fd_nonce_state_versions_decode(
-      state,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) ) ) ) {
-    fd_accdb_close_ro( runtime->accdb, ro );
+  if( FD_UNLIKELY( fd_nonce_state_versions_decode( state, fd_account_data( nonce_meta ), nonce_meta->dlen ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
-  fd_accdb_close_ro( runtime->accdb, ro );
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
   /* verify_recent_blockhash. This checks that the decoded nonce record is
@@ -894,14 +875,6 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
            successfully.
          */
         txn_out->accounts.nonce_idx_in_txn = instr_accts[ 0 ];
-        /*
-           Now figure out the state that the nonce account should
-           advance to.
-         */
-        fd_accdb_ro_t nonce_ro[1];
-        if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, nonce_ro, &xid, &txn_out->accounts.keys[ instr_accts[ 0UL ] ] ) ) ) {
-          return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
-        }
 
         fd_blockhashes_t const *    blockhashes     = &bank->f.block_hash_queue;
         fd_blockhash_info_t const * last_bhash_info = fd_blockhashes_peek_last( blockhashes );
@@ -914,7 +887,7 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           .authority              = state->authority,
           .durable_nonce          = next_durable_nonce,
           /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank/check_transactions.rs#L88-L90 */
-          .lamports_per_signature = last_bhash_info->fee_calculator.lamports_per_signature
+          .lamports_per_signature = last_bhash_info->lamports_per_signature
         };
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_SYSTEM_PROGRAM_NONCE_DLEN ) ) {
           FD_LOG_CRIT(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_SYSTEM_PROGRAM_NONCE_DLEN %lu", fd_nonce_state_versions_size( &new_state ), FD_SYSTEM_PROGRAM_NONCE_DLEN ));
@@ -925,14 +898,13 @@ fd_check_transaction_age( fd_runtime_t *      runtime,
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
         }
         fd_memcpy( borrowed_account_data,
-                   nonce_ro->meta,
+                   nonce_meta,
                    sizeof(fd_account_meta_t) );
         fd_memcpy( borrowed_account_data+sizeof(fd_account_meta_t),
-                   fd_accdb_ref_data_const( nonce_ro ),
-                   fd_accdb_ref_data_sz   ( nonce_ro ) );
+                   fd_account_data( nonce_meta ),
+                   nonce_meta->dlen );
 
         txn_out->accounts.rollback_nonce = (fd_account_meta_t *)borrowed_account_data;
-        fd_accdb_close_ro( runtime->accdb, nonce_ro );
 
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state )>txn_out->accounts.rollback_nonce->dlen ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;

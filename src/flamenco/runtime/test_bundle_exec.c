@@ -6,16 +6,19 @@
 #include "fd_alut.h"
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_stake_types.h"
+#include "program/fd_system_program.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_stake_history.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_slot_hashes.h"
+#include "sysvar/fd_sysvar_recent_hashes.h"
 #include "../accdb/fd_accdb_admin_v1.h"
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../features/fd_features.h"
 #include "../accdb/fd_accdb_sync.h"
+#include "../log_collector/fd_log_collector.h"
 
 /* Values before deprecate_rent_exemption_threshold is activated */
 #define TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR (3480UL)
@@ -45,6 +48,7 @@ struct test_env {
   fd_runtime_t *       runtime;
   fd_txn_in_t          txn_in;
   fd_txn_out_t         txn_out[ 5UL];
+  fd_log_collector_t   log_collector[ 1 ];
 };
 typedef struct test_env test_env_t;
 
@@ -131,7 +135,7 @@ init_rent_sysvar( test_env_t * env,
     fd_hash_t dummy_hash = {0};
     fd_memset( dummy_hash.uc, 0xAB, FD_HASH_FOOTPRINT );
     fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, &dummy_hash );
-    info->fee_calculator.lamports_per_signature = 0UL;
+    info->lamports_per_signature = 0UL;
   }
 
   static test_env_t *
@@ -143,7 +147,7 @@ init_rent_sysvar( test_env_t * env,
 
     ulong const funk_seed       = 17UL;
     ulong const txn_max         = 2UL;
-    ulong const rec_max         = 16UL;
+    ulong const rec_max         = 32UL;
     ulong const max_total_banks = 2UL;
     ulong const max_fork_width  = 2UL;
 
@@ -178,6 +182,7 @@ init_rent_sysvar( test_env_t * env,
     init_stake_history_sysvar( env );
     init_clock_sysvar( env );
     init_blockhash_queue( env );
+    fd_sysvar_recent_hashes_init( env->bank, env->accdb, &env->xid, NULL );
 
     env->bank->f.slot = 9UL;
     env->bank->f.epoch = 4UL;
@@ -203,6 +208,8 @@ init_rent_sysvar( test_env_t * env,
     env->runtime->status_cache             = NULL;
     env->runtime->acc_pool                 = acc_pool;
     memset( &env->runtime->log, 0, sizeof(env->runtime->log) );
+    fd_log_collector_init( env->log_collector, 0 );
+    env->runtime->log.log_collector        = env->log_collector;
 
     return env;
   }
@@ -254,6 +261,14 @@ FD_TEST( parent_bank->state==FD_BANK_STATE_FROZEN );
   } while(0);                                                                        \
 })
 
+struct txn_instr {
+  uchar         program_id_idx;
+  uchar const * account_idxs;
+  ushort        account_idxs_cnt;
+  uchar const * data;
+  ushort        data_sz;
+};
+typedef struct txn_instr txn_instr_t;
 
 ulong
 txn_serialize( uchar *          txn_raw_begin,
@@ -314,6 +329,103 @@ txn_serialize( uchar *          txn_raw_begin,
   FD_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, addr_table_cnt );
 
   return (ulong)(txn_raw_cur_ptr - txn_raw_begin);
+}
+
+static ulong
+txn_serialize_with_instrs( uchar *             txn_raw_begin,
+                           ulong               signatures_cnt,
+                           fd_signature_t *    signatures,
+                           ulong               num_required_signatures,
+                           ulong               num_readonly_signed_accounts,
+                           ulong               num_readonly_unsigned_accounts,
+                           ulong               account_keys_cnt,
+                           fd_pubkey_t *       account_keys,
+                           fd_hash_t *         recent_blockhash,
+                           txn_instr_t const * instrs,
+                           ushort              instr_cnt ) {
+  uchar * txn_raw_cur_ptr = txn_raw_begin;
+
+  uchar signature_cnt = fd_uchar_max( 1, (uchar)signatures_cnt );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &signature_cnt, sizeof(uchar) );
+  for( uchar i = 0; i < signature_cnt; ++i ) {
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &signatures[i], FD_TXN_SIGNATURE_SZ );
+  }
+
+  uchar header_b0 = (uchar) 0x80UL;
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &header_b0, sizeof(uchar) );
+
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &num_required_signatures,        sizeof(uchar) );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &num_readonly_signed_accounts,   sizeof(uchar) );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &num_readonly_unsigned_accounts, sizeof(uchar) );
+
+  ushort num_acct_keys = (ushort)account_keys_cnt;
+  FD_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, num_acct_keys );
+  for( ushort i = 0; i < num_acct_keys; ++i ) {
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &account_keys[i], sizeof(fd_pubkey_t) );
+  }
+
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, recent_blockhash, sizeof(fd_hash_t) );
+
+  FD_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, instr_cnt );
+  for( ushort i=0; i<instr_cnt; i++ ) {
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &instrs[i].program_id_idx, sizeof(uchar) );
+    FD_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, instrs[i].account_idxs_cnt );
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, instrs[i].account_idxs, instrs[i].account_idxs_cnt );
+    FD_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, instrs[i].data_sz );
+    FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, instrs[i].data, instrs[i].data_sz );
+  }
+
+  ushort addr_table_cnt = 0;
+  FD_CHECKED_ADD_CU16_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, addr_table_cnt );
+
+  return (ulong)(txn_raw_cur_ptr - txn_raw_begin);
+}
+
+static void
+durable_nonce_from_blockhash( fd_hash_t *       out,
+                              fd_hash_t const * blockhash ) {
+  uchar buf[45];
+  memcpy( buf,    "DURABLE_NONCE", 13UL );
+  memcpy( buf+13, blockhash,       sizeof(fd_hash_t) );
+  fd_sha256_hash( buf, sizeof(buf), out );
+}
+
+static void
+write_nonce_state( fd_account_meta_t * meta,
+                   fd_pubkey_t const * authority,
+                   fd_hash_t const *   durable_nonce ) {
+  fd_nonce_state_versions_t state = {
+    .version                = FD_NONCE_VERSION_CURRENT,
+    .kind                   = FD_NONCE_STATE_INITIALIZED,
+    .authority              = *authority,
+    .durable_nonce          = *durable_nonce,
+    .lamports_per_signature = 0UL
+  };
+
+  ulong written = 0UL;
+  FD_TEST( !fd_nonce_state_versions_encode( &state, fd_account_data( meta ), meta->dlen, &written ) );
+}
+
+static void
+create_nonce_account_initialized( test_env_t *          env,
+                                  fd_pubkey_t const *   nonce_pubkey,
+                                  fd_pubkey_t const *   authority,
+                                  fd_hash_t const *     durable_nonce ) {
+  fd_nonce_state_versions_t state = {
+    .version                = FD_NONCE_VERSION_CURRENT,
+    .kind                   = FD_NONCE_STATE_INITIALIZED,
+    .authority              = *authority,
+    .durable_nonce          = *durable_nonce,
+    .lamports_per_signature = 0UL
+  };
+
+  uchar nonce_data[ FD_SYSTEM_PROGRAM_NONCE_DLEN ] = {0};
+  ulong written = 0UL;
+  FD_TEST( !fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written ) );
+
+  create_test_account( env->accdb, &env->xid, nonce_pubkey, 10000000UL,
+                       FD_SYSTEM_PROGRAM_NONCE_DLEN, nonce_data,
+                       env->bank->f.slot, &fd_solana_system_program_id );
 }
 
 static void
@@ -1196,6 +1308,96 @@ test_execute_bundles( fd_wksp_t * wksp ) {
       fd_runtime_cancel_txn( env->runtime, &env->txn_out[1] );
     }
     fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+  }
+
+  /* ==========================================================================
+     Test: bundle-forwarded nonce account during transaction age check
+     ==========================================================================
+     Txn0 carries a writable nonce account and mutates its staged state to a
+     durable nonce that is not in accdb yet.  Txn1 then uses that durable nonce.
+     The age check must read the bundle-forwarded nonce state, not the stale
+     accdb state, or Txn1 fails with the wrong nonce. */
+
+  {
+    FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
+
+    fd_pubkey_t nonce_fee_payer = { .ul[0] = 0xFEEFUL };
+    fd_pubkey_t nonce_key       = { .ul[0] = 0xFACEUL };
+
+    fd_hash_t stale_blockhash = {0};
+    fd_memset( stale_blockhash.uc, 0x11, FD_HASH_FOOTPRINT );
+    fd_hash_t stale_nonce;
+    durable_nonce_from_blockhash( &stale_nonce, &stale_blockhash );
+
+    fd_hash_t bundle_blockhash = {0};
+    fd_memset( bundle_blockhash.uc, 0x22, FD_HASH_FOOTPRINT );
+    fd_hash_t bundle_nonce;
+    durable_nonce_from_blockhash( &bundle_nonce, &bundle_blockhash );
+
+    create_test_account( env->accdb, &env->xid, &nonce_fee_payer, 10000000UL,
+                         0UL, NULL, env->bank->f.slot, &fd_solana_system_program_id );
+    create_test_account( env->accdb, &env->xid, &fd_solana_system_program_id, 1UL,
+                         0UL, NULL, env->bank->f.slot, &fd_solana_native_loader_id );
+    create_nonce_account_initialized( env, &nonce_key, &nonce_fee_payer, &stale_nonce );
+
+    /* Txn0: load the nonce account writable, then simulate an instruction
+       updating the staged nonce state within the bundle. */
+    fd_pubkey_t txn0_nonce_keys[2] = { nonce_fee_payer, nonce_key };
+    txn_p = (fd_txn_p_t){0};
+    sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL,
+                        2UL, txn0_nonce_keys, &dummy_hash );
+    txn_p.payload_sz = (ushort)sz;
+    FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+    env->txn_in.txn                 = &txn_p;
+    env->txn_in.bundle.is_bundle    = 1;
+    env->txn_in.bundle.prev_txn_cnt = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank,
+                                        &env->txn_in, &env->txn_out[0] );
+    FD_TEST( env->txn_out[0].err.is_committable );
+    FD_TEST( env->txn_out[0].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
+    FD_TEST( fd_pubkey_eq( &env->txn_out[0].accounts.keys[1], &nonce_key ) );
+    FD_TEST( env->txn_out[0].accounts.is_writable[1] );
+    write_nonce_state( env->txn_out[0].accounts.account[1].meta,
+                       &nonce_fee_payer,
+                       &bundle_nonce );
+
+    /* Txn1: durable nonce transaction whose recent blockhash only matches
+       the staged nonce state from Txn0, not the stale accdb state. */
+    fd_pubkey_t txn1_nonce_keys[4] = {
+      nonce_fee_payer, nonce_key,
+      fd_sysvar_recent_block_hashes_id, fd_solana_system_program_id
+    };
+    uchar ix_accts[3] = { 1, 2, 0 };
+    uchar ix_data[4];
+    FD_STORE( uint, ix_data, (uint)FD_SYSTEM_PROGRAM_INSTR_ADVANCE_NONCE_ACCOUNT );
+    txn_instr_t nonce_instr = {
+      .program_id_idx   = 3,
+      .account_idxs     = ix_accts,
+      .account_idxs_cnt = 3,
+      .data             = ix_data,
+      .data_sz          = sizeof(ix_data)
+    };
+
+    fd_txn_p_t nonce_txn = {0};
+    sz = txn_serialize_with_instrs( nonce_txn.payload, 1, &signature,
+                                    1UL, 0UL, 2UL, 4UL, txn1_nonce_keys,
+                                    &bundle_nonce, &nonce_instr, 1U );
+    nonce_txn.payload_sz = (ushort)sz;
+    FD_TEST( fd_txn_parse( nonce_txn.payload, sz, TXN( &nonce_txn ), NULL ) );
+
+    env->txn_in.txn                     = &nonce_txn;
+    env->txn_in.bundle.is_bundle        = 1;
+    env->txn_in.bundle.prev_txn_cnt     = 1;
+    env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank,
+                                        &env->txn_in, &env->txn_out[1] );
+
+    FD_TEST( env->txn_out[1].err.is_committable );
+    FD_TEST( env->txn_out[1].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
+
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
   }
 }
 

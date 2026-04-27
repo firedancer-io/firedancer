@@ -81,6 +81,7 @@
 #define REPLAY_SIG_OC_ADVANCED    (5)
 #define REPLAY_SIG_TXN_EXECUTED   (6)
 #define REPLAY_SIG_REASM_EVICTED  (7)
+#define REPLAY_SIG_WFS_DONE       (8)
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first

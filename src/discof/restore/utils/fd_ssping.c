@@ -7,6 +7,7 @@
 #include "../../../util/log/fd_log.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -97,7 +98,6 @@ struct fd_ssping_private {
   /* ping_to_pool[ i ]==x means that used_fds[ i ].fd is in use for
      pinging the peer in pool[ x ]. */
   ulong                    ping_to_pool[ FD_SSPING_FD_CNT ]; /* indexed [0, used_fd_cnt) */
-  fd_ssping_sockfd_range_t ping_fds; /* redundant with the above info, but stored separately for convenience. */
 };
 
 
@@ -164,60 +164,29 @@ fd_ssping_new( void *                 shmem,
   ssping->refreshing = deadline_list_join( deadline_list_new( _refreshing ) );
   ssping->invalid    = deadline_list_join( deadline_list_new( _invalid ) );
 
-  /* There's no automatic way to allocate contiguous file descriptors.
-     We could probe for which are open with fcntl( fd, F_GETFD ), but
-     that's racy.  Another way to do it is to read /proc/fd, but that's
-     a bit gross from here, and still racy.  A third way to do it is to
-     allocate a few more and hope that is enough to find a contiguous
-     region.  All this happens during privileged_init, so we have a lot
-     of control over it, and in practice, I think either solution would
-     be fine.  We'll go with the overallocation solution. */
-#define MAX_FDESC_ALLOC_ATTEMPT 128UL
-  /* If we started allocating a range of contiguous file descriptors,
-     but found it wasn't big enough for our uses, we stash it in
-     bad_fdesc_allocs to close it later. */
-  fd_ssping_sockfd_range_t bad_fdesc_allocs[ MAX_FDESC_ALLOC_ATTEMPT ];
-  ulong bad_fdesc_alloc_cnt = 0UL;
+  /* Allocate a contiguous range of file descriptors */
+  int next_fd = FD_SSPING_FD_MIN;
 
-  /* Start with one fd to make the code cleaner.  We definitely don't
-     need to worry about FD_SSPING_FD_CNT==0 */
-  int fd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, IPPROTO_TCP );
-  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "socket(SOCK_STREAM,IPPROTO_TCP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  int min_fd = fd;
-  int max_fd = fd;
-
-  while( (ulong)(max_fd-min_fd)<FD_SSPING_FD_CNT-1UL ) {
+  for( ulong i=0UL; i<FD_SSPING_FD_CNT; i++, next_fd++ ) {
     int fd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, IPPROTO_TCP );
     if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "socket(SOCK_STREAM,IPPROTO_TCP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    if( FD_LIKELY( fd==max_fd+1 ) ) {
-      /* The happy case, we're still extending a contiguous range */
-      max_fd = fd;
-    } else {
-      if( FD_UNLIKELY( bad_fdesc_alloc_cnt==128UL ) ) FD_LOG_ERR(( "could not allocate %lu contiguous sockets", FD_SSPING_FD_CNT ));
-      bad_fdesc_allocs[ bad_fdesc_alloc_cnt++ ] = (fd_ssping_sockfd_range_t) { .min_fd = min_fd, .max_fd = max_fd };
-      min_fd = fd;
-      max_fd = fd;
+    int actual_fd = fcntl( fd, F_DUPFD_CLOEXEC, next_fd );
+    if( FD_UNLIKELY( actual_fd<0 ) ) {
+      FD_LOG_ERR(( "fcntl(F_DUPFD_CLOEXEC,%d) failed (%i-%s)", next_fd, errno, fd_io_strerror( errno ) ));
     }
-  }
-
-  /* At this point, [min_fd, max_fd] are the sockets we'll use, and
-     max_fd - min_fd == FD_SSPING_FD_CNT-1.  We should close the
-     extraneous ones though. */
-  for( ulong i=0UL; i<bad_fdesc_alloc_cnt; i++ ) {
-    for( int j=bad_fdesc_allocs[ i ].min_fd; j<=bad_fdesc_allocs[ i ].max_fd; j++ ) {
-      close( j );
+    if( FD_UNLIKELY( actual_fd!=next_fd ) ) {
+      FD_LOG_ERR(( "file descriptor collision at %d", next_fd ));
     }
-  }
+    if( FD_UNLIKELY( 0!=close( fd ) ) ) {
+      FD_LOG_ERR(( "close(%d) failed (%i-%s)", fd, errno, fd_io_strerror( errno ) ));
+    }
 
-  for( ulong i=0UL; i<FD_SSPING_FD_CNT; i++ ) {
     int tcp_nodelay = 1;
-    int fd = min_fd + (int)i;
-    if( FD_UNLIKELY( setsockopt( fd, SOL_TCP, TCP_NODELAY, &tcp_nodelay, sizeof(int) ) ) ) {
+    if( FD_UNLIKELY( setsockopt( next_fd, SOL_TCP, TCP_NODELAY, &tcp_nodelay, sizeof(int) ) ) ) {
       FD_LOG_ERR(( "setsockopt(SOL_TCP,TCP_NODELAY,1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    ssping->idle_fds[ i ] = fd;
+    ssping->idle_fds[ i ] = next_fd;
 
     ssping->used_fds[ i ].fd      = -1;
     ssping->used_fds[ i ].events  = POLLOUT|POLLRDHUP|POLLPRI;
@@ -228,9 +197,6 @@ fd_ssping_new( void *                 shmem,
 
   ssping->on_ping_cb = on_ping_cb;
   ssping->cb_arg     = cb_arg;
-
-  ssping->ping_fds.min_fd = min_fd;
-  ssping->ping_fds.max_fd = max_fd;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ssping->magic ) = FD_SSPING_MAGIC;
@@ -527,9 +493,4 @@ fd_ssping_advance( fd_ssping_t *          ssping,
   }
 
   recv_pings( ssping, selector );
-}
-
-fd_ssping_sockfd_range_t
-fd_ssping_get_sockfds( fd_ssping_t const * ssping ) {
-  return ssping->ping_fds;
 }

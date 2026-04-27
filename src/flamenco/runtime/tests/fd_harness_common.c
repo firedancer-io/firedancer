@@ -44,9 +44,7 @@ fd_solfuzz_pb_restore_blockhash_queue( fd_bank_t *                              
     ulong     lamports_per_signature = entries[i].lamports_per_signature;
 
     fd_blockhash_info_t * blockhash = fd_blockhashes_push_new( blockhashes, &hash );
-    blockhash->fee_calculator = (fd_fee_calculator_t){
-      .lamports_per_signature = lamports_per_signature
-    };
+    blockhash->lamports_per_signature = lamports_per_signature;
   }
 }
 

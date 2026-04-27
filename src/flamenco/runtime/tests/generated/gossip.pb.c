@@ -51,6 +51,15 @@ PB_BIND(FD_EXEC_TEST_GOSSIP_CRDS_DATA, fd_exec_test_gossip_crds_data_t, AUTO)
 PB_BIND(FD_EXEC_TEST_GOSSIP_CONTACT_INFO, fd_exec_test_gossip_contact_info_t, AUTO)
 
 
+PB_BIND(FD_EXEC_TEST_GOSSIP_IP_ADDR, fd_exec_test_gossip_ip_addr_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_IPV6_ADDR, fd_exec_test_gossip_ipv6_addr_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY, fd_exec_test_gossip_socket_entry_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_GOSSIP_VOTE, fd_exec_test_gossip_vote_t, AUTO)
 
 
@@ -58,6 +67,9 @@ PB_BIND(FD_EXEC_TEST_GOSSIP_LOWEST_SLOT, fd_exec_test_gossip_lowest_slot_t, AUTO
 
 
 PB_BIND(FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS, fd_exec_test_gossip_epoch_slots_t, AUTO)
+
+
+PB_BIND(FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS, fd_exec_test_gossip_compressed_slots_t, AUTO)
 
 
 PB_BIND(FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES, fd_exec_test_gossip_snapshot_hashes_t, AUTO)

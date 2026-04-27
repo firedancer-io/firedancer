@@ -1,8 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_cache_private_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_cache_private_h
 
+#include "fd_sysvar_base.h"
 #include "fd_sysvar_cache.h"
 #include "../fd_system_ids_pp.h"
+#include "fd_sysvar_recent_hashes.h"
 
 #define FD_SYSVAR_CACHE_MAGIC (0x1aa5ecb2a49b600aUL) /* random number */
 
@@ -67,70 +69,11 @@ struct fd_sysvar_pos {
 
   int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
   void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
-  /* returns 0 if valid, non-zero (-1) otherwise */
-  int    (* validate)( void const * data );
+  int    (* validate)( uchar const * data, ulong data_sz ); /* returns 1 if valid, 0 otherwise */
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
 
-#define TYPES_CALLBACKS( name, suf )                                   \
-  .decode_footprint = fd_##name##_decode_footprint,                    \
-  .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf
-
-static inline int
-fd_sysvar_validate_epoch_rewards( void const * data ) {
-  uchar active = ((fd_sysvar_epoch_rewards_t *)data)->active;
-  if( FD_UNLIKELY( active!=0 && active!=1 ) ) return -1;
-  return 0;
-}
-
-static inline int
-fd_sysvar_validate_epoch_schedule( void const * data ) {
-  uchar warmup = ((fd_epoch_schedule_t *)data)->warmup;
-  if( FD_UNLIKELY( warmup!=0 && warmup!=1 ) ) return -1;
-  return 0;
-}
-
-static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
-  [FD_SYSVAR_clock_IDX] =
-    { .name="clock",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_clock            ), .data_max=FD_SYSVAR_CLOCK_BINCODE_SZ },
-  [FD_SYSVAR_epoch_rewards_IDX] =
-    { .name="epoch rewards",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_rewards    ), .data_max=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ,
-      .validate=fd_sysvar_validate_epoch_rewards },
-  [FD_SYSVAR_epoch_schedule_IDX] =
-    { .name="epoch schedule",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_epoch_schedule   ), .data_max=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ,
-      .validate=fd_sysvar_validate_epoch_schedule },
-  [FD_SYSVAR_last_restart_slot_IDX] =
-    { .name="last restart slot",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_last_restart_slot), .data_max=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ },
-  [FD_SYSVAR_recent_hashes_IDX] =
-    { .name="recent blockhashes",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_recent_hashes    ), .data_max=FD_SYSVAR_RECENT_HASHES_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_recent_hashes    ), .obj_max =FD_SYSVAR_RECENT_HASHES_FOOTPRINT,
-      TYPES_CALLBACKS( recent_block_hashes, _global ) },
-  [FD_SYSVAR_rent_IDX] =
-    { .name="rent",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_rent             ), .data_max=FD_SYSVAR_RENT_BINCODE_SZ },
-  [FD_SYSVAR_slot_hashes_IDX] =
-    { .name="slot hashes",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_slot_hashes      ), .data_max=FD_SYSVAR_SLOT_HASHES_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_slot_hashes      ), .obj_max =FD_SYSVAR_SLOT_HASHES_FOOTPRINT,
-      TYPES_CALLBACKS( slot_hashes, _global ) },
-  [FD_SYSVAR_slot_history_IDX] =
-    { .name="slot history",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_slot_history     ), .data_max=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_slot_history     ), .obj_max =FD_SYSVAR_SLOT_HISTORY_FOOTPRINT,
-      TYPES_CALLBACKS( slot_history, _global ) },
-  [FD_SYSVAR_stake_history_IDX] =
-    { .name="stake history",
-      .data_off=offsetof(fd_sysvar_cache_t, bin_stake_history    ), .data_max=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_stake_history    ), .obj_max =FD_SYSVAR_STAKE_HISTORY_FOOTPRINT,
-      TYPES_CALLBACKS( stake_history, ) },
-};
-
-#undef TYPES_CALLBACKS
+extern fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ];
 
 static fd_pubkey_t const fd_sysvar_key_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [ FD_SYSVAR_clock_IDX             ] = {{ SYSVAR_CLOCK_ID          }},

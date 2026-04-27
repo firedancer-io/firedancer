@@ -15,6 +15,7 @@ struct fd_poh_reset {
   ulong next_leader_slot;
   ulong max_microblocks_in_slot;
   uchar completed_block_id[ 32UL ];
+  int   wfs_paused;
 };
 
 typedef struct fd_poh_reset fd_poh_reset_t;

@@ -141,7 +141,6 @@
 #include "fd_repair.h"
 #include "fd_policy.h"
 
-#define LOGGING       1
 #define DEBUG_LOGGING 0
 
 #define IN_KIND_CONTACT (0)
@@ -391,6 +390,7 @@ struct ctx {
     ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
     ulong repaired_slots;
     ulong current_slot;
+    ulong old_shred;
     ulong last_requested_slot;
     ulong last_requested_orphan;
     ulong sign_tile_unavail;
@@ -402,6 +402,13 @@ struct ctx {
     fd_histf_t response_latency[ 1 ];
     ulong blk_evicted;
     ulong blk_failed_insert;
+
+    ulong slot_evicted;
+    ulong slot_evicted_by;
+    ulong slot_failed_insert;
+
+    ulong failed_chain_verify_cnt;
+    ulong failed_chain_verify_slot;
   } metrics[ 1 ];
 
   /* Slot-level metrics */
@@ -626,21 +633,31 @@ after_snap( ctx_t * ctx,
 }
 
 static inline void
-after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
-  fd_gossip_contact_info_t const * contact_info = msg->contact_info->value;
-  fd_ip4_port_t repair_peer;
-  repair_peer.addr = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].is_ipv6 ? 0U : contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].ip4;
-  repair_peer.port = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].port;
-  if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
-  fd_policy_peer_t const * peer = fd_policy_peer_upsert( ctx->policy, fd_type_pun_const( msg->origin ), &repair_peer );
-  if( FD_LIKELY( peer && !fd_signs_queue_full( ctx->pong_queue ) ) ) {
-    /* The repair process uses a Ping-Pong protocol that incurs one
-       round-trip time (RTT) for the initial repair request.  To
-       optimize this, we proactively send a placeholder repair request
-       as soon as we receive a peer's contact information for the first
-       time, effectively prepaying the RTT cost. */
-    fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, fd_type_pun_const( msg->origin ), (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
-    fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *init } );
+after_gossip( ctx_t * ctx, fd_gossip_update_message_t const * msg, ulong sig ) {
+  switch( sig ) {
+    case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
+      fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
+      break;
+    }
+    case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
+      fd_gossip_contact_info_t const * contact_info = msg->contact_info->value;
+      fd_ip4_port_t repair_peer;
+      repair_peer.addr = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].is_ipv6 ? 0U : contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].ip4;
+      repair_peer.port = contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR ].port;
+      if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
+      fd_policy_peer_t const * peer = fd_policy_peer_upsert( ctx->policy, fd_type_pun_const( msg->origin ), &repair_peer );
+      if( FD_LIKELY( peer && !fd_signs_queue_full( ctx->pong_queue ) ) ) {
+        /* The repair process uses a Ping-Pong protocol that incurs one
+           round-trip time (RTT) for the initmial repair request.  To
+           optimize this, we proactively send a placeholder repair request
+           as soon as we receive a peer's contact information for the first
+           time, effectively prepaying the RTT cost. */
+        fd_repair_msg_t * init = fd_repair_shred( ctx->protocol, fd_type_pun_const( msg->origin ), (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
+        fd_signs_queue_push( ctx->pong_queue, (sign_pending_t){ .msg = *init } );
+      }
+      break;
+    }
+    default: FD_LOG_ERR(( "bad gossip sig %lu", sig ));
   }
 }
 
@@ -727,13 +744,14 @@ after_sign( ctx_t             * ctx,
 static int
 blk_insert_check( ctx_t * ctx, fd_forest_blk_t * new_blk, ulong new_slot, ulong evicted ) {
   if( FD_UNLIKELY( !new_blk ) ) {
-    FD_LOG_WARNING(( "fd_forest_blk_insert: ignoring new slot %lu. pool is full and cannot evict", new_slot ));
     ctx->metrics->blk_failed_insert++;
+    ctx->metrics->slot_failed_insert = new_slot;
     return 0;
   } else {
     if( FD_UNLIKELY( evicted != ULONG_MAX ) ) {
-      FD_LOG_WARNING(( "fd_forest_blk_insert: evicted %lu and inserting new slot %lu", evicted, new_slot ));
       ctx->metrics->blk_evicted++;
+      ctx->metrics->slot_evicted    = evicted;
+      ctx->metrics->slot_evicted_by = new_slot;
     }
     return 1;
   }
@@ -797,7 +815,24 @@ check_confirmed( ctx_t           * ctx,
     }
 
     uint bad_fec_idx = fd_forest_merkle_last_incorrect_idx( bad_blk );
-    FD_LOG_WARNING(( "slot %lu is complete but has incorrect FECs. bad blk %lu. last verified fec %u", blk->slot, bad_blk->slot, bad_fec_idx ));
+    fd_hash_t const * expected = (bad_fec_idx == bad_blk->complete_idx - (FD_FEC_SHRED_CNT - 1)) ? &bad_blk->confirmed_bid : &bad_blk->merkle_roots[(bad_fec_idx / 32) + 1].cmr;
+
+    FD_BASE58_ENCODE_32_BYTES( confirmed_bid->uc,                        confirmed_bid_b58 );
+    FD_BASE58_ENCODE_32_BYTES( expected->uc,                             expected_mr );
+    FD_BASE58_ENCODE_32_BYTES( bad_blk->merkle_roots[bad_fec_idx].mr.uc, recorded_mr );
+
+    FD_LOG_WARNING(( "[%s] slot %lu block_id %s confirmation detected incorrect FECs. bad FEC is slot %lu fec set %u. expected mr (%s) != recorded mr (%s)",
+                       __func__,
+                       blk->slot,
+                       confirmed_bid_b58,
+                       bad_blk->slot,
+                       bad_fec_idx,
+                       expected_mr,
+                       recorded_mr ));
+
+    ctx->metrics->failed_chain_verify_cnt++;
+    ctx->metrics->failed_chain_verify_slot = bad_blk->slot;
+
     /* If we have a bad block, we need to dump and repair backwards from
        the point where the merkle root is incorrect.
        We start only by dumping the last incorrect FEC. It's possible that
@@ -837,12 +872,22 @@ after_fec( ctx_t      * ctx,
     ulong duration_ticks = (ulong)(now - start_ts);
     fd_histf_sample( ctx->metrics->slot_compl_time, duration_ticks );
     fd_repair_metrics_add_slot( ctx->slot_metrics, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
-    /* Note: this log now no longer implies that the slot is fully
-       executable, as we don't wait for FEC completion msgs to log this,
-       only that a shred for every index has been received. It's
-       possible that we have an unverified slot that doesn't chain
-       verify, which is technically un-executable. */
-    FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt, (double)fd_metrics_convert_ticks_to_nanoseconds(duration_ticks) / 1e6 ));
+    /* Note: this log does not imply that the slot is fully executable.
+       It's possible that we have a slot that doesn't chain verify,
+       which could be un-executable. */
+    FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[ele->complete_idx / 32].mr.uc, block_id );
+    FD_BASE58_ENCODE_32_BYTES( mr->uc, fec_mr );
+    FD_LOG_INFO(( "[%s] slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms. last recvd fec: %u, mr %s. current block_id: %s",
+                    __func__,
+                    ele->slot,
+                    ele->complete_idx + 1,
+                    ele->repair_cnt,
+                    ele->turbine_cnt,
+                    ele->recovered_cnt,
+                    (double)fd_metrics_convert_ticks_to_nanoseconds(duration_ticks) / 1e6,
+                    shred->fec_set_idx,
+                    fec_mr,
+                    block_id ));
   }
 
   /* re-trigger continuation of chained merkle verification if this FEC
@@ -900,6 +945,40 @@ after_evict( ctx_t * ctx,
   fd_forest_fec_clear( ctx->forest, evicted->slot, evicted->fec_set_idx, FD_FEC_SHRED_CNT - 1 );
 }
 
+static inline void
+after_tower( ctx_t *       ctx,
+             ulong         sig,
+             uchar const * chunk ) {
+
+  switch( sig ) {
+    case FD_TOWER_SIG_SLOT_DONE: {
+      fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( chunk );
+      if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
+      break;
+    }
+    case FD_TOWER_SIG_SLOT_CONFIRMED: {
+      fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( chunk );
+      if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
+        fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
+        if( FD_UNLIKELY( !blk ) ) {
+          /* If we receive a confirmation for a slot we don't have,
+              create a sentinel forest block that we can repair from. */
+          ulong evicted = ULONG_MAX;
+          blk = fd_forest_blk_insert( ctx->forest, msg->slot, ULONG_MAX, &evicted );
+          FD_LOG_INFO(("[%s] creating sentinel for duplicate confirmed block %lu", __func__, msg->slot));
+          if( FD_UNLIKELY( !blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) return;
+        }
+
+        /* Confirm the block */
+        blk->confirmed_bid = msg->block_id;
+        check_confirmed( ctx, blk, &msg->block_id );
+      }
+      break;
+    }
+    default: return;
+  }
+}
+
 static void
 after_frag( ctx_t *             ctx,
             ulong               in_idx,
@@ -937,11 +1016,7 @@ after_frag( ctx_t *             ctx,
     }
     case IN_KIND_GOSSIP: {
       fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
-      if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
-        after_contact( ctx, msg );
-      } else {
-        fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
-      }
+      after_gossip( ctx, msg, sig );
       break;
     }
     case IN_KIND_REPLAY: {
@@ -950,26 +1025,7 @@ after_frag( ctx_t *             ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
-        fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
-        if( FD_LIKELY( msg->root_slot!=ULONG_MAX && msg->root_slot > fd_forest_root_slot( ctx->forest ) ) ) fd_forest_publish( ctx->forest, msg->root_slot );
-      } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
-        fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
-        if( msg->slot > fd_forest_root_slot( ctx->forest ) && (msg->level >= FD_TOWER_SLOT_CONFIRMED_DUPLICATE ) ) {
-          fd_forest_blk_t * blk = fd_forest_query( ctx->forest, msg->slot );
-          if( FD_UNLIKELY( !blk ) ) {
-            /* If we receive a confirmation for a slot we don't have,
-               create a sentinel forest block that we can repair from. */
-            ulong evicted = ULONG_MAX;
-            blk = fd_forest_blk_insert( ctx->forest, msg->slot, ULONG_MAX, &evicted );
-            if( FD_UNLIKELY( !blk_insert_check( ctx, blk, msg->slot, evicted ) ) ) break;
-          }
-
-          /* Confirm the block */
-          blk->confirmed_bid = msg->block_id;
-          check_confirmed( ctx, blk, &msg->block_id );
-        }
-      }
+      after_tower( ctx, sig, fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
       break;
     }
     case IN_KIND_SHRED: {
@@ -992,20 +1048,15 @@ after_frag( ctx_t *             ctx,
       fd_shred_t      * shred     = &shred_msg->shred; /* completes & shred messages all have a shred header at the same offset (after merkle root) */
 
       if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
-        FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
+        ctx->metrics->old_shred++;
         return;
       };
 
-  #   if LOGGING
       if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
-        FD_LOG_INFO(( "\n\n[Turbine]\n"
-                      "slot:             %lu\n"
-                      "root:             %lu\n",
-                      shred->slot,
-                      fd_forest_root_slot( ctx->forest ) ));
+        FD_LOG_INFO(( "[Turbine] slot: %lu, root: %lu", shred->slot, fd_forest_root_slot( ctx->forest ) ));
+        ctx->metrics->current_slot = shred->slot;
       }
-  #   endif
-      ctx->metrics->current_slot  = fd_ulong_max( shred->slot, ctx->metrics->current_slot );
+
       if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
         ctx->turbine_slot0 = shred->slot;
         fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
@@ -1318,12 +1369,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( ctx->repair_sign_cnt!=sign_repair_idx ) ) {
     FD_LOG_ERR(( "Mismatch between repair_sign output links (%lu) and sign_repair input links (%u)", ctx->repair_sign_cnt, sign_repair_idx ));
   }
-
-# if DEBUG_LOGGING
-  if( fd_signs_map_key_max( ctx->signs_map ) < tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt ) {
-    FD_LOG_ERR(( "repair pending signs tracking map is too small: %lu < %lu.  Increase the key_max", fd_signs_map_key_max( ctx->signs_map ), tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt ));
+  if( FD_UNLIKELY( fd_signs_map_key_max( ctx->signs_map ) < tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt ) ) {
+    FD_LOG_ERR(( "Repair pending signs tracking map is too small: %lu < %lu.", fd_signs_map_key_max( ctx->signs_map ), tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt ));
   }
-# endif
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
@@ -1379,6 +1427,7 @@ static inline void
 metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
   FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
+  FD_MCNT_SET( REPAIR, OLD_SHRED,         ctx->metrics->old_shred );
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_policy_peer_pool_used( ctx->policy->peers.pool ) );
   FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL, ctx->metrics->sign_tile_unavail );
   FD_MCNT_SET( REPAIR, REREQUEST_QUEUE,   ctx->metrics->rerequest );
@@ -1393,8 +1442,14 @@ metrics_write( ctx_t * ctx ) {
   FD_MHIST_COPY( REPAIR, SLOT_COMPLETE_TIME, ctx->metrics->slot_compl_time );
   FD_MHIST_COPY( REPAIR, RESPONSE_LATENCY,   ctx->metrics->response_latency );
 
-  FD_MCNT_SET( REPAIR, BLK_EVICTED,       ctx->metrics->blk_evicted );
-  FD_MCNT_SET( REPAIR, BLK_FAILED_INSERT, ctx->metrics->blk_failed_insert );
+  FD_MCNT_SET  ( REPAIR, BLK_EVICTED,        ctx->metrics->blk_evicted );
+  FD_MCNT_SET  ( REPAIR, BLK_FAILED_INSERT,  ctx->metrics->blk_failed_insert );
+  FD_MGAUGE_SET( REPAIR, SLOT_EVICTED,       ctx->metrics->slot_evicted );
+  FD_MGAUGE_SET( REPAIR, SLOT_EVICTED_BY,    ctx->metrics->slot_evicted_by );
+  FD_MGAUGE_SET( REPAIR, SLOT_FAILED_INSERT, ctx->metrics->slot_failed_insert );
+
+  FD_MCNT_SET  ( REPAIR, FAILED_CHAIN_VERIFY_CNT,  ctx->metrics->failed_chain_verify_cnt );
+  FD_MGAUGE_SET( REPAIR, FAILED_CHAIN_VERIFY_SLOT, ctx->metrics->failed_chain_verify_slot );
 
   FD_MCNT_SET( REPAIR, UNKNOWN_PEER_PING,     ctx->metrics->unknown_peer_ping );
   FD_MCNT_SET( REPAIR, MALFORMED_PING,        ctx->metrics->malformed_ping );

@@ -15,10 +15,10 @@
 /* See solana_accounts_db::blockhash_queue::HashInfo. */
 
 struct fd_blockhash_info {
-  fd_hash_t           hash;
-  fd_fee_calculator_t fee_calculator;
-  ushort              next;
-  ushort              exists : 1;
+  fd_hash_t hash;
+  ulong     lamports_per_signature;
+  ushort    next;
+  ushort    exists : 1;
 };
 
 typedef struct fd_blockhash_info fd_blockhash_info_t;

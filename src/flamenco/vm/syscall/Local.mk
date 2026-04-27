@@ -17,5 +17,7 @@ $(call make-unit-test,test_vm_increase_cpi_account_info_limit,test_vm_increase_c
 $(call run-unit-test,test_vm_increase_cpi_account_info_limit)
 $(call make-unit-test,test_cpi_shared_data_addr,test_cpi_shared_data_addr,fd_flamenco_test fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_cpi_shared_data_addr)
+$(call make-unit-test,test_cpi_semantics,test_cpi_semantics,fd_flamenco_test fd_flamenco fd_funk fd_util fd_ballet)
+$(call run-unit-test,test_cpi_semantics)
 endif
 endif

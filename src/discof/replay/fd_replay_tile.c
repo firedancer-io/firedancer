@@ -807,7 +807,9 @@ static inline int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) return 0;
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || (!ctx->identity_vote_rooted && ctx->wait_for_vote_to_start_leader) || ctx->replay_out->idx==ULONG_MAX || !ctx->wfs_complete ) ) {
+    return 0;
+  }
   if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return 0;
   if( FD_UNLIKELY( ctx->halt_leader ) ) return 0;
   if( !ctx->supports_leader ) return 0;
@@ -1002,6 +1004,7 @@ publish_reset( fd_replay_tile_t *  ctx,
     reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
   }
   reset->next_leader_slot = ctx->next_leader_slot;
+  reset->wfs_paused       = !ctx->wfs_complete;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -2079,6 +2082,7 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
       reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
     }
     reset->next_leader_slot = ctx->next_leader_slot;
+    reset->wfs_paused       = !ctx->wfs_complete;
 
     fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -2348,7 +2352,20 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_GOSSIP_OUT: {
       FD_TEST( sig==FD_GOSSIP_UPDATE_TAG_WFS_DONE );
       ctx->wfs_complete = 1;
+
+      /* Recalculate next_leader_tickcount relative to now.  The
+         original value was computed at boot time (in boot_genesis or
+         on_snapshot_message). */
+      if( FD_LIKELY( ctx->next_leader_slot!=ULONG_MAX ) ) {
+        ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
+      } else {
+        ctx->next_leader_tickcount = LONG_MAX;
+      }
+
       FD_LOG_NOTICE(( "Done waiting for supermajority. More than 80 percent of cluster stake has joined." ));
+      if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
+        fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_WFS_DONE, ctx->replay_out->chunk, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      }
       break;
     }
     case IN_KIND_RPC: {

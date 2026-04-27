@@ -70,7 +70,37 @@ typedef struct fd_exec_test_gossip_contact_info {
     uint64_t wallclock;
     uint64_t outset;
     uint32_t shred_version;
+    uint32_t version_major;
+    uint32_t version_minor;
+    uint32_t version_patch;
+    uint32_t version_commit;
+    uint32_t version_feature_set;
+    uint32_t version_client;
+    pb_size_t addrs_count;
+    struct fd_exec_test_gossip_ip_addr *addrs;
+    pb_size_t sockets_count;
+    struct fd_exec_test_gossip_socket_entry *sockets;
+    pb_bytes_array_t *extensions;
 } fd_exec_test_gossip_contact_info_t;
+
+typedef struct fd_exec_test_gossip_ipv6_addr {
+    uint64_t hi;
+    uint64_t lo;
+} fd_exec_test_gossip_ipv6_addr_t;
+
+typedef struct fd_exec_test_gossip_ip_addr {
+    pb_size_t which_addr;
+    union {
+        uint32_t ipv4;
+        fd_exec_test_gossip_ipv6_addr_t ipv6;
+    } addr;
+} fd_exec_test_gossip_ip_addr_t;
+
+typedef struct fd_exec_test_gossip_socket_entry {
+    uint32_t key;
+    uint32_t index;
+    uint32_t offset;
+} fd_exec_test_gossip_socket_entry_t;
 
 typedef struct fd_exec_test_gossip_vote {
     uint32_t index;
@@ -90,7 +120,19 @@ typedef struct fd_exec_test_gossip_epoch_slots {
     uint32_t index;
     pb_bytes_array_t *from;
     uint64_t wallclock;
+    pb_size_t slots_count;
+    struct fd_exec_test_gossip_compressed_slots *slots;
 } fd_exec_test_gossip_epoch_slots_t;
+
+typedef struct fd_exec_test_gossip_compressed_slots {
+    uint64_t first_slot;
+    uint64_t num;
+    pb_size_t which_data;
+    union {
+        pb_bytes_array_t *uncompressed;
+        pb_bytes_array_t *flate2;
+    } data;
+} fd_exec_test_gossip_compressed_slots_t;
 
 typedef struct fd_exec_test_gossip_snapshot_hashes {
     pb_bytes_array_t *from;
@@ -189,10 +231,14 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_BLOOM_INIT_DEFAULT   {0, NULL, NULL, 0}
 #define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_DEFAULT {NULL, false, FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_DEFAULT}
 #define FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_DEFAULT {0, {FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_DEFAULT}}
-#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_DEFAULT {NULL, 0, 0, 0}
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_DEFAULT {NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, NULL, NULL}
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_INIT_DEFAULT {0, {0}}
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_INIT_DEFAULT {0, 0}
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_INIT_DEFAULT {0, 0, 0}
 #define FD_EXEC_TEST_GOSSIP_VOTE_INIT_DEFAULT    {0, NULL, 0, NULL}
 #define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INIT_DEFAULT {0, NULL, 0, 0}
-#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_DEFAULT {0, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_DEFAULT {0, NULL, 0, 0, NULL}
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_INIT_DEFAULT {0, 0, 0, {NULL}}
 #define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT {NULL, 0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT {0, NULL}
 #define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT {0, NULL, 0, 0, 0, 0, 0, 0, NULL}
@@ -210,10 +256,14 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_BLOOM_INIT_ZERO      {0, NULL, NULL, 0}
 #define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_ZERO {NULL, false, FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_ZERO}
 #define FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_ZERO  {0, {FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_ZERO}}
-#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_ZERO {NULL, 0, 0, 0}
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_ZERO {NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, NULL, NULL}
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_INIT_ZERO    {0, {0}}
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_INIT_ZERO  {0, 0}
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_INIT_ZERO {0, 0, 0}
 #define FD_EXEC_TEST_GOSSIP_VOTE_INIT_ZERO       {0, NULL, 0, NULL}
 #define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INIT_ZERO {0, NULL, 0, 0}
-#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_ZERO {0, NULL, 0}
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_ZERO {0, NULL, 0, 0, NULL}
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_INIT_ZERO {0, 0, 0, {NULL}}
 #define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_ZERO {NULL, 0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_ZERO {0, NULL}
 #define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_ZERO {0, NULL, 0, 0, 0, 0, 0, 0, NULL}
@@ -246,6 +296,22 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_WALLCLOCK_TAG 2
 #define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_OUTSET_TAG 3
 #define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_SHRED_VERSION_TAG 4
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_VERSION_MAJOR_TAG 5
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_VERSION_MINOR_TAG 6
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_VERSION_PATCH_TAG 7
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_VERSION_COMMIT_TAG 8
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_VERSION_FEATURE_SET_TAG 9
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_VERSION_CLIENT_TAG 10
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_ADDRS_TAG 11
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_SOCKETS_TAG 12
+#define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_EXTENSIONS_TAG 13
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_HI_TAG     1
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_LO_TAG     2
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_IPV4_TAG     1
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_IPV6_TAG     2
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_KEY_TAG 1
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_INDEX_TAG 2
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_OFFSET_TAG 3
 #define FD_EXEC_TEST_GOSSIP_VOTE_INDEX_TAG       1
 #define FD_EXEC_TEST_GOSSIP_VOTE_FROM_TAG        2
 #define FD_EXEC_TEST_GOSSIP_VOTE_WALLCLOCK_TAG   3
@@ -257,6 +323,11 @@ extern "C" {
 #define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INDEX_TAG 1
 #define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_FROM_TAG 2
 #define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_WALLCLOCK_TAG 3
+#define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_SLOTS_TAG 4
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_FIRST_SLOT_TAG 1
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_NUM_TAG 2
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_UNCOMPRESSED_TAG 3
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_FLATE2_TAG 4
 #define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FROM_TAG 1
 #define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FULL_SLOT_TAG 2
 #define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FULL_HASH_TAG 3
@@ -422,9 +493,40 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (data,duplicate_shred,data.duplicate_shred), 
 X(a, POINTER,  SINGULAR, BYTES,    pubkey,            1) \
 X(a, STATIC,   SINGULAR, UINT64,   wallclock,         2) \
 X(a, STATIC,   SINGULAR, UINT64,   outset,            3) \
-X(a, STATIC,   SINGULAR, UINT32,   shred_version,     4)
+X(a, STATIC,   SINGULAR, UINT32,   shred_version,     4) \
+X(a, STATIC,   SINGULAR, UINT32,   version_major,     5) \
+X(a, STATIC,   SINGULAR, UINT32,   version_minor,     6) \
+X(a, STATIC,   SINGULAR, UINT32,   version_patch,     7) \
+X(a, STATIC,   SINGULAR, UINT32,   version_commit,    8) \
+X(a, STATIC,   SINGULAR, UINT32,   version_feature_set,   9) \
+X(a, STATIC,   SINGULAR, UINT32,   version_client,   10) \
+X(a, POINTER,  REPEATED, MESSAGE,  addrs,            11) \
+X(a, POINTER,  REPEATED, MESSAGE,  sockets,          12) \
+X(a, POINTER,  SINGULAR, BYTES,    extensions,       13)
 #define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_CALLBACK NULL
 #define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_DEFAULT NULL
+#define fd_exec_test_gossip_contact_info_t_addrs_MSGTYPE fd_exec_test_gossip_ip_addr_t
+#define fd_exec_test_gossip_contact_info_t_sockets_MSGTYPE fd_exec_test_gossip_socket_entry_t
+
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_FIELDLIST(X, a) \
+X(a, STATIC,   ONEOF,    FIXED32,  (addr,ipv4,addr.ipv4),   1) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (addr,ipv6,addr.ipv6),   2)
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_DEFAULT NULL
+#define fd_exec_test_gossip_ip_addr_t_addr_ipv6_MSGTYPE fd_exec_test_gossip_ipv6_addr_t
+
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, FIXED64,  hi,                1) \
+X(a, STATIC,   SINGULAR, FIXED64,  lo,                2)
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_DEFAULT NULL
+
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   key,               1) \
+X(a, STATIC,   SINGULAR, UINT32,   index,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   offset,            3)
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_DEFAULT NULL
 
 #define FD_EXEC_TEST_GOSSIP_VOTE_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   index,             1) \
@@ -445,9 +547,19 @@ X(a, STATIC,   SINGULAR, UINT64,   wallclock,         4)
 #define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   index,             1) \
 X(a, POINTER,  SINGULAR, BYTES,    from,              2) \
-X(a, STATIC,   SINGULAR, UINT64,   wallclock,         3)
+X(a, STATIC,   SINGULAR, UINT64,   wallclock,         3) \
+X(a, POINTER,  REPEATED, MESSAGE,  slots,             4)
 #define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_CALLBACK NULL
 #define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_DEFAULT NULL
+#define fd_exec_test_gossip_epoch_slots_t_slots_MSGTYPE fd_exec_test_gossip_compressed_slots_t
+
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   first_slot,        1) \
+X(a, STATIC,   SINGULAR, UINT64,   num,               2) \
+X(a, POINTER,  ONEOF,    BYTES,    (data,uncompressed,data.uncompressed),   3) \
+X(a, POINTER,  ONEOF,    BYTES,    (data,flate2,data.flate2),   4)
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_CALLBACK NULL
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_DEFAULT NULL
 
 #define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FIELDLIST(X, a) \
 X(a, POINTER,  SINGULAR, BYTES,    from,              1) \
@@ -493,9 +605,13 @@ extern const pb_msgdesc_t fd_exec_test_gossip_bloom_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_crds_value_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_crds_data_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_contact_info_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_ip_addr_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_ipv6_addr_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_socket_entry_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_vote_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_lowest_slot_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_epoch_slots_t_msg;
+extern const pb_msgdesc_t fd_exec_test_gossip_compressed_slots_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_snapshot_hashes_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_incremental_hash_t_msg;
 extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
@@ -516,9 +632,13 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 #define FD_EXEC_TEST_GOSSIP_CRDS_VALUE_FIELDS &fd_exec_test_gossip_crds_value_t_msg
 #define FD_EXEC_TEST_GOSSIP_CRDS_DATA_FIELDS &fd_exec_test_gossip_crds_data_t_msg
 #define FD_EXEC_TEST_GOSSIP_CONTACT_INFO_FIELDS &fd_exec_test_gossip_contact_info_t_msg
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_FIELDS &fd_exec_test_gossip_ip_addr_t_msg
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_FIELDS &fd_exec_test_gossip_ipv6_addr_t_msg
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_FIELDS &fd_exec_test_gossip_socket_entry_t_msg
 #define FD_EXEC_TEST_GOSSIP_VOTE_FIELDS &fd_exec_test_gossip_vote_t_msg
 #define FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_FIELDS &fd_exec_test_gossip_lowest_slot_t_msg
 #define FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_FIELDS &fd_exec_test_gossip_epoch_slots_t_msg
+#define FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_FIELDS &fd_exec_test_gossip_compressed_slots_t_msg
 #define FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_FIELDS &fd_exec_test_gossip_snapshot_hashes_t_msg
 #define FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_FIELDS &fd_exec_test_gossip_incremental_hash_t_msg
 #define FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_FIELDS &fd_exec_test_gossip_duplicate_shred_t_msg
@@ -542,9 +662,14 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 /* fd_exec_test_GossipVote_size depends on runtime parameters */
 /* fd_exec_test_GossipLowestSlot_size depends on runtime parameters */
 /* fd_exec_test_GossipEpochSlots_size depends on runtime parameters */
+/* fd_exec_test_GossipCompressedSlots_size depends on runtime parameters */
 /* fd_exec_test_GossipSnapshotHashes_size depends on runtime parameters */
 /* fd_exec_test_GossipIncrementalHash_size depends on runtime parameters */
 /* fd_exec_test_GossipDuplicateShred_size depends on runtime parameters */
+#define FD_EXEC_TEST_GOSSIP_IPV6_ADDR_SIZE       18
+#define FD_EXEC_TEST_GOSSIP_IP_ADDR_SIZE         20
+#define FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_SIZE    18
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_PB_H_MAX_SIZE FD_EXEC_TEST_GOSSIP_IP_ADDR_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_GossipFixture fd_exec_test_GossipFixture
@@ -562,9 +687,13 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 #define org_solana_sealevel_v1_GossipCrdsValue fd_exec_test_GossipCrdsValue
 #define org_solana_sealevel_v1_GossipCrdsData fd_exec_test_GossipCrdsData
 #define org_solana_sealevel_v1_GossipContactInfo fd_exec_test_GossipContactInfo
+#define org_solana_sealevel_v1_GossipIpAddr fd_exec_test_GossipIpAddr
+#define org_solana_sealevel_v1_GossipIpv6Addr fd_exec_test_GossipIpv6Addr
+#define org_solana_sealevel_v1_GossipSocketEntry fd_exec_test_GossipSocketEntry
 #define org_solana_sealevel_v1_GossipVote fd_exec_test_GossipVote
 #define org_solana_sealevel_v1_GossipLowestSlot fd_exec_test_GossipLowestSlot
 #define org_solana_sealevel_v1_GossipEpochSlots fd_exec_test_GossipEpochSlots
+#define org_solana_sealevel_v1_GossipCompressedSlots fd_exec_test_GossipCompressedSlots
 #define org_solana_sealevel_v1_GossipSnapshotHashes fd_exec_test_GossipSnapshotHashes
 #define org_solana_sealevel_v1_GossipIncrementalHash fd_exec_test_GossipIncrementalHash
 #define org_solana_sealevel_v1_GossipDuplicateShred fd_exec_test_GossipDuplicateShred
@@ -583,9 +712,13 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_VALUE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_DATA_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CONTACT_INFO_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_IP_ADDR_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_IP_ADDR_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_IPV6_ADDR_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_IPV6_ADDR_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_SOCKET_ENTRY_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_VOTE_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_VOTE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_LOWEST_SLOT_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_EPOCH_SLOTS_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_COMPRESSED_SLOTS_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_DEFAULT
@@ -604,9 +737,13 @@ extern const pb_msgdesc_t fd_exec_test_gossip_duplicate_shred_t_msg;
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_VALUE_INIT_ZERO FD_EXEC_TEST_GOSSIP_CRDS_VALUE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CRDS_DATA_INIT_ZERO FD_EXEC_TEST_GOSSIP_CRDS_DATA_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_CONTACT_INFO_INIT_ZERO FD_EXEC_TEST_GOSSIP_CONTACT_INFO_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_IP_ADDR_INIT_ZERO FD_EXEC_TEST_GOSSIP_IP_ADDR_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_IPV6_ADDR_INIT_ZERO FD_EXEC_TEST_GOSSIP_IPV6_ADDR_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_SOCKET_ENTRY_INIT_ZERO FD_EXEC_TEST_GOSSIP_SOCKET_ENTRY_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_VOTE_INIT_ZERO FD_EXEC_TEST_GOSSIP_VOTE_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_LOWEST_SLOT_INIT_ZERO FD_EXEC_TEST_GOSSIP_LOWEST_SLOT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_EPOCH_SLOTS_INIT_ZERO FD_EXEC_TEST_GOSSIP_EPOCH_SLOTS_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_GOSSIP_COMPRESSED_SLOTS_INIT_ZERO FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_SNAPSHOT_HASHES_INIT_ZERO FD_EXEC_TEST_GOSSIP_SNAPSHOT_HASHES_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_INCREMENTAL_HASH_INIT_ZERO FD_EXEC_TEST_GOSSIP_INCREMENTAL_HASH_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_GOSSIP_DUPLICATE_SHRED_INIT_ZERO FD_EXEC_TEST_GOSSIP_DUPLICATE_SHRED_INIT_ZERO
