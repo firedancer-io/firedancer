@@ -40,6 +40,8 @@ typedef struct fd_exec_test_bundle_effects {
     struct fd_exec_test_txn_result *txn_results;
     pb_size_t stake_deltas_count;
     struct fd_exec_test_stake_delta *stake_deltas;
+    pb_size_t vote_updates_count;
+    struct fd_exec_test_vote_update *vote_updates;
 } fd_exec_test_bundle_effects_t;
 
 typedef struct fd_exec_test_bundle_fixture {
@@ -60,12 +62,12 @@ extern "C" {
 #define FD_EXEC_TEST_STAKE_DELTA_INIT_DEFAULT    {{0}, 0}
 #define FD_EXEC_TEST_VOTE_UPDATE_INIT_DEFAULT    {{0}, 0, 0}
 #define FD_EXEC_TEST_BUNDLE_CONTEXT_INIT_DEFAULT {0, NULL, 0, NULL, false, FD_EXEC_TEST_TXN_BANK_INIT_DEFAULT}
-#define FD_EXEC_TEST_BUNDLE_EFFECTS_INIT_DEFAULT {0, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_BUNDLE_EFFECTS_INIT_DEFAULT {0, 0, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BUNDLE_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_BUNDLE_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_BUNDLE_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_STAKE_DELTA_INIT_ZERO       {{0}, 0}
 #define FD_EXEC_TEST_VOTE_UPDATE_INIT_ZERO       {{0}, 0, 0}
 #define FD_EXEC_TEST_BUNDLE_CONTEXT_INIT_ZERO    {0, NULL, 0, NULL, false, FD_EXEC_TEST_TXN_BANK_INIT_ZERO}
-#define FD_EXEC_TEST_BUNDLE_EFFECTS_INIT_ZERO    {0, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_BUNDLE_EFFECTS_INIT_ZERO    {0, 0, NULL, 0, NULL, 0, NULL}
 #define FD_EXEC_TEST_BUNDLE_FIXTURE_INIT_ZERO    {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_BUNDLE_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_BUNDLE_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -80,6 +82,7 @@ extern "C" {
 #define FD_EXEC_TEST_BUNDLE_EFFECTS_HAS_ERROR_TAG 1
 #define FD_EXEC_TEST_BUNDLE_EFFECTS_TXN_RESULTS_TAG 2
 #define FD_EXEC_TEST_BUNDLE_EFFECTS_STAKE_DELTAS_TAG 3
+#define FD_EXEC_TEST_BUNDLE_EFFECTS_VOTE_UPDATES_TAG 4
 #define FD_EXEC_TEST_BUNDLE_FIXTURE_METADATA_TAG 1
 #define FD_EXEC_TEST_BUNDLE_FIXTURE_INPUT_TAG    2
 #define FD_EXEC_TEST_BUNDLE_FIXTURE_OUTPUT_TAG   3
@@ -111,11 +114,13 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  bank,              3)
 #define FD_EXEC_TEST_BUNDLE_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     has_error,         1) \
 X(a, POINTER,  REPEATED, MESSAGE,  txn_results,       2) \
-X(a, POINTER,  REPEATED, MESSAGE,  stake_deltas,      3)
+X(a, POINTER,  REPEATED, MESSAGE,  stake_deltas,      3) \
+X(a, POINTER,  REPEATED, MESSAGE,  vote_updates,      4)
 #define FD_EXEC_TEST_BUNDLE_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_BUNDLE_EFFECTS_DEFAULT NULL
 #define fd_exec_test_bundle_effects_t_txn_results_MSGTYPE fd_exec_test_txn_result_t
 #define fd_exec_test_bundle_effects_t_stake_deltas_MSGTYPE fd_exec_test_stake_delta_t
+#define fd_exec_test_bundle_effects_t_vote_updates_MSGTYPE fd_exec_test_vote_update_t
 
 #define FD_EXEC_TEST_BUNDLE_FIXTURE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
