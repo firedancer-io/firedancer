@@ -6,6 +6,7 @@
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../util/net/fd_net_headers.h"
+#include "../pack/fd_pack.h" /* for FD_PACK_ACCT_BLOCKLIST_MAX */
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)
@@ -304,6 +305,8 @@ struct fd_topo_tile {
         char  identity_key_path[ PATH_MAX ];
         char  vote_account_path[ PATH_MAX ]; /* or pubkey is okay */
       } bundle;
+      ulong acct_blocklist_cnt;
+      fd_pubkey_t acct_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ];
     } pack;
 
     struct {

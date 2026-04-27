@@ -78,7 +78,7 @@ init_all( ulong pack_depth,
   else                         FD_LOG_NOTICE(( "Test required %lu bytes of %lu available bytes",    footprint, PACK_SCRATCH_SZ ));
 #endif
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, 1UL, bank_tile_cnt, limits, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, pack_depth, 1UL, bank_tile_cnt, limits, NULL, 0UL, rng ) );
 #define MAX_BANKING_THREADS 64
 
   outcome->microblock_cnt = 0UL;
@@ -744,7 +744,7 @@ performance_test2( void ) {
 #define OUTER_ROUNDS 88
   long elapsed = 0L;
 
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 0UL, 4UL, limits, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 0UL, 4UL, limits, NULL, 0UL, rng ) );
 
   for( ulong outer=0UL; outer<OUTER_ROUNDS; outer++ ) {
     elapsed -= fd_log_wallclock();
@@ -829,7 +829,7 @@ void performance_test( int extra_bench ) {
     long schedule  = 0L;
 
     for( ulong iter=0UL; iter<ITER_CNT; iter++ ) {
-      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 0UL, 1UL, limits, rng ) );
+      fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, heap_sz, 0UL, 1UL, limits, NULL, 0UL, rng ) );
 
       FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
 
@@ -990,7 +990,7 @@ void performance_end_block( void ) {
   payload_sz[ 0UL ] = txnp_scratch[ 0UL ].payload_sz;
 
   FD_LOG_NOTICE(( "Writers\tTime (ms/call)" ));
-  fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, 4096UL, 0UL, 8UL, limits, rng ) );
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, 4096UL, 0UL, 8UL, limits, NULL, 0UL, rng ) );
   for( ulong writers_cnt=1UL; writers_cnt<=16*1024UL; writers_cnt *= 2UL ) {
     long end_block = 0L;
 
@@ -1443,6 +1443,49 @@ test_reject( void ) {
 }
 
 static inline void
+test_reject_blocklist( void ) {
+  FD_LOG_NOTICE(( "TEST REJECT BLOCKLIST" ));
+
+  fd_pack_limits_t limits[1] = { {
+    .max_cost_per_block        = FD_PACK_TEST_MAX_COST_PER_BLOCK,
+    .max_vote_cost_per_block   = FD_PACK_TEST_MAX_VOTE_COST_PER_BLOCK,
+    .max_write_cost_per_acct   = FD_PACK_TEST_MAX_WRITE_COST_PER_ACCT,
+    .max_data_bytes_per_block  = MAX_DATA_PER_BLOCK,
+    .max_txn_per_microblock    = 128UL,
+    .max_microblocks_per_block = MAX_TEST_TXNS,
+    .max_allocated_data_per_block = FD_PACK_MAX_ALLOCATED_DATA_PER_BLOCK,
+  } };
+  fd_acct_addr_t blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX+1UL ];
+
+  fd_memset( blocklist+0, 'Z', 32UL );
+  fd_memset( blocklist+1, 'Y', 32UL );
+
+  fd_pack_t * pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, 2UL, rng ) );
+  FD_TEST( pack );
+
+  ulong i = 0UL;
+  make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD    );
+  make_transaction( i, 1000001U, 500U, 11.0, "Z", "B", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST );
+  make_transaction( i, 1000001U, 500U, 11.0, "Z", "Y", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST );
+  make_transaction( i, 1000001U, 500U, 11.0, "A", "Y", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST );
+  make_transaction( i, 1000001U, 500U, 11.0, "Y", "Z", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST );
+  make_transaction( i, 1000001U, 500U, 11.0, "YZ","A", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST );
+
+  pack = fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, 1UL, rng ) );
+  make_transaction( i, 1000001U, 500U, 11.0, "A", "Y", NULL, NULL );   FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_ADD    );
+
+  fd_memset( blocklist+2, 'Y', 32UL );
+  FD_TEST( !fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, 3UL, rng ) );
+
+  for( ulong i=0UL; i<FD_PACK_ACCT_BLOCKLIST_MAX+1UL; i++ ) {
+    fd_memset( blocklist+i, (char)('Z'-i), 32UL );
+  }
+  FD_TEST( fd_pack_join( fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, FD_PACK_ACCT_BLOCKLIST_MAX, rng ) ) );
+
+  FD_TEST( !fd_pack_new( pack_scratch, 1024UL, 1UL, 1UL, limits, blocklist, FD_PACK_ACCT_BLOCKLIST_MAX+1UL, rng ) );
+}
+
+static inline void
 test_duplicate_sig( void ) {
   FD_LOG_NOTICE(( "TEST DUPLICATE SIGNATURE" ));
   fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
@@ -1688,6 +1731,7 @@ main( int     argc,
   if( 0 ) test_vote_qos();
   test_reject_writes_to_sysvars();
   test_reject();
+  test_reject_blocklist();
   test_duplicate_sig();
   test_nonce();
   test_bundle_nonce();

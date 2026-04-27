@@ -1314,7 +1314,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
                                          tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.execle_tile_count,
-                                         limits_lower, rng ) );
+                                         limits_lower,
+                                         fd_type_pun_const( tile->pack.acct_blocklist ), tile->pack.acct_blocklist_cnt,
+                                         rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
   if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
