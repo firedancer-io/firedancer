@@ -25,26 +25,6 @@
 
 #include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
 
-static fd_pubkey_t const fd_runtime_debug_lthash_account = {{
-  0x80, 0xbd, 0xde, 0x6a, 0x55, 0xd6, 0x04, 0xc4,
-  0xec, 0x90, 0x0b, 0x86, 0x84, 0x7e, 0x4e, 0x8c,
-  0x14, 0x82, 0x3c, 0xc9, 0xe8, 0x04, 0x1c, 0xd1,
-  0x1c, 0x5c, 0x47, 0xdf, 0x8a, 0xbf, 0xce, 0xab
-}};
-
-static fd_signature_t const fd_runtime_debug_signature = {
-  .uc = {
-    0x79, 0xbe, 0x5e, 0xe1, 0x31, 0xbe, 0x24, 0x8b,
-    0x26, 0x97, 0x75, 0x5f, 0x80, 0x8b, 0x92, 0x00,
-    0x52, 0xf8, 0xed, 0xb3, 0xea, 0x20, 0xe3, 0x6d,
-    0xe5, 0xa6, 0xe6, 0x79, 0x83, 0x83, 0x27, 0xf4,
-    0x11, 0xf2, 0xd7, 0xab, 0xda, 0xe2, 0x37, 0xba,
-    0xcb, 0xc9, 0xc4, 0x48, 0x7c, 0x5b, 0x7d, 0xc3,
-    0x30, 0xfb, 0xba, 0x17, 0xb2, 0x2d, 0xb6, 0xc3,
-    0x8a, 0xb9, 0x4e, 0x0a, 0x8b, 0xf8, 0xd1, 0x08
-  }
-};
-
 /*
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1254-L1258
    https://github.com/anza-xyz/agave/blob/v2.1.1/runtime/src/bank.rs#L1749
@@ -978,8 +958,7 @@ static void
 fd_runtime_lthash_account( fd_bank_t *         bank,
                            fd_pubkey_t const * pubkey,
                            fd_accdb_entry_t *  entry,
-                           fd_capture_ctx_t *  capture_ctx,
-                           fd_signature_t const * txn_signature ) {
+                           fd_capture_ctx_t *  capture_ctx ) {
   fd_lthash_value_t lthash_prev[1];
   if( FD_LIKELY( entry->prior_data ) ) {
     fd_hashes_account_lthash_simple( pubkey->uc, entry->prior_owner, entry->prior_lamports, entry->prior_executable, entry->prior_data, entry->prior_data_len, lthash_prev );
@@ -993,18 +972,6 @@ fd_runtime_lthash_account( fd_bank_t *         bank,
   fd_lthash_value_t lthash_post[1];
   if( FD_LIKELY( entry->prior_data || entry->lamports ) ) {
     fd_hashes_update_simple( lthash_post, lthash_prev, pubkey->uc, entry->owner, entry->lamports, entry->executable, entry->data, entry->data_len, bank, capture_ctx );
-    if( FD_UNLIKELY( fd_pubkey_eq( pubkey, &fd_runtime_debug_lthash_account ) ) ) {
-
-      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
-      FD_BASE58_ENCODE_32_BYTES( entry->owner, owner_b58 );
-      FD_BASE58_ENCODE_64_BYTES( txn_signature ? txn_signature->uc : NULL, txn_signature_b58 );
-      FD_BASE58_ENCODE_32_BYTES( lthash_prev->bytes, lthash_prev_b58 );
-      FD_BASE58_ENCODE_32_BYTES( lthash_post->bytes, lthash_post_b58 );
-      FD_LOG_WARNING(( "TARGET ACCOUNT LTHASH slot=%lu txn=%s pubkey=%s owner=%s lamports=%lu executable=%d data_len=%lu lthash_prev=%s lthash_post=%s",
-                       bank->f.slot, txn_signature_b58, pubkey_b58, owner_b58, entry->lamports, entry->executable, entry->data_len, lthash_prev_b58, lthash_post_b58 ));
-      if( FD_LIKELY( entry->data_len ) ) FD_LOG_HEXDUMP_WARNING(( "TARGET ACCOUNT DATA", entry->data, entry->data_len ));
-      else                               FD_LOG_WARNING(( "TARGET ACCOUNT DATA <empty>" ));
-    }
   }
 }
 
@@ -1020,10 +987,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   FD_TEST( txn_out->err.is_committable );
 
   txn_out->details.commit_start_timestamp = fd_tickcount();
-
-  if( FD_UNLIKELY( fd_signature_eq( &txn_out->details.signature, &fd_runtime_debug_signature ) ) ) {
-    FD_LOG_WARNING(( "TXN RESULT %d %d %d", txn_out->err.txn_err, txn_out->err.exec_err, txn_out->err.exec_err_idx ));
-  }
 
   if( FD_UNLIKELY( !txn_out->err.txn_err ) ) {
     fd_top_votes_t * top_votes = fd_bank_top_votes_t_2_modify( bank );
@@ -1063,7 +1026,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         }
       }
 
-      fd_runtime_lthash_account( bank, pubkey, account, runtime->log.capture_ctx, &txn_out->details.signature );
+      fd_runtime_lthash_account( bank, pubkey, account, runtime->log.capture_ctx );
     }
 
     /* Atomically add all accumulated tips to the bank once after
@@ -1121,21 +1084,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         nonce_account->lamports = nonce_account->prior_lamports;
       }
       nonce_account->executable = nonce_account->prior_executable;
-
       nonce_account->commit = 1;
-
-      if( FD_UNLIKELY( fd_signature_eq( &txn_out->details.signature, &fd_runtime_debug_signature ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( nonce_account->pubkey, nonce_account_b58 );
-        FD_LOG_WARNING(( "TXN RESULT %d %d %d %s", txn_out->err.txn_err, txn_out->err.exec_err, txn_out->err.exec_err_idx, nonce_account_b58 ));
-
-        FD_LOG_HEXDUMP_NOTICE(("ACCOUNT DATA", nonce_account->data, nonce_account->data_len));
-        FD_LOG_NOTICE(("LAMPORTS %lu", nonce_account->lamports));
-        FD_BASE58_ENCODE_32_BYTES( nonce_account->owner, out)
-        FD_LOG_NOTICE(("OWNER %s", out));
-        FD_LOG_NOTICE(("EXECUTABLE %d", nonce_account->executable));
-      }
-
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx, &txn_out->details.signature );
+      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not
@@ -1148,14 +1098,8 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       fee_payer_account->lamports = txn_out->accounts.fee_payer_rollback_lamports;
       fee_payer_account->executable = fee_payer_account->prior_executable;
 
-
-      if( FD_UNLIKELY( fd_signature_eq( &txn_out->details.signature, &fd_runtime_debug_signature ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( fee_payer_account->pubkey, nonce_account_b58 );
-        FD_LOG_WARNING(( "TXN RESULT %d %d %d %s", txn_out->err.txn_err, txn_out->err.exec_err, txn_out->err.exec_err_idx, nonce_account_b58 ));
-      }
-
       fee_payer_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx, &txn_out->details.signature );
+      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
     }
   }
 

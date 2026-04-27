@@ -731,8 +731,7 @@ fd_executor_calculate_fee( fd_txn_out_t *   txn_out,
 
 static void
 fd_executor_create_rollback_fee_payer_account( fd_txn_in_t const * txn_in,
-                                               fd_txn_out_t *      txn_out,
-                                               ulong               total_fee ) {
+                                               fd_txn_out_t *      txn_out ) {
   fd_accdb_entry_t const * fee_payer = NULL;
   if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
     fd_pubkey_t * fee_payer_key = &txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX];
@@ -751,11 +750,6 @@ fd_executor_create_rollback_fee_payer_account( fd_txn_in_t const * txn_in,
   }
 
   if( FD_LIKELY( !fee_payer ) ) fee_payer = &txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
-
-  if( fee_payer->lamports< total_fee ) {
-    FD_BASE58_ENCODE_64_BYTES( txn_out->details.signature.uc, txn_signature_b58 );
-    FD_LOG_WARNING(("TXN %s", txn_signature_b58 ));
-  }
 
   txn_out->accounts.fee_payer_rollback_lamports = fee_payer->lamports;
 }
@@ -787,7 +781,7 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
 
   /* Create the rollback fee payer account
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L620-L626 */
-  fd_executor_create_rollback_fee_payer_account( txn_in, txn_out, total_fee );
+  fd_executor_create_rollback_fee_payer_account( txn_in, txn_out );
 
   /* Set the starting lamports (to avoid unbalanced lamports issues in
      instruction execution).  This must happen after the fee has been

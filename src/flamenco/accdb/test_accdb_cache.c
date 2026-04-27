@@ -43,6 +43,18 @@ main( int     argc,
     }
     FD_TEST( total<=footprint );
 
+    /* For the 32 GiB production budget, lock in the rebalancing intent:
+       the 8K class (3) must comfortably hold the measured ~2K p99
+       working set, and the cold large classes (5/6/7) must not be
+       over-provisioned beyond their measured working sets. */
+
+    if( test_gb[t]==32UL ) {
+      FD_TEST( class_cnt[3]>=2500UL );  /* 8K  must fit p99 ws + headroom */
+      FD_TEST( class_cnt[5]<=2048UL );  /* 128K not over-provisioned */
+      FD_TEST( class_cnt[6]<=2048UL );  /* 1M   not over-provisioned */
+      FD_TEST( class_cnt[7]<=2048UL );  /* 10M  not over-provisioned */
+    }
+
     /* Log the allocation. */
 
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {

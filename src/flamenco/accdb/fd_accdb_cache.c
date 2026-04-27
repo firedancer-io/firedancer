@@ -22,20 +22,42 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
   };
 
   /* Access density weights: total_accesses / slot_size from empirical
-     mainnet replay (1000-slot sample), adjusted for 64-byte header
-     offset when mapping data_sz to stored_sz cache classes.  Higher
-     weight means more cache hits per byte of cache spent. Classes 6, 7
-     are floored to 1. */
+     mainnet replay (1000-slot sample at slot 406546575), adjusted for
+     64-byte header offset when mapping data_sz to stored_sz cache
+     classes.  Higher weight means more cache hits per byte of cache
+     spent.  Classes 6, 7 are floored to 1. */
 
   static const ulong density[ FD_ACCDB_CACHE_CLASS_CNT ] = {
-    53470UL,  /* class 0 */
-    10682UL,  /* class 1 */
-     1400UL,  /* class 2 */
-      248UL,  /* class 3 */
-        8UL,  /* class 4 */
-        5UL,  /* class 5 */
+    26861UL,  /* class 0 */
+     7742UL,  /* class 1 */
+      583UL,  /* class 2 */
+      234UL,  /* class 3 */
+       34UL,  /* class 4 */
+        3UL,  /* class 5 */
         1UL,  /* class 6 */
         1UL,  /* class 7 */
+  };
+
+  /* Per-class working-set targets (slot counts).  Derived from p99 of
+     the distinct-pubkey-per-class working set measured over a 32-slot
+     sliding window on the same 1000-slot mainnet sample, with ~25-50%
+     headroom so allocations cover the typical hot set without wasting
+     budget on classes whose live working set is tiny.
+
+     These are floors used by Phase 2: each class gets at least
+     ws_target[c] - FD_ACCDB_CACHE_MIN_RESERVED additional slots above
+     the Phase 1 base reservation, before density-based distribution.
+     Phase 3 then distributes any remaining budget by density. */
+
+  static const ulong ws_target[ FD_ACCDB_CACHE_CLASS_CNT ] = {
+    16384UL,  /* class 0: p99 ~13.4K, ample headroom (small slots) */
+    13000UL,  /* class 1: p99 ~10.4K */
+     4096UL,  /* class 2: p99  ~3.2K */
+     2560UL,  /* class 3: p99  ~2.0K — was undersized at 1.3K */
+     1800UL,  /* class 4: p99  ~1.0K — needs headroom for pre-evict to keep up */
+      128UL,  /* class 5: p99    ~66 — was wastefully sized at 1.3K */
+      256UL,  /* class 6: p99   ~212 */
+      256UL,  /* class 7: p99   ~179; staging covered by MIN_RESERVED */
   };
 
   ulong minimum_cost = FD_ACCDB_CACHE_MIN_RESERVED * ( fd_accdb_cache_slot_sz[ 0UL ] +
@@ -70,19 +92,23 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
     remaining   -= FD_ACCDB_CACHE_MIN_RESERVED * fd_accdb_cache_slot_sz[c];
   }
 
-  /* Phase 2: Reserve additional per-class minimums.  Each class
-     gets at most 1% of the remaining budget, clamped to [1, 1024]
-     slots, added on top of the FD_ACCDB_CACHE_MIN_RESERVED base. */
+  /* Phase 2: Reserve up to ws_target[c] slots per class as a floor.
+     Phase 1 already gave each class FD_ACCDB_CACHE_MIN_RESERVED slots;
+     here we top up to ws_target[c] (or as much as remaining budget
+     allows).  This keeps tiny working sets (128K/1M/10M classes) from
+     being over-allocated and frees budget for hotter classes (8K, 2K)
+     in Phase 3. */
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-    ulong budget_frac = remaining / ( 100UL * fd_accdb_cache_slot_sz[c] );
-    ulong mn = fd_ulong_max( 1UL, fd_ulong_min( 1024UL, fd_ulong_min( budget_frac, pop_max[c] ) ) );
-    ulong cost = mn * fd_accdb_cache_slot_sz[c];
+    if( ws_target[c]<=class_cnt[c] ) continue;
+    ulong want = ws_target[c] - class_cnt[c];
+    want = fd_ulong_min( want, pop_max[c]>class_cnt[c] ? pop_max[c]-class_cnt[c] : 0UL );
+    ulong cost = want * fd_accdb_cache_slot_sz[c];
     if( FD_UNLIKELY( cost>remaining ) ) {
       class_cnt[c] += remaining / fd_accdb_cache_slot_sz[c];
       remaining     = 0UL;
     } else {
-      class_cnt[c] += mn;
+      class_cnt[c] += want;
       remaining    -= cost;
     }
   }

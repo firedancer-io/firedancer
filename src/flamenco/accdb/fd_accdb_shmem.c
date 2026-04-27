@@ -325,10 +325,10 @@ fd_accdb_shmem_new( void * shmem,
     ulong floor_c     = fd_ulong_min( FD_ACCDB_CACHE_MIN_RESERVED, max_c );
     ulong headroom    = ( max_c>floor_c ) ? ( max_c - floor_c ) : 0UL;
     ulong cap         = fd_ulong_min( 8192UL, (64UL<<20) / fd_accdb_cache_slot_sz[ c ] );
-    ulong burst_floor = fd_ulong_min( 256UL, headroom/4UL );
-    ulong target      = fd_ulong_min( cap, fd_ulong_max( headroom/20UL, burst_floor ) );
+    ulong burst_floor = fd_ulong_min( 512UL, headroom/2UL );
+    ulong target      = fd_ulong_min( cap, fd_ulong_max( headroom/10UL, burst_floor ) );
     accdb->cache_free_target   [ c ] = target;
-    accdb->cache_free_low_water[ c ] = target / 2UL;
+    accdb->cache_free_low_water[ c ] = (target * 3UL) / 4UL;
   }
 
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
