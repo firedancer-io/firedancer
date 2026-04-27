@@ -382,6 +382,19 @@ net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
 
   /* Join local copy */
   if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
+
+  if( FD_UNLIKELY( !fd_netdev_tbl_query( &ctx->netdev_tbl, ctx->if_virt ) ) ) {
+    FD_LOG_ERR(( "Main network interface (ifindex %u) has been removed. "
+                 "Firedancer cannot operate without its primary network device.",
+                 ctx->if_virt ));
+  }
+  for( ulong i=0UL; i < ctx->xsk_cnt; i++ ) {
+    if( FD_UNLIKELY( !fd_netdev_tbl_query( &ctx->netdev_tbl, ctx->xsk[ i ].if_idx ) ) ) {
+      FD_LOG_ERR(( "XDP interface (ifindex %u) has been removed. "
+                   "Firedancer cannot operate without its XDP interfaces.",
+                   ctx->xsk[ i ].if_idx ));
+    }
+  }
 }
 
 /* Iterates the netdev table and returns 1 if a GRE interface exists, 0 otherwise.
