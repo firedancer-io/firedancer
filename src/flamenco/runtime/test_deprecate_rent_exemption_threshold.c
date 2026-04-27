@@ -20,6 +20,7 @@
 #include "../accdb/fd_accdb_impl_v1.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "../features/fd_features.h"
+#include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_stake_types.h"
 
 /* Values before deprecate_rent_exemption_threshold is activated */
@@ -176,14 +177,11 @@ add_delegated_stake_account( test_env_t *        env,
 }
 
 static void
-add_bank_stake_delegation_entry( test_env_t *        env,
+add_root_stake_delegation_entry( test_env_t *        env,
                                  fd_pubkey_t const * stake_account,
                                  fd_pubkey_t const * vote_account ) {
-  fd_stake_delegations_t * stake_delegations = fd_bank_stake_delegations_modify( env->bank );
-  env->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
-
-  fd_stake_delegations_fork_update( stake_delegations,
-                                    env->bank->stake_delegations_fork_id,
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( env->banks );
+  fd_stake_delegations_root_update( stake_delegations,
                                     stake_account,
                                     vote_account,
                                     1000000000UL,
@@ -243,8 +241,6 @@ test_env_create( test_env_t * env,
   env->bank->f.slot = 1UL;
   env->bank->f.epoch = 1UL;
 
-  fd_bank_top_votes_t_2_modify( env->bank );
-
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( env->bank );
   fd_vote_stakes_reset( vote_stakes );
   fd_pubkey_t pubkey = { .ul[0] = 1UL };
@@ -253,7 +249,7 @@ test_env_create( test_env_t * env,
   fd_vote_stakes_root_update_meta( vote_stakes, &pubkey, &pubkey, 1000000000UL, 1UL, 0UL );
   fd_pubkey_t stake_account = { .ul[0] = 2UL };
   add_delegated_stake_account( env, &stake_account, &pubkey );
-  add_bank_stake_delegation_entry( env, &stake_account, &pubkey );
+  add_root_stake_delegation_entry( env, &stake_account, &pubkey );
   FD_LOG_NOTICE(("fork idx %u", env->bank->vote_stakes_fork_id));
   ulong cnt = fd_vote_stakes_ele_cnt( vote_stakes, env->bank->vote_stakes_fork_id );
   FD_LOG_NOTICE(("cnt %lu", cnt));
