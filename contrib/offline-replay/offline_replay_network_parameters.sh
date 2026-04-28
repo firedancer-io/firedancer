@@ -42,4 +42,11 @@ case $network in
 esac
 
 # Backward compatibility for existing callers that still read HEAP_SIZE.
-export HEAP_SIZE=$HEAP_SIZE_MIB
+# Preserve any caller-provided HEAP_SIZE override.
+if [ -z "${HEAP_SIZE:-}" ]; then
+  export HEAP_SIZE="$HEAP_SIZE_MIB"
+else
+  # Ensure legacy HEAP_SIZE overrides are reflected in the new variable.
+  export HEAP_SIZE_MIB="$HEAP_SIZE"
+  export HEAP_SIZE
+fi
