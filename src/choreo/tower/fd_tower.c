@@ -1040,8 +1040,7 @@ fd_tower_reconcile( fd_tower_t      * tower,
 
   /* On-chain tower is newer, so sync our local tower to the on-chain tower. */
 
-  char local_cstr[FD_TOWER_CSTR_MIN];
-  FD_LOG_NOTICE(( "[%s] overwriting local tower:\n\n%s\nwith onchain tower (root=%lu, vote_cnt=%lu, tip=%lu)", __func__, fd_tower_to_cstr( tower, local_cstr ), onchain_root, fd_tower_vote_cnt( onchain_votes ), onchain_vote ));
+  FD_LOG_NOTICE(( "[%s] overwriting local tower (last: %lu, root: %lu) with onchain tower (last: %lu, root: %lu)", __func__, local_vote, local_root, onchain_vote, onchain_root ));
 
   FD_TEST( local_root!=ULONG_MAX ); /* local root should always be set before fd_tower_reconcile */
   if( FD_LIKELY( onchain_root==ULONG_MAX || local_root > onchain_root ) ) {
@@ -1049,7 +1048,7 @@ fd_tower_reconcile( fd_tower_t      * tower,
     /* Local root is larger than on-chain root. Overwrite on-chain root
        with local root (this is just a copy, not writing to accdb). */
 
-    FD_LOG_NOTICE(( "[%s] local_root %lu > onchain_root %lu", __func__, local_root, onchain_root ));
+    FD_LOG_DEBUG(( "[%s] local_root %lu > onchain_root %lu", __func__, local_root, onchain_root ));
     onchain_root = local_root;
 
     /* Drop on-chain votes <= local root. */
@@ -1057,7 +1056,7 @@ fd_tower_reconcile( fd_tower_t      * tower,
     while( FD_LIKELY( !fd_tower_vote_empty( onchain_votes ) ) ) {
       fd_tower_vote_t const * vote = fd_tower_vote_peek_head_const( onchain_votes );
       if( FD_LIKELY( vote->slot > local_root ) ) break;
-      FD_LOG_NOTICE(( "[%s] dropping on-chain vote for slot %lu since it's <= local root %lu", __func__, vote->slot, local_root ));
+      FD_LOG_DEBUG(( "[%s] dropping on-chain vote for slot %lu since it's <= local root %lu", __func__, vote->slot, local_root ));
       fd_tower_vote_pop_head( onchain_votes );
     }
 
@@ -1119,7 +1118,7 @@ fd_tower_from_vote_acc( fd_tower_vote_t * votes,
                         ulong           * root,
                         uchar  const    * vote_acc ) {
   fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
-  uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
+  uint                  kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
   for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
     switch( kind ) {
     case FD_VOTE_ACC_V4: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;

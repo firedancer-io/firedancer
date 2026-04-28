@@ -975,7 +975,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
     fd_accdb_close_ro( ctx->accdb, reconcile_ro );
     int skip_reconcile = !ctx->init && ctx->wfs;
     if( FD_LIKELY( !skip_reconcile ) ) {
-      ulong root; fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct );
+      ulong root; fd_tower_vote_remove_all( ctx->scratch_tower ); fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct );
       fd_tower_reconcile( ctx->tower, ctx->scratch_tower, root );
     } else {
       FD_LOG_NOTICE(( "wait_for_supermajority: skipping tower reconcile on init slot %lu", slot_completed->slot ));
@@ -1119,6 +1119,12 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     }
   }
 
+  if( FD_UNLIKELY( !ctx->init ) ) {
+    ctx->metrics.init_slot = slot_completed->slot;
+    ctx->tower->root       = slot_completed->slot;
+    fd_votes_publish( ctx->votes, slot_completed->slot );
+  }
+
   /* Count the vote accounts and reconcile our own vote account. */
 
   ulong our_vote_acct_bal = ULONG_MAX;
@@ -1129,9 +1135,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
      tile's various structures. */
 
   if( FD_UNLIKELY( !ctx->init ) ) {
-    ctx->metrics.init_slot = slot_completed->slot;
-    ctx->tower->root       = slot_completed->slot;
-    fd_votes_publish( ctx->votes, slot_completed->slot );
     fd_eqvoc_update_voters( ctx->eqvoc, ctx->id_keys, ctx->vtr_cnt );
     fd_hfork_update_voters( ctx->hfork, ctx->vote_accs, ctx->vtr_cnt );
     fd_votes_update_voters( ctx->votes, ctx->vote_accs, ctx->stakes, ctx->vtr_cnt );
