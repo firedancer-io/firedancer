@@ -4,6 +4,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 
@@ -59,13 +60,13 @@ struct fd_gossip_tile_ctx {
 
      We keep a copy of the snapshot bank's votes states in an array here
      for quick look up. */
-  fd_vote_stake_weight_t wfs_stakes_scratch[ 40200UL ];
-  fd_stake_weight_t      wfs_stakes        [ 40200UL ];
+  fd_vote_stake_weight_t wfs_stakes_scratch[ FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ];
+  fd_stake_weight_t      wfs_stakes        [ FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ];
   ulong                  wfs_stakes_cnt;
 
   /* wfs_active is used to keep track of nodes we've already labeled as
      being active on gossip, so we don't double count their stake. */
-  uchar             wfs_active[ 40200UL ];
+  uchar             wfs_active[ FD_SNAPSHOT_MAX_VOTE_ACCOUNTS ];
   int               wfs_state;
 
   struct {

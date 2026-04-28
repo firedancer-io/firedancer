@@ -61,7 +61,7 @@ main( int     argc,
 
   long ts = -fd_log_wallclock();
 
-  int result = fd_ssmanifest_parser_consume( parser, buffer, size, NULL, NULL );
+  int result = fd_ssmanifest_parser_consume( parser, buffer, size, NULL, NULL, NULL );
   if( FD_UNLIKELY( result ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", result ));
 
   long elapsed = fd_log_wallclock() + ts;
