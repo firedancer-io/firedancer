@@ -84,9 +84,15 @@ fd_tar_meta_get_size( fd_tar_meta_t const * meta ) {
     return fd_ulong_bswap( FD_LOAD( ulong, buf+4 ) );
   }
 
+  char const * p = buf;
+
+  /* Skip leading spaces (valid per POSIX TAR) */
+  while( p<buf+12 && *p==' ' ) p++;
+
   ulong ret = 0UL;
-  for( char const * p=buf; p<buf+12; p++ ) {
-    if( *p == '\0' ) break;
+  for( ; p<buf+12; p++ ) {
+    if( *p=='\0' || *p==' ' ) break;
+    if( FD_UNLIKELY( *p<'0' || *p>'7' ) ) return ULONG_MAX;
     ret = (ret << 3) + (ulong)(*p - '0');
   }
 
