@@ -678,6 +678,7 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( bank->f.epoch>fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.parent_slot, NULL ) )) {
+    fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
     publish_epoch_info( ctx, stem, bank, 1 );
   }
 
@@ -742,7 +743,8 @@ init_funk( fd_replay_tile_t * ctx,
 }
 
 static void
-init_after_snapshot( fd_replay_tile_t * ctx ) {
+init_after_snapshot( fd_replay_tile_t *  ctx,
+                     fd_stem_context_t * stem ) {
   /* Now that the snapshot has been loaded in, we have to refresh the
      stake delegations since the manifest does not contain the full set
      of data required for the stake delegations. See
@@ -752,6 +754,18 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
   }
+
+  fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
+  fd_runtime_update_leaders( bank, ctx->runtime_stack );
+
+  /* Typically, when we cross an epoch boundary during normal
+     operation, we publish the stake weights for the new epoch.  But
+     since we are starting from a snapshot, we need to publish two
+     epochs worth of stake weights: the previous epoch (which is
+     needed for voting on the current epoch), and the current epoch
+     (which is needed for voting on the next epoch). */
+  publish_epoch_info( ctx, stem, bank, 0 );
+  publish_epoch_info( ctx, stem, bank, 1 );
 
   fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
   init_funk( ctx, bank->f.slot );
@@ -783,6 +797,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     /* FIXME: This branch does not set up a new block exec ctx
        properly. Needs to do whatever prepare_new_block_execution
        does, but just hacking that in breaks stuff. */
+    fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
     fd_runtime_update_leaders( bank, ctx->runtime_stack );
 
     ulong hashcnt_per_slot = bank->f.hashes_per_tick * bank->f.ticks_per_slot;
@@ -1060,12 +1075,9 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   fd_txncache_finalize_fork( ctx->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
 
-  publish_epoch_info( ctx, stem, bank, 0 );
-  publish_epoch_info( ctx, stem, bank, 1 );
-
   /* We call this after fd_runtime_read_genesis, which sets up the
      slot_bank needed in blockstore_init. */
-  init_after_snapshot( ctx );
+  init_after_snapshot( ctx, stem );
 
   ctx->published_root_slot = 0UL;
   fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, 0UL );
@@ -1202,17 +1214,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->idx==0UL );
 
-    fd_runtime_update_leaders( bank, ctx->runtime_stack );
-
-    /* Typically, when we cross an epoch boundary during normal
-       operation, we publish the stake weights for the new epoch.  But
-       since we are starting from a snapshot, we need to publish two
-       epochs worth of stake weights: the previous epoch (which is
-       needed for voting on the current epoch), and the current epoch
-       (which is needed for voting on the next epoch). */
-    publish_epoch_info( ctx, stem, bank, 0 );
-    publish_epoch_info( ctx, stem, bank, 1 );
-
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
     block_id_ele->latest_mr      = manifest_block_id;
     block_id_ele->slot           = snapshot_slot;
@@ -1222,7 +1223,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
-    init_after_snapshot( ctx );
+    init_after_snapshot( ctx, stem );
 
     fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
     cost_tracker_snap( bank, slot_info );

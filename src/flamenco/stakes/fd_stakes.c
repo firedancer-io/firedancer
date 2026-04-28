@@ -885,7 +885,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   /* Now increment the epoch and recompute the stakes for the vote
      accounts for the new epoch value. */
 
-  bank->f.epoch = bank->f.epoch + 1UL;
+  bank->f.epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.slot, NULL );
 
   fd_refresh_vote_accounts( bank,
                             accdb,
