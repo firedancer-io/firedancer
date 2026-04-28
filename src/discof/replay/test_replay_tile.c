@@ -309,6 +309,86 @@ test_eqvoc_last_fec( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_eqvoc_fec_gate" ));
 }
 
+/* Happy path: 4 FECs in slot 1, all popped and processed normally.
+   After fd_reasm_confirm, no FECs should be re-delivered. */
+
+static void
+test_confirm( fd_wksp_t * wksp ) {
+
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_reasm_t * reasm = ctx->reasm;
+
+  fd_hash_t mr_root = { .ul = { 100 } };
+  fd_hash_t mr1_0   = { .ul = { 200 } };
+  fd_hash_t mr1_32  = { .ul = { 300 } };
+  fd_hash_t mr1_64  = { .ul = { 400 } };
+  fd_hash_t mr1_96  = { .ul = { 500 } };
+
+  fd_reasm_fec_t * ev[ 1 ];
+
+  /* Root FEC (slot 0). */
+
+  fd_reasm_fec_t * f_root = fd_reasm_insert( reasm, &mr_root, NULL,
+      0, 0, 0, 32, 1, 1, 0, NULL, ev );
+  FD_TEST( f_root );
+  f_root->bank_idx = 0;
+  f_root->bank_seq = 0;
+
+  /* Slot 1: 4 FECs chained sequentially. */
+
+  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  FD_TEST( f1_0 );
+
+  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  FD_TEST( f1_32 );
+
+  fd_reasm_fec_t * f1_64 = fd_reasm_insert( reasm, &mr1_64, &mr1_32,
+      1, 64, 1, 32, 1, 0, 0, NULL, ev );
+  FD_TEST( f1_64 );
+
+  fd_reasm_fec_t * f1_96 = fd_reasm_insert( reasm, &mr1_96, &mr1_64,
+      1, 96, 1, 32, 1, 1, 0, NULL, ev );
+  FD_TEST( f1_96 );
+
+  /* Pop and process all 4 FECs. */
+
+  fd_reasm_fec_t * fec;
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
+  process_fec_set( ctx, NULL, fec );
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
+  process_fec_set( ctx, NULL, fec );
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==64 );
+  process_fec_set( ctx, NULL, fec );
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==96 );
+  process_fec_set( ctx, NULL, fec );
+  FD_TEST( fec->bank_idx==1 );
+
+  /* Queue should be empty. */
+
+  FD_TEST( fd_reasm_peek( reasm )==NULL );
+
+  /* Confirm the slot.  No equivocation occurred, so no FEC should be
+     re-delivered. */
+
+  fd_reasm_confirm( reasm, &mr1_96 );
+
+  FD_TEST( fd_reasm_peek( reasm )==NULL );
+  FD_TEST( fd_reasm_pop ( reasm )==NULL );
+
+  FD_LOG_NOTICE(( "pass: test_confirm" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -320,6 +400,7 @@ main( int     argc,
   fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_confirm( wksp );
   test_eqvoc_last_fec( wksp );
 
   fd_halt();

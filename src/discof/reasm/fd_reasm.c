@@ -214,20 +214,32 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
      Given roughly ~1k shreds per slot at 32 shreds per FEC, this would
      save ~32 loop iterations.  Punting given the additional complexity
      of bookkeeping and logic this would require. */
-  ulong confirmed_slot = fec ? fec->slot : ULONG_MAX;
-
+  ulong redeliver_slot = 0;
   fd_reasm_fec_t * last_inserted = NULL;
   while( FD_LIKELY( fec && !fec->confirmed ) ) {
     fec->confirmed = 1;
 
     xid_t * xid = xid_query( reasm->xid, (fec->slot << 32) | fec->fec_set_idx, NULL );
-    xid->idx    = pool_idx( pool, fec );
+    if( FD_UNLIKELY( xid->idx != pool_idx( pool, fec ) ) ) {
+      fd_reasm_fec_t * eqvoc_sibling = pool_ele( pool, xid->idx );
+      if( FD_LIKELY( eqvoc_sibling->popped ) ) redeliver_slot = eqvoc_sibling->slot;
+      /* we executed the equivocating sibling, which means we are going to need to redeliver the confirmed
+         version from fec set 0, not just up until the point of equivocation branch.  */
+      xid->idx    = pool_idx( pool, fec );
+    }
+
     if( FD_LIKELY( fec->slot_complete ) ) {
       xid_t * bid = xid_query( reasm->xid, ( fec->slot << 32 ) | UINT_MAX, NULL );
       bid->idx    = pool_idx( pool, fec );
     }
 
-    if( FD_LIKELY( !fec->in_out && fec->eqvoc && fec->slot == confirmed_slot ) ) {
+    /* Conditions for adding FECs to queue:
+        - not popped and not in out
+        - has been popped but requires re-delivery due to having replayed
+          down the other branch of equivocation */
+
+    if( FD_UNLIKELY( (!fec->popped && !fec->in_out) ||
+                     ( fec->popped && !fec->in_out && redeliver_slot == fec->slot) )  ) {
       /* Let's say that the delivery queue already contains A, and
          we confirm A - B - C.  We walk upwards from C, but we need to
          make sure B and C are inserted after A, and in that order. */
