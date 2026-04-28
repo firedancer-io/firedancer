@@ -218,6 +218,30 @@ fd_new_votes_reset_root( fd_new_votes_t * new_votes ) {
   fd_rwlock_unwrite( &new_votes->lock );
 }
 
+void
+fd_new_votes_root_insert( fd_new_votes_t *    new_votes,
+                          fd_pubkey_t const * pubkey ) {
+  fd_rwlock_write( &new_votes->lock );
+
+  fd_new_vote_ele_t * pool = get_pool( new_votes );
+  nv_map_t *          map  = get_map( new_votes );
+
+  if( FD_UNLIKELY( nv_map_ele_query( map, pubkey, NULL, pool ) ) ) {
+    fd_rwlock_unwrite( &new_votes->lock );
+    return;
+  }
+
+  FD_CRIT( nv_pool_free( pool ), "no free elements in new votes pool" );
+  fd_new_vote_ele_t * ele = nv_pool_ele_acquire( pool );
+  ele->pubkey       = *pubkey;
+  ele->is_tombstone = 0;
+  FD_CRIT( nv_map_ele_insert( map, ele, pool ), "unable to insert new vote into root map" );
+
+  FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_out );
+  FD_LOG_DEBUG(( "root_insert: pubkey=%s", pubkey_out ));
+  fd_rwlock_unwrite( &new_votes->lock );
+}
+
 ulong
 fd_new_votes_cnt( fd_new_votes_t const * new_votes ) {
   fd_rwlock_t * lock = (fd_rwlock_t *)&new_votes->lock;

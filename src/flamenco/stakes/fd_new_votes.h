@@ -68,6 +68,13 @@ fd_new_votes_reset( fd_new_votes_t * new_votes );
 void
 fd_new_votes_reset_root( fd_new_votes_t * new_votes );
 
+/* fd_new_votes_root_insert inserts a pubkey directly into the 
+   root map.  Duplicate root pubkeys are ignored. */
+
+void
+fd_new_votes_root_insert( fd_new_votes_t *    new_votes,
+                          fd_pubkey_t const * pubkey );
+
 /* fd_new_votes_cnt is used to count the number of elements used in the
    shared pool between all delta/tombstone elements as well as the
    root map. */

@@ -170,6 +170,51 @@ int main( int argc, char * argv[] ) {
   uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)))
     iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
 
+  /* Direct root insertion dedupes against the root map and does not
+     require a fork delta. */
+  {
+    fd_new_votes_root_insert( nv, &pk_a );
+    FD_TEST( fd_new_votes_cnt( nv )==1UL );
+
+    fd_new_votes_root_insert( nv, &pk_a );
+    FD_TEST( fd_new_votes_cnt( nv )==1UL );
+
+    int is_tombstone = 1;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, iter_mem );
+    FD_TEST( !fd_new_votes_iter_done( it ) );
+    fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &is_tombstone );
+    FD_TEST( !is_tombstone );
+    FD_TEST( fd_pubkey_eq( pk, &pk_a ) );
+    fd_new_votes_iter_next( it );
+    FD_TEST( fd_new_votes_iter_done( it ) );
+    fd_new_votes_iter_fini( it );
+
+    ushort f = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f, &pk_b );
+    FD_TEST( fd_new_votes_cnt( nv )==2UL );
+
+    fd_new_votes_reset_root( nv );
+    FD_TEST( fd_new_votes_cnt( nv )==1UL );
+
+    ulong cnt   = 0UL;
+    int   saw_a = 0;
+    int   saw_b = 0;
+    it = fd_new_votes_iter_init( nv, &f, 1UL, iter_mem );
+    for( ; !fd_new_votes_iter_done( it ); fd_new_votes_iter_next( it ) ) {
+      pk = fd_new_votes_iter_ele( it, &is_tombstone );
+      if( fd_pubkey_eq( pk, &pk_a ) ) saw_a = 1;
+      if( fd_pubkey_eq( pk, &pk_b ) ) saw_b = 1;
+      cnt++;
+    }
+    fd_new_votes_iter_fini( it );
+    FD_TEST( cnt==1UL );
+    FD_TEST( !saw_a );
+    FD_TEST( saw_b );
+
+    fd_new_votes_evict_fork( nv, f );
+    fd_new_votes_reset( nv );
+  }
+
   /* If a root pubkey is tombstoned and then recreated in-order, the
      recreated entry should remain after the delta drains. */
   {
