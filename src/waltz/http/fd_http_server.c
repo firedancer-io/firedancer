@@ -529,7 +529,7 @@ read_conn_http( fd_http_server_t * http,
 
     ulong total_len = (ulong)result+content_len;
 
-    if( FD_UNLIKELY( total_len<content_len ) ) { /* Overflow */
+    if( FD_UNLIKELY( total_len<content_len || total_len>http->max_request_len ) ) { /* Overflow */
       close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
       return;
     }
