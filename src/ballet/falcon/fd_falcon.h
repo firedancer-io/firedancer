@@ -29,7 +29,8 @@ fd_falcon_pubkey_parse( fd_falcon_pubkey_t * out,
                         uchar const          input[ static FD_FALCON_PUBKEY_SIZE ] );
 
 /* Given a variable length Falcon-512 signature, decodes it into "out".
-   Returns 0 for success, and -1 for failure. */
+   Returns 0 for success, and -1 for failure.
+   input MUST NOT be NULL, no matter the length. */
 int
 fd_falcon_signature_parse( fd_falcon_signature_t * out,
                            uchar const           * input,

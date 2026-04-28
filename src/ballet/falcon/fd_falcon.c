@@ -120,8 +120,8 @@ fd_falcon_pubkey_parse( fd_falcon_pubkey_t * pubkey,
 
 int
 fd_falcon_signature_parse( fd_falcon_signature_t * out,
-                             uchar const           * input,
-                             ulong                   len ) {
+                           uchar const           * input,
+                           ulong                   len ) {
   if( FD_UNLIKELY( len<41UL ) ) return -1;
   if( FD_UNLIKELY( input[ 0 ]!=HEADER ) ) return -1;
   memcpy( out->nonce, input+1UL, 40UL );
