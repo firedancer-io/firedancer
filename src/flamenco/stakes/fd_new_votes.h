@@ -68,7 +68,7 @@ fd_new_votes_reset( fd_new_votes_t * new_votes );
 void
 fd_new_votes_reset_root( fd_new_votes_t * new_votes );
 
-/* fd_new_votes_root_insert inserts a pubkey directly into the 
+/* fd_new_votes_root_insert inserts a pubkey directly into the
    root map.  Duplicate root pubkeys are ignored. */
 
 void

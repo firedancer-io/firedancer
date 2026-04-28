@@ -203,9 +203,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   if( is_incremental ) fd_new_votes_reset_root( new_votes );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
-    if( elem->stake==0UL ) {
-      fd_new_votes_root_insert( new_votes, (fd_pubkey_t *)elem->vote_account_pubkey );
-    }
+    if( FD_UNLIKELY( elem->stake==0UL ) ) fd_new_votes_root_insert( new_votes, (fd_pubkey_t *)elem->vote_account_pubkey );
   }
 
   /* We also want to set the total stake to be the total amount of stake
