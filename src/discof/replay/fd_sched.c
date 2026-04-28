@@ -434,6 +434,22 @@ block_is_prunable( fd_sched_block_t * block ) {
   return !block->in_rdisp && !block_is_in_flight( block );
 }
 
+static int
+subtree_is_prunable( fd_sched_t * sched, fd_sched_block_t * block ) {
+  if( FD_UNLIKELY( !block_is_prunable( block ) ) ) return 0;
+
+  ulong child_idx = block->child_idx;
+  while( child_idx!=ULONG_MAX ) {
+    fd_sched_block_t * child_block = block_pool_ele( sched, child_idx );
+    if( FD_UNLIKELY( !subtree_is_prunable( sched, child_block ) ) ) {
+      return 0;
+    }
+    child_idx = child_block->sibling_idx;
+  }
+
+  return 1;
+}
+
 static inline ulong
 block_to_idx( fd_sched_t * sched, fd_sched_block_t * block ) { return (ulong)(block-sched->block_pool); }
 
@@ -2600,7 +2616,20 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
   subtree_mark_and_maybe_prune_rdisp( sched, block );
-  if( block_is_prunable( block ) ) {
+  /* subtree_abandon can happen as a result of one of the following
+       - Bad block at head of lane
+       - Bad block at tail of lane
+       - Root advance
+       - Root notify
+
+     In the case of bad blocks, it suffices to check the in-flight task
+     count of the block that is bad.  In the case of root advance, the
+     refcnt on the bank is checked and that includes the in-flight task
+     count.  It is only in the case of root notify that there could
+     potentially be a non-zero in-flight count in the middle of a
+     subtree.  To be safe, we check the entire subtree here before
+     pruning. */
+  if( subtree_is_prunable( sched, block ) ) {
     fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
     if( FD_LIKELY( parent ) ) {
       /* Splice the block out of its parent's children list. */
