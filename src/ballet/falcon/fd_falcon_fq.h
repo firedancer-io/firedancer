@@ -1,12 +1,14 @@
+#ifndef HEADER_fd_src_ballet_falcon_fd_falcon_fq_h
+#define HEADER_fd_src_ballet_falcon_fd_falcon_fq_h
+
 /* Implements field arithmetics over Fq = Z/12289Z.
 
    The FFT/IFFT use lazy reduction. The add/sub skip any modular
-   reduction for most passes where the bit-width guarntee they will
-   never overflow the 32-bit integer. A final Barret reduction pass
+   reduction for most passes where the bit-width guarantee they will
+   never overflow the 32-bit integer. A final Barrett reduction pass
    normalizes all elements before they are returned. */
 
 #include "../fd_ballet_base.h"
-#include "../bigint/fd_uint256.h"
 #if FD_HAS_AVX512
 #include "../../util/simd/fd_avx512.h"
 #endif
@@ -15,7 +17,6 @@
 #include "../../util/simd/fd_sse.h"
 #endif
 
-typedef uint fd_falcon_fq_t;
 #include "fd_falcon_twiddle.h"
 
 static inline fd_falcon_fq_t
@@ -47,78 +48,6 @@ fd_falcon_fq_mul( fd_falcon_fq_t a,
 
 #define FQ_BARRETT_M  43687U
 #define FQ_BARRETT_K  29
-
-#if FD_HAS_AVX
-
-/* SSE */
-
-static inline vu_t
-fd_falcon_fq_sse_add( vu_t a, vu_t b ) {
-  vu_t s    = vu_add( a, b );
-  vu_t d    = vu_sub( s, vu_bcast( Q ) );
-  vu_t mask = vi_shr( d, 31 );
-  return vu_add( d, vu_and( vu_bcast( Q ), mask ) );
-}
-
-static inline vu_t
-fd_falcon_fq_sse_neg( vu_t a ) {
-  vu_t r    = vu_sub( vu_bcast( Q ), a );
-  vu_t nz   = vu_xor( vu_bcast( -1 ), vu_eq( a, vu_zero() ) );
-  return vu_and( r, nz );
-}
-
-static inline vu_t
-fd_falcon_fq_sse_sub( vu_t a, vu_t b ) {
-  return fd_falcon_fq_sse_add( a, fd_falcon_fq_sse_neg( b ) );
-}
-
-/* AVX */
-
-static inline wu_t
-fd_falcon_fq_avx_add( wu_t a, wu_t b ) {
-  wu_t s   = wu_add( a, b );
-  wu_t d   = wu_sub( s, wu_bcast( Q ) );
-  wu_t mask = wi_shr( d, 31 );
-  return wu_add( d, wu_and( wu_bcast( Q ), mask ) );
-}
-
-static inline wu_t
-fd_falcon_fq_avx_neg( wu_t a ) {
-  wu_t r  = wu_sub( wu_bcast( Q ), a );
-  wu_t nz = wu_ne( a, wu_zero() );
-  return wu_if( nz, r, wu_zero() );
-}
-
-static inline wu_t
-fd_falcon_fq_avx_sub( wu_t a, wu_t b ) {
-  return fd_falcon_fq_avx_add( a, fd_falcon_fq_avx_neg( b ) );
-}
-
-#endif /* FD_HAS_AVX */
-
-#if FD_HAS_AVX512
-
-static inline wwu_t
-fd_falcon_fq_avx512_add( wwu_t a, wwu_t b ) {
-  wwu_t s   = wwu_add( a, b );
-  wwu_t d   = wwu_sub( s, wwu_bcast( Q ) );
-  wwu_t mask = wwi_shr( d, 31 );
-  return wwu_add( d, wwu_and( wwu_bcast( Q ), mask ) );
-}
-
-static inline wwu_t
-fd_falcon_fq_avx512_neg( wwu_t a ) {
-  wwu_t r    = wwu_sub( wwu_bcast( Q ), a );
-  int nonzero = wwu_ne( a, wwu_zero() );
-  return wwu_if( nonzero, r, wwu_zero() );
-}
-
-static inline wwu_t
-fd_falcon_fq_avx512_sub( wwu_t a, wwu_t b ) {
-  return fd_falcon_fq_avx512_add( a, fd_falcon_fq_avx512_neg( b ) );
-}
-
-#endif /* FD_HAS_AVX512 */
 
 #define FD_FALCON_FFT_BUTTERFLY(VEC, W, fq_mul) do {                  \
     VEC##_t Qv_    = VEC##_bcast( Q );                                \
@@ -152,6 +81,14 @@ fd_falcon_fq_avx512_sub( wwu_t a, wwu_t b ) {
 
 #define FD_FALCON_FQ_MUL(VEC, WIDE, SIGN, NAME)                                                  \
   static inline VEC##_t                                                                          \
+  fd_falcon_fq_##NAME##_add( VEC##_t a, VEC##_t b ) {                                            \
+    VEC##_t s = VEC##_add( a, b );                                                               \
+    VEC##_t d = VEC##_sub( s, VEC##_bcast( Q ) );                                                \
+    VEC##_t mask = SIGN##_shr( d, 31 );                                                          \
+    return VEC##_add( d, VEC##_and( VEC##_bcast( Q ), mask ) );                                  \
+  }                                                                                              \
+                                                                                                 \
+  static inline VEC##_t                                                                          \
   fd_falcon_fq_##NAME##_mul( VEC##_t a, VEC##_t b ) {                                            \
     VEC##_t Mv = VEC##_bcast( FQ_BARRETT_M );                                                    \
     VEC##_t Qv = VEC##_bcast( Q );                                                               \
@@ -175,16 +112,65 @@ fd_falcon_fq_avx512_sub( wwu_t a, wwu_t b ) {
     return VEC##_add( d, VEC##_and( Qv, mask ) );                                                \
   }                                                                                              \
 
+#if FD_HAS_AVX
 FD_FALCON_FQ_MUL( vu, vv, vi, sse )
 FD_FALCON_FQ_MUL( wu, wv, wi, avx )
+#endif
+#if FD_HAS_AVX512
 FD_FALCON_FQ_MUL( wwu, wwv, wwi, avx512 )
+#endif
+
+
+#if FD_HAS_AVX
+
+static inline vu_t
+fd_falcon_fq_sse_neg( vu_t a ) {
+  vu_t r    = vu_sub( vu_bcast( Q ), a );
+  vu_t nz   = vu_xor( vu_bcast( -1 ), vu_eq( a, vu_zero() ) );
+  return vu_and( r, nz );
+}
+
+static inline vu_t
+fd_falcon_fq_sse_sub( vu_t a, vu_t b ) {
+  return fd_falcon_fq_sse_add( a, fd_falcon_fq_sse_neg( b ) );
+}
+
+static inline wu_t
+fd_falcon_fq_avx_neg( wu_t a ) {
+  wu_t r  = wu_sub( wu_bcast( Q ), a );
+  wu_t nz = wu_ne( a, wu_zero() );
+  return wu_if( nz, r, wu_zero() );
+}
+
+static inline wu_t
+fd_falcon_fq_avx_sub( wu_t a, wu_t b ) {
+  return fd_falcon_fq_avx_add( a, fd_falcon_fq_avx_neg( b ) );
+}
+
+#endif /* FD_HAS_AVX */
+
+#if FD_HAS_AVX512
+
+static inline wwu_t
+fd_falcon_fq_avx512_neg( wwu_t a ) {
+  wwu_t r    = wwu_sub( wwu_bcast( Q ), a );
+  int nonzero = wwu_ne( a, wwu_zero() );
+  return wwu_if( nonzero, r, wwu_zero() );
+}
+
+static inline wwu_t
+fd_falcon_fq_avx512_sub( wwu_t a, wwu_t b ) {
+  return fd_falcon_fq_avx512_add( a, fd_falcon_fq_avx512_neg( b ) );
+}
+
+#endif /* FD_HAS_AVX512 */
 
 /* Forward NTT. Evaluates the polynomial on the roots of X^n + 1.
 
-   All 9 (log2(N)) butterfly passes use lazy add/sub, with the barret
+   All 9 (log2(N)) butterfly passes use lazy add/sub, with the Barrett
    multiplication reducing the twiddle product to [0, Q), then unreduced
    u+vs and u-vs+Q accumulate at most +Q per pass, giving us a max of ~10Q
-   after 9 passes.  The final Barret reduction loop reduces every element
+   after 9 passes.  The final Barrett reduction loop reduces every element
    to [0, Q).
 
    Algorithm 1 from https://eprint.iacr.org/2016/504.pdf. */
@@ -198,8 +184,9 @@ fd_falcon_fq_fft( fd_falcon_fq_t       out[ N ],
   while( m<N ) {
     t >>= 1;
 
+    switch( t ) {
 #if FD_HAS_AVX
-    if( t==1 ) {
+    case 1: {
       vu_t Qv = vu_bcast( Q );
       for( uint i=0; i<m; i+=4 ) {
         vu_t d0 = vu_ldu( out + 2*i );
@@ -225,7 +212,9 @@ fd_falcon_fq_fft( fd_falcon_fq_t       out[ N ],
         vu_stu( out + 2*i,     r0 );
         vu_stu( out + 2*i + 4, r1 );
       }
-    } else if( t==2 ) {
+      break;
+    }
+    case 2: {
       vu_t Qv = vu_bcast( Q );
       for( uint i=0; i<m; i+=2 ) {
         uint j1 = 4 * i;
@@ -248,7 +237,9 @@ fd_falcon_fq_fft( fd_falcon_fq_t       out[ N ],
         vu_stu( out + j1,     out0 );
         vu_stu( out + j1 + 4, out1 );
       }
-    } else if( t==4 ) {
+      break;
+    }
+    case 4: {
       vu_t Qv = vu_bcast( Q );
       for( uint i=0; i<m; i++ ) {
         uint j1 = 8 * i;
@@ -259,30 +250,40 @@ fd_falcon_fq_fft( fd_falcon_fq_t       out[ N ],
         vu_stu( out + j1,     vu_add( u, vs ) );
         vu_stu( out + j1 + 4, vu_add( vu_sub( u, vs ), Qv ) );
       }
-    } else if( t<8 ) {
-      FD_LOG_ERR(( "unexpected t=%u", t ));
-    } else
+      break;
+    }
 #endif /* FD_HAS_AVX */
-    {
+    default: {
       for( uint i=0; i<m; i++ ) {
         uint j1 = 2 * i * t;
         fd_falcon_fq_t s = fd_falcon_psi_positive[ m+i ];
 
+        switch( t ) {
 #if FD_HAS_AVX512
-        if( t>=16 ) FD_FALCON_FFT_BUTTERFLY( wwu, 16, fd_falcon_fq_avx512_mul ); else
+        case 256: case 128: case 64: case 32: case 16:
+          FD_FALCON_FFT_BUTTERFLY( wwu, 16, fd_falcon_fq_avx512_mul );
+          break;
 #endif
 #if FD_HAS_AVX
-        if( t>=8 )  FD_FALCON_FFT_BUTTERFLY( wu,  8,  fd_falcon_fq_avx_mul );    else
+#if !FD_HAS_AVX512
+        case 256: case 128: case 64: case 32: case 16:
 #endif
-        {
+        case 8:
+          FD_FALCON_FFT_BUTTERFLY( wu, 8, fd_falcon_fq_avx_mul );
+          break;
+#endif
+        default:
           for( uint j=j1; j<j1+t; j++ ) {
             fd_falcon_fq_t u = out[ j ];
             fd_falcon_fq_t v = fd_falcon_fq_mul( out[ j+t ], s );
             out[ j ]   = u + v;
             out[ j+t ] = u - v + Q;
           }
+          break;
         }
       }
+      break;
+    }
     }
     m <<= 1;
   }
@@ -304,7 +305,7 @@ fd_falcon_fq_fft( fd_falcon_fq_t       out[ N ],
 
    Uses a similar lazy trick as the Forward NTT, but requires a few
    reductions in the middle. When off_q >= 8, the add could overflow
-   te 32-bit product on the next pass, so we reduce the add and reset
+   the 32-bit product on the next pass, so we reduce the add and reset
    off_q to 1. This will trigger for passes 3 and 7, with the final
    N^{-1} normalization handling the remaining lazy values.
 
@@ -320,8 +321,9 @@ fd_falcon_fq_ifft( fd_falcon_fq_t       out[ N ],
   while( m>1 ) {
     uint h = m >> 1;
 
+    switch( t ) {
 #if FD_HAS_AVX
-    if( t==1 ) {
+    case 1: {
       vu_t offv = vu_bcast( off_q * Q );
       for( uint i=0; i<h; i+=4 ) {
         vu_t d0 = vu_ldu( out + 2*i );
@@ -346,7 +348,9 @@ fd_falcon_fq_ifft( fd_falcon_fq_t       out[ N ],
         vu_stu( out + 2*i + 4, r1 );
       }
       off_q <<= 1;
-    } else if( t==2 ) {
+      break;
+    }
+    case 2: {
       vu_t offv = vu_bcast( off_q * Q );
       uint j1 = 0;
       for( uint i=0; i<h; i+=2 ) {
@@ -370,7 +374,9 @@ fd_falcon_fq_ifft( fd_falcon_fq_t       out[ N ],
         j1 += 8;
       }
       off_q <<= 1;
-    } else if( t==4 ) {
+      break;
+    }
+    case 4: {
       vu_t offv = vu_bcast( off_q * Q );
       uint j1 = 0;
       for( uint i=0; i<h; i++ ) {
@@ -382,22 +388,31 @@ fd_falcon_fq_ifft( fd_falcon_fq_t       out[ N ],
         j1 += 8;
       }
       off_q <<= 1;
-    } else
+      break;
+    }
 #endif /* FD_HAS_AVX */
-    {
+    default: {
       uint off = off_q * Q;
       int reduce_add = (off_q >= 8);
       uint j1 = 0;
       for( uint i=0; i<h; i++ ) {
         fd_falcon_fq_t s = fd_falcon_psi_negative[ h+i ];
 
+        switch( t ) {
 #if FD_HAS_AVX512
-        if( t>=16 ) FD_FALCON_IFFT_BUTTERFLY( wwu, 16, fd_falcon_fq_avx512_mul ); else
+        case 256: case 128: case 64: case 32: case 16:
+          FD_FALCON_IFFT_BUTTERFLY( wwu, 16, fd_falcon_fq_avx512_mul );
+          break;
 #endif
 #if FD_HAS_AVX
-        if( t>=8 )  FD_FALCON_IFFT_BUTTERFLY( wu,  8,  fd_falcon_fq_avx_mul );    else
+#if !FD_HAS_AVX512
+        case 256: case 128: case 64: case 32: case 16:
 #endif
-        {
+        case 8:
+          FD_FALCON_IFFT_BUTTERFLY( wu, 8, fd_falcon_fq_avx_mul );
+          break;
+#endif
+        default:
           for( uint j=j1; j<j1+t; j++ ) {
             fd_falcon_fq_t u = out[ j ];
             fd_falcon_fq_t v = out[ j+t ];
@@ -405,10 +420,13 @@ fd_falcon_fq_ifft( fd_falcon_fq_t       out[ N ],
             out[ j ]   = reduce_add ? (sum % Q) : sum;
             out[ j+t ] = fd_falcon_fq_mul( u - v + off, s );
           }
+          break;
         }
         j1 += 2 * t;
       }
       if( reduce_add ) off_q = 1; else off_q <<= 1;
+      break;
+    }
     }
     t <<= 1;
     m >>= 1;
@@ -425,3 +443,5 @@ fd_falcon_fq_ifft( fd_falcon_fq_t       out[ N ],
   }
 #endif
 }
+
+#endif /* HEADER_fd_src_ballet_falcon_fd_falcon_fq_h */

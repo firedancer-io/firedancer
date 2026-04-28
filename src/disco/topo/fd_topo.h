@@ -528,6 +528,7 @@ struct fd_topo_tile {
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
+      int   wait_for_supermajority;
       ulong max_live_slots;
       ulong accdb_max_depth;
       char  identity_key[ PATH_MAX ];

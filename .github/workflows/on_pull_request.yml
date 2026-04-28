@@ -34,6 +34,8 @@ jobs:
       cid: 1
       build_arm: false
       check_run: true
+      verbose: true
+      exit_on_err: true
         # compiler,machine,target
       gcc_exceptions: |
         gcc-8.5.0,linux_gcc_zen2,ALL;
@@ -58,6 +60,8 @@ jobs:
       cid: 2
       clang: none
       machine: linux_gcc_icelake,linux_gcc_x86_64
+      verbose: true
+      exit_on_err: true
       build_arm: false
       check_run: true
   build_checks_3:
@@ -68,6 +72,8 @@ jobs:
       gcc: gcc-12.4.0
       clang: clang-19.1.7
       machine: linux_gcc_zen2,linux_clang_zen2
+      verbose: true
+      exit_on_err: true
       build_arm: false
       check_run: true
       no_optimization: true

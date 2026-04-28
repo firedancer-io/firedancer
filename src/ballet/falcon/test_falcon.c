@@ -1,7 +1,21 @@
 #include "../../util/fd_util.h"
 #include "fd_falcon.h"
 
-static uchar const tv_pubkey[ PUBKEY_SIZE ] = {
+#define Q 12289
+#define N 512
+#define LOGN 9
+
+#include "fd_falcon_fq.h"
+#include "../keccak256/fd_shake256.h"
+
+#ifndef FD_TEST_FALCON_BENCH_ONLY
+#define FD_TEST_FALCON_BENCH_ONLY 0
+#endif
+
+/* When FD_TEST_FALCON_BENCH_ONLY is non-zero, main() runs only microbenchmarks
+   and skips correctness tests (pass -DFD_TEST_FALCON_BENCH_ONLY=1 for this TU). */
+
+static uchar const tv_pubkey[ FD_FALCON_PUBKEY_SIZE ] = {
   9, 2, 206, 33, 107, 228, 44, 208, 79, 200, 76, 36, 199, 29, 19, 7,
   142, 202, 7, 151, 110, 228, 173, 186, 44, 152, 35, 70, 216, 120, 192,
   148, 118, 127, 226, 156, 52, 92, 226, 250, 135, 75, 238, 35, 158, 166,
@@ -114,6 +128,12 @@ static uchar const tv_signature[] = {
 
 static uchar const tv_msg[] = "data1";
 #define TV_MSG_LEN (sizeof(tv_msg)-1)
+
+#if FD_TEST_FALCON_BENCH_ONLY
+/* Correctness tests are not called; keep their definitions without -Wunused-function. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#endif
 
 static void
 test_fq_add( void ) {
@@ -277,8 +297,8 @@ test_pubkey_parse_valid( void ) {
 static void
 test_pubkey_parse_invalid_header( void ) {
   fd_falcon_pubkey_t pk[1];
-  uchar bad[ PUBKEY_SIZE ];
-  memcpy( bad, tv_pubkey, PUBKEY_SIZE );
+  uchar bad[ FD_FALCON_PUBKEY_SIZE ];
+  memcpy( bad, tv_pubkey, FD_FALCON_PUBKEY_SIZE );
 
   /* Wrong header values */
   uchar bad_headers[] = { 0, 1, 8, 10, 0xFF };
@@ -293,15 +313,15 @@ test_pubkey_parse_invalid_header( void ) {
 static void
 test_pubkey_parse_coeff_out_of_range( void ) {
   fd_falcon_pubkey_t pk[1];
-  uchar bad[ PUBKEY_SIZE ];
+  uchar bad[ FD_FALCON_PUBKEY_SIZE ];
 
-  memset( bad, 0, PUBKEY_SIZE );
+  memset( bad, 0, FD_FALCON_PUBKEY_SIZE );
   bad[0] = LOGN;
   bad[1] = 0xC0;
   bad[2] = 0x04;
   FD_TEST( -1==fd_falcon_pubkey_parse( pk, bad ) );
 
-  memset( bad, 0, PUBKEY_SIZE );
+  memset( bad, 0, FD_FALCON_PUBKEY_SIZE );
   bad[0] = LOGN;
   bad[1] = 0xFF;
   bad[2] = 0xFC;
@@ -313,8 +333,8 @@ test_pubkey_parse_coeff_out_of_range( void ) {
 static void
 test_pubkey_parse_all_zero_coeffs( void ) {
   fd_falcon_pubkey_t pk[1];
-  uchar zero_pk[ PUBKEY_SIZE ];
-  memset( zero_pk, 0, PUBKEY_SIZE );
+  uchar zero_pk[ FD_FALCON_PUBKEY_SIZE ];
+  memset( zero_pk, 0, FD_FALCON_PUBKEY_SIZE );
   zero_pk[0] = LOGN;
   FD_TEST( 0==fd_falcon_pubkey_parse( pk, zero_pk ) );
   for( int i=0; i<N; i++ ) FD_TEST( pk->h[i]==0 );
@@ -532,7 +552,7 @@ bench_verify( void ) {
     FD_COMPILER_FORGET( _pk );
     FD_TEST( 0==fd_falcon_pubkey_parse( pk, tv_pubkey ) );
     FD_TEST( 0==fd_falcon_signature_parse( sig, tv_signature, sizeof(tv_signature) ) );
-    FD_TEST( 0==fd_falcon_verify( tv_msg, TV_MSG_LEN, _sig, _pk ) );
+    fd_falcon_verify( tv_msg, TV_MSG_LEN, _sig, _pk );
   }
   dt += fd_log_wallclock();
   FD_LOG_NOTICE(( "falcon512 verify: %li ns/verify (%lu iterations)", dt/(long)iter, iter ));
@@ -550,7 +570,7 @@ bench_pubkey_parse( void ) {
     FD_TEST( 0==fd_falcon_pubkey_parse( pk, tv_pubkey ) );
   }
   dt += fd_log_wallclock();
-  FD_LOG_NOTICE(( "falcon512 pubkey parse: %li ns/verify (%lu iterations)", dt/(long)iter, iter ));
+  FD_LOG_NOTICE(( "falcon512 pubkey parse: %li ns/parse (%lu iterations)", dt/(long)iter, iter ));
 }
 
 static void
@@ -565,13 +585,129 @@ bench_sig_parse( void ) {
     FD_TEST( 0==fd_falcon_signature_parse( sig, tv_signature, sizeof(tv_signature) ) );
   }
   dt += fd_log_wallclock();
-  FD_LOG_NOTICE(( "falcon512 signature parse: %li ns/verify (%lu iterations)", dt/(long)iter, iter ));
+  FD_LOG_NOTICE(( "falcon512 signature parse: %li ns/parse (%lu iterations)", dt/(long)iter, iter ));
 }
+
+static void
+bench_falcon_fq_fft( void ) {
+  fd_falcon_fq_t poly   [ N ];
+  fd_falcon_fq_t fft_out[ N ];
+  for( int i=0; i<N; i++ ) poly[ i ] = (fd_falcon_fq_t)( ((uint)i + 1U) % (uint)Q );
+
+  ulong iter = 100000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong j=0UL; j<iter; j++ ) {
+    fd_falcon_fq_t * _o = fft_out;
+    FD_COMPILER_FORGET( _o );
+    fd_falcon_fq_fft( fft_out, poly );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "falcon512 fq_fft: %li ns/transform (%lu iterations)", dt/(long)iter, iter ));
+}
+
+static void
+bench_falcon_fq_ifft( void ) {
+  fd_falcon_fq_t poly    [ N ];
+  fd_falcon_fq_t freq    [ N ];
+  fd_falcon_fq_t ifft_out[ N ];
+  for( int i=0; i<N; i++ ) poly[ i ] = (fd_falcon_fq_t)( ((uint)i + 1U) % (uint)Q );
+  fd_falcon_fq_fft( freq, poly );
+
+  ulong iter = 100000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong j=0UL; j<iter; j++ ) {
+    fd_falcon_fq_t * _o = ifft_out;
+    FD_COMPILER_FORGET( _o );
+    fd_falcon_fq_ifft( ifft_out, freq );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "falcon512 fq_ifft: %li ns/transform (%lu iterations)", dt/(long)iter, iter ));
+}
+
+static void
+bench_hash_to_point( void ) {
+  /* Worst-case scratch size matches fd_falcon.c (N or N+16). */
+  fd_falcon_fq_t c[ FD_FALCON_N + 16 ];
+  uchar const * nonce = tv_signature;
+
+  ulong iter = 10000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter; i++ ) {
+    fd_falcon_fq_t * _c = c;
+    FD_COMPILER_FORGET( _c );
+    fd_falcon_hash_to_point( c, (uchar const *)tv_msg, TV_MSG_LEN, nonce );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "falcon512 hash to point: %li ns/hash (%lu iterations)", dt/(long)iter, iter ));
+}
+
+static void
+bench_shake256_absorb_40( void ) {
+  uchar          buf[ 40 ];
+  fd_shake256_t  s[1];
+  fd_memset( buf, 0x5c, sizeof(buf) );
+
+  ulong iter = 5000000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter; i++ ) {
+    uchar * _buf = buf;
+    fd_shake256_init( s );
+    FD_COMPILER_FORGET( _buf );
+    fd_shake256_absorb( s, buf, sizeof(buf) );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "shake256 absorb 40B (init+absorb): %li ns/iter (%lu iterations)", dt/(long)iter, iter ));
+}
+
+static void
+bench_shake256_absorb_1k( void ) {
+  uchar          buf[ 1024 ];
+  fd_shake256_t  s[1];
+  fd_memset( buf, 0xA7, sizeof(buf) );
+
+  ulong iter = 200000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter; i++ ) {
+    uchar * _buf = buf;
+    fd_shake256_init( s );
+    FD_COMPILER_FORGET( _buf );
+    fd_shake256_absorb( s, buf, sizeof(buf) );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "shake256 absorb 1024B (init+absorb): %li ns/iter (%lu iterations)", dt/(long)iter, iter ));
+}
+
+static void
+bench_shake256_squeeze_128( void ) {
+  uchar          nonce[ 40 ];
+  uchar          out[ 128 ];
+  fd_shake256_t  s[1];
+  fd_memset( nonce, 0x3d, sizeof(nonce) );
+
+  fd_shake256_init( s );
+  fd_shake256_absorb( s, nonce, sizeof(nonce) );
+  fd_shake256_squeeze( s, out, sizeof(out) );
+
+  ulong iter = 2000000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter; i++ ) {
+    uchar * _out = out;
+    FD_COMPILER_FORGET( _out );
+    fd_shake256_squeeze( s, out, sizeof(out) );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "shake256 squeeze 128B (primed sponge): %li ns/squeeze (%lu iterations)", dt/(long)iter, iter ));
+}
+
+#if FD_TEST_FALCON_BENCH_ONLY
+#pragma GCC diagnostic pop
+#endif
 
 int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
 
+#if !FD_TEST_FALCON_BENCH_ONLY
   fd_rng_t _rng[1];
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
@@ -602,13 +738,24 @@ int main( int     argc,
   test_verify_wrong_signature();
   test_verify_empty_message();
   test_verify_idempotent();
+#endif
 
   bench_verify();
   bench_pubkey_parse();
   bench_sig_parse();
+  bench_falcon_fq_fft();
+  bench_falcon_fq_ifft();
+  bench_hash_to_point();
+  bench_shake256_absorb_40();
+  bench_shake256_absorb_1k();
+  bench_shake256_squeeze_128();
 
+#if !FD_TEST_FALCON_BENCH_ONLY
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
+#else
+  FD_LOG_NOTICE(( "bench only (FD_TEST_FALCON_BENCH_ONLY)" ));
+#endif
   fd_halt();
   return 0;
 }

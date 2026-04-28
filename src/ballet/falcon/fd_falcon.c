@@ -2,9 +2,15 @@
 #include "../keccak256/fd_shake256.h"
 #include "fd_falcon.h"
 
+#define Q 12289
+#define N 512
+#define LOGN 9
+
 #define LENGTH 16
 #define STRIDE (LENGTH / 4) * 7
 #define K (1 << 16) / Q  /* K <- ⌊2^16 / Q⌋, as defined by the paper. */
+
+#include "fd_falcon_fq.h"
 
 #define HEADER (uchar)0x39
 
@@ -16,7 +22,7 @@ bit( uchar const *s, ulong idx ) {
 /* Returns 0 for success, and -1 for invalid pubkey. */
 int
 fd_falcon_pubkey_parse( fd_falcon_pubkey_t * pubkey,
-                        uchar const          input[ static PUBKEY_SIZE ] ) {
+                        uchar const          input[ static FD_FALCON_PUBKEY_SIZE ] ) {
   /* The first byte is the header, encoded as
      0 0 0 0 n n n n
      where the leftmost 4 bits are 0, and nnnn encodes logn. */
@@ -72,16 +78,17 @@ fd_falcon_pubkey_parse( fd_falcon_pubkey_t * pubkey,
     /* We perform a byteswap on each 32-bit element, which compiles down
        into a single vpshufb. */
     wwu_t swapped = wwu_bswap( compressed );
-    /* We perform shifts that align each of the elements, whereever they
+    /* We perform shifts that align each of the elements, wherever they
        are within their byte-swapped 32-bit representation, to start at
        the first bit of the element. This makes up for the overlapping
        bytes that occur when having bit-packed elements. */
     wwu_t shifted = wwu_shr_vector( swapped, offsets );
-    /* After aligning the elemnts, we simply mask them off to 14-bits. */
+    /* After aligning the elements, we simply mask them off to 14-bits. */
     wwu_t masked = wwu_and( shifted, mask );
 
-    /* If any of our elements are great-than-or-equal to Q, the predicate
-       is true and we exit the decoding process, as it must be invalid. */
+    /* If any of our elements are greater-than-or-equal to Q, the
+       predicate is true and we exit the decoding process, as it must
+       be invalid. */
     int cmp = wwu_ge( masked, Qv );
     if( FD_UNLIKELY( cmp ) ) return -1;
 
@@ -113,58 +120,80 @@ fd_falcon_pubkey_parse( fd_falcon_pubkey_t * pubkey,
 
 int
 fd_falcon_signature_parse( fd_falcon_signature_t * out,
-                           uchar const           * input,
-                           ulong                   len ) {
-  /* We need at least 41 bytes to read the salt. */
+                             uchar const           * input,
+                             ulong                   len ) {
   if( FD_UNLIKELY( len<41UL ) ) return -1;
-  /* Header must represent a 512-bit compressed falcon signature. */
   if( FD_UNLIKELY( input[ 0 ]!=HEADER ) ) return -1;
-
-  /* The signature contains a 40 byte nonce, which we copy out. */
   memcpy( out->nonce, input+1UL, 40UL );
 
-
-  /* The s2 polynomial is stored in a bit-packed format, where every
-     coefficient is encoded as [sign:1][low:7][0^k][1], where k is
-     the unary-coded high part.
-
-     Instead of extracting one bit at a time, we load 8 bytes, grab
-     sign+low from the top 8 bits, then use CLZ on the remainder
-     to count the unary zeroes. */
   uchar const * s2     = input+41UL;
   ulong         s2_len = len - 41UL;
   ulong         length = s2_len * 8UL;
 
-  uchar padded[1024];
+  uchar padded[ 1024 + 8 ] FD_ALIGNED;
   if( FD_UNLIKELY( s2_len + 8UL > sizeof(padded) ) ) return -1;
-  memcpy( padded, s2, s2_len );
-  memset( padded + s2_len, 0, 8UL );
+  memcpy( padded,          s2, s2_len );
+  memset( padded + s2_len, 0,  8UL );
 
   int results[ N ] __attribute__((aligned(64)));
-  ulong index = 0UL;
+
+  ulong abs_bit = 0;
+  ulong word    = fd_ulong_bswap( fd_ulong_load_8_fast( padded ) );
+  int   avail   = 64;
 
   for( int i=0; i<N; i++ ) {
-    if( FD_UNLIKELY( index + 8UL >= length ) ) return -1;
+    if( FD_UNLIKELY( avail<16 ) ) {
+      if( FD_UNLIKELY( abs_bit+16UL > length ) ) return -1;
+      ulong bp = abs_bit >> 3;
+      int   sb = (int)(abs_bit & 7UL);
+      word  = fd_ulong_bswap( fd_ulong_load_8_fast( padded+bp ) ) << sb;
+      avail = 64 - sb;
+    }
 
-    ulong word = fd_ulong_bswap( fd_ulong_load_8_fast( padded + (index >> 3) ) );
-    word <<= (index & 7UL);
-
-    int low  = (int)((word >> 56) & 0x7FUL);
     int sign = (int)(word >> 63);
+    int low  = (int)((word >> 56) & 0x7FUL);
+    ulong tail = word << 8;
 
-    word <<= 8;
-    if( FD_UNLIKELY( !word ) ) return -1;
-    int high = 63 - fd_ulong_find_msb( word );
+    int high;
+    if( FD_LIKELY( tail ) ) {
+      high = (int)__builtin_clzl( tail );
+      int advance = 9 + high;
+      word   <<= advance;
+      avail   -= advance;
+      abs_bit += (ulong)advance;
+    } else {
+      high = avail - 8;
+      abs_bit += 8;
+
+      for(;;) {
+        if( FD_UNLIKELY( abs_bit>=length ) ) return -1;
+        ulong bp = abs_bit >> 3;
+        int   sb = (int)(abs_bit & 7UL);
+        word  = fd_ulong_bswap( fd_ulong_load_8_fast( padded+bp ) ) << sb;
+        avail = 64 - sb;
+        if( FD_LIKELY( word ) ) {
+          int extra = (int)__builtin_clzl( word );
+          high += extra;
+          int advance = extra + 1;
+          word   <<= advance;
+          avail   -= advance;
+          abs_bit += (ulong)advance;
+          break;
+        }
+        if( FD_UNLIKELY( (uint)high >= (uint)(Q >> 7) ) ) return -1;
+        high    += avail;
+        abs_bit += (ulong)avail;
+        avail    = 0;
+      }
+    }
+
+    if( FD_UNLIKELY( abs_bit>length ) ) return -1;
 
     int mag = (high << 7) | low;
-    if( FD_UNLIKELY( mag >= Q ) ) return -1;
-
+    if( FD_UNLIKELY( mag>=Q ) ) return -1;
     results[ i ] = sign ? -mag : mag;
-    index += (ulong)(8 + high + 1);
-    if( FD_UNLIKELY( index > length ) ) return -1;
   }
 
-  /* Convert signed coefficients to Fq representation and store. */
 #if FD_HAS_AVX512
   for( int i=0; i<N; i+=16 ) {
     wwu_t v          = wwu_ldu( fd_type_pun_const( results + i ) );
@@ -179,6 +208,23 @@ fd_falcon_signature_parse( fd_falcon_signature_t * out,
     out->s2[ i ] = (fd_falcon_fq_t)( v + ( Q & ( v >> 31 ) ) );
   }
 #endif
+
+  /* Verify unused trailing bits are zero.
+     Algorithm 18, line 12.
+      > Enforce trailing bits are 0. */
+  if( abs_bit<length ) {
+    ulong bp = abs_bit >> 3;
+    int   sb = (int)(abs_bit & 7UL);
+    if( sb ) {
+      uchar trail_mask = (uchar)(0xFFU >> sb);
+      if( FD_UNLIKELY( s2[bp] & trail_mask ) ) return -1;
+      bp++;
+    }
+    for( ulong j=bp; j<s2_len; j++ ) {
+      if( FD_UNLIKELY( s2[j] ) ) return -1;
+    }
+  }
+
   return 0;
 }
 
@@ -188,15 +234,16 @@ fd_falcon_signature_parse( fd_falcon_signature_t * out,
 #define C_LEN N
 #endif
 
-static void
-fd_falcon_hash_to_point( fd_falcon_fq_t c[ C_LEN ],
-                         uchar const *  msg,
-                         ulong          len,
-                         uchar const    r[ 40 ] ) {
+void
+fd_falcon_hash_to_point( fd_falcon_fq_t * c,
+                         uchar const *    msg,
+                         ulong            len,
+                         uchar const *    r ) {
   fd_shake256_t state[1];
   fd_shake256_init( state );
   fd_shake256_absorb( state, r, 40UL );
   fd_shake256_absorb( state, msg, len );
+  fd_shake256_fini( state );
 
   /* We can amortize the cost of the shake by sampling many bytes at once,
      not needing to go through more branches every new sample. */
@@ -273,7 +320,6 @@ fd_falcon_verify( uchar const * msg,
 
      We can avoid moving c into the domain, as subtraction is performed
      pointwise, no matter which basis the polynomial is represented in. */
-
   fd_falcon_fq_t s2_ntt[ N ];
   fd_falcon_fq_t h_ntt [ N ];
   fd_falcon_fq_t m_ntt[ N ];

@@ -1683,6 +1683,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
 
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
+    tile->tower.wait_for_supermajority = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->tower.accdb_max_depth    = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );

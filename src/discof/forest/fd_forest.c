@@ -813,7 +813,7 @@ evict( fd_forest_t * forest, ulong new_slot, ulong parent_slot ) {
     ulong new_root = fd_forest_pool_ele( pool, forest->root )->child;
     if( FD_UNLIKELY( !fd_forest_pool_ele( pool, new_root )->chain_confirmed ) ) return ULONG_MAX;
 
-    FD_LOG_WARNING(( "Forest force rooting on slot %lu", fd_forest_pool_ele( pool, new_root )->slot ));
+    FD_LOG_INFO(( "[%s] forest force rooting on slot %lu", __func__, fd_forest_pool_ele( pool, new_root )->slot ));
     ulong evicted_slot = fd_forest_pool_ele( pool, forest->root )->slot;
     fd_forest_publish( forest, fd_forest_pool_ele( pool, new_root )->slot );
     return evicted_slot;
@@ -1166,7 +1166,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
   FD_TEST( shred_idx < FD_SHRED_BLK_MAX );
   fd_forest_blk_t * ele = query( forest, slot );
 # if FD_FOREST_USE_HANDHOLDING
-  if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest: fd_forest_data_shred_insert: ele %lu is not in the forest. data_shred_insert should be preceded by blk_insert", slot ));
+  if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] ele %lu is not in the forest. data_shred_insert should be preceded by blk_insert", __func__, slot ));
 # endif
 
   /* Pre-filtering on merkle root.
@@ -1225,7 +1225,7 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
       fd_hash_t * current_mr = &ele->merkle_roots[fec_idx].mr;
       if( FD_UNLIKELY( !fd_hash_eq( current_mr, mr ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( current_mr->key, current_mr_b58 ); FD_BASE58_ENCODE_32_BYTES( mr->key, mr_b58 );
-        FD_LOG_INFO(( "fd_forest_data_shred_insert: multiple versions detected for slot %lu, fec_set_idx %u. current_mr %s, received_mr %s", slot, fec_set_idx, current_mr_b58, mr_b58 ));
+        FD_LOG_INFO(( "[%s] multiple versions detected for slot %lu fec set %u, invalidating. current_mr %s, received_mr %s", __func__, slot, fec_set_idx, current_mr_b58, mr_b58 ));
         ele->merkle_roots[fec_idx].mr = invalid_mr; /* invalidate the merkle root */
       }
     }
@@ -1259,7 +1259,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 
   fd_forest_blk_t * ele = query( forest, slot );
 # if FD_FOREST_USE_HANDHOLDING
-  if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "fd_forest_fec_insert: ele %lu is not in the forest. fec_insert should be preceded by blk_insert", slot ));
+  if( FD_UNLIKELY( !ele ) ) FD_LOG_ERR(( "[%s] ele %lu is not in the forest. fec_insert should be preceded by blk_insert", __func__, slot ));
 # endif
 
   uint fec_idx = fec_set_idx / 32UL; /* index into merkle root array */
@@ -1267,7 +1267,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
                    && !fd_hash_eq( &ele->merkle_roots[fec_idx].mr, mr ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( ele->merkle_roots[fec_idx].mr.key, mr_b58 );
     FD_BASE58_ENCODE_32_BYTES( mr->key, mr_recv_b58 );
-    FD_LOG_WARNING(( "fd_forest_fec_insert: fec_resolver inserted a version of slot %lu fec_set_idx %u we dont have recorded. current_mr %s, received_mr %s", slot, fec_set_idx, mr_b58, mr_recv_b58 ));
+    FD_LOG_WARNING(( "[%s] received a version of slot %lu fec set %u we dont have recorded. current_mr %s, received_mr %s", __func__, slot, fec_set_idx, mr_b58, mr_recv_b58 ));
     /* there are two cases:
 
        (1) the first and common case is that we've received a mix of
@@ -1323,7 +1323,6 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx ) 
   if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
 
   if( FD_UNLIKELY( shred_idx >= fd_forest_blk_idxs_max( ele->code ) ) ) {
-    FD_LOG_INFO(( "fd_forest: fd_forest_code_shred_insert: shred_idx %u is greater than max, not tracking.", shred_idx ));
     ele->turbine_cnt += 1;
     return ele;
   }
@@ -1353,15 +1352,15 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
       /* hop to the parent slot, but first we've made it through this
          slot successfully verifying the chain! mark it confirmed! */
       ele->chain_confirmed = 1;
-      FD_LOG_DEBUG(( "fd_forest_fec_chain_verify: confirmed full slot %lu", ele->slot ));
+      FD_LOG_DEBUG(( "[%s] confirmed full slot %lu", __func__, ele->slot ));
       ele = fd_forest_pool_ele( fd_forest_pool( forest ), ele->parent );
-      if( FD_UNLIKELY( !ele || ele->complete_idx == UINT_MAX || ele->buffered_idx != ele->complete_idx ) ) {
-        /* can't verify the chain further */
-        return NULL;
-      }
+
+      if( FD_UNLIKELY( !ele ) ) return NULL; /* can't verify the chain further */
+
+      ele->confirmed_bid = *expected_mr; /* CMR of child slot */
+      if( FD_UNLIKELY( ele->complete_idx == UINT_MAX || ele->buffered_idx != ele->complete_idx ) ) return NULL; /* can't verify the chain further */
 
       fec_idx = ele->complete_idx / 32UL;
-      ele->confirmed_bid = *expected_mr; /* CMR of child slot */
       continue;
     }
     fec_idx--; /* go back one FEC set */
@@ -1442,7 +1441,7 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
        notion of when we completed the slot.  consumed is also updated
        mainly for metrics.  For now we leave it alone. */
   }
-  FD_LOG_INFO(( "fd_forest: fd_forest_fec_clear: cleared slot %lu fec set %u to %u", slot, fec_set_idx, fec_set_idx+max_shred_idx ));
+  FD_LOG_INFO(( "[%s] cleared slot %lu fec set %u", __func__, slot, fec_set_idx ));
 }
 
 fd_forest_blk_t const *
@@ -1705,7 +1704,7 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
            invariants are maintained.  Can consider changing back to
            LOG_CRIT after dynamic expected snapshot slot changes go in,
            or removing this check entirely. */
-         FD_LOG_WARNING(( "repair iterator: slot %lu not found in forest. purging from requests list.", ele->slot ));
+         FD_LOG_WARNING(( "[%s] slot %lu not found in forest. purging from requests list.", __func__, ele->slot ));
          requests_remove( forest, reqsmap, reqslist, iter, iter->ele_idx );
          return iter;
       }

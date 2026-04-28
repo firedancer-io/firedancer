@@ -886,6 +886,7 @@
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">pong</span>"} | counter | What types of client messages are we sending (Pong) |
 | <span class="metrics-name">repair_&#8203;repaired_&#8203;slots</span> | counter | Until which slots have we fully repaired |
 | <span class="metrics-name">repair_&#8203;current_&#8203;slot</span> | counter | Our view of the current cluster slot, max slot received |
+| <span class="metrics-name">repair_&#8203;old_&#8203;shred</span> | counter | How many times we received a shred older than the root |
 | <span class="metrics-name">repair_&#8203;last_&#8203;requested_&#8203;slot</span> | gauge | The last slot we requested a single shred for |
 | <span class="metrics-name">repair_&#8203;last_&#8203;requested_&#8203;orphan</span> | gauge | The last slot we requested an orphan for |
 | <span class="metrics-name">repair_&#8203;inflight_&#8203;requests</span> | gauge | How many requests are currently in the inflight queue, excludes orphans and highest window requests |
@@ -901,6 +902,11 @@
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
 | <span class="metrics-name">repair_&#8203;blk_&#8203;evicted</span> | counter | How many times we evicted a block from the forest |
 | <span class="metrics-name">repair_&#8203;blk_&#8203;failed_&#8203;insert</span> | counter | How many times we failed to insert a block into the forest due to failed eviction |
+| <span class="metrics-name">repair_&#8203;slot_&#8203;evicted</span> | gauge | The most recent slot that was evicted from forest |
+| <span class="metrics-name">repair_&#8203;slot_&#8203;evicted_&#8203;by</span> | gauge | The slot that caused the most recent eviction from forest |
+| <span class="metrics-name">repair_&#8203;slot_&#8203;failed_&#8203;insert</span> | gauge | The most recent slot that we failed to insert into the forest |
+| <span class="metrics-name">repair_&#8203;failed_&#8203;chain_&#8203;verify_&#8203;cnt</span> | counter | How many times any block failed chained merkle verification |
+| <span class="metrics-name">repair_&#8203;failed_&#8203;chain_&#8203;verify_&#8203;slot</span> | gauge | Most recent slot that failed chained merkle verification |
 
 </div>
 

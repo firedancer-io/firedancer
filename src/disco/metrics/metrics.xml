@@ -909,6 +909,7 @@ metric introduced.
     <counter name="SentPktTypes" enum="RepairSentRequestTypes" summary="What types of client messages are we sending" />
     <counter name="RepairedSlots" summary="Until which slots have we fully repaired" />
     <counter name="CurrentSlot" summary="Our view of the current cluster slot, max slot received" />
+    <counter name="OldShred" summary="How many times we received a shred older than the root" />
     <gauge name="LastRequestedSlot" summary="The last slot we requested a single shred for" />
     <gauge name="LastRequestedOrphan" summary="The last slot we requested an orphan for" />
     <gauge name="InflightRequests" summary="How many requests are currently in the inflight queue, excludes orphans and highest window requests" />
@@ -928,6 +929,12 @@ metric introduced.
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
     <counter name="BlkEvicted" summary="How many times we evicted a block from the forest" />
     <counter name="BlkFailedInsert" summary="How many times we failed to insert a block into the forest due to failed eviction" />
+    <gauge name="SlotEvicted"      summary="The most recent slot that was evicted from forest" />
+    <gauge name="SlotEvictedBy"    summary="The slot that caused the most recent eviction from forest" />
+    <gauge name="SlotFailedInsert" summary="The most recent slot that we failed to insert into the forest" />
+    <counter name="FailedChainVerifyCnt" summary="How many times any block failed chained merkle verification" />
+    <gauge name="FailedChainVerifySlot" summary="Most recent slot that failed chained merkle verification" />
+
 </tile>
 
 <enum name="CrdsValue">

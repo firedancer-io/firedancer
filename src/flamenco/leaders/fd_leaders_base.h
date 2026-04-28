@@ -2,6 +2,7 @@
 #define HEADER_fd_src_flamenco_leaders_fd_leaders_base_h
 
 #include "../types/fd_types_custom.h"
+#include "../runtime/sysvar/fd_sysvar_base.h"
 #include "../features/fd_features.h"
 
 #define MAX_SHRED_DESTS              40200UL /* 200 * 201 - 1 (exclude self) */

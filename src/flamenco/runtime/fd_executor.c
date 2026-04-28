@@ -6,7 +6,6 @@
 
 #include "fd_system_ids.h"
 #include "program/fd_bpf_loader_program.h"
-#include "program/fd_loader_v4_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_precompiles.h"
 #include "program/fd_system_program.h"
@@ -70,7 +69,7 @@ typedef struct fd_rent_state fd_rent_state_t;
 #define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
 #define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
 #define MAP_PERFECT_6  ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
-#define MAP_PERFECT_7  ( LOADER_V4_PROG_ID       ), .fn = fd_loader_v4_program_execute,                 .is_bpf_loader = 1, .feature_enable_offset = offsetof( fd_features_t, enable_loader_v4 )
+#define MAP_PERFECT_7  ( LOADER_V4_PROG_ID       ), .fn = NULL,                                         .is_bpf_loader = 1, .feature_enable_offset = offsetof( fd_features_t, enable_loader_v4 )
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
@@ -514,14 +513,14 @@ fd_collect_loaded_account( fd_runtime_t *            runtime,
 
   /* Try to read the program state
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L612-L634 */
-  fd_bpf_upgradeable_loader_state_t loader_state[1];
+  fd_bpf_state_t loader_state[1];
   err = fd_bpf_loader_program_get_state( account_meta, loader_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* Make sure the account is a v3 program */
-  if( !fd_bpf_upgradeable_loader_state_is_program( loader_state ) ) {
+  if( loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -1332,13 +1331,13 @@ fd_executor_setup_executable_account( fd_runtime_t *            runtime,
                                       fd_txn_in_t const *       txn_in,
                                       fd_account_meta_t const * program_meta,
                                       ushort *                  executable_idx ) {
-  fd_bpf_upgradeable_loader_state_t program_loader_state[1];
+  fd_bpf_state_t program_loader_state[1];
   int err = fd_bpf_loader_program_get_state( program_meta, program_loader_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return;
   }
 
-  if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
+  if( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
     return;
   }
 

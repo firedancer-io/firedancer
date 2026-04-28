@@ -1,34 +1,50 @@
 #ifndef HEADER_fd_src_ballet_falcon_fd_falcon_h
 #define HEADER_fd_src_ballet_falcon_fd_falcon_h
 
-#define Q 12289
-#define N 512
-#define LOGN 9
+#include "../fd_ballet_base.h"
 
-#include "fd_falcon_fq.h"
+#define FD_FALCON_N 512
+#define FD_FALCON_PUBKEY_SIZE (1 + (14 * FD_FALCON_N / 8))
 
-#define PUBKEY_SIZE (1 + (14 * N / 8))
+typedef uint fd_falcon_fq_t;
 
+/* A parsed Falcon-512 public key. */
 typedef struct {
-  fd_falcon_fq_t h[ N ];
+  fd_falcon_fq_t h[ FD_FALCON_N ];
 } fd_falcon_pubkey_t;
 
+/* A parsed Falcon-512 signature polynomial + nonce. */
 typedef struct {
   uchar nonce[ 40 ];
-  fd_falcon_fq_t s2[ N ];
+  fd_falcon_fq_t s2[ FD_FALCON_N ];
 } fd_falcon_signature_t;
 
 FD_PROTOTYPES_BEGIN
 
+/* Given a compressed Falcon-512 public key, decodes it into "out", already
+   stored in fd_falcon_fq_t's domain.
+   Returns 0 for success, and -1 for failure. */
 int
 fd_falcon_pubkey_parse( fd_falcon_pubkey_t * out,
-                        uchar const          input[ static PUBKEY_SIZE ] );
+                        uchar const          input[ static FD_FALCON_PUBKEY_SIZE ] );
 
+/* Given a variable length Falcon-512 signature, decodes it into "out".
+   Returns 0 for success, and -1 for failure. */
 int
 fd_falcon_signature_parse( fd_falcon_signature_t * out,
                            uchar const           * input,
                            ulong                   len );
 
+/* Internal primitive used by fd_falcon_verify; exposed for unit tests and
+   microbenchmarks (see test_falcon.c). */
+void
+fd_falcon_hash_to_point( fd_falcon_fq_t * c,
+                         uchar const *    msg,
+                         ulong            len,
+                         uchar const *    r /* 40 bytes */ );
+
+/* Given a signature, public-key, and message, returns 0 if the signature
+   verifies, and -1 if it does not. */
 int
 fd_falcon_verify( uchar const * msg,
                   ulong         len,

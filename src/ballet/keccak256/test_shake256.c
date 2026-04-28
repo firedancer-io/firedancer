@@ -59,6 +59,7 @@ main( int     argc,
     fd_shake256_t sha[1];
     fd_shake256_init( sha );
     fd_shake256_absorb( sha, msg, msg_sz );
+    fd_shake256_fini( sha );
     memset( out, 0, out_sz );
     fd_shake256_squeeze( sha, out, out_sz );
 
@@ -69,12 +70,13 @@ main( int     argc,
     uchar const * nxt = msg;
     ulong         rem = msg_sz;
     while( rem ) {
-      ulong nxt_sz = fd_ulong_min( rem, fd_rng_ulong_roll( rng, msg_sz+1UL ) );
+      ulong nxt_sz = 1UL + fd_rng_ulong_roll( rng, rem );
       fd_shake256_absorb( sha, nxt, nxt_sz );
       nxt += nxt_sz;
       rem -= nxt_sz;
       if( fd_rng_uint( rng ) & 1U ) fd_shake256_absorb( sha, NULL, 0UL );
     }
+    fd_shake256_fini( sha );
 
     memset( out, 0, out_sz );
     fd_shake256_squeeze( sha, out, out_sz );
@@ -83,6 +85,7 @@ main( int     argc,
 
     fd_shake256_init( sha );
     fd_shake256_absorb( sha, msg, msg_sz );
+    fd_shake256_fini( sha );
 
     memset( out, 0, out_sz );
     uchar * dst     = out;
@@ -111,6 +114,7 @@ main( int     argc,
     for( ulong rem=10UL; rem; rem-- ) {
       fd_shake256_init( sha );
       fd_shake256_absorb( sha, bench_buf, sz );
+      fd_shake256_fini( sha );
       fd_shake256_squeeze( sha, out, 32UL );
     }
 
@@ -119,6 +123,7 @@ main( int     argc,
     for( ulong rem=iter; rem; rem-- ) {
       fd_shake256_init( sha );
       fd_shake256_absorb( sha, bench_buf, sz );
+      fd_shake256_fini( sha );
       fd_shake256_squeeze( sha, out, 32UL );
     }
     dt += fd_log_wallclock();

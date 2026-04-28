@@ -388,9 +388,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   int min_ping_fd = INT_MAX;
   int max_ping_fd = 0;
   if( download_enabled( tile ) ) {
-    fd_ssping_sockfd_range_t fd_range = fd_ssping_get_sockfds( ctx->ssping );
-    min_ping_fd = fd_range.min_fd;
-    max_ping_fd = fd_range.max_fd;
+    min_ping_fd = FD_SSPING_FD_MIN;
+    max_ping_fd = FD_SSPING_FD_MIN + (int)FD_SSPING_FD_CNT - 1;
   }
 
   populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)min_ping_fd, (uint)max_ping_fd );
@@ -418,10 +417,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) )        out_fds[ out_cnt++ ] = ctx->local_out.full_snapshot_fd;
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) out_fds[ out_cnt++ ] = ctx->local_out.incremental_snapshot_fd;
   if( FD_LIKELY( download_enabled( tile ) ) ) {
-    fd_ssping_sockfd_range_t fd_range = fd_ssping_get_sockfds( ctx->ssping );
-    ulong needed_fd_cnt = out_cnt+(ulong)(fd_range.max_fd - fd_range.min_fd + 1);
-    if( FD_UNLIKELY( needed_fd_cnt>out_fds_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu must be at least %lu", out_fds_cnt, needed_fd_cnt ));
-    for( int i=fd_range.min_fd; i<=fd_range.max_fd; i++ ) out_fds[ out_cnt++ ] = i;
+    if( FD_UNLIKELY( out_cnt+FD_SSPING_FD_CNT > out_fds_cnt ) ) {
+      FD_LOG_ERR(( "out_fds_cnt %lu must be at least %lu", out_fds_cnt, out_cnt + FD_SSPING_FD_CNT ));
+    }
+    for( int i=FD_SSPING_FD_MIN; i<FD_SSPING_FD_MIN+(int)FD_SSPING_FD_CNT; i++ ) {
+      out_fds[ out_cnt++ ] = i;
+    }
   }
 
   return out_cnt;

@@ -13,6 +13,8 @@ static uchar const s_key_b[ 32 ] = { 2 };  /* b: present in vinyl, tombstone */
 static uchar const s_key_c[ 32 ] = { 3 };  /* c: present in funk,  account exists */
 static uchar const s_key_d[ 32 ] = { 4 };  /* d: present in funk,  tombstone*/
 static uchar const s_key_e[ 32 ] = { 5 };  /* e: not found */
+static uchar const s_key_f[ 32 ] = { 6 };  /* f: present in vinyl, tombstone (2nd) */
+static uchar const s_key_g[ 32 ] = { 7 };  /* g: present in funk,  tombstone (2nd) */
 
 static int
 fd_vinyl_tile( int     argc,
@@ -302,6 +304,603 @@ test_truncate_copy( fd_accdb_admin_t * admin,
   fd_accdb_cancel( admin, &xid1 );
 }
 
+/* Verify that tombstone accounts (lamports==0) in funk and vinyl
+   return NULL from open_rw and don't corrupt vinyl release state. */
+
+static void
+test_tombstone( fd_accdb_admin_t * admin,
+                fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 10UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_accdb_rw_t rw[1];
+
+  /* Vinyl tombstone */
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, s_key_b, 16UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Funk tombstone (shadows a live vinyl record) */
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, s_key_d, 16UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Funk tombstone with FLAG_CREATE should succeed (create over
+     the tombstone), since flag_create bypasses the tombstone check. */
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, s_key_d, 16UL, FD_ACCDB_FLAG_CREATE ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==0UL );
+  fd_accdb_ref_lamports_set( rw, 99UL );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==99UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Live vinyl account must still work after tombstone handling
+     (catches stale release / req_cnt misalignment bugs) */
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, s_key_a, 0UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==10000UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify that open_rw_multi correctly handles a mixed batch containing
+   funk tombstone, vinyl live, vinyl tombstone, and not-found entries
+   in a single call.  This exercises the req_cnt / release_cnt
+   compaction logic that single-entry open_rw calls do not stress.
+
+   The test pool has batch_key_max==4, so we use 4-entry batches. */
+
+static void
+test_tombstone_multi( fd_accdb_admin_t * admin,
+                      fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 11UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  /* Build contiguous address array (stride 32):
+       [0] s_key_a  vinyl live
+       [1] s_key_b  vinyl tombstone
+       [2] s_key_d  funk tombstone (shadows vinyl live)
+       [3] s_key_e  not found */
+  uchar addr_buf[ 4*32 ];
+  memcpy( addr_buf + 0*32, s_key_a, 32 );
+  memcpy( addr_buf + 1*32, s_key_b, 32 );
+  memcpy( addr_buf + 2*32, s_key_d, 32 );
+  memcpy( addr_buf + 3*32, s_key_e, 32 );
+
+  ulong data_max[4] = { 0UL, 16UL, 16UL, 16UL };
+  fd_accdb_rw_t rw[4];
+
+  /* Without FLAG_CREATE: tombstones and not-found yield invalid handles.
+     Vinyl sends 3 ACQUIREs (a,b,e - d is found in funk), of which
+     only a and b get valid val_gaddrs (release_cnt==2). */
+  accdb->base.vt->open_rw_multi( accdb, rw, &xid, addr_buf, data_max, 0, 4UL );
+
+  FD_TEST( rw[0].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* vinyl live */
+  FD_TEST( fd_accdb_ref_lamports( rw[0].ro )==10000UL );
+
+  FD_TEST( rw[1].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* vinyl tombstone */
+
+  FD_TEST( rw[2].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* funk tombstone */
+
+  FD_TEST( rw[3].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* not found */
+
+  FD_TEST( accdb->base.rw_active==1 );
+
+  /* Close all handles (invalid ones are silently skipped) */
+  accdb->base.vt->close_ref_multi( accdb, fd_type_pun( rw ), 4UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* With FLAG_CREATE: tombstones and not-found produce valid handles */
+  accdb->base.vt->open_rw_multi( accdb, rw, &xid, addr_buf, data_max, FD_ACCDB_FLAG_CREATE, 4UL );
+
+  FD_TEST( rw[0].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* vinyl live */
+  FD_TEST( fd_accdb_ref_lamports( rw[0].ro )==10000UL );
+
+  FD_TEST( rw[1].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* vinyl tombstone created */
+  FD_TEST( fd_accdb_ref_lamports( rw[1].ro )==0UL );
+
+  FD_TEST( rw[2].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* funk tombstone created */
+  FD_TEST( fd_accdb_ref_lamports( rw[2].ro )==0UL );
+
+  FD_TEST( rw[3].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* not-found created */
+  FD_TEST( fd_accdb_ref_lamports( rw[3].ro )==0UL );
+
+  FD_TEST( accdb->base.rw_active==4 );
+
+  accdb->base.vt->close_ref_multi( accdb, fd_type_pun( rw ), 4UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify that a single vinyl tombstone with FLAG_CREATE succeeds
+   (creates a fresh account over the tombstone). */
+
+static void
+test_tombstone_vinyl_create( fd_accdb_admin_t * admin,
+                             fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 12UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_accdb_rw_t rw[1];
+
+  /* Vinyl tombstone with FLAG_CREATE should succeed */
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, s_key_b, 16UL, FD_ACCDB_FLAG_CREATE ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==0UL );
+  fd_accdb_ref_lamports_set( rw, 77UL );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==77UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Verify live vinyl account still works after the above
+     (catches req_cnt / release_cnt misalignment) */
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, s_key_a, 0UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==10000UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify that open_rw_multi correctly handles a batch containing
+   multiple vinyl tombstones.  This stresses the val_gaddr compaction
+   logic with >1 vinyl tombstone requiring RELEASE.
+
+   Batch layout (4 entries, batch_key_max==4):
+     [0] s_key_b  vinyl tombstone
+     [1] s_key_a  vinyl live
+     [2] s_key_f  vinyl tombstone (2nd)
+     [3] s_key_e  not found
+
+   Vinyl sends 4 ACQUIREs (all not in funk).  b, a, f return valid
+   val_gaddrs (release_cnt==3).  e returns ERR_KEY (release_cnt stays 3). */
+
+static void
+test_tombstone_multi_vinyl( fd_accdb_admin_t * admin,
+                            fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 13UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  uchar addr_buf[ 4*32 ];
+  memcpy( addr_buf + 0*32, s_key_b, 32 );
+  memcpy( addr_buf + 1*32, s_key_a, 32 );
+  memcpy( addr_buf + 2*32, s_key_f, 32 );
+  memcpy( addr_buf + 3*32, s_key_e, 32 );
+
+  ulong data_max[4] = { 16UL, 0UL, 16UL, 16UL };
+  fd_accdb_rw_t rw[4];
+
+  /* Without FLAG_CREATE */
+  accdb->base.vt->open_rw_multi( accdb, rw, &xid, addr_buf, data_max, 0, 4UL );
+
+  FD_TEST( rw[0].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* vinyl tombstone */
+  FD_TEST( rw[1].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* vinyl live */
+  FD_TEST( fd_accdb_ref_lamports( rw[1].ro )==10000UL );
+  FD_TEST( rw[2].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* vinyl tombstone 2 */
+  FD_TEST( rw[3].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* not found */
+
+  FD_TEST( accdb->base.rw_active==1 );
+
+  accdb->base.vt->close_ref_multi( accdb, fd_type_pun( rw ), 4UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* With FLAG_CREATE */
+  accdb->base.vt->open_rw_multi( accdb, rw, &xid, addr_buf, data_max, FD_ACCDB_FLAG_CREATE, 4UL );
+
+  FD_TEST( rw[0].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* vinyl tombstone created */
+  FD_TEST( fd_accdb_ref_lamports( rw[0].ro )==0UL );
+  FD_TEST( rw[1].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* vinyl live */
+  FD_TEST( fd_accdb_ref_lamports( rw[1].ro )==10000UL );
+  FD_TEST( rw[2].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* vinyl tombstone 2 created */
+  FD_TEST( fd_accdb_ref_lamports( rw[2].ro )==0UL );
+  FD_TEST( rw[3].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* not-found created */
+  FD_TEST( fd_accdb_ref_lamports( rw[3].ro )==0UL );
+
+  FD_TEST( accdb->base.rw_active==4 );
+
+  accdb->base.vt->close_ref_multi( accdb, fd_type_pun( rw ), 4UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify that an RW funk tombstone (tombstone in the tip transaction,
+   not an ancestor) is handled correctly in a multi-entry batch.  The
+   existing test_tombstone_multi only exercises the RO funk tombstone
+   path because the funk record is in the root and opened from a child.
+
+   We first create an account in the tip txn, delete it (set lamports=0),
+   then open a batch containing that RW tombstone alongside vinyl entries.
+
+   Batch layout (3 entries):
+     [0] s_key_e  RW funk tombstone (created then deleted in tip txn)
+     [1] s_key_a  vinyl live
+     [2] s_key_b  vinyl tombstone */
+
+static void
+test_tombstone_multi_rw_funk( fd_accdb_admin_t * admin,
+                              fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 15UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  /* Create s_key_e in tip txn, then delete it to make an RW tombstone */
+  fd_accdb_rw_t rw_setup[1];
+  FD_TEST( fd_accdb_open_rw( accdb, rw_setup, &xid, s_key_e, 16UL, FD_ACCDB_FLAG_CREATE ) );
+  fd_accdb_ref_lamports_set( rw_setup, 500UL );
+  fd_accdb_close_rw( accdb, rw_setup );
+
+  FD_TEST( fd_accdb_open_rw( accdb, rw_setup, &xid, s_key_e, 16UL, 0 ) );
+  fd_accdb_ref_lamports_set( rw_setup, 0UL ); /* delete => tombstone */
+  fd_accdb_close_rw( accdb, rw_setup );
+
+  /* Now open a batch with the RW tombstone + vinyl entries */
+  uchar addr_buf[ 3*32 ];
+  memcpy( addr_buf + 0*32, s_key_e, 32 );
+  memcpy( addr_buf + 1*32, s_key_a, 32 );
+  memcpy( addr_buf + 2*32, s_key_b, 32 );
+
+  ulong data_max[3] = { 16UL, 0UL, 16UL };
+  fd_accdb_rw_t rw[3];
+
+  accdb->base.vt->open_rw_multi( accdb, rw, &xid, addr_buf, data_max, 0, 3UL );
+
+  FD_TEST( rw[0].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* RW funk tombstone */
+  FD_TEST( rw[1].ref->accdb_type!=FD_ACCDB_TYPE_NONE );  /* vinyl live */
+  FD_TEST( fd_accdb_ref_lamports( rw[1].ro )==10000UL );
+  FD_TEST( rw[2].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* vinyl tombstone */
+
+  FD_TEST( accdb->base.rw_active==1 );
+
+  accdb->base.vt->close_ref_multi( accdb, fd_type_pun( rw ), 3UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify tombstone interaction with FLAG_TRUNCATE.
+   TRUNCATE without CREATE on a tombstone should return NULL. */
+
+static void
+test_tombstone_truncate( fd_accdb_admin_t * admin,
+                         fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 14UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_accdb_rw_t rw[1];
+
+  /* Vinyl tombstone + TRUNCATE (no CREATE) => NULL */
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, s_key_b, 16UL, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Funk tombstone + TRUNCATE (no CREATE) => NULL */
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, s_key_d, 16UL, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Vinyl tombstone + TRUNCATE|CREATE => fresh account */
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, s_key_f, 64UL, FD_ACCDB_FLAG_TRUNCATE|FD_ACCDB_FLAG_CREATE ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==0UL );
+  FD_TEST( fd_accdb_ref_data_sz( rw->ro )==0UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Live vinyl account still works after tombstone+truncate handling */
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, s_key_a, 0UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==10000UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Multi-entry batch with TRUNCATE|CREATE.
+     Exercises flag_truncate's data-clearing alongside the
+     req_cnt / release_cnt compaction in a single batch.
+
+     Batch layout (4 entries):
+       [0] s_key_a  vinyl live       -> truncated, lamports preserved
+       [1] s_key_b  vinyl tombstone  -> created fresh (lamports==0)
+       [2] s_key_d  funk  tombstone  -> created over tombstone (lamports==0)
+       [3] s_key_e  not found        -> created fresh (lamports==0)
+
+     Vinyl sends 3 ACQUIREs (a, b, e).  a and b return valid
+     val_gaddrs (release_cnt==2).  e returns ERR_KEY.
+     d is found in funk (no ACQUIRE). */
+
+  uchar addr_buf[ 4*32 ];
+  memcpy( addr_buf + 0*32, s_key_a, 32 );
+  memcpy( addr_buf + 1*32, s_key_b, 32 );
+  memcpy( addr_buf + 2*32, s_key_d, 32 );
+  memcpy( addr_buf + 3*32, s_key_e, 32 );
+
+  ulong data_max[4] = { 64UL, 64UL, 64UL, 64UL };
+  fd_accdb_rw_t rw_multi[4];
+
+  accdb->base.vt->open_rw_multi( accdb, rw_multi, &xid, addr_buf, data_max,
+                                 FD_ACCDB_FLAG_TRUNCATE|FD_ACCDB_FLAG_CREATE, 4UL );
+
+  /* vinyl live: truncated but lamports preserved */
+  FD_TEST( rw_multi[0].ref->accdb_type!=FD_ACCDB_TYPE_NONE );
+  FD_TEST( fd_accdb_ref_lamports( rw_multi[0].ro )==10000UL );
+  FD_TEST( fd_accdb_ref_data_sz( rw_multi[0].ro )==0UL );
+
+  /* vinyl tombstone: created fresh */
+  FD_TEST( rw_multi[1].ref->accdb_type!=FD_ACCDB_TYPE_NONE );
+  FD_TEST( fd_accdb_ref_lamports( rw_multi[1].ro )==0UL );
+  FD_TEST( fd_accdb_ref_data_sz( rw_multi[1].ro )==0UL );
+
+  /* funk tombstone: created over tombstone */
+  FD_TEST( rw_multi[2].ref->accdb_type!=FD_ACCDB_TYPE_NONE );
+  FD_TEST( fd_accdb_ref_lamports( rw_multi[2].ro )==0UL );
+  FD_TEST( fd_accdb_ref_data_sz( rw_multi[2].ro )==0UL );
+
+  /* not found: created fresh */
+  FD_TEST( rw_multi[3].ref->accdb_type!=FD_ACCDB_TYPE_NONE );
+  FD_TEST( fd_accdb_ref_lamports( rw_multi[3].ro )==0UL );
+  FD_TEST( fd_accdb_ref_data_sz( rw_multi[3].ro )==0UL );
+
+  FD_TEST( accdb->base.rw_active==4 );
+
+  accdb->base.vt->close_ref_multi( accdb, fd_type_pun( rw_multi ), 4UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Verify vinyl ref counting still intact */
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, s_key_a, 0UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw->ro )==10000UL );
+  fd_accdb_close_rw( accdb, rw );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify the incinerator production path:
+     open_ro(vinyl_account) -> open_rw(funk_tombstone) ->
+     close_ro(vinyl_account)
+
+   This is the exact sequence that fires every slot in production:
+     1. Executor loads account via fd_accdb_open_ro.
+     2. fd_runtime_run_incinerator -> fd_accdb_svm_remove ->
+        fd_accdb_open_rw (on the incinerator tombstone)
+     3. Executor calls fd_accdb_close_ro on the account from step 1
+
+   Before this was fixed, step 2 would send a spurious vinyl RELEASE
+   carrying a stale val_gaddr from step 1's ACQUIRE, corrupting the
+   vinyl ref count.  Step 3's RELEASE would then find
+   ref=0 -> ERR_INVAL -> FD_LOG_CRIT crash.
+
+   The loop simulates 64 consecutive slots.  If a single spurious
+   RELEASE leaked, the ref count for key_a's page would go from 1 to 0
+   and the close_ro in that same iteration would crash with ERR_INVAL. */
+
+static void
+test_tombstone_incinerator( fd_accdb_admin_t * admin,
+                            fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 16UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  for( ulong slot=0UL; slot<64UL; slot++ ) {
+    /* 1. open_ro on a live vinyl account (simulates executor load). */
+    fd_accdb_ro_t ro[1];
+    FD_TEST( fd_accdb_open_ro( accdb, ro, &xid, s_key_a ) );
+    FD_TEST( accdb->base.ro_active==1 );
+    FD_TEST( fd_accdb_ref_lamports( ro )==10000UL );
+
+    /* 2. open_rw on a funk tombstone with flags=0 (simulates
+       fd_accdb_svm_remove on the incinerator sysvar).  Must return
+       NULL and must NOT send a spurious vinyl RELEASE. */
+    fd_accdb_rw_t rw[1];
+    FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, s_key_d, 0UL, 0 ) );
+    FD_TEST( accdb->base.rw_active==0 );
+
+    /* 3. close_ro on the vinyl account from step 1.
+       Crashes here if the spurious RELEASE corrupted the ref count. */
+    fd_accdb_close_ro( accdb, ro );
+    FD_TEST( accdb->base.ro_active==0 );
+  }
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify edge cases:
+   1. cnt==0 (empty batch) is a no-op.
+   2. A full batch (batch_key_max==4) of all tombstones (mixed funk/vinyl)
+      exercises maximum val_gaddr compaction - release_cnt covers every
+      acquired entry while no live accounts are opened.
+
+   Batch layout for (2):
+     [0] s_key_b  vinyl tombstone
+     [1] s_key_f  vinyl tombstone
+     [2] s_key_d  funk  tombstone (shadows vinyl live)
+     [3] s_key_g  funk  tombstone (shadows vinyl live)
+
+   Vinyl sends 2 ACQUIREs (b, f - d and g found in funk).
+   Both return valid val_gaddrs (release_cnt==2), but both are
+   tombstones so no accounts are opened (rw_active stays 0).
+
+   3. A 2-entry batch of exclusively vinyl tombstones (no funk entries).
+      Every iteration goes through the vinyl-found path so
+      release_cnt==req_cnt==2 (identity compaction).
+
+   Batch layout for (3):
+     [0] s_key_b  vinyl tombstone
+     [1] s_key_f  vinyl tombstone */
+
+static void
+test_tombstone_edge( fd_accdb_admin_t * admin,
+                     fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 17UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  /* 1. Empty batch */
+  uchar  empty_addr[1];
+  ulong  empty_max[1];
+  fd_accdb_rw_t empty_rw[1];
+  accdb->base.vt->open_rw_multi( accdb, empty_rw, &xid, empty_addr, empty_max, 0, 0UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* 2. Full batch of all tombstones */
+  uchar addr_buf[ 4*32 ];
+  memcpy( addr_buf + 0*32, s_key_b, 32 );
+  memcpy( addr_buf + 1*32, s_key_f, 32 );
+  memcpy( addr_buf + 2*32, s_key_d, 32 );
+  memcpy( addr_buf + 3*32, s_key_g, 32 );
+
+  ulong data_max[4] = { 16UL, 16UL, 16UL, 16UL };
+  fd_accdb_rw_t rw[4];
+
+  accdb->base.vt->open_rw_multi( accdb, rw, &xid, addr_buf, data_max, 0, 4UL );
+
+  FD_TEST( rw[0].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* vinyl tombstone */
+  FD_TEST( rw[1].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* vinyl tombstone */
+  FD_TEST( rw[2].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* funk  tombstone */
+  FD_TEST( rw[3].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* funk  tombstone */
+  FD_TEST( accdb->base.rw_active==0 );
+
+  accdb->base.vt->close_ref_multi( accdb, fd_type_pun( rw ), 4UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Verify a live vinyl account still works after full-tombstone batch
+     (catches any req_cnt / release_cnt misalignment). */
+  fd_accdb_rw_t rw_live[1];
+  FD_TEST( fd_accdb_open_rw( accdb, rw_live, &xid, s_key_a, 0UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw_live->ro )==10000UL );
+  fd_accdb_close_rw( accdb, rw_live );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* 3. All-vinyl-tombstone batch (no funk entries in batch) */
+  uchar addr_buf2[ 2*32 ];
+  memcpy( addr_buf2 + 0*32, s_key_b, 32 );
+  memcpy( addr_buf2 + 1*32, s_key_f, 32 );
+
+  ulong data_max2[2] = { 16UL, 16UL };
+  fd_accdb_rw_t rw2[2];
+
+  accdb->base.vt->open_rw_multi( accdb, rw2, &xid, addr_buf2, data_max2, 0, 2UL );
+
+  FD_TEST( rw2[0].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* vinyl tombstone */
+  FD_TEST( rw2[1].ref->accdb_type==FD_ACCDB_TYPE_NONE );  /* vinyl tombstone */
+  FD_TEST( accdb->base.rw_active==0 );
+
+  accdb->base.vt->close_ref_multi( accdb, fd_type_pun( rw2 ), 2UL );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* Verify vinyl still healthy after all-vinyl-tombstone batch */
+  FD_TEST( fd_accdb_open_rw( accdb, rw_live, &xid, s_key_a, 0UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( rw_live->ro )==10000UL );
+  fd_accdb_close_rw( accdb, rw_live );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify the funk-ro -> funk-tombstone-rw interleaving pattern.
+   open_ro on a funk-backed account does NOT send a vinyl ACQUIRE,
+   so the pool slot retains whatever stale gaddr was left by a prior
+   operation.  The subsequent open_rw(funk_tombstone) must not send
+   a spurious RELEASE using that stale slot.
+
+     1. open_ro(key_c) - found in funk, no vinyl ACQUIRE
+     2. open_rw(key_d tombstone, flags=0) - must return NULL, no RELEASE
+     3. close_ro(key_c) - funk-only unlock, no vinyl RELEASE */
+
+static void
+test_tombstone_funk_ro_rw_interleave( fd_accdb_admin_t * admin,
+                                      fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 18UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  /* Prime the pool slot with a valid vinyl gaddr so that any
+     spurious RELEASE would hit a real page. */
+  fd_accdb_ro_t ro_prime[1];
+  FD_TEST( fd_accdb_open_ro( accdb, ro_prime, &xid, s_key_a ) );
+  FD_TEST( fd_accdb_ref_lamports( ro_prime )==10000UL );
+  fd_accdb_close_ro( accdb, ro_prime );
+  FD_TEST( accdb->base.ro_active==0 );
+
+  /* 1. open_ro on funk-backed account (no vinyl ACQUIRE) */
+  fd_accdb_ro_t ro[1];
+  FD_TEST( fd_accdb_open_ro( accdb, ro, &xid, s_key_c ) );
+  FD_TEST( accdb->base.ro_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( ro )==20000UL );
+
+  /* 2. open_rw on funk tombstone - must return NULL, no RELEASE */
+  fd_accdb_rw_t rw[1];
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, s_key_d, 0UL, 0 ) );
+  FD_TEST( accdb->base.rw_active==0 );
+
+  /* 3. close_ro on funk-backed account */
+  fd_accdb_close_ro( accdb, ro );
+  FD_TEST( accdb->base.ro_active==0 );
+
+  /* Verify vinyl is still healthy after the interleaving */
+  FD_TEST( fd_accdb_open_ro( accdb, ro, &xid, s_key_a ) );
+  FD_TEST( fd_accdb_ref_lamports( ro )==10000UL );
+  fd_accdb_close_ro( accdb, ro );
+  FD_TEST( accdb->base.ro_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
+/* Verify that stale pool slot reuse does not cause spurious
+   RELEASEs.  Each iteration opens and closes a live vinyl account
+   (leaving a valid gaddr in the pool slot), then opens a funk
+   tombstone.  Unlike test_tombstone_incinerator, the close_ro
+   completes before the tombstone open_rw, so the vinyl ref is
+   already 0 when the tombstone fires.  This exercises a different
+   ordering: the stale gaddr points to an unlocked page rather
+   than a currently-held one.
+
+   If any single spurious RELEASE leaked, the ref count for key_a's
+   page would go negative, and subsequent open_ro/close_ro cycles
+   would fail with ERR_INVAL -> FD_LOG_CRIT. */
+
+static void
+test_tombstone_repeated_slots( fd_accdb_admin_t * admin,
+                               fd_accdb_user_t *  accdb ) {
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 19UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  for( ulong slot=0UL; slot<64UL; slot++ ) {
+    /* Open/close a live vinyl account.  After close_ro, the pool
+       slot retains key_a's gaddr (stale, ref already back to 0). */
+    fd_accdb_ro_t ro[1];
+    FD_TEST( fd_accdb_open_ro( accdb, ro, &xid, s_key_a ) );
+    FD_TEST( fd_accdb_ref_lamports( ro )==10000UL );
+    fd_accdb_close_ro( accdb, ro );
+
+    /* Open funk tombstone.  Pool slot still has key_a's stale
+       gaddr - must not trigger a spurious RELEASE. */
+    fd_accdb_rw_t rw[1];
+    FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, s_key_d, 0UL, 0 ) );
+    FD_TEST( accdb->base.rw_active==0 );
+  }
+
+  /* Final verification: vinyl ref counting is still intact after
+     64 consecutive tombstone hits with intervening vinyl operations. */
+  fd_accdb_ro_t ro[1];
+  FD_TEST( fd_accdb_open_ro( accdb, ro, &xid, s_key_a ) );
+  FD_TEST( accdb->base.ro_active==1 );
+  FD_TEST( fd_accdb_ref_lamports( ro )==10000UL );
+  fd_accdb_close_ro( accdb, ro );
+  FD_TEST( accdb->base.ro_active==0 );
+
+  fd_accdb_cancel( admin, &xid );
+}
+
 static void
 run_tests( fd_accdb_user_t * accdb ) {
   fd_accdb_user_v2_t *  v2       = (fd_accdb_user_v2_t *)accdb;
@@ -310,9 +909,12 @@ run_tests( fd_accdb_user_t * accdb ) {
 
   add_account_vinyl( accdb, s_key_a, 10000UL );
   add_account_vinyl( accdb, s_key_b,     0UL );
+  add_account_vinyl( accdb, s_key_f,     0UL );
   add_account_vinyl( accdb, s_key_d, 40000UL );
+  add_account_vinyl( accdb, s_key_g, 50000UL );
   add_account_funk ( accdb, s_key_c, 20000UL );
   add_account_funk ( accdb, s_key_d,     0UL );
+  add_account_funk ( accdb, s_key_g,     0UL );
 
   fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_set_root( xid );
   fd_accdb_ro_t ro[1];
@@ -445,6 +1047,19 @@ run_tests( fd_accdb_user_t * accdb ) {
   test_truncate_nonexist( admin, accdb );
   test_truncate_inplace ( admin, accdb );
   test_truncate_copy    ( admin, accdb );
+
+  /* Test tombstone */
+
+  test_tombstone              ( admin, accdb );
+  test_tombstone_multi        ( admin, accdb );
+  test_tombstone_vinyl_create ( admin, accdb );
+  test_tombstone_multi_vinyl  ( admin, accdb );
+  test_tombstone_multi_rw_funk( admin, accdb );
+  test_tombstone_truncate     ( admin, accdb );
+  test_tombstone_incinerator  ( admin, accdb );
+  test_tombstone_edge         ( admin, accdb );
+  test_tombstone_funk_ro_rw_interleave( admin, accdb );
+  test_tombstone_repeated_slots       ( admin, accdb );
 
   /* Open vinyl record as writable */
 

@@ -73,9 +73,9 @@ fd_bincode_decode_ctx( void const * data,
    unsigned int functionality to fd_types, even if the compile target
    does not natively support uint128. */
 
-union __attribute__((aligned(16))) fd_w_u128 {
-  uchar   uc[16];
-  ulong   ul[2];
+union __attribute__((packed)) fd_w_u128 {
+  uchar uc[16];
+  ulong ul[2];
 # if FD_HAS_INT128
   uint128 ud;
 # endif

@@ -2,18 +2,14 @@
 
 #include "fd_svm_mini.h"
 #include "../../accdb/fd_accdb_sync.h"
+#include "../program/fd_bpf_loader_program.h"
 #include "../fd_system_ids.h"
-#include "../../features/fd_features.h"
 #include "../../../disco/fd_txn_p.h"
 
 #define MiB (1L << 20)
 
 #define TEST_SLOTS_PER_EPOCH       (3UL)
 #define TEST_LAMPORTS              (100000000000UL)
-
-#define LOADER_V4_SET_PROGRAM_LENGTH_IX (2U)
-#define LOADER_V4_PROGRAM_DATA_OFFSET   (48UL)
-#define LOADER_V4_STATUS_RETRACTED      (0UL)
 
 #define SYSTEM_PROGRAM_IX_ALLOCATE (8U)
 
@@ -49,7 +45,7 @@ create_account_raw( fd_accdb_user_t *   user,
 }
 
 static void
-setup_test( test_env_t * env, fd_svm_mini_t * mini, int enable_loader_v4 ) {
+setup_test( test_env_t * env, fd_svm_mini_t * mini ) {
   fd_memset( env, 0, sizeof(test_env_t) );
   env->mini = mini;
 
@@ -57,14 +53,6 @@ setup_test( test_env_t * env, fd_svm_mini_t * mini, int enable_loader_v4 ) {
   fd_svm_mini_params_default( params );
   params->slots_per_epoch = TEST_SLOTS_PER_EPOCH;
   ulong root_idx = fd_svm_mini_reset( mini, params );
-
-  fd_bank_t * root_bank = fd_svm_mini_bank( mini, root_idx );
-  if( enable_loader_v4 ) {
-    fd_features_t features = {0};
-    fd_features_disable_all( &features );
-    features.enable_loader_v4 = 0UL;
-    root_bank->f.features = features;
-  }
 
   ulong child_idx = fd_svm_mini_attach_child( mini, root_idx, 10UL );
   env->bank = fd_svm_mini_bank( mini, child_idx );
@@ -78,26 +66,31 @@ create_allocatable_account( test_env_t * env, fd_pubkey_t const * pubkey ) {
 }
 
 static void
-create_loader_v4_program( test_env_t *        env,
-                          fd_pubkey_t const * pubkey,
-                          fd_pubkey_t const * authority,
-                          ulong               program_size ) {
-  ulong dlen = LOADER_V4_PROGRAM_DATA_OFFSET + program_size;
+create_loader_v3_buffer( test_env_t *        env,
+                         fd_pubkey_t const * pubkey,
+                         fd_pubkey_t const * authority,
+                         ulong               buffer_size ) {
+  ulong dlen = BUFFER_METADATA_SIZE + buffer_size;
   uchar * data = fd_wksp_alloc_laddr( env->mini->wksp, 8UL, dlen, 42UL );
   FD_TEST( data );
   fd_memset( data, 0, dlen );
 
-  FD_STORE( ulong, data, 0UL );
-  fd_memcpy( data + 8, authority->uc, 32 );
-  FD_STORE( ulong, data + 40, LOADER_V4_STATUS_RETRACTED );
+  fd_bpf_state_t state = {0};
+  state.discriminant                        = FD_BPF_STATE_BUFFER;
+  state.inner.buffer.has_authority_address = 1;
+  state.inner.buffer.authority_address     = *authority;
+
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_state_encode( &state, data, BUFFER_METADATA_SIZE, &out_sz ) );
+  FD_TEST( out_sz == BUFFER_METADATA_SIZE );
 
   fd_accdb_rw_t rw[1];
   FD_TEST( fd_accdb_open_rw( env->mini->accdb, rw, &env->xid, pubkey, (uint)dlen, FD_ACCDB_FLAG_CREATE ) );
   fd_accdb_ref_data_set( env->mini->accdb, rw, data, (uint)dlen );
   rw->meta->lamports = TEST_LAMPORTS;
   rw->meta->slot = 10UL;
-  rw->meta->executable = 1;
-  fd_memcpy( rw->meta->owner, fd_solana_bpf_loader_v4_program_id.uc, 32 );
+  rw->meta->executable = 0;
+  fd_memcpy( rw->meta->owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32 );
   fd_accdb_close_rw( env->mini->accdb, rw );
   fd_wksp_free_laddr( data );
 }
@@ -191,13 +184,13 @@ build_allocate_instr( uchar * data, ulong space ) {
 }
 
 static void
-build_shrink_instr( uchar * data, uint new_size ) {
-  data[0] = LOADER_V4_SET_PROGRAM_LENGTH_IX;
-  data[1] = 0; data[2] = 0; data[3] = 0;
-  data[4] = (uchar)(new_size       & 0xFF);
-  data[5] = (uchar)((new_size>>8)  & 0xFF);
-  data[6] = (uchar)((new_size>>16) & 0xFF);
-  data[7] = (uchar)((new_size>>24) & 0xFF);
+build_close_instr( uchar * data ) {
+  fd_bpf_instruction_t instr = {0};
+  instr.discriminant = FD_BPF_INSTR_CLOSE;
+
+  ulong out_sz = 0UL;
+  FD_TEST( !fd_bpf_instruction_encode( &instr, data, 4UL, &out_sz ) );
+  FD_TEST( out_sz == 4UL );
 }
 
 static void
@@ -239,7 +232,7 @@ get_resize_delta( test_env_t * env ) {
 static void
 test_empty_txn_delta_is_zero( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  setup_test( env, mini, 0 );
+  setup_test( env, mini );
 
   fd_pubkey_t acct1 = { .ul[0] = 1UL };
   fd_pubkey_t acct2 = { .ul[0] = 2UL };
@@ -259,7 +252,7 @@ test_empty_txn_delta_is_zero( fd_svm_mini_t * mini ) {
 static void
 test_allocate_19mib_succeeds( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  setup_test( env, mini, 0 );
+  setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA0UL };
   fd_pubkey_t acct_b = { .ul[0] = 0xB0UL };
@@ -289,7 +282,7 @@ test_allocate_19mib_succeeds( fd_svm_mini_t * mini ) {
 static void
 test_allocate_20mib_succeeds( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  setup_test( env, mini, 0 );
+  setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA2UL };
   fd_pubkey_t acct_b = { .ul[0] = 0xB2UL };
@@ -321,7 +314,7 @@ test_allocate_20mib_succeeds( fd_svm_mini_t * mini ) {
 static void
 test_allocate_21mib_fails( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  setup_test( env, mini, 0 );
+  setup_test( env, mini );
 
   fd_pubkey_t acct_a = { .ul[0] = 0xA1UL };
   fd_pubkey_t acct_b = { .ul[0] = 0xB1UL };
@@ -351,87 +344,88 @@ test_allocate_21mib_fails( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test_allocate_21mib_fails: PASSED" ));
 }
 
-/* Shrink gives negative delta */
+/* Closing a loader-v3 buffer gives negative delta. */
 static void
-test_shrink_gives_negative_delta( fd_svm_mini_t * mini ) {
+test_close_gives_negative_delta( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  setup_test( env, mini, 1 );
+  setup_test( env, mini );
 
   fd_pubkey_t authority  = { .ul[0] = 0xA3UL };
-  fd_pubkey_t program    = { .ul[0] = 0xC3UL };
+  fd_pubkey_t buffer     = { .ul[0] = 0xC3UL };
   fd_pubkey_t recipient  = { .ul[0] = 0xD3UL };
-  ulong program_size = 5UL * (ulong)MiB;
+  ulong buffer_size = 5UL * (ulong)MiB;
 
   create_simple_account( env, &authority, TEST_LAMPORTS );
-  create_loader_v4_program( env, &program, &authority, program_size );
+  create_loader_v3_buffer( env, &buffer, &authority, buffer_size );
   create_simple_account( env, &recipient, 1000000UL );
 
-  fd_pubkey_t loader_v4 = fd_solana_bpf_loader_v4_program_id;
-  fd_pubkey_t keys[4] = { authority, program, recipient, loader_v4 };
+  fd_pubkey_t loader_v3 = fd_solana_bpf_loader_upgradeable_program_id;
+  fd_pubkey_t keys[4] = { authority, buffer, recipient, loader_v3 };
 
-  uchar shrink_data[8];
-  build_shrink_instr( shrink_data, 0 );
+  uchar close_data[4];
+  build_close_instr( close_data );
 
-  uchar idx[3] = { 1, 0, 2 };
+  uchar idx[3] = { 1, 2, 0 };
   txn_instr_t instrs[1] = {
-    { .program_id_idx = 3, .account_idxs = idx, .account_idxs_cnt = 3, .data = shrink_data, .data_sz = 8 },
+    { .program_id_idx = 3, .account_idxs = idx, .account_idxs_cnt = 3, .data = close_data, .data_sz = 4 },
   };
   execute_txn( env, keys, 4, 1, 1, instrs, 1 );
 
   FD_TEST( txn_succeeded( env ) );
-  FD_TEST( get_resize_delta( env ) < 0L );
-  FD_TEST( get_resize_delta( env ) <= -5L * MiB );
-  FD_LOG_NOTICE(( "test_shrink_gives_negative_delta: PASSED (delta = %ld bytes)", get_resize_delta( env ) ));
+  long expected_delta = -(long)buffer_size - ((long)BUFFER_METADATA_SIZE - (long)SIZE_OF_UNINITIALIZED);
+  FD_TEST( get_resize_delta( env ) == expected_delta );
+  FD_LOG_NOTICE(( "test_close_gives_negative_delta: PASSED (delta = %ld bytes)", get_resize_delta( env ) ));
 }
 
-/* Shrink enables allocation that would otherwise exceed limit.
-   10+10-5+5 = 20 MiB. With unsigned arithmetic this would fail. */
+/* Closing a loader-v3 buffer enables allocation that would otherwise exceed limit.
+   10 MiB + 10 MiB - (5 MiB + 33 bytes) + 5 MiB = 20 MiB - 33 bytes.
+   With unsigned arithmetic this would fail. */
 static void
-test_shrink_enables_more_allocation( fd_svm_mini_t * mini ) {
+test_close_enables_more_allocation( fd_svm_mini_t * mini ) {
   test_env_t env[1];
-  setup_test( env, mini, 1 );
+  setup_test( env, mini );
 
   fd_pubkey_t authority  = { .ul[0] = 0xA4UL };
-  fd_pubkey_t program    = { .ul[0] = 0xC4UL };
+  fd_pubkey_t buffer     = { .ul[0] = 0xC4UL };
   fd_pubkey_t recipient  = { .ul[0] = 0xD4UL };
   fd_pubkey_t acct_a     = { .ul[0] = 0xE4UL };
   fd_pubkey_t acct_b     = { .ul[0] = 0xF4UL };
   fd_pubkey_t acct_c     = { .ul[0] = 0x14UL };
-  ulong shrink_size = 5UL * (ulong)MiB;
+  ulong buffer_size = 5UL * (ulong)MiB;
 
   create_simple_account( env, &authority, TEST_LAMPORTS );
-  create_loader_v4_program( env, &program, &authority, shrink_size );
+  create_loader_v3_buffer( env, &buffer, &authority, buffer_size );
   create_simple_account( env, &recipient, 1000000UL );
   create_allocatable_account( env, &acct_a );
   create_allocatable_account( env, &acct_b );
   create_allocatable_account( env, &acct_c );
 
   fd_pubkey_t system = fd_solana_system_program_id;
-  fd_pubkey_t loader_v4 = fd_solana_bpf_loader_v4_program_id;
-  fd_pubkey_t keys[8] = { authority, acct_a, acct_b, acct_c, program, recipient, system, loader_v4 };
+  fd_pubkey_t loader_v3 = fd_solana_bpf_loader_upgradeable_program_id;
+  fd_pubkey_t keys[8] = { authority, acct_a, acct_b, acct_c, buffer, recipient, system, loader_v3 };
 
-  uchar alloc_a[12], alloc_b[12], alloc_c[12], shrink[8];
+  uchar alloc_a[12], alloc_b[12], alloc_c[12], close_data[4];
   build_allocate_instr( alloc_a, 10UL * (ulong)MiB );
   build_allocate_instr( alloc_b, 10UL * (ulong)MiB );
   build_allocate_instr( alloc_c,  5UL * (ulong)MiB );
-  build_shrink_instr( shrink, 0 );
+  build_close_instr( close_data );
 
   uchar idx_a[1] = {1}, idx_b[1] = {2}, idx_c[1] = {3};
-  uchar idx_shrink[3] = { 4, 0, 5 };
+  uchar idx_close[3] = { 4, 5, 0 };
 
   txn_instr_t instrs[4] = {
     { .program_id_idx = 6, .account_idxs = idx_a,      .account_idxs_cnt = 1, .data = alloc_a, .data_sz = 12 },
     { .program_id_idx = 6, .account_idxs = idx_b,      .account_idxs_cnt = 1, .data = alloc_b, .data_sz = 12 },
-    { .program_id_idx = 7, .account_idxs = idx_shrink, .account_idxs_cnt = 3, .data = shrink,  .data_sz = 8 },
+    { .program_id_idx = 7, .account_idxs = idx_close,  .account_idxs_cnt = 3, .data = close_data, .data_sz = 4 },
     { .program_id_idx = 6, .account_idxs = idx_c,      .account_idxs_cnt = 1, .data = alloc_c, .data_sz = 12 },
   };
   execute_txn( env, keys, 8, 4, 2, instrs, 4 );
 
   FD_TEST( txn_succeeded( env ) );
   long delta = get_resize_delta( env );
-  /* Expected: 10 MiB + 10 MiB - (5 MiB + 48 bytes metadata) + 5 MiB = 20 MiB - 48 bytes */
-  FD_TEST( delta == 20L * MiB - (long)LOADER_V4_PROGRAM_DATA_OFFSET );
-  FD_LOG_NOTICE(( "test_shrink_enables_more_allocation: PASSED (delta = %ld bytes)", delta ));
+  /* Expected: 10 MiB + 10 MiB - (5 MiB + 33 bytes close delta) + 5 MiB = 20 MiB - 33 bytes */
+  FD_TEST( delta == 20L * MiB - ((long)BUFFER_METADATA_SIZE - (long)SIZE_OF_UNINITIALIZED) );
+  FD_LOG_NOTICE(( "test_close_enables_more_allocation: PASSED (delta = %ld bytes)", delta ));
 }
 
 int
@@ -444,8 +438,8 @@ main( int argc, char ** argv ) {
   test_allocate_19mib_succeeds( mini );
   test_allocate_20mib_succeeds( mini );
   test_allocate_21mib_fails( mini );
-  test_shrink_gives_negative_delta( mini );
-  test_shrink_enables_more_allocation( mini );
+  test_close_gives_negative_delta( mini );
+  test_close_enables_more_allocation( mini );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

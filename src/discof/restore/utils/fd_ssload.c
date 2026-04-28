@@ -51,9 +51,9 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
       FD_LOG_HEXDUMP_NOTICE(( "info", info, sizeof(fd_blockhash_info_t) ));
       FD_LOG_ERR(( "Corrupt snapshot: duplicate blockhash queue index %lu", idx ));
     }
-    info->exists         = 1;
+    info->exists = 1;
     fd_memcpy( info->hash.uc, elem->hash, 32UL );
-    info->fee_calculator.lamports_per_signature = elem->lamports_per_signature;
+    info->lamports_per_signature = elem->lamports_per_signature;
     fd_blockhash_map_idx_insert( blockhashes->map, idx, blockhashes->d.deque );
   }
 }
@@ -133,7 +133,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   bank->f.capitalization = manifest->capitalization;
   bank->f.txn_count = manifest->transaction_count;
-  bank->f.parent_signature_cnt = manifest->signature_count;
+  bank->f.signature_count = manifest->signature_count;
   bank->f.tick_height = manifest->tick_height;
   bank->f.max_tick_height = manifest->max_tick_height;
   bank->f.ns_per_slot = (fd_w_u128_t) { .ul={ manifest->ns_per_slot, 0UL } };

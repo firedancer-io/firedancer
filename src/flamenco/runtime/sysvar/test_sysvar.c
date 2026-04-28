@@ -29,9 +29,9 @@ main( int     argc,
   test_sysvar_cache();
 
 # if FD_HAS_INT128
-  test_sysvar_epoch_rewards();
+  test_sysvar_epoch_rewards( wksp );
 # endif
-  test_sysvar_epoch_schedule();
+  test_sysvar_epoch_schedule( wksp );
   test_sysvar_last_restart_slot();
   test_sysvar_recent_hashes( wksp );
   test_sysvar_rent();

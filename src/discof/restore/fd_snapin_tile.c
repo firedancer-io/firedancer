@@ -392,8 +392,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     offset for each slot, and stick it into the appropriate bank in
     our chain. */
 
-  FD_TEST( blockhashes_len<=301UL );
-  FD_TEST( blockhashes_len>0UL );
+  if( FD_UNLIKELY( blockhashes_len>301UL ) ) FD_LOG_ERR(( "corrupt snapshot: blockhash queue length %lu exceeds maximum 301", blockhashes_len ));
+  if( FD_UNLIKELY( !blockhashes_len ) ) FD_LOG_ERR(( "corrupt snapshot: blockhash queue is empty" ));
 
   ulong seq_min = ULONG_MAX;
   for( ulong i=0UL; i<blockhashes_len; i++ ) seq_min = fd_ulong_min( seq_min, blockhashes[ i ].hash_index );
@@ -450,7 +450,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
   uchar * _map = fd_alloca_check( alignof(blockhash_map_t), blockhash_map_footprint( 1024UL ) );
   blockhash_map_t * blockhash_map = blockhash_map_join( blockhash_map_new( _map, 1024UL, ctx->seed ) );
-  FD_TEST( blockhash_map );
+  if( FD_UNLIKELY( !blockhash_map ) ) FD_LOG_ERR(( "failed to create blockhash map" ));
 
   fd_blockhash_entry_t blockhash_pool[ 151UL ];
   for( ulong i=0UL; i<chain_len; i++ ) {
@@ -467,7 +467,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   /* Now load the blockhash offsets for these blockhashes ... */
-  FD_TEST( ctx->blockhash_offsets_len ); /* Must be at least one else nothing would be rooted */
+  if( FD_UNLIKELY( !ctx->blockhash_offsets_len ) ) FD_LOG_ERR(( "corrupt snapshot: no blockhash offsets found (nothing is rooted)" ));
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;
     fd_memcpy( key.uc, ctx->blockhash_offsets[ i ].blockhash, 32UL );
@@ -672,7 +672,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                  fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
-  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
+  if( FD_UNLIKELY( chunk<ctx->in.chunk0 || chunk>ctx->in.wmark || sz>ctx->in.mtu ) ) FD_LOG_ERR(( "invalid data frag bounds (chunk=%lu chunk0=%lu wmark=%lu sz=%lu mtu=%lu)", chunk, ctx->in.chunk0, ctx->in.wmark, sz, ctx->in.mtu ));
 
   if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
     fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch );
@@ -971,7 +971,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.accounts_loaded   -= ctx->accdb_admin->base.reclaim_cnt;
         ctx->metrics.accounts_replaced += ctx->accdb_admin->base.reclaim_cnt;
       }
-      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
+      if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) FD_LOG_ERR(( "funk last publish is still frozen after advance_root" ));
 
       /* Make 'Last published' XID equal the restored slot number */
       fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };

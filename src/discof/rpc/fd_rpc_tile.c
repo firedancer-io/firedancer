@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <sys/socket.h>
 #include <math.h> /* floor, isfinite */
+#include <string.h>
 
 #if FD_HAS_ZSTD
 #include <zstd.h>
@@ -33,7 +34,7 @@
 
 #include "generated/fd_rpc_tile_seccomp.h"
 
-#define FD_RPC_AGAVE_API_VERSION "3.1.8"
+#define FD_RPC_AGAVE_API_VERSION "4.0.0-beta.6"
 
 #define FD_HTTP_SERVER_RPC_MAX_REQUEST_LEN 8192UL
 
@@ -142,6 +143,15 @@
 
 static void fd_rpc_cstr_cJSON_free( char ** p ) { cJSON_free( *p ); }
 #define CSTR_JSON(__json, __out) __attribute__((cleanup(fd_rpc_cstr_cJSON_free))) char * __out = cJSON_PrintUnformatted( __json );
+
+/* Like CSTR_JSON, but strips the surrounding quotes from a string
+   node's JSON representation. */
+#define CSTR_JSON_UNQUOTED(__json, __out)                                  \
+  CSTR_JSON( (__json), __out##_quoted_ );                                  \
+  ulong __out##_len_ = __out##_quoted_ ? strlen( __out##_quoted_ ) : 0;    \
+  if( FD_LIKELY( __out##_len_>=2 ) )                                       \
+    __out##_quoted_[ __out##_len_ - 1 ] = '\0';                            \
+  char const * (__out) = __out##_len_>=2 ? __out##_quoted_ + 1 : ""
 
 static fd_http_server_params_t
 derive_http_params( fd_topo_tile_t const * tile ) {
@@ -702,8 +712,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     return 0;
   }
   if( FD_UNLIKELY( config && cJSON_IsString( config ) ) ) {
-    CSTR_JSON( id, id_cstr );
-    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), config->valuestring, config_rust_type, id_cstr );
+    CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( config, config_esc );
+    *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected %s.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( config ), config_esc, config_rust_type, id_cstr );
     return 0;
   }
   if( FD_UNLIKELY( cJSON_IsArray( config ) ) ) {
@@ -764,8 +774,10 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       else if( cJSON_HasObjectItem( encoding, "base64+zstd" ) ) encoding_cstr = "base64+zstd";
       else if( cJSON_HasObjectItem( encoding, "jsonParsed" ) ) encoding_cstr = "jsonParsed";
       else {
-        CSTR_JSON( id, id_cstr );
-        *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding->child->string, id_cstr );
+        cJSON * _key_node = cJSON_CreateString( encoding->child->string );
+        CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( _key_node, key_esc );
+        *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", key_esc, id_cstr );
+        cJSON_Delete( _key_node );
         return 0;
       }
     } else {
@@ -778,8 +790,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsObject( encoding ) && cJSON_IsString( encoding->child ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), encoding->child->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( encoding->child, encoding_child_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected unit.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( encoding->child ), encoding_child_esc, id_cstr );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsObject( encoding ) && !cJSON_IsNull( encoding->child ) ) ) {
@@ -793,12 +805,12 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: jsonParsed is unsupported\"},\"id\":%s}\n", id_cstr );
       return 0;
     } else if( 0!=strcmp( encoding_cstr, "binary" ) && 0!=strcmp( encoding_cstr, "base58" ) && 0!=strcmp( encoding_cstr, "base64" ) && 0!=strcmp( encoding_cstr, "base64+zstd" ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding_cstr, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( encoding, encoding_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: unknown variant `%s`, expected one of `binary`, `base58`, `base64`, `jsonParsed`, `base64+zstd`.\"},\"id\":%s}\n", encoding_esc, id_cstr );
       return 0;
     }
 
-    *opt_encoding_cstr = encoding_cstr;
+    if( FD_LIKELY( opt_encoding_cstr ) ) *opt_encoding_cstr = encoding_cstr;
   }
 
   if( FD_LIKELY( has_data_slice ) ) {
@@ -810,8 +822,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsString( dataSlice ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), dataSlice->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( dataSlice, data_slice_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected struct UiDataSliceConfig.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( dataSlice ), data_slice_esc, id_cstr );
       return 0;
     }
     if( FD_UNLIKELY( dataSlice && !cJSON_IsObject( dataSlice ) && !cJSON_IsNull( dataSlice ) && !cJSON_IsArray( dataSlice ) ) ) {
@@ -856,13 +868,13 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
 
     if( FD_UNLIKELY( cJSON_IsString( _offset ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), _offset->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( _offset, offset_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _offset ), offset_esc, id_cstr );
       return 0;
     }
     if( FD_UNLIKELY( cJSON_IsString( _length ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), _length->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( _length, length_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _length ), length_esc, id_cstr );
       return 0;
     }
 
@@ -895,11 +907,11 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
 
     if( dataSlice && !cJSON_IsNull( dataSlice ) ) {
-      *opt_slice_offset = _offset ? _offset->valueulong : 0UL;
-      *opt_slice_length = _length ? _length->valueulong : ULONG_MAX;
+      if( FD_LIKELY( opt_slice_offset ) ) *opt_slice_offset = _offset ? _offset->valueulong : 0UL;
+      if( FD_LIKELY( opt_slice_length ) ) *opt_slice_length = _length ? _length->valueulong : ULONG_MAX;
     } else {
-      *opt_slice_offset = 0UL;
-      *opt_slice_length = ULONG_MAX;
+      if( FD_LIKELY( opt_slice_offset ) ) *opt_slice_offset = 0UL;
+      if( FD_LIKELY( opt_slice_length ) ) *opt_slice_length = ULONG_MAX;
     }
   }
 
@@ -919,8 +931,8 @@ fd_rpc_validate_config( fd_rpc_tile_t *             ctx,
     }
 
     if( FD_UNLIKELY( cJSON_IsString( _minContextSlot ) ) ) {
-      CSTR_JSON( id, id_cstr );
-      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), _minContextSlot->valuestring, id_cstr );
+      CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( _minContextSlot, min_ctx_slot_esc );
+      *res = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected u64.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( _minContextSlot ), min_ctx_slot_esc, id_cstr );
       return 0;
     }
 
@@ -987,6 +999,95 @@ X( fd_rpc_tile_t * ctx,                                \
 UNIMPLEMENTED(getBlock)
 UNIMPLEMENTED(getBlockCommitment)
 
+/* fd_rpc_encode_account_data encodes account data fields
+   (executable, lamports, owner, rentEpoch, space, data) into the http
+   staging buffer.  Returns 1 on success.  On failure, calls
+   fd_http_server_unstage and writes an error response into
+   err_response. caller should close ro and return err_response. */
+static int
+fd_rpc_encode_account_data( fd_rpc_tile_t *             ctx,
+                            fd_accdb_ro_t *             ro,
+                            char const *                encoding_cstr,
+                            ulong                       slice_offset,
+                            ulong                       slice_length,
+                            char const *                id_cstr,
+                            fd_http_server_response_t * err_response ) {
+
+  int is_binary = !strcmp( encoding_cstr, "binary" );
+  int is_base58 = !strcmp( encoding_cstr, "base58" );
+  int is_zstd   = !strcmp( encoding_cstr, "base64+zstd" );
+
+  ulong data_sz        = fd_accdb_ref_data_sz( ro );
+  uchar const * out    = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_ulong_if( slice_offset<data_sz, slice_offset, 0UL );
+  ulong         snip_sz = fd_ulong_min( fd_ulong_if( slice_offset<data_sz, data_sz-slice_offset, 0UL ), slice_length );
+  ulong         out_sz  = snip_sz;
+
+  if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
+    fd_http_server_unstage( ctx->http );
+    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
+    return 0;
+  }
+
+# if FD_HAS_ZSTD
+  if( is_zstd ) {
+    ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, 0 );
+    if( ZSTD_isError( zstd_res ) ) {
+      fd_http_server_unstage( ctx->http );
+      *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (%s)\"},\"id\":%s}\n", ZSTD_getErrorName( zstd_res ), id_cstr );
+      return 0;
+    }
+    out    = ctx->compress_buf;
+    out_sz = (ulong)zstd_res;
+  }
+# else
+  if( is_zstd ) {
+    fd_http_server_unstage( ctx->http );
+    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", id_cstr );
+    return 0;
+  }
+# endif
+
+  FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
+  fd_http_server_printf( ctx->http,
+      "{\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":%lu,\"data\":",
+      fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
+      fd_accdb_ref_lamports( ro ),
+      owner_b58,
+      data_sz );
+
+  ulong encoded_sz = fd_ulong_if( is_base58 || is_binary, FD_RPC_BASE58_ENCODED_128_LEN, FD_BASE64_ENC_SZ( out_sz ) );
+  if( FD_UNLIKELY( is_binary ) ) {
+    fd_http_server_printf( ctx->http, "\"" );
+  } else {
+    fd_http_server_printf( ctx->http, "[\"" );
+  }
+
+  uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );
+  if( FD_UNLIKELY( !encoded ) ) {
+    fd_http_server_unstage( ctx->http );
+    *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: response encoding buffer overflow (account data too large for response buffer)\"},\"id\":%s}\n", id_cstr );
+    return 0;
+  }
+
+  if( FD_UNLIKELY( is_base58 || is_binary ) ) {
+    if( FD_UNLIKELY( !fd_rpc_base58_encode_128( (char *)encoded, &encoded_sz, out, out_sz ) ) ) {
+      fd_http_server_unstage( ctx->http );
+      FD_LOG_WARNING(( "base58 encode failed out_sz=%lu", out_sz ));
+      *err_response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: base58 encode failed\"},\"id\":%s}\n", id_cstr );
+      return 0;
+    }
+  } else {
+    encoded_sz = fd_base64_encode( (char *)encoded, out, out_sz );
+  }
+
+  fd_http_server_append_end( ctx->http, encoded_sz );
+
+  if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}" );
+  else                           fd_http_server_printf( ctx->http, "\",\"%s\"]}", encoding_cstr );
+
+  return 1;
+}
+
 static fd_http_server_response_t
 getAccountInfo( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
@@ -1023,90 +1124,17 @@ getAccountInfo( fd_rpc_tile_t * ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, id_cstr );
   }
 
-  ulong const data_sz   = fd_accdb_ref_data_sz( ro );
-  uchar const * out     = (uchar const *)fd_accdb_ref_data_const( ro )+fd_ulong_if(slice_offset<data_sz, slice_offset, 0UL );
-  ulong         snip_sz = fd_ulong_min( fd_ulong_if( slice_offset<data_sz, data_sz-slice_offset, 0UL ), slice_length );
-  ulong         out_sz  = snip_sz;
-
-  int is_binary = !strncmp( encoding_cstr, "binary", strlen("binary") );
-  int is_base58 = !strncmp( encoding_cstr, "base58", strlen("base58") );
-  int is_zstd   = !strncmp( encoding_cstr, "base64+zstd", strlen("base64+zstd") );
-  if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
-    fd_accdb_close_ro( ctx->accdb, ro );
-    CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than {MAX_BASE58_BYTES} bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
-  }
-
-# if FD_HAS_ZSTD
-  if( is_zstd ) {
-    ulong zstd_res = ZSTD_compress( ctx->compress_buf, sizeof(ctx->compress_buf), out, snip_sz, 0 );
-    if( ZSTD_isError( zstd_res ) ) {
-      fd_accdb_close_ro( ctx->accdb, ro );
-      CSTR_JSON( id, id_cstr );
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard compression failed (%s)\"},\"id\":%s}\n", ZSTD_getErrorName( zstd_res ), id_cstr );
-    }
-    out = ctx->compress_buf;
-    out_sz     = (ulong)zstd_res;
-  }
-# else
-  if( is_zstd ) {
-    fd_accdb_close_ro( ctx->accdb, ro );
-    CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: zstandard is disabled\"},\"id\":%s}\n", id_cstr );
-  }
-# endif
-
-  FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
   CSTR_JSON( id, id_cstr );
-  fd_http_server_printf( ctx->http,
-      "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":{"
-      "\"executable\":%s,"
-      "\"lamports\":%lu,"
-      "\"owner\":\"%s\","
-      "\"rentEpoch\":18446744073709551615,"
-      "\"space\":%lu,"
-      "\"data\":",
-      id_cstr,
-      FD_RPC_AGAVE_API_VERSION,
-      info->slot,
-      fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
-      fd_accdb_ref_lamports( ro ),
-      owner_b58,
-      data_sz );
+  fd_http_server_printf( ctx->http, "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":", id_cstr, FD_RPC_AGAVE_API_VERSION, info->slot );
 
-  ulong encoded_sz = fd_ulong_if( is_base58 || is_binary, FD_RPC_BASE58_ENCODED_128_LEN, FD_BASE64_ENC_SZ( out_sz ) );
-  if( FD_UNLIKELY( is_binary ) ) {
-    fd_http_server_printf( ctx->http, "\"" );
-  } else {
-    fd_http_server_printf( ctx->http, "[\"" );
-  }
-
-  uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );;
-  if( FD_UNLIKELY( !encoded ) ) {
-    fd_http_server_unstage( ctx->http );
+  fd_http_server_response_t err_response;
+  if( FD_UNLIKELY( !fd_rpc_encode_account_data( ctx, ro, encoding_cstr, slice_offset, slice_length, id_cstr, &err_response ) ) ) {
     fd_accdb_close_ro( ctx->accdb, ro );
-    CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: large accounts unsupported\"},\"id\":%s}\n", id_cstr );
+    return err_response;
   }
-
-  if( FD_UNLIKELY( is_base58 || is_binary ) ) {
-    if( FD_UNLIKELY( !fd_rpc_base58_encode_128( (char *)encoded, &encoded_sz, out, out_sz ) ) ) {
-      fd_http_server_unstage( ctx->http );
-      fd_accdb_close_ro( ctx->accdb, ro );
-      FD_LOG_WARNING(( "base58 encode failed out_sz=%lu", out_sz ));
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: base58 encode failed\"},\"id\":%s}\n", id_cstr );
-    }
-  } else {
-    encoded_sz = fd_base64_encode( (char *)encoded, out, out_sz );
-  }
-
   fd_accdb_close_ro( ctx->accdb, ro );
 
-  fd_http_server_append_end( ctx->http, encoded_sz );
-
-  if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}}}\n" );
-  else                           fd_http_server_printf( ctx->http, "\",\"%s\"]}}}\n", encoding_cstr );
-
+  fd_http_server_printf( ctx->http, "}}\n" );
   return STAGE_JSON( ctx );
 }
 
@@ -1203,8 +1231,8 @@ getClusterNodes( fd_rpc_tile_t * ctx,
         case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC:               name = "rpc"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_RPC_PUBSUB:        name = "pubsub"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_SERVE_REPAIR:      name = "serveRepair"; break;
-        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = "tpu"; break;
-        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = "tpuForwards"; break;
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU:               name = NULL; break; /* Agave hardcodes tpu to null */
+        case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS:      name = NULL; break; /* Agave hardcodes tpuForwards to null */
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC: name = "tpuForwardsQuic"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_QUIC:          name = "tpuQuic"; break;
         case FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE:          name = "tpuVote"; break;
@@ -1220,12 +1248,28 @@ getClusterNodes( fd_rpc_tile_t * ctx,
       if( FD_LIKELY( !!ip4 || !!ele->ci->sockets[ i ].port ) ) fd_http_server_printf( ctx->http, "\"%s\":\"" FD_IP4_ADDR_FMT ":%hu\",", name, FD_IP4_ADDR_FMT_ARGS( ip4 ), fd_ushort_bswap( ele->ci->sockets[ i ].port ) );
       else                                                     fd_http_server_printf( ctx->http, "\"%s\":null,", name );
     }
+    fd_http_server_printf( ctx->http, "\"tpu\":null,\"tpuForwards\":null," );
     fd_http_server_printf( ctx->http, "\"pubkey\":\"%s\",", identity_cstr );
     fd_http_server_printf( ctx->http, "\"shredVersion\":%u,", ele->ci->shred_version );
 
     char version[ 64UL ];
     FD_TEST( fd_gossip_version_cstr( ele->ci->version.major, ele->ci->version.minor, ele->ci->version.patch, version, sizeof( version ) ) );
-    fd_http_server_printf( ctx->http, "\"version\":\"%s\"", version );
+    fd_http_server_printf( ctx->http, "\"version\":\"%s\",", version );
+
+    char const * client_id;
+    switch( ele->ci->version.client ) {
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_SOLANA_LABS:   client_id = "SolanaLabs";     break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_JITO_LABS:     client_id = "JitoLabs";       break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_FRANKENDANCER: client_id = "Frankendancer";  break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE:         client_id = "Agave";          break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE_PALADIN: client_id = "AgavePaladin";   break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_FIREDANCER:    client_id = "Firedancer";     break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_AGAVE_BAM:     client_id = "AgaveBam";       break;
+      case FD_GOSSIP_CONTACT_INFO_CLIENT_SIG:           client_id = "Sig";            break;
+      default:                                          client_id = NULL;             break;
+    }
+    if( FD_LIKELY( client_id ) ) fd_http_server_printf( ctx->http, "\"clientId\":\"%s\"", client_id );
+    else                         fd_http_server_printf( ctx->http, "\"clientId\":\"Unknown(%hu)\"", ele->ci->version.client );
 
     if( FD_UNLIKELY( is_last ) ) fd_http_server_printf( ctx->http, "}" );
     else                         fd_http_server_printf( ctx->http, "}," );
@@ -1480,8 +1524,8 @@ getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid value: %s `%s`, expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), acct_sz_cstr, id_cstr );
   }
   if( FD_UNLIKELY( cJSON_IsString( acct_sz ) ) ) {
-    CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), acct_sz->valuestring, id_cstr );
+    CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( acct_sz, acct_sz_esc );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected usize.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( acct_sz ), acct_sz_esc, id_cstr );
   }
   if( FD_UNLIKELY( acct_sz && !fd_rpc_cjson_is_integer( acct_sz ) ) ) {
     CSTR_JSON( id, id_cstr );
@@ -1508,9 +1552,17 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
 
   cJSON const * keys_arr = cJSON_GetArrayItem( params, 0 );
-  if( FD_UNLIKELY( !keys_arr || !cJSON_IsArray( keys_arr ) ) ) {
+  if( FD_UNLIKELY( cJSON_IsNumber( keys_arr ) || cJSON_IsBool( keys_arr ) ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON( keys_arr, keys_arr_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s `%s`, expected a sequence.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( keys_arr ), keys_arr_cstr, id_cstr );
+  }
+  if( FD_UNLIKELY( cJSON_IsString( keys_arr ) ) ) {
+    CSTR_JSON( id, id_cstr ); CSTR_JSON_UNQUOTED( keys_arr, keys_arr_esc );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s \\\"%s\\\", expected a sequence.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( keys_arr ), keys_arr_esc, id_cstr );
+  }
+  if( FD_UNLIKELY( !cJSON_IsArray( keys_arr ) ) ) {
     CSTR_JSON( id, id_cstr );
-    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: expected array of pubkeys\"},\"id\":%s}\n", id_cstr );
+    return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Invalid params: invalid type: %s, expected a sequence.\"},\"id\":%s}\n", fd_rpc_cjson_type_to_cstr( keys_arr ), id_cstr );
   }
 
   int cnt = cJSON_GetArraySize( keys_arr );
@@ -1534,13 +1586,8 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   bank_info_t * info = &ctx->banks[ bank_idx ];
   fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
 
-  int is_base58 = !strncmp( encoding_cstr, "base58", 6 );
-  int is_binary = !strncmp( encoding_cstr, "binary", 6 );
-
-  ulong ucnt = (ulong)cnt;
-
   fd_pubkey_t addresses[ 100UL ];
-  for( ulong i=0UL; i<ucnt; i++ ) {
+  for( ulong i=0UL; i<(ulong)cnt; i++ ) {
     cJSON const * key_json = cJSON_GetArrayItem( keys_arr, (int)i );
     if( FD_UNLIKELY( !fd_rpc_validate_address( ctx, id, key_json, &addresses[ i ], &response ) ) ) return response;
   }
@@ -1550,63 +1597,21 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
       "{\"jsonrpc\":\"2.0\",\"id\":%s,\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":[",
       id_cstr, FD_RPC_AGAVE_API_VERSION, info->slot );
 
-  for( ulong i=0; i<ucnt; i++ ) {
+  for( ulong i=0; i<(ulong)cnt; i++ ) {
     if( i>0 ) fd_http_server_printf( ctx->http, "," );
 
     fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, addresses[i].uc ) ) ) {
+    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, addresses[ i ].uc ) ) ) {
       fd_http_server_printf( ctx->http, "null" );
       continue;
     }
 
-    ulong data_sz = fd_accdb_ref_data_sz( ro );
-    uchar const * data = (uchar const *)fd_accdb_ref_data_const( ro ) + fd_ulong_if( slice_offset<data_sz, slice_offset, 0UL );
-    ulong snip_sz = fd_ulong_min( fd_ulong_if( slice_offset<data_sz, data_sz-slice_offset, 0UL ), slice_length );
-    ulong out_sz = snip_sz;
-
-    if( FD_UNLIKELY( (is_binary || is_base58) && snip_sz>128UL ) ) {
+    fd_http_server_response_t err_response;
+    if( FD_UNLIKELY( !fd_rpc_encode_account_data( ctx, ro, encoding_cstr, slice_offset, slice_length, id_cstr, &err_response ) ) ) {
       fd_accdb_close_ro( ctx->accdb, ro );
-      fd_http_server_unstage( ctx->http );
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32602,\"message\":\"Encoded binary (base 58) data should be less than 128 bytes, please use Base64 encoding.\"},\"id\":%s}\n", id_cstr );
+      return err_response;
     }
-
-    FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_owner( ro )->hash, owner_b58 );
-    fd_http_server_printf( ctx->http,
-        "{\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"rentEpoch\":18446744073709551615,\"space\":%lu,\"data\":",
-        fd_accdb_ref_exec_bit( ro ) ? "true" : "false",
-        fd_accdb_ref_lamports( ro ),
-        owner_b58,
-        data_sz );
-
-    ulong encoded_sz = fd_ulong_if( is_base58 || is_binary, FD_RPC_BASE58_ENCODED_128_LEN, FD_BASE64_ENC_SZ( out_sz ) );
-    if( FD_UNLIKELY( is_binary ) ) {
-      fd_http_server_printf( ctx->http, "\"" );
-    } else {
-      fd_http_server_printf( ctx->http, "[\"" );
-    }
-
-    uchar * encoded = fd_http_server_append_start( ctx->http, encoded_sz );
-    if( FD_UNLIKELY( !encoded ) ) {
-      fd_accdb_close_ro( ctx->accdb, ro );
-      fd_http_server_unstage( ctx->http );
-      return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: response encoding buffer overflow (account data too large for response buffer)\"},\"id\":%s}\n", id_cstr );
-    }
-
-    if( FD_UNLIKELY( is_base58 || is_binary ) ) {
-      if( FD_UNLIKELY( !fd_rpc_base58_encode_128( (char *)encoded, &encoded_sz, data, out_sz ) ) ) {
-        fd_http_server_unstage( ctx->http );
-        fd_accdb_close_ro( ctx->accdb, ro );
-        return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: base58 encoding failed\"},\"id\":%s}\n", id_cstr );
-      }
-    } else {
-      encoded_sz = fd_base64_encode( (char *)encoded, data, out_sz );
-    }
-
     fd_accdb_close_ro( ctx->accdb, ro );
-    fd_http_server_append_end( ctx->http, encoded_sz );
-
-    if( FD_UNLIKELY( is_binary ) ) fd_http_server_printf( ctx->http, "\"}" );
-    else                           fd_http_server_printf( ctx->http, "\",\"%s\"]}", encoding_cstr );
   }
 
   fd_http_server_printf( ctx->http, "]}}\n" );

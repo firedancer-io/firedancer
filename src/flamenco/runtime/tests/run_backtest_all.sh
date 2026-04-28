@@ -129,3 +129,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-8 -
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -y 1 -m 10000 -e 540
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall -y 1 -m 1000 -e 379
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account -y 1 -m 1000 -e 364
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m -y 1 -m 10000 -e 603

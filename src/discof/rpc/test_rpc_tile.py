@@ -1,6 +1,6 @@
 import argparse
 import json
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Callable, Dict, List, Optional
 
 import pytest
 import requests
@@ -49,7 +49,7 @@ class RPCTester:
             Tuple of (is_equal, diff_object)
         """
         if prediff is not None:
-          resp1, resp2 = prediff(resp1, resp2)
+            resp1, resp2 = prediff(resp1, resp2)
 
         diff = DeepDiff(
             resp1,
@@ -58,8 +58,11 @@ class RPCTester:
             ignore_order=False,
             significant_digits=2,
             # Ignore errors where we explicitly don't support
-            exclude_obj_callback=lambda obj, path: (isinstance(obj, str) and obj.startswith("Firedancer Error")) or obj==-32065,
-            view=COLORED_COMPACT_VIEW
+            exclude_obj_callback=lambda obj, path: (
+                (isinstance(obj, str) and obj.startswith("Firedancer Error"))
+                or obj == -32065
+            ),
+            view=COLORED_COMPACT_VIEW,
         )
 
         return (len(diff) == 0, diff if len(diff) > 0 else None)
@@ -703,18 +706,25 @@ GET_TRANSACTION_COUNT = [
     },
 ]
 
+
 def get_cluster_nodes_prediff(resp1, resp2):
-  if any(not isinstance(resp.get('msg', {}).get('result', {}), list) for resp in (resp1, resp2)):
-    return resp1, resp2
+    if any(
+        not isinstance(resp.get("msg", {}).get("result", {}), list)
+        for resp in (resp1, resp2)
+    ):
+        return resp1, resp2
 
-  for resp in (resp1, resp2):
-    list_of_dicts = resp['msg']['result']
-    resp['msg']['result'] = { n.get('pubkey', None):n for n in list_of_dicts}
+    for resp in (resp1, resp2):
+        list_of_dicts = resp["msg"]["result"]
+        resp["msg"]["result"] = {n.get("pubkey", None): n for n in list_of_dicts}
 
-  # Only compare intersection, since nodes will have different gossip tables
-  resp1['msg']['result'] = {k:v for k,v in resp1['msg']['result'].items() if k in resp2}
-  resp2['msg']['result'] = {k:v for k,v in resp1['msg']['result'].items() if k in resp1}
-  return (resp1, resp2)
+    # Only compare intersection, since nodes will have different gossip tables
+    result1 = resp1["msg"]["result"]
+    result2 = resp2["msg"]["result"]
+    resp1["msg"]["result"] = {k: v for k, v in result1.items() if k in result2}
+    resp2["msg"]["result"] = {k: v for k, v in result2.items() if k in result1}
+    return (resp1, resp2)
+
 
 GET_CLUSTER_NODES = [
     {
@@ -724,7 +734,7 @@ GET_CLUSTER_NODES = [
             "method": "getClusterNodes",
         },
         "description": f"getClusterNodes success",
-        "prediff": get_cluster_nodes_prediff
+        "prediff": get_cluster_nodes_prediff,
     },
 ]
 
@@ -742,6 +752,100 @@ GET_EPOCH_INFO = [
             "root['msg']['result']['slotIndex']",
             "root['msg']['result']['transactionCount']",
         ],
+    },
+]
+
+GET_MULTIPLE_ACCOUNTS = [
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "getMultipleAccounts",
+            "params": [
+                [
+                    "11111111111111111111111111111111",
+                    "SysvarRent111111111111111111111111111111111",
+                ],
+                {"encoding": "base64", "commitment": "finalized"},
+            ],
+        },
+        "description": "getMultipleAccounts success two accounts",
+        "exclude_paths": ["root['msg']['result']['context']['slot']"],
+    },
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getMultipleAccounts",
+                "params": [e],
+            },
+            "description": f"getMultipleAccounts params[0]={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['error']['data']",
+                "root['msg']['result']['context']['slot']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    *[
+        {
+            "payload": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "getMultipleAccounts",
+                "params": [[e]],
+            },
+            "description": f"getMultipleAccounts params[0][0]={json.dumps(e)}",
+            "exclude_paths": [
+                "root['msg']['error']['data']",
+                "root['msg']['result']['context']['slot']",
+            ],
+        }
+        for e in ALL_TYPES
+    ],
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getMultipleAccounts",
+            "params": [[]],
+        },
+        "description": "getMultipleAccounts empty array",
+        "exclude_paths": ["root['msg']['result']['context']['slot']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getMultipleAccounts",
+            "params": [
+                [
+                    "11111111111111111111111111111111",
+                    "deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+                    "SysvarRent111111111111111111111111111111111",
+                ],
+                {"encoding": "base64", "commitment": "finalized"},
+            ],
+        },
+        "description": "getMultipleAccounts mixed existing and missing",
+        "exclude_paths": ["root['msg']['result']['context']['slot']"],
+    },
+    {
+        "payload": {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getMultipleAccounts",
+            "params": [
+                [
+                    "deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+                    "beefbeefbeefbeefbeefbeefbeefbeefbeefbeefbeef",
+                ],
+                {"encoding": "base64", "commitment": "finalized"},
+            ],
+        },
+        "description": "getMultipleAccounts all missing",
+        "exclude_paths": ["root['msg']['result']['context']['slot']"],
     },
 ]
 
@@ -773,6 +877,7 @@ if __name__ == "__main__":
         *GET_TRANSACTION_COUNT,
         *GET_CLUSTER_NODES,
         *GET_EPOCH_INFO,
+        *GET_MULTIPLE_ACCOUNTS,
     ]
 
     run_test_suite(tester, test_suite, args.only_first)
