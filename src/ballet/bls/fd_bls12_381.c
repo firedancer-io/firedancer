@@ -506,11 +506,6 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
   return -1;
 }
 
-/* The maximum msg size accepted by fd_bls12_381_proof_of_possession_verify.
-   Currently the only callsite is from the vote program, so we know the
-   upper bound required is FD_VOTE_BLS_MSG_SZ. */
-#define FD_BLS12_381_POP_MSG_MAX (89UL)
-
 int
 fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
                                          ulong       msg_sz,
@@ -523,16 +518,9 @@ fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
      the case msg_sz==0 and instead explicitly throw an error.
      Since the public key must be part of the message, we check that
      msg_sz >= public key size, again to avoid accidental mistakes. */
-  if( FD_UNLIKELY( msg_sz<48 || msg_sz>FD_BLS12_381_POP_MSG_MAX ) ) {
+  if( FD_UNLIKELY( msg_sz<48 ) ) {
     return -1;
   }
 
-  /* Agave adds the public key into the hash input:
-     H(msg || public_key, POP_DST).
-     https://github.com/anza-xyz/solana-sdk/blob/bls-signatures%40v3.3.0/bls-signatures/src/hash.rs#L90-L96 */
-  uchar bound_msg[ FD_BLS12_381_POP_MSG_MAX + 48 ];
-  fd_memcpy( bound_msg,          msg,        msg_sz );
-  fd_memcpy( bound_msg + msg_sz, public_key, 48     );
-
-  return fd_bls12_381_core_verify( bound_msg, msg_sz + 48, proof, public_key, FD_BLS_LITERAL( FD_BLS_SIG_DOMAIN_POP ) );
+  return fd_bls12_381_core_verify( msg, msg_sz, proof, public_key, FD_BLS_LITERAL( FD_BLS_SIG_DOMAIN_POP ) );
 }

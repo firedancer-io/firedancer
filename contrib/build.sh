@@ -196,7 +196,6 @@ CUSTOM_TARGETS+=( ["linux_clang_noarch128"]="${OTHER_TARGETS[@]}" )
 CUSTOM_TARGETS+=( ["freebsd_clang_noarch128"]="${OTHER_TARGETS[@]}" )
 
 FAIL=0
-LOG_FILE=$(mktemp)
 START=$(date +%s)
 
 # By default, use all the compilers that are available.
@@ -255,6 +254,8 @@ echo
 if [[ $DRY_RUN -eq 1 ]]; then
   exit 0
 fi
+
+LOG_FILE=$(mktemp)
 
 skip_compiler() {
   local compiler=$1

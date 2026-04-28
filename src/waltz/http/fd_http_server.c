@@ -16,6 +16,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#define FD_HTTP_SERVER_POLL_CHUNK_SZ 128UL
+
 #if FD_HAS_ZSTD
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
 #define ZSTD_STATIC_LINKING_ONLY
@@ -170,6 +172,7 @@ fd_http_server_new( void *                     shmem,
   http->callback_ctx          = callback_ctx;
   http->evict_conn_id         = 0UL;
   http->evict_ws_conn_id      = 0UL;
+  http->poll_conn_idx         = 0UL;
   http->max_conns             = params.max_connection_cnt;
   http->max_ws_conns          = params.max_ws_connection_cnt;
   http->max_request_len       = params.max_request_len;
@@ -1170,18 +1173,30 @@ fd_http_server_poll( fd_http_server_t * http,
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
 
-  /* Poll existing connections for new data. */
-  for( ulong i=0UL; i<http->max_conns+http->max_ws_conns+1UL; i++ ) {
-    if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
-    if( FD_UNLIKELY( i==http->max_conns+http->max_ws_conns ) ) {
-      if( FD_LIKELY( http->pollfds[ i ].revents & POLLIN  ) ) accept_conns( http );
-    } else {
-      if( FD_LIKELY( http->pollfds[ i ].revents & POLLIN  ) ) read_conn(  http, i );
-      if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
-      if( FD_LIKELY( http->pollfds[ i ].revents & POLLOUT ) ) write_conn( http, i );
-      /* No need to handle POLLHUP, read() will return 0 soon enough. */
-    }
+  /* Always check the listener socket for new connections. */
+  ulong listener_idx = http->max_conns+http->max_ws_conns;
+  if( FD_UNLIKELY( http->pollfds[ listener_idx ].fd!=-1 && (http->pollfds[ listener_idx ].revents & POLLIN) ) ) {
+    accept_conns( http );
   }
+
+  /* Service existing connections in chunks of
+     FD_HTTP_SERVER_POLL_CHUNK_SZ to bound the amount of work done per
+     poll call.  poll_conn_idx tracks where we left off so all
+     connections get serviced fairly over multiple calls. */
+  ulong conn_cnt = http->max_conns+http->max_ws_conns;
+  ulong start    = http->poll_conn_idx;
+  ulong end      = start+FD_HTTP_SERVER_POLL_CHUNK_SZ;
+  if( FD_UNLIKELY( end>conn_cnt ) ) end = conn_cnt;
+
+  for( ulong i=start; i<end; i++ ) {
+    if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
+    if( FD_LIKELY( http->pollfds[ i ].revents & POLLIN  ) ) read_conn(  http, i );
+    if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
+    if( FD_LIKELY( http->pollfds[ i ].revents & POLLOUT ) ) write_conn( http, i );
+    /* No need to handle POLLHUP, read() will return 0 soon enough. */
+  }
+
+  http->poll_conn_idx = fd_ulong_if( end>=conn_cnt, 0UL, end );
 
   return 1;
 }

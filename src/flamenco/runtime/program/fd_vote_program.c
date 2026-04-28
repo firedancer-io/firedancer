@@ -1901,7 +1901,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, &clock_ );
     if( FD_UNLIKELY( !clock ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-    fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache ); /* guaranteed to succeed */
+    fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     rc = process_vote_with_account(
         ctx,
         &me,
@@ -1965,6 +1966,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L173
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     rc = process_vote_state_update(
         ctx,
         &me,
@@ -2034,7 +2036,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L187
-    fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache ); /* guaranteed to succeed */
+    fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache );
+    if( FD_UNLIKELY( !slot_hashes ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     rc = process_vote_state_update(
         ctx,
         &me,
@@ -2076,7 +2079,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( ctx->sysvar_cache );
-    FD_TEST( slot_hashes );
+    if( FD_UNLIKELY( !slot_hashes ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     rc = process_tower_sync(
         ctx,
         &me,

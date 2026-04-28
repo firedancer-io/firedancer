@@ -309,8 +309,7 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L71-L136 */
 static int
-fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *      runtime,
-                                                             fd_bank_t *         bank,
+fd_executor_check_transaction_age_and_compute_budget_limits( fd_bank_t *         bank,
                                                              fd_txn_in_t const * txn_in,
                                                              fd_txn_out_t *      txn_out ) {
 
@@ -321,7 +320,7 @@ fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *     
   }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L124-L131 */
-  err = fd_check_transaction_age( runtime, bank, txn_in, txn_out );
+  err = fd_check_transaction_age( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -342,7 +341,7 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L68-L73 */
-  int err = fd_executor_check_transaction_age_and_compute_budget_limits( runtime, bank, txn_in, txn_out );
+  int err = fd_executor_check_transaction_age_and_compute_budget_limits( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -774,7 +773,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
     fd_account_meta_t const * meta = NULL;
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       int is_found = 0;
-      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
+      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
           if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {

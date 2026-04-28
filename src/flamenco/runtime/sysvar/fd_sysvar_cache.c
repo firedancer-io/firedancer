@@ -1,5 +1,7 @@
 #include "fd_sysvar_cache.h"
 #include "fd_sysvar_cache_private.h"
+#include "fd_sysvar_recent_hashes.h"
+#include "fd_sysvar_slot_history.h"
 #include <errno.h>
 
 void *
@@ -155,22 +157,6 @@ fd_sysvar_cache_slot_hashes_leave_const(
   (void)sysvar_cache; (void)slot_hashes;
 }
 
-fd_slot_history_global_t const *
-fd_sysvar_cache_slot_history_join_const(
-    fd_sysvar_cache_t const * cache
-) {
-  if( FD_UNLIKELY( !fd_sysvar_cache_slot_history_is_valid( cache ) ) ) return NULL;
-  return (void const *)( cache->obj_slot_history );
-}
-
-void
-fd_sysvar_cache_slot_history_leave_const(
-    fd_sysvar_cache_t const *        sysvar_cache,
-    fd_slot_history_global_t const * slot_history
-) {
-  (void)sysvar_cache; (void)slot_history;
-}
-
 fd_stake_history_t const *
 fd_sysvar_cache_stake_history_join_const(
     fd_sysvar_cache_t const * cache
@@ -299,8 +285,7 @@ fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [FD_SYSVAR_slot_history_IDX] =
     { .name="slot history",
       .data_off=offsetof(fd_sysvar_cache_t, bin_slot_history     ), .data_max=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_slot_history     ), .obj_max =FD_SYSVAR_SLOT_HISTORY_FOOTPRINT,
-      TYPES_CALLBACKS( slot_history, _global ) },
+      .validate=fd_sysvar_slot_history_validate },
   [FD_SYSVAR_stake_history_IDX] =
     { .name="stake history",
       .data_off=offsetof(fd_sysvar_cache_t, bin_stake_history    ), .data_max=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ,

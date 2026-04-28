@@ -253,22 +253,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( block_bank->vote_accounts_t_1_count<=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
   FD_TEST( block_bank->vote_accounts_t_2_count<=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
 
-  /* The protobuf encodes T-1/T-2 relative to the epoch being entered.
-     The vote_stakes cache holds T-1/T-2 relative to bank->f.epoch
-     (the parent epoch).  When an epoch boundary fires, old T-1 rotates
-     into new T-2.  To get the provided T-2 in the post-rotation T-2 slot,
-     we must load it into pre-rotation T-1.  Without an epoch boundary no
-     rotation occurs, so the direct mapping is correct. */
-
-  ulong parent_epoch_chk = fd_slot_to_epoch( &bank->f.epoch_schedule, parent_slot, NULL );
-  ulong slot_epoch_chk   = fd_slot_to_epoch( &bank->f.epoch_schedule, slot, NULL );
-  int   will_cross_epoch = parent_epoch_chk < slot_epoch_chk;
-
-  fd_exec_test_prev_vote_account_t * cache_t_1_src     = will_cross_epoch ? block_bank->vote_accounts_t_2 : block_bank->vote_accounts_t_1;
-  pb_size_t                          cache_t_1_src_cnt = will_cross_epoch ? block_bank->vote_accounts_t_2_count : block_bank->vote_accounts_t_1_count;
-
-  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_1, vote_stakes, cache_t_1_src, cache_t_1_src_cnt, 1 );
-  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_2, vote_stakes, block_bank->vote_accounts_t_2,  block_bank->vote_accounts_t_2_count, 0 );
+  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_1, vote_stakes, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count, 1 );
+  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_2, vote_stakes, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count, 0 );
 
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], i );

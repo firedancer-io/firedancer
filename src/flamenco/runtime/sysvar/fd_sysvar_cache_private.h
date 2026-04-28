@@ -4,7 +4,6 @@
 #include "fd_sysvar_base.h"
 #include "fd_sysvar_cache.h"
 #include "../fd_system_ids_pp.h"
-#include "fd_sysvar_recent_hashes.h"
 
 #define FD_SYSVAR_CACHE_MAGIC (0x1aa5ecb2a49b600aUL) /* random number */
 
