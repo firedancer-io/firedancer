@@ -1496,7 +1496,10 @@ returnable_frag( fd_tower_tile_t *   ctx,
     return 0;
   }
   case IN_KIND_EPOCH: {
-    fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
+    fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
+    fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
     fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
     return 0;
   }

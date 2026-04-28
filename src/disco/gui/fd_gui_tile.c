@@ -271,6 +271,8 @@ during_frag( fd_gui_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
+    FD_TEST( epoch_info->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    FD_TEST( epoch_info->staked_id_cnt<=MAX_SHRED_DESTS );
     sz = fd_epoch_info_msg_sz( epoch_info->staked_vote_cnt, epoch_info->staked_id_cnt );
   }
 
