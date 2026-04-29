@@ -136,6 +136,18 @@
 
 </div>
 
+## Snapwr Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapwr_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of decompressed snapshot bytes consumed from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapwr_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of decompressed snapshot bytes consumed from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapwr_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written to the accounts database on disk. Monotonically increasing across snapshot loads. |
+
+</div>
+
 ## Netlnk Tile
 
 <div class="metrics">

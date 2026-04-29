@@ -1626,6 +1626,9 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_tower_tile_t * ctx = init_choreo( scratch, topo, tile );
 
+  FD_BASE58_ENCODE_32_BYTES( ctx->our_vote_acct, vote_acc_cstr );
+  FD_LOG_INFO(( "my vote account is %s", vote_acc_cstr ));
+
   ctx->wksp               = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
   ctx->identity_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   ctx->auth_vtr_keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->av_keyswitch_obj_id ) );

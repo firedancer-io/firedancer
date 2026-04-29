@@ -1091,7 +1091,7 @@ change_partition( fd_accdb_t *     accdb,
   }
 
   if( FD_UNLIKELY( new_partition_idx>=accdb->shmem->partition_max ) ) {
-    FD_LOG_NOTICE(( "growing accounts database from %lu GiB to %lu GiB", accdb->shmem->partition_max*accdb->shmem->partition_sz/(1UL<<30UL), (new_partition_idx+1UL)*accdb->shmem->partition_sz/(1UL<<30UL) ));
+    FD_LOG_INFO(( "growing accounts database from %lu GiB to %lu GiB", accdb->shmem->partition_max*accdb->shmem->partition_sz/(1UL<<30UL), (new_partition_idx+1UL)*accdb->shmem->partition_sz/(1UL<<30UL) ));
 
     int result = fallocate( accdb->fd, 0, (long)(new_partition_idx*accdb->shmem->partition_sz), (long)accdb->shmem->partition_sz );
     if( FD_UNLIKELY( -1==result ) ) {
