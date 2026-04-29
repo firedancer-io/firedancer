@@ -135,7 +135,12 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     cb->data( conn, stream, peek, sz0, fin_flag );
   } else {
     cb->data( conn, stream, peek,          sz0, 0        );
-    cb->data( conn, stream, rbuf_rx->buf0, sz1, fin_flag );
+    /* The first callback may have released the stream.  Re-query the stream
+       map before dispatching the wrapped tail chunk. */
+    stream = cb->stream_query( conn, stream_id );
+    if( FD_LIKELY( stream ) ) {
+      cb->data( conn, stream, rbuf_rx->buf0, sz1, fin_flag );
+    }
   }
 
 skip_frame:
