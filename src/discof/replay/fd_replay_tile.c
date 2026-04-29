@@ -1634,7 +1634,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
-  int eqvoc_detected = reasm_fec->fec_set_idx!=0 && (reasm_fec->eqvoc &* !reasm_fec->confirmed);
+  int eqvoc_detected = reasm_fec->fec_set_idx!=0 && (reasm_fec->eqvoc && !parent->eqvoc);
+  if( FD_UNLIKELY( eqvoc_detected ) ) FD_TEST( reasm_fec->confirmed && parent->confirmed );
 
   /* Standard case, the parent FEC has a valid corresponding bank and
      there has been no equivocation detected so far. */
