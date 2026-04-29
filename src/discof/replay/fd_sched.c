@@ -1975,6 +1975,15 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( block->fec_buf+block->fec_buf_soff );
       block->fec_buf_soff      += (uint)sizeof(fd_microblock_hdr_t);
 
+      if( FD_UNLIKELY( hdr->txn_cnt>fd_ulong_sat_sub( FD_MAX_TXN_PER_SLOT, block->txn_parsed_cnt ) ) ) {
+        FD_LOG_INFO(( "bad block: illegally many transactions specified in microblock header in slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
+        return FD_SCHED_BAD_BLOCK;
+      }
+      if( FD_UNLIKELY( hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
+        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
+        return FD_SCHED_BAD_BLOCK;
+      }
+
       block->mblks_rem--;
       block->txns_rem = hdr->txn_cnt;
 
@@ -2053,6 +2062,11 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       FD_TEST( block->fec_buf_soff==0U );
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
       block->fec_buf_soff += (uint)sizeof(ulong);
+
+      if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( FD_SCHED_MAX_MBLK_PER_SLOT, block->mblk_cnt ) ) ) {
+        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks), hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, FD_SCHED_MAX_MBLK_PER_SLOT ));
+        return FD_SCHED_BAD_BLOCK;
+      }
 
       block->fec_sob = 0;
       continue;
