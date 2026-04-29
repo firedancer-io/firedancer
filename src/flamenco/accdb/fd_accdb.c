@@ -1993,7 +1993,14 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accs[ i ] || exists_in_cache[ i ] ) ) continue;
+
     accdb->metrics->accounts_not_found++;
+
+    /* Tombstones (lamports==0) have no on-disk payload to read, and
+       background_advance_root may unlink the acc and never assign it a
+       disk offset, so the offset_fork spin below would hang forever.
+       Step 14's tombstone reset zeros the owner for these accounts. */
+    if( FD_UNLIKELY( !accs[ i ]->lamports ) ) continue;
 
     /* We are guaranteed that if an account is in the cache, the bytes
        are available (all cache operations are atomic via refcnt CAS),
