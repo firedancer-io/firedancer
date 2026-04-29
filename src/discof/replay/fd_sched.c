@@ -1625,6 +1625,7 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
     ulong              child_idx          = curr->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      child_idx = child->sibling_idx;
       if( child->rooted ) {
         rooted_child_block = child;
       } else {
@@ -1632,9 +1633,8 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
         ulong abandoned_cnt = sched->metrics->block_abandoned_cnt;
         subtree_abandon( sched, child );
         abandoned_cnt = sched->metrics->block_abandoned_cnt-abandoned_cnt;
-        if( FD_UNLIKELY( abandoned_cnt ) ) FD_LOG_DEBUG(( "abandoned %lu blocks on minority fork starting at block %lu:%lu", abandoned_cnt, child->slot, child_idx ));
+        if( FD_UNLIKELY( abandoned_cnt ) ) FD_LOG_DEBUG(( "abandoned %lu blocks on minority fork starting at block %lu:%lu", abandoned_cnt, child->slot, block_to_idx( sched, child ) ));
       }
-      child_idx = child->sibling_idx;
     }
     curr = rooted_child_block;
   }
