@@ -1614,7 +1614,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
 }
 
 static void
-backfill_fec_sets( fd_replay_tile_t * ctx,
+backfill_fec_sets( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
                    fd_reasm_fec_t *    reasm_fec ) {
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
@@ -1623,8 +1623,6 @@ backfill_fec_sets( fd_replay_tile_t * ctx,
     return;
   }
 
-  /* If this point has been reached, we know that we need to backfill
-     for the slot associated with this FEC. */
   fd_reasm_fec_t * path[ FD_BANKS_MAX_BANKS ];
   ulong            path_cnt = 0UL;
   path[ path_cnt++ ] = reasm_fec;
@@ -1644,12 +1642,12 @@ backfill_fec_sets( fd_replay_tile_t * ctx,
   for( ulong i=path_cnt; i>0UL; i-- ) {
     fd_reasm_fec_t * leaf = path[ i-1 ];
 
-    /* If there's not capacity in the sched or banks, return early and
+    /* If there's no capacity in the sched or banks, return early and
        drop the FEC.  We have inserted as much as we can for now. */
     if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched ) < (leaf->fec_set_idx/FD_FEC_SHRED_CNT + 1) ) ) return;
     if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return;
 
-    /* Gather all FECs for this slot; */
+    /* Gather all FECs for this slot */
     fd_reasm_fec_t * slot_fecs[ FD_FEC_BLK_MAX ];
     fd_reasm_fec_t * curr = leaf;
     for(;;) {
@@ -1708,7 +1706,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
   } else {
     backfill_fec_sets( ctx, stem, reasm_fec );
   }
-
 }
 
 /* accdb_advance_root moves account records from the unrooted to the
