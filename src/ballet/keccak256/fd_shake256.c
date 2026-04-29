@@ -27,7 +27,7 @@ fd_shake256_fini( fd_shake256_t * s ) {
   s->bytes[ s->offset ] ^= (uchar)0x1F;
   s->bytes[ FD_SHAKE256_RATE-1 ] ^= (uchar)0x80;
   fd_keccak256_core( s->state );
-  s->offset    = 0UL;
+  s->offset = 0UL;
 }
 
 void

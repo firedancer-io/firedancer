@@ -1,5 +1,6 @@
 #include "../fd_ballet_base.h"
 #include "../keccak256/fd_shake256.h"
+#include "fd_ptxof.h"
 #include "fd_falcon.h"
 
 #define Q 12289
@@ -239,11 +240,17 @@ fd_falcon_hash_to_point( fd_falcon_fq_t c[ C_LEN ],
                          uchar const *  msg,
                          ulong          len,
                          uchar const    r[ 40 ] ) {
-  fd_shake256_t state[1];
-  fd_shake256_init( state );
-  fd_shake256_absorb( state, r, 40UL );
-  fd_shake256_absorb( state, msg, len );
-  fd_shake256_fini( state );
+  // fd_shake256_t state[1];
+  // fd_shake256_init( state );
+  // fd_shake256_absorb( state, r, 40UL );
+  // fd_shake256_absorb( state, msg, len );
+  // fd_shake256_fini( state );
+
+  fd_ptxof_t new[1];
+  fd_ptxof_init( new );
+  fd_ptxof_absorb( new, r, 40UL );
+  fd_ptxof_absorb( new, msg, len );
+  fd_ptxof_fini( new );
 
   /* We can amortize the cost of the shake by sampling many bytes at once,
      not needing to go through more branches every new sample. */
@@ -252,7 +259,8 @@ fd_falcon_hash_to_point( fd_falcon_fq_t c[ C_LEN ],
 
   for( int i=0; i<N; ) {
     if( FD_UNLIKELY( offset>=sizeof(sample) ) ) {
-      fd_shake256_squeeze( state, sample, sizeof(sample) );
+      // fd_shake256_squeeze( state, sample, sizeof(sample) );
+      fd_ptxof_squeeze( new, sample, sizeof(sample) );
       offset = 0;
     }
 

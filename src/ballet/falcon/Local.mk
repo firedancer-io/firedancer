@@ -1,5 +1,5 @@
 $(call add-hdrs,fd_falcon.h)
-$(call add-objs,fd_falcon,fd_ballet)
+$(call add-objs,fd_falcon fd_ptxof,fd_ballet)
 $(call make-unit-test,test_falcon,test_falcon,fd_ballet fd_util)
 $(call run-unit-test,test_falcon)
 $(call make-proof,proof_falcon,fd_falcon_proofs.c)

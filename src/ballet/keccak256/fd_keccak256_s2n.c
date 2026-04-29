@@ -7,6 +7,6 @@
    It takes the 25-element state in-place and the 24 round constants. */
 
 static inline void
-fd_keccak256_core( ulong * state ) {
+fd_keccak256_core( ulong state[25] ) {
   sha3_keccak_f1600( (uint64_t *)state, (const uint64_t *)fd_keccak256_rc );
 }
