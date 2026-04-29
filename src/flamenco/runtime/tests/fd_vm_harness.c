@@ -343,17 +343,27 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   /* Capture input regions */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  ulong input_regions_size = fd_solfuzz_vm_load_from_input_regions(
+
+  /* Don't compare input data regions if execution failed and
+     virtual_address_space_adjustments is enabled, because
+     Agave leaks data into the input regions under these circumstances. */
+  ulong input_regions_size = 0UL;
+  if( syscall_err && virtual_address_space_adjustments ) {
+    effects->input_data_regions       = NULL;
+    effects->input_data_regions_count = 0UL;
+  } else {
+    input_regions_size = fd_solfuzz_vm_load_from_input_regions(
       vm->input_mem_regions,
       vm->input_mem_regions_cnt,
       &effects->input_data_regions,
       &effects->input_data_regions_count,
       (void *)tmp_end,
       fd_ulong_sat_sub( output_end, tmp_end )
-  );
+    );
 
-  if( !!vm->input_mem_regions_cnt && !effects->input_data_regions ) {
-    goto error;
+    if( !!vm->input_mem_regions_cnt && !effects->input_data_regions ) {
+      goto error;
+    }
   }
 
   /* Return the effects */
