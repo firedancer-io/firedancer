@@ -499,8 +499,9 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED,          _m->accounts_acquired          ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED_WRITABLE, _m->writable_accounts_acquired ); \
     FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_EVICTED,        _m->accounts_evicted_per_class        ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_NEW,  _m->accounts_committed_new_per_class  ); \
-    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_MISSED,            _m->accounts_missed            ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_NEW,       _m->accounts_committed_new_per_class       ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_OVERWRITE, _m->accounts_committed_overwrite_per_class ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_NOT_FOUND,         _m->accounts_not_found         ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,            _m->accounts_waited            ); \
     FD_MCNT_SET( TILE, ACCDB_ACQUIRE_FAILED,             _m->acquire_failed             ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_READ,                 _m->bytes_read                 ); \
@@ -518,7 +519,7 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
 #define FD_ACCDB_METRICS_WRITE_RO( TILE, m ) do {                                           \
     fd_accdb_metrics_t const * _m = (m);                                                    \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED, _m->accounts_acquired ); \
-    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_MISSED,   _m->accounts_missed   ); \
+    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_NOT_FOUND, _m->accounts_not_found ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,   _m->accounts_waited   ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_READ,        _m->bytes_read        ); \
     FD_MCNT_SET( TILE, ACCDB_READ_OPS,          _m->read_ops          ); \

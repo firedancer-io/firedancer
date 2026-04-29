@@ -35,7 +35,8 @@ struct fd_accdb_metrics {
   ulong accounts_preevicted;
   ulong accounts_preevicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_committed_new_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong accounts_missed;
+  ulong accounts_committed_overwrite_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong accounts_not_found;
   ulong accounts_waited;
   ulong accounts_deleted;
 
