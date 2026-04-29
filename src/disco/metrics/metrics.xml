@@ -1196,6 +1196,12 @@ metric introduced.
     <gauge name="AccountsIgnored" summary="Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" />
 </tile>
 
+<tile name="snapwr">
+    <gauge name="FullBytesRead" summary="Number of decompressed snapshot bytes consumed from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalBytesRead" summary="Number of decompressed snapshot bytes consumed from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="BytesWritten" summary="Number of bytes written to the accounts database on disk. Monotonically increasing across snapshot loads." />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 

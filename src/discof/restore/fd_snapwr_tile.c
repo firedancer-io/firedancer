@@ -4,6 +4,7 @@
 #include "utils/fd_ssmanifest_parser.h"
 
 #include "../../disco/topo/fd_topo.h"
+#include "../../disco/metrics/fd_metrics.h"
 
 #include "generated/fd_snapwr_tile_seccomp.h"
 
@@ -55,6 +56,7 @@ struct fd_snapwr_tile {
   struct {
     ulong full_bytes_read;
     ulong incremental_bytes_read;
+    ulong bytes_written;
   } metrics;
 
   fd_snapshot_manifest_t manifest[1];
@@ -65,6 +67,13 @@ typedef struct fd_snapwr_tile fd_snapwr_tile_t;
 static inline int
 should_shutdown( fd_snapwr_tile_t * ctx ) {
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
+}
+
+static void
+metrics_write( fd_snapwr_tile_t * ctx ) {
+  FD_MGAUGE_SET( SNAPWR, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
+  FD_MGAUGE_SET( SNAPWR, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
+  FD_MGAUGE_SET( SNAPWR, BYTES_WRITTEN,          ctx->metrics.bytes_written );
 }
 
 static ulong
@@ -102,6 +111,7 @@ buffer_flush( fd_snapwr_tile_t * ctx ) {
     long res = pwrite( FD_ACCDB_FD_RW, ctx->write_buf+bytes_written, sz-bytes_written, (long)(off+bytes_written) );
     if( FD_UNLIKELY( -1==res ) ) FD_LOG_ERR(( "error writing to disk (%d-%s)", errno, fd_io_strerror( errno ) ));
     bytes_written += (ulong)res;
+    ctx->metrics.bytes_written += (ulong)res;
   }
   ctx->flush_off      += sz;
   ctx->write_buf_used  = 0UL;
@@ -441,6 +451,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapwr_tile_t)
 
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"

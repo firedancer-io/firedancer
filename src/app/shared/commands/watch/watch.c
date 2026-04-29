@@ -217,6 +217,8 @@ static ulong snapshot_rx_idx = 0UL;
 static ulong snapshot_rx_samples[ 100UL ];
 static ulong snapshot_acc_idx = 0UL;
 static ulong snapshot_acc_samples[ 100UL ];
+static ulong snapshot_wr_idx = 0UL;
+static ulong snapshot_wr_samples[ 100UL ];
 static ulong events_sent_samples_idx = 0UL;
 static ulong events_sent_samples[ 100UL ];
 static ulong events_acked_samples_idx = 0UL;
@@ -403,6 +405,12 @@ write_snapshots( config_t const * config,
   double million_accounts_per_second = 0.0;
   if( FD_LIKELY( num_accounts_samples ) ) million_accounts_per_second = 100.0*(double)accounts_sum/(double)num_accounts_samples/1e6;
 
+  ulong snap_wr_sum = 0UL;
+  ulong num_snap_wr_samples = fd_ulong_min( snapshot_wr_idx, sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0]) );
+  for( ulong i=0UL; i<num_snap_wr_samples; i++ ) snap_wr_sum += snapshot_wr_samples[ i ];
+  double wr_megabytes_per_second = 0.0;
+  if( FD_LIKELY( num_snap_wr_samples ) ) wr_megabytes_per_second = 100.0*(double)snap_wr_sum/(double)num_snap_wr_samples/1e6;
+
   ulong snapct_total_ticks = total_regime( &cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snapct_idx*FD_METRICS_TOTAL_SZ ] );
   ulong snapld_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] );
   ulong snapdc_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] );
@@ -430,12 +438,14 @@ write_snapshots( config_t const * config,
           " " BOLD "STATE" UNBOLD " %s"
           " " BOLD "PCT"   UNBOLD " %.1f %%"
           " " BOLD "RX"    UNBOLD " %3.f MB/s"
+          " " BOLD "WR"    UNBOLD " %3.f MB/s"
           " " BOLD "ACC"   UNBOLD " %3.1f M/s"
           " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
           " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
     fd_snapct_state_str( (int)state ),
     progress,
     megabytes_per_second,
+    wr_megabytes_per_second,
     million_accounts_per_second,
     snapct_backp_pct,
     snapld_backp_pct,
@@ -1046,14 +1056,19 @@ write_summary( config_t const * config,
                ulong const *    cur_tile,
                ulong const *    prev_tile,
                ulong const *    cur_link,
-               ulong const *    prev_link ) {
+               ulong const *    prev_link,
+               int              interposing ) {
   (void)config;
   (void)prev_tile;
   (void)cur_tile;
 
   if( FD_UNLIKELY( !ended_on_newline ) ) PRINT( "\n" );
   PRINT( "\033[?7l" ); /* disable autowrap mode */
-  PRINT( "───────────────" CLEARLN "\n" );
+  lines_printed = 0UL;
+  if( FD_UNLIKELY( interposing ) ) {
+    PRINT( "───────────────" CLEARLN "\n" );
+    lines_printed = 1UL;
+  }
 
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
   int shutdown = 1;
@@ -1063,8 +1078,6 @@ write_summary( config_t const * config,
   if( FD_UNLIKELY( !snap_shutdown_time && !shutdown ) ) snap_shutdown_time = 1L; /* Was not shutdown on boot */
   if( FD_UNLIKELY( !snap_shutdown_time && shutdown  ) ) snap_shutdown_time = 2L; /* Was shutdown on boot */
   if( FD_UNLIKELY( snap_shutdown_time==1L && shutdown  ) ) snap_shutdown_time = fd_log_wallclock();
-
-  lines_printed = 1UL;
 
   if( FD_UNLIKELY( write_bench( config, cur_tile, prev_tile ) ) ) lines_printed++;
 
@@ -1152,8 +1165,10 @@ run( config_t const * config,
 
   ulong last_snap = 1UL;
 
+  int interposing = drain_output_fd>=0;
+
   frame_len = 0UL;
-  write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+  write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
   flush_frame();
 
   long next = fd_log_wallclock()+(long)1e9;
@@ -1161,7 +1176,7 @@ run( config_t const * config,
     if( FD_UNLIKELY( drain_output_fd>=0 ) ) {
       if( FD_UNLIKELY( drain( drain_output_fd ) ) ) {
         frame_len = 0UL;
-        write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+        write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
         flush_frame();
       }
     }
@@ -1188,6 +1203,8 @@ run( config_t const * config,
       snapshot_rx_idx++;
       snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = (ulong)diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNTS_LOADED ) );
       snapshot_acc_idx++;
+      snapshot_wr_samples[ snapshot_wr_idx%(sizeof(snapshot_wr_samples)/sizeof(snapshot_wr_samples[0])) ] = (ulong)diff_tile( config, "snapwr", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) );
+      snapshot_wr_idx++;
       events_sent_samples[ events_sent_samples_idx%(sizeof(events_sent_samples)/sizeof(events_sent_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, EVENTS_SENT ) );
       events_sent_samples_idx++;
       events_acked_samples[ events_acked_samples_idx%(sizeof(events_acked_samples)/sizeof(events_acked_samples[0])) ] = (ulong)diff_tile( config, "event", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, EVENT, EVENTS_ACKED ) );
@@ -1208,7 +1225,7 @@ run( config_t const * config,
       } else {
         PRINT( "\033[%luA\r", lines_printed );
       }
-      write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+      write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), interposing );
       PRINT( "\033[0J" );    /* clear any leftover lines below */
       PRINT( "\033[?25h" ); /* show cursor */
       flush_frame();
