@@ -1993,7 +1993,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accs[ i ] || exists_in_cache[ i ] ) ) continue;
-    accdb->metrics->accounts_missed++;
+    accdb->metrics->accounts_not_found++;
 
     /* We are guaranteed that if an account is in the cache, the bytes
        are available (all cache operations are atomic via refcnt CAS),
@@ -2417,6 +2417,7 @@ fd_accdb_release( fd_accdb_t *       accdb,
        to the hash chain, and record the write in a txn linked to
        the fork so advance_root can clean up old versions. */
     if( FD_LIKELY( entries[ i ]._overwrite ) ) {
+      accdb->metrics->accounts_committed_overwrite_per_class[ new_size_class ]++;
       committed_line->acc_idx = original_acc_idx;
 
       fd_accdb_acc_t * acc = &accdb->acc_pool[ original_acc_idx ];
@@ -2687,7 +2688,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   }
 
 miss:;
-  accdb->metrics->accounts_missed++;
+  accdb->metrics->accounts_not_found++;
 
   /// STEP 4.
   ///   Disk path.  Spin until the writer publishes a real offset

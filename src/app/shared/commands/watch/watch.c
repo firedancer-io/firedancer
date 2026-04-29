@@ -241,6 +241,7 @@ static ulong accdb_evicted_class_samples[ 8UL ][ 200UL ];
 static ulong accdb_preevicted_samples[ 200UL ];
 static ulong accdb_preevicted_class_samples[ 8UL ][ 200UL ];
 static ulong accdb_committed_new_class_samples[ 8UL ][ 200UL ];
+static ulong accdb_committed_overwrite_class_samples[ 8UL ][ 200UL ];
 
 #define RESET   "\033[0m"
 #define BOLD    "\033[1m"
@@ -470,51 +471,57 @@ diff_tile_idx( ulong const * prev_tile,
 
 static void
 accdb_per_tile_offsets( char const * name,
-                        ulong *      offs /* 10 entries: acquired, writable, missed, waited, rd, wr, cp, evicted_class_base, preevicted_class_base, committed_new_class_base */ ) {
+                        ulong *      offs /* 11 entries: acquired, writable, missed, waited, rd, wr, cp, evicted_class_base, preevicted_class_base, committed_new_class_base, committed_overwrite_class_base */ ) {
   if(      !strcmp( name, "execle" ) ) {
-    offs[0]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_WAITED          );
-    offs[4]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_WRITTEN            );
-    offs[6]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_EVICTED         );
-    offs[8]=ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_COMMITTED_NEW   );
+    offs[0] =MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
+    offs[2] =MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_NOT_FOUND        ); offs[3]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_WAITED          );
+    offs[4] =MIDX(COUNTER,EXECLE,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_WRITTEN            );
+    offs[6] =MIDX(COUNTER,EXECLE,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_EVICTED         );
+    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_COMMITTED_NEW   );
+    offs[10]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_COMMITTED_OVERWRITE);
   } else if( !strcmp( name, "execrp" ) ) {
-    offs[0]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_WAITED          );
-    offs[4]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_WRITTEN            );
-    offs[6]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_EVICTED         );
-    offs[8]=ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_COMMITTED_NEW   );
+    offs[0] =MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
+    offs[2] =MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_NOT_FOUND        ); offs[3]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_WAITED          );
+    offs[4] =MIDX(COUNTER,EXECRP,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_WRITTEN            );
+    offs[6] =MIDX(COUNTER,EXECRP,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_EVICTED         );
+    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_COMMITTED_NEW   );
+    offs[10]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_COMMITTED_OVERWRITE);
   } else if( !strcmp( name, "replay" ) ) {
-    offs[0]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_WAITED          );
-    offs[4]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_WRITTEN            );
-    offs[6]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_EVICTED         );
-    offs[8]=ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_COMMITTED_NEW   );
+    offs[0] =MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
+    offs[2] =MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_NOT_FOUND        ); offs[3]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_WAITED          );
+    offs[4] =MIDX(COUNTER,REPLAY,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_WRITTEN            );
+    offs[6] =MIDX(COUNTER,REPLAY,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_EVICTED         );
+    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_COMMITTED_NEW   );
+    offs[10]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_COMMITTED_OVERWRITE);
   } else if( !strcmp( name, "tower" ) ) {
-    offs[0]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED          ); offs[1]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE );
-    offs[2]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_MISSED            ); offs[3]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_WAITED            );
-    offs[4]=MIDX(COUNTER,TOWER,ACCDB_BYTES_READ                 ); offs[5]=MIDX(COUNTER,TOWER,ACCDB_BYTES_WRITTEN              );
-    offs[6]=MIDX(COUNTER,TOWER,ACCDB_BYTES_COPIED               ); offs[7]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_EVICTED           );
-    offs[8]=ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_COMMITTED_NEW     );
+    offs[0] =MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED          ); offs[1]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE );
+    offs[2] =MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_NOT_FOUND         ); offs[3]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_WAITED            );
+    offs[4] =MIDX(COUNTER,TOWER,ACCDB_BYTES_READ                 ); offs[5]=MIDX(COUNTER,TOWER,ACCDB_BYTES_WRITTEN              );
+    offs[6] =MIDX(COUNTER,TOWER,ACCDB_BYTES_COPIED               ); offs[7]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_EVICTED           );
+    offs[8] =ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_COMMITTED_NEW     );
+    offs[10]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_COMMITTED_OVERWRITE);
   } else if( !strcmp( name, "accdb" ) ) {
     /* The accdb tile only runs background work (compact, preevict,
        advance_root, purge); it never acquires/releases.  Sentinel
        everything that comes from the acquire/release path. */
-    offs[0]=ULONG_MAX                                            ; offs[1]=ULONG_MAX                                            ;
-    offs[2]=ULONG_MAX                                            ; offs[3]=ULONG_MAX                                            ;
-    offs[4]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_READ                 ); offs[5]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_WRITTEN              );
-    offs[6]=ULONG_MAX                                            ; offs[7]=ULONG_MAX                                            ;
-    offs[8]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_PREEVICTED        ); offs[9]=ULONG_MAX                                            ;
+    offs[0] =ULONG_MAX                                            ; offs[1]=ULONG_MAX                                            ;
+    offs[2] =ULONG_MAX                                            ; offs[3]=ULONG_MAX                                            ;
+    offs[4] =MIDX(COUNTER,ACCDB,ACCDB_BYTES_READ                 ); offs[5]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_WRITTEN              );
+    offs[6] =ULONG_MAX                                            ; offs[7]=ULONG_MAX                                            ;
+    offs[8] =MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_PREEVICTED        ); offs[9]=ULONG_MAX                                            ;
+    offs[10]=ULONG_MAX;
   } else if( !strcmp( name, "rpc" ) ) {
     /* RPC is a read-only accdb consumer.  It only emits the subset
        of counters that fd_accdb_read_one_nocache touches; everything
        else is sentinel and skipped by sample_accdb. */
-    offs[0]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_ACQUIRED); offs[1]=ULONG_MAX;
-    offs[2]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_MISSED  ); offs[3]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_WAITED);
-    offs[4]=MIDX(COUNTER,RPC,ACCDB_BYTES_READ       ); offs[5]=ULONG_MAX;
-    offs[6]=MIDX(COUNTER,RPC,ACCDB_BYTES_COPIED     ); offs[7]=ULONG_MAX;
-    offs[8]=ULONG_MAX;                                 offs[9]=ULONG_MAX;
+    offs[0] =MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_ACQUIRED); offs[1]=ULONG_MAX;
+    offs[2] =MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_NOT_FOUND); offs[3]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_WAITED);
+    offs[4] =MIDX(COUNTER,RPC,ACCDB_BYTES_READ       ); offs[5]=ULONG_MAX;
+    offs[6] =MIDX(COUNTER,RPC,ACCDB_BYTES_COPIED     ); offs[7]=ULONG_MAX;
+    offs[8] =ULONG_MAX;                                 offs[9]=ULONG_MAX;
+    offs[10]=ULONG_MAX;
   } else {
-    for( ulong i=0UL; i<10UL; i++ ) offs[i] = ULONG_MAX;
+    for( ulong i=0UL; i<11UL; i++ ) offs[i] = ULONG_MAX;
   }
 }
 
@@ -528,9 +535,10 @@ sample_accdb( config_t const * config,
   long evicted_class[ 8 ] = {0};
   long preevicted_class[ 8 ] = {0};
   long committed_new_class[ 8 ] = {0};
+  long committed_overwrite_class[ 8 ] = {0};
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    ulong offs[10];
+    ulong offs[11];
     accdb_per_tile_offsets( config->topo.tiles[ i ].name, offs );
     if( offs[0]==ULONG_MAX ) continue;
     acquired += diff_tile_idx( prev_tile, cur_tile, i, offs[0] );
@@ -555,7 +563,8 @@ sample_accdb( config_t const * config,
         preevicted_class[ c ] += d;
         preevicted            += d;
       }
-      if( offs[9]!=ULONG_MAX ) committed_new_class[ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[9] + c );
+      if( offs[9] !=ULONG_MAX ) committed_new_class      [ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[9]  + c );
+      if( offs[10]!=ULONG_MAX ) committed_overwrite_class[ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[10] + c );
     }
   }
 
@@ -571,9 +580,10 @@ sample_accdb( config_t const * config,
   accdb_bytes_pe_samples[ slot ] = (ulong)bytes_pe;
   accdb_preevicted_samples[ slot ] = (ulong)preevicted;
   for( ulong c=0UL; c<8UL; c++ ) {
-    accdb_evicted_class_samples      [ c ][ slot ] = (ulong)evicted_class      [ c ];
-    accdb_preevicted_class_samples   [ c ][ slot ] = (ulong)preevicted_class   [ c ];
-    accdb_committed_new_class_samples[ c ][ slot ] = (ulong)committed_new_class[ c ];
+    accdb_evicted_class_samples            [ c ][ slot ] = (ulong)evicted_class            [ c ];
+    accdb_preevicted_class_samples         [ c ][ slot ] = (ulong)preevicted_class         [ c ];
+    accdb_committed_new_class_samples      [ c ][ slot ] = (ulong)committed_new_class      [ c ];
+    accdb_committed_overwrite_class_samples[ c ][ slot ] = (ulong)committed_overwrite_class[ c ];
   }
   accdb_samples_idx++;
 }
@@ -681,16 +691,19 @@ write_accdb( config_t const * config,
   char * evict_class_str[ 8 ];
   char * preevict_class_str[ 8 ];
   char * commit_new_class_str[ 8 ];
+  char * commit_overwrite_class_str[ 8 ];
   for( ulong c=0UL; c<8UL; c++ ) {
-    ulong sum_c = 0UL, sum_pc = 0UL, sum_cn = 0UL;
+    ulong sum_c = 0UL, sum_pc = 0UL, sum_cn = 0UL, sum_co = 0UL;
     for( ulong i=0UL; i<n; i++ ) {
-      sum_c  += accdb_evicted_class_samples      [ c ][ i ];
-      sum_pc += accdb_preevicted_class_samples   [ c ][ i ];
-      sum_cn += accdb_committed_new_class_samples[ c ][ i ];
+      sum_c  += accdb_evicted_class_samples            [ c ][ i ];
+      sum_pc += accdb_preevicted_class_samples         [ c ][ i ];
+      sum_cn += accdb_committed_new_class_samples      [ c ][ i ];
+      sum_co += accdb_committed_overwrite_class_samples[ c ][ i ];
     }
-    evict_class_str     [ c ] = COUNTF_T( 100.0*(double)sum_c /(double)n );
-    preevict_class_str  [ c ] = COUNTF_T( 100.0*(double)sum_pc/(double)n );
-    commit_new_class_str[ c ] = COUNTF_T( 100.0*(double)sum_cn/(double)n );
+    evict_class_str           [ c ] = COUNTF_T( 100.0*(double)sum_c /(double)n );
+    preevict_class_str        [ c ] = COUNTF_T( 100.0*(double)sum_pc/(double)n );
+    commit_new_class_str      [ c ] = COUNTF_T( 100.0*(double)sum_cn/(double)n );
+    commit_overwrite_class_str[ c ] = COUNTF_T( 100.0*(double)sum_co/(double)n );
   }
 
   PRINT( "               "
@@ -713,19 +726,23 @@ write_accdb( config_t const * config,
     evict_class_str[7], preevict_class_str[7] );
 
   PRINT( "               "
-         " " BOLD "COMMIT/s NEW    " UNBOLD
-         " " BOLD "128B" UNBOLD " %s        "
-         " " BOLD "512B" UNBOLD " %s        "
-         " " BOLD "2K"   UNBOLD " %s        "
-         " " BOLD "8K"   UNBOLD " %s        "
-         " " BOLD "32K"  UNBOLD " %s        "
-         " " BOLD "128K" UNBOLD " %s        "
-         " " BOLD "1M"   UNBOLD " %s        "
-         " " BOLD "10M"  UNBOLD " %s        " CLEARLN "\n",
-    commit_new_class_str[0], commit_new_class_str[1],
-    commit_new_class_str[2], commit_new_class_str[3],
-    commit_new_class_str[4], commit_new_class_str[5],
-    commit_new_class_str[6], commit_new_class_str[7] );
+         " " BOLD "COMMIT/s        " UNBOLD
+         " " BOLD "128B" UNBOLD " %s (=%s)"
+         " " BOLD "512B" UNBOLD " %s (=%s)"
+         " " BOLD "2K"   UNBOLD " %s (=%s)"
+         " " BOLD "8K"   UNBOLD " %s (=%s)"
+         " " BOLD "32K"  UNBOLD " %s (=%s)"
+         " " BOLD "128K" UNBOLD " %s (=%s)"
+         " " BOLD "1M"   UNBOLD " %s (=%s)"
+         " " BOLD "10M"  UNBOLD " %s (=%s)" CLEARLN "\n",
+    commit_new_class_str[0], commit_overwrite_class_str[0],
+    commit_new_class_str[1], commit_overwrite_class_str[1],
+    commit_new_class_str[2], commit_overwrite_class_str[2],
+    commit_new_class_str[3], commit_overwrite_class_str[3],
+    commit_new_class_str[4], commit_overwrite_class_str[4],
+    commit_new_class_str[5], commit_overwrite_class_str[5],
+    commit_new_class_str[6], commit_overwrite_class_str[6],
+    commit_new_class_str[7], commit_overwrite_class_str[7] );
 
   ulong cache_used_off = MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_USED );
   ulong cache_max_off  = MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_MAX  );
