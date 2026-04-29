@@ -7,6 +7,7 @@
 #include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
 #include "../../../flamenco/types/fd_types_custom.h"
+#include "../../../waltz/http/fd_http.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -590,7 +591,13 @@ read_response( fd_sshttp_t * http,
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
     if( FD_LIKELY( strncasecmp( headers[i].name, "content-length", 14UL ) ) ) continue;
 
-    http->content_len = strtoul( headers[i].value, NULL, 10 );
+    ulong val = 0UL;
+    if( FD_UNLIKELY( fd_http_parse_content_len( headers[i].value, (ulong)headers[i].value_len, &val ) || val==0UL ) ) {
+      FD_LOG_WARNING(( "invalid content-length in response from " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      fd_sshttp_cancel( http );
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
+    http->content_len = val;
     break;
   }
 
