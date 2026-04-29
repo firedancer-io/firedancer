@@ -4,8 +4,10 @@
 #include "../../rewards/fd_rewards_base.h"
 #include "../../rewards/fd_stake_rewards.h"
 #include "../../stakes/fd_stake_types.h"
+#include "../fd_executor_err.h"
 #include "../program/fd_vote_program.h"
 #include "../program/vote/fd_vote_codec.h"
+#include "../program/vote/fd_vote_state_versioned.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include <stdlib.h>
@@ -1312,6 +1314,31 @@ test_get_reward_distribution_num_blocks_none( void ) {
   FD_LOG_NOTICE(( "test_get_reward_distribution_num_blocks_none: PASSED" ));
 }
 
+static void
+test_vote_state_deserialize_error_codes( void ) {
+  fd_vote_state_versioned_t vsv_uninit[1];
+  FD_TEST( fd_vote_state_versioned_new( vsv_uninit, fd_vote_state_versioned_enum_uninitialized ) );
+
+  uchar serialized[8] = {0};
+  ulong serialized_sz = fd_vote_state_versioned_serialized_size( vsv_uninit );
+  FD_TEST( serialized_sz<=sizeof(serialized) );
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv_uninit, serialized, sizeof(serialized) ) );
+
+  uchar storage[ sizeof(fd_account_meta_t) + sizeof(serialized) ] = {0};
+  fd_account_meta_t * meta = (fd_account_meta_t *)storage;
+  meta->dlen = (uint)serialized_sz;
+  fd_memcpy( fd_account_data( meta ), serialized, serialized_sz );
+
+  fd_vote_state_versioned_t decoded[1];
+  FD_TEST( fd_vsv_deserialize( meta, decoded )==FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT );
+
+  meta->dlen = 1U;
+  fd_account_data( meta )[0] = 0U;
+  FD_TEST( fd_vsv_deserialize( meta, decoded )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+
+  FD_LOG_NOTICE(( "test_vote_state_deserialize_error_codes: PASSED" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1345,6 +1372,7 @@ main( int     argc,
   test_get_reward_distribution_num_blocks_normal();
   test_get_reward_distribution_num_blocks_warmup();
   test_get_reward_distribution_num_blocks_none();
+  test_vote_state_deserialize_error_codes();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_svm_test_halt( mini );

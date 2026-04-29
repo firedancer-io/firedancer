@@ -8,9 +8,11 @@
 #include "fd_runtime.h"
 #include "fd_runtime_stack.h"
 #include "fd_bank.h"
+#include "fd_executor_err.h"
 #include "fd_system_ids.h"
 #include "program/fd_vote_program.h"
 #include "program/vote/fd_vote_codec.h"
+#include "program/vote/fd_vote_state_versioned.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_stake_history.h"
@@ -417,6 +419,31 @@ test_deprecate_rent_exemption_threshold( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
+static void
+test_vote_state_deserialize_error_codes( void ) {
+  fd_vote_state_versioned_t vsv_uninit[1];
+  FD_TEST( fd_vote_state_versioned_new( vsv_uninit, fd_vote_state_versioned_enum_uninitialized ) );
+
+  uchar serialized[8] = {0};
+  ulong serialized_sz = fd_vote_state_versioned_serialized_size( vsv_uninit );
+  FD_TEST( serialized_sz<=sizeof(serialized) );
+  FD_TEST( !fd_vote_state_versioned_serialize( vsv_uninit, serialized, sizeof(serialized) ) );
+
+  uchar storage[ sizeof(fd_account_meta_t) + sizeof(serialized) ] = {0};
+  fd_account_meta_t * meta = (fd_account_meta_t *)storage;
+  meta->dlen = (uint)serialized_sz;
+  fd_memcpy( fd_account_data( meta ), serialized, serialized_sz );
+
+  fd_vote_state_versioned_t decoded[1];
+  FD_TEST( fd_vsv_deserialize( meta, decoded )==FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT );
+
+  meta->dlen = 1U;
+  fd_account_data( meta )[0] = 0U;
+  FD_TEST( fd_vsv_deserialize( meta, decoded )==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+
+  FD_LOG_NOTICE(( "test_vote_state_deserialize_error_codes: PASSED" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -436,6 +463,7 @@ main( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_vote_state_deserialize_error_codes();
   test_deprecate_rent_exemption_threshold( wksp );
 
   fd_wksp_delete_anonymous( wksp );
