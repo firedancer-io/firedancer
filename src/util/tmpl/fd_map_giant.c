@@ -734,7 +734,7 @@ MAP_(verify_key)( MAP_T *           join,
   return (long)cnt;;
 }
 
-FD_FN_PURE MAP_IMPL_STATIC MAP_T *
+MAP_IMPL_STATIC MAP_T *
 MAP_(query)( MAP_T *           join,
              MAP_KEY_T const * key,
              MAP_T *           sentinel ) {

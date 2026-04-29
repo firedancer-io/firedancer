@@ -1,14 +1,16 @@
 #include "fd_sysvar_epoch_schedule.h"
+#include "test_sysvar_cache_util.h"
 
 #include <stddef.h>
 
-FD_STATIC_ASSERT( alignof ( fd_epoch_schedule_t                              )==0x08UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, slots_per_epoch             )==0x00UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, leader_schedule_slot_offset )==0x08UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, warmup                      )==0x10UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_epoch          )==0x18UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_slot           )==0x20UL, layout );
-FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==0x28UL, layout );
+FD_STATIC_ASSERT( alignof ( fd_epoch_schedule_t                              )==0x01UL,                              layout );
+FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, slots_per_epoch             )==0x00UL,                              layout );
+FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, leader_schedule_slot_offset )==0x08UL,                              layout );
+FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, warmup                      )==0x10UL,                              layout );
+FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_epoch          )==0x11UL,                              layout );
+FD_STATIC_ASSERT( offsetof( fd_epoch_schedule_t, first_normal_slot           )==0x19UL,                              layout );
+FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==0x21UL,                              layout );
+FD_STATIC_ASSERT( sizeof  ( fd_epoch_schedule_t                              )==FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ, layout );
 
 static void
 test_sysvar_epoch_schedule_bounds( void ) {
@@ -21,11 +23,6 @@ test_sysvar_epoch_schedule_bounds( void ) {
     0x00
   };
   FD_TEST( sizeof(data)==FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ );
-  fd_bincode_decode_ctx_t ctx = { .data=data, .dataend=data+sizeof(data) };
-  ulong obj_sz = 0UL;
-  FD_TEST( fd_epoch_schedule_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
-  FD_TEST( obj_sz==FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT );
-  FD_TEST( fd_epoch_schedule_align()==FD_SYSVAR_EPOCH_SCHEDULE_ALIGN );
 }
 
 static void
@@ -162,8 +159,39 @@ test_sysvar_epoch_schedule_testnet( void ) {
   FD_TEST( fd_epoch_slot_cnt( &schedule, 14UL )==432000UL );
 }
 
+static void
+test_sysvar_epoch_schedule_invalid_warmup( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_is_valid( env->sysvar_cache )==0 );
+
+  env->bank->f.rent = (fd_rent_t) {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 100
+  };
+
+  /* The write path persists raw account data, so this creates an invalid sysvar. */
+  fd_epoch_schedule_t const schedule = {
+    .slots_per_epoch             = 432000UL,
+    .leader_schedule_slot_offset = 432000UL,
+    .warmup                      = 2,
+    .first_normal_epoch          = 0UL,
+    .first_normal_slot           = 0UL
+  };
+  fd_sysvar_epoch_schedule_write( env->bank, env->accdb, &env->xid, NULL, &schedule );
+
+  FD_TEST( !fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid ) );
+  FD_TEST( fd_sysvar_cache_epoch_schedule_is_valid( env->sysvar_cache )==0 );
+
+  fd_epoch_schedule_t restored;
+  FD_TEST( fd_sysvar_cache_epoch_schedule_read( env->sysvar_cache, &restored )==NULL );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
 void
-test_sysvar_epoch_schedule( void ) {
+test_sysvar_epoch_schedule( fd_wksp_t * wksp ) {
   test_sysvar_epoch_schedule_bounds();
   test_sysvar_epoch_schedule_edge_case();
   for( fd_epoch_schedule_t const * vec = fd_epoch_schedule_test_vectors;
@@ -172,4 +200,5 @@ test_sysvar_epoch_schedule( void ) {
     test_epoch_schedule       ( vec );
   }
   test_sysvar_epoch_schedule_testnet();
+  test_sysvar_epoch_schedule_invalid_warmup( wksp );
 }

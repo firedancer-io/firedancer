@@ -141,6 +141,7 @@ typedef struct {
   fd_pubkey_t const vote_key[ 1UL ];
 
   ulong           in_kind[ 64UL ];
+  int             in_reliable[ 64UL ];
   ulong           in_bank_idx[ 64UL ];
   fd_gui_in_ctx_t in[ 64UL ];
 
@@ -252,16 +253,16 @@ during_frag( fd_gui_ctx_t * ctx,
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
     /* ... todo... sigh, sz is not correct since it's too big */
     if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
-      ulong peer_cnt = ((ulong *)src)[ 0 ];
+      ulong peer_cnt = FD_LOAD( ulong, src );
       FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
       sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
     } else if( FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
-      ulong peer_cnt = ((ulong *)src)[ 0 ];
+      ulong peer_cnt = FD_LOAD( ulong, src );
       FD_TEST( peer_cnt<=FD_GUI_MAX_PEER_CNT );
       sz = 8UL + peer_cnt*112UL;
     } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
-      ulong staked_vote_cnt = ((ulong *)src)[ 1 ];
-      ulong staked_id_cnt   = ((ulong *)src)[ 2 ];
+      ulong staked_vote_cnt = FD_LOAD( ulong, src+8UL );
+      ulong staked_id_cnt   = FD_LOAD( ulong, src+16UL );
       FD_TEST( staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
       FD_TEST( staked_id_cnt<=MAX_SHRED_DESTS );
       sz = fd_stake_weight_msg_sz( staked_vote_cnt, staked_id_cnt );
@@ -270,6 +271,8 @@ during_frag( fd_gui_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
+    FD_TEST( epoch_info->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    FD_TEST( epoch_info->staked_id_cnt<=MAX_SHRED_DESTS );
     sz = fd_epoch_info_msg_sz( epoch_info->staked_vote_cnt, epoch_info->staked_id_cnt );
   }
 
@@ -328,6 +331,8 @@ after_frag( fd_gui_ctx_t *      ctx,
             ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)seq; (void)stem;
+
+  if( FD_LIKELY( ctx->in_reliable[ in_idx ] ) ) ctx->idle_cnt = 0UL;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
 
@@ -496,7 +501,8 @@ after_frag( fd_gui_ctx_t *      ctx,
       FD_TEST( (sz-sizeof(fd_microblock_execle_trailer_t))%sizeof(fd_txn_e_t)==0UL );
 
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
-        fd_microblock_execle_trailer_t * trailer = (fd_microblock_execle_trailer_t *)( src+sz-sizeof(fd_microblock_execle_trailer_t) );
+        fd_microblock_execle_trailer_t trailer[1];
+        fd_memcpy( trailer, src+sz-sizeof(fd_microblock_execle_trailer_t), sizeof(fd_microblock_execle_trailer_t) );
         long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
         fd_gui_microblock_execution_begin( ctx->gui,
                                           now,
@@ -514,7 +520,8 @@ after_frag( fd_gui_ctx_t *      ctx,
       FD_TEST( sz>=sizeof(fd_microblock_trailer_t) );
       FD_TEST( (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
 
-      fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( src+sz-sizeof( fd_microblock_trailer_t ) );
+      fd_microblock_trailer_t trailer[1];
+      fd_memcpy( trailer, src+sz-sizeof(fd_microblock_trailer_t), sizeof(fd_microblock_trailer_t) );
       long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
       ulong txn_cnt = (sz-sizeof( fd_microblock_trailer_t ))/sizeof(fd_txn_p_t);
       fd_gui_microblock_execution_end( ctx->gui,
@@ -795,6 +802,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_bank_idx[ i ] = topo->tiles[ producer ].kind_id;
     }
 
+    ctx->in_reliable[ i ] = tile->in_link_reliable[ i ];
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].mtu    = link->mtu;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );

@@ -459,22 +459,6 @@ FD_FN_PURE static inline fd_funk_rec_pool_t * fd_funk_rec_pool( fd_funk_t * funk
 
 FD_FN_PURE static inline fd_alloc_t * fd_funk_alloc( fd_funk_t * funk ) { return funk->alloc; }
 
-/* fd_funk_rec_is_full returns 1 if no more records can be allocated
-   and 0 otherwise. */
-
-static inline int
-fd_funk_rec_is_full( fd_funk_t * funk ) {
-  return fd_funk_rec_pool_is_empty( funk->rec_pool );
-}
-
-/* fd_funk_txn_is_full returns true if the transaction map is
-   full. No more in-preparation transactions are allowed. */
-
-static inline int
-fd_funk_txn_is_full( fd_funk_t * funk ) {
-  return fd_funk_txn_pool_is_empty( funk->txn_pool );
-}
-
 /* Misc */
 
 /* fd_funk_verify verifies the integrity of funk.  Returns

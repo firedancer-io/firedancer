@@ -331,7 +331,7 @@ patch_stake_activation_epoch( fd_svm_mini_t *     mini,
       new_activation_epoch,
       ss_new.stake.stake.delegation.deactivation_epoch,
       ss_new.stake.stake.credits_observed,
-      ss_new.stake.stake.delegation.warmup_cooldown_rate );
+      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
 }
 
 static void
@@ -599,7 +599,7 @@ test_credit_rewind_force_update( fd_svm_mini_t * mini ) {
         ss_new.stake.stake.delegation.activation_epoch,
         ss_new.stake.stake.delegation.deactivation_epoch,
         10UL,
-        ss_new.stake.stake.delegation.warmup_cooldown_rate );
+        FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
   }
 
   fd_xid_t root_xid = fd_svm_mini_xid( mini, root_idx );

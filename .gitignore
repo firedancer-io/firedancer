@@ -67,19 +67,9 @@ deps-bundle.tar.zst
 /book/bun.lock
 /book/bun.lockb
 
-# TVU
-/mainnet.toml
-/testnet.toml
-/privatenet.toml
-/localnet.toml
-/sim.toml
-/backtest.toml
-/mainnet.sh
-/testnet.sh
-/privatenet.sh
-/localnet.sh
-/sim.sh
-/backtest.sh
+# Custom config
+/*.toml
+/*.sh
 
 # Python
 venv
@@ -90,5 +80,6 @@ venv
 # Fuchsia trace format
 *.fxt
 
-# Claude
+# LLMs
 .claude
+.codex

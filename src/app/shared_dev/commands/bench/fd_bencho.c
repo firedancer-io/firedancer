@@ -69,8 +69,12 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
   if( FD_UNLIKELY( ctx->blockhash_state==FD_BENCHO_STATE_SENT ) ) {
     fd_rpc_client_response_t * response = fd_rpc_client_status( ctx->rpc, ctx->blockhash_request, 0 );
     if( FD_UNLIKELY( response->status==FD_RPC_CLIENT_PENDING ) ) {
-      if( FD_UNLIKELY( fd_log_wallclock()>=ctx->blockhash_deadline ) )
+      if( FD_UNLIKELY( fd_log_wallclock()>=ctx->blockhash_deadline ) ) {
         FD_LOG_WARNING(( "timed out waiting for RPC server to respond" ));
+        fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
+        ctx->blockhash_state    = FD_BENCHO_STATE_WAIT;
+        ctx->blockhash_deadline = fd_log_wallclock() + 100L * 1000L * 1000L; /* 100 millis to retry */
+      }
       return did_work;
     }
 

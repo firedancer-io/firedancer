@@ -138,7 +138,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
     funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( fd_funk_rec_ver_inc( fd_funk_rec_ver_bits( funk->rec_lock[ rec_idx ] ) ), 0UL );
-    fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
+    fd_funk_rec_pool_release( funk->rec_pool, rec );
     rec_idx = next_idx;
     rec_cnt++;
   }
@@ -183,7 +183,7 @@ fd_accdb_txn_cancel_one( fd_accdb_admin_v1_t * admin,
   txn->sibling_next_cidx = UINT_MAX;
   fd_rwlock_unwrite( &funk->txn_lock[ txn_idx ] );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_FREE;
-  fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
+  fd_funk_txn_pool_release( funk->txn_pool, txn );
 }
 
 /* Cancels txn and all children */
@@ -282,7 +282,7 @@ fd_accdb_chain_reclaim( fd_accdb_admin_v1_t * accdb,
 
   old_rec->map_next = FD_FUNK_REC_IDX_NULL;
   fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
-  fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
+  fd_funk_rec_pool_release( funk->rec_pool, old_rec );
   accdb->base.reclaim_cnt++;
 }
 
@@ -312,7 +312,7 @@ fd_accdb_chain_gc_root( fd_accdb_admin_v1_t *          accdb,
 
   old_rec->map_next = FD_FUNK_REC_IDX_NULL;
   fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
-  fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
+  fd_funk_rec_pool_release( funk->rec_pool, old_rec );
   accdb->base.gc_root_cnt++;
 }
 
@@ -423,7 +423,7 @@ fd_accdb_txn_publish_one( fd_accdb_admin_v1_t * accdb,
   txn->sibling_next_cidx = UINT_MAX;
   txn->child_head_cidx   = UINT_MAX;
   txn->child_tail_cidx   = UINT_MAX;
-  fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
+  fd_funk_txn_pool_release( funk->txn_pool, txn );
 }
 
 void
@@ -494,7 +494,7 @@ reset_rec_map( fd_funk_t * funk ) {
       rec->prev_idx = FD_FUNK_REC_IDX_NULL;
       memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
       fd_funk_val_flush( rec, alloc, wksp );
-      fd_funk_rec_pool_release( rec_pool, rec, 1 );
+      fd_funk_rec_pool_release( rec_pool, rec );
       iter.ele_idx = next;
     }
   }
@@ -527,8 +527,7 @@ clear_txn_list( fd_funk_t * funk,
     int rm_err = fd_funk_txn_map_remove( txn_map, &txn->xid, NULL, query, FD_MAP_FLAG_BLOCKING );
     if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_txn_map_remove failed (%i-%s)", rm_err, fd_map_strerror( rm_err ) ));
     txn->state = FD_FUNK_TXN_STATE_FREE;
-    int free_err = fd_funk_txn_pool_release( txn_pool, txn, 1 );
-    if( FD_UNLIKELY( free_err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_txn_pool_release failed (%i)", free_err ));
+    fd_funk_txn_pool_release( txn_pool, txn );
     idx = next_idx;
   }
 }

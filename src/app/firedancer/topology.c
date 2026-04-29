@@ -79,8 +79,10 @@ setup_topo_banks( fd_topo_t *  topo,
   return obj;
 }
 
-static fd_topo_obj_t *
-setup_topo_fec_sets( fd_topo_t * topo, char const * wksp_name, ulong sz ) {
+fd_topo_obj_t *
+setup_topo_fec_sets( fd_topo_t *  topo,
+                     char const * wksp_name,
+                     ulong        sz ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "fec_sets", wksp_name );
   FD_TEST( fd_pod_insertf_ulong( topo->props, sz, "obj.%lu.sz",   obj->id ) );
   return obj;
@@ -554,7 +556,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "snapld_dc",     "snapld_dc",     16384UL,                                  USHORT_MAX,                    1UL );
     /**/               fd_topob_link( topo, "snapdc_in",     "snapdc_in",     16384UL,                                  USHORT_MAX,                    1UL );
 
-    /**/               fd_topob_link( topo, "snapin_manif",  "snapin_manif",  4UL,                                      sizeof(fd_snapshot_manifest_t),1UL );
+    /**/               fd_topob_link( topo, "snapin_manif",  "snapin_manif",  8UL,                                      sizeof(fd_snapshot_manifest_t),1UL ); /* depth==8UL to alleviate downstream backpressure. */
     /**/               fd_topob_link( topo, "snapct_repr",   "snapct_repr",   128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
     if( FD_LIKELY( config->tiles.gui.enabled ) ) {
       /**/             fd_topob_link( topo, "snapct_gui",    "snapct_gui",    128UL,                                    sizeof(fd_snapct_update_t),    1UL );
@@ -1092,25 +1094,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
 
-  if( FD_UNLIKELY( config->tiles.archiver.enabled ) ) {
-    fd_topob_wksp( topo, "arch_f" );
-    fd_topob_wksp( topo, "arch_w" );
-    fd_topob_wksp( topo, "feeder" );
-    fd_topob_wksp( topo, "arch_f2w" );
-
-    fd_topob_link( topo, "feeder", "feeder", 65536UL, 4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
-    fd_topob_link( topo, "arch_f2w", "arch_f2w", 128UL, 4UL*FD_SHRED_STORE_MTU, 1UL );
-
-    fd_topob_tile( topo, "arch_f", "arch_f", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
-    fd_topob_tile( topo, "arch_w", "arch_w", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
-
-    fd_topob_tile_out( topo, "replay", 0UL,              "feeder", 0UL );
-    fd_topob_tile_in(  topo, "arch_f", 0UL, "metric_in", "feeder", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-    fd_topob_tile_out( topo, "arch_f", 0UL,              "arch_f2w", 0UL );
-    fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f2w", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
-
   if( FD_UNLIKELY( config->tiles.shredcap.enabled ) ) {
     fd_topob_wksp( topo, "scap" );
 
@@ -1179,8 +1162,6 @@ fd_topo_initialize( config_t * config ) {
       topo->blocklist_cores_cpu_idx[ i ] = blocklist_cores[ i ];
     }
   }
-
-  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
 
   /* There is a special fseq that sits between the pack, execle, and poh
      tiles to indicate when the execle/poh tiles are done processing a
@@ -1306,6 +1287,9 @@ fd_topo_initialize( config_t * config ) {
     /**/                   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "bundle_status", 0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
   }
+
+  /* Auto layout must run after all fd_topob_tile() calls so every tile gets a blocklist-aware CPU assignment. */
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
 
   ulong fec_set_cnt = 2UL*shred_depth + config->tiles.shred.max_pending_shred_sets + 6UL;
   ulong fec_sets_sz = fec_set_cnt*sizeof(fd_fec_set_t); /* mirrors # of dcache entires in frankendancer */
@@ -1510,6 +1494,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.max_full_snapshots_to_keep           = config->firedancer.snapshots.max_full_snapshots_to_keep;
     tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
     tile->snapct.max_retry_abort                      = config->firedancer.snapshots.max_retry_abort;
+    tile->snapct.target_uid                           = config->uid;
+    tile->snapct.target_gid                           = config->gid;
     tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;
     tile->snapct.sources.gossip.allow_list_cnt        = config->firedancer.snapshots.sources.gossip.allow_list_cnt;
     tile->snapct.sources.gossip.block_list_cnt        = config->firedancer.snapshots.sources.gossip.block_list_cnt;
@@ -1697,6 +1683,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
 
     tile->tower.hard_fork_fatal    = config->firedancer.development.hard_fork_fatal;
+    tile->tower.wait_for_supermajority = !!strcmp( config->firedancer.consensus.wait_for_supermajority_with_bank_hash, "" );
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->tower.accdb_max_depth    = config->firedancer.runtime.max_live_slots + config->firedancer.accounts.write_delay_slots;
     fd_cstr_ncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
@@ -1837,31 +1824,24 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     fd_cstr_ncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
-                          !strcmp( tile->name, "arch_w" ) ) ) {
-
-    fd_cstr_ncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );
-
   } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
 
-    tile->backtest.end_slot          = config->tiles.archiver.end_slot;
-    tile->backtest.ingest_dead_slots = config->tiles.archiver.ingest_dead_slots;
-    tile->backtest.root_distance     = config->tiles.archiver.root_distance;
-
-    /* Validate arguments based on the ingest mode */
-    if( !strcmp( config->tiles.archiver.ingest_mode, "rocksdb" ) ) {
-      fd_cstr_ncpy( tile->backtest.rocksdb_path, config->tiles.archiver.rocksdb_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->backtest.rocksdb_path ) ) ) {
-        FD_LOG_ERR(( "`archiver.rocksdb_path` not specified in toml" ));
-      }
-    } else if( !strcmp( config->tiles.archiver.ingest_mode, "shredcap" ) ) {
-      fd_cstr_ncpy( tile->backtest.shredcap_path, config->tiles.archiver.shredcap_path, PATH_MAX );
-      if( FD_UNLIKELY( 0==strlen( tile->backtest.shredcap_path ) ) ) {
-        FD_LOG_ERR(( "`archiver.shredcap_path` not specified in toml" ));
-      }
-    } else {
-      FD_LOG_ERR(( "Invalid ingest mode: %s", config->tiles.archiver.ingest_mode ));
+    tile->backtest.root_distance = config->firedancer.development.backtest.root_distance;
+    fd_cstr_ncpy( tile->backtest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->backtest.ledger_format) );
+    fd_cstr_ncpy( tile->backtest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
+    if( FD_UNLIKELY( 0==strlen( tile->backtest.ledger_path ) ) ) {
+      FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
     }
+    tile->backtest.end_slot = config->firedancer.development.ledger_input.end_slot;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "forkt" ) ) ) {
+
+    fd_cstr_ncpy( tile->forktest.ledger_format, config->firedancer.development.ledger_input.format, sizeof(tile->forktest.ledger_format) );
+    fd_cstr_ncpy( tile->forktest.ledger_path, config->firedancer.development.ledger_input.path, PATH_MAX );
+    if( FD_UNLIKELY( 0==strlen( tile->forktest.ledger_path ) ) ) {
+      FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
+    }
+    tile->forktest.end_slot = config->firedancer.development.ledger_input.end_slot;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
 

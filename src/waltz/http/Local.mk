@@ -8,11 +8,14 @@ src/waltz/http/fd_picohttpparser.c: src/waltz/http/picohttpparser.c src/waltz/ht
 
 $(OBJDIR)/obj/waltz/http/fd_picohttpparser.o: src/waltz/http/fd_picohttpparser.c
 
-$(call add-hdrs,fd_url.h)
+$(call add-hdrs,fd_http.h fd_url.h)
 $(call add-objs,fd_url,fd_waltz)
 
 $(call make-unit-test,test_url,test_url,fd_waltz fd_util)
 $(call run-unit-test,test_url)
+
+$(call make-unit-test,test_http,test_http,fd_util)
+$(call run-unit-test,test_http)
 
 ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_http_server.h picohttpparser.h)

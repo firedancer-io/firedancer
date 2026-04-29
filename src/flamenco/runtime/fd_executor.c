@@ -6,7 +6,6 @@
 
 #include "fd_system_ids.h"
 #include "program/fd_bpf_loader_program.h"
-#include "program/fd_loader_v4_program.h"
 #include "program/fd_compute_budget_program.h"
 #include "program/fd_precompiles.h"
 #include "program/fd_system_program.h"
@@ -26,6 +25,8 @@
 #include "../../ballet/base58/fd_base58.h"
 
 #include "../../util/bits/fd_uwide.h"
+
+#include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
 
 #include <assert.h>
 #include <math.h>
@@ -70,7 +71,7 @@ typedef struct fd_rent_state fd_rent_state_t;
 #define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
 #define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
 #define MAP_PERFECT_6  ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute,                .is_bpf_loader = 1, .feature_enable_offset = ULONG_MAX
-#define MAP_PERFECT_7  ( LOADER_V4_PROG_ID       ), .fn = fd_loader_v4_program_execute,                 .is_bpf_loader = 1, .feature_enable_offset = offsetof( fd_features_t, enable_loader_v4 )
+#define MAP_PERFECT_7  ( LOADER_V4_PROG_ID       ), .fn = NULL,                                         .is_bpf_loader = 1, .feature_enable_offset = offsetof( fd_features_t, enable_loader_v4 )
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
@@ -310,8 +311,7 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L71-L136 */
 static int
-fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *      runtime,
-                                                             fd_bank_t *         bank,
+fd_executor_check_transaction_age_and_compute_budget_limits( fd_bank_t *         bank,
                                                              fd_txn_in_t const * txn_in,
                                                              fd_txn_out_t *      txn_out ) {
 
@@ -322,7 +322,7 @@ fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *     
   }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L124-L131 */
-  err = fd_check_transaction_age( runtime, bank, txn_in, txn_out );
+  err = fd_check_transaction_age( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -343,7 +343,7 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L68-L73 */
-  int err = fd_executor_check_transaction_age_and_compute_budget_limits( runtime, bank, txn_in, txn_out );
+  int err = fd_executor_check_transaction_age_and_compute_budget_limits( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -514,14 +514,14 @@ fd_collect_loaded_account( fd_runtime_t *            runtime,
 
   /* Try to read the program state
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L612-L634 */
-  fd_bpf_upgradeable_loader_state_t loader_state[1];
+  fd_bpf_state_t loader_state[1];
   err = fd_bpf_loader_program_get_state( account_meta, loader_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
   /* Make sure the account is a v3 program */
-  if( !fd_bpf_upgradeable_loader_state_is_program( loader_state ) ) {
+  if( loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -775,7 +775,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
     fd_account_meta_t const * meta = NULL;
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       int is_found = 0;
-      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
+      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
           if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {
@@ -1253,12 +1253,16 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
              had queued an update to the vote/stakes caches and is
              writable in the new transaction, unmark the update to avoid
              double-counting the update. */
-          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] &&
-                           (prev_txn_out->accounts.stake_update[ j ] || prev_txn_out->accounts.vote_update[ j ]) ) ) {
-            prev_txn_out->accounts.stake_update[ j ] = 0;
-            prev_txn_out->accounts.vote_update[ j ]  = 0;
+          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] ) ) {
+            if( prev_txn_out->accounts.stake_update[ j ] ) {
+              prev_txn_out->accounts.stake_update[ j ] = 0;
+              txn_out->accounts.stake_update[ idx ] = 1;
+            }
+            if( prev_txn_out->accounts.vote_update[ j ] ) {
+              prev_txn_out->accounts.vote_update[ j ] = 0;
+              txn_out->accounts.vote_update[ idx ] = 1;
+            }
           }
-
           break;
         }
       }
@@ -1329,13 +1333,13 @@ fd_executor_setup_executable_account( fd_runtime_t *            runtime,
                                       fd_txn_in_t const *       txn_in,
                                       fd_account_meta_t const * program_meta,
                                       ushort *                  executable_idx ) {
-  fd_bpf_upgradeable_loader_state_t program_loader_state[1];
+  fd_bpf_state_t program_loader_state[1];
   int err = fd_bpf_loader_program_get_state( program_meta, program_loader_state );
   if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return;
   }
 
-  if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
+  if( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
     return;
   }
 
@@ -1450,6 +1454,13 @@ fd_executor_txn_check( fd_runtime_t * runtime,
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( !txn_out->accounts.is_writable[i] ) continue;
 
+    /* Tips for bundles are collected in the bank: a user submitting a
+       bundle must include a instruction that transfers lamports to
+       a specific tip account.  Tips accumulated through the slot. */
+    if( fd_pack_tip_is_tip_account( fd_type_pun_const( txn_out->accounts.keys[i].uc ) ) ) {
+      txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( txn_out->accounts.account[i].ro ), runtime->accounts.starting_lamports[i] );
+    }
+
     ulong               starting_lamports = runtime->accounts.starting_lamports[i];
     ulong               starting_dlen     = runtime->accounts.starting_dlen[i];
     fd_account_meta_t * meta              = txn_out->accounts.account[i].meta;
@@ -1534,12 +1545,10 @@ fd_execute_txn( fd_runtime_t *      runtime,
         &txn->instr[i]
     );
 
-#   if FD_HAS_FLATCC
     if( FD_UNLIKELY( dump_insn ) ) {
       // Capture the input and convert it into a Protobuf message
       fd_dump_instr_to_protobuf( runtime, bank, txn_in, txn_out, instr_info, i );
     }
-#   endif
 
     /* Update the current executing instruction index */
     runtime->instr.current_idx = i;

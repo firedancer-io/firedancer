@@ -81,6 +81,7 @@
 #define REPLAY_SIG_OC_ADVANCED    (5)
 #define REPLAY_SIG_TXN_EXECUTED   (6)
 #define REPLAY_SIG_REASM_EVICTED  (7)
+#define REPLAY_SIG_WFS_DONE       (8)
 
 /* fd_replay_slot_completed promises that it will deliver at most 2
    frags for a given slot (at most 2 equivocating blocks).  The first
@@ -168,7 +169,9 @@ struct fd_replay_oc_advanced {
 typedef struct fd_replay_oc_advanced fd_replay_oc_advanced_t;
 
 struct fd_replay_root_advanced {
-  ulong bank_idx;
+  ulong     bank_idx;
+  ulong     slot;
+  fd_hash_t bank_hash;
 };
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 

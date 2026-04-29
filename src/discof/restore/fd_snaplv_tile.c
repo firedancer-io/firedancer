@@ -69,7 +69,7 @@ struct fd_snaplv_tile {
     ulong exp_sig;
     ulong ack_cnt;
     int   wait;
-  } fail;
+  } sync;
 
   struct {
     fd_lthash_value_t full_lthash;
@@ -131,12 +131,32 @@ metrics_write( fd_snaplv_t * ctx ) {
 }
 
 static void
+cleanup_on_error_or_fail( fd_snaplv_t *  ctx ) {
+  /* Discard buffered pending duplicate requests. */
+  memset( ctx->vinyl.pending.active, 0, FD_SNAPLV_DUP_PENDING_CNT_MAX*sizeof(int) );
+  ctx->vinyl.pending_cnt = 0UL;
+
+  /* Reset hash accumulation state, to avoid publishing FINI to
+     snapct if awaiting_results was set before. */
+  ctx->hash_accum.awaiting_results  = 0;
+  ctx->hash_accum.received_lthashes = 0UL;
+}
+
+static void
 transition_malformed( fd_snaplv_t *  ctx,
                       fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
+
+  cleanup_on_error_or_fail( ctx );
+
+  /* Wait for all snaplh tiles to ack the error before forwarding
+     to snapct. */
+  ctx->sync.exp_sig = FD_SNAPSHOT_MSG_CTRL_ERROR;
+  ctx->sync.ack_cnt = 0UL;
+  ctx->sync.wait    = 1;
+
   fd_stem_publish( stem, ctx->out_link[ OUT_LINK_LH ].idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-  fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static void
@@ -317,17 +337,19 @@ handle_control_frag( fd_snaplv_t *       ctx,
   (void)in_idx;
 
   if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLH ) {
-    if( FD_UNLIKELY( !ctx->fail.wait ) ) {
+    if( FD_UNLIKELY( !ctx->sync.wait ) ) {
       FD_LOG_CRIT(( "received unexpected control frag %s (%lu) from snaplh in state %s (%u)",
                     fd_ssctrl_msg_ctrl_str( sig ), sig,
                     fd_ssctrl_state_str( (ulong)ctx->state ), ctx->state ));
     }
-    if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) ) {
+    if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_CTRL_FAIL &&
+                     sig!=FD_SNAPSHOT_MSG_CTRL_ERROR ) ) {
       FD_LOG_CRIT(( "received incorrect control frag %s (%lu) from snaplh in state %s (%u)",
                     fd_ssctrl_msg_ctrl_str( sig ), sig,
                     fd_ssctrl_state_str( (ulong)ctx->state ), ctx->state ));
     }
-    ctx->fail.ack_cnt++;
+    /* Only count acks that match the current sync expected sig. */
+    if( FD_LIKELY( sig==ctx->sync.exp_sig ) ) ctx->sync.ack_cnt++;
     return;
   }
 
@@ -339,6 +361,7 @@ handle_control_frag( fd_snaplv_t *       ctx,
     return;
   };
 
+  int forward_to_lh = 1;
   int forward_to_ct = 1;
 
   switch( sig ) {
@@ -392,6 +415,18 @@ handle_control_frag( fd_snaplv_t *       ctx,
     case FD_SNAPSHOT_MSG_CTRL_ERROR: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
+
+      if( FD_UNLIKELY( ctx->sync.wait && ctx->sync.exp_sig==FD_SNAPSHOT_MSG_CTRL_ERROR ) ) {
+        forward_to_lh = 0;
+        forward_to_ct = 0;
+        break;
+      }
+      cleanup_on_error_or_fail( ctx );
+
+      ctx->sync.exp_sig = FD_SNAPSHOT_MSG_CTRL_ERROR;
+      ctx->sync.ack_cnt = 0UL;
+      ctx->sync.wait = 1;
+      forward_to_ct = 0;
       break;
     }
 
@@ -399,19 +434,16 @@ handle_control_frag( fd_snaplv_t *       ctx,
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      /* Discard buffered pending duplicate requests, to prevent them
-         from being emitted from this point onward. */
-      memset( ctx->vinyl.pending.active, 0, FD_SNAPLV_DUP_PENDING_CNT_MAX*sizeof(int) );
-      ctx->vinyl.pending_cnt = 0UL;
+      if( FD_UNLIKELY( ctx->sync.wait && ctx->sync.exp_sig==FD_SNAPSHOT_MSG_CTRL_FAIL ) ) {
+        forward_to_lh = 0;
+        forward_to_ct = 0;
+        break;
+      }
+      cleanup_on_error_or_fail( ctx );
 
-      /* Reset hash accumulation state, to avoid publishing FINI to
-         snapct if awaiting_results was set before CTRL_FAIL. */
-      ctx->hash_accum.awaiting_results = 0;
-      ctx->hash_accum.received_lthashes = 0UL;
-
-      ctx->fail.exp_sig = FD_SNAPSHOT_MSG_CTRL_FAIL;
-      ctx->fail.ack_cnt = 0UL;
-      ctx->fail.wait = 1;
+      ctx->sync.exp_sig = FD_SNAPSHOT_MSG_CTRL_FAIL;
+      ctx->sync.ack_cnt = 0UL;
+      ctx->sync.wait = 1;
       forward_to_ct = 0;
       break;
     }
@@ -431,9 +463,8 @@ handle_control_frag( fd_snaplv_t *       ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_link[ OUT_LINK_LH ].idx, sig, 0UL, 0UL, 0UL, tsorig, tspub );
-  if( !forward_to_ct ) return;
-  fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, sig, 0UL, 0UL, 0UL, tsorig, tspub );
+  if( FD_LIKELY( forward_to_lh ) ) { fd_stem_publish( stem, ctx->out_link[ OUT_LINK_LH ].idx, sig, 0UL, 0UL, 0UL, tsorig, tspub ); }
+  if( FD_LIKELY( forward_to_ct ) ) { fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, sig, 0UL, 0UL, 0UL, tsorig, tspub ); }
 }
 
 static void
@@ -605,11 +636,11 @@ after_credit( fd_snaplv_t *        ctx,
     fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->hash_accum.ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
   }
 
-  if( FD_UNLIKELY( ctx->fail.wait && ctx->fail.ack_cnt==ctx->num_hash_tiles ) ) {
-    fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->fail.exp_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-    ctx->fail.exp_sig = 0UL;
-    ctx->fail.ack_cnt = 0UL;
-    ctx->fail.wait    = 0;
+  if( FD_UNLIKELY( ctx->sync.wait && ctx->sync.ack_cnt>=ctx->num_hash_tiles ) ) {
+    fd_stem_publish( stem, ctx->out_link[ OUT_LINK_CT ].idx, ctx->sync.exp_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+    ctx->sync.exp_sig = 0UL;
+    ctx->sync.ack_cnt = 0UL;
+    ctx->sync.wait    = 0;
     return;
   }
 }
@@ -744,9 +775,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->dup_capitalization      = 0L;
   ctx->manifest_capitalization = 0L;
 
-  ctx->fail.exp_sig = 0UL;
-  ctx->fail.ack_cnt = 0UL;
-  ctx->fail.wait    = 0;
+  ctx->sync.exp_sig = 0UL;
+  ctx->sync.ack_cnt = 0UL;
+  ctx->sync.wait    = 0;
 }
 
 #define STEM_BURST (FD_SNAPLV_STEM_BURST)

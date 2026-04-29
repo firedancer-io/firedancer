@@ -16,10 +16,8 @@ typedef struct myele myele_t;
 #include "fd_pool_para.c"
 
 FD_STATIC_ASSERT( FD_POOL_SUCCESS    == 0, unit_test );
-FD_STATIC_ASSERT( FD_POOL_ERR_INVAL  ==-1, unit_test );
-FD_STATIC_ASSERT( FD_POOL_ERR_AGAIN  ==-2, unit_test );
-FD_STATIC_ASSERT( FD_POOL_ERR_CORRUPT==-3, unit_test );
-FD_STATIC_ASSERT( FD_POOL_ERR_EMPTY  ==-4, unit_test );
+FD_STATIC_ASSERT( FD_POOL_ERR_AGAIN  ==-1, unit_test );
+FD_STATIC_ASSERT( FD_POOL_ERR_CORRUPT==-2, unit_test );
 
 #define SHMEM_MAX (131072UL)
 
@@ -56,8 +54,6 @@ tile_main( int     argc,
   myele_t **  acq_ele = shmem_alloc( alignof(myele_t *), ele_max*sizeof(myele_t *) );
   ulong       acq_cnt = 0UL;
 
-  myele_t sentinel[1];
-
   while( !FD_VOLATILE_CONST( tile_go ) ) FD_SPIN_PAUSE();
 
   ulong diag_rem = 0UL;
@@ -70,34 +66,29 @@ tile_main( int     argc,
 
     uint r = fd_rng_uint( rng );
 
-    int op       = (int)(r & 1U); r>>=1;
-    int blocking = (int)(r & 1U); r>>=1;
+    int op = (int)(r & 1U); r>>=1;
 
-    int       err;
     myele_t * ele;
 
     switch( op ) {
 
     case 0: { /* acquire */
-      ele = mypool_acquire( pool, sentinel, blocking, &err );
-      if( ele!=sentinel ) {
-        FD_TEST( !err );
+      ele = mypool_acquire( pool );
+      if( ele ) {
         FD_TEST( mypool_idx( pool, ele )<ele_max );
         /* FIXME: Ideally would check unique cross thread */
         for( ulong acq_idx=0UL; acq_idx<acq_cnt; acq_idx++ ) FD_TEST( ele!=acq_ele[ acq_idx ] );
         acq_ele[ acq_cnt++ ] = ele;
       } else {
-        FD_TEST( err==FD_POOL_ERR_EMPTY );
         if( tile_cnt==1UL ) FD_TEST( acq_cnt==ele_max );
       }
       break;
     }
 
     case 1: { /* release */
-      if( !acq_cnt ) FD_TEST( mypool_release( pool, sentinel, blocking )==FD_POOL_ERR_INVAL );
-      else {
+      if( acq_cnt ) {
         ulong acq_idx = fd_rng_ulong_roll( rng, acq_cnt );
-        FD_TEST( !mypool_release( pool, acq_ele[ acq_idx ], blocking ) );
+        mypool_release( pool, acq_ele[ acq_idx ] );
         acq_ele[ acq_idx ] = acq_ele[ --acq_cnt ];
       }
       break;
@@ -108,7 +99,7 @@ tile_main( int     argc,
     }
   }
 
-  for( ulong acq_idx=0UL; acq_idx<acq_cnt; acq_idx++ ) FD_TEST( !mypool_release( pool, acq_ele[ acq_idx ], 1 ) );
+  for( ulong acq_idx=0UL; acq_idx<acq_cnt; acq_idx++ ) mypool_release( pool, acq_ele[ acq_idx ] );
   shmem_cnt = save;
 
   fd_rng_delete( fd_rng_leave( rng ) );
@@ -186,39 +177,20 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing initialization" ));
 
-  FD_TEST( !mypool_is_locked( pool ) );
   FD_TEST( !mypool_lock( pool, 1 ) );
   FD_TEST(  mypool_lock( pool, 0 )==FD_POOL_ERR_AGAIN ); /* non-blocking on a locked pool */
-  FD_TEST(  mypool_is_locked( pool )==1 );
 
   FD_TEST( !mypool_verify    ( pool ) );
   FD_TEST( !mypool_peek_const( pool ) );
   FD_TEST( !mypool_peek      ( pool ) );
 
-  mypool_reset( pool, ULONG_MAX ); /* empty pool */
-  FD_TEST( !mypool_verify    ( pool ) );
-  FD_TEST( !mypool_peek_const( pool ) );
-  FD_TEST( !mypool_peek      ( pool ) );
-
-  mypool_reset( pool, ele_max ); /* empty pool */
-  FD_TEST( !mypool_verify    ( pool ) );
-  FD_TEST( !mypool_peek_const( pool ) );
-  FD_TEST( !mypool_peek      ( pool ) );
-
-  mypool_reset( pool, 1UL ); /* all but first in pool in increasing order */
-  FD_TEST( !mypool_verify    ( pool ) );
-  FD_TEST(  mypool_peek_const( pool )==((ele_max>1UL) ? (shele+1) : NULL) );
-  FD_TEST(  mypool_peek      ( pool )==((ele_max>1UL) ? (shele+1) : NULL) );
-
-  mypool_reset( pool, 0UL ); /* all in pool in increasing order */
+  mypool_reset( pool ); /* all in pool in increasing order */
   FD_TEST(  mypool_peek_const( pool )==(ele_max ? shele : NULL) );
   FD_TEST(  mypool_peek      ( pool )==(ele_max ? shele : NULL) );
 
   FD_TEST( !mypool_verify  ( pool ) );
-  FD_TEST( !mypool_is_empty( pool ) );
 
   mypool_unlock( pool );
-  FD_TEST( !mypool_is_locked( pool ) );
 
   /* FIXME: use tpool here */
 
@@ -262,10 +234,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "bad error code      (%i-%s)", 1,                   mypool_strerror( 1                   ) ));
   FD_LOG_NOTICE(( "FD_POOL_SUCCESS     (%i-%s)", FD_POOL_SUCCESS,     mypool_strerror( FD_POOL_SUCCESS     ) ));
-  FD_LOG_NOTICE(( "FD_POOL_ERR_INVAL   (%i-%s)", FD_POOL_ERR_INVAL,   mypool_strerror( FD_POOL_ERR_INVAL   ) ));
   FD_LOG_NOTICE(( "FD_POOL_ERR_AGAIN   (%i-%s)", FD_POOL_ERR_AGAIN,   mypool_strerror( FD_POOL_ERR_AGAIN   ) ));
   FD_LOG_NOTICE(( "FD_POOL_ERR_CORRUPT (%i-%s)", FD_POOL_ERR_CORRUPT, mypool_strerror( FD_POOL_ERR_CORRUPT ) ));
-  FD_LOG_NOTICE(( "FD_POOL_ERR_EMPTY   (%i-%s)", FD_POOL_ERR_EMPTY,   mypool_strerror( FD_POOL_ERR_EMPTY   ) ));
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

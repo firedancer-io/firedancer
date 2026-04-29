@@ -547,7 +547,7 @@ telemetry = true
 
     # Keep frequently accessed accounts in memory to improve
     # performance.
-    cache_size_gib = 4
+    cache_size_gib = 8
 
     # Delay writing of accounts to disk by a number of slots to reduce
     # disk write rate.
@@ -579,7 +579,7 @@ telemetry = true
     # The expected mean size of recently accessed accounts.
     #
     # This heuristic is used to pack accounts into caches optimally.
-    mean_account_footprint = 256
+    mean_account_footprint = 1024
 
     # io_uring specific options
     #
@@ -606,7 +606,7 @@ telemetry = true
     # is not stored as an account. Examples of members of the bank
     # are the total capitalization of the chain and the vote account
     # states for previous epochs.
-    max_live_slots = 512
+    max_live_slots = 2048
 
     # fixed_fec_sets controls the maximum data payload size for FEC sets
     # in the store.  Shreds per FEC set used to be variable-length, but
@@ -1622,9 +1622,6 @@ telemetry = true
         # loading.
         delay_startup = true
 
-    [tiles.archiver]
-        enabled = false
-
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program
@@ -1920,3 +1917,44 @@ telemetry = true
     # the layout will be ignored.
     [development.snapshots]
         disable_lthash_verification = false
+
+    # Inject shreds (block data) into the system to replay.
+    # Used by 'firedancer-dev {backtest,forktest}'.
+    [development.ledger_input]
+        # The following input ledger formats are supported:
+        #
+        #   "auto" (default)
+        #    Attempt to detect input format based on file path.
+        #
+        #   "rocksdb"
+        #    Read an Agave-like blockstore RocksDB directory
+        #    The database is opened in "read only secondary" mode.
+        #    Requires a build with './deps.sh +dev'
+        #
+        #   "pcap"
+        #    Read a PCAP or PCAPNG file and inject all UDP packets as
+        #    shreds.  Supports the following link types: ETHERNET, IPv4,
+        #    or RAW (interprets first header as IPv4).
+        #    Supports Zstandard (.zst) compression.
+        #
+        format = "auto"
+
+        # Absolute file system path to shred source.
+        path = ""
+
+        # Stop injecting when this slot is reached (inclusive).
+        # Zero signals to only stop when the input is fully consumed.
+        end_slot = 0
+
+    # 'firedancer-dev backtest' specific options
+    [development.backtest]
+        # See [layout.affinity]
+        affinity = "auto"
+
+        # Delays rooting by the given number of slots.
+        root_distance = 32
+
+    # 'firedancer-dev forktest' specific options
+    [development.forktest]
+        # See [layout.affinity]
+        affinity = "auto"

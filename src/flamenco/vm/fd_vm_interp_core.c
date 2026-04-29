@@ -155,15 +155,12 @@
    At this point, cu is positive and err is clear.
 */
 
-# if FD_HAS_FLATCC
 # define FD_VM_INTERP_SYSCALL_EXEC_DUMP                                       \
   /* Dumping for debugging purposes */                                        \
   if( FD_UNLIKELY( vm->dump_syscall_to_pb ) ) {                               \
     fd_dump_vm_syscall_to_protobuf( vm, syscall->name );                      \
   }
-# else
-# define FD_VM_INTERP_SYSCALL_EXEC_DUMP
-# endif
+
 # define FD_VM_INTERP_SYSCALL_EXEC                                            \
   /* Setup */                                                                 \
   vm->pc        = pc;                                                         \

@@ -322,14 +322,14 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
     int res = SSL_do_handshake( ssl );
     if( res<=0 ) {
       int error = SSL_get_error( ssl, res );
-      if( FD_LIKELY( error==SSL_ERROR_WANT_READ || error==SSL_ERROR_WANT_WRITE ) ) return 1;
+      if( FD_LIKELY( error==SSL_ERROR_WANT_READ || error==SSL_ERROR_WANT_WRITE ) ) return 0;
       FD_LOG_INFO(( "SSL_do_handshake failed (%i-%s)", error, fd_openssl_ssl_strerror( error ) ));
       long verify_result = SSL_get_verify_result( ssl );
       if( error == SSL_ERROR_SSL && verify_result != X509_V_OK ) {
         FD_LOG_WARNING(( "Certificate verification failed: %s", X509_verify_cert_error_string( verify_result ) ));
       }
       ERR_print_errors_cb( fd_ossl_log_error, NULL );
-      return 0;
+      return -1;
     } else {
       client->ssl_hs_done = 1;
     }
@@ -341,11 +341,11 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   if( FD_UNLIKELY( ssl_err && ssl_err!=SSL_ERROR_WANT_READ ) ) {
     if( ssl_err==SSL_ERROR_ZERO_RETURN ) {
       FD_LOG_WARNING(( "gRPC server closed connection" ));
-      return 0;
+      return -1;
     }
     FD_LOG_WARNING(( "SSL_read_ex failed (%i-%s)", ssl_err, fd_openssl_ssl_strerror( ssl_err ) ));
     ERR_print_errors_cb( fd_ossl_log_error, NULL );
-    return 0;
+    return -1;
   }
   if( FD_UNLIKELY( conn->flags ) ) fd_h2_tx_control( conn, client->frame_tx, &fd_grpc_client_h2_callbacks );
   fd_h2_rx( conn, client->frame_rx, client->frame_tx, client->frame_scratch, client->frame_scratch_max, &fd_grpc_client_h2_callbacks );
@@ -355,7 +355,7 @@ fd_grpc_client_rxtx_ossl( fd_grpc_client_t * client,
   client->metrics->stream_chunks_tx_bytes += write_sz;
 
   if( read_sz!=0 || write_sz!=0 ) *charge_busy = 1;
-  return 1;
+  return 0;
 }
 
 #endif /* FD_HAS_OPENSSL */

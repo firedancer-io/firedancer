@@ -713,8 +713,9 @@ main( int     argc,
       if( FD_UNLIKELY( !tcache ) )
         FD_LOG_ERR(( "%i: %s: fd_tcache_join( \"%s\" ) failed\n\tDo %s help for help", cnt, cmd, gaddr, bin ));
 
-      fd_tcache_reset( fd_tcache_ring_laddr( tcache ), fd_tcache_depth  ( tcache ),
-                       fd_tcache_map_laddr ( tcache ), fd_tcache_map_cnt( tcache ) );
+      *fd_tcache_oldest_laddr( tcache ) =
+        fd_tcache_reset( fd_tcache_ring_laddr( tcache ), fd_tcache_depth  ( tcache ),
+                         fd_tcache_map_laddr ( tcache ), fd_tcache_map_cnt( tcache ) );
 
       fd_wksp_unmap( fd_tcache_leave( tcache ) );
 

@@ -132,7 +132,7 @@ jobs:
 
       - uses: ./.github/actions/submodule-init
 
-      - uses: dtolnay/rust-toolchain@1.81.0
+      - uses: dtolnay/rust-toolchain@1.94.0
 
       - uses: ./.github/actions/deps
         with:
@@ -195,7 +195,7 @@ jobs:
 
       - uses: ./.github/actions/submodule-init
 
-      - uses: dtolnay/rust-toolchain@1.81.0
+      - uses: dtolnay/rust-toolchain@1.94.0
 
       - uses: ./.github/actions/deps
         with:

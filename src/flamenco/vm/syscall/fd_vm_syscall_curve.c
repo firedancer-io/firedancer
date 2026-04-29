@@ -701,9 +701,9 @@ int
 fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
                                      /**/            ulong   curve_id,
                                      /**/            ulong   num_pairs,
-                                     FD_PARAM_UNUSED ulong   g1_points_addr,
-                                     FD_PARAM_UNUSED ulong   g2_points_addr,
-                                     FD_PARAM_UNUSED ulong   result_addr,
+                                     /**/            ulong   g1_points_addr,
+                                     /**/            ulong   g2_points_addr,
+                                     /**/            ulong   result_addr,
                                      /**/            ulong * _ret ) {
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/syscalls/src/lib.rs#L1804 */
   fd_vm_t * vm = (fd_vm_t *)_vm;
@@ -723,10 +723,10 @@ fd_vm_syscall_sol_curve_pairing_map( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, cost );
 
     ulong total_g1_sz = fd_ulong_sat_mul( FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G1_POINT_SZ, num_pairs );
-    uchar const * g1_points = FD_VM_MEM_HADDR_LD( vm, g1_points_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, total_g1_sz );
+    uchar const * g1_points = FD_VM_MEM_SLICE_HADDR_LD( vm, g1_points_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, total_g1_sz );
 
     ulong total_g2_sz = fd_ulong_sat_mul( FD_VM_SYSCALL_SOL_CURVE_BLS12_381_G2_POINT_SZ, num_pairs );
-    uchar const * g2_points = FD_VM_MEM_HADDR_LD( vm, g2_points_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, total_g2_sz );
+    uchar const * g2_points = FD_VM_MEM_SLICE_HADDR_LD( vm, g2_points_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, total_g2_sz );
 
     uchar _result[ FD_VM_SYSCALL_SOL_CURVE_BLS12_381_GT_ELE_SZ ];
     if( FD_LIKELY( fd_bls12_381_pairing_syscall( _result, g1_points, g2_points, num_pairs, big_endian )==0 ) ) {

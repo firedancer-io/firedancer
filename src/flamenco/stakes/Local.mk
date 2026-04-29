@@ -20,9 +20,14 @@ $(call add-objs,fd_top_votes,fd_flamenco)
 $(call add-hdrs,fd_vote_stakes.h)
 $(call add-objs,fd_vote_stakes,fd_flamenco)
 
+$(call add-hdrs,fd_new_votes.h)
+$(call add-objs,fd_new_votes,fd_flamenco)
+
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_vote_stakes,test_vote_stakes,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_vote_stakes)
 $(call make-unit-test,test_top_votes,test_top_votes,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_top_votes)
+$(call make-unit-test,test_new_votes,test_new_votes,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_new_votes)
 endif

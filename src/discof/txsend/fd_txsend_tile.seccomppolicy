@@ -19,3 +19,6 @@ fsync: (eq (arg 0) logfile_fd)
 
 # QUIC uses getrandom for cryptographically secure randomness.
 getrandom
+
+# startup: sleep until snapshot loaded
+clock_nanosleep: (eq (arg 0) CLOCK_REALTIME)

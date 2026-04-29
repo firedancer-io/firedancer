@@ -182,12 +182,7 @@ fd_accdb_svm_remove( fd_accdb_user_t *         accdb,
   fd_hashes_account_lthash( pubkey, rw->meta, fd_accdb_ref_data_const( rw->ro ), hash );
 
   ulong lamports = fd_accdb_ref_lamports( rw->ro );
-  ulong * cap = &bank->f.capitalization;
-  if( FD_UNLIKELY( __builtin_usubl_overflow( *cap, lamports, cap ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( pubkey->key, addr_b58 );
-    FD_LOG_EMERG(( "bank capitalization underflow detected (slot=%lu addr=%s delta=%lu cap_before=%lu)",
-                   bank->f.slot, addr_b58, lamports, *cap + lamports ));
-  }
+  bank->f.capitalization -= lamports;
   fd_accdb_ref_lamports_set( rw, 0UL );
 
   fd_hashes_update_lthash( pubkey, rw->meta, hash, bank, capture_ctx );

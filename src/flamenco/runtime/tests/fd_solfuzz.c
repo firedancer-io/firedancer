@@ -125,13 +125,6 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
   if( FD_UNLIKELY( !fd_runtime_stack_join( fd_runtime_stack_new( runner->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) ) ) goto bail2;
 
-# if FD_HAS_FLATCC
-  /* TODO: Consider implementing custom allocators and emitters.
-     The default builder / emitter uses libc allocators */
-  int builder_err = flatcc_builder_init( runner->fb_builder );
-  if( FD_UNLIKELY( builder_err ) ) goto bail2;
-# endif
-
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   /* Use 2048 for max_vote_accounts to match fd_banks_footprint above (avoids buffer overrun) */
@@ -183,10 +176,6 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
   fd_progcache_shmem_t * shpcache = NULL;
   fd_progcache_leave( runner->progcache, &shpcache );
   if( shpcache ) fd_wksp_free_laddr( fd_progcache_shmem_delete( shpcache ) );
-
-# if FD_HAS_FLATCC
-  flatcc_builder_clear( runner->fb_builder );
-# endif
 
   if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
   fd_wksp_free_laddr( runner->banks );

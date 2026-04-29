@@ -5,11 +5,13 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../discof/tower/fd_tower_tile.h"
-#include "generated/fd_txsend_tile_seccomp.h"
-
+#include "../fd_startup.h"
+#include "../tower/fd_tower_tile.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../waltz/quic/fd_quic.h"
+
+#include <time.h>
+#include "generated/fd_txsend_tile_seccomp.h"
 
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
@@ -503,6 +505,7 @@ during_frag( fd_txsend_tile_t * ctx,
 
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS ); /* implicit sz verification since sz field on frag_meta too small */
+    FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
   } else {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, ctx->in[ in_idx ].mtu ));
@@ -691,6 +694,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top != (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   }
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong

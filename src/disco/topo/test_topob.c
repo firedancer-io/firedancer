@@ -229,28 +229,26 @@ static tile_spec_t const FRANKENDANCER_TILES[] = {
 #define _A_ "AGAVE"
 
 /* ---- Firedancer, skip-HT expected prefix (48/64/128 physical) ----------
-   When enough physical cores, tiles occupy consecutive cores 1..36.
-   HT siblings are all unassigned.                                         */
+   When enough physical cores, ALWAYS tiles on cores 1..21, then
+   POST_START tiles on cores 22..36.  HT siblings all unassigned.          */
 
 static char const * const FD_SKIP_HT[] = {
-  /* phys cores 0-36 */
+  /* phys cores 0-36 (ALWAYS 1-21, POST_START 22-36) */
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "net",     /*  3 */ "quic",
   /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "verify",  /*  7 */ "verify",
-  /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "dedup",   /* 11 */ "resolv",
-  /* 12 */ "pack",    /* 13 */ "execle",  /* 14 */ "execle",  /* 15 */ "poh",
-  /* 16 */ "shred",   /* 17 */ "sign",    /* 18 */ "sign",    /* 19 */ "gui",
-  /* 20 */ "gossvf",  /* 21 */ "gossvf",  /* 22 */ "gossip",  /* 23 */ "repair",
-  /* 24 */ "replay",  /* 25 */ "execrp",  /* 26 */ "execrp",  /* 27 */ "execrp",
+  /*  8 */ "verify",  /*  9 */ "verify",  /* 10 */ "dedup",   /* 11 */ "pack",
+  /* 12 */ "sign",    /* 13 */ "sign",    /* 14 */ "shred",   /* 15 */ "gui",
+  /* 16 */ "gossvf",  /* 17 */ "gossvf",  /* 18 */ "gossip",  /* 19 */ "repair",
+  /* 20 */ "replay",  /* 21 */ "tower",   /* 22 */ "resolv",  /* 23 */ "execle",
+  /* 24 */ "execle",  /* 25 */ "poh",     /* 26 */ "execrp",  /* 27 */ "execrp",
   /* 28 */ "execrp",  /* 29 */ "execrp",  /* 30 */ "execrp",  /* 31 */ "execrp",
-  /* 32 */ "execrp",  /* 33 */ "execrp",  /* 34 */ "execrp",  /* 35 */ "txsend",
-  /* 36 */ "tower",
+  /* 32 */ "execrp",  /* 33 */ "execrp",  /* 34 */ "execrp",  /* 35 */ "execrp",
+  /* 36 */ "txsend",
 };
 #define FD_SKIP_HT_LEN (sizeof(FD_SKIP_HT)/sizeof(FD_SKIP_HT[0]))
 
 /* ---- Frankendancer, skip-HT tile prefix (shared by 48/64/128) ----------
    Tiles on physical cores 1-21, core 0 blocked.
-   Order follows ORDERED array: net, quic, verify(×6), dedup, resolh, pack,
-   bank(×4), pohh, shred, store, sign, plugin, gui.
    Used as prefix; each test adds _A_ for the agave region.               */
 
 static char const * const FRANK_SKIP_HT_PREFIX[] = {
@@ -259,7 +257,7 @@ static char const * const FRANK_SKIP_HT_PREFIX[] = {
   /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "verify",  /*  7 */ "verify",
   /*  8 */ "verify",  /*  9 */ "dedup",   /* 10 */ "resolh",  /* 11 */ "pack",
   /* 12 */ "bank",    /* 13 */ "bank",    /* 14 */ "bank",    /* 15 */ "bank",
-  /* 16 */ "pohh",    /* 17 */ "shred",   /* 18 */ "store",   /* 19 */ "sign",
+  /* 16 */ "pohh",    /* 17 */ "sign",    /* 18 */ "shred",   /* 19 */ "store",
   /* 20 */ "plugin",  /* 21 */ "gui",
 };
 #define FRANK_SKIP_HT_PREFIX_LEN (sizeof(FRANK_SKIP_HT_PREFIX)/sizeof(FRANK_SKIP_HT_PREFIX[0]))
@@ -268,17 +266,17 @@ static char const * const FRANK_SKIP_HT_PREFIX[] = {
 
 static char const * const FD_24X2[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolv",  /*  7 */ "pack",
-  /*  8 */ "execle",  /*  9 */ "poh",     /* 10 */ "sign",    /* 11 */ "gui",
-  /* 12 */ "gossvf",  /* 13 */ "gossip",  /* 14 */ "replay",  /* 15 */ "execrp",
+  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "pack",    /*  7 */ "sign",
+  /*  8 */ "shred",   /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "repair",
+  /* 12 */ "tower",   /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ "tower",   /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
+  /* 20 */ "txsend",  /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
   /* --- HT siblings (24-47) --- */
   /* 24 */ __,        /* 25 */ "net",     /* 26 */ "verify",  /* 27 */ "verify",
-  /* 28 */ "verify",  /* 29 */ "dedup",   /* 30 */ "execle",  /* 31 */ __,
-  /* 32 */ "shred",   /* 33 */ __,        /* 34 */ "sign",    /* 35 */ __,
-  /* 36 */ "gossvf",  /* 37 */ "repair",  /* 38 */ "execrp",  /* 39 */ "execrp",
-  /* 40 */ "execrp",  /* 41 */ "execrp",  /* 42 */ "execrp",  /* 43 */ "txsend",
+  /* 28 */ "verify",  /* 29 */ "dedup",   /* 30 */ __,        /* 31 */ "sign",
+  /* 32 */ "gossvf",  /* 33 */ __,        /* 34 */ "gossip",  /* 35 */ "replay",
+  /* 36 */ "resolv",  /* 37 */ "execle",  /* 38 */ __,        /* 39 */ "execrp",
+  /* 40 */ "execrp",  /* 41 */ "execrp",  /* 42 */ "execrp",  /* 43 */ "execrp",
   /* 44 */ __,        /* 45 */ __,        /* 46 */ __,        /* 47 */ __,
 };
 #define FD_24X2_LEN (sizeof(FD_24X2)/sizeof(FD_24X2[0]))
@@ -287,19 +285,19 @@ static char const * const FD_24X2[] = {
 
 static char const * const FD_32X2[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolv",  /*  7 */ "pack",
-  /*  8 */ "execle",  /*  9 */ "poh",     /* 10 */ "sign",    /* 11 */ "gui",
-  /* 12 */ "gossvf",  /* 13 */ "gossip",  /* 14 */ "replay",  /* 15 */ "execrp",
+  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "pack",    /*  7 */ "sign",
+  /*  8 */ "shred",   /*  9 */ "gui",     /* 10 */ "gossvf",  /* 11 */ "repair",
+  /* 12 */ "tower",   /* 13 */ "execle",  /* 14 */ "poh",     /* 15 */ "execrp",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ "tower",   /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
+  /* 20 */ "txsend",  /* 21 */ __,        /* 22 */ __,        /* 23 */ __,
   /* 24 */ __,        /* 25 */ __,        /* 26 */ __,        /* 27 */ __,
   /* 28 */ __,        /* 29 */ __,        /* 30 */ __,        /* 31 */ __,
   /* --- HT siblings (32-63) --- */
   /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
-  /* 36 */ "verify",  /* 37 */ "dedup",   /* 38 */ "execle",  /* 39 */ __,
-  /* 40 */ "shred",   /* 41 */ __,        /* 42 */ "sign",    /* 43 */ __,
-  /* 44 */ "gossvf",  /* 45 */ "repair",  /* 46 */ "execrp",  /* 47 */ "execrp",
-  /* 48 */ "execrp",  /* 49 */ "execrp",  /* 50 */ "execrp",  /* 51 */ "txsend",
+  /* 36 */ "verify",  /* 37 */ "dedup",   /* 38 */ __,        /* 39 */ "sign",
+  /* 40 */ "gossvf",  /* 41 */ __,        /* 42 */ "gossip",  /* 43 */ "replay",
+  /* 44 */ "resolv",  /* 45 */ "execle",  /* 46 */ __,        /* 47 */ "execrp",
+  /* 48 */ "execrp",  /* 49 */ "execrp",  /* 50 */ "execrp",  /* 51 */ "execrp",
   /* 52 */ __,        /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
   /* 56 */ __,        /* 57 */ __,        /* 58 */ __,        /* 59 */ __,
   /* 60 */ __,        /* 61 */ __,        /* 62 */ __,        /* 63 */ __,
@@ -314,14 +312,14 @@ static char const * const FD_32X2[] = {
 static char const * const FRANK_24X2[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "verify",  /*  3 */ "verify",
   /*  4 */ "verify",  /*  5 */ "dedup",   /*  6 */ "pack",    /*  7 */ "bank",
-  /*  8 */ "bank",    /*  9 */ "pohh",    /* 10 */ "shred",   /* 11 */ "sign",
+  /*  8 */ "bank",    /*  9 */ "pohh",    /* 10 */ "sign",    /* 11 */ "store",
   /* 12 */ "gui",     /* 13 */ _A_,       /* 14 */ _A_,       /* 15 */ _A_,
   /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
   /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
   /* --- HT siblings (24-47) --- */
   /* 24 */ __,        /* 25 */ "quic",    /* 26 */ "verify",  /* 27 */ "verify",
   /* 28 */ "verify",  /* 29 */ "resolh",  /* 30 */ __,        /* 31 */ "bank",
-  /* 32 */ "bank",    /* 33 */ __,        /* 34 */ "store",   /* 35 */ "plugin",
+  /* 32 */ "bank",    /* 33 */ __,        /* 34 */ "shred",   /* 35 */ "plugin",
   /* 36 */ __,        /* 37 */ _A_,       /* 38 */ _A_,       /* 39 */ _A_,
   /* 40 */ _A_,       /* 41 */ _A_,       /* 42 */ _A_,       /* 43 */ _A_,
   /* 44 */ _A_,       /* 45 */ _A_,       /* 46 */ _A_,       /* 47 */ _A_,
@@ -336,7 +334,7 @@ static char const * const FRANK_24X2[] = {
 static char const * const FRANK_32X2[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "verify",  /*  3 */ "verify",
   /*  4 */ "verify",  /*  5 */ "dedup",   /*  6 */ "pack",    /*  7 */ "bank",
-  /*  8 */ "bank",    /*  9 */ "pohh",    /* 10 */ "shred",   /* 11 */ "sign",
+  /*  8 */ "bank",    /*  9 */ "pohh",    /* 10 */ "sign",    /* 11 */ "store",
   /* 12 */ "gui",     /* 13 */ _A_,       /* 14 */ _A_,       /* 15 */ _A_,
   /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
   /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
@@ -345,7 +343,7 @@ static char const * const FRANK_32X2[] = {
   /* --- HT siblings (32-63) --- */
   /* 32 */ __,        /* 33 */ "quic",    /* 34 */ "verify",  /* 35 */ "verify",
   /* 36 */ "verify",  /* 37 */ "resolh",  /* 38 */ __,        /* 39 */ "bank",
-  /* 40 */ "bank",    /* 41 */ __,        /* 42 */ "store",   /* 43 */ "plugin",
+  /* 40 */ "bank",    /* 41 */ __,        /* 42 */ "shred",   /* 43 */ "plugin",
   /* 44 */ __,        /* 45 */ _A_,       /* 46 */ _A_,       /* 47 */ _A_,
   /* 48 */ _A_,       /* 49 */ _A_,       /* 50 */ _A_,       /* 51 */ _A_,
   /* 52 */ _A_,       /* 53 */ _A_,       /* 54 */ _A_,       /* 55 */ _A_,
@@ -369,14 +367,14 @@ static tile_spec_t const FD_FEWER_TILES[] = {
 };
 
 static char const * const FD_32X2_FEWER[] = {
-  /* skip_ht: sequential assignment on physical cores 1..26 */
+  /* skip_ht: ALWAYS on cores 1..17, POST_START on cores 18..26 */
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "net",     /*  3 */ "quic",
-  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "dedup",   /*  7 */ "resolv",
-  /*  8 */ "pack",    /*  9 */ "execle",  /* 10 */ "execle",  /* 11 */ "poh",
-  /* 12 */ "shred",   /* 13 */ "sign",    /* 14 */ "sign",    /* 15 */ "gui",
-  /* 16 */ "gossvf",  /* 17 */ "gossvf",  /* 18 */ "gossip",  /* 19 */ "repair",
-  /* 20 */ "replay",  /* 21 */ "execrp",  /* 22 */ "execrp",  /* 23 */ "execrp",
-  /* 24 */ "execrp",  /* 25 */ "txsend",  /* 26 */ "tower",
+  /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "dedup",   /*  7 */ "pack",
+  /*  8 */ "sign",    /*  9 */ "sign",    /* 10 */ "shred",   /* 11 */ "gui",
+  /* 12 */ "gossvf",  /* 13 */ "gossvf",  /* 14 */ "gossip",  /* 15 */ "repair",
+  /* 16 */ "replay",  /* 17 */ "tower",   /* 18 */ "resolv",  /* 19 */ "execle",
+  /* 20 */ "execle",  /* 21 */ "poh",     /* 22 */ "execrp",  /* 23 */ "execrp",
+  /* 24 */ "execrp",  /* 25 */ "execrp",  /* 26 */ "txsend",
 };
 #define FD_32X2_FEWER_LEN (sizeof(FD_32X2_FEWER)/sizeof(FD_32X2_FEWER[0]))
 
@@ -400,7 +398,7 @@ static char const * const FRANK_32X2_MORE_BANK[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
   /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolh",  /*  7 */ "pack",
   /*  8 */ "bank",    /*  9 */ "bank",    /* 10 */ "pohh",    /* 11 */ "shred",
-  /* 12 */ "sign",    /* 13 */ "gui",     /* 14 */ _A_,       /* 15 */ _A_,
+  /* 12 */ "store",   /* 13 */ "gui",     /* 14 */ _A_,       /* 15 */ _A_,
   /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
   /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
   /* 24 */ _A_,       /* 25 */ _A_,       /* 26 */ _A_,       /* 27 */ _A_,
@@ -408,7 +406,7 @@ static char const * const FRANK_32X2_MORE_BANK[] = {
   /* --- HT siblings (32-63) --- */
   /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
   /* 36 */ "verify",  /* 37 */ "dedup",   /* 38 */ "bank",    /* 39 */ __,
-  /* 40 */ "bank",    /* 41 */ "shred",   /* 42 */ __,        /* 43 */ "store",
+  /* 40 */ "bank",    /* 41 */ "sign",    /* 42 */ __,        /* 43 */ "shred",
   /* 44 */ "plugin",  /* 45 */ __,        /* 46 */ _A_,       /* 47 */ _A_,
   /* 48 */ _A_,       /* 49 */ _A_,       /* 50 */ _A_,       /* 51 */ _A_,
   /* 52 */ _A_,       /* 53 */ _A_,       /* 54 */ _A_,       /* 55 */ _A_,
@@ -422,20 +420,20 @@ static char const * const FRANK_32X2_MORE_BANK[] = {
 
 static char const * const FD_32X2_EXTRA_BL[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
-  /*  4 */ "verify",  /*  5 */ __,        /*  6 */ "verify",  /*  7 */ "resolv",
-  /*  8 */ "pack",    /*  9 */ "execle",  /* 10 */ "poh",     /* 11 */ "sign",
-  /* 12 */ "gui",     /* 13 */ "gossvf",  /* 14 */ "gossip",  /* 15 */ "replay",
+  /*  4 */ "verify",  /*  5 */ __,        /*  6 */ "verify",  /*  7 */ "pack",
+  /*  8 */ "sign",    /*  9 */ "shred",   /* 10 */ "gui",     /* 11 */ "gossvf",
+  /* 12 */ "repair",  /* 13 */ "tower",   /* 14 */ "execle",  /* 15 */ "poh",
   /* 16 */ "execrp",  /* 17 */ "execrp",  /* 18 */ "execrp",  /* 19 */ "execrp",
-  /* 20 */ "execrp",  /* 21 */ "tower",   /* 22 */ __,        /* 23 */ __,
+  /* 20 */ "execrp",  /* 21 */ "txsend",  /* 22 */ __,        /* 23 */ __,
   /* 24 */ __,        /* 25 */ __,        /* 26 */ __,        /* 27 */ __,
   /* 28 */ __,        /* 29 */ __,        /* 30 */ __,        /* 31 */ __,
   /* --- HT siblings (32-63) --- */
   /* 32 */ __,        /* 33 */ "net",     /* 34 */ "verify",  /* 35 */ "verify",
-  /* 36 */ "verify",  /* 37 */ __,        /* 38 */ "dedup",   /* 39 */ "execle",
-  /* 40 */ __,        /* 41 */ "shred",   /* 42 */ __,        /* 43 */ "sign",
-  /* 44 */ __,        /* 45 */ "gossvf",  /* 46 */ "repair",  /* 47 */ "execrp",
+  /* 36 */ "verify",  /* 37 */ __,        /* 38 */ "dedup",   /* 39 */ __,
+  /* 40 */ "sign",    /* 41 */ "gossvf",  /* 42 */ __,        /* 43 */ "gossip",
+  /* 44 */ "replay",  /* 45 */ "resolv",  /* 46 */ "execle",  /* 47 */ __,
   /* 48 */ "execrp",  /* 49 */ "execrp",  /* 50 */ "execrp",  /* 51 */ "execrp",
-  /* 52 */ "txsend",  /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
+  /* 52 */ "execrp",  /* 53 */ __,        /* 54 */ __,        /* 55 */ __,
   /* 56 */ __,        /* 57 */ __,        /* 58 */ __,        /* 59 */ __,
   /* 60 */ __,        /* 61 */ __,        /* 62 */ __,        /* 63 */ __,
 };

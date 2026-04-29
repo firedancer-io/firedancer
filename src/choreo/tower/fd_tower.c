@@ -409,11 +409,10 @@ lockout_check( fd_tower_t * tower,
      the same fork as slot (if so this implies we can vote for it). */
 
   ulong cnt = simulate_vote( tower->votes, slot ); /* pop off votes that would be expired */
-  if( FD_UNLIKELY( !cnt ) ) return 1;       /* tower is empty after popping expired votes */
+  if( FD_UNLIKELY( !cnt ) ) return 1;              /* tower is empty after popping expired votes */
 
-  fd_tower_vote_t const * vote    = fd_tower_vote_peek_index_const( tower->votes, cnt - 1 );            /* newly top-of-tower */
-  int                lockout = fd_tower_blocks_is_slot_descendant( tower, vote->slot, slot ); /* check if on same fork */
-  FD_LOG_INFO(( "[%s] lockout? %d. vote_slot: %lu. slot: %lu", __func__, lockout, vote->slot, slot ));
+  fd_tower_vote_t const * vote    = fd_tower_vote_peek_index_const( tower->votes, cnt - 1 );       /* newly top-of-tower */
+  int                     lockout = fd_tower_blocks_is_slot_descendant( tower, vote->slot, slot ); /* check if on same fork */
   return lockout;
 }
 
@@ -424,7 +423,7 @@ lockout_check( fd_tower_t * tower,
    the fork we want to switch to ("switch fork").  The switch fork is on
    the fork of `slot`.
 
-   In order to switch, FD_TOWER_SWITCH_PCT of stake must have voted for
+   In order to switch, SWITCH_RATIO of stake must have voted for
    a slot that satisfies the following conditions: the
    GCA(slot, last_vote) is an ancestor of the switch_slot
 
@@ -447,11 +446,11 @@ lockout_check( fd_tower_t * tower,
           if v's  locked out[1] from voting for our latest vote slot
              add v's stake to switch stake
 
-   return switch stake >= FD_TOWER_SWITCH_PCT
+   return switch stake >= total_stake * SWITCH_RATIO
    ```
 
    The switch check is used to safeguard optimistic confirmation.
-   Specifically: FD_TOWER_OPT_CONF_PCT + FD_TOWER_SWITCH_PCT >= 1. */
+   Specifically: optimistic confirmation pct + SWITCH_RATIO >= 1. */
 
 static int
 is_purged( fd_tower_t * tower,
@@ -469,9 +468,9 @@ switch_check( fd_tower_t * tower,
   lockout_interval_map_t * lck_map  = tower->lck_map;
   lockout_interval_t *     lck_pool = tower->lck_pool;
 
-  ulong switch_stake   = 0;
-  ulong vote_slot = fd_tower_vote_peek_tail_const( tower->votes )->slot;
-  ulong root_slot      = fd_tower_vote_peek_head_const( tower->votes )->slot;
+  ulong switch_stake = 0;
+  ulong vote_slot    = fd_tower_vote_peek_tail_const( tower->votes )->slot;
+  ulong root_slot    = fd_tower_vote_peek_head_const( tower->votes )->slot;
 
   ulong            null = fd_ghost_blk_idx_null( ghost );
   fd_ghost_blk_t * head = fd_ghost_blk_map_remove( ghost, fd_ghost_root( ghost ) );
@@ -543,8 +542,8 @@ switch_check( fd_tower_t * tower,
            end interval to get the vote accounts. */
 
         for( lockout_interval_t const * interval = lockout_interval_map_ele_query_const( lck_map, &key, NULL, lck_pool );
-                                                interval;
-                                                interval = lockout_interval_map_ele_next_const( interval, NULL, lck_pool ) ) {
+                                        interval;
+                                        interval = lockout_interval_map_ele_next_const( interval, NULL, lck_pool ) ) {
           ulong interval_slot        =  interval->start;
           fd_hash_t const * vote_acc = &interval->addr;
 
@@ -559,9 +558,9 @@ switch_check( fd_tower_t * tower,
             if( FD_UNLIKELY( fd_used_acc_scratch_test( tower->stk_used_acc, voter_idx ) ) ) continue; /* exclude already counted voters */
             fd_used_acc_scratch_insert( tower->stk_used_acc, voter_idx );
             switch_stake += voter_stake->stake;
-            if( FD_LIKELY( (double)switch_stake >= (double)total_stake * SWITCH_RATIO ) ) {
+            if( FD_LIKELY( (double)switch_stake / (double)total_stake > SWITCH_RATIO ) ) {
               fd_used_acc_scratch_null( tower->stk_used_acc );
-              FD_LOG_INFO(( "[%s] switch? 1. vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
+              FD_LOG_DEBUG(( "[%s] vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
               while( FD_LIKELY( head ) ) { /* cleanup: re-insert remaining BFS queue into map */
                 fd_ghost_blk_t * next = fd_ghost_blk_next( ghost, head );
                 fd_ghost_blk_map_insert( ghost, head );
@@ -575,7 +574,7 @@ switch_check( fd_tower_t * tower,
     }
   }
   fd_used_acc_scratch_null( tower->stk_used_acc );
-  FD_LOG_INFO(( "[%s] switch? 0. vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
+  FD_LOG_DEBUG(( "[%s] vote_slot: %lu. switch_slot: %lu. pct: %.0lf%%", __func__, vote_slot, switch_slot, (double)switch_stake / (double)total_stake * 100.0 ));
   return 0;
 }
 
@@ -605,10 +604,10 @@ switch_check( fd_tower_t * tower,
    long time from counting towards the threshold stake. */
 
 static int
-threshold_check( fd_tower_t const *        tower,
+threshold_check( fd_tower_t const *     tower,
                  fd_tower_vtr_t const * accts,
-                 ulong                     total_stake,
-                 ulong                     slot ) {
+                 ulong                  total_stake,
+                 ulong                  slot ) {
 
   /* First, simulate a vote on our tower, popping off everything that
      would be expired by voting for slot. */
@@ -626,34 +625,33 @@ threshold_check( fd_tower_t const *        tower,
   ulong threshold_slot  = fd_tower_vote_peek_index_const( tower->votes, cnt - THRESHOLD_DEPTH )->slot;
   ulong threshold_stake = 0;
   for( fd_tower_vtr_iter_t iter = fd_tower_vtr_iter_init( accts       );
-                                    !fd_tower_vtr_iter_done( accts, iter );
-                              iter = fd_tower_vtr_iter_next( accts, iter ) ) {
+                                 !fd_tower_vtr_iter_done( accts, iter );
+                           iter = fd_tower_vtr_iter_next( accts, iter ) ) {
     fd_tower_vtr_t const * acct = fd_tower_vtr_iter_ele_const( accts, iter );
 
     ulong cnt = simulate_vote( acct->votes, slot ); /* expire votes */
     if( FD_UNLIKELY( !cnt ) ) continue;              /* no votes left after expiry */
 
-    /* Count their stake towards the threshold check if their last vote
+    /* Count their stake towards the threshold check if their prev vote
        slot >= our threshold slot.
 
-       We know these votes are for our own fork because towers are
-       sourced from vote _accounts_, not vote _transactions_.
+       We know their prev vote slot is definitely on the same fork as
+       our threshold slot, because these towers are sourced from vote
+       _accounts_, not vote _transactions_ and the Vote Program
+       validates that all slots in the vote account's tower exist on the
+       current fork.
 
-       Because we are iterating vote accounts on the same fork that we
-       we want to vote for, we know these slots must all occur along the
-       same fork ancestry.
-
-       Therefore, if their latest vote slot >= our threshold slot, we
-       know that vote must be for the threshold slot itself or one of
+       Therefore, if their prev vote slot >= our threshold slot, we know
+       that vote must be for the threshold slot itself or one of
        threshold slot's descendants. */
 
-    ulong last_vote = fd_tower_vote_peek_index_const( acct->votes, cnt - 1 )->slot;
-    if( FD_LIKELY( last_vote >= threshold_slot ) ) threshold_stake += acct->stake;
+    ulong vote_slot = fd_tower_vote_peek_index_const( acct->votes, cnt - 1 )->slot;
+    if( FD_LIKELY( vote_slot >= threshold_slot ) ) threshold_stake += acct->stake;
   }
 
   double threshold_pct = (double)threshold_stake / (double)total_stake;
   int    threshold     = threshold_pct > THRESHOLD_RATIO;
-  FD_LOG_INFO(( "[%s] threshold? %d. top: %lu. threshold: %lu. pct: %.0lf%%.", __func__, threshold, fd_tower_vote_peek_tail_const( tower->votes )->slot, threshold_slot, threshold_pct * 100.0 ));
+  if( FD_UNLIKELY( !threshold ) ) FD_LOG_DEBUG(( "[%s] vote_slot: %lu. threshold_slot: %lu. pct: %.0lf%%.", __func__, fd_tower_vote_peek_tail_const( tower->votes )->slot, threshold_slot, threshold_pct * 100.0 ));
   return threshold;
 }
 
@@ -662,21 +660,27 @@ propagated_check( fd_tower_t * tower,
                   ulong        slot ) {
 
   fd_tower_blk_t * blk = fd_tower_blocks_query( tower, slot );
-  if( FD_UNLIKELY( !blk ) ) return 1;
+  FD_TEST( blk );
 
   if( FD_LIKELY( blk->leader                        ) ) return 1; /* can always vote for slot in which we're leader */
   if( FD_LIKELY( blk->prev_leader_slot==ULONG_MAX   ) ) return 1; /* haven't been leader yet */
 
-  fd_tower_blk_t * prev_leader = fd_tower_blocks_query( tower, blk->prev_leader_slot );
-  if( FD_LIKELY( !prev_leader ) ) return 1; /* already pruned / rooted */
+  fd_tower_blk_t * prev_leader_blk = fd_tower_blocks_query( tower, blk->prev_leader_slot );
+  if( FD_LIKELY( !prev_leader_blk ) ) return 1; /* already pruned / rooted */
 
-  return prev_leader->propagated;
+  return prev_leader_blk->propagated;
 }
 
-fd_tower_out_t
+uchar
 fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_ghost_t * ghost,
-                         fd_votes_t * votes FD_PARAM_UNUSED ) {
+                         fd_votes_t * votes FD_PARAM_UNUSED,
+                         ulong *      reset_slot,
+                         fd_hash_t *  reset_block_id,
+                         ulong *      vote_slot,
+                         fd_hash_t *  vote_block_id,
+                         ulong *      root_slot,
+                         fd_hash_t *  root_block_id ) {
 
   uchar                  flags     = 0;
   fd_ghost_blk_t const * best_blk  = fd_ghost_best( ghost, fd_ghost_root( ghost ) );
@@ -689,17 +693,18 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L933-L935 */
 
   if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
+    FD_LOG_DEBUG(( "[%s] case 0: empty tower. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, best_blk->slot, best_blk_id, best_blk->slot, best_blk_id ));
     fd_tower_blk_t * fork = fd_tower_blocks_query( tower, best_blk->slot );
     fork->voted           = 1;
     fork->voted_block_id  = best_blk->id;
-    return (fd_tower_out_t){
-      .flags          = flags,
-      .reset_slot     = best_blk->slot,
-      .reset_block_id = best_blk->id,
-      .vote_slot      = best_blk->slot,
-      .vote_block_id  = best_blk->id,
-      .root_slot      = push_vote( tower, best_blk->slot )
-    };
+    *reset_slot     = best_blk->slot;
+    *reset_block_id = best_blk->id;
+    *vote_slot      = best_blk->slot;
+    *vote_block_id  = best_blk->id;
+    *root_slot      = push_vote( tower, best_blk->slot );
+    *root_block_id  = (fd_hash_t){0};
+    return flags;
   }
 
   ulong            prev_vote_slot = fd_tower_vote_peek_tail_const( tower->votes )->slot;
@@ -708,53 +713,51 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   fd_hash_t      * prev_vote_block_id = &prev_vote_fork->voted_block_id;
   fd_ghost_blk_t * prev_vote_blk      = fd_ghost_query( ghost, prev_vote_block_id );
 
-  /* Case 1: if an ancestor of our prev vote (including prev vote
+  /* Case 1: if any ancestor of our prev vote (including prev vote
      itself) is an unconfirmed duplicate, then our prev vote was on a
      duplicate fork.
 
-     There are two subcases to check. */
+     There are three subcases to check. */
 
   int invalid_ancestor = !!fd_ghost_invalid_ancestor( ghost, prev_vote_blk );
-  if( FD_UNLIKELY( invalid_ancestor ) ) { /* do we have an invalid ancestor? */
 
-    /* Case 1a: ghost_best is an ancestor of prev vote.  This means
-       ghost_best is rolling back to an ancestor that precedes the
-       duplicate ancestor on the same fork as our prev vote.  In this
-       case, we can't vote on our ancestor, but we do reset to that
-       ancestor.
+  /* Case 1a: ghost_best is an ancestor of prev vote.  This means
+     ghost_best is rolling back to an ancestor that precedes the
+     duplicate ancestor on the same fork as our prev vote.  In this
+     case, we can't vote on our ancestor, but we do reset to that
+     ancestor.
 
-       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1016-L1019 */
+     https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1016-L1019 */
 
-    int ancestor_rollback = prev_vote_blk != best_blk && !!fd_ghost_ancestor( ghost, prev_vote_blk, &best_blk->id );
-    if( FD_LIKELY( ancestor_rollback ) ) {
-      flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK );
-      reset_blk = best_blk;
-    }
+  int ancestor_rollback = prev_vote_blk != best_blk && !!fd_ghost_ancestor( ghost, prev_vote_blk, &best_blk->id );
 
-    /* Case 1b: ghost_best is not an ancestor, but prev_vote is a
-       duplicate and we've confirmed its duplicate sibling.  In this
-       case, we allow switching to ghost_best without a switch proof.
+  /* Case 1b: ghost_best is not an ancestor, but prev_vote is a
+     duplicate and we've confirmed its duplicate sibling.  In this
+     case, we allow switching to ghost_best without a switch proof.
 
-       Example: slot 5 is a duplicate.  We first receive, replay and
-       vote for block 5, so that is our prev vote.  We later receive
-       block 5' and observe that it is duplicate confirmed.  ghost_best
-       now returns block 5' and we both vote and reset to block 5'
-       regardless of the switch check.
+     Example: slot 5 is a duplicate.  We first receive, replay and
+     vote for block 5, so that is our prev vote.  We later receive
+     block 5' and observe that it is duplicate confirmed.  ghost_best
+     now returns block 5' and we both vote and reset to block 5'
+     regardless of the switch check.
 
-       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1021-L1024 */
+     https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L1021-L1024 */
 
-    int sibling_confirmed = prev_vote_fork->confirmed && 0!=memcmp( &prev_vote_fork->voted_block_id, &prev_vote_fork->confirmed_block_id, sizeof(fd_hash_t) );
-    if( FD_LIKELY( sibling_confirmed ) ) {
-      flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
-      reset_blk = best_blk;
-      vote_blk  = best_blk;
-    }
+  int sibling_confirmed = prev_vote_fork->confirmed && 0!=memcmp( &prev_vote_fork->voted_block_id, &prev_vote_fork->confirmed_block_id, sizeof(fd_hash_t) );
 
-    /* At this point our prev vote was on a duplicate fork but didn't
-       match either of the above subcases.
+  if( FD_UNLIKELY( invalid_ancestor && ancestor_rollback ) ) {
+    flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK );
+    reset_blk = best_blk;
+    FD_BASE58_ENCODE_32_BYTES( reset_blk->id.uc, reset_blk_id );
+    FD_LOG_DEBUG(( "[%s] case 1a: ancestor rollback. prev_vote_slot: %lu. reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, prev_vote_slot, reset_blk->slot, reset_blk_id ));
 
-       In this case, we have to pass the switch check to reset to a
-       different fork from prev vote (same as non-duplicate case). */
+  } else if( FD_UNLIKELY( invalid_ancestor && sibling_confirmed ) ) {
+    flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
+    reset_blk = best_blk;
+    vote_blk  = best_blk;
+    FD_BASE58_ENCODE_32_BYTES( reset_blk->id.uc, reset_blk_id );
+    FD_BASE58_ENCODE_32_BYTES( vote_blk->id.uc,  vote_blk_id  );
+    FD_LOG_DEBUG(( "[%s] case 1b: sibling confirmed. prev_vote_slot: %lu. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, prev_vote_slot, reset_blk->slot, reset_blk_id, vote_blk->slot, vote_blk_id ));
   }
 
   /* Case 2: if our prev vote slot is an ancestor of the best slot, then
@@ -767,6 +770,9 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SAME_FORK );
     reset_blk = best_blk;
     vote_blk  = best_blk;
+    FD_BASE58_ENCODE_32_BYTES( reset_blk->id.uc, reset_blk_id );
+    FD_BASE58_ENCODE_32_BYTES( vote_blk->id.uc,  vote_blk_id  );
+    FD_LOG_DEBUG(( "[%s] case 2: same fork. prev_vote_slot: %lu. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, prev_vote_slot, reset_blk->slot, reset_blk_id, vote_blk->slot, vote_blk_id ));
   }
 
   /* Case 3: if our prev vote is not an ancestor of the best block, then
@@ -785,6 +791,9 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_PASS );
     reset_blk = best_blk;
     vote_blk  = best_blk;
+    FD_BASE58_ENCODE_32_BYTES( reset_blk->id.uc, reset_blk_id );
+    FD_BASE58_ENCODE_32_BYTES( vote_blk->id.uc,  vote_blk_id  );
+    FD_LOG_DEBUG(( "[%s] case 3: switch pass. prev_vote_slot: %lu. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, prev_vote_slot, reset_blk->slot, reset_blk_id, vote_blk->slot, vote_blk_id ));
   }
 
   /* Case 4: same as case 3 but we didn't pass the switch check.  In
@@ -811,22 +820,27 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
 
   else {
 
-    /* Case 4a: failed switch check and last vote's fork is invalid.
+    /* Case 4a: failed switch check and last vote slot has an invalid
+       ancestor.
 
       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/heaviest_subtree_fork_choice.rs#L1187 */
 
     if( FD_UNLIKELY( invalid_ancestor ) ) {
       flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_FAIL );
       reset_blk = fd_ghost_deepest( ghost, prev_vote_blk );
+      FD_BASE58_ENCODE_32_BYTES( reset_blk->id.uc, reset_blk_id );
+      FD_LOG_DEBUG(( "[%s] case 4a: switch fail, invalid ancestor. prev_vote_slot: %lu. reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, prev_vote_slot, reset_blk->slot, reset_blk_id ));
     }
 
-    /* Case 4b: failed switch check and last vote's fork is valid.
+    /* Case 4b: failed switch check (no invalid ancestor).
 
       https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus/fork_choice.rs#L200 */
 
     else {
       flags     = fd_uchar_set_bit( flags, FD_TOWER_FLAG_SWITCH_FAIL );
       reset_blk = fd_ghost_best( ghost, prev_vote_blk );
+      FD_BASE58_ENCODE_32_BYTES( reset_blk->id.uc, reset_blk_id );
+      FD_LOG_DEBUG(( "[%s] case 4b: switch fail, no invalid ancestor. prev_vote_slot: %lu. reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, prev_vote_slot, reset_blk->slot, reset_blk_id ));
     }
   }
 
@@ -844,35 +858,40 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
 
   if( FD_LIKELY( vote_blk ) ) {
     if     ( FD_UNLIKELY( !lockout_check( tower, vote_blk->slot ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( vote_blk->id.uc, vote_blk_id );
+      FD_LOG_DEBUG(( "[%s] lockout check failed. prev_vote_slot: %lu. vote_blk: (%lu, %s)", __func__, prev_vote_slot, vote_blk->slot, vote_blk_id ));
       flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_LOCKOUT_FAIL );
       vote_blk = NULL;
     }
     else if( FD_UNLIKELY( !threshold_check( tower, tower->vtrs, vote_blk->total_stake, vote_blk->slot ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( vote_blk->id.uc, vote_blk_id );
+      FD_LOG_DEBUG(( "[%s] threshold check failed. prev_vote_slot: %lu. vote_blk: (%lu, %s)", __func__, prev_vote_slot, vote_blk->slot, vote_blk_id ));
       flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_THRESHOLD_FAIL );
       vote_blk = NULL;
     }
     else if( FD_UNLIKELY( !propagated_check( tower, vote_blk->slot ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( vote_blk->id.uc, vote_blk_id );
+      FD_LOG_DEBUG(( "[%s] propagated check failed. prev_vote_slot: %lu. vote_blk: (%lu, %s)", __func__, prev_vote_slot, vote_blk->slot, vote_blk_id ));
       flags    = fd_uchar_set_bit( flags, FD_TOWER_FLAG_PROPAGATED_FAIL );
       vote_blk = NULL;
     }
   }
 
   FD_TEST( reset_blk ); /* always a reset_blk */
-  fd_tower_out_t out = {
-    .flags          = flags,
-    .reset_slot     = reset_blk->slot,
-    .reset_block_id = reset_blk->id,
-    .vote_slot      = ULONG_MAX,
-    .root_slot      = ULONG_MAX
-  };
+  *reset_slot     = reset_blk->slot;
+  *reset_block_id = reset_blk->id;
+  *vote_slot      = ULONG_MAX;
+  *vote_block_id  = (fd_hash_t){0};
+  *root_slot      = ULONG_MAX;
+  *root_block_id  = (fd_hash_t){0};
 
   /* Finally, if our vote passed all the checks, we actually push the
      vote onto the tower. */
 
   if( FD_LIKELY( vote_blk ) ) {
-    out.vote_slot     = vote_blk->slot;
-    out.vote_block_id = vote_blk->id;
-    out.root_slot     = push_vote( tower, vote_blk->slot );
+    *vote_slot     = vote_blk->slot;
+    *vote_block_id = vote_blk->id;
+    *root_slot     = push_vote( tower, vote_blk->slot );
 
     /* Query our tower fork for this slot we're voting for.  Note this
        can never be NULL because we record tower forks as we replay, and
@@ -897,180 +916,201 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
        threshold and we would eventually detect this via a bank hash
        mismatch and error out. */
 
-    if( FD_LIKELY( out.root_slot!=ULONG_MAX ) ) {
-      fd_tower_blk_t * root_fork = fd_tower_blocks_query( tower, out.root_slot );
-      out.root_block_id          = *fd_ptr_if( root_fork->confirmed, &root_fork->confirmed_block_id, &root_fork->voted_block_id );
+    if( FD_LIKELY( *root_slot!=ULONG_MAX ) ) {
+      fd_tower_blk_t * root_fork = fd_tower_blocks_query( tower, *root_slot );
+      *root_block_id         = *fd_ptr_if( root_fork->confirmed, &root_fork->confirmed_block_id, &root_fork->voted_block_id );
     }
   }
 
-  FD_BASE58_ENCODE_32_BYTES( out.reset_block_id.uc, reset_block_id );
-  FD_BASE58_ENCODE_32_BYTES( out.vote_block_id.uc,  vote_block_id  );
-  FD_BASE58_ENCODE_32_BYTES( out.root_block_id.uc,  root_block_id  );
-  FD_LOG_INFO(( "[%s] flags: %d. reset_slot: %lu (%s). vote_slot: %lu (%s). root_slot: %lu (%s).", __func__, out.flags, out.reset_slot, reset_block_id, out.vote_slot, vote_block_id, out.root_slot, root_block_id ));
-  return out;
+  FD_BASE58_ENCODE_32_BYTES( reset_block_id->uc, reset_block_id_b58 );
+  FD_BASE58_ENCODE_32_BYTES( vote_block_id->uc,  vote_block_id_b58  );
+  FD_BASE58_ENCODE_32_BYTES( root_block_id->uc,  root_block_id_b58  );
+  FD_LOG_DEBUG(( "[%s] flags: %d. reset_slot: %lu (%s). vote_slot: %lu (%s). root_slot: %lu (%s).", __func__, flags, *reset_slot, reset_block_id_b58, *vote_slot, vote_block_id_b58, *root_slot, root_block_id_b58 ));
+  return flags;
 }
 
-/* fd_tower_reconcile reconciles our local tower with the on-chain
-   tower inside our vote account.  Mirrors what Agave does.  Also
-   updates tower_blocks vote metadata to match the updated tower.
+/* fd_tower_reconcile reconciles our local tower with our on-chain tower
+   (stored inside our vote account).  This function is important in two
+   contexts:
 
-   It's possible prev_vote_fork->voted is not set even though we popped
-   it from the top of our tower.  This can happen when there are
-   multiple nodes operating with the same vote account.
+   ON BOOT
 
-   In a typical setup involving a primary staked node and backup
-   unstaked node, the two nodes' towers will usually be identical
-   but occassionally diverge when one node observes a minority fork
-   the other doesn't.  As a result, one node might be locked out
-   from voting for a fork that the other node is not.
+   When Firedancer boots up its local tower contains no votes, only a
+   root slot set to the snapshot slot.  It needs to restore its "latest"
+   tower votes and root as of its previous run.  This information is
+   stored on-chain itself, in a vote account, and Firedancer updates
+   vote account states during catchup by replaying blocks since the
+   snapshot.  Firedancer reconciles its local tower with the on-chain
+   one every time it replays a block, and will by definition have its
+   "latest" tower once it has caught up.
 
-   This becomes a problem in our primary-backup setup when the
-   unstaked node is locked out but the staked node is not.  The
-   staked node ultimately lands the vote into the on-chain vote
-   account, so it's possible when the unstaked node reads back their
-   on-chain vote account to diff against their local tower, there
-   are votes in there they themselves did not vote for due to
-   lockout (fd_tower_reconcile).
+   Note that it is possible Firedancer had voted for a minority fork in
+   the previous run.  In this case, its true "latest" tower contains
+   votes for slots that were pruned by the time of this boot.  In theory
+   TowerBFT stipulates that lockout can be up to 2^32 slots, but in
+   practice slots are pruned once they fall out of the slot hash history
+   limit, because they can no longer be canonically verified on-chain.
+   Therefore, Firedancer can safely ignore slots that are pruned and
+   restore its latest tower on the majority fork as of boot time.
 
-   As a result, `voted_block_id` will not be set for slots in their
-   tower, which normally would be an invariant violation because the
-   node must have set this value when they voted for the slot (and
-   pushed it to their tower).
+   HIGH-AVAILABILITY SETUP
 
-   So here we manually set the voted_block_id to most recent
-   replayed_block_id if not already set. We know we must have replayed
-   it, because to observe the on-chain tower you must have replayed all
-   the slots in the tower.
+   A typical validator setup involves two nodes, a primary and a backup.
+   The primary is a valid fee payer, and the one landing votes recording
+   the latest state of its tower on-chain.  The two nodes' towers will
+   usually be identical but occassionally diverge when one node votes
+   for slots that the other one doesn't.  This usually happens when
+   there are multiple forks.
 
-   When there is equivocation, the backup may have replayed a different
-   version of a block than what the main validator voted for. In a
-   regular equivocation scenario, this is a non-issue: two equivocating
-   blocks will cause different bank hashes, so the vote program will
-   ensure that we will only see a vote for a certain version of a block
-   if we have also replayed that version.  Thus even though the vote
-   account only stores slot numbers (not block_ids), reconcile can
-   assume the version the main validator voted for was the last replayed
-   version.
+   This becomes a problem, because the primary's tower may contain votes
+   the backup doesn't have and/or vice versa.  The primary's tower is
+   the canonical one, since it's the one recorded on-chain, so reconcile
+   is a no-op on the primary.
 
-   This degenerates in the case where two equivocating blocks have the
-   same bank hash (rare but possible, see fd_txncache.h for more
-   details).  In this case, the vote program does not distinguish the
-   difference between votes for the two blocks for absolutely no good
-   reason.
+   On the backup, reconcile is more involved.  Because what's on-chain
+   is the primary's tower, there may be slots the backup never actually
+   voted for.  When the backup node reads back the on-chain tower, some
+   metadata, namely `voted` and `voted_block_id`, will be missing from
+   its fd_tower instance.
 
-   Example:
+   fd_tower_reconcile assumes that if a tower has been recorded on-chain
+   then it is safe to assume the vote account registered with the
+   currently running Firedancer has in fact at some point voted for the
+   slots in that tower.
+
+   In case the instance is the backup, it updates the local tower votes,
+   root, and metadata structures accordingly with this assumption namely
+   by inserting voted_block_id for votes that the backup didn't actually
+   vote for but can safely assume the primary did.
+
+   This affects the Tower voting rules (see fd_tower_vote_and_reset) in
+   that the voted_block_id is used for certain vote and reset decisions.
+
+   There are some corner cases to consider related to equivocation:
 
       2
      / \
     3   3' (confirmed)
-    |   |
-    5   4
 
-   Assume 3 and 3' have the same bank hash. Both slots 4 and 5 can
-   contain votes for 3 and 3'.  There are two cases depending on whether
-   the backup is on the duplicate confirmed (DC) fork:
+   Assume 3 and 3' are alternate blocks for the same slot (3) and have
+   different block ids.  3' is the block that eventually gets confirmed.
+   Let's consider a scenario in which the primary votes for "3" and the
+   backup misses the vote for "3".  fd_tower_reconcile needs to backfill
+   the voted_block_id for "3" on the backup.  However, it's unclear
+   whether that vote is for 3 (unconfirmed) or 3' (confirmed), because
+   all the on-chain tower contains is the slot "3" (with no block_id).
+   How does the backup figure out the voted_block_id?
 
-   Case 1: the backup is on the DC fork (replayed 3' first), the main
-   validator replayed 3 first and voted on it.
+   It turns out it doesn't really matter either way, the backup can just
+   backfill with whichever block_id it happened to replay (we know the
+   backup has to have replayed either 3 or 3' in order to observe an
+   on-chain tower containing 3 in the first place):
 
-     After replaying 4, reconcile sets voted_block_id for slot 3 to
-     block_id(3'), which is the DC version.  This is correct because the
-     main validator will eventually switch to the DC fork as well.
+   If the primary voted for 3 and the backup backfills with 3', we know
+   the primary will eventually switch to the DC block (3') via repair.
+   So backfilling with 3' is ok because the primary will converge to it.
 
-   Case 2: the backup is on the non DC fork (replayed 3 first), the main
-   validator replayed 3' first and voted on it.
-
-     Reconcile initially sets voted_block_id for slot 3 to block_id(3), the
-     non-DC version.  After the backup later replays the DC version
-     (3') and its descendants, voted_block_id will still point to the
-     non-DC version because no new reconcile is triggered.  This is
-     handled by case 1b in fd_tower_vote_and_reset (sibling confirmed):
-     voted_block_id != confirmed_block_id triggers a free switch to
-     the DC fork without needing a switch proof.  This is the same
-     codepath a staked validator uses when it votes for a non-DC
-     version and later observes duplicate confirmation of the sibling.
-
-  Unsupported case: the main validator votes down a minority fork
-  that the backup never observes.  The backup could cast conflicting
-  votes that violate lockout.  Handling this would require additional
-  codepaths (tower file, communication channel between backup and
-  main, or gossip vote tracking) that are fully removed with
-  Alpenglow, so we do not handle this case. */
+   If the primary voted for 3' and the backup backfills with 3, then the
+   backup will similarly eventually switch to the DC block via repair.
+   Indeed, it will "freebie" switch in fd_tower_vote_and_reset ie. case
+   1b: "sibling confirmed".  Thus, the backup will converge to 3'. */
 
 void
-fd_tower_reconcile( fd_tower_t  * tower,
-                    uchar const * vote_account_data ) {
-  ulong tower_root = tower->root;
-  ulong on_chain_vote = fd_vote_acc_vote_slot( vote_account_data );
-  ulong on_chain_root = fd_vote_acc_root_slot( vote_account_data );
+fd_tower_reconcile( fd_tower_t      * tower,
+                    fd_tower_vote_t * onchain_votes,
+                    ulong             onchain_root ) {
 
-  fd_tower_vote_t const * last_vote      = fd_tower_vote_peek_tail_const( tower->votes );
-  ulong                   vote_slot = last_vote ? last_vote->slot : ULONG_MAX;
+  fd_tower_vote_t * local_votes = tower->votes;
+  ulong             local_root  = tower->root;
 
-  if( FD_UNLIKELY( ( on_chain_vote==ULONG_MAX && vote_slot==ULONG_MAX ) ) ) return;
-  if( FD_LIKELY  ( ( on_chain_vote!=ULONG_MAX && vote_slot!=ULONG_MAX
-                     && on_chain_vote <= vote_slot                    ) ) ) return;
+  ulong local_vote   = fd_tower_vote_empty( local_votes   ) ? ULONG_MAX : fd_tower_vote_peek_tail_const( local_votes   )->slot;
+  ulong onchain_vote = fd_tower_vote_empty( onchain_votes ) ? ULONG_MAX : fd_tower_vote_peek_tail_const( onchain_votes )->slot;
 
-  /* At this point our local tower is older than the on-chain tower, and
-     we need to replace it with our on-chain tower.  This mirrors the
-     Agave logic:
-     https://github.com/firedancer-io/agave/blob/master/core/src/replay_stage.rs#L3690-L3719
+  /* Cases:
 
-     TODO: pass on_chain_tower instead of raw vote account data to
-     mirror agave logic one to one. */
+     Agave checks Option<onchain_vote> <= Option<local_vote>.  Breakdown of Ord<Option<Slot>>:
 
-  while( FD_LIKELY( !fd_tower_vote_empty( tower->votes ) ) ) {
-    fd_tower_vote_t  old_vote = fd_tower_vote_pop_head( tower->votes );
-    fd_tower_blk_t * vote_blk = fd_tower_blocks_query( tower, old_vote.slot );
-    if( FD_LIKELY( vote_blk ) ) vote_blk->voted = 0;
+     None, None => True
+     None, Some => True
+     Some, None => False
+     Some, Some => onchain_vote <= local_vote */
+
+  if( FD_LIKELY( onchain_vote==ULONG_MAX ||                            /* None, None or None, Some */
+               ( local_vote  !=ULONG_MAX && onchain_vote<=local_vote ) /* Some, Some               */ ) ) return;
+
+  /* On-chain tower is newer, so sync our local tower to the on-chain tower. */
+
+  FD_LOG_NOTICE(( "[%s] overwriting local tower (last: %lu, root: %lu) with onchain tower (last: %lu, root: %lu)", __func__, local_vote, local_root, onchain_vote, onchain_root ));
+
+  FD_TEST( local_root!=ULONG_MAX ); /* local root should always be set before fd_tower_reconcile */
+  if( FD_LIKELY( onchain_root==ULONG_MAX || local_root > onchain_root ) ) {
+
+    /* Local root is larger than on-chain root. Overwrite on-chain root
+       with local root (this is just a copy, not writing to accdb). */
+
+    FD_LOG_DEBUG(( "[%s] local_root %lu > onchain_root %lu", __func__, local_root, onchain_root ));
+    onchain_root = local_root;
+
+    /* Drop on-chain votes <= local root. */
+
+    while( FD_LIKELY( !fd_tower_vote_empty( onchain_votes ) ) ) {
+      fd_tower_vote_t const * vote = fd_tower_vote_peek_head_const( onchain_votes );
+      if( FD_LIKELY( vote->slot > local_root ) ) break;
+      FD_LOG_DEBUG(( "[%s] dropping on-chain vote for slot %lu since it's <= local root %lu", __func__, vote->slot, local_root ));
+      fd_tower_vote_pop_head( onchain_votes );
+    }
+
+    /* TODO add sanity-check that onchain_root is an ancestor of the
+       first vote's ancestor at this point. */
   }
 
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  uint                  kind  = fd_uint_load_4_fast( vote_account_data ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_account_data ); i++ ) {
-    switch( kind ) {
-    case FD_VOTE_ACC_V4: fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
-    case FD_VOTE_ACC_V3: fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
-    case FD_VOTE_ACC_V2: fd_tower_vote_push_tail( tower->votes, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
-    default: FD_LOG_ERR(( "unknown kind: %u", kind ));
-    }
-    fd_tower_vote_t * new_vote = fd_tower_vote_peek_tail( tower->votes );
-    fd_tower_blk_t  * vote_blk = fd_tower_blocks_query( tower, new_vote->slot );
-
-    if( FD_LIKELY( vote_blk ) ) {
-      vote_blk->voted          = 1;
-      vote_blk->voted_block_id = vote_blk->replayed_block_id;
-    }
+  for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( tower->votes );
+                                  !fd_tower_vote_iter_done( tower->votes, iter );
+                            iter = fd_tower_vote_iter_next( tower->votes, iter ) ) {
+    fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( tower->votes, iter );
+    fd_tower_blk_t * tower_blk = fd_tower_blocks_query( tower, vote->slot );
+    FD_TEST( tower_blk ); /* must exist if it's in our tower */
+    tower_blk->voted = 0;
   }
 
-  /* It's possible our local root is newer than the on-chain root
-     (even though the tower is older).  The most likely reason is
-     booting from a snapshot where snapshot slot > on-chain root.
-     Filter out stale votes <= local root.
+  /* Need to overwrite tower->root with onchain_root, so first clear out
+     any intermediate slots between them. */
 
-     After filtering, the tower may be empty if all on-chain votes
-     were below our local root.  In Agave this is handled by falling
-     back to local_root as the last_voted_slot.  Here it is fine to
-     leave the tower empty because vote_and_reset handles an empty
-     tower (case 0).
+  for( ulong slot = tower->root; slot < onchain_root; slot++ ) {
+    fd_tower_blocks_remove( tower, slot );
+    fd_tower_lockos_remove( tower, slot );
+    fd_tower_stakes_remove( tower, slot );
+  }
 
-     There's no need to clear voted metadata in tower_blocks, which
-     breaks our invariant that voted==1 iff slot is in tower.  This is
-     fine because pruning from tower_blocks is asynchronous with the
-     tower. */
+  /* Overwrite the root.  No-op if local_root > onchain_root. */
 
-  if( FD_LIKELY( on_chain_root == ULONG_MAX || tower_root > on_chain_root ) ) {
-    while( FD_LIKELY( !fd_tower_vote_empty( tower->votes ) ) ) {
-      fd_tower_vote_t const * vote = fd_tower_vote_peek_head_const( tower->votes );
-      if( FD_LIKELY( vote->slot > tower_root ) ) break;
-      fd_tower_vote_pop_head( tower->votes );
+  tower->root = onchain_root;
+
+  /* Clear out all local_votes. */
+
+  fd_tower_vote_remove_all( tower->votes );
+
+  /* Replace them with onchain_votes. */
+
+  for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init( onchain_votes );
+                                  !fd_tower_vote_iter_done( onchain_votes, iter );
+                            iter = fd_tower_vote_iter_next( onchain_votes, iter ) ) {
+    fd_tower_vote_t const * vote = fd_tower_vote_iter_ele_const( onchain_votes, iter );
+    fd_tower_vote_push_tail( tower->votes, *vote );
+
+    /* Additionally, backfill voted_block_id for the slots we didn't
+       actually vote for.  This is intentionally always using the latest
+       replayed_block_id if we overwrote it with a second replay.  */
+
+    fd_tower_blk_t * tower_blk = fd_tower_blocks_query( tower, vote->slot );
+    FD_TEST( tower_blk ); /* must exist because
+                             1. all on-chain votes >  root slot
+                             2. all on-chain votes <= replay slot  */
+    if( FD_UNLIKELY( !tower_blk->voted ) ) {
+      tower_blk->voted          = 1;
+      tower_blk->voted_block_id = tower_blk->replayed_block_id;
     }
   }
-  /* Note its also possible the on_chain_root is ahead of our local
-     root. In this case, our local root is technically !voted now, since
-     we have updated our tower to match the on-chain tower.  But this is
-     not a problem because the next vote we make will pop the
-     on_chain_root which we set above voted=1. */
 }
 
 void
@@ -1078,7 +1118,7 @@ fd_tower_from_vote_acc( fd_tower_vote_t * votes,
                         ulong           * root,
                         uchar  const    * vote_acc ) {
   fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
-  uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
+  uint                  kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
   for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
     switch( kind ) {
     case FD_VOTE_ACC_V4: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;

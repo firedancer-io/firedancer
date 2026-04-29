@@ -155,12 +155,11 @@ test_sysvar_cache_empty( void ) {
   FD_TEST( !fd_sysvar_cache_epoch_rewards_read( cache1, &epoch_rewards ) );
   fd_epoch_schedule_t epoch_schedule;
   FD_TEST( !fd_sysvar_cache_epoch_schedule_read( cache1, &epoch_schedule ) );
-  FD_TEST( fd_sysvar_cache_last_restart_slot_read( cache1 )==ULONG_MAX );
+  FD_TEST( fd_sysvar_cache_last_restart_slot_read( cache1 )==NULL );
   fd_rent_t rent;
   FD_TEST( !fd_sysvar_cache_rent_read( cache1, &rent ) );
 
   /* Test sysvar join accessors */
-  FD_TEST( !fd_sysvar_cache_slot_history_join_const ( cache1 ) );
   FD_TEST( !fd_sysvar_cache_slot_hashes_join_const  ( cache1 ) );
   FD_TEST( !fd_sysvar_cache_stake_history_join_const( cache1 ) );
 

@@ -51,19 +51,13 @@ struct fd_sysvar_cache {
 
   uchar bin_clock             [ FD_SYSVAR_CLOCK_BINCODE_SZ             ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_epoch_rewards     [ FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_epoch_rewards     [ FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_epoch_schedule    [ FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ    ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_epoch_schedule    [ FD_SYSVAR_EPOCH_SCHEDULE_FOOTPRINT     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_last_restart_slot [ FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_last_restart_slot [ FD_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT  ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_rent              [ FD_SYSVAR_RENT_BINCODE_SZ              ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_rent              [ FD_SYSVAR_RENT_FOOTPRINT               ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_FOOTPRINT        ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_history      [ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
-  uchar obj_slot_history      [ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_stake_history     [ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_stake_history     [ FD_SYSVAR_STAKE_HISTORY_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
 
@@ -240,7 +234,7 @@ fd_sysvar_cache_last_restart_slot_is_valid( fd_sysvar_cache_t const * sysvar_cac
   return FD_SYSVAR_IS_VALID( sysvar_cache, last_restart_slot );
 }
 
-ulong
+ulong const *
 fd_sysvar_cache_last_restart_slot_read( fd_sysvar_cache_t const * sysvar_cache );
 
 static inline int
@@ -264,16 +258,12 @@ fd_sysvar_cache_recent_hashes_is_valid( fd_sysvar_cache_t const * sysvar_cache )
   return FD_SYSVAR_IS_VALID( sysvar_cache, recent_hashes );
 }
 
-fd_block_block_hash_entry_t const * /* deque */
-fd_sysvar_cache_recent_hashes_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
+/* fd_sysvar_cache_recent_hashes_is_empty returns 0 if there is at least
+   one valid blockhash queue entry in the 'recent blockhashes' sysvar,
+   1 otherwise (invalid sysvar or empty queue). */
 
-void
-fd_sysvar_cache_recent_hashes_leave_const(
-    fd_sysvar_cache_t const *           sysvar_cache,
-    fd_block_block_hash_entry_t const * hashes_deque
-);
+int
+fd_sysvar_cache_recent_hashes_is_empty( fd_sysvar_cache_t const * sysvar_cache );
 
 /* fd_sysvar_cache_slot_hashes_{join,leave}_const {attach,detach} the
    caller {from,to} the slot hashes deque contained in the slot hashes
@@ -307,17 +297,6 @@ static inline int
 fd_sysvar_cache_slot_history_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, slot_history );
 }
-
-fd_slot_history_global_t const *
-fd_sysvar_cache_slot_history_join_const(
-    fd_sysvar_cache_t const * sysvar_cache
-);
-
-void
-fd_sysvar_cache_slot_history_leave_const(
-    fd_sysvar_cache_t const *        sysvar_cache,
-    fd_slot_history_global_t const * slot_history
-);
 
 /* fd_sysvar_cache_stake_history_{join,leave}_const {attach,detach} the
    caller {from,to} the "stake history" sysvar.  Behavior analogous to

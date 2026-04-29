@@ -4,6 +4,7 @@
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../waltz/http/picohttpparser.h"
+#include "../../../waltz/http/fd_http.h"
 #include "../../../ballet/json/cJSON.h"
 #include "../../../ballet/base58/fd_base58.h"
 
@@ -98,7 +99,9 @@ fd_rpc_serve_one( void * args ) {
     }
 
     FD_TEST( found );
-    content_length = strtoul( headers[i].value, NULL, 10 );
+
+    content_length = 0UL;
+    FD_TEST( !fd_http_parse_content_len( headers[i].value, (ulong)headers[i].value_len, &content_length ) );
 
     FD_TEST( (ulong)content_offset + content_length < sizeof( buf ) );
     if( bytes_read < (ulong)content_offset + content_length ) continue;

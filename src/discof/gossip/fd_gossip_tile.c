@@ -118,6 +118,15 @@ gossip_activity_update_fn( void *                           _ctx,
   /* gossvf should filter out messages with mismatching shred version */
   FD_TEST( ci->shred_version==ctx->my_contact_info->shred_version );
 
+  /* To match Agave's tvu_peers() filter, require a valid TVU UDP
+     socket for the ACTIVE path. */
+  if( FD_LIKELY( change_type==FD_GOSSIP_ACTIVITY_CHANGE_TYPE_ACTIVE ) ) {
+    fd_ip4_port_t tvu_addr;
+    tvu_addr.addr = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].is_ipv6 ? 0U : ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].ip4;
+    tvu_addr.port = ci->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_TVU ].port;
+    if( FD_UNLIKELY( !tvu_addr.l ) ) return;
+  }
+
   /* If identity is not found in ctx->wfs_stakes the peer is likely
      unstaked and can be ignored. */
   ulong stake_idx = fd_stake_weight_key_sort_split( ctx->wfs_stakes, ctx->wfs_stakes_cnt, (fd_stake_weight_t){ .key = *identity } );
@@ -138,7 +147,7 @@ gossip_activity_update_fn( void *                           _ctx,
     ctx->wfs_active[ stake_idx ] = 0;
   }
 
-  if( FD_UNLIKELY( ctx->wfs_stake.total>0UL && (100UL*ctx->wfs_stake.online) / ctx->wfs_stake.total >= 80UL ) ) {
+  if( FD_UNLIKELY( ctx->wfs_stake.total>0UL && (ulong)( ((double)ctx->wfs_stake.online / (double)ctx->wfs_stake.total) * 100.0 ) >= 80UL ) ) {
     ctx->wfs_state = FD_GOSSIP_WFS_STATE_PUBLISH;
   }
 }
@@ -291,6 +300,11 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
+  if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( msg->staked_id_cnt>MAX_SHRED_DESTS ) )
+    FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
+
   fd_stake_weight_t const * weights = fd_epoch_info_msg_id_weights( msg );
   fd_gossip_stakes_update( ctx->gossip, weights, msg->staked_id_cnt );
 }

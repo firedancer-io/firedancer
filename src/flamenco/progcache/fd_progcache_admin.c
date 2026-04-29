@@ -437,7 +437,7 @@ reset_rec_map( fd_progcache_join_t * cache ) {
 
       rec->exists = 0;
       fd_prog_clock_remove( cache->clock.bits, (ulong)( rec-rec0 ) );
-      fd_prog_recp_release( cache->rec.pool, rec, 1 );
+      fd_prog_recp_release( cache->rec.pool, rec );
       iter.ele_idx = next;
     }
   }

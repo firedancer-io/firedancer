@@ -1,4 +1,5 @@
 #include "../../disco/topo/fd_topo.h"
+#include "../../discof/fd_startup.h"
 #include "../../util/log/fd_log.h"
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../tango/fd_tango_base.h"
@@ -6,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
@@ -477,6 +479,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ctx->in_cnt].mtu    = link->mtu;
     ctx->in_cnt++;
   }
+
+  fd_sleep_until_replay_started( topo );
 }
 
 #define STEM_BURST (1UL)

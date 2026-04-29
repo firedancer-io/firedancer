@@ -12,18 +12,7 @@ fd_sysvar_rent_write( fd_bank_t *               bank,
                       fd_funk_txn_xid_t const * xid,
                       fd_capture_ctx_t *        capture_ctx,
                       fd_rent_t const *         rent ) {
-
-  uchar enc[ FD_SYSVAR_RENT_BINCODE_SZ ] = {0};
-
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = enc,
-    .dataend = enc + FD_SYSVAR_RENT_BINCODE_SZ,
-  };
-  if( FD_UNLIKELY( fd_rent_encode( rent, &ctx ) ) ) {
-    FD_LOG_ERR(( "fd_rent_encode failed" ));
-  }
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_rent_id, enc, FD_SYSVAR_RENT_BINCODE_SZ );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_rent_id, rent, FD_SYSVAR_RENT_BINCODE_SZ );
 }
 
 void
@@ -44,6 +33,11 @@ fd_sysvar_rent_read( fd_accdb_user_t *         accdb,
     return NULL;
   }
 
+  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )!=FD_SYSVAR_RENT_BINCODE_SZ ) ) {
+    fd_accdb_close_ro( accdb, ro );
+    return NULL;
+  }
+
   /* This check is needed as a quirk of the fuzzer. If a sysvar account
      exists in the accounts database, but doesn't have any lamports,
      this means that the account does not exist. This wouldn't happen
@@ -53,10 +47,7 @@ fd_sysvar_rent_read( fd_accdb_user_t *         accdb,
     return NULL;
   }
 
-  rent = fd_bincode_decode_static(
-      rent, rent,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz   ( ro ) );
+  memcpy( rent, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) );
   fd_accdb_close_ro( accdb, ro );
   return rent;
 }

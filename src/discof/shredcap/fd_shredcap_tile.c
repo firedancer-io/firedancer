@@ -213,6 +213,41 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+/* verification of epoch stakes from manifest
+   https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L632 */
+static int
+verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
+
+  fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
+    .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
+    .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
+    .warmup                      = manifest->epoch_schedule_params.warmup,
+    .first_normal_epoch          = manifest->epoch_schedule_params.first_normal_epoch,
+    .first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot,
+  };
+
+  ulong min_required_epoch = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
+  ulong max_required_epoch = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
+
+  /* ensure all required epochs are present in epoch stakes */
+  for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
+    int found = 0;
+    for( ulong j=0UL; j<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
+      if( manifest->epoch_stakes[j].epoch==i ) {
+        found = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !found ) ) {
+      FD_LOG_WARNING(( "stakes not found for epoch %lu in manifest", i ));
+      return -1;
+    }
+  }
+
+  return 0;
+}
+
 static inline ulong
 generate_epoch_info_msg_manifest( ulong                                       epoch,
                                   fd_epoch_schedule_t const *                 epoch_schedule,
@@ -260,21 +295,31 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
   fd_epoch_schedule_t const * schedule = fd_type_pun_const( &manifest->epoch_schedule_params );
   ulong epoch = fd_slot_to_epoch( schedule, manifest->slot, NULL );
 
+  ulong epoch_stakes_base = epoch > 0UL ? epoch - 1UL : 0UL;
+  ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( schedule, manifest->slot );
+  ulong cur_idx = epoch - epoch_stakes_base;
+  FD_TEST( cur_idx < FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+
   /* current epoch */
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, &manifest->epoch_stakes[0], stake_weights_msg );
+  ulong stake_weights_sz = generate_epoch_info_msg_manifest( epoch, schedule, &manifest->epoch_stakes[cur_idx], stake_weights_msg );
   ulong stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
   FD_LOG_NOTICE(("sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
 
-  /* next current epoch */
-  stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[1], stake_weights_msg );
-  stake_weights_sig = 4UL;
-  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-  FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+  /* next epoch */
+  if( leader_schedule_epoch >= epoch + 1UL ) {
+    ulong next_idx = epoch + 1UL - epoch_stakes_base;
+    FD_TEST( next_idx < FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+
+    stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+    stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[next_idx], stake_weights_msg );
+    stake_weights_sig = 4UL;
+    fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
+    FD_LOG_NOTICE(("sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3]));
+  }
 }
 
 static inline int
@@ -455,6 +500,13 @@ after_credit( fd_capture_tile_ctx_t * ctx,
       } FD_SPAD_FRAME_END;
       FD_TEST( manifest );
 
+      /* Spad memory is not zeroed.  Initialize epoch_stakes sentinels so
+         that verify_epoch_stakes can reliably detect unpopulated entries
+         even if the parser does not write all slots. */
+      for( ulong i=0UL; i<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+        manifest->epoch_stakes[i].epoch = ULONG_MAX;
+      }
+
       FD_SPAD_FRAME_BEGIN( ctx->shared_spad ) {
         uchar * buf    = fd_spad_alloc( ctx->shared_spad, manifest_load_align(), manifest_load_footprint() );
         ulong   buf_sz = 0;
@@ -469,6 +521,8 @@ after_credit( fd_capture_tile_ctx_t * ctx,
         // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
       } FD_SPAD_FRAME_END;
       FD_LOG_NOTICE(( "manifest bank slot %lu", manifest->slot ));
+
+      FD_TEST( !verify_epoch_stakes( manifest ) );
 
       fd_fseq_update( ctx->manifest_wmark, manifest->slot );
 

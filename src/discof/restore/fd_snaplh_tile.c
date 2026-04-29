@@ -120,6 +120,7 @@ struct fd_snaplh_tile {
 
   int         lthash_completion_pending;
   int         fail_completion_pending;
+  int         error_completion_pending;
 
   /* io_uring setup */
 
@@ -385,12 +386,13 @@ handle_vinyl_lthash_request_ur( fd_snaplh_t *             ctx,
 }
 
 static void
-handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx ) {
+handle_vinyl_lthash_request_ur_consume_all( fd_snaplh_t * ctx,
+                                            int           discard ) {
   while( ctx->vinyl.pending_rd_req_cnt ) {
     fd_vinyl_io_rd_t * rd_req = NULL;
     fd_vinyl_io_poll( ctx->vinyl.io, &rd_req, FD_VINYL_IO_FLAG_BLOCKING );
     FD_TEST( rd_req!=NULL );
-    handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
+    if( FD_LIKELY( !discard ) ) handle_vinyl_lthash_compute_from_rd_req( ctx, rd_req );
     rd_req->ctx = rd_req_ctx_update_status( rd_req->ctx, VINYL_LTHASH_RD_REQ_FREE );
     rd_req->seq = ULONG_MAX;
     rd_req->sz  = 0UL;
@@ -440,6 +442,14 @@ handle_fail_completion( fd_snaplh_t * ctx,
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
     ctx->fail_completion_pending = 0;
   }
+}
+
+static void
+handle_error_completion( fd_snaplh_t *       ctx,
+                         fd_stem_context_t * stem ) {
+  if( FD_LIKELY( !ctx->error_completion_pending ) ) return;
+  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+  ctx->error_completion_pending = 0;
 }
 
 static void
@@ -596,7 +606,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       ctx->wh_finish_fseq = tsorig_tspub_to_fseq( tsorig, tspub );
       if( FD_LIKELY( ctx->io_uring_enabled ) ) {
-        handle_vinyl_lthash_request_ur_consume_all( ctx );
+        handle_vinyl_lthash_request_ur_consume_all( ctx, 0/*discard*/ );
       }
       ctx->lthash_completion_pending = 1;
       /* handle_lthash_completion may succeed (complete) either here
@@ -616,6 +626,13 @@ handle_control_frag( fd_snaplh_t * ctx,
     case FD_SNAPSHOT_MSG_CTRL_ERROR: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      if( FD_LIKELY( ctx->io_uring_enabled ) ) {
+        handle_vinyl_lthash_request_ur_consume_all( ctx, 1/*discard*/ );
+      }
+      ctx->lthash_completion_pending = 0;
+      ctx->fail_completion_pending   = 0;
+      ctx->error_completion_pending  = 1;
+      handle_error_completion( ctx, stem );
       break;
     }
 
@@ -624,7 +641,7 @@ handle_control_frag( fd_snaplh_t * ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       ctx->wh_finish_fseq = tsorig_tspub_to_fseq( tsorig, tspub );
       if( FD_LIKELY( ctx->io_uring_enabled ) ) {
-        handle_vinyl_lthash_request_ur_consume_all( ctx );
+        handle_vinyl_lthash_request_ur_consume_all( ctx, 1/*discard*/ );
       }
       ctx->fail_completion_pending = 1;
       /* handle_fail_completion may succeed (complete) either here (if
@@ -959,6 +976,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->lthash_completion_pending = 0;
   ctx->fail_completion_pending   = 0;
+  ctx->error_completion_pending  = 0;
 }
 
 #define STEM_BURST 1UL

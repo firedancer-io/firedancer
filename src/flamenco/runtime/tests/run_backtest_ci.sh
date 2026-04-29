@@ -36,3 +36,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258-v4.0.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-v4.0.0 -y 1 -m 1000 -e 75
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary -y 2 -m 2000000 -e 391824016
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.0.0-alpha.0 -y 1 -m 10000
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -y 1 -m 10000 -e 540

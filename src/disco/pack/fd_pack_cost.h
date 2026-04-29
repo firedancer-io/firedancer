@@ -428,7 +428,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
       base += sizeof(uint);     data_sz -= sizeof(uint);
       ulong seed_len;
       switch( discriminant ) {
-        case 0UL: /* fd_system_program_instruction_enum_create_account */
+        case 0UL: /* FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT */
           if( FD_UNLIKELY( data_sz<8UL+8UL ) ) break;
           /* Note: here (and below), Agave sets alloc to 0 if any of
              these instructions request more than 10 MB.  We don't
@@ -438,7 +438,7 @@ fd_pack_compute_cost( fd_txn_t const * txn,
              computing a conservative estimate. */
           allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( ulong, base+8UL ) );
           break;
-        case 3UL: /* fd_system_program_instruction_enum_create_account_with_seed */
+        case 3UL: /* FD_SYSTEM_PROGRAM_INSTR_CREATE_ACCOUNT_WITH_SEED */
           if( FD_UNLIKELY( data_sz<32UL+8UL ) ) break;
           seed_len = FD_LOAD( ulong, base+32UL );
           base += 32UL+8UL;     data_sz -= 32UL+8UL;
@@ -447,11 +447,11 @@ fd_pack_compute_cost( fd_txn_t const * txn,
           if( FD_UNLIKELY( data_sz<(8UL+8UL) ) ) break;
           allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( ulong, base+8UL ) );
           break;
-        case 8UL: /* fd_system_program_instruction_enum_allocate */
+        case 8UL: /* FD_SYSTEM_PROGRAM_INSTR_ALLOCATE */
           if( FD_UNLIKELY( data_sz<8UL ) ) break;
           allocated_data += fd_ulong_min( MAX_ALLOC, FD_LOAD( ulong, base ) );
           break;
-        case 9UL: /* fd_system_program_instruction_enum_allocate_with_seed */
+        case 9UL: /* FD_SYSTEM_PROGRAM_INSTR_ALLOCATE_WITH_SEED */
           if( FD_UNLIKELY( data_sz<32UL+8UL ) ) break;
           seed_len = FD_LOAD( ulong, base+32UL );
           base += 32UL+8UL;     data_sz -= 32UL+8UL;

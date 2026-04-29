@@ -146,7 +146,9 @@ struct fd_rdisp_txn {
      0xFFFF0000 (16 bits) for linear block number,
      0x0000C000 (2 bits) for concurrency lane,
      0x00003F80 (7 bits) for r_cnt
-     0x0000007F (7 bits) for w_cnt */
+     0x0000007F (7 bits) for w_cnt_1.  Unfortunately, transactions can
+     have up to 128 writable accounts, but they have at least 1, so by
+     storing w_cnt_1 = w_cnt - 1, we can still store it in 7 bits. */
   union {
     uint edge_cnt_etc;
     /* edge_cnt_etc is only used when the transaction is STAGED and
@@ -167,7 +169,7 @@ struct fd_rdisp_txn {
      (child, next, prev).  All edges from writable accounts come first,
      and we keep track of how many there are.  In the worst case, all
      accounts are reads, so we size it appropriately. */
-  edge_t edges[3UL*MAX_ACCT_PER_TXN]; /* addressed [0, w_cnt+3*r_cnt) */
+  edge_t edges[3UL*MAX_ACCT_PER_TXN]; /* addressed [0, w_cnt_1+1+3*r_cnt) */
 };
 typedef struct fd_rdisp_txn fd_rdisp_txn_t;
 
@@ -190,23 +192,23 @@ typedef struct fd_rdisp_txn fd_rdisp_txn_t;
 
    Then the edge index, i.e. the position in the edges array of the
    (first) edge for an account index is:
-          acct_idx                      if acct_idx<w_cnt
-          w_cnt + 3*(acct_idx-w_cnt)    else.
+          acct_idx                              if acct_idx<=w_cnt_1
+          w_cnt_1+1 + 3*(acct_idx-w_cnt_1-1)    else.
   Simplifying gives
-         acct_idx + 2*signed_max( 0, acct_idx-w_cnt ).
+         acct_idx + 2*signed_max( 0, acct_idx-w_cnt_1-1 ).
   In doing this calculation, we also basically get for free whether the
   edge is for a writable account or a readonly account, so we return
   that as well via the w parameter.  If the child transaction only reads
   the account address for this DAG, then the next and prev pointers can
   be accessed using the returned value +1 and +2, respectively. */
-#define FOLLOW_EDGE(base, x, w) (__extension__({                                 \
-        uint __e = (x);                                                          \
-        fd_rdisp_txn_t * __txn = ((base)+(__e>>8));                              \
-        uint __wcnt = __txn->edge_cnt_etc & 0x7FU;                               \
-        uint __idx  = (__e & 0xFFU);                                             \
-        (w) = __idx<__wcnt;                                                      \
-        (void)(w);  /* not robust... */                                          \
-        __txn->edges + __idx + 2*fd_int_max( 0, (int)(__idx)-(int)(__wcnt) ); }))
+#define FOLLOW_EDGE(base, x, w) (__extension__({                                      \
+        uint __e = (x);                                                               \
+        fd_rdisp_txn_t * __txn = ((base)+(__e>>8));                                   \
+        uint __w_cnt_1 = __txn->edge_cnt_etc & 0x7FU;                                 \
+        uint __idx  = (__e & 0xFFU);                                                  \
+        (w) = __idx<=__w_cnt_1;                                                       \
+        (void)(w);  /* not robust... */                                               \
+        __txn->edges + __idx + 2*fd_int_max( 0, (int)(__idx)-(int)(__w_cnt_1)-1 ); }))
 #define FOLLOW_EDGE_TXN(base, x) ( (base)+((x)>>8) )
 
 /* The pool and slist are almost the same, but they are used
@@ -814,11 +816,12 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
     FD_TEST( ele->in_degree==IN_DEGREE_UNSTAGED );
 
     ele->in_degree    = 0U;
-    ele->edge_cnt_etc = 0U;
+    ele->edge_cnt_etc = (uint)(-1); /* set w_cnt_1 to -1 */
 
     add_edges( disp, ele, uns->keys,                   uns->writable_cnt, (uint)staging_lane, 1, 0 );
     add_edges( disp, ele, uns->keys+uns->writable_cnt, uns->readonly_cnt, (uint)staging_lane, 0, 0 );
 
+    ele->edge_cnt_etc &= 0x3FFFU;
     ele->edge_cnt_etc |= (uint)staging_lane<<14;
     ele->edge_cnt_etc |= linear_block_number<<16;
 
@@ -932,9 +935,17 @@ add_edges( fd_rdisp_t           * disp,
            uint                   lane,
            int                    writable,
            int                    update_score ) {
+  /* When we first start, the low 14 bits are 0x3FFF, so that gives us
+     w_cnt==0, r_cnt==0, as desired.  Then otherwise, the low 7 bits are
+     w_cnt_1, so adding 1 gives w_cnt.  If we've actually added 128
+     writable accounts, then r_cnt will be incorrect, but then we
+     actually can't add any more readonly accounts, so the function call
+     will be a no-op. */
 
-  ulong acct_idx = (ele->edge_cnt_etc & 0x7FU) +     ((ele->edge_cnt_etc>>7) & 0x7FU);
-  ulong edge_idx = (ele->edge_cnt_etc & 0x7FU) + 3UL*((ele->edge_cnt_etc>>7) & 0x7FU);
+  ulong w_cnt =  (ele->edge_cnt_etc + 1U)     & 0x7FU;
+  ulong r_cnt = ((ele->edge_cnt_etc + 1U)>>7) & 0x7FU;
+  ulong acct_idx = w_cnt +     r_cnt;
+  ulong edge_idx = w_cnt + 3UL*r_cnt;
 
   for( ulong i=0UL; i<addr_cnt; i++ ) {
     fd_acct_addr_t const * addr = addrs+i;
@@ -1080,7 +1091,8 @@ add_edges( fd_rdisp_t           * disp,
     edge_idx += fd_uint_if( writable, 1U, 3U );
     acct_idx++;
   }
-  ele->edge_cnt_etc += (uint)addr_cnt<<fd_int_if( writable, 0, 7 ); /* Can't overflow by construction */
+  /* Can't overflow by construction, except for the intentional overflow on the first time. */
+  ele->edge_cnt_etc += (uint)addr_cnt<<fd_int_if( writable, 0, 7 );
 }
 
 
@@ -1158,7 +1170,11 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
 
     rtxn->in_degree    = 0U;
     rtxn->score        = 0.999f;
-    rtxn->edge_cnt_etc = (block->linear_block_number<<16) | (lane<<14);
+    /* There's not a good way to initialize w_cnt_1 to -1, which is what
+       it should be at this point, but this is close.  We must be sure
+       to add at least one writer (which we are assured of because we
+       know the transaction passed fd_txn_parse) to correct this value. */
+    rtxn->edge_cnt_etc = ((block->linear_block_number<<16) | (lane<<14)) - 1U;
 
     add_edges( disp, rtxn, imm_addrs,
                                      fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_SIGNER        ), lane, 1, 1 );
@@ -1238,12 +1254,12 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
     block->completed_cnt++;
   } else if( FD_LIKELY( rtxn->in_degree==IN_DEGREE_DISPATCHED ) ) {
     /* Staged */
-    ulong w_cnt = (rtxn->edge_cnt_etc    ) & 0x7FU;
-    ulong r_cnt = (rtxn->edge_cnt_etc>> 7) & 0x7FU;
-    ulong lane  = (rtxn->edge_cnt_etc>>14) & 0x3U;
+    ulong w_cnt_1 = (rtxn->edge_cnt_etc    ) & 0x7FU;
+    ulong r_cnt   = (rtxn->edge_cnt_etc>> 7) & 0x7FU;
+    ulong lane    = (rtxn->edge_cnt_etc>>14) & 0x3U;
     uint  tail_linear_block_num = (uint)(disp->lanes[lane].linear_block_number);
     ulong edge_idx = 0UL;
-    for( ulong i=0UL; i<w_cnt+r_cnt; i++ ) {
+    for( ulong i=0UL; i<=w_cnt_1+r_cnt; i++ ) {
       edge_t const * e = rtxn->edges+edge_idx;
       edge_t const  e0 = *e;
       edge_t ref_to_me = (uint)((txn_idx<<8) | i);
@@ -1265,7 +1281,7 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
            didn't exist, we need to check if it's the last one
            (me==me->next).  If so, we can clear last_reference.  If not,
            we need to delete this node from the linked list */
-        if( edge_idx<w_cnt || e[1]==ref_to_me ) {
+        if( edge_idx<=w_cnt_1 || e[1]==ref_to_me ) {
           ai->last_reference[ lane ] = 0U;
           ai->flags = (uchar)(ai->flags & (~(ACCT_INFO_FLAG_ANY_WRITERS( lane ) | ACCT_INFO_FLAG_LAST_REF_WAS_WRITE( lane ))));
         } else {
@@ -1378,7 +1394,7 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
           ai->flags = (uchar)flags;
         }
       }
-      edge_idx += fd_ulong_if( i<w_cnt, 1UL, 3UL );
+      edge_idx += fd_ulong_if( i<=w_cnt_1, 1UL, 3UL );
     }
     block = block_slist_ele_peek_head( disp->lanes[ lane ].block_ll, disp->block_pool );
     block->completed_cnt++;
@@ -1437,15 +1453,15 @@ fd_rdisp_verify( fd_rdisp_t const * disp,
         (rtxn->in_degree==IN_DEGREE_UNSTAGED)            |
         (rtxn->in_degree==IN_DEGREE_ZOMBIE) ) continue;
 
-    ulong w_cnt = (rtxn->edge_cnt_etc    ) & 0x7FU;
-    ulong r_cnt = (rtxn->edge_cnt_etc>> 7) & 0x7FU;
+    ulong w_cnt_1 = (rtxn->edge_cnt_etc    ) & 0x7FU;
+    ulong r_cnt   = (rtxn->edge_cnt_etc>> 7) & 0x7FU;
     ulong edge_idx = 0UL;
 
-    for( ulong i=0UL; i<w_cnt+r_cnt; i++ ) {
+    for( ulong i=0UL; i<=w_cnt_1+r_cnt; i++ ) {
       edge_t const * e = rtxn->edges+edge_idx;
       edge_t const  e0 = *e;
 
-      edge_idx += fd_ulong_if( i<w_cnt, 1UL, 3UL );
+      edge_idx += fd_ulong_if( i<=w_cnt_1, 1UL, 3UL );
 
       if( FD_UNLIKELY( EDGE_IS_LAST( e0 ) ) ) continue;
 

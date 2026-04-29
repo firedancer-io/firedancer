@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_snapct_tile.h"
 #include "utils/fd_sspeer.h"
 #include "utils/fd_ssping.h"
@@ -16,6 +17,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
@@ -386,9 +388,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   int min_ping_fd = INT_MAX;
   int max_ping_fd = 0;
   if( download_enabled( tile ) ) {
-    fd_ssping_sockfd_range_t fd_range = fd_ssping_get_sockfds( ctx->ssping );
-    min_ping_fd = fd_range.min_fd;
-    max_ping_fd = fd_range.max_fd;
+    min_ping_fd = FD_SSPING_FD_MIN;
+    max_ping_fd = FD_SSPING_FD_MIN + (int)FD_SSPING_FD_CNT - 1;
   }
 
   populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)min_ping_fd, (uint)max_ping_fd );
@@ -416,10 +417,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) )        out_fds[ out_cnt++ ] = ctx->local_out.full_snapshot_fd;
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) out_fds[ out_cnt++ ] = ctx->local_out.incremental_snapshot_fd;
   if( FD_LIKELY( download_enabled( tile ) ) ) {
-    fd_ssping_sockfd_range_t fd_range = fd_ssping_get_sockfds( ctx->ssping );
-    ulong needed_fd_cnt = out_cnt+(ulong)(fd_range.max_fd - fd_range.min_fd + 1);
-    if( FD_UNLIKELY( needed_fd_cnt>out_fds_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu must be at least %lu", out_fds_cnt, needed_fd_cnt ));
-    for( int i=fd_range.min_fd; i<=fd_range.max_fd; i++ ) out_fds[ out_cnt++ ] = i;
+    if( FD_UNLIKELY( out_cnt+FD_SSPING_FD_CNT > out_fds_cnt ) ) {
+      FD_LOG_ERR(( "out_fds_cnt %lu must be at least %lu", out_fds_cnt, out_cnt + FD_SSPING_FD_CNT ));
+    }
+    for( int i=FD_SSPING_FD_MIN; i<FD_SSPING_FD_MIN+(int)FD_SSPING_FD_CNT; i++ ) {
+      out_fds[ out_cnt++ ] = i;
+    }
   }
 
   return out_cnt;
@@ -665,24 +668,37 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->config.incremental_snapshots = 0;
       }
 
-      ulong       cluster_slot    = ctx->config.incremental_snapshots ? cluster.incremental : cluster.full;
-      ulong       local_slot      = ctx->config.incremental_snapshots ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
-      ulong       local_slot_with_download = local_slot;
-      int         local_too_old   = local_slot!=ULONG_MAX && ctx->local_in.full_snapshot_slot!=ULONG_MAX && local_slot<fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age );
-      int         local_full_only = ctx->local_in.incremental_snapshot_slot==ULONG_MAX && ctx->local_in.full_snapshot_slot!=ULONG_MAX;
-      if( FD_LIKELY( (ctx->config.incremental_snapshots && local_full_only) || local_too_old ) ) {
-        fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
-        if( FD_LIKELY( best_incremental.addr.l ) ) {
-          ctx->predicted_incremental.slot = best_incremental.incr_slot;
-          local_slot_with_download = best_incremental.incr_slot;
-          ctx->local_in.incremental_snapshot_slot = ULONG_MAX; /* don't use the local incremental snapshot */
+      ulong cluster_slot = ctx->config.incremental_snapshots ? cluster.incremental : cluster.full;
+
+      /* Determine the best effective slot achievable using the local
+         full snapshot.  When incrementals are disabled, the effective
+         slot is the full snapshot slot itself.  When enabled, it is the
+         best incremental we can pair with the local full (either from
+         a local file or downloaded from a peer). */
+
+      ulong local_effective_slot = ULONG_MAX;
+      if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
+        if( FD_LIKELY( ctx->config.incremental_snapshots ) ) {
+          ulong local_incr = ctx->local_in.incremental_snapshot_slot;
+          if( local_incr!=ULONG_MAX && local_incr>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age ) ) {
+            local_effective_slot = local_incr;
+          } else {
+            fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
+            if( FD_LIKELY( best_incr.addr.l ) ) {
+              ctx->predicted_incremental.slot         = best_incr.incr_slot;
+              ctx->local_in.incremental_snapshot_slot = ULONG_MAX; /* don't use the local incremental */
+              local_effective_slot                    = best_incr.incr_slot;
+            }
+          }
+        } else {
+          local_effective_slot = ctx->local_in.full_snapshot_slot;
         }
       }
 
-      int can_use_local_full = local_slot_with_download!=ULONG_MAX && ctx->local_in.full_snapshot_slot!=ULONG_MAX &&
-                               local_slot_with_download>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_full_effective_age );
+      int can_use_local_full = local_effective_slot!=ULONG_MAX &&
+                               local_effective_slot>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_full_effective_age );
       if( FD_LIKELY( can_use_local_full ) ) {
-        send_expected_slot( ctx, stem, local_slot_with_download );
+        send_expected_slot( ctx, stem, local_effective_slot );
 
         FD_LOG_NOTICE(( "reading full snapshot at slot %lu with cluster slot %lu from local file `%s`",
                         ctx->local_in.full_snapshot_slot, cluster_slot, ctx->local_in.full_snapshot_path ));
@@ -691,18 +707,32 @@ after_credit( fd_snapct_tile_t *  ctx,
         init_load( ctx, stem, 1, 1 );
       } else {
         if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
-          FD_LOG_NOTICE(( "local snapshot at slot %lu is too old for cluster slot %lu max age %u, downloading instead",
-                          local_slot, cluster_slot, ctx->config.sources.max_local_full_effective_age ));
+          if( local_effective_slot==ULONG_MAX ) {
+            if( ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) {
+              FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because local incremental snapshot at slot %lu "
+                              "is too old and no downloadable incremental could be found (cluster slot %lu), downloading instead",
+                              ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot, cluster_slot ));
+            } else {
+              FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because no matching incremental snapshot "
+                              "could be found (cluster slot %lu), downloading instead",
+                              ctx->local_in.full_snapshot_slot, cluster_slot ));
+            }
+          } else {
+            FD_LOG_NOTICE(( "local full snapshot at slot %lu (effective slot %lu) is too old for cluster slot %lu max age %u, downloading instead",
+                            ctx->local_in.full_snapshot_slot, local_effective_slot, cluster_slot, ctx->config.sources.max_local_full_effective_age ));
+          }
         } else {
           FD_LOG_NOTICE(( "no local snapshot available, downloading from peer" ));
         }
 
-        if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) send_expected_slot( ctx, stem, best.full_slot );
-
-        fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
-        if( FD_LIKELY( best_incremental.addr.l ) ) {
-          ctx->predicted_incremental.slot = best_incremental.incr_slot;
-          send_expected_slot( ctx, stem, best_incremental.incr_slot );
+        if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) {
+          send_expected_slot( ctx, stem, best.full_slot );
+        } else {
+          fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
+          if( FD_LIKELY( best_incremental.addr.l ) ) {
+            ctx->predicted_incremental.slot = best_incremental.incr_slot;
+            send_expected_slot( ctx, stem, best_incremental.incr_slot );
+          }
         }
 
         ctx->peer                            = best;
@@ -1298,6 +1328,12 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
     fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
 
+    if( FD_UNLIKELY( meta->total_sz==0UL ) ) {
+      FD_LOG_WARNING(( "received zero Content-Length metadata for %s snapshot, marking malformed", full ? "full" : "incremental" ));
+      ctx->malformed = 1;
+      return;
+    }
+
     if( full ) ctx->metrics.full.bytes_total        = meta->total_sz;
     else       ctx->metrics.incremental.bytes_total = meta->total_sz;
 
@@ -1364,8 +1400,20 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       return;
   }
 
-  if( full ) FD_TEST( ctx->metrics.full.bytes_total       !=0UL );
-  else       FD_TEST( ctx->metrics.incremental.bytes_total!=0UL );
+  if( FD_UNLIKELY( full  && ctx->metrics.full.bytes_total==0UL ) ) {
+    if( !ctx->malformed ) {
+      ctx->malformed = 1;
+      FD_LOG_WARNING(( "received data frag for full snapshot with zero bytes_total" ));
+    }
+    return;
+  }
+  if( FD_UNLIKELY( !full && ctx->metrics.incremental.bytes_total==0UL ) ) {
+    if( !ctx->malformed ) {
+      ctx->malformed = 1;
+      FD_LOG_WARNING(( "received data frag for incremental snapshot with zero bytes_total" ));
+    }
+    return;
+  }
 
   if( full ) ctx->metrics.full.bytes_read        += sz;
   else       ctx->metrics.incremental.bytes_read += sz;
@@ -1601,6 +1649,15 @@ privileged_init( fd_topo_t *      topo,
   ctx->local_out.full_snapshot_fd        = -1;
   ctx->local_out.incremental_snapshot_fd = -1;
   if( FD_LIKELY( download_enabled( tile ) ) ) {
+    /* Switch to non-root uid/gid for file creation so snapshot files
+       are owned by the target user, not root. */
+    gid_t gid = getgid();
+    uid_t uid = getuid();
+    if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->snapct.target_gid, -1 ) ) )
+      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->snapct.target_uid, -1 ) ) )
+      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
     ctx->local_out.dir_fd = open( tile->snapct.snapshots_path, O_DIRECTORY|O_CLOEXEC );
     if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->snapct.snapshots_path, errno, fd_io_strerror( errno ) ));
 
@@ -1611,6 +1668,11 @@ privileged_init( fd_topo_t *      topo,
       ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_INCR_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
       if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_INCR_SNAP_NAME, errno, fd_io_strerror( errno ) ));
     }
+
+    if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) )
+      FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) )
+      FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   FD_TEST( fd_rng_secure( &ctx->selector_seed, 8UL ) );

@@ -2,7 +2,9 @@
 name: coverage
 description: Export source coverage of test
 argument-hint: <test-name>
-allowed-tools: Bash(llvm-cov *)
+allowed-tools:
+  - Bash(llvm-cov *)
+  - Bash(CLANKER=1 ./contrib/test/single_test_cov.sh *)
 ---
 
 Export source coverage of unit test $0:

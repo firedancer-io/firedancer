@@ -511,17 +511,24 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
-      int   ingest_dead_slots;
-      ulong root_distance;
+      char  ledger_format[ 16 ];
+      char  ledger_path[ PATH_MAX ];
       ulong end_slot;
-      char  rocksdb_path[ PATH_MAX ];
-      char  shredcap_path[ PATH_MAX ];
+      ulong root_distance;
     } backtest;
+
+    struct {
+      char   ledger_format[ 16 ];
+      char   ledger_path[ PATH_MAX ];
+      ulong  end_slot;
+      ushort shred_listen_port;
+    } forktest;
 
     struct {
       ulong authorized_voter_paths_cnt;
       char  authorized_voter_paths[ 16 ][ PATH_MAX ];
       int   hard_fork_fatal;
+      int   wait_for_supermajority;
       ulong max_live_slots;
       ulong accdb_max_depth;
       char  identity_key[ PATH_MAX ];
@@ -577,6 +584,9 @@ struct fd_topo_tile {
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
       uint max_retry_abort;
+
+      uint target_uid;
+      uint target_gid;
     } snapct;
 
     struct {

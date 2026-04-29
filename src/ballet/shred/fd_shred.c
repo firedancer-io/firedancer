@@ -105,7 +105,7 @@ fd_shred_parse( uchar const * const buf,
   return shred;
 }
 
-FD_FN_PURE int
+int
 fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_node_t * root_out ) {
   fd_bmtree_commit_t * tree = fd_bmtree_commit_init( bmtree_mem,
                                                      FD_SHRED_MERKLE_NODE_SZ,

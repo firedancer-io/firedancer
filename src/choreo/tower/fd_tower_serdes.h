@@ -137,7 +137,7 @@ struct __attribute__((packed)) fd_vote_acc {
 };
 typedef struct fd_vote_acc fd_vote_acc_t;
 
-FD_FN_PURE ulong
+ulong
 fd_vote_acc_vote_cnt( uchar const * buf );
 
 /* fd_vote_acc_vote_slot takes a voter's vote account data and returns

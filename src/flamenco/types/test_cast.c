@@ -14,7 +14,7 @@ main( int     argc,
   double max_1 = (double)ULONG_MAX+1;
 
   FD_TEST( fd_rust_cast_double_to_ulong( inf  )   == ULONG_MAX );
-  FD_TEST( fd_rust_cast_double_to_ulong( ninf )   == ULONG_MAX );
+  FD_TEST( fd_rust_cast_double_to_ulong( ninf )   == 0  );
   FD_TEST( fd_rust_cast_double_to_ulong( nan  )   == 0  );
   FD_TEST( fd_rust_cast_double_to_ulong( neg  )   == 0  );
   FD_TEST( fd_rust_cast_double_to_ulong( pos  )   == 42 );

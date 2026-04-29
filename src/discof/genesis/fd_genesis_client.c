@@ -2,6 +2,7 @@
 
 #include "../../waltz/http/picohttpparser.h"
 #include "../../util/fd_util.h"
+#include "../../waltz/http/fd_http.h"
 #include "../../ballet/sha256/fd_sha256.h"
 
 #include <errno.h>
@@ -106,7 +107,7 @@ fd_genesis_client_init( fd_genesis_client_t * client,
 
   client->peer_cnt = peer_cnt;
   client->remaining_peer_cnt = peer_cnt;
-  client->start_time_nanos = fd_log_wallclock();
+  client->start_time_nanos = LONG_MAX;
 }
 
 static void
@@ -163,32 +164,13 @@ write_conn( fd_genesis_client_t * client,
 }
 
 static ulong
-rpc_parse_decimal_ulong( char const * s,
-                         ulong        s_len,
-                         ulong *      out ) {
-  if( FD_UNLIKELY( !s_len ) ) return 0UL;
-
-  ulong val = 0UL;
-  for( ulong i=0UL; i<s_len; i++ ) {
-    char c = s[ i ];
-    if( FD_UNLIKELY( (c<'0') | (c>'9') ) ) return 0UL;
-    ulong digit = (ulong)(c-'0');
-    if( FD_UNLIKELY( val>(ULONG_MAX-digit)/10UL ) ) return 0UL;
-    val = val*10UL + digit;
-  }
-
-  *out = val;
-  return 1UL;
-}
-
-static ulong
 rpc_phr_content_length( struct phr_header * headers,
                         ulong               num_headers ) {
   for( ulong i=0UL; i<num_headers; i++ ) {
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
     if( FD_LIKELY( strncasecmp( headers[i].name, "Content-Length", 14UL ) ) ) continue;
     ulong content_length = 0UL;
-    if( FD_UNLIKELY( !rpc_parse_decimal_ulong( headers[i].value, (ulong)headers[i].value_len, &content_length ) ) ) return ULONG_MAX;
+    if( FD_UNLIKELY( fd_http_parse_content_len( headers[i].value, (ulong)headers[i].value_len, &content_length ) ) ) return ULONG_MAX;
     if( FD_UNLIKELY( content_length>UINT_MAX ) ) return ULONG_MAX; /* prevent overflow */
     return content_length;
   }
@@ -267,7 +249,9 @@ fd_genesis_client_poll( fd_genesis_client_t * client,
                         ulong *               buffer_sz,
                         int *                 charge_busy ) {
   if( FD_UNLIKELY( !client->remaining_peer_cnt ) ) return -1;
-  if( FD_UNLIKELY( fd_log_wallclock()-client->start_time_nanos>20L*1000L*1000*1000L ) ) {
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( LONG_MAX==client->start_time_nanos ) ) client->start_time_nanos = now;
+  if( FD_UNLIKELY( now-client->start_time_nanos>20L*1000L*1000*1000L ) ) {
     close_all( client );
     return -1;
   }

@@ -13,7 +13,6 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../flamenco/types/fd_types.h"
 #include "../../util/pod/fd_pod.h"
 
 #include "generated/fd_snapin_tile_seccomp.h"
@@ -113,11 +112,6 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
 
   fd_account_meta_t meta;
   uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
-  union {
-    uchar buf[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
-    fd_slot_history_global_t o;
-  } decoded;
-  FD_STATIC_ASSERT( offsetof( __typeof__(decoded), buf)==offsetof( __typeof__(decoded), o ), memory_layout );
   fd_snapin_read_account( ctx, &fd_sysvar_slot_history_id, &meta, data, sizeof(data) );
 
   if( FD_UNLIKELY( !meta.lamports || !meta.dlen ) ) {
@@ -134,13 +128,8 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     return -1;
   }
 
-  if( FD_UNLIKELY(
-      !fd_bincode_decode_static_global(
-          slot_history,
-          &decoded.o,
-          data,
-          meta.dlen )
-  ) ) {
+  fd_slot_history_view_t view[1];
+  if( FD_UNLIKELY( !fd_sysvar_slot_history_view( view, data, meta.dlen ) ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
     return -1;
   }
@@ -148,7 +137,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
   /* Sanity checks for slot history:
      https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L586 */
 
-  ulong newest_slot = fd_sysvar_slot_history_newest( &decoded.o );
+  ulong newest_slot = view->next_slot - 1UL;
   if( FD_UNLIKELY( newest_slot!=ctx->bank_slot ) ) {
     /* VerifySlotHistoryError::InvalidNewestSlot
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L621 */
@@ -156,18 +145,17 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     return -1;
   }
 
-  ulong slot_history_len = fd_sysvar_slot_history_len( &decoded.o );
-  if( FD_UNLIKELY( slot_history_len!=FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
+  if( FD_UNLIKELY( view->bits_len!=FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
     /* VerifySlotHistoryError::InvalidNumEntries
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L625 */
-    FD_LOG_WARNING(( "SLotHistory sysvar has invalid number of entries: %lu != expected: %lu", slot_history_len, FD_SLOT_HISTORY_MAX_ENTRIES ));
+    FD_LOG_WARNING(( "SLotHistory sysvar has invalid number of entries: %lu != expected: %lu", view->bits_len, FD_SLOT_HISTORY_MAX_ENTRIES ));
     return -1;
   }
 
   /* All slots in the txncache should be present in the slot history */
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
-    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( view, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
       /* VerifySlotDeltasError::SlotNotFoundInHistory
          https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L144
          https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L593 */
@@ -180,7 +168,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
      in the SlotHistory should be present in the txncache. */
   fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
   for( ulong i=newest_slot; i>newest_slot-slot_set.ele_cnt; i-- ) {
-    if( FD_LIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, i )==FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+    if( FD_LIKELY( fd_sysvar_slot_history_find_slot( view, i )==FD_SLOT_HISTORY_SLOT_FOUND ) ) {
       if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &i, NULL, slot_set.pool )==NULL ) ) {
         /* VerifySlotDeltasError::SlotNotFoundInDeltas
            https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147
@@ -392,8 +380,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     offset for each slot, and stick it into the appropriate bank in
     our chain. */
 
-  FD_TEST( blockhashes_len<=301UL );
-  FD_TEST( blockhashes_len>0UL );
+  if( FD_UNLIKELY( blockhashes_len>301UL ) ) FD_LOG_ERR(( "corrupt snapshot: blockhash queue length %lu exceeds maximum 301", blockhashes_len ));
+  if( FD_UNLIKELY( !blockhashes_len ) ) FD_LOG_ERR(( "corrupt snapshot: blockhash queue is empty" ));
 
   ulong seq_min = ULONG_MAX;
   for( ulong i=0UL; i<blockhashes_len; i++ ) seq_min = fd_ulong_min( seq_min, blockhashes[ i ].hash_index );
@@ -450,7 +438,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
   uchar * _map = fd_alloca_check( alignof(blockhash_map_t), blockhash_map_footprint( 1024UL ) );
   blockhash_map_t * blockhash_map = blockhash_map_join( blockhash_map_new( _map, 1024UL, ctx->seed ) );
-  FD_TEST( blockhash_map );
+  if( FD_UNLIKELY( !blockhash_map ) ) FD_LOG_ERR(( "failed to create blockhash map" ));
 
   fd_blockhash_entry_t blockhash_pool[ 151UL ];
   for( ulong i=0UL; i<chain_len; i++ ) {
@@ -467,7 +455,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   /* Now load the blockhash offsets for these blockhashes ... */
-  FD_TEST( ctx->blockhash_offsets_len ); /* Must be at least one else nothing would be rooted */
+  if( FD_UNLIKELY( !ctx->blockhash_offsets_len ) ) FD_LOG_ERR(( "corrupt snapshot: no blockhash offsets found (nothing is rooted)" ));
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;
     fd_memcpy( key.uc, ctx->blockhash_offsets[ i ].blockhash, 32UL );
@@ -672,7 +660,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
                  fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
   }
 
-  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
+  if( FD_UNLIKELY( chunk<ctx->in.chunk0 || chunk>ctx->in.wmark || sz>ctx->in.mtu ) ) FD_LOG_ERR(( "invalid data frag bounds (chunk=%lu chunk0=%lu wmark=%lu sz=%lu mtu=%lu)", chunk, ctx->in.chunk0, ctx->in.wmark, sz, ctx->in.mtu ));
 
   if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
     fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch );
@@ -971,7 +959,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         ctx->metrics.accounts_loaded   -= ctx->accdb_admin->base.reclaim_cnt;
         ctx->metrics.accounts_replaced += ctx->accdb_admin->base.reclaim_cnt;
       }
-      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
+      if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) FD_LOG_ERR(( "funk last publish is still frozen after advance_root" ));
 
       /* Make 'Last published' XID equal the restored slot number */
       fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
@@ -1137,8 +1125,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
   ctx->lthash_disabled = tile->snapin.lthash_disabled;
 
-  ctx->boot_timestamp = fd_log_wallclock();
-
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
   void * shfunk       = fd_topo_obj_laddr( topo, funk_obj_id       );
@@ -1223,6 +1209,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( tile->snapin.use_vinyl ) {
     ctx->use_vinyl = 1;
   }
+
+  ctx->boot_timestamp = fd_log_wallclock();
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:

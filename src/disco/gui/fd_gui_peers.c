@@ -945,7 +945,9 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   if( FD_UNLIKELY( peers->epochs[ epoch_idx ].epoch!=ULONG_MAX && peers->epochs[ epoch_idx ].epoch>=epoch_info->epoch ) ) return;
 
   if( FD_UNLIKELY( epoch_info->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
-    FD_LOG_WARNING(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
+    FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( epoch_info->staked_id_cnt>MAX_SHRED_DESTS ) )
+    FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
 
   fd_vote_stake_weight_t const * weights = fd_epoch_info_msg_stake_weights( epoch_info );
 
@@ -960,7 +962,6 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   }
   peers->epochs[ epoch_idx ].epoch      = epoch_info->epoch;
   peers->epochs[ epoch_idx ].stakes_cnt = stakes_cnt;
-  FD_TEST( stakes_cnt<=MAX_STAKED_LEADERS );
 
   /* sort for deduplication */
   fd_gui_peers_voter_sort_iden_desc_inplace( peers->epochs[ epoch_idx ].stakes, peers->epochs[ epoch_idx ].stakes_cnt );

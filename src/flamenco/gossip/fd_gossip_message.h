@@ -224,6 +224,12 @@ struct fd_gossip_epoch_slots {
 
 typedef struct fd_gossip_epoch_slots fd_gossip_epoch_slots_t;
 
+struct fd_gossip_lowest_slot {
+  ulong lowest;
+};
+
+typedef struct fd_gossip_lowest_slot fd_gossip_lowest_slot_t;
+
 struct fd_gossip_value {
   uint tag;
 
@@ -237,7 +243,6 @@ struct fd_gossip_value {
   union {
     // DEPRECATED OR UNUSED
     // fd_gossip_legacy_contact_info_t           legacy_contact_info[ 1 ];
-    // fd_gossip_lowest_slot_t                   lowest_slot[ 1 ];
     // fd_gossip_legacy_snapshot_hashes_t        legacy_snapshot_hashes[ 1 ];
     // fd_gossip_account_hashes_t                account_hashes[ 1 ];
     // fd_gossip_legacy_version_t                legacy_version[ 1 ];
@@ -245,6 +250,7 @@ struct fd_gossip_value {
     // fd_gossip_restart_last_voted_fork_slots_t restart_last_voted_fork_slots[ 1 ];
     // fd_gossip_restart_heaviest_fork_t         restart_heaviest_fork[ 1 ];
 
+    fd_gossip_lowest_slot_t     lowest_slot[ 1 ];
     fd_gossip_vote_t            vote[ 1 ];
     fd_gossip_node_instance_t   node_instance[ 1 ];
     fd_gossip_duplicate_shred_t duplicate_shred[ 1 ];

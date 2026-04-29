@@ -434,6 +434,22 @@ block_is_prunable( fd_sched_block_t * block ) {
   return !block->in_rdisp && !block_is_in_flight( block );
 }
 
+static int
+subtree_is_prunable( fd_sched_t * sched, fd_sched_block_t * block ) {
+  if( FD_UNLIKELY( !block_is_prunable( block ) ) ) return 0;
+
+  ulong child_idx = block->child_idx;
+  while( child_idx!=ULONG_MAX ) {
+    fd_sched_block_t * child_block = block_pool_ele( sched, child_idx );
+    if( FD_UNLIKELY( !subtree_is_prunable( sched, child_block ) ) ) {
+      return 0;
+    }
+    child_idx = child_block->sibling_idx;
+  }
+
+  return 1;
+}
+
 static inline ulong
 block_to_idx( fd_sched_t * sched, fd_sched_block_t * block ) { return (ulong)(block-sched->block_pool); }
 
@@ -1456,6 +1472,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
     }
     FD_LOG_DEBUG(( "dying block %lu drained", block->slot ));
     subtree_abandon( sched, block );
+    try_activate_block( sched );
     return 0;
   }
 
@@ -1608,6 +1625,7 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
     ulong              child_idx          = curr->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      child_idx = child->sibling_idx;
       if( child->rooted ) {
         rooted_child_block = child;
       } else {
@@ -1615,9 +1633,8 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
         ulong abandoned_cnt = sched->metrics->block_abandoned_cnt;
         subtree_abandon( sched, child );
         abandoned_cnt = sched->metrics->block_abandoned_cnt-abandoned_cnt;
-        if( FD_UNLIKELY( abandoned_cnt ) ) FD_LOG_DEBUG(( "abandoned %lu blocks on minority fork starting at block %lu:%lu", abandoned_cnt, child->slot, child_idx ));
+        if( FD_UNLIKELY( abandoned_cnt ) ) FD_LOG_DEBUG(( "abandoned %lu blocks on minority fork starting at block %lu:%lu", abandoned_cnt, child->slot, block_to_idx( sched, child ) ));
       }
-      child_idx = child->sibling_idx;
     }
     curr = rooted_child_block;
   }
@@ -2328,6 +2345,8 @@ maybe_mixin( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 static void
 try_activate_block( fd_sched_t * sched ) {
+  /* Early return if there's already an active block. */
+  if( FD_LIKELY( sched->active_bank_idx!=ULONG_MAX ) ) return;
 
   /* See if there are any allocated staging lanes that we can activate
      for scheduling ... */
@@ -2420,15 +2439,25 @@ try_activate_block( fd_sched_t * sched ) {
          This invariant, by induction, gives us the guarantee that at
          least one of the lanes can be activated. */
       for( int l=0; l<(int)FD_SCHED_MAX_STAGING_LANES; l++ ) {
-        if( FD_UNLIKELY( !lane_is_demotable( sched, l ) ) ) {
-          FD_LOG_CRIT(( "invariant violation: lane %d is not demotable", l ));
-        }
+        /* We would be able to assert that all lanes are demotable,
+           except that abandoned blocks are given no grace period for
+           deactivation.  So there could be lanes transiently occupied
+           by dying blocks that are neither demotable (due to in-flight
+           tasks) nor activatable (due to being dying).  If
+           rdisp_demote() supported non-empty blocks, then we could
+           probably restore the assertion. */
+        if( FD_UNLIKELY( !lane_is_demotable( sched, l ) ) ) continue;
         ulong demoted_cnt = demote_lane( sched, l );
         if( FD_UNLIKELY( demoted_cnt!=1UL ) ) {
           FD_LOG_CRIT(( "invariant violation: %lu blocks demoted from lane %d, expected 1 demotion", demoted_cnt, l ));
         }
         sched->metrics->lane_demoted_cnt++;
       }
+      /* We weren't able to successfully demote anything.  This is
+         likely because all lanes are occupied by dying blocks with
+         in-flight tasks.  We would get another chance to try to demote
+         when the last in-flight task on any lane completes. */
+      if( FD_UNLIKELY( sched->staged_bitset==fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) ) ) return;
     }
     FD_TEST( sched->staged_bitset!=fd_ulong_mask_lsb( FD_SCHED_MAX_STAGING_LANES ) );
     int lane_idx = fd_ulong_find_lsb( ~sched->staged_bitset );
@@ -2587,7 +2616,20 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
   subtree_mark_and_maybe_prune_rdisp( sched, block );
-  if( block_is_prunable( block ) ) {
+  /* subtree_abandon can happen as a result of one of the following
+       - Bad block at head of lane
+       - Bad block at tail of lane
+       - Root advance
+       - Root notify
+
+     In the case of bad blocks, it suffices to check the in-flight task
+     count of the block that is bad.  In the case of root advance, the
+     refcnt on the bank is checked and that includes the in-flight task
+     count.  It is only in the case of root notify that there could
+     potentially be a non-zero in-flight count in the middle of a
+     subtree.  To be safe, we check the entire subtree here before
+     pruning. */
+  if( subtree_is_prunable( sched, block ) ) {
     fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
     if( FD_LIKELY( parent ) ) {
       /* Splice the block out of its parent's children list. */

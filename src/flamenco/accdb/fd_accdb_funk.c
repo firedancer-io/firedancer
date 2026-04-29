@@ -44,7 +44,7 @@ fd_accdb_funk_prep_create( fd_accdb_rw_t *       rw,
   FD_CRIT( val_sz<=val_max, "invalid val_max" );
   fd_account_meta_t * meta = val;
 
-  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 1, NULL );
+  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( funk->rec_pool );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_CRIT(( "Failed to modify account: DB record pool is out of memory" ));
   ulong rec_idx = (ulong)( rec - funk->rec_pool->ele );
   funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( fd_funk_rec_ver_inc( fd_funk_rec_ver_bits( funk->rec_lock[ rec_idx ] ) ), FD_FUNK_REC_LOCK_MASK );

@@ -6,7 +6,6 @@
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_program.h"
-#include "../program/fd_loader_v4_program.h"
 #include "../program/fd_precompiles.h"
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
@@ -178,13 +177,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
 
     if( FD_UNLIKELY( !memcmp( owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      fd_bpf_upgradeable_loader_state_t program_loader_state[1];
+      fd_bpf_state_t program_loader_state[1];
       int err = fd_bpf_loader_program_get_state( meta, program_loader_state );
       if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         continue;
       }
 
-      if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
+      if( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) {
         continue;
       }
 
@@ -207,18 +206,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       runtime->accounts.executable_cnt++;
     } else if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
                             !memcmp( meta->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      meta = txn_out->accounts.account[i].meta;
-    } else if( !memcmp( owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      int err;
-      fd_loader_v4_state_t const * state = fd_loader_v4_get_state( fd_account_data( meta ), meta->dlen, &err );
-      if( FD_UNLIKELY( err ) ) {
-        continue;
-      }
-
-      /* The program must be deployed or finalized. */
-      if( FD_UNLIKELY( fd_loader_v4_status_is_retracted( state ) ) ) {
-        continue;
-      }
       meta = txn_out->accounts.account[i].meta;
     }
   }
@@ -258,20 +245,20 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( rent );
   runner->bank->f.rent = *rent;
 
-  fd_block_block_hash_entry_t const * deq = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
-  FD_TEST( deq );
-  if( !deq_fd_block_block_hash_entry_t_empty( deq ) ) {
-    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( deq );
-    if( last ) {
-      fd_blockhashes_t * blockhashes = &runner->bank->f.block_hash_queue;
-      fd_blockhashes_pop_new( blockhashes );
-      fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
-      info->fee_calculator = last->fee_calculator;
+  if( !fd_sysvar_cache_recent_hashes_is_empty( sysvar_cache ) ) {
+    uchar const * rbh_data  = sysvar_cache->bin_recent_hashes;
+    ulong         rbh_len   = FD_LOAD( ulong, rbh_data );
+    ulong         entry_off = sizeof(ulong) + ((rbh_len - 1UL) * 40UL);
+    uchar const * entry     = rbh_data + entry_off;
+    FD_TEST( entry_off+40UL <= sysvar_cache->desc[ FD_SYSVAR_recent_hashes_IDX ].data_sz );
 
-      runner->bank->f.rbh_lamports_per_sig = last->fee_calculator.lamports_per_signature;
-    }
+    fd_blockhashes_t * blockhashes = &runner->bank->f.block_hash_queue;
+    fd_blockhashes_pop_new( blockhashes );
+    fd_hash_t hash = FD_LOAD( fd_hash_t, entry );
+    fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &hash );
+    info->lamports_per_signature = runner->bank->f.rbh_lamports_per_sig =
+        FD_LOAD( ulong, entry+32UL );
   }
-  fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, deq );
 
   uchar acc_idx_seen[ FD_TXN_ACCT_ADDR_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {

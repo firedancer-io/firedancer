@@ -53,8 +53,8 @@ if [ ! -d "solcap-tools" ]; then
   git clone https://github.com/firedancer-io/solcap-tools.git > /dev/null 2>&1
 fi
 cd solcap-tools
-git checkout main > /dev/null 2>&1
-git pull > /dev/null 2>&1
+git fetch > /dev/null 2>&1
+git checkout 44dc8e2a5c65435daf57b009c108234f316224f7 > /dev/null 2>&1
 cargo build --release > /dev/null 2>&1
 cd "$ORIG_DIR"
 
@@ -76,11 +76,6 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
     verify_tile_count = 2
     execrp_tile_count = 6
 [tiles]
-    [tiles.archiver]
-        enabled = true
-        end_slot = 406545600
-        rocksdb_path = "${ledger_dir}/rocksdb"
-        ingest_mode = "rocksdb"
     [tiles.replay]
         enable_features = [  ]
     [tiles.gui]
@@ -107,6 +102,9 @@ cat > "$DUMP/mainnet-406545575-solcap_current.toml" << EOF
         disable_lthash_verification = true
 [gossip]
     entrypoints = [ "0.0.0.0:1" ]
+[development.ledger_input]
+    path = "${ledger_dir}/rocksdb"
+    end_slot = 406545600
 EOF
 
 $OBJDIR/bin/firedancer-dev configure fini all

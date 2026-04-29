@@ -294,13 +294,16 @@ write_backtest( config_t const * config,
   ulong current_slot = cur_tile[ replay_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_SLOT ) ];
   current_slot = current_slot ? current_slot : start_slot;
 
-  ulong total_slots = final_slot-start_slot;
   ulong completed_slots = current_slot-start_slot;
 
-  double progress = 0.0;
-  if( FD_LIKELY( total_slots>0UL ) ) progress = 100.0 * (double)completed_slots / (double)total_slots;
-  else progress = 100.0;
+  if( FD_UNLIKELY( final_slot==ULONG_MAX ) ) {
+    PRINT( "🧪 " BOLD BGREEN "BACKTEST...." RESET UNBOLD
+            " " BOLD "PCT" UNBOLD "     ? (%lu/?)" CLEARLN "\n", completed_slots );
+    return;
+  }
 
+  ulong  total_slots = final_slot-start_slot;
+  double progress    = total_slots ? 100.0 * (double)completed_slots / (double)total_slots : 100.0;
   PRINT( "🧪 " BOLD BGREEN "BACKTEST...." RESET UNBOLD
          " " BOLD "PCT" UNBOLD " %.1f %% (%lu/%lu)" CLEARLN "\n",
     progress, completed_slots, total_slots );

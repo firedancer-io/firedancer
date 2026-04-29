@@ -799,7 +799,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
                                     stake_state->stake.stake.delegation.activation_epoch,
                                     stake_state->stake.stake.delegation.deactivation_epoch,
                                     stake_state->stake.stake.credits_observed,
-                                    stake_state->stake.stake.delegation.warmup_cooldown_rate );
+                                    fd_stake_warmup_cooldown_rate( bank->f.epoch, &bank->f.warmup_cooldown_rate_epoch ) );
 
   if( capture_ctx && capture_ctx->capture_solcap ) {
     fd_capture_link_write_stake_account_payout( capture_ctx,
@@ -986,13 +986,15 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     uchar commission_t_1;
     ulong stake_t_2;
     uchar commission_t_2;
-    fd_vote_stakes_query( vote_stakes, vs_fork_idx, (fd_pubkey_t *)epoch_credits->pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2 );
+    uchar exists_t_1 = 0;
+    uchar exists_t_2 = 0;
+    fd_vote_stakes_query( vote_stakes, vs_fork_idx, (fd_pubkey_t *)epoch_credits->pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2, &exists_t_1, &exists_t_2 );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
     vote_ele->vote_rewards = 0UL;
     if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
-      vote_ele->commission = stake_t_2>0UL ? commission_t_2 : commission_t_1;
+      vote_ele->commission = exists_t_2 ? commission_t_2 : commission_t_1;
     } else {
       vote_ele->commission = commission_t_1;
     }

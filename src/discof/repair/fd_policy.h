@@ -51,11 +51,11 @@ typedef struct fd_policy_dedup_ele fd_policy_dedup_ele_t;
 
 FD_FN_CONST static inline ulong
 fd_policy_dedup_key( uint kind, ulong slot, uint shred_idx ) {
+  slot = fd_ulong_extract_lsb( (ulong)slot, 32 );
   return (ulong)kind << 62 | slot << 30 | shred_idx << 15;
 }
 
 FD_FN_CONST static inline uint  fd_policy_dedup_key_kind     ( ulong key ) { return (uint)fd_ulong_extract( key, 62, 63 ); }
-FD_FN_CONST static inline ulong fd_policy_dedup_key_slot     ( ulong key ) { return       fd_ulong_extract( key, 30, 61 ); }
 FD_FN_CONST static inline uint  fd_policy_dedup_key_shred_idx( ulong key ) { return (uint)fd_ulong_extract( key, 15, 29  ); }
 
 #define POOL_NAME fd_policy_dedup_pool

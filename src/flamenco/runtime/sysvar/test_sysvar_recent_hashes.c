@@ -4,7 +4,6 @@
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
 #include "../../types/fd_types.h"
-#include "../../accdb/fd_accdb_impl_v1.h"
 
 FD_IMPORT_BINARY( example_recent_hashes, "src/flamenco/runtime/sysvar/test_sysvar_recent_hashes.bin" );
 
@@ -16,19 +15,6 @@ fd_mem_iszero8( uchar const * mem,
   FD_TEST( fd_ulong_is_aligned( sz, sizeof(ulong) ) );
   for( ulong i=0UL; i<sz; i+=8UL ) xor ^= FD_LOAD( ulong, mem+i );
   return xor==0UL;
-}
-
-static void
-test_sysvar_recent_hashes_bounds( void ) {
-  FD_TEST( example_recent_hashes_sz==FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = example_recent_hashes,
-    .dataend = example_recent_hashes + example_recent_hashes_sz
-  };
-  ulong obj_sz = 0UL;
-  FD_TEST( fd_recent_block_hashes_decode_footprint( &ctx, &obj_sz )==FD_BINCODE_SUCCESS );
-  FD_TEST( obj_sz==FD_SYSVAR_RECENT_HASHES_FOOTPRINT );
-  FD_TEST( fd_recent_block_hashes_align()==FD_SYSVAR_RECENT_HASHES_ALIGN );
 }
 
 static void
@@ -126,7 +112,7 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
       FD_TEST( lps       ==1000UL+idx );
 
       fd_blockhash_info_t * info = fd_blockhash_deq_peek_index( blockhashes->d.deque, idx );
-      FD_TEST( lps==info->fee_calculator.lamports_per_signature );
+      FD_TEST( lps==info->lamports_per_signature );
       FD_TEST( fd_hash_eq1( hash, info->hash ) );
       FD_TEST( fd_blockhashes_check_age( blockhashes, &hash, i )==1 );
     }
@@ -136,8 +122,18 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
 }
 
 static void
+test_sysvar_recent_hashes_validate( void ) {
+  FD_TEST( !fd_sysvar_recent_hashes_validate( NULL, 0 ) );
+  FD_TEST( !fd_sysvar_recent_hashes_validate( example_recent_hashes, 8 ) );
+  FD_TEST( !fd_sysvar_recent_hashes_validate( example_recent_hashes, example_recent_hashes_sz-1UL ) );
+  FD_TEST(  fd_sysvar_recent_hashes_validate( example_recent_hashes, example_recent_hashes_sz ) );
+  FD_TEST(  fd_sysvar_recent_hashes_validate( example_recent_hashes, example_recent_hashes_sz+1UL ) );
+  FD_TEST(  fd_sysvar_recent_hashes_validate( (uchar[]){0,0,0,0,0,0,0,0}, 8UL ) );
+}
+
+static void
 test_sysvar_recent_hashes( fd_wksp_t * wksp ) {
-  test_sysvar_recent_hashes_bounds();
   test_sysvar_recent_hashes_init( wksp );
   test_sysvar_recent_hashes_update( wksp );
+  test_sysvar_recent_hashes_validate();
 }

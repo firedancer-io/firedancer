@@ -138,7 +138,7 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           COVERAGE_BUCKET: ${{ vars.COVERAGE_BUCKET }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');

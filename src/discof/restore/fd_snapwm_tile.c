@@ -82,11 +82,6 @@ verify_slot_deltas_with_slot_history( fd_snapwm_tile_t * ctx ) {
 
   fd_account_meta_t meta;
   uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
-  union {
-    uchar buf[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
-    fd_slot_history_global_t o;
-  } decoded;
-  FD_STATIC_ASSERT( offsetof( __typeof__(decoded), buf)==offsetof( __typeof__(decoded), o ), memory_layout );
   fd_snapwm_vinyl_read_account( ctx, &fd_sysvar_slot_history_id, &meta, data, sizeof(data) );
 
   if( FD_UNLIKELY( !meta.lamports || !meta.dlen ) ) {
@@ -103,13 +98,8 @@ verify_slot_deltas_with_slot_history( fd_snapwm_tile_t * ctx ) {
     return -1;
   }
 
-  if( FD_UNLIKELY(
-      !fd_bincode_decode_static_global(
-          slot_history,
-          &decoded.o,
-          data,
-          meta.dlen )
-  ) ) {
+  fd_slot_history_view_t view[1];
+  if( FD_UNLIKELY( !fd_sysvar_slot_history_view( view, data, meta.dlen ) ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
     return -1;
   }
@@ -121,7 +111,7 @@ verify_slot_deltas_with_slot_history( fd_snapwm_tile_t * ctx ) {
 
   for( ulong i=0UL; i<txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
-    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( view, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
       FD_LOG_WARNING(( "slot %lu missing from SlotHistory sysvar account", entry->slot ));
       return -1;
     }
@@ -439,8 +429,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
   ctx->lthash_disabled = tile->snapwm.lthash_disabled;
 
-  ctx->boot_timestamp = fd_log_wallclock();
-
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
@@ -497,6 +485,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( !!ctx->txncache_entries );
 
   fd_snapwm_vinyl_unprivileged_init( ctx, topo, tile, _io_mm, _io_wd );
+
+  ctx->boot_timestamp = fd_log_wallclock();
 }
 
 /* Only one message is expected to be sent out in any stem cycle, plus

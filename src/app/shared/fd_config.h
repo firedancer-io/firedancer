@@ -175,6 +175,21 @@ struct fd_configf {
     struct {
       int validate_genesis_hash;
     } genesis;
+
+    struct {
+      char  format[ 16 ];
+      char  path[ PATH_MAX ];
+      ulong end_slot;
+    } ledger_input;
+
+    struct {
+      char  affinity[ AFFINITY_SZ ];
+      ulong root_distance;
+    } backtest;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+    } forktest;
   } development;
 
   struct {
@@ -185,6 +200,7 @@ struct fd_configf {
     ulong authorized_voter_paths_cnt;
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
   } paths;
+
 };
 
 typedef struct fd_configf fd_configf_t;
@@ -483,16 +499,6 @@ struct fd_config {
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
-
-    struct {
-      int   enabled;
-      int   ingest_dead_slots;
-      ulong end_slot;
-      ulong root_distance;
-      char  rocksdb_path[ PATH_MAX ];
-      char  shredcap_path[ PATH_MAX ];
-      char  ingest_mode[ 32 ];
-    } archiver;
 
     struct {
       int   enabled;

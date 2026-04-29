@@ -16,6 +16,8 @@ int main( int argc, char * argv[] ) {
   fd_pubkey_t pubkey_D = {.ul = {13}}; (void)pubkey_D;
   fd_pubkey_t pubkey_E = {.ul = {14}}; (void)pubkey_E;
   fd_pubkey_t pubkey_F = {.ul = {15}}; (void)pubkey_F;
+  fd_pubkey_t pubkey_G = {.ul = {21}}; (void)pubkey_G;
+  fd_pubkey_t pubkey_H = {.ul = {22}}; (void)pubkey_H;
 
   fd_pubkey_t node_account_t_1 = {.ul = {16}};
   fd_pubkey_t node_account_t_2 = {.ul = {17}};
@@ -62,74 +64,76 @@ int main( int argc, char * argv[] ) {
   ulong stake_t_2;
   fd_pubkey_t node_account_t_1_out;
   fd_pubkey_t node_account_t_2_out;
-  FD_TEST( fd_vote_stakes_query( vote_stakes, root_idx, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  uchar exists_t_1_out;
+  uchar exists_t_2_out;
+  FD_TEST( fd_vote_stakes_query( vote_stakes, root_idx, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 100UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, root_idx, &pubkey_B, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, root_idx, &pubkey_B, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 101UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, root_idx, &pubkey_C, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, root_idx, &pubkey_C, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 102UL ); FD_TEST( stake_t_2 == 200UL );
 
   ushort idx_1 = fd_vote_stakes_new_child( vote_stakes );
-  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_A, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_B, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_C, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_D, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_E, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_A, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_B, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_C, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_D, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_1, &pubkey_E, &node_account_t_1_fork_1, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
   FD_TEST( 10U==index_pool_used( index_pool ) );
   FD_TEST( 5U==fd_vote_stakes_ele_cnt( vote_stakes, idx_1 ) );
 
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_B, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_B, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_C, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_C, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_D, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_D, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_E, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_1, &pubkey_E, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
 
   ushort idx_2 = fd_vote_stakes_new_child( vote_stakes );
-  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_A, &node_account_t_1_fork_2, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_B, &node_account_t_1_fork_2, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_C, &node_account_t_1_fork_2, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_D, &node_account_t_1_fork_2, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_E, &node_account_t_1_fork_2, &node_account_t_2, 302UL, 200UL, 0, 0, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_A, &node_account_t_1_fork_2, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_B, &node_account_t_1_fork_2, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_C, &node_account_t_1_fork_2, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_D, &node_account_t_1_fork_2, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_2, &pubkey_E, &node_account_t_1_fork_2, &node_account_t_2, 302UL, 200UL, 0, 0, 1, 1, 0UL );
   FD_TEST( 15U==index_pool_used( index_pool ) );
   FD_TEST( 5U==fd_vote_stakes_ele_cnt( vote_stakes, idx_2 ) );
 
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_B, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_B, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_C, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_C, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_D, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_D, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_E, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_2, &pubkey_E, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 302UL ); FD_TEST( stake_t_2 == 200UL );
 
   ushort idx_3 = fd_vote_stakes_new_child( vote_stakes );
-  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_A, &node_account_t_1_fork_3, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_B, &node_account_t_1_fork_3, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_C, &node_account_t_1_fork_3, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_D, &node_account_t_1_fork_3, &node_account_t_2, 301UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_E, &node_account_t_1_fork_3, &node_account_t_2, 302UL, 200UL, 0, 0, 0UL );
-  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_F, &node_account_t_1_fork_3, &node_account_t_2, 302UL, 200UL, 0, 0, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_A, &node_account_t_1_fork_3, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_B, &node_account_t_1_fork_3, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_C, &node_account_t_1_fork_3, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_D, &node_account_t_1_fork_3, &node_account_t_2, 301UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_E, &node_account_t_1_fork_3, &node_account_t_2, 302UL, 200UL, 0, 0, 1, 1, 0UL );
+  fd_vote_stakes_insert( vote_stakes, idx_3, &pubkey_F, &node_account_t_1_fork_3, &node_account_t_2, 302UL, 200UL, 0, 0, 1, 1, 0UL );
   FD_TEST( 21U==index_pool_used( index_pool ) );
   FD_TEST( 6U==fd_vote_stakes_ele_cnt( vote_stakes, idx_3 ) );
 
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_B, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_B, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_C, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_C, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_D, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_D, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 301UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_E, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_E, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 302UL ); FD_TEST( stake_t_2 == 200UL );
-  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_F, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, idx_3, &pubkey_F, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1 == 302UL ); FD_TEST( stake_t_2 == 200UL );
 
   /* basic iterator smoke test */
@@ -166,7 +170,7 @@ int main( int argc, char * argv[] ) {
   FD_TEST( 1U==index_pool_used( index_pool ) );
 
   ushort dedup_idx = fd_vote_stakes_new_child( vote_stakes );
-  fd_vote_stakes_insert( vote_stakes, dedup_idx, &pubkey_A, &node_account_t_1, &node_account_t_2, 777UL, 888UL, 0, 0, 0UL );
+  fd_vote_stakes_insert( vote_stakes, dedup_idx, &pubkey_A, &node_account_t_1, &node_account_t_2, 777UL, 888UL, 0, 0, 1, 1, 0UL );
 
   FD_TEST( 1U==index_pool_used( index_pool ) );
   FD_TEST( 1U==fd_vote_stakes_ele_cnt( vote_stakes, dedup_idx ) );
@@ -186,21 +190,45 @@ int main( int argc, char * argv[] ) {
     FD_TEST( root_idx_ele==dedup_idx_ele );
   }
 
-  FD_TEST( fd_vote_stakes_query( vote_stakes, dedup_idx, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, dedup_idx, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1==777UL );
   FD_TEST( stake_t_2==888UL );
   FD_TEST( !memcmp( &node_account_t_1_out, &node_account_t_1, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( &node_account_t_2_out, &node_account_t_2, sizeof(fd_pubkey_t) ) );
 
   ushort reuse_idx = fd_vote_stakes_new_child( vote_stakes );
-  fd_vote_stakes_insert( vote_stakes, reuse_idx, &pubkey_B, &node_account_t_1_fork_1, &node_account_t_2, 111UL, 999UL, 0, 0, 0UL );
+  fd_vote_stakes_insert( vote_stakes, reuse_idx, &pubkey_B, &node_account_t_1_fork_1, &node_account_t_2, 111UL, 999UL, 0, 0, 1, 1, 0UL );
 
-  FD_TEST( fd_vote_stakes_query( vote_stakes, dedup_idx, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, dedup_idx, &pubkey_A, &stake_t_1, &stake_t_2, &node_account_t_1_out, &node_account_t_2_out, NULL, NULL, NULL, NULL ) );
   FD_TEST( stake_t_1==777UL );
   FD_TEST( stake_t_2==888UL );
   FD_TEST( !memcmp( &node_account_t_1_out, &node_account_t_1, sizeof(fd_pubkey_t) ) );
   FD_TEST( !memcmp( &node_account_t_2_out, &node_account_t_2, sizeof(fd_pubkey_t) ) );
   FD_TEST( root_idx2==fd_vote_stakes_get_root_idx( vote_stakes ) );
+
+  fd_vote_stakes_reset( vote_stakes );
+  ushort zero_idx = fd_vote_stakes_get_root_idx( vote_stakes );
+  fd_vote_stakes_root_insert_key( vote_stakes, &pubkey_G, &node_account_t_1, 0UL, 7U, 0UL );
+  fd_vote_stakes_root_update_meta( vote_stakes, &pubkey_G, &node_account_t_2, 0UL, 9U, 0UL );
+  FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, zero_idx, &pubkey_G, &stake_t_1, &node_account_t_1_out, NULL ) );
+  FD_TEST( stake_t_1==0UL );
+  FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, zero_idx, &pubkey_G, &stake_t_2, &node_account_t_2_out, NULL ) );
+  FD_TEST( stake_t_2==0UL );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, zero_idx, &pubkey_G, &stake_t_1, &stake_t_2, NULL, NULL, NULL, NULL, &exists_t_1_out, &exists_t_2_out ) );
+  FD_TEST( stake_t_1==0UL );
+  FD_TEST( stake_t_2==0UL );
+  FD_TEST( exists_t_1_out==1U );
+  FD_TEST( exists_t_2_out==1U );
+
+  fd_vote_stakes_root_update_meta( vote_stakes, &pubkey_H, &node_account_t_2, 0UL, 11U, 0UL );
+  FD_TEST( !fd_vote_stakes_query_t_1( vote_stakes, zero_idx, &pubkey_H, &stake_t_1, NULL, NULL ) );
+  FD_TEST( fd_vote_stakes_query_t_2( vote_stakes, zero_idx, &pubkey_H, &stake_t_2, &node_account_t_2_out, NULL ) );
+  FD_TEST( stake_t_2==0UL );
+  FD_TEST( fd_vote_stakes_query( vote_stakes, zero_idx, &pubkey_H, &stake_t_1, &stake_t_2, NULL, NULL, NULL, NULL, &exists_t_1_out, &exists_t_2_out ) );
+  FD_TEST( stake_t_1==0UL );
+  FD_TEST( stake_t_2==0UL );
+  FD_TEST( exists_t_1_out==0U );
+  FD_TEST( exists_t_2_out==1U );
 
   FD_LOG_NOTICE(( "pass" ));
 

@@ -9,6 +9,7 @@
 #define FD_SHREDCAP_V0_IFNAME "shredcap0"
 
 #define FD_SHREDCAP_TYPE_BANK_HASH_V0 (0x1u)
+#define FD_SHREDCAP_TYPE_ROOT_SLOT_V0 (0x2u)
 
 struct __attribute__((packed)) fd_shredcap_bank_hash_v0 {
   ulong slot;
@@ -16,5 +17,10 @@ struct __attribute__((packed)) fd_shredcap_bank_hash_v0 {
   ulong data_shred_cnt;
 };
 typedef struct fd_shredcap_bank_hash_v0 fd_shredcap_bank_hash_v0_t;
+
+struct __attribute__((packed)) fd_shredcap_root_slot_v0 {
+  ulong slot;
+};
+typedef struct fd_shredcap_root_slot_v0 fd_shredcap_root_slot_v0_t;
 
 #endif /* HEADER_fd_src_discof_backtest_fd_shredcap_h */

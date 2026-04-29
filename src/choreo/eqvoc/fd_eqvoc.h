@@ -153,19 +153,17 @@ fd_eqvoc_leave( fd_eqvoc_t const * eqvoc );
 void *
 fd_eqvoc_delete( void * sheqvoc );
 
-/* fd_eqvoc_shred_insert inserts the shred into eqvoc.  Returns
-   FD_EQVOC_SUCCESS if no equivocation was detected,
-   FD_EQVOC_SUCCESS_{...} (positive) if the shred conflicts with a
-   previously inserted shred (chunks_out will be populated with a
-   DuplicateShred proof that can be sent over gossip), or
-   FD_EQVOC_ERR_IGNORED_SLOT if leader_schedule is NULL or shred->slot
-   < root. */
+/* fd_eqvoc_shred_insert inserts the shred into eqvoc.  Assumes that
+   shreds are already sig-verified.  Returns FD_EQVOC_SUCCESS if no
+   equivocation was detected, FD_EQVOC_SUCCESS_{...} (positive) if the
+   shred conflicts with a previously inserted shred (chunks_out will be
+   populated with a DuplicateShred proof that can be sent over gossip),
+   or FD_EQVOC_ERR_IGNORED_SLOT if shred->slot < root. */
 
 int
 fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
                        ushort                      shred_version,
                        ulong                       root,
-                       fd_epoch_leaders_t const *  leader_schedule,
                        fd_shred_t const *          shred,
                        fd_gossip_duplicate_shred_t chunks_out[static FD_EQVOC_CHUNK_CNT] );
 

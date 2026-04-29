@@ -274,7 +274,7 @@ after_credit( fd_genesi_tile_t *  ctx,
     FD_TEST( !strcmp( meta->name, "genesis.bin" ) );
     uchar const * blob    = decompressed+512UL;
     ulong         blob_sz = fd_tar_meta_get_size( meta );
-    FD_TEST( actual_decompressed_sz>=512UL+blob_sz );
+    FD_TEST( actual_decompressed_sz>=fd_ulong_sat_add( 512UL, blob_sz ) );
 
     fd_hash_t hash[1];
     fd_sha256_hash( blob, blob_sz, hash->uc );

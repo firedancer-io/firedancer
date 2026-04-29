@@ -3,6 +3,7 @@
 
 #include "../../types/fd_types.h"
 #include "../../accdb/fd_accdb_user.h"
+#include "fd_sysvar_base.h"
 
 FD_PROTOTYPES_BEGIN
 

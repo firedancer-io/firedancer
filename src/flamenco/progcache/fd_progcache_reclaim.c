@@ -55,7 +55,7 @@ rec_reclaim( fd_progcache_join_t * join,
   fd_progcache_val_free( rec, join );
   rec->exists = 0;
   fd_prog_clock_remove( join->clock.bits, (ulong)( rec - join->rec.pool->ele ) );
-  fd_prog_recp_release( join->rec.pool, rec, 1 );
+  fd_prog_recp_release( join->rec.pool, rec );
   return 1;
 }
 

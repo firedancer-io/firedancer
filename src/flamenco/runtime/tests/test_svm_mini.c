@@ -170,9 +170,6 @@ main( int     argc,
   bank = fd_svm_mini_bank( mini, root_idx );
   FD_TEST( bank );
 
-  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
-  FD_TEST( leaders==NULL );
-
   fd_vote_stakes_t * vs0 = fd_bank_vote_stakes( bank );
   ushort vs0_root_idx = fd_vote_stakes_get_root_idx( vs0 );
   FD_TEST( fd_vote_stakes_ele_cnt( vs0, vs0_root_idx )==0U );
@@ -183,7 +180,7 @@ main( int     argc,
   bank = fd_svm_mini_bank( mini, root_idx );
   FD_TEST( bank );
 
-  leaders = fd_bank_epoch_leaders_query( bank );
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
   FD_TEST( leaders );
   FD_TEST( leaders->pub_cnt==1UL );
   FD_TEST( leaders->slot_cnt==bank->f.epoch_schedule.slots_per_epoch );
@@ -199,7 +196,7 @@ main( int     argc,
   bank = fd_svm_mini_bank( mini, root_idx );
   FD_TEST( bank );
 
-  leaders = fd_bank_epoch_leaders_query( bank );
+  leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
   FD_TEST( leaders );
   FD_TEST( leaders->pub_cnt==4UL );
   FD_TEST( leaders->slot_cnt==bank->f.epoch_schedule.slots_per_epoch );

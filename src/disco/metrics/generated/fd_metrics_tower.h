@@ -85,32 +85,32 @@ enum {
 
 #define FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_NAME "tower_replay_slot"
 #define FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_DESC "Replay slot"
+#define FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_DESC "The most recently replayed slot, ULONG_MAX if nothing replayed yet. Not monotonically increasing."
 #define FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_TOWER_VOTE_SLOT_NAME "tower_vote_slot"
 #define FD_METRICS_GAUGE_TOWER_VOTE_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_TOWER_VOTE_SLOT_DESC "Most recent vote slot, ULONG_MAX if no vote cast"
+#define FD_METRICS_GAUGE_TOWER_VOTE_SLOT_DESC "The highest voted slot in the local tower, ULONG_MAX if haven't voted. Monotonically increasing."
 #define FD_METRICS_GAUGE_TOWER_VOTE_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_TOWER_RESET_SLOT_NAME "tower_reset_slot"
 #define FD_METRICS_GAUGE_TOWER_RESET_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_TOWER_RESET_SLOT_DESC "Reset slot"
+#define FD_METRICS_GAUGE_TOWER_RESET_SLOT_DESC "The most recent reset slot, ULONG_MAX if no reset yet. Not monotonically increasing."
 #define FD_METRICS_GAUGE_TOWER_RESET_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_TOWER_ROOT_SLOT_NAME "tower_root_slot"
 #define FD_METRICS_GAUGE_TOWER_ROOT_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_TOWER_ROOT_SLOT_DESC "Root slot"
+#define FD_METRICS_GAUGE_TOWER_ROOT_SLOT_DESC "The highest rooted slot, ULONG_MAX if no root yet. Monotonically increasing."
 #define FD_METRICS_GAUGE_TOWER_ROOT_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_TOWER_INIT_SLOT_NAME "tower_init_slot"
 #define FD_METRICS_GAUGE_TOWER_INIT_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_TOWER_INIT_SLOT_DESC "Init slot"
+#define FD_METRICS_GAUGE_TOWER_INIT_SLOT_DESC "Init slot. Either the snapshot or genesis slot. Set once and does not change."
 #define FD_METRICS_GAUGE_TOWER_INIT_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_TOWER_NOT_READY_NAME "tower_not_ready"
 #define FD_METRICS_COUNTER_TOWER_NOT_READY_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_TOWER_NOT_READY_DESC "Frag arrived before tower was initialized"
+#define FD_METRICS_COUNTER_TOWER_NOT_READY_DESC "Frag was dropped because it arrived before tower tile was initialized"
 #define FD_METRICS_COUNTER_TOWER_NOT_READY_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_TOWER_TXN_BAD_DESER_NAME "tower_txn_bad_deser"

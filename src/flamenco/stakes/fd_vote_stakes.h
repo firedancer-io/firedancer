@@ -197,6 +197,8 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        ulong               stake_t_2,
                        uchar               commission_t_1,
                        uchar               commission_t_2,
+                       uchar               exists_t_1,
+                       uchar               exists_t_2,
                        ulong               epoch );
 
 /* fd_vote_stakes_genesis_fini finalizes the vote stakes on the genesis
@@ -226,10 +228,8 @@ fd_vote_stakes_advance_root( fd_vote_stakes_t * vote_stakes,
 /* fd_vote_stakes_query_stake queries the stake for a given vote account
    in the given fork.  If the element is found returns 1, otherwise
    returns 0.  If any of the optional fields are set to NULL, then their
-   corresponding value will not be set.  If the stake_t_{1,2}_out_opt is
-   set to 0UL and the record is found, that means the vote account
-   either did not exist at the end of the t-{1,2} epoch boundary or had
-   zero stake: they are treated as the same thing. */
+   corresponding value will not be set.  An account can have zero stake
+   but still exist. */
 
 int
 fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
@@ -240,18 +240,15 @@ fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
                       fd_pubkey_t *       node_account_t_1_out_opt,
                       fd_pubkey_t *       node_account_t_2_out_opt,
                       uchar *             commission_t_1_out_opt,
-                      uchar *             commission_t_2_out_opt );
-
-int
-fd_vote_stakes_query_pubkey( fd_vote_stakes_t *  vote_stakes,
-                             ushort              fork_idx,
-                             fd_pubkey_t const * pubkey );
+                      uchar *             commission_t_2_out_opt,
+                      uchar *             exists_t_1_out_opt,
+                      uchar *             exists_t_2_out_opt );
 
 /* fd_vote_stakes_query_t_1 and fd_vote_stakes_query_t_2 are shortcuts
    for querying the t_1 and t_2 stake for a given vote account in the
    given fork.  0 is returned if the vote account does not exist for the
-   epoch or if it has zero stake.  If the account is found, stake_out,
-   node_account_out, and commission_out will be set. */
+   epoch.  If the account is found, stake_out, node_account_out, and
+   commission_out will be set. */
 
 int
 fd_vote_stakes_query_t_1( fd_vote_stakes_t *  vote_stakes,

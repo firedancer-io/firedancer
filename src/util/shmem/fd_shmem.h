@@ -485,7 +485,7 @@ fd_shmem_is_page_sz( ulong page_sz ) {
    FD_SHMEM_UNKNOWN_LG_PAGE_SZ (-1 ... the only negative return
    possible) if it can't figure this out. */
 
-FD_FN_PURE int
+int
 fd_cstr_to_shmem_lg_page_sz( char const * cstr );
 
 /* fd_shmem_lg_page_sz_to_cstr:  Return a pointer to a cstr
@@ -506,7 +506,7 @@ fd_shmem_lg_page_sz_to_cstr( int lg_page_sz );
    (0UL, the only non-integral power of 2 return possible) if it can't
    figure this out. */
 
-FD_FN_PURE ulong
+ulong
 fd_cstr_to_shmem_page_sz( char const * cstr );
 
 /* fd_shmem_page_sz_to_cstr:  Return a pointer to a cstr corresponding

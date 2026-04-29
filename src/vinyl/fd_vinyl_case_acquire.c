@@ -162,7 +162,7 @@
           if( FD_UNLIKELY( szc_new != szc_old ) ) {
 
             fd_vinyl_data_obj_t * obj_new = fd_vinyl_data_alloc( data, szc_new );
-            if( FD_UNLIKELY( !obj_new ) ) FD_LOG_CRIT(( "increase data cache size" ));
+            if( FD_UNLIKELY( !obj_new ) ) { fd_vinyl_data_diag_log( data, szc_new, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (acquire resize szc=%lu)", szc_new )); }
 
             fd_vinyl_bstream_phdr_t * phdr_new = fd_vinyl_data_obj_phdr( obj_new );
 
@@ -256,7 +256,7 @@
         ulong szc = fd_vinyl_data_szc( val_max );
 
         fd_vinyl_data_obj_t * obj = fd_vinyl_data_alloc( data, szc );
-        if( FD_UNLIKELY( !obj ) ) FD_LOG_CRIT(( "increase data cache size" ));
+        if( FD_UNLIKELY( !obj ) ) { fd_vinyl_data_diag_log( data, szc, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (acquire cache-miss szc=%lu)", szc )); }
 
         line[ line_idx ].obj = obj; obj->line_idx = line_idx;
 
@@ -281,8 +281,9 @@
 
           if( FD_LIKELY( style==FD_VINYL_BSTREAM_CTL_STYLE_RAW ) ) cobj = obj;
           else {
-            cobj = fd_vinyl_data_alloc( data, fd_vinyl_data_szc( val_esz ) );
-            if( FD_UNLIKELY( !cobj ) ) FD_LOG_CRIT(( "increase data cache size" ));
+            ulong cszc = fd_vinyl_data_szc( val_esz );
+            cobj = fd_vinyl_data_alloc( data, cszc );
+            if( FD_UNLIKELY( !cobj ) ) { fd_vinyl_data_diag_log( data, cszc, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (acquire lz4-tmp szc=%lu)", cszc )); }
           }
 
           cobj->rd->ctx = (ulong)obj;
@@ -348,7 +349,7 @@
       ulong szc = fd_vinyl_data_szc( req_val_max );
 
       fd_vinyl_data_obj_t * obj = fd_vinyl_data_alloc( data, szc );
-      if( FD_UNLIKELY( !obj ) ) FD_LOG_CRIT(( "increase data cache size" ));
+      if( FD_UNLIKELY( !obj ) ) { fd_vinyl_data_diag_log( data, szc, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (acquire create szc=%lu)", szc )); }
 
       line[ line_idx ].obj = obj; obj->line_idx = line_idx; obj->rd_active = (short)0;
 

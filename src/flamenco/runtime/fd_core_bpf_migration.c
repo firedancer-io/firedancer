@@ -32,7 +32,8 @@ fd_tmp_account_t *
 tmp_account_new( fd_tmp_account_t * acc,
                  ulong              acc_sz ) {
   acc->data_sz = acc_sz;
-  fd_memset( acc->data, 0, acc_sz );
+  fd_memset( acc->data,  0, acc_sz );
+  fd_memset( &acc->meta, 0, sizeof(fd_account_meta_t) );
   return acc;
 }
 
@@ -208,11 +209,11 @@ target_core_bpf_new_checked( target_core_bpf_t *       target_core_bpf,
   }
 
   /* Decode and validate program account state */
-  fd_bpf_upgradeable_loader_state_t program_state[1];
+  fd_bpf_state_t program_state[1];
   if( FD_UNLIKELY( FD_EXECUTOR_INSTR_SUCCESS!=fd_bpf_loader_program_get_state( &program_account->meta, program_state ) ) ) {
     return NULL;
   }
-  if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program( program_state ) ) ) {
+  if( FD_UNLIKELY( program_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) {
     return NULL;
   }
   if( FD_UNLIKELY( 0!=memcmp( &program_state->inner.program.programdata_address, &program_data_address, sizeof(fd_pubkey_t) ) ) ) {
@@ -231,11 +232,11 @@ target_core_bpf_new_checked( target_core_bpf_t *       target_core_bpf,
   }
 
   /* Decode and validate program data account state */
-  fd_bpf_upgradeable_loader_state_t programdata_state[1];
+  fd_bpf_state_t programdata_state[1];
   if( FD_UNLIKELY( FD_EXECUTOR_INSTR_SUCCESS!=fd_bpf_loader_program_get_state( &program_data_account->meta, programdata_state ) ) ) {
     return NULL;
   }
-  if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program_data( programdata_state ) ) ) {
+  if( FD_UNLIKELY( programdata_state->discriminant!=FD_BPF_STATE_PROGRAM_DATA ) ) {
     return NULL;
   }
 
@@ -443,14 +444,12 @@ source_buffer_new_checked( fd_tmp_account_t *        acc,
     return NULL;
   }
 
-  fd_bpf_upgradeable_loader_state_t state[1];
-  if( FD_UNLIKELY( !fd_bincode_decode_static(
-      bpf_upgradeable_loader_state, state,
-      acc->data, BUFFER_METADATA_SIZE ) ) ) {
+  fd_bpf_state_t state[1];
+  if( FD_UNLIKELY( fd_bpf_state_decode( state, acc->data, BUFFER_METADATA_SIZE ) ) ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( state->discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) ) {
+  if( FD_UNLIKELY( state->discriminant!=FD_BPF_STATE_BUFFER ) ) {
     /* CoreBpfMigrationError::InvalidBufferAccount(*buffer_address) */
     return NULL;
   }
@@ -484,8 +483,8 @@ new_target_program_account( fd_tmp_account_t *        acc,
                             target_builtin_t const *  target,
                             fd_rent_t const *         rent ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L86-L88 */
-  fd_bpf_upgradeable_loader_state_t state = {
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_program,
+  fd_bpf_state_t state = {
+    .discriminant = FD_BPF_STATE_PROGRAM,
     .inner = {
       .program = {
         .programdata_address = target->program_data_address,
@@ -493,15 +492,15 @@ new_target_program_account( fd_tmp_account_t *        acc,
     }
   };
 
-  ulong state_sz = fd_bpf_upgradeable_loader_state_size( &state );
+  ulong state_sz = fd_bpf_state_size( &state );
   tmp_account_new( acc, state_sz );
   acc->meta.lamports   = fd_rent_exempt_minimum_balance( rent, SIZE_OF_PROGRAM );
   acc->meta.executable = 1;
   memcpy( acc->meta.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, sizeof(fd_pubkey_t) );
 
-  fd_bincode_encode_ctx_t ctx = { .data=acc->data, .dataend=(uchar *)acc->data+state_sz };
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &state, &ctx )!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_encode failed" ));
+  ulong out_sz = 0UL;
+  if( FD_UNLIKELY( fd_bpf_state_encode( &state, acc->data, state_sz, &out_sz ) ) ) {
+    FD_LOG_ERR(( "fd_bpf_state_encode failed" ));
   }
 
   return acc;
@@ -519,15 +518,12 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   if( FD_UNLIKELY( source->data_sz < buffer_metadata_sz ) )
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
 
-  fd_bpf_upgradeable_loader_state_t state;
-  if( !fd_bincode_decode_static(
-      bpf_upgradeable_loader_state,
-      &state,
-      source->data,
-      buffer_metadata_sz ) )
+  fd_bpf_state_t state;
+  if( FD_UNLIKELY( fd_bpf_state_decode( &state, source->data, buffer_metadata_sz ) ) ) {
     return NULL;
+  }
 
-  if( FD_UNLIKELY( state.discriminant!=fd_bpf_upgradeable_loader_state_enum_buffer ) )
+  if( FD_UNLIKELY( state.discriminant!=FD_BPF_STATE_BUFFER ) )
     return NULL; /* CoreBpfMigrationError::InvalidBufferAccount */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L118-L125 */
@@ -545,8 +541,8 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   ulong        lamports = fd_rent_exempt_minimum_balance( rent, space );
   fd_pubkey_t  owner    = fd_solana_bpf_loader_upgradeable_program_id;
 
-  fd_bpf_upgradeable_loader_state_t programdata_meta = {
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
+  fd_bpf_state_t programdata_meta = {
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
     .inner = {
       .program_data = {
         .slot = slot,
@@ -559,9 +555,9 @@ new_target_program_data_account( fd_tmp_account_t *       acc,
   tmp_account_new( acc, space );
   acc->meta.lamports = lamports;
   memcpy( acc->meta.owner, owner.uc, sizeof(fd_pubkey_t) );
-  fd_bincode_encode_ctx_t ctx = { .data=acc->data, .dataend=(uchar *)acc->data+PROGRAMDATA_METADATA_SIZE };
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_encode( &programdata_meta, &ctx )!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_bpf_upgradeable_loader_state_encode failed" ));
+  ulong out_sz = 0UL;
+  if( FD_UNLIKELY( fd_bpf_state_encode( &programdata_meta, acc->data, PROGRAMDATA_METADATA_SIZE, &out_sz ) ) ) {
+    FD_LOG_ERR(( "fd_bpf_state_encode failed" ));
   }
   fd_memcpy( (uchar *)acc->data+PROGRAMDATA_METADATA_SIZE, elf, elf_sz );
 
@@ -576,6 +572,8 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
                               fd_runtime_stack_t *                   runtime_stack,
                               fd_pubkey_t const *                    builtin_program_id,
                               fd_capture_ctx_t *                     capture_ctx ) {
+  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+
   target_builtin_t target[1];
   if( FD_UNLIKELY( !target_builtin_new_checked(
       target,
@@ -668,6 +666,8 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
                              fd_pubkey_t const *                    builtin_program_id,
                              fd_pubkey_t const *                    source_buffer_address,
                              fd_capture_ctx_t *                     capture_ctx ) {
+  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
+
   /* https://github.com/anza-xyz/agave/blob/v3.1.7/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L327 */
   target_core_bpf_t target[1];
   if( FD_UNLIKELY( !target_core_bpf_new_checked( target, builtin_program_id, accdb, xid, runtime_stack ) ) ) {
@@ -695,8 +695,8 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
   new_target_program_data->meta.executable = 0;
   fd_memcpy( new_target_program_data->meta.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) );
 
-  fd_bpf_upgradeable_loader_state_t programdata_state[1] = {{
-    .discriminant = fd_bpf_upgradeable_loader_state_enum_program_data,
+  fd_bpf_state_t programdata_state[1] = {{
+    .discriminant = FD_BPF_STATE_PROGRAM_DATA,
     .inner = { .program_data = {
       .slot = bank->f.slot,
       .upgrade_authority_address = target->upgrade_authority_address,
@@ -704,11 +704,8 @@ fd_upgrade_core_bpf_program( fd_bank_t *                            bank,
     }}
   }};
 
-  fd_bincode_encode_ctx_t encode_ctx = {
-    .data    = new_target_program_data->data,
-    .dataend = new_target_program_data->data + PROGRAMDATA_METADATA_SIZE
-  };
-  if( FD_UNLIKELY( FD_BINCODE_SUCCESS!=fd_bpf_upgradeable_loader_state_encode( programdata_state, &encode_ctx ) ) ) {
+  ulong out_sz = 0UL;
+  if( FD_UNLIKELY( fd_bpf_state_encode( programdata_state, new_target_program_data->data, PROGRAMDATA_METADATA_SIZE, &out_sz ) ) ) {
     return;
   }
 
@@ -758,6 +755,7 @@ fd_upgrade_loader_v2_program_with_loader_v3_program( fd_bank_t *               b
                                                      fd_pubkey_t const *       source_buffer_address,
                                                      int                       allow_prefunded,
                                                      fd_capture_ctx_t *        capture_ctx ) {
+  fd_memset( &runtime_stack->bpf_migration, 0, sizeof(runtime_stack->bpf_migration) );
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L411-L412 */
   target_builtin_t target[1];

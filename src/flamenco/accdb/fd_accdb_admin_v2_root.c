@@ -109,7 +109,7 @@ funk_free_rec( fd_funk_t *     funk,
   rec->map_next = FD_FUNK_REC_IDX_NULL;
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
   fd_funk_rec_admin_unlock( funk, rec, ver_lock );
-  fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
+  fd_funk_rec_pool_release( funk->rec_pool, rec );
 }
 
 /* funk_gc_chain optimistically deletes all but the newest rooted

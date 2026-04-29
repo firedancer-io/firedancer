@@ -15,7 +15,11 @@ fd_sysvar_account_update( fd_bank_t *               bank,
                           void const *              data,
                           ulong                     sz ) {
   fd_rent_t const * rent    = &bank->f.rent;
-  ulong     const   min_bal = fd_rent_exempt_minimum_balance( rent, sz );
+  /* Newly created sysvar accounts get at least 1 lamport and capitalization
+     increases by that amount. In Agave, adjust_sysvar_balance_for_rent()
+     does max(rent_exempt_min, current_lamports), which in this case would
+     yield 1 instead of 0. */
+  ulong     const   min_bal = fd_ulong_max( fd_rent_exempt_minimum_balance( rent, sz ), 1UL );
 
   fd_accdb_svm_write(
       accdb, bank, xid, capture_ctx,
@@ -24,11 +28,6 @@ fd_sysvar_account_update( fd_bank_t *               bank,
       min_bal, 0,
       FD_ACCDB_FLAG_CREATE|FD_ACCDB_FLAG_TRUNCATE
   );
-
-  if( FD_UNLIKELY( fd_log_level_logfile()<=0 || fd_log_level_stderr()<=0 ) ) {
-    char name[ FD_BASE58_ENCODED_32_SZ ]; fd_base58_encode_32( address->uc, NULL, name );
-    FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu", name, sz ));
-  }
 }
 
 int

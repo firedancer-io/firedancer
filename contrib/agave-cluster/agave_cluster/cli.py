@@ -172,10 +172,52 @@ def start_cluster(ctx, bootstrap_validator_name, bootstrap_stake):
 
     firedancer_repo_path = get_env_var('FIREDANCER_REPO_PATH')
     stake_program_path = os.path.join(str(firedancer_repo_path), "contrib/ledger-gen/bpf_migrated_programs/stake_elf.so")
+    alut_program_path = os.path.join(str(firedancer_repo_path), "contrib/ledger-gen/bpf_migrated_programs/alut_elf.so")
     primordial_accounts_file = os.path.join(str(firedancer_repo_path), "contrib/agave-cluster/primordial-accounts.yml")
 
     bootstrap_stake_lamports = str(int(bootstrap_stake * 1_000_000_000))
-    genesis_output = subprocess.run([solana_genesis, "--target-tick-duration", "6250", "--primordial-accounts-file", primordial_accounts_file, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", bootstrap_stake_lamports, "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "256", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", stake_program_path, "11111111111111111111111111111111" ], cwd=cluster_path, capture_output=True, text=True)
+    genesis_output = subprocess.run(
+        [
+            solana_genesis,
+            "--target-tick-duration",
+            "6250",
+            "--primordial-accounts-file",
+            primordial_accounts_file,
+            "--cluster-type",
+            "mainnet-beta",
+            "--ledger",
+            node_path,
+            "--bootstrap-validator",
+            id_key,
+            vote_key,
+            stake_key,
+            "--bootstrap-stake-authorized-pubkey",
+            id_key,
+            "--bootstrap-validator-lamports",
+            "10000000000",
+            "--bootstrap-validator-stake-lamports",
+            bootstrap_stake_lamports,
+            "--faucet-pubkey",
+            faucet_key,
+            "--faucet-lamports",
+            "500000000000000000",
+            "--slots-per-epoch",
+            "256",
+            "--upgradeable-program",
+            "Stake11111111111111111111111111111111111111",
+            "BPFLoaderUpgradeab1e11111111111111111111111",
+            stake_program_path,
+            "11111111111111111111111111111111",
+            "--upgradeable-program",
+            "AddressLookupTab1e1111111111111111111111111",
+            "BPFLoaderUpgradeab1e11111111111111111111111",
+            alut_program_path,
+            "11111111111111111111111111111111",
+        ],
+        cwd=cluster_path,
+        capture_output=True,
+        text=True,
+    )
     genesis_hash, shred_version = parse_genesis_output(genesis_output.stdout)
 
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
@@ -185,7 +227,51 @@ def start_cluster(ctx, bootstrap_validator_name, bootstrap_stake):
 
     agave_validator = solana_binary('agave-validator')
 
-    validator_process = subprocess.Popen([agave_validator, "--rpc-bind-address", f"{ip()}", "--allow-private-addr", "--enable-rpc-transaction-history", "--identity", id_key, "--ledger", node_path, "--limit-ledger-size", "100000000", "--dynamic-port-range", "8000-8099", "--no-snapshot-fetch", "--no-poh-speed-test", "--no-os-network-limits-test", "--vote-account", vote_key, "--expected-shred-version", shred_version, "--expected-genesis-hash", genesis_hash, "--no-wait-for-vote-to-start-leader", "--full-snapshot-interval-slots", "100" , "--snapshot-interval-slots", "20", "--maximum-full-snapshots-to-retain", "10", "--rpc-port", "8899", "--gossip-port", "8010", "--full-rpc-api", "--bind-address", ip(), "--log", f"{node_path}/validator.log"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
+    validator_process = subprocess.Popen(
+        [
+            agave_validator,
+            "--rpc-bind-address",
+            f"{ip()}",
+            "--allow-private-addr",
+            "--enable-rpc-transaction-history",
+            "--identity",
+            id_key,
+            "--ledger",
+            node_path,
+            "--limit-ledger-size",
+            "100000000",
+            "--dynamic-port-range",
+            "8000-8099",
+            "--no-snapshot-fetch",
+            "--no-poh-speed-test",
+            "--no-os-network-limits-test",
+            "--vote-account",
+            vote_key,
+            "--expected-shred-version",
+            shred_version,
+            "--expected-genesis-hash",
+            genesis_hash,
+            "--no-wait-for-vote-to-start-leader",
+            "--full-snapshot-interval-slots",
+            "100",
+            "--snapshot-interval-slots",
+            "20",
+            "--maximum-full-snapshots-to-retain",
+            "10",
+            "--rpc-port",
+            "8899",
+            "--gossip-port",
+            "8010",
+            "--full-rpc-api",
+            "--bind-address",
+            ip(),
+            "--log",
+            f"{node_path}/validator.log",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        preexec_fn=os.setpgrp,
+    )
 
     validator_pid = validator_process.pid
     click.echo(f"Validator {bootstrap_validator_name} has started with pid {validator_pid}")
@@ -324,7 +410,38 @@ def add_node(ctx, validator_name):
     subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_key], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     vote_pubkey = get_pubkey(vote_key)
 
-    validator_process = subprocess.Popen([agave_validator, "--allow-private-addr", "--identity", id_key, "--ledger", node_path, "--limit-ledger-size", "100000000", "--dynamic-port-range", f"8{current_node_count}00-8{current_node_count}99", "--no-poh-speed-test", "--no-os-network-limits-test", "--vote-account", vote_pubkey, "--entrypoint", f"{ip()}:8010", "--gossip-port", f"8{current_node_count}10", "--expected-shred-version", shred_version, "--expected-genesis-hash", genesis_hash, "--tpu-disable-quic", "--log", f"{node_path}/validator.log"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, preexec_fn=os.setpgrp)
+    validator_process = subprocess.Popen(
+        [
+            agave_validator,
+            "--allow-private-addr",
+            "--identity",
+            id_key,
+            "--ledger",
+            node_path,
+            "--limit-ledger-size",
+            "100000000",
+            "--dynamic-port-range",
+            f"8{current_node_count}00-8{current_node_count}99",
+            "--no-poh-speed-test",
+            "--no-os-network-limits-test",
+            "--vote-account",
+            vote_pubkey,
+            "--entrypoint",
+            f"{ip()}:8010",
+            "--gossip-port",
+            f"8{current_node_count}10",
+            "--expected-shred-version",
+            shred_version,
+            "--expected-genesis-hash",
+            genesis_hash,
+            "--tpu-disable-quic",
+            "--log",
+            f"{node_path}/validator.log",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        preexec_fn=os.setpgrp,
+    )
 
     validator_pid = validator_process.pid
     click.echo(f"Validator {validator_name} has started with pid {validator_pid}")
@@ -1319,7 +1436,6 @@ def validators(ctx):
 
     for stake_account_pubkey, balance in sorted(undelegated_stake_accounts):
         click.echo(f"  Undelegated Stake Account: {stake_account_pubkey}, Balance: {balance}")
-
 
 
 @main.command('leader-stats')

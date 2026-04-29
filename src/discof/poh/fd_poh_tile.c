@@ -1,8 +1,10 @@
 #include "fd_poh.h"
-#include "generated/fd_poh_tile_seccomp.h"
 #include "fd_poh_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
+#include "../../discof/fd_startup.h"
+#include <time.h>
+#include "generated/fd_poh_tile_seccomp.h"
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_PACK   (1)
@@ -142,6 +144,12 @@ returnable_frag( fd_poh_tile_t *     ctx,
     return 0;
   }
 
+  if( FD_UNLIKELY( sig==REPLAY_SIG_WFS_DONE && ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    fd_poh_wfs_done( ctx->poh );
+    ctx->idle_cnt = 0UL;
+    return 0;
+  }
+
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
@@ -188,11 +196,13 @@ returnable_frag( fd_poh_tile_t *     ctx,
       } else if( sig==REPLAY_SIG_RESET ) {
         fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         fd_poh_reset( ctx->poh, stem, reset->timestamp, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_block_id );
+        ctx->poh->wfs_paused = reset->wfs_paused;
       }
       break;
     }
     case IN_KIND_EXECLE: {
       ulong target_slot = fd_disco_execle_sig_slot( sig );
+      FD_TEST( sz>=sizeof(fd_microblock_trailer_t) && (sz-sizeof(fd_microblock_trailer_t))%sizeof(fd_txn_p_t)==0UL );
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
       fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );
@@ -272,6 +282,8 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+
+  fd_sleep_until_replay_started( topo );
 }
 
 static ulong

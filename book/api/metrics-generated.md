@@ -582,7 +582,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of loading and executing a transaction (Transaction executed successfully) |
-| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">instructon_&#8203;error</span>"} | counter | Result of loading and executing a transaction (An error occurred while processing an instruction) |
+| <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">instruction_&#8203;error</span>"} | counter | Result of loading and executing a transaction (An error occurred while processing an instruction) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer address was not found) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">program_&#8203;account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (A program account referenced by the transaction was not found) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer did not have balance to pay the fee) |
@@ -886,6 +886,10 @@
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">pong</span>"} | counter | What types of client messages are we sending (Pong) |
 | <span class="metrics-name">repair_&#8203;repaired_&#8203;slots</span> | counter | Until which slots have we fully repaired |
 | <span class="metrics-name">repair_&#8203;current_&#8203;slot</span> | counter | Our view of the current cluster slot, max slot received |
+| <span class="metrics-name">repair_&#8203;old_&#8203;shred</span> | counter | How many times we received a shred older than the root |
+| <span class="metrics-name">repair_&#8203;last_&#8203;requested_&#8203;slot</span> | gauge | The last slot we requested a single shred for |
+| <span class="metrics-name">repair_&#8203;last_&#8203;requested_&#8203;orphan</span> | gauge | The last slot we requested an orphan for |
+| <span class="metrics-name">repair_&#8203;inflight_&#8203;requests</span> | gauge | How many requests are currently in the inflight queue, excludes orphans and highest window requests |
 | <span class="metrics-name">repair_&#8203;request_&#8203;peers</span> | counter | How many peers have we requested |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;tile_&#8203;unavail</span> | counter | How many times no sign tiles were available to send request |
 | <span class="metrics-name">repair_&#8203;eager_&#8203;repair_&#8203;aggresses</span> | counter | How many times we pass eager repair threshold |
@@ -898,6 +902,11 @@
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
 | <span class="metrics-name">repair_&#8203;blk_&#8203;evicted</span> | counter | How many times we evicted a block from the forest |
 | <span class="metrics-name">repair_&#8203;blk_&#8203;failed_&#8203;insert</span> | counter | How many times we failed to insert a block into the forest due to failed eviction |
+| <span class="metrics-name">repair_&#8203;slot_&#8203;evicted</span> | gauge | The most recent slot that was evicted from forest |
+| <span class="metrics-name">repair_&#8203;slot_&#8203;evicted_&#8203;by</span> | gauge | The slot that caused the most recent eviction from forest |
+| <span class="metrics-name">repair_&#8203;slot_&#8203;failed_&#8203;insert</span> | gauge | The most recent slot that we failed to insert into the forest |
+| <span class="metrics-name">repair_&#8203;failed_&#8203;chain_&#8203;verify_&#8203;cnt</span> | counter | How many times any block failed chained merkle verification |
+| <span class="metrics-name">repair_&#8203;failed_&#8203;chain_&#8203;verify_&#8203;slot</span> | gauge | Most recent slot that failed chained merkle verification |
 
 </div>
 
@@ -1008,6 +1017,7 @@
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;free_&#8203;part_&#8203;max_&#8203;bytes</span> | gauge | Largest free heap partition in account database cache |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;used_&#8203;part_&#8203;median_&#8203;bytes</span> | gauge | Median used heap partition size in account database cache |
 | <span class="metrics-name">replay_&#8203;accdb_&#8203;cache_&#8203;used_&#8203;part_&#8203;mean_&#8203;bytes</span> | gauge | Mean used heap partition size in account database cache |
+| <span class="metrics-name">replay_&#8203;runtime_&#8203;status</span> | gauge | Solana runtime status (0=initializing 1=loaded) |
 
 </div>
 
@@ -1017,6 +1027,34 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of loading and executing a transaction (Transaction executed successfully) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">instruction_&#8203;error</span>"} | counter | Result of loading and executing a transaction (An error occurred while processing an instruction) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer address was not found) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">program_&#8203;account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (A program account referenced by the transaction was not found) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer did not have balance to pay the fee) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer account is not owned by the system program, or has data that is not a nonce) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">already_&#8203;processed</span>"} | counter | Result of loading and executing a transaction (The transaction has already been processed in a recent block) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">blockhash_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction references a blockhash that is not recent, or advances a nonce with the wrong value) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;program_&#8203;for_&#8203;execution</span>"} | counter | Result of loading and executing a transaction (A program account referenced by the transaction was no executable. TODO: No longer needed with SIMD-0162) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">address_&#8203;lookup_&#8203;table_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that does not exist or is inactive) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;owner</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that is not owned by the ALUT program account) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;data</span>"} | counter | Result of loading and executing a transaction (The transaction references an ALUT account that contains data which is not a valid ALUT) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;index</span>"} | counter | Result of loading and executing a transaction (The transaction references an account offset from the ALUT which does not exist) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">max_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;exceeded</span>"} | counter | Result of loading and executing a transaction (The total account data size of the loaded accounts exceeds the consensus limit) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">duplicate_&#8203;instruction</span>"} | counter | Result of loading and executing a transaction (A compute budget program instruction was invoked more than once) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">invalid_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;limit</span>"} | counter | Result of loading and executing a transaction (The compute budget program was invoked and set the loaded accounts data size to zero) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;already_&#8203;advanced</span>"} | counter | Result of loading and executing a transaction (The transaction references a nonce account that is already advanced) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;advance_&#8203;failed</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the advance instruction was not valid or failed) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">nonce_&#8203;wrong_&#8203;blockhash</span>"} | counter | Result of loading and executing a transaction (The transaction is a nonce transaction but the blockhash is not the correct one) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Result of loading and executing a transaction (The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Result of loading and executing a transaction (The transaction references the same account twice) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">signature_&#8203;failure</span>"} | counter | Result of loading and executing a transaction (The transaction had an invalid signature) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">too_&#8203;many_&#8203;account_&#8203;locks</span>"} | counter | Result of loading and executing a transaction (The transaction references too many accounts. TODO: No longer possible with smart dispatcher) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Result of loading and executing a transaction (The transaction would leave an account with a lower balance than the rent-exempt minimum) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Result of loading and executing a transaction (The total referenced account lamports before and after the transaction was unbalanced) |
+| <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction (The transaction was part of a bundle and an earlier transaction in the bundle failed) |
+| <span class="metrics-name">execrp_&#8203;sigverify_&#8203;count</span> | counter | Number of Ed25519 signature verification jobs executed |
+| <span class="metrics-name">execrp_&#8203;poh_&#8203;hash_&#8203;count</span> | counter | Number of PoH SHA-256 calls executed |
 | <span class="metrics-name">execrp_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction setup) |
 | <span class="metrics-name">execrp_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction execution (includes VM setup/execution)) |
@@ -1096,12 +1134,12 @@
 | <span class="metrics-name">tower_&#8203;ignored_&#8203;slot</span> | gauge | Most recent ignored replay_slot_completed frag |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;cnt</span> | counter | Number of replay_slot_completed frags we detect as equivocations |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;slot</span> | gauge | Most recent equivocating replay_slot_completed frag |
-| <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | Replay slot |
-| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | Most recent vote slot, ULONG_MAX if no vote cast |
-| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | Reset slot |
-| <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | Root slot |
-| <span class="metrics-name">tower_&#8203;init_&#8203;slot</span> | gauge | Init slot |
-| <span class="metrics-name">tower_&#8203;not_&#8203;ready</span> | counter | Frag arrived before tower was initialized |
+| <span class="metrics-name">tower_&#8203;replay_&#8203;slot</span> | gauge | The most recently replayed slot, ULONG_MAX if nothing replayed yet. Not monotonically increasing. |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | gauge | The highest voted slot in the local tower, ULONG_MAX if haven't voted. Monotonically increasing. |
+| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | gauge | The most recent reset slot, ULONG_MAX if no reset yet. Not monotonically increasing. |
+| <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | The highest rooted slot, ULONG_MAX if no root yet. Monotonically increasing. |
+| <span class="metrics-name">tower_&#8203;init_&#8203;slot</span> | gauge | Init slot. Either the snapshot or genesis slot. Set once and does not change. |
+| <span class="metrics-name">tower_&#8203;not_&#8203;ready</span> | counter | Frag was dropped because it arrived before tower tile was initialized |
 | <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;deser</span> | counter | Vote txn failed to deserialize |
 | <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;tower</span> | counter | Vote txn deserialized but tower was invalid |
 | <span class="metrics-name">tower_&#8203;txn_&#8203;not_&#8203;tower_&#8203;sync</span> | counter | Vote txn was not a TowerSync instruction |

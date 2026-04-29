@@ -1,6 +1,22 @@
 #include <stdint.h>
 #include <s2n-bignum.h>
 
+/* On CPUs without ADX (mulx/adcx/adox), redirect the ADX-optimized
+   s2n-bignum symbols to their _alt equivalents, which use only base
+   x86-64 instructions and are functionally identical. */
+#ifndef __ADX__
+#define bignum_demont_p256     bignum_demont_p256_alt
+#define bignum_mod_n256        bignum_mod_n256_alt
+#define bignum_montmul_p256    bignum_montmul_p256_alt
+#define bignum_montsqr_p256    bignum_montsqr_p256_alt
+#define bignum_mul_4_8         bignum_mul_4_8_alt
+#define bignum_tomont_p256     bignum_tomont_p256_alt
+#define p256_montjdouble       p256_montjdouble_alt
+#define p256_montjmixadd       p256_montjmixadd_alt
+#define p256_montjscalarmul    p256_montjscalarmul_alt
+#define p256_scalarmulbase     p256_scalarmulbase_alt
+#endif
+
 #include "fd_secp256r1_table.c"
 
 /* Scalars */

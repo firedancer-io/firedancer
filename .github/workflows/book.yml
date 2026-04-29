@@ -43,7 +43,7 @@ jobs:
         run: |
           bun run --cwd ./book build # or pnpm docs:build / yarn docs:build / bun run docs:build
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: book/.vitepress/dist
 

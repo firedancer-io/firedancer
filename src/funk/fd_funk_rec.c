@@ -118,10 +118,7 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
     }
   }
 
-  fd_funk_rec_t * rec = prepare->rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 1, opt_err );
-  if( opt_err && *opt_err == FD_POOL_ERR_CORRUPT ) {
-    FD_LOG_CRIT(( "corrupt element returned from funk rec pool" ));
-  }
+  fd_funk_rec_t * rec = prepare->rec = fd_funk_rec_pool_acquire( funk->rec_pool );
   if( FD_UNLIKELY( !rec ) ) {
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_REC );
     fd_funk_rec_txn_release( txn_query );
