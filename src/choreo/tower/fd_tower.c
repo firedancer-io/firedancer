@@ -470,7 +470,7 @@ switch_check( fd_tower_t * tower,
 
   ulong switch_stake = 0;
   ulong vote_slot    = fd_tower_vote_peek_tail_const( tower->votes )->slot;
-  ulong root_slot    = fd_tower_vote_peek_head_const( tower->votes )->slot;
+  ulong root_slot    = tower->root;
 
   ulong            null = fd_ghost_blk_idx_null( ghost );
   fd_ghost_blk_t * head = fd_ghost_blk_map_remove( ghost, fd_ghost_root( ghost ) );
@@ -550,10 +550,12 @@ switch_check( fd_tower_t * tower,
           if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, interval_slot, vote_slot ) && interval_slot > root_slot ) ) {
             fd_tower_stakes_vtr_xid_t     key         = { .addr = *vote_acc, .slot = switch_slot };
             fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( tower->stk_vtr_map, &key, NULL, tower->stk_vtr_pool );
-            if( FD_UNLIKELY( !voter_stake ) ) {
-              FD_BASE58_ENCODE_32_BYTES( vote_acc->key, vote_acc_b58 );
-              FD_LOG_CRIT(( "missing voter stake for vote account %s on slot %lu. Is this an error?", vote_acc_b58, switch_slot ));
-            }
+
+            /* Vote account could have been closed on the switch fork,
+               and therefore not in the tower stakes map.  In this case
+               just count the vote stake as 0 and skip this voter.
+               matches Agave.  */
+            if( FD_UNLIKELY( !voter_stake ) ) continue;
             ulong voter_idx = fd_tower_stakes_vtr_pool_idx( tower->stk_vtr_pool, voter_stake );
             if( FD_UNLIKELY( fd_used_acc_scratch_test( tower->stk_used_acc, voter_idx ) ) ) continue; /* exclude already counted voters */
             fd_used_acc_scratch_insert( tower->stk_used_acc, voter_idx );
