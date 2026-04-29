@@ -1104,7 +1104,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted ); /* FIXME manifest block_id */
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted );
   fec->bank_idx              = bank->idx;
   fec->bank_seq              = bank->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1232,7 +1232,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted ); /* FIXME manifest block_id */
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted );
     fec->bank_idx        = bank->idx;
     fec->bank_seq        = bank->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -1634,10 +1634,12 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
-  /* Standard case, the parent FEC has a valid corresponding bank. */
+  int eqvoc_detected = reasm_fec->fec_set_idx!=0 && (reasm_fec->eqvoc &* !reasm_fec->confirmed);
+
+  /* Standard case, the parent FEC has a valid corresponding bank and
+     there has been no equivocation detected so far. */
   fd_bank_t * parent_fec_bank = fd_banks_bank_query( ctx->banks, parent->bank_idx );
-  if( FD_LIKELY( parent_fec_bank &&
-                 parent_fec_bank->bank_seq==parent->bank_seq ) ) {
+  if( FD_LIKELY( parent_fec_bank && parent_fec_bank->bank_seq==parent->bank_seq && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
     return;
   }
@@ -1854,18 +1856,6 @@ after_credit( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->is_leader && bank_idx==ctx->leader_bank->idx ) ) return;
     mark_bank_dead( ctx, stem, bank->idx );
     fd_sched_block_abandon( ctx->sched, bank->idx );
-
-    /* evict it from reasm */
-
-    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->idx ];
-    fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
-    FD_TEST( fec );
-    fd_reasm_fec_t * evicted_head = fd_reasm_remove( ctx->reasm, fec, ctx->store );
-    if( FD_UNLIKELY( ctx->reasm_evicted ) ) {
-      /* already have a chain we are evicting. Prepend the new chain to the existing chain */
-      fec->child = fd_reasm_pool_idx( ctx->reasm, ctx->reasm_evicted );
-    }
-    ctx->reasm_evicted = evicted_head;
     return;
   }
 
@@ -2118,9 +2108,8 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
-process_fec_complete( fd_replay_tile_t *    ctx,
-                      fd_stem_context_t *   stem,
-                      ulong                 sig,
+process_fec_complete( fd_replay_tile_t *  ctx,
+                      ulong               sig,
                       fd_fec_complete_t * complete_msg ) {
   fd_shred_t const * shred = &complete_msg->last_shred_hdr;
 
@@ -2146,11 +2135,6 @@ process_fec_complete( fd_replay_tile_t *    ctx,
        pool element with the data of the failed insert, so we make sure
        to publish the failed insert data to repair in after_credit. */
     return;
-  }
-
-  if( FD_UNLIKELY( ctx->reasm_evicted && ctx->reasm_evicted->bank_idx != ULONG_MAX ) ) {
-    mark_bank_dead( ctx, stem, ctx->reasm_evicted->bank_idx );
-    fd_sched_block_abandon( ctx->sched, ctx->reasm_evicted->bank_idx );
   }
 }
 
@@ -2342,7 +2326,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_REPAIR: {
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
-        process_fec_complete( ctx, stem, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        process_fec_complete( ctx, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }
