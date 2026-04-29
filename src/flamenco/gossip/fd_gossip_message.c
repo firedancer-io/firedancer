@@ -425,12 +425,12 @@ deser_contact_info( fd_gossip_value_t * value,
 
   cur_port = 0U;
   for( ulong i=0UL; i<sockets_len; i++ ) {
+    cur_port = (ushort)(cur_port + sockets[ i ].offset);
     if( FD_LIKELY( sockets[ i ].key<FD_GOSSIP_CONTACT_INFO_SOCKET_CNT ) ) {
       value->contact_info->sockets[ sockets[ i ].key ].is_ipv6 = is_ip6[ sockets[ i ].index ];
       if( FD_LIKELY( !is_ip6[ sockets[ i ].index ] ) ) value->contact_info->sockets[ sockets[ i ].key ].ip4 = ips[ sockets[ i ].index ].ip4;
       else                                             fd_memcpy( value->contact_info->sockets[ sockets[ i ].key ].ip6, ips[ sockets[ i ].index ].ip6, 16UL );
 
-      cur_port = (ushort)(cur_port + sockets[ i ].offset);
       value->contact_info->sockets[ sockets[ i ].key ].port = fd_ushort_bswap( cur_port );
     }
   }
