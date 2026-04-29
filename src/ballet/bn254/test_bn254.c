@@ -597,7 +597,7 @@ int main( int     argc,
       /* test G2 compress > decompress */
       FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 1 /*BE*/ ) );
       FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 1 /*BE*/ ) );
-      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+      if( !fd_memeq( &in[64], g2d, 128 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
@@ -639,7 +639,7 @@ int main( int     argc,
       /* test G2 compress > decompress */
       FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ ) );
       FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
-      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+      if( !fd_memeq( &in[64], g2d, 128 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
@@ -678,7 +678,7 @@ int main( int     argc,
       /* test G2 compress > decompress */
       FD_TEST( fd_bn254_g2_compress( g2c, &in[64], 0 /*LE*/ ) );
       FD_TEST( fd_bn254_g2_decompress( g2d, g2c, 0 /*LE*/ ) );
-      if( !fd_memeq( &in[64], g2d, 64 ) ) {
+      if( !fd_memeq( &in[64], g2d, 128 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));

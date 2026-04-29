@@ -432,9 +432,9 @@ fd_bls12_381_pairing_syscall( uchar       _r[ 48*12 ],
 
 /* Proof of possession */
 
-#define FD_BLS_SIG_DOMAIN_NUL "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_"
-#define FD_BLS_SIG_DOMAIN_POP "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
-#define FD_BLS_SIG_DOMAIN_SZ  (43UL)
+#define FD_BLS_LITERAL(STR) ("" STR), (sizeof(STR)-1)
+#define FD_BLS_SIG_DOMAIN_H2P "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_POP_"
+#define FD_BLS_SIG_DOMAIN_POP "BLS_POP_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
 
 /* fd_bls12_381_core_verify verifies a BLS signature in the mathematical
    sense, i.e. computes a pairing to check that the signature is correct.
@@ -461,7 +461,8 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
                           ulong        msg_sz,
                           uchar const  signature[ 96 ],
                           uchar const  public_key[ 48 ],
-                          char const * domain ) {
+                          char const * domain,
+                          ulong        domain_len ) {
   fd_bls12_381_g1aff_t a1[1]; /* a2 is const, we don't need a var */
   fd_bls12_381_g2aff_t b1[1], b2[1];
 
@@ -479,7 +480,7 @@ fd_bls12_381_core_verify( uchar const  msg[], /* msg_sz */
 
   /* hash msg into b1. the check that it's a valid point in G2 is implicit/guaranteed */
   fd_bls12_381_g2_t _b1[1];
-  blst_hash_to_g2( _b1, msg, msg_sz, (uchar const *)domain, FD_BLS_SIG_DOMAIN_SZ, NULL, 0UL );
+  blst_hash_to_g2( _b1, msg, msg_sz, (uchar const *)domain, domain_len, NULL, 0UL );
   blst_p2_to_affine( b1, _b1 );
 
   /* decompress signature into b2 and check that it's a valid point in G2 */
@@ -521,5 +522,5 @@ fd_bls12_381_proof_of_possession_verify( uchar const msg[], /* msg_sz */
     return -1;
   }
 
-  return fd_bls12_381_core_verify( msg, msg_sz, proof, public_key, FD_BLS_SIG_DOMAIN_POP );
+  return fd_bls12_381_core_verify( msg, msg_sz, proof, public_key, FD_BLS_LITERAL( FD_BLS_SIG_DOMAIN_POP ) );
 }

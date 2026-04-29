@@ -47,16 +47,6 @@
       "comment": "https://github.com/solana-program/stake/blob/330d89c6246ab3fd35d02803386fa700be0455d6/interface/src/stake_history.rs#L66"
     },
     {
-      "name": "slot_history",
-      "type": "struct",
-      "global": true,
-      "fields": [
-          { "name": "bits", "type": "bitvec", "element": "ulong" },
-          { "name": "next_slot", "type": "ulong" }
-      ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11"
-    },
-    {
       "name": "slot_hash",
       "type": "struct",
       "fields": [

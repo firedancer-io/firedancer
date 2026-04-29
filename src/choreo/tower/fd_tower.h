@@ -592,8 +592,9 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
    block vote metadata to match the updated tower. */
 
 void
-fd_tower_reconcile( fd_tower_t  * tower,
-                    uchar const * vote_acc );
+fd_tower_reconcile( fd_tower_t      * tower,
+                    fd_tower_vote_t * onchain_votes,
+                    ulong             onchain_root );
 
 /* fd_tower_blocks_{query,insert,remove} provide convenient wrappers for
    {querying,inserting,removing} blocks into the tower's block map. */

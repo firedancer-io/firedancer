@@ -26,11 +26,11 @@ fd_repair_metrics_set_turbine_slot0( fd_repair_metrics_t * repair_metrics, ulong
 
 void
 fd_repair_metrics_add_slot( fd_repair_metrics_t * repair_metrics,
-                     ulong          slot,
-                     long           first_shred_ts,
-                     long           slot_complete_ts,
-                     uint           repair_cnt,
-                     uint           turbine_cnt ) {
+                            ulong                 slot,
+                            long                  first_shred_ts,
+                            long                  slot_complete_ts,
+                            uint                  repair_cnt,
+                            uint                  turbine_cnt ) {
   uint next_en = (repair_metrics->en + 1) % FD_CATCHUP_METRICS_MAX;
   if( FD_UNLIKELY( next_en == repair_metrics->st || repair_metrics->st == UINT_MAX ) ) {
     repair_metrics->st = (repair_metrics->st + 1) % FD_CATCHUP_METRICS_MAX;

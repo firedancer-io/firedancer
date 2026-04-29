@@ -35,28 +35,6 @@ struct fd_stake_history {
 typedef struct fd_stake_history fd_stake_history_t;
 #define FD_STAKE_HISTORY_ALIGN alignof(fd_stake_history_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L11 */
-/* Encoded Size: Dynamic */
-struct fd_slot_history {
-  uchar has_bits;
-  ulong bits_bitvec_len;
-  ulong* bits_bitvec;
-  ulong bits_len;
-  ulong next_slot;
-};
-typedef struct fd_slot_history fd_slot_history_t;
-#define FD_SLOT_HISTORY_ALIGN alignof(fd_slot_history_t)
-
-struct fd_slot_history_global {
-  uchar has_bits;
-  ulong bits_bitvec_len;
-  ulong bits_bitvec_offset;
-  ulong bits_len;
-  ulong next_slot;
-};
-typedef struct fd_slot_history_global fd_slot_history_global_t;
-#define FD_SLOT_HISTORY_GLOBAL_ALIGN alignof(fd_slot_history_global_t)
-
 /* Encoded Size: Fixed (40 bytes) */
 struct fd_slot_hash {
   ulong slot;
@@ -128,16 +106,6 @@ static inline ulong fd_stake_history_size( fd_stake_history_t const * self ) { (
 static inline ulong fd_stake_history_align( void ) { return FD_STAKE_HISTORY_ALIGN; }
 int fd_stake_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_stake_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_slot_history_new( fd_slot_history_t * self );
-int fd_slot_history_encode( fd_slot_history_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_slot_history_size( fd_slot_history_t const * self );
-static inline ulong fd_slot_history_align( void ) { return FD_SLOT_HISTORY_ALIGN; }
-int fd_slot_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_slot_history_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_slot_history_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_slot_history_encode_global( fd_slot_history_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_slot_history_size_global( fd_slot_history_global_t const * self );
 
 static inline void fd_slot_hash_new( fd_slot_hash_t * self ) { fd_memset( self, 0, sizeof(fd_slot_hash_t) ); }
 int fd_slot_hash_encode( fd_slot_hash_t const * self, fd_bincode_encode_ctx_t * ctx );

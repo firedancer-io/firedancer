@@ -26,6 +26,8 @@
 
 #include "../../util/bits/fd_uwide.h"
 
+#include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>   /* snprintf(3) */
@@ -309,8 +311,7 @@ fd_executor_check_status_cache( fd_txncache_t *     status_cache,
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L71-L136 */
 static int
-fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *      runtime,
-                                                             fd_bank_t *         bank,
+fd_executor_check_transaction_age_and_compute_budget_limits( fd_bank_t *         bank,
                                                              fd_txn_in_t const * txn_in,
                                                              fd_txn_out_t *      txn_out ) {
 
@@ -321,7 +322,7 @@ fd_executor_check_transaction_age_and_compute_budget_limits( fd_runtime_t *     
   }
 
   /* https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/check_transactions.rs#L124-L131 */
-  err = fd_check_transaction_age( runtime, bank, txn_in, txn_out );
+  err = fd_check_transaction_age( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -342,7 +343,7 @@ fd_executor_check_transactions( fd_runtime_t *      runtime,
                                 fd_txn_in_t const * txn_in,
                                 fd_txn_out_t *      txn_out ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L68-L73 */
-  int err = fd_executor_check_transaction_age_and_compute_budget_limits( runtime, bank, txn_in, txn_out );
+  int err = fd_executor_check_transaction_age_and_compute_budget_limits( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
   }
@@ -774,7 +775,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
     fd_account_meta_t const * meta = NULL;
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       int is_found = 0;
-      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {;
+      for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
         fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
         for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
           if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[j] ) {
@@ -1252,15 +1253,16 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
              had queued an update to the vote/stakes caches and is
              writable in the new transaction, unmark the update to avoid
              double-counting the update. */
-          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] &&
-                           (prev_txn_out->accounts.stake_update[ j ] ||
-                            prev_txn_out->accounts.vote_update[ j ] ||
-                            prev_txn_out->accounts.new_vote[ j ]) ) ) {
-            prev_txn_out->accounts.stake_update[ j ] = 0;
-            prev_txn_out->accounts.vote_update[ j ]  = 0;
-            prev_txn_out->accounts.new_vote[ j ]     = 0;
+          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] ) ) {
+            if( prev_txn_out->accounts.stake_update[ j ] ) {
+              prev_txn_out->accounts.stake_update[ j ] = 0;
+              txn_out->accounts.stake_update[ idx ] = 1;
+            }
+            if( prev_txn_out->accounts.vote_update[ j ] ) {
+              prev_txn_out->accounts.vote_update[ j ] = 0;
+              txn_out->accounts.vote_update[ idx ] = 1;
+            }
           }
-
           break;
         }
       }
@@ -1451,6 +1453,13 @@ fd_executor_txn_check( fd_runtime_t * runtime,
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( !txn_out->accounts.is_writable[i] ) continue;
+
+    /* Tips for bundles are collected in the bank: a user submitting a
+       bundle must include a instruction that transfers lamports to
+       a specific tip account.  Tips accumulated through the slot. */
+    if( fd_pack_tip_is_tip_account( fd_type_pun_const( txn_out->accounts.keys[i].uc ) ) ) {
+      txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( txn_out->accounts.account[i].ro ), runtime->accounts.starting_lamports[i] );
+    }
 
     ulong               starting_lamports = runtime->accounts.starting_lamports[i];
     ulong               starting_dlen     = runtime->accounts.starting_dlen[i];

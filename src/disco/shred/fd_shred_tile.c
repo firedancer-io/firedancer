@@ -484,6 +484,9 @@ during_frag( fd_shred_ctx_t * ctx,
     uchar const *               dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_epoch_info_msg_t const * epoch_msg    = fd_type_pun_const( dcache_entry );
 
+    FD_TEST( epoch_msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    FD_TEST( epoch_msg->staked_id_cnt<=MAX_SHRED_DESTS );
+
     fd_stake_ci_epoch_msg_init( ctx->stake_ci, epoch_msg );
 
     *ctx->epoch_schedule                                = epoch_msg->epoch_schedule;
