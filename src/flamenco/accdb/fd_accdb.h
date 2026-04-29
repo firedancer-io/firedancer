@@ -498,11 +498,8 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
     fd_accdb_metrics_t const * _m = (m);                                                    \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED,          _m->accounts_acquired          ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_ACQUIRED_WRITABLE, _m->writable_accounts_acquired ); \
-    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_EVICTED,           _m->accounts_evicted           ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_EVICTED_CLASS, _m->accounts_evicted_per_class ); \
-    FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_PREEVICTED,        _m->accounts_preevicted        ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_PREEVICTED_CLASS, _m->accounts_preevicted_per_class ); \
-    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_NEW_CLASS, _m->accounts_committed_new_per_class ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_EVICTED,        _m->accounts_evicted_per_class        ); \
+    FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_NEW,  _m->accounts_committed_new_per_class  ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_MISSED,            _m->accounts_missed            ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,            _m->accounts_waited            ); \
     FD_MCNT_SET( TILE, ACCDB_ACQUIRE_FAILED,             _m->acquire_failed             ); \

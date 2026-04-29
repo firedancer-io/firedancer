@@ -460,60 +460,51 @@ diff_tile_idx( ulong const * prev_tile,
 
 static void
 accdb_per_tile_offsets( char const * name,
-                        ulong *      offs /* 12 entries: acquired, writable, missed, evicted, waited, rd, wr, cp, evicted_class_base, preevicted, preevicted_class_base, committed_new_class_base */ ) {
+                        ulong *      offs /* 10 entries: acquired, writable, missed, waited, rd, wr, cp, evicted_class_base, preevicted_class_base, committed_new_class_base */ ) {
   if(      !strcmp( name, "execle" ) ) {
     offs[0]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_EVICTED          );
-    offs[4]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_WAITED           ); offs[5]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_READ                );
-    offs[6]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_WRITTEN             ); offs[7]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_COPIED              );
-    offs[8]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_EVICTED_CLASS    );
-    offs[9]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_PREEVICTED       ); offs[10]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_PREEVICTED_CLASS);
-    offs[11]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_COMMITTED_NEW_CLASS);
+    offs[2]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_WAITED          );
+    offs[4]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_WRITTEN            );
+    offs[6]=MIDX(COUNTER,EXECLE,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_EVICTED         );
+    offs[8]=ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECLE,ACCDB_ACCOUNTS_COMMITTED_NEW   );
   } else if( !strcmp( name, "execrp" ) ) {
     offs[0]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_EVICTED          );
-    offs[4]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_WAITED           ); offs[5]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_READ                );
-    offs[6]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_WRITTEN             ); offs[7]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_COPIED              );
-    offs[8]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_EVICTED_CLASS    );
-    offs[9]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_PREEVICTED       ); offs[10]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_PREEVICTED_CLASS);
-    offs[11]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_COMMITTED_NEW_CLASS);
+    offs[2]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_WAITED          );
+    offs[4]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_WRITTEN            );
+    offs[6]=MIDX(COUNTER,EXECRP,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_EVICTED         );
+    offs[8]=ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,EXECRP,ACCDB_ACCOUNTS_COMMITTED_NEW   );
   } else if( !strcmp( name, "replay" ) ) {
     offs[0]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED         ); offs[1]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE);
-    offs[2]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_EVICTED          );
-    offs[4]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_WAITED           ); offs[5]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_READ                );
-    offs[6]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_WRITTEN             ); offs[7]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_COPIED              );
-    offs[8]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_EVICTED_CLASS    );
-    offs[9]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_PREEVICTED       ); offs[10]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_PREEVICTED_CLASS);
-    offs[11]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_COMMITTED_NEW_CLASS);
+    offs[2]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_MISSED           ); offs[3]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_WAITED          );
+    offs[4]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_READ                ); offs[5]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_WRITTEN            );
+    offs[6]=MIDX(COUNTER,REPLAY,ACCDB_BYTES_COPIED              ); offs[7]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_EVICTED         );
+    offs[8]=ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,REPLAY,ACCDB_ACCOUNTS_COMMITTED_NEW   );
   } else if( !strcmp( name, "tower" ) ) {
     offs[0]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED          ); offs[1]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE );
-    offs[2]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_MISSED            ); offs[3]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_EVICTED           );
-    offs[4]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_WAITED            ); offs[5]=MIDX(COUNTER,TOWER,ACCDB_BYTES_READ                 );
-    offs[6]=MIDX(COUNTER,TOWER,ACCDB_BYTES_WRITTEN              ); offs[7]=MIDX(COUNTER,TOWER,ACCDB_BYTES_COPIED               );
-    offs[8]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_EVICTED_CLASS     );
-    offs[9]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_PREEVICTED        ); offs[10]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_PREEVICTED_CLASS );
-    offs[11]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_COMMITTED_NEW_CLASS);
+    offs[2]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_MISSED            ); offs[3]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_WAITED            );
+    offs[4]=MIDX(COUNTER,TOWER,ACCDB_BYTES_READ                 ); offs[5]=MIDX(COUNTER,TOWER,ACCDB_BYTES_WRITTEN              );
+    offs[6]=MIDX(COUNTER,TOWER,ACCDB_BYTES_COPIED               ); offs[7]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_EVICTED           );
+    offs[8]=ULONG_MAX                                            ; offs[9]=MIDX(COUNTER,TOWER,ACCDB_ACCOUNTS_COMMITTED_NEW     );
   } else if( !strcmp( name, "accdb" ) ) {
-    offs[0]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_ACQUIRED          ); offs[1]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_ACQUIRED_WRITABLE );
-    offs[2]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_MISSED            ); offs[3]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_EVICTED           );
-    offs[4]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_WAITED            ); offs[5]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_READ                 );
-    offs[6]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_WRITTEN              ); offs[7]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_COPIED               );
-    offs[8]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_EVICTED_CLASS     );
-    offs[9]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_PREEVICTED        ); offs[10]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_PREEVICTED_CLASS );
-    offs[11]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_COMMITTED_NEW_CLASS);
+    /* The accdb tile only runs background work (compact, preevict,
+       advance_root, purge); it never acquires/releases.  Sentinel
+       everything that comes from the acquire/release path. */
+    offs[0]=ULONG_MAX                                            ; offs[1]=ULONG_MAX                                            ;
+    offs[2]=ULONG_MAX                                            ; offs[3]=ULONG_MAX                                            ;
+    offs[4]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_READ                 ); offs[5]=MIDX(COUNTER,ACCDB,ACCDB_BYTES_WRITTEN              );
+    offs[6]=ULONG_MAX                                            ; offs[7]=ULONG_MAX                                            ;
+    offs[8]=MIDX(COUNTER,ACCDB,ACCDB_ACCOUNTS_PREEVICTED        ); offs[9]=ULONG_MAX                                            ;
   } else if( !strcmp( name, "rpc" ) ) {
     /* RPC is a read-only accdb consumer.  It only emits the subset
        of counters that fd_accdb_read_one_nocache touches; everything
        else is sentinel and skipped by sample_accdb. */
     offs[0]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_ACQUIRED); offs[1]=ULONG_MAX;
-    offs[2]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_MISSED  ); offs[3]=ULONG_MAX;
-    offs[4]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_WAITED  ); offs[5]=MIDX(COUNTER,RPC,ACCDB_BYTES_READ);
-    offs[6]=ULONG_MAX;                                 offs[7]=MIDX(COUNTER,RPC,ACCDB_BYTES_COPIED);
-    offs[8]=ULONG_MAX;
-    offs[9]=ULONG_MAX;                                 offs[10]=ULONG_MAX;
-    offs[11]=ULONG_MAX;
+    offs[2]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_MISSED  ); offs[3]=MIDX(COUNTER,RPC,ACCDB_ACCOUNTS_WAITED);
+    offs[4]=MIDX(COUNTER,RPC,ACCDB_BYTES_READ       ); offs[5]=ULONG_MAX;
+    offs[6]=MIDX(COUNTER,RPC,ACCDB_BYTES_COPIED     ); offs[7]=ULONG_MAX;
+    offs[8]=ULONG_MAX;                                 offs[9]=ULONG_MAX;
   } else {
-    for( ulong i=0UL; i<12UL; i++ ) offs[i] = ULONG_MAX;
+    for( ulong i=0UL; i<10UL; i++ ) offs[i] = ULONG_MAX;
   }
 }
 
@@ -529,26 +520,32 @@ sample_accdb( config_t const * config,
   long committed_new_class[ 8 ] = {0};
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    ulong offs[12];
+    ulong offs[10];
     accdb_per_tile_offsets( config->topo.tiles[ i ].name, offs );
     if( offs[0]==ULONG_MAX ) continue;
     acquired += diff_tile_idx( prev_tile, cur_tile, i, offs[0] );
     if( offs[1]!=ULONG_MAX ) writable += diff_tile_idx( prev_tile, cur_tile, i, offs[1] );
     if( offs[2]!=ULONG_MAX ) missed   += diff_tile_idx( prev_tile, cur_tile, i, offs[2] );
-    if( offs[3]!=ULONG_MAX ) evicted  += diff_tile_idx( prev_tile, cur_tile, i, offs[3] );
-    if( offs[4]!=ULONG_MAX ) waited   += diff_tile_idx( prev_tile, cur_tile, i, offs[4] );
-    if( offs[5]!=ULONG_MAX ) bytes_rd += diff_tile_idx( prev_tile, cur_tile, i, offs[5] );
-    if( offs[7]!=ULONG_MAX ) bytes_cp += diff_tile_idx( prev_tile, cur_tile, i, offs[7] );
-    if( offs[6]!=ULONG_MAX ) {
-      long this_wr = diff_tile_idx( prev_tile, cur_tile, i, offs[6] );
+    if( offs[3]!=ULONG_MAX ) waited   += diff_tile_idx( prev_tile, cur_tile, i, offs[3] );
+    if( offs[4]!=ULONG_MAX ) bytes_rd += diff_tile_idx( prev_tile, cur_tile, i, offs[4] );
+    if( offs[6]!=ULONG_MAX ) bytes_cp += diff_tile_idx( prev_tile, cur_tile, i, offs[6] );
+    if( offs[5]!=ULONG_MAX ) {
+      long this_wr = diff_tile_idx( prev_tile, cur_tile, i, offs[5] );
       if( !strcmp( config->topo.tiles[ i ].name, "accdb" ) ) bytes_pe += this_wr;
       else                                                   bytes_wr += this_wr;
     }
-    if( offs[9]!=ULONG_MAX ) preevicted += diff_tile_idx( prev_tile, cur_tile, i, offs[9] );
     for( ulong c=0UL; c<8UL; c++ ) {
-      if( offs[8]!=ULONG_MAX  ) evicted_class      [ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[8]  + c );
-      if( offs[10]!=ULONG_MAX ) preevicted_class   [ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[10] + c );
-      if( offs[11]!=ULONG_MAX ) committed_new_class[ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[11] + c );
+      if( offs[7]!=ULONG_MAX ) {
+        long d = diff_tile_idx( prev_tile, cur_tile, i, offs[7] + c );
+        evicted_class[ c ] += d;
+        evicted            += d;
+      }
+      if( offs[8]!=ULONG_MAX ) {
+        long d = diff_tile_idx( prev_tile, cur_tile, i, offs[8] + c );
+        preevicted_class[ c ] += d;
+        preevicted            += d;
+      }
+      if( offs[9]!=ULONG_MAX ) committed_new_class[ c ] += diff_tile_idx( prev_tile, cur_tile, i, offs[9] + c );
     }
   }
 

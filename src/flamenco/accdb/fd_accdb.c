@@ -1280,6 +1280,7 @@ background_compact( fd_accdb_t * accdb,
       else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
                                                       compact_base+compact->compaction_offset+bytes_copied, record_sz ));
       bytes_copied += (ulong)result;
+      accdb->metrics->copy_ops++;
     }
 
     accdb->shmem->shmetrics->accounts_relocated++;
