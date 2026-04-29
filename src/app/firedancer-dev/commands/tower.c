@@ -4,7 +4,7 @@
 
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../shared_dev/commands/dev.h"
-#include "../../../discof/tower/fd_tower_tile.c"
+#include "../../../discof/tower/fd_tower_tile.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -150,8 +150,8 @@ tower_cmd_fn_ghost( args_t *   args,
 }
 
 static void
-tower_cmd_fn_tower( args_t    * args,
-                     config_t * config ) {
+tower_cmd_fn_tower( args_t   * args,
+                    config_t * config ) {
   fd_tower_tile_t *          tower_ctx;
   fd_topo_wksp_t * tower_wksp;
   tower_ctx_wksp( args, config, &tower_ctx, &tower_wksp );

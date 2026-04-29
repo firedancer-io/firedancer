@@ -135,11 +135,7 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../tango/fd_tango_base.h"
 
-#include "../forest/fd_forest.h"
-#include "fd_repair_metrics.h"
-#include "fd_inflight.h"
-#include "fd_repair.h"
-#include "fd_policy.h"
+#include "fd_repair_tile.h"
 
 #define DEBUG_LOGGING 0
 
@@ -153,12 +149,7 @@
 #define IN_KIND_GENESIS (7)
 #define IN_KIND_REPLAY  (8)
 
-#define MAX_IN_LINKS    (32)
 #define MAX_SHRED_TILE_CNT ( 16UL )
-#define MAX_SIGN_TILE_CNT  ( 16UL )
-
-/* Max number of validators that can be actively queried */
-#define FD_REPAIR_PEER_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 
 /* Max number of pending repair requests recently made to keep track of.
    Calculated generally as we estimate around 50k/s/core to sign
@@ -178,82 +169,6 @@ static uint metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
   [FD_REPAIR_KIND_HIGHEST_SHRED] = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX,
   [FD_REPAIR_KIND_ORPHAN]        = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX,
 };
-
-typedef union {
-  struct {
-    fd_wksp_t * mem;
-    ulong       chunk0;
-    ulong       wmark;
-    ulong       mtu;
-  };
-  fd_net_rx_bounds_t net_rx;
-} in_ctx_t;
-
-struct out_ctx {
-  ulong         idx;
-  fd_wksp_t *   mem;
-  ulong         chunk0;
-  ulong         wmark;
-  ulong         chunk;
-
-  /* Repair tile directly tracks credit outside of stem for these
-     asynchronous sign links.  In particular, credits tracks the RETURN
-     sign_repair link.  This is because repair_sign and
-     sign_repair are unreliable.  If both links were reliable, and the
-     links filled completely, stem would get into a deadlock.  Neither
-     repair or sign would have credits, which would prevent frags from
-     getting polled in repair or sign, which would prevent any credits
-     from getting returned back to the tiles.  So the sign_repair return
-     link must be unreliable. credits / max_credits are used by the
-     repair_sign link,  but credits tracks the RETURN
-     sign_repair link.
-
-     Consider the scenario:
-
-             repair_sign (depth 128)        sign_repair (depth 128)
-     repair  ---------------------->  sign ------------------------> repair
-             [rest free, r130, r129]       [r128, r127, ... , r1] (full)
-
-     If repair is publishing too many requests too fast(common in
-     catchup), and not polling enough frags from sign, without manual
-     management the sign_repair link would be overrun.  Nothing is
-     stopping repair from publishing more requests, because sign is
-     functioning fast enough to handle the requests. However, nothing is
-     stopping sign from polling the next request and signing it, and
-     PUBLISHING it on the sign_repair link that is already full, because
-     the sign_repair link is unreliable.
-
-     This is why we need to manually track credits for the sign_repair
-     link. We must ensure that there are never more than 128 items in
-     the ENTIRE repair_sign -> sign tile -> sign_repair work queue, else
-     there is always a possibility of an overrun in the sign_repair
-     link.
-
-     We can furthermore ensure some nice properties by having the
-     repair_sign link have a greater depth than the sign_repair link.
-     This way, we exclusively use manual credit management to control
-     the rate at which we publish requests to sign.  This allows for
-     repair_sign to also be unreliable.  Even when the repair sign link
-     is "full", we can avoid backpressure and continue polling frags,
-     without overruning the sign_repair link.
-
-     To lose a frag to overrun isn't necessarily critical, but in
-     general the repair tile relies on the fact that a signing task
-     published to sign tile will always come back.  If we lose a frag to
-     overrun, then there will be an entry in the pending signs structure
-     that is never removed, and theoretically the map could fill up.
-     Conceptually, with a reliable (unreliable links, but strictly
-     controlled count-per-link) sign->repair->sign structure, there
-     should be no eviction needed in this pending signs structure. */
-
-  ulong in_idx;      /* index of the incoming link */
-  ulong credits;     /* available credits for link */
-  ulong max_credits; /* maximum credits (depth) */
-};
-typedef struct out_ctx out_ctx_t;
-
-/* Data needed to sign and send a pong that is not contained in the
-   pong msg itself. */
 
 struct pong_data {
   fd_ip4_port_t  peer_addr;
@@ -323,100 +238,6 @@ typedef struct sign_pending sign_pending_t;
 #define QUEUE_MAX        (2*FD_REPAIR_PEER_MAX)
 #include "../../util/tmpl/fd_queue.c"
 
-struct ctx {
-  long tsdebug; /* timestamp for debug printing */
-
-  ulong repair_seed;
-
-  fd_keyswitch_t * keyswitch;
-  int              halt_signing;
-
-  fd_ip4_port_t repair_intake_addr;
-  fd_ip4_port_t repair_serve_addr;
-
-  fd_forest_t    * forest;
-  fd_policy_t    * policy;
-  fd_inflights_t * inflights;
-  fd_repair_t    * protocol;
-
-  ulong enforce_fixed_fec_set; /* min slot where the feature is enforced */
-
-  fd_pubkey_t identity_public_key;
-
-  fd_wksp_t * wksp;
-
-  fd_stem_context_t * stem;
-
-  uchar    in_kind[ MAX_IN_LINKS ];
-  in_ctx_t in_links[ MAX_IN_LINKS ];
-
-  int skip_frag;
-
-  out_ctx_t net_out_ctx[1];
-
-  out_ctx_t repair_out_ctx[1];
-
-  /* repair_sign links (to sign tiles 1+) - for round-robin distribution */
-
-  ulong     repair_sign_cnt;
-  out_ctx_t repair_sign_out_ctx[ MAX_SIGN_TILE_CNT ];
-
-  ulong     sign_rrobin_idx;
-
-  /* Pending sign requests for async operations */
-
-  uint             pending_key_next;
-  sign_req_t     * signs_map;  /* contains any request currently in the repair->sign or sign->repair dcache */
-  sign_pending_t * pong_queue;  /* contains any pong or initial warmup request waiting to be dispatched to repair->sign. Size is 2*FD_REPAIR_PEER_MAX */
-
-  ushort net_id;
-
-  /* Buffers for incoming unreliable frags */
-  uchar net_buf[ FD_NET_MTU ];
-  uchar sign_buf[ sizeof(fd_ed25519_sig_t) ];
-
-  /* Store chunk for incoming reliable frags */
-  ulong chunk;
-  ulong snap_out_chunk; /* store second to last chunk for snap_out */
-
-  fd_ip4_udp_hdrs_t intake_hdr[1];
-  fd_ip4_udp_hdrs_t serve_hdr [1];
-
-  fd_rnonce_ss_t repair_nonce_ss[1];
-
-  ulong manifest_slot;
-  struct {
-    ulong send_pkt_cnt;
-    ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
-    ulong repaired_slots;
-    ulong current_slot;
-    ulong old_shred;
-    ulong last_requested_slot;
-    ulong last_requested_orphan;
-    ulong sign_tile_unavail;
-    ulong rerequest;
-    ulong malformed_ping;
-    ulong unknown_peer_ping;
-    ulong fail_sigverify_ping;
-    fd_histf_t slot_compl_time[ 1 ];
-    fd_histf_t response_latency[ 1 ];
-    ulong blk_evicted;
-    ulong blk_failed_insert;
-
-    ulong slot_evicted;
-    ulong slot_evicted_by;
-    ulong slot_failed_insert;
-
-    ulong failed_chain_verify_cnt;
-    ulong failed_chain_verify_slot;
-  } metrics[ 1 ];
-
-  /* Slot-level metrics */
-
-  fd_repair_metrics_t * slot_metrics;
-  ulong turbine_slot0;  // catchup considered complete after this slot
-};
-typedef struct ctx ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -434,7 +255,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   int   lg_sign_depth    = fd_ulong_find_msb( fd_ulong_pow2_up(total_sign_depth) ) + 1;
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                      );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_repair_tile_t),            sizeof(fd_repair_tile_t)                                                      );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),         fd_repair_footprint     ()                                         );
   l = FD_LAYOUT_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max )                  );
   l = FD_LAYOUT_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_DEDUP_CACHE_MAX, FD_REPAIR_PEER_MAX ) );
@@ -448,7 +269,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 /* Below functions manage the current pending sign requests. */
 
 static sign_req_t *
-sign_map_insert( ctx_t *                 ctx,
+sign_map_insert( fd_repair_tile_t *                 ctx,
                  fd_repair_msg_t const * msg,
                  pong_data_t const     * opt_pong_data ) {
 
@@ -464,7 +285,7 @@ sign_map_insert( ctx_t *                 ctx,
 }
 
 static int
-sign_map_remove( ctx_t * ctx,
+sign_map_remove( fd_repair_tile_t * ctx,
                  ulong   key ) {
   sign_req_t * pending = fd_signs_map_query( ctx->signs_map, key, NULL );
   if( FD_UNLIKELY( !pending ) ) return -1;
@@ -473,7 +294,7 @@ sign_map_remove( ctx_t * ctx,
 }
 
 static void
-send_packet( ctx_t             * ctx,
+send_packet( fd_repair_tile_t             * ctx,
              fd_stem_context_t * stem,
              uint                dst_ip_addr,
              ushort              dst_port,
@@ -511,7 +332,7 @@ send_packet( ctx_t             * ctx,
 /* Returns a sign_out context with max available credits.
    If no sign_out context has available credits, returns NULL. */
 static out_ctx_t *
-sign_avail_credits( ctx_t * ctx ) {
+sign_avail_credits( fd_repair_tile_t * ctx ) {
   out_ctx_t * sign_out = NULL;
   ulong max_credits = 0;
   for( uint i = 0; i < ctx->repair_sign_cnt; i++ ) {
@@ -527,7 +348,7 @@ sign_avail_credits( ctx_t * ctx ) {
    will be signed asynchronously by the sign tile.  The signed data will
    be returned via dcache as a frag. */
 static void
-fd_repair_send_sign_request( ctx_t                 * ctx,
+fd_repair_send_sign_request( fd_repair_tile_t                 * ctx,
                              out_ctx_t             * sign_out,
                              fd_repair_msg_t const * msg,
                              pong_data_t     const * opt_pong_data ) {
@@ -563,7 +384,7 @@ fd_repair_send_sign_request( ctx_t                 * ctx,
 }
 
 static inline int
-before_frag( ctx_t * ctx,
+before_frag( fd_repair_tile_t * ctx,
              ulong   in_idx,
              ulong   seq FD_PARAM_UNUSED,
              ulong   sig ) {
@@ -579,7 +400,7 @@ before_frag( ctx_t * ctx,
 }
 
 static void
-during_frag( ctx_t * ctx,
+during_frag( fd_repair_tile_t * ctx,
              ulong   in_idx,
              ulong   seq FD_PARAM_UNUSED,
              ulong   sig,
@@ -589,7 +410,7 @@ during_frag( ctx_t * ctx,
   ctx->skip_frag = 0;
 
   uint             in_kind =  ctx->in_kind[ in_idx ];
-  in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
+  fd_repair_in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
   ctx->chunk = chunk;
 
   if( FD_UNLIKELY( in_kind==IN_KIND_NET ) ) {
@@ -623,7 +444,7 @@ during_frag( ctx_t * ctx,
 }
 
 static inline void
-after_snap( ctx_t * ctx,
+after_snap( fd_repair_tile_t * ctx,
                  ulong                  sig,
                  uchar const          * chunk ) {
   if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) return;
@@ -633,7 +454,7 @@ after_snap( ctx_t * ctx,
 }
 
 static inline void
-after_gossip( ctx_t * ctx, fd_gossip_update_message_t const * msg, ulong sig ) {
+after_gossip( fd_repair_tile_t * ctx, fd_gossip_update_message_t const * msg, ulong sig ) {
   switch( sig ) {
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
       fd_policy_peer_remove( ctx->policy, fd_type_pun_const( msg->origin ) );
@@ -662,7 +483,7 @@ after_gossip( ctx_t * ctx, fd_gossip_update_message_t const * msg, ulong sig ) {
 }
 
 static inline void
-after_sign( ctx_t             * ctx,
+after_sign( fd_repair_tile_t             * ctx,
             ulong               in_idx,
             ulong               sig,
             fd_stem_context_t * stem ) {
@@ -742,7 +563,7 @@ after_sign( ctx_t             * ctx,
 }
 
 static int
-blk_insert_check( ctx_t * ctx, fd_forest_blk_t * new_blk, ulong new_slot, ulong evicted ) {
+blk_insert_check( fd_repair_tile_t * ctx, fd_forest_blk_t * new_blk, ulong new_slot, ulong evicted ) {
   if( FD_UNLIKELY( !new_blk ) ) {
     ctx->metrics->blk_failed_insert++;
     ctx->metrics->slot_failed_insert = new_slot;
@@ -758,7 +579,7 @@ blk_insert_check( ctx_t * ctx, fd_forest_blk_t * new_blk, ulong new_slot, ulong 
 }
 
 static inline void
-after_shred( ctx_t      * ctx,
+after_shred( fd_repair_tile_t      * ctx,
              ulong        sig,
              fd_shred_t * shred,
              ulong        nonce,
@@ -802,7 +623,7 @@ after_shred( ctx_t      * ctx,
    this case the verification is paused and state is saved at where
    it left off.  Verification can be re-triggered in after_fec as well. */
 static inline void
-check_confirmed( ctx_t           * ctx,
+check_confirmed( fd_repair_tile_t           * ctx,
                  fd_forest_blk_t * blk,
                  fd_hash_t const * confirmed_bid ) {
 
@@ -845,7 +666,7 @@ check_confirmed( ctx_t           * ctx,
 }
 
 static inline void
-after_fec( ctx_t      * ctx,
+after_fec( fd_repair_tile_t      * ctx,
            fd_shred_t * shred,
            fd_hash_t  * mr,
            fd_hash_t  * cmr ) {
@@ -899,7 +720,7 @@ after_fec( ctx_t      * ctx,
 }
 
 static inline void
-after_net( ctx_t * ctx,
+after_net( fd_repair_tile_t * ctx,
            ulong   sz  ) {
   fd_eth_hdr_t * eth; fd_ip4_hdr_t * ip4; fd_udp_hdr_t * udp;
   uchar * data; ulong data_sz;
@@ -940,13 +761,13 @@ after_net( ctx_t * ctx,
 }
 
 static inline void
-after_evict( ctx_t * ctx,
+after_evict( fd_repair_tile_t * ctx,
              fd_fec_evicted_t * evicted ) {
   fd_forest_fec_clear( ctx->forest, evicted->slot, evicted->fec_set_idx, FD_FEC_SHRED_CNT - 1 );
 }
 
 static inline void
-after_tower( ctx_t *       ctx,
+after_tower( fd_repair_tile_t *       ctx,
              ulong         sig,
              uchar const * chunk ) {
 
@@ -980,7 +801,7 @@ after_tower( ctx_t *       ctx,
 }
 
 static void
-after_frag( ctx_t *             ctx,
+after_frag( fd_repair_tile_t *             ctx,
             ulong               in_idx,
             ulong               seq    FD_PARAM_UNUSED,
             ulong               sig,
@@ -991,7 +812,7 @@ after_frag( ctx_t *             ctx,
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
   ctx->stem = stem;
-  in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
+  fd_repair_in_ctx_t const * in_ctx  = &ctx->in_links[ in_idx ];
   uint             in_kind = ctx->in_kind[ in_idx ];
 
   switch( in_kind ) {
@@ -1104,7 +925,7 @@ after_frag( ctx_t *             ctx,
 }
 
 static inline void
-after_credit( ctx_t *             ctx,
+after_credit( fd_repair_tile_t *             ctx,
               fd_stem_context_t * stem FD_PARAM_UNUSED,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
@@ -1165,7 +986,7 @@ after_credit( ctx_t *             ctx,
 }
 
 static void
-signs_queue_update_identity( ctx_t * ctx ) {
+signs_queue_update_identity( fd_repair_tile_t * ctx ) {
   ulong queue_cnt = fd_signs_queue_cnt( ctx->pong_queue );
   for( ulong i=0UL; i<queue_cnt; i++ ) {
     sign_pending_t signable = fd_signs_queue_pop( ctx->pong_queue );
@@ -1191,7 +1012,7 @@ signs_queue_update_identity( ctx_t * ctx ) {
 }
 
 static inline void
-during_housekeeping( ctx_t * ctx ) {
+during_housekeeping( fd_repair_tile_t * ctx ) {
 # if DEBUG_LOGGING
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( now - ctx->tsdebug > (long)10e9 ) ) {
@@ -1236,8 +1057,8 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
-  fd_memset( ctx, 0, sizeof(ctx_t) );
+  fd_repair_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t), sizeof(fd_repair_tile_t) );
+  fd_memset( ctx, 0, sizeof(fd_repair_tile_t) );
 
   uchar const * identity_key = fd_keyload_load( tile->repair.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_public_key.uc, identity_key, sizeof(fd_pubkey_t) );
@@ -1264,7 +1085,7 @@ unprivileged_init( fd_topo_t *      topo,
   int   lg_sign_depth    = fd_ulong_find_msb( fd_ulong_pow2_up(total_sign_depth) ) + 1;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                 );
+  fd_repair_tile_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t),            sizeof(fd_repair_tile_t)                                                 );
   ctx->protocol     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),         fd_repair_footprint()                                         );
   ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint( tile->repair.slot_max )                  );
   ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint( FD_DEDUP_CACHE_MAX, FD_REPAIR_PEER_MAX ) );
@@ -1424,7 +1245,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 static inline void
-metrics_write( ctx_t * ctx ) {
+metrics_write( fd_repair_tile_t * ctx ) {
   FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
   FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
   FD_MCNT_SET( REPAIR, OLD_SHRED,         ctx->metrics->old_shred );
@@ -1466,8 +1287,8 @@ metrics_write( ctx_t * ctx ) {
    Repair tile's only reliable consumer is replay. */
 #define STEM_LAZY  (64000)
 
-#define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_repair_tile_t)
 
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag

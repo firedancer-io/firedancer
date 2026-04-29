@@ -22,7 +22,7 @@ static ulong peer_max      = 64;
 static int   lg_sign_depth = 6;
 
 static void
-setup_ctx( ctx_t * ctx, fd_wksp_t * wksp, ulong slot_max ) {
+setup_ctx( fd_repair_tile_t * ctx, fd_wksp_t * wksp, ulong slot_max ) {
   memset( ctx, 0, sizeof(*ctx) );
 
   FD_TEST( fd_rng_secure( ctx->repair_nonce_ss, sizeof(fd_rnonce_ss_t) ) );
@@ -82,7 +82,7 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp, ulong slot_max ) {
    ctx->net_buf.  Returns the total packet size. */
 
 static ulong
-mock_ping_packet( ctx_t *             ctx,
+mock_ping_packet( fd_repair_tile_t *             ctx,
                   fd_pubkey_t const * from,
                   uchar const *       private_key, /* if non-NULL, sign hash with this key (from must be the corresponding pubkey) */
                   uint                src_ip,
@@ -128,7 +128,7 @@ test_after_net( fd_wksp_t * wksp ) {
 
   /* Allocate a minimal ctx with just the fields after_net touches. */
 
-  static ctx_t ctx[1];
+  static fd_repair_tile_t ctx[1];
   setup_ctx( ctx, wksp, 512 );
 
   ulong unknown_peer_ping_b4   = ctx->metrics->unknown_peer_ping;
@@ -229,7 +229,7 @@ test_after_net( fd_wksp_t * wksp ) {
 static void
 test_sign_lifecycle( fd_wksp_t * wksp ) {
 
-  static ctx_t ctx[1];
+  static fd_repair_tile_t ctx[1];
   setup_ctx( ctx, wksp, 512 );
 
   ulong sign_in_idx = ctx->repair_sign_out_ctx[0].in_idx;
@@ -452,7 +452,7 @@ static void
 test_future_slots( fd_wksp_t * wksp ) {
   /* Tests future slot attacks by sampling from shred_out during a
      testnet run, and interleaving them evenly with future shreds. */
-  static ctx_t ctx[1];
+  static fd_repair_tile_t ctx[1];
   setup_ctx( ctx, wksp, 128 );
 
   fd_forest_init( ctx->forest, 402053352 );
@@ -528,7 +528,7 @@ test_future_slots( fd_wksp_t * wksp ) {
 static void
 test_after_tower_confirmed_eviction( fd_wksp_t * wksp ) {
 
-  static ctx_t ctx[1];
+  static fd_repair_tile_t ctx[1];
   setup_ctx( ctx, wksp, 512 );
 
   fd_forest_init( ctx->forest, 0 );

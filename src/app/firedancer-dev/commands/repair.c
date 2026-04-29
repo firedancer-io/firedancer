@@ -22,7 +22,7 @@
 #include "../../platform/fd_sys_util.h"
 #include "../../shared/commands/monitor/helper.h"
 #include "../../../disco/metrics/fd_metrics.h"
-#include "../../../discof/repair/fd_repair_tile.c"
+#include "../../../discof/repair/fd_repair_tile.h"
 
 #include "gossip.h"
 #include "core_subtopo.h"
@@ -425,7 +425,7 @@ print_histogram_buckets( volatile ulong * metrics,
 static fd_slot_metrics_t temp_slots[ FD_CATCHUP_METRICS_MAX ];
 
 static void
-print_catchup_slots( fd_wksp_t * repair_tile_wksp, ctx_t * repair_ctx, int verbose, int sort_by_slot ) {
+print_catchup_slots( fd_wksp_t * repair_tile_wksp, fd_repair_tile_t * repair_ctx, int verbose, int sort_by_slot ) {
   fd_repair_metrics_t * catchup = repair_ctx->slot_metrics;
   ulong catchup_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, catchup );
   fd_repair_metrics_t * catchup_table = (fd_repair_metrics_t *)fd_wksp_laddr( repair_tile_wksp, catchup_gaddr );
@@ -488,7 +488,7 @@ sort_peers_by_latency( fd_policy_peer_map_t * active_table, fd_policy_peer_dlist
 }
 
 static void
-print_peer_location_latency( fd_wksp_t * repair_tile_wksp, ctx_t * tile_ctx ) {
+print_peer_location_latency( fd_wksp_t * repair_tile_wksp, fd_repair_tile_t * tile_ctx ) {
   ulong              policy_gaddr  = fd_wksp_gaddr_fast( tile_ctx->wksp, tile_ctx->policy );
   fd_policy_t *      policy        = fd_wksp_laddr     ( repair_tile_wksp, policy_gaddr );
   ulong              peermap_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.map  );
@@ -624,10 +624,10 @@ print_tile_metrics( volatile ulong * shred_metrics,
 }
 
 static void
-repair_ctx_wksp( args_t *          args,
-                 config_t *        config,
-                 ctx_t **          repair_ctx,
-                 fd_topo_wksp_t ** repair_wksp ) {
+repair_ctx_wksp( args_t *            args,
+                 config_t *          config,
+                 fd_repair_tile_t ** repair_ctx,
+                 fd_topo_wksp_t **   repair_wksp ) {
   (void)args;
 
   fd_topo_t * topo = &config->topo;
@@ -647,7 +647,7 @@ repair_ctx_wksp( args_t *          args,
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access repair tile scratch memory" ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * _repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  fd_repair_tile_t * _repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t), sizeof(fd_repair_tile_t) );
 
   *repair_ctx  = _repair_ctx;
   *repair_wksp = _repair_wksp;
@@ -697,8 +697,8 @@ repair_cmd_fn_catchup( args_t *   args,
   fd_topo_tile_t * repair_tile = &config->topo.tiles[ repair_tile_idx ];
   fd_topo_tile_t * shred_tile  = &config->topo.tiles[ shred_tile_idx ];
 
-  fd_topo_wksp_t * repair_wksp;
-  ctx_t          * repair_ctx;
+  fd_topo_wksp_t *   repair_wksp;
+  fd_repair_tile_t * repair_ctx;
   repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
 
   volatile ulong * shred_metrics  = fd_metrics_tile( shred_tile->metrics );
@@ -828,7 +828,7 @@ repair_cmd_fn_eqvoc( args_t *   args,
   void * scratch = fd_topo_obj_laddr( &config->topo, repair_tile->tile_obj_id );
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access repair tile scratch memory" ));
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  fd_repair_tile_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t), sizeof(fd_repair_tile_t) );
   (void)repair_ctx;
 
   /* read tower_out mcache dcache */
@@ -864,8 +864,8 @@ repair_cmd_fn_metrics( args_t *   args,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY, FD_TOPO_CORE_DUMP_LEVEL_DISABLED );
   fd_topo_fill( &config->topo );
 
-  ctx_t *          repair_ctx;
-  fd_topo_wksp_t * repair_wksp;
+  fd_repair_tile_t * repair_ctx;
+  fd_topo_wksp_t *   repair_wksp;
   repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
 
   ulong    shred_tile_idx  = fd_topo_find_tile( &config->topo, "shred", 0UL );
@@ -927,8 +927,8 @@ repair_cmd_fn_metrics( args_t *   args,
 static void
 repair_cmd_fn_forest( args_t *   args,
                       config_t * config ) {
-  ctx_t *          repair_ctx;
-  fd_topo_wksp_t * repair_wksp;
+  fd_repair_tile_t * repair_ctx;
+  fd_topo_wksp_t *   repair_wksp;
   repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
 
   ulong forest_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->forest );
@@ -943,8 +943,8 @@ repair_cmd_fn_forest( args_t *   args,
 static void
 repair_cmd_fn_inflight( args_t *   args,
                         config_t * config ) {
-  ctx_t *          repair_ctx;
-  fd_topo_wksp_t * repair_wksp;
+  fd_repair_tile_t * repair_ctx;
+  fd_topo_wksp_t *   repair_wksp;
   repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
 
   ulong            inflights_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->inflights );
@@ -962,8 +962,8 @@ repair_cmd_fn_inflight( args_t *   args,
 static void
 repair_cmd_fn_requests( args_t *   args,
                         config_t * config ) {
-  ctx_t *          repair_ctx;
-  fd_topo_wksp_t * repair_wksp;
+  fd_repair_tile_t *          repair_ctx;
+  fd_topo_wksp_t *            repair_wksp;
   repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
 
   fd_forest_t *          forest = fd_forest_join( fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->forest ) ) );
@@ -1039,7 +1039,7 @@ repair_cmd_fn_waterfall( args_t *   args,
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access repair tile scratch memory" ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  fd_repair_tile_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_t), sizeof(fd_repair_tile_t) );
 
   /* catchup cmd owned memory */
   location_table = fd_location_table_join( fd_location_table_new( location_table_mem ) );
@@ -1082,8 +1082,8 @@ repair_cmd_fn_waterfall( args_t *   args,
 static void
 repair_cmd_fn_peers( args_t *   args,
                      config_t * config ) {
-  ctx_t *          repair_ctx;
-  fd_topo_wksp_t * repair_wksp;
+  fd_repair_tile_t * repair_ctx;
+  fd_topo_wksp_t *   repair_wksp;
   repair_ctx_wksp( args, config, &repair_ctx, &repair_wksp );
 
   fd_policy_t * policy = fd_wksp_laddr( repair_wksp->wksp, fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->policy ) );
