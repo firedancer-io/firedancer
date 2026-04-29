@@ -110,6 +110,7 @@ fd_accdb_shmem_footprint( ulong max_accounts,
     l = FD_LAYOUT_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                          );
   }
   l = FD_LAYOUT_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                      );
+  l = FD_LAYOUT_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                    );
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     l = FD_LAYOUT_APPEND( l, FD_ACCDB_CACHE_META_SZ, cache_class_max[c]*fd_accdb_cache_slot_sz[c]            );
   }
@@ -276,6 +277,7 @@ fd_accdb_shmem_new( void * shmem,
     _compaction_dlists[ k ] = FD_SCRATCH_ALLOC_APPEND( l, compaction_dlist_align(), compaction_dlist_footprint()                           );
   }
   void * _deferred_free_dlist = FD_SCRATCH_ALLOC_APPEND( l, deferred_free_dlist_align(), deferred_free_dlist_footprint()                   );
+  void * _deferred_acc_buf    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),            txn_max*sizeof(uint)                                 );
   void * _cache_regions[ FD_ACCDB_CACHE_CLASS_CNT ];
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
     _cache_regions[ c ] = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_CACHE_META_SZ, cache_class_max[c]*fd_accdb_cache_slot_sz[c]                 );
@@ -364,6 +366,11 @@ fd_accdb_shmem_new( void * shmem,
     accdb->compaction_dlist_off[ k ] = (ulong)_compaction_dlists[ k ] - (ulong)shmem;
   }
   accdb->deferred_free_dlist_off = (ulong)_deferred_free_dlist - (ulong)shmem;
+
+  accdb->deferred_acc_buf_off = (ulong)_deferred_acc_buf - (ulong)shmem;
+  accdb->deferred_acc_buf_cnt = 0UL;
+  accdb->deferred_acc_buf_max = txn_max;
+  accdb->deferred_acc_epoch   = 0UL;
 
   accdb->epoch      = 1UL;
   accdb->joiner_cnt = 0UL;

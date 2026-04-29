@@ -473,6 +473,23 @@ struct fd_accdb_shmem_private {
   uint   cmd_op       __attribute__((aligned(64))); /* FD_ACCDB_CMD_* */
   ushort cmd_fork_id;                               /* argument       */
 
+  /* T2-only side buffer for deferred acc unlinks.  Holds the indices of
+     accs that have been CAS-unlinked from their map chains in the
+     current advance_root or purge call but cannot yet have pool.next
+     written: a concurrent cold_load_acc may stomp it via the cache_idx
+     union alias.  After wait_for_epoch_drain the list is materialized
+     into pool.next links and released via acc_pool_release_chain.
+
+     T2 is the sole writer (advance_root and purge both run on T2 via
+     the cmd offload above), so cnt is plain.  Capacity is
+     txn_max = max_live_slots * max_account_writes_per_slot, the same
+     bound used to size txn_pool.  Stored as a byte offset from shmem
+     base. */
+
+  ulong deferred_acc_buf_off;
+  ulong deferred_acc_buf_cnt;
+  ulong deferred_acc_buf_max;
+  ulong deferred_acc_epoch;
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
