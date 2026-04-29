@@ -1148,10 +1148,10 @@ run( config_t const * config,
   FD_TEST( cons_cnt<=4096UL );
 
   snap_tiles( &config->topo, tiles );
-  fd_memcpy( tiles+tile_cnt*FD_METRICS_TOTAL_SZ, tiles, tile_cnt*FD_METRICS_TOTAL_SZ );
+  fd_memcpy( tiles+tile_cnt*FD_METRICS_TOTAL_SZ, tiles, tile_cnt*FD_METRICS_TOTAL_SZ*sizeof(ulong) );
 
   snap_links( &config->topo, links );
-  fd_memcpy( links+(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links, cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL );
+  fd_memcpy( links+(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links, cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL*sizeof(ulong) );
 
   ulong last_snap = 1UL;
 
@@ -1264,9 +1264,16 @@ watch_cmd_fn( args_t *   args,
   run( config, args->watch.drain_output_fd );
 }
 
+static void
+watch_cmd_args( int *    pargc FD_PARAM_UNUSED,
+                char *** pargv FD_PARAM_UNUSED,
+                args_t * args ) {
+  args->watch.drain_output_fd = -1; /* only set by development commands that interpose firedancer's log output */
+}
+
 action_t fd_action_watch = {
   .name           = "watch",
-  .args           = NULL,
+  .args           = watch_cmd_args,
   .fn             = watch_cmd_fn,
   .require_config = 1,
   .perm           = watch_cmd_perm,
