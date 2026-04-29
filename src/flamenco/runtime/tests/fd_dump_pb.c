@@ -229,9 +229,7 @@ dump_sanitized_transaction( fd_accdb_user_t *                      accdb,
 
   /* Transaction Context -> tx -> message -> recent_blockhash */
   uchar const * recent_blockhash = fd_txn_get_recent_blockhash( txn_descriptor, txn_payload );
-  message->recent_blockhash = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_hash_t)) );
-  message->recent_blockhash->size = sizeof(fd_hash_t);
-  memcpy( message->recent_blockhash->bytes, recent_blockhash, sizeof(fd_hash_t) );
+  memcpy( message->recent_blockhash, recent_blockhash, sizeof(fd_hash_t) );
 
   /* Transaction Context -> tx -> message -> instructions */
   message->instructions_count = txn_descriptor->instr_cnt;
