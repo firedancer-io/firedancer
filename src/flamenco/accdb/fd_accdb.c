@@ -808,7 +808,9 @@ background_advance_root( fd_accdb_t *       accdb,
 
       fd_accdb_acc_t const * new_acc = &accdb->acc_pool[ txne->acc_pool_idx ];
 
-      uint prev = UINT_MAX;
+      uint prev          = UINT_MAX;
+      uint new_acc_prev  = UINT_MAX; /* prev of new_acc on the chain when we encounter it (UINT_MAX if head or never seen) */
+      int  new_acc_seen  = 0;
       uint acc = FD_VOLATILE_CONST( accdb->acc_map[ txne->acc_map_idx ] );
       FD_TEST( acc!=UINT_MAX );
       while( acc!=UINT_MAX ) {
@@ -816,6 +818,8 @@ background_advance_root( fd_accdb_t *       accdb,
         uint cur_next = FD_VOLATILE_CONST( cur_acc->map.next );
 
         if( FD_LIKELY( acc==txne->acc_pool_idx ) ) {
+          new_acc_prev = prev;
+          new_acc_seen = 1;
           prev = acc;
           acc = cur_next;
           continue;
@@ -835,6 +839,24 @@ background_advance_root( fd_accdb_t *       accdb,
           prev = acc;
           acc = cur_next;
         }
+      }
+
+      /* If the newly rooted version is a tombstone (lamports==0, e.g.
+         account was closed), drop it from the index too: no fork can
+         reach it anymore, and keeping it around just wastes a hash
+         slot and the disk bytes it occupies.
+
+         If a later txn on this same fork wrote the same pubkey, that
+         txn's inner walk above would have already unlinked this txn's
+         new_acc as an "older version" - in that case new_acc_seen=0
+         and we skip, since the freelist cleanup is already done. */
+      if( FD_UNLIKELY( new_acc_seen && new_acc->lamports==0UL ) ) {
+        uint new_acc_idx = (uint)txne->acc_pool_idx;
+        acc_unlink( accdb, txne->acc_map_idx, new_acc_prev, new_acc_idx );
+        fd_accdb_acc_t * freed = &accdb->acc_pool[ new_acc_idx ];
+        if( FD_LIKELY( acc_tail ) ) acc_tail->pool.next = acc_pool_private_cidx( (ulong)new_acc_idx );
+        else                        acc_head = freed;
+        acc_tail = freed;
       }
 
       txn_tail = txne;
