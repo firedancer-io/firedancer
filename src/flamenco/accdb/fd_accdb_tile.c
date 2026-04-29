@@ -51,8 +51,12 @@ metrics_write( fd_accdb_tile_ctx_t * ctx ) {
   FD_MCNT_SET( ACCDB, ACCOUNTS_RELOCATED_BYTES, metrics->accounts_relocated_bytes );
 
   fd_accdb_metrics_t const * rt = fd_accdb_metrics( ctx->accdb );
-  FD_ACCDB_METRICS_WRITE( ACCDB, rt );
-  FD_MCNT_SET( ACCDB, ACCDB_ACCOUNTS_DELETED, rt->accounts_deleted );
+  FD_MCNT_ENUM_COPY( ACCDB, ACCDB_ACCOUNTS_PREEVICTED, rt->accounts_preevicted_per_class );
+  FD_MCNT_SET( ACCDB, ACCDB_BYTES_READ,        rt->bytes_read        );
+  FD_MCNT_SET( ACCDB, ACCDB_BYTES_WRITTEN,     rt->bytes_written     );
+  FD_MCNT_SET( ACCDB, ACCDB_WRITE_OPS,         rt->write_ops         );
+  FD_MCNT_SET( ACCDB, ACCDB_COPY_OPS,          rt->copy_ops          );
+  FD_MCNT_SET( ACCDB, ACCDB_ACCOUNTS_DELETED,  rt->accounts_deleted  );
 
   ulong cache_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong cache_max     [ FD_ACCDB_CACHE_CLASS_CNT ];

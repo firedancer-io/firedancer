@@ -45,6 +45,7 @@ struct fd_accdb_metrics {
   ulong read_ops;
   ulong bytes_written;
   ulong write_ops;
+  ulong copy_ops;
 
   ulong bytes_copied;
 };
