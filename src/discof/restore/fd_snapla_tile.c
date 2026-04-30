@@ -111,9 +111,10 @@ should_hash_account( fd_snapla_tile_t * ctx ) {
   return ctx->accounts_seen%ctx->num_hash_tiles==ctx->hash_tile_idx;
 }
 
-static void
-streamlined_hash( fd_snapla_tile_t * ctx,
-                  uchar const *      frame ) {
+static int
+streamlined_hash( fd_snapla_tile_t *  ctx,
+                  uchar const *       frame,
+                  fd_stem_context_t * stem ) {
   ulong data_len   = fd_ulong_load_8_fast( frame+0x08UL );
   uchar pubkey[32];  memcpy( pubkey, frame+0x10UL, 32UL );
   ulong lamports   = fd_ulong_load_8_fast( frame+0x30UL );
@@ -121,8 +122,12 @@ streamlined_hash( fd_snapla_tile_t * ctx,
   uchar owner[32];   memcpy( owner, frame+0x40UL, 32UL );
   _Bool executable = !!frame[ 0x60UL ];
 
-  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
-  if( FD_UNLIKELY( lamports==0UL ) ) return;
+  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) {
+    FD_LOG_WARNING(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+    transition_malformed( ctx, stem );
+    return 1;
+  }
+  if( FD_UNLIKELY( lamports==0UL ) ) return 0;
 
   fd_lthash_adder_push_solana_account( ctx->adder,
                                        &ctx->running_lthash,
@@ -135,6 +140,7 @@ streamlined_hash( fd_snapla_tile_t * ctx,
 
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
   else                         ctx->metrics.incremental.accounts_hashed++;
+  return 0;
 }
 
 static int
@@ -208,7 +214,9 @@ handle_data_frag( fd_snapla_tile_t *  ctx,
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH: {
         for( ulong i=0UL; i<result->account_batch.batch_cnt; i++ ) {
-          if( FD_LIKELY( should_hash_account( ctx ) ) ) streamlined_hash( ctx, result->account_batch.batch[ i ] );
+          if( FD_LIKELY( should_hash_account( ctx ) ) ) {
+            if( FD_UNLIKELY( streamlined_hash( ctx, result->account_batch.batch[ i ], stem ) ) ) return 0;
+          }
           ctx->accounts_seen++;
         }
         break;
@@ -280,7 +288,12 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
       /* This is a special case: handle_data_frag must have already
          processed FD_SSPARSE_ADVANCE_DONE and moved the state into
          FD_SNAPSHOT_STATE_FINISHING. */
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+        FD_LOG_WARNING(( "received FINI while in state %s (%lu), expected FINISHING",
+                         fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
+        transition_malformed( ctx, stem );
+        return;
+      }
       ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );

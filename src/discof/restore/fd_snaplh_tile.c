@@ -122,6 +122,8 @@ struct fd_snaplh_tile {
   int         fail_completion_pending;
   int         error_completion_pending;
 
+  fd_stem_context_t * stem;
+
   /* io_uring setup */
 
   fd_io_uring_t ioring[1];
@@ -161,6 +163,14 @@ metrics_write( fd_snaplh_t * ctx ) {
   FD_MGAUGE_SET( SNAPLH, STATE,                       (ulong)(ctx->state) );
 }
 
+static void
+transition_malformed( fd_snaplh_t *       ctx,
+                      fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
+  ctx->state = FD_SNAPSHOT_STATE_ERROR;
+  fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
 static inline int
 should_hash_account( fd_snaplh_t * ctx ) {
   return (ctx->pairs_seen % ctx->lthash_tile_add_cnt)==ctx->lthash_tile_add_idx;
@@ -190,7 +200,11 @@ streamlined_hash( fd_snaplh_t *       restrict ctx,
   const uchar * owner = meta->owner;
   uchar executable = (uchar)( !meta->executable ? 0U : 1U) ;
 
-  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) {
+    FD_LOG_WARNING(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
   if( FD_UNLIKELY( lamports==0UL ) ) return;
 
   fd_lthash_adder_push_solana_account( adder,
@@ -225,7 +239,11 @@ handle_vinyl_lthash_request_bd( fd_snaplh_t *             ctx,
   ulong rd_off   = fd_ulong_align_dn( dev_seq, FD_VINYL_BSTREAM_BLOCK_SZ );
   ulong pair_off = (dev_seq - rd_off);
   ulong rd_sz    = fd_ulong_align_up( pair_off + pair_sz, FD_VINYL_BSTREAM_BLOCK_SZ );
-  FD_TEST( rd_sz < VINYL_LTHASH_BLOCK_MAX_SZ );
+  if( FD_UNLIKELY( rd_sz >= VINYL_LTHASH_BLOCK_MAX_SZ ) ) {
+    FD_LOG_WARNING(( "vinyl lthash read size (%lu) exceeds max (%lu)", rd_sz, VINYL_LTHASH_BLOCK_MAX_SZ ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
 
   uchar * pair = ((uchar*)ctx->vinyl.pair_mem) + pair_off;
   fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)pair;
@@ -298,8 +316,12 @@ handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
   fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)rd_req->dst;
   fd_vinyl_bstream_phdr_t * acc_hdr = &ctx->vinyl.pending.phdr[ idx ];
 
-  /* test the retrieved header (it must mach the request) */
-  FD_TEST( !memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t)) );
+  /* test the retrieved header (it must match the request) */
+  if( FD_UNLIKELY( memcmp( phdr, acc_hdr, sizeof(fd_vinyl_bstream_phdr_t) ) ) ) {
+    FD_LOG_WARNING(( "phdr mismatch in vinyl lthash read request" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
 
   ulong const io_seed = FD_VOLATILE_CONST( *ctx->io_seed );
   ulong   seq     = rd_req->seq;
@@ -307,7 +329,11 @@ handle_vinyl_lthash_compute_from_rd_req( fd_snaplh_t *      ctx,
   ulong   pair_sz = rd_req->sz;
 
   /* test the bstream pair integrity hashes */
-  FD_TEST( !fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz ) );
+  if( FD_UNLIKELY( fd_vinyl_bstream_pair_test( io_seed, seq, (fd_vinyl_bstream_block_t *)pair, pair_sz ) ) ) {
+    FD_LOG_WARNING(( "bstream pair integrity test failed for vinyl lthash" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
 
   streamlined_hash( ctx, ctx->adder_sub, &ctx->running_lthash_sub, pair, 0 );
 }
@@ -419,10 +445,14 @@ handle_lthash_completion( fd_snaplh_t * ctx,
     long capitalization_add = fd_long_if( ctx->running_capitalization_add>LONG_MAX, LONG_MAX, (long)ctx->running_capitalization_add );
     long capitalization_sub = fd_long_if( ctx->running_capitalization_sub>LONG_MAX, LONG_MAX, (long)ctx->running_capitalization_sub );
     if( FD_UNLIKELY( capitalization_add==LONG_MAX ) ) {
-      FD_LOG_ERR(( "capitalization overflow detected: add=%lu", ctx->running_capitalization_add ));
+      FD_LOG_WARNING(( "capitalization overflow detected: add=%lu", ctx->running_capitalization_add ));
+      transition_malformed( ctx, stem );
+      return;
     }
     if( FD_UNLIKELY( capitalization_sub==LONG_MAX ) ) {
-      FD_LOG_ERR(( "capitalization overflow detected: sub=%lu", ctx->running_capitalization_sub ));
+      FD_LOG_WARNING(( "capitalization overflow detected: sub=%lu", ctx->running_capitalization_sub ));
+      transition_malformed( ctx, stem );
+      return;
     }
     out->capitalization = capitalization_add - capitalization_sub;
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, sizeof(fd_ssctrl_hash_result_t), 0UL, 0UL, 0UL );
@@ -454,8 +484,9 @@ handle_error_completion( fd_snaplh_t *       ctx,
 
 static void
 before_credit( fd_snaplh_t *       ctx,
-               fd_stem_context_t * stem FD_PARAM_UNUSED,
+               fd_stem_context_t * stem,
                int *               charge_busy ) {
+  ctx->stem = stem;
   if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) return;
   *charge_busy = !!consume_available_cqe( ctx );
 }
@@ -506,6 +537,7 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
           uchar * pair = ctx->vinyl.pair_mem;
           fd_memcpy( pair, rem, pair_sz );
           streamlined_hash( ctx, ctx->adder, &ctx->running_lthash, pair, 1 );
+          if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) return;
         }
         rem    += pair_sz;
         rem_sz -= pair_sz;
@@ -520,8 +552,10 @@ handle_wh_data_frag( fd_snaplh_t * ctx,
       }
 
       default:
-        FD_LOG_CRIT(( "unexpected vinyl bstream block ctl %016lx for %s snapshot",
-                      ctl, ctx->full?"full":"incremental" ));
+        FD_LOG_WARNING(( "unexpected vinyl bstream block ctl %016lx for %s snapshot",
+                         ctl, ctx->full?"full":"incremental" ));
+        transition_malformed( ctx, stem );
+        return;
     }
   }
 
@@ -677,6 +711,7 @@ returnable_frag( fd_snaplh_t *       ctx,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
   (void)sz; (void)ctl;
+  ctx->stem = stem;
   FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPWH ) )          handle_wh_data_frag( ctx, in_idx, chunk, tsorig, stem );
