@@ -240,6 +240,96 @@ test_change_address( void ) {
 }
 
 void
+test_active_address_binding( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  FD_TEST( rng );
+
+  const ulong         entrypoints_len = 1UL;
+  const fd_ip4_port_t entrypoints[1]  = { {.addr=fd_rng_uint(rng), .port=fd_rng_ushort(rng)} };
+
+  void * bytes = aligned_alloc( fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len ) );
+  FD_TEST( bytes );
+
+  ping_tracker_change_ctx_t change_ctx[1] = {0};
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  FD_TEST( ping_tracker );
+
+  long now = fd_log_wallclock();
+
+  /* Generate a peer and drive it into the VALID state by completing
+     a full ping/pong handshake. */
+
+  peer_t p = generate_random_peer( rng );
+  /* Make sure the peer address is non-zero so it is eligible. */
+  while( FD_UNLIKELY( !p.address.addr ) ) p.address.addr = 1U;
+
+  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+
+  uchar const *         out_pubkey;
+  fd_ip4_port_t const * out_address;
+  uchar const *         out_token;
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now+seconds(1), &out_pubkey, &out_address, &out_token ) );
+
+  uchar valid_pong_token[ 32UL ];
+  fd_sha256_t sha[1];
+  FD_TEST( fd_sha256_join( fd_sha256_new( sha ) ) );
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, out_token, 32UL );
+  fd_sha256_fini( sha, valid_pong_token );
+
+  fd_ping_tracker_register( ping_tracker, p.pubkey, 0UL, p.address, valid_pong_token, now+seconds(2) );
+  FD_TEST( change_ctx->invoke_cnt==1UL );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
+
+  /* ---- Tests on a peer that is now in VALID state ---- */
+
+  /* 1) Exact address match -> active==1 */
+  FD_TEST( fd_ping_tracker_active( ping_tracker, p.pubkey, p.address ) );
+
+  /* 2) addr==0 (zero address) -> active==0 regardless of state */
+  fd_ip4_port_t zero_addr = { .addr=0U, .port=p.address.port };
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey, zero_addr ) );
+
+  fd_ip4_port_t zero_both = { .addr=0U, .port=0U };
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey, zero_both ) );
+
+  /* 3) Different addr, same port -> active==0 */
+  fd_ip4_port_t wrong_addr = { .addr=p.address.addr ^ 0x01000000U, .port=p.address.port };
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey, wrong_addr ) );
+
+  /* 4) Same addr, different port -> active==0 */
+  fd_ip4_port_t wrong_port = { .addr=p.address.addr, .port=(ushort)(p.address.port ^ (ushort)1) };
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey, wrong_port ) );
+
+  /* 5) Both addr and port different -> active==0 */
+  fd_ip4_port_t wrong_both = { .addr=p.address.addr ^ 0x01000000U, .port=(ushort)(p.address.port ^ (ushort)1) };
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p.pubkey, wrong_both ) );
+
+  /* 6) Unknown pubkey -> active==0 even with valid address */
+  peer_t unknown = generate_random_peer( rng );
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, unknown.pubkey, p.address ) );
+
+  /* 7) Peer in INVALID state (not yet ponged) -> active==0 even
+     with matching address. */
+  peer_t p2 = generate_random_peer( rng );
+  if( FD_UNLIKELY( !p2.address.addr ) ) p2.address.addr = 2U;
+  fd_ping_tracker_track( ping_tracker, p2.pubkey, 0UL, p2.address, now );
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now+seconds(1), &out_pubkey, &out_address, &out_token ) );
+  /* p2 is now in INVALID state (pinged, no pong received). */
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p2.pubkey, p2.address ) );
+
+  /* 8) Peer in UNPINGED state -> active==0 */
+  peer_t p3 = generate_random_peer( rng );
+  if( FD_UNLIKELY( !p3.address.addr ) ) p3.address.addr = 3U;
+  fd_ping_tracker_track( ping_tracker, p3.pubkey, 0UL, p3.address, now );
+  /* p3 is UNPINGED (tracked but pop_request not called for it). */
+  FD_TEST( !fd_ping_tracker_active( ping_tracker, p3.pubkey, p3.address ) );
+
+  free( bytes );
+}
+
+void
 test_random( void ) {
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
   FD_TEST( rng );
@@ -360,6 +450,9 @@ main( int     argc,
 
   test_invalid_transitions();
   FD_LOG_NOTICE(( "test_invalid_transitions() passed" ));
+
+  test_active_address_binding();
+  FD_LOG_NOTICE(( "test_active_address_binding() passed" ));
 
   test_random();
   FD_LOG_NOTICE(( "pass" ));
