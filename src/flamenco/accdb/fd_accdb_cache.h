@@ -38,12 +38,24 @@
    number of slots reserved per class so a worst-case batch of
    transactions can always execute fully in-memory.
 
-   Per transaction the worst case is 64 referenced accounts plus up to
-   63 programdata accounts (the fee payer cannot trigger a programdata
-   load), giving 64+63 = 127 slots.
+   The floor is driven by the per-class peak that
+   fd_accdb_acquire_a can atomically increment for the simultaneously-
+   live transactions (a bundle of up to 5).  Per pubkey, per class, the
+   acquire reservation can add up to:
+     +1 for the existing account's own size class (cache read line)
+     +1 for the writable staging buffer (added to EVERY class)
+     +1 for the unknown-programdata placeholder (added to EVERY class,
+         unconditionally per pubkey under MAYBE_PROGRAMDATA)
+   = 3 slots in the worst-case-matching class for a writable account
+   that already exists there.  Solana requires at least one read-only
+   pubkey per txn (the invoked program), which can contribute at most
+   2 (no writable +1 every class), so the per-txn worst case is:
+     63 * 3 + 1 * 2 = 191 slots per class per txn.
 
-   Bundles enabled:  5 * (64+63) = 635  (worst case 5-transaction bundle)
-   Bundles disabled:     64+63   = 127  (worst case single transaction) */
+   Bundles enabled:  5 * 191 = 955  (worst case 5-transaction bundle)
+   Bundles disabled:     191       (worst case single transaction)
+
+   See src/app/firedancer/topology.c for the canonical derivation. */
 
 static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
   128UL+FD_ACCDB_CACHE_META_SZ,      /* class 0: 0-128 B     */
@@ -71,11 +83,11 @@ static const ulong fd_accdb_cache_slot_sz[ FD_ACCDB_CACHE_CLASS_CNT ] = {
    The sum of class_cnt[c]*slot_sz[c] will not exceed cache_footprint.
 
    Every class gets at least min_reserved entries, guaranteeing a
-   worst-case batch (64 accounts per transaction, doubled to cover
-   programdata for each account, multiplied by max simultaneous
-   transactions) can execute fully in memory regardless of account size
-   mix.  Returns 0 if the budget is too small for these minimums, or 1
-   on success.
+   worst-case batch can execute fully in memory regardless of account
+   size mix.  See the min_reserved comment block above for the
+   derivation (currently 192 per concurrently-live transaction).
+   Returns 0 if the budget is too small for these minimums, or 1 on
+   success.
 
    The algorithm:
    1) Reserves min_reserved of each class off the top.

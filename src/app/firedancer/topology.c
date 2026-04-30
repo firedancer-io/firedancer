@@ -146,14 +146,50 @@ setup_topo_accdb( fd_topo_t *  topo,
   ulong seed;
   FD_TEST( fd_rng_secure( &seed, sizeof( ulong ) ) );
 
-  /* Per transaction: up to 64 referenced accounts, plus up to 63
-     programdata loads (the fee payer cannot trigger a programdata
-     load), so 64+63 = 127 slots worst case.  Bundles enabled: 5
-     transactions => 5*127 = 635 slots.  Bundles disabled: 1
-     transaction => 127 slots.  Note: the topology forces
-     tiles.bundle.enabled=0 when block production is disabled, so the
-     caller's check on tiles.bundle.enabled covers both gates. */
-  ulong cache_min_reserved = bundle_enabled ? (5UL*(64UL+63UL)) : (64UL+63UL);
+  /* cache_min_reserved must cover the worst-case requested_buckets
+     value that fd_accdb_acquire_a can compute for a SINGLE size class,
+     summed across all transactions whose reservations are live
+     simultaneously (a bundle of up to 5 transactions).
+
+     Per pubkey, per class j, the reservation loop in
+     fd_accdb_acquire_inner can contribute up to three slots to
+     requested_buckets[j]:
+       (1) +1 if the account already exists and lives in class j (the
+           cache-read line — see fd_accdb.c:1580).
+       (2) +1 if the pubkey is writable (the staging buffer
+           reservation runs across EVERY class — see
+           fd_accdb.c:1583-1588).
+       (3) +1 unconditionally per pubkey under MAYBE_PROGRAMDATA (the
+           programdata placeholder runs across EVERY class regardless
+           of writable/existence, refunded later by acquire_b — see
+           fd_accdb.c:1599-1603).
+
+     A naive worst case (all 64 writable + existing in the same class)
+     gives 64 * (1+1+1) = 192 slots per class per transaction.  But
+     Solana semantics force at least one read-only pubkey per
+     transaction: every transaction must invoke at least one program,
+     and program accounts referenced for invocation must be read-only.
+     A read-only pubkey contributes at most (1)+(3) = 2 in any class
+     (no writable +1 every class).  So one of the 64 contributions
+     drops from 3 to 2 in the worst-case class, giving:
+
+       63 * 3 + 1 * 2 = 191 slots per class per transaction.
+
+     (We do NOT also subtract for the fee payer cannot-be-programdata
+     constraint: the fee payer is still writable and still receives
+     the placeholder reservation at (3) — only an acquire_a code change
+     could exploit that.  Likewise, the read-only program likely lives
+     in a BPF size class (class 3+), but we do not assume which class:
+     we just deduct the writable (2) contribution that any read-only
+     pubkey can never provide.)
+
+     Bundles enabled:  5 * 191 = 955 slots per class.
+     Bundles disabled:     191 slots per class.
+
+     Note: the topology forces tiles.bundle.enabled=0 when block
+     production is disabled, so the caller's check on
+     tiles.bundle.enabled covers both gates. */
+  ulong cache_min_reserved = bundle_enabled ? (5UL*191UL) : 191UL;
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_accounts,       "obj.%lu.max_accounts",       obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots,     "obj.%lu.max_live_slots",     obj->id ) );
