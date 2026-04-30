@@ -641,6 +641,57 @@ bench_hash_to_point( void ) {
   FD_LOG_NOTICE(( "falcon512 hash to point: %li ns/hash (%lu iterations)", dt/(long)iter, iter ));
 }
 
+#if FD_HAS_AVX512
+
+/* falcon-pt = K12 (12-round Keccak) + parallel counter-mode squeeze
+   in hash_to_point.  See src/ballet/falcon/fd_falcon_pt.c.
+
+   Side-by-side with the standard SHAKE256 (24-round, sequential
+   squeeze) numbers above. */
+
+static void
+bench_pt_hash_to_point( void ) {
+  fd_falcon_fq_t c[ FD_FALCON_N + 16 ] __attribute__((aligned(64)));
+  uchar const * nonce = tv_signature;
+
+  ulong iter = 10000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter; i++ ) {
+    fd_falcon_fq_t * _c = c;
+    FD_COMPILER_FORGET( _c );
+    fd_falcon_pt_hash_to_point( c, (uchar const *)tv_msg, TV_MSG_LEN, nonce );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "falcon-pt hash to point (K12 + parallel squeeze): %li ns/hash (%lu iterations)",
+                  dt/(long)iter, iter ));
+}
+
+static void
+bench_pt_verify( void ) {
+  fd_falcon_pubkey_t    pk[1];
+  fd_falcon_signature_t sig[1];
+
+  ulong iter = 100000UL;
+  long  dt   = -fd_log_wallclock();
+  for( ulong i=0UL; i<iter; i++ ) {
+    fd_falcon_signature_t const * _sig = sig;
+    fd_falcon_pubkey_t    const * _pk  = pk;
+    FD_COMPILER_FORGET( _sig );
+    FD_COMPILER_FORGET( _pk );
+    FD_TEST( 0==fd_falcon_pubkey_parse( pk, tv_pubkey ) );
+    FD_TEST( 0==fd_falcon_signature_parse( sig, tv_signature, sizeof(tv_signature) ) );
+    /* No FD_TEST on result — falcon-pt's hash_to_point produces a
+       different challenge polynomial, so this signature won't pass
+       the norm check.  We're timing the path, not asserting validity. */
+    fd_falcon_pt_verify( tv_msg, TV_MSG_LEN, _sig, _pk );
+  }
+  dt += fd_log_wallclock();
+  FD_LOG_NOTICE(( "falcon-pt parse+verify (K12 + parallel squeeze): %li ns/iter (%lu iterations)",
+                  dt/(long)iter, iter ));
+}
+
+#endif /* FD_HAS_AVX512 */
+
 static void
 bench_shake256_absorb_40( void ) {
   uchar          buf[ 40 ];
@@ -753,6 +804,10 @@ int main( int     argc,
   bench_falcon_fq_fft();
   bench_falcon_fq_ifft();
   bench_hash_to_point();
+#if FD_HAS_AVX512
+  bench_pt_hash_to_point();
+  bench_pt_verify();
+#endif
   bench_shake256_absorb_40();
   bench_shake256_absorb_1k();
   bench_shake256_squeeze_falcon_hash_to_point();

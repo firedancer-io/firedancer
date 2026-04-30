@@ -51,6 +51,24 @@ fd_falcon_verify( uchar const * msg,
                   fd_falcon_signature_t const * sig,
                   fd_falcon_pubkey_t    const * pk );
 
+#if FD_HAS_AVX512
+/* Experimental falcon-pt: same algorithm but the SHAKE256 inside
+   hash_to_point is replaced by Keccak-p[1600,12] (KangarooTwelve round
+   count) with COUNTER-MODE PARALLEL squeeze (8-wide via keccak8 batch).
+   NOT standards-compatible — for perf experimentation only. */
+void
+fd_falcon_pt_hash_to_point( fd_falcon_fq_t * c,
+                            uchar const *    msg,
+                            ulong            len,
+                            uchar const *    r /* 40 bytes */ );
+
+int
+fd_falcon_pt_verify( uchar const * msg,
+                     ulong         len,
+                     fd_falcon_signature_t const * sig,
+                     fd_falcon_pubkey_t    const * pk );
+#endif
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_falcon_fd_falcon_h */

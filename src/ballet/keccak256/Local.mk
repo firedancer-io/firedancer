@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_keccak256.h fd_shake256.h fd_keccak256_avx2_keccak8_eo_asm.h fd_keccak256_keccak1eo_asm.h)
+$(call add-hdrs,fd_keccak256.h fd_shake256.h fd_keccak256_avx2_keccak8_eo_asm.h fd_keccak256_keccak1eo_asm.h fd_keccak256_avx512_keccak4a_asm.h fd_keccak256_avx512_keccak8a_asm.h fd_keccak256_avx512_keccak8b_asm.h)
 $(call add-objs,fd_keccak256 fd_shake256,fd_ballet)
 
 ifdef FD_HAS_AVX

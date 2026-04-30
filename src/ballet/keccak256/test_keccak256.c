@@ -2,6 +2,9 @@
 #include "fd_keccak256.h"
 #include "fd_keccak256_avx2_keccak8_eo_asm.h"
 #include "fd_keccak256_keccak1eo_asm.h"
+#include "fd_keccak256_avx512_keccak4a_asm.h"
+#include "fd_keccak256_avx512_keccak8a_asm.h"
+#include "fd_keccak256_avx512_keccak8b_asm.h"
 #include "fd_keccak256_test_vector.c"
 #include <string.h>
 #include <immintrin.h>  /* for _pext_u64 / _pdep_u64 in keccak1eo bench helpers */
@@ -195,6 +198,116 @@ main( int     argc,
     FD_TEST( 0==memcmp( ref, a8, sizeof(a8) ) );
     FD_LOG_NOTICE(( "fd_keccak256_avx512_keccak8: correct vs sha3_keccak_f1600 reference (8 lanes)" ));
   } while(0);
+
+  /* Correctness: keccak4a (asm, mechanical lift of s2n keccak4 to AVX-512). */
+  do {
+    ulong a4[ 100 ] __attribute__((aligned(64)));
+    for( ulong i=0UL; i<100UL; i++ ) a4[ i ] = (ulong)(0x9e3779b97f4a7c15UL + i*0x517cc1b727220a95UL);
+    ulong ref4[ 100 ] __attribute__((aligned(64)));
+    memcpy( ref4, a4, sizeof(a4) );
+    fd_keccak256_avx512_keccak4a_f1600_asm( a4, fd_keccak256_rc );
+    for( ulong lane=0UL; lane<4UL; lane++ ) {
+      sha3_keccak_f1600( (uint64_t *)(ref4 + 25UL*lane), (uint64_t const *)fd_keccak256_rc );
+    }
+    FD_TEST( 0==memcmp( ref4, a4, sizeof(a4) ) );
+    FD_LOG_NOTICE(( "fd_keccak256_avx512_keccak4a (asm): correct vs sha3_keccak_f1600 reference (4 lanes)" ));
+  } while(0);
+# if FD_HAS_S2NBIGNUM
+  /* Stronger correctness: keccak4a (asm) and s2n's sha3_keccak4_f1600
+     must produce bit-identical output for any input.  Fuzzes 1000 random
+     states and 1..N round iterations to catch any divergence between the
+     mechanical lift and its source. */
+  do {
+    ulong a_lift[ 100 ] __attribute__((aligned(64)));
+    ulong a_s2n [ 100 ] __attribute__((aligned(64)));
+    ulong const niter = 1000UL;
+    for( ulong it=0UL; it<niter; it++ ) {
+      for( ulong i=0UL; i<100UL; i++ ) a_lift[ i ] = a_s2n[ i ] = fd_rng_ulong( rng );
+      fd_keccak256_avx512_keccak4a_f1600_asm( a_lift, fd_keccak256_rc );
+      sha3_keccak4_f1600( (uint64_t *)a_s2n, (uint64_t const *)fd_keccak256_rc );
+      if( FD_UNLIKELY( 0!=memcmp( a_lift, a_s2n, sizeof(a_lift) ) ) ) {
+        for( int i=0; i<100; i++ ) if( a_lift[i]!=a_s2n[i] ) {
+          FD_LOG_ERR(( "iter %lu: divergence at u64 %d (state %d, lane %d): lift=%016lx s2n=%016lx",
+                       it, i, i/25, i%25, a_lift[i], a_s2n[i] ));
+        }
+      }
+    }
+    /* Also: re-running the asm K times should match s2n called K times. */
+    for( ulong i=0UL; i<100UL; i++ ) a_lift[ i ] = a_s2n[ i ] = fd_rng_ulong( rng );
+    for( int k=0; k<10; k++ ) {
+      fd_keccak256_avx512_keccak4a_f1600_asm( a_lift, fd_keccak256_rc );
+      sha3_keccak4_f1600( (uint64_t *)a_s2n, (uint64_t const *)fd_keccak256_rc );
+      FD_TEST( 0==memcmp( a_lift, a_s2n, sizeof(a_lift) ) );
+    }
+    FD_LOG_NOTICE(( "fd_keccak256_avx512_keccak4a (asm): bit-identical to sha3_keccak4_f1600 over %lu random states + 10 chained perms", niter ));
+  } while(0);
+  /* keccak8a (asm): correctness vs 8x sha3_keccak_f1600 reference. */
+  do {
+    ulong a8[ 200 ] __attribute__((aligned(64)));
+    for( ulong i=0UL; i<200UL; i++ ) a8[ i ] = (ulong)(0x9e3779b97f4a7c15UL + i*0x517cc1b727220a95UL);
+    ulong ref8[ 200 ] __attribute__((aligned(64)));
+    memcpy( ref8, a8, sizeof(a8) );
+    fd_keccak256_avx512_keccak8a_f1600_asm( a8, fd_keccak256_rc );
+    for( ulong lane=0UL; lane<8UL; lane++ ) {
+      sha3_keccak_f1600( (uint64_t *)(ref8 + 25UL*lane), (uint64_t const *)fd_keccak256_rc );
+    }
+    FD_TEST( 0==memcmp( ref8, a8, sizeof(a8) ) );
+    FD_LOG_NOTICE(( "fd_keccak256_avx512_keccak8a (asm): correct vs sha3_keccak_f1600 reference (8 lanes)" ));
+  } while(0);
+  /* keccak8a (asm): equivalence with two keccak4a invocations on the
+     state halves.  This guarantees the 8a boundary correctly transposes
+     8 states without cross-lane contamination — anything that mishandles
+     any of the 8 input/output offsets shows up as a memcmp mismatch. */
+  do {
+    ulong full [ 200 ] __attribute__((aligned(64)));
+    ulong split[ 200 ] __attribute__((aligned(64)));
+    ulong const niter = 1000UL;
+    for( ulong it=0UL; it<niter; it++ ) {
+      for( ulong i=0UL; i<200UL; i++ ) full[ i ] = split[ i ] = fd_rng_ulong( rng );
+      fd_keccak256_avx512_keccak8a_f1600_asm( full, fd_keccak256_rc );
+      fd_keccak256_avx512_keccak4a_f1600_asm( split,        fd_keccak256_rc );
+      fd_keccak256_avx512_keccak4a_f1600_asm( split + 100,  fd_keccak256_rc );
+      if( FD_UNLIKELY( 0!=memcmp( full, split, sizeof(full) ) ) ) {
+        for( int i=0; i<200; i++ ) if( full[i]!=split[i] ) {
+          FD_LOG_ERR(( "iter %lu: 8a vs 2x4a divergence at u64 %d (state %d, lane %d): 8a=%016lx 4a=%016lx",
+                       it, i, i/25, i%25, full[i], split[i] ));
+        }
+      }
+    }
+    FD_LOG_NOTICE(( "fd_keccak256_avx512_keccak8a (asm): bit-identical to 2x keccak4a over %lu random states", niter ));
+  } while(0);
+  /* keccak8b (asm): correctness vs 8x sha3_keccak_f1600 reference. */
+  do {
+    ulong a8[ 200 ] __attribute__((aligned(64)));
+    for( ulong i=0UL; i<200UL; i++ ) a8[ i ] = (ulong)(0x9e3779b97f4a7c15UL + i*0x517cc1b727220a95UL);
+    ulong ref8[ 200 ] __attribute__((aligned(64)));
+    memcpy( ref8, a8, sizeof(a8) );
+    fd_keccak256_avx512_keccak8b_f1600_asm( a8, fd_keccak256_rc );
+    for( ulong lane=0UL; lane<8UL; lane++ ) {
+      sha3_keccak_f1600( (uint64_t *)(ref8 + 25UL*lane), (uint64_t const *)fd_keccak256_rc );
+    }
+    FD_TEST( 0==memcmp( ref8, a8, sizeof(a8) ) );
+    FD_LOG_NOTICE(( "fd_keccak256_avx512_keccak8b (asm): correct vs sha3_keccak_f1600 reference (8 lanes)" ));
+  } while(0);
+  /* keccak8b (asm): bit-identical to keccak8a (vprolq is the only diff). */
+  do {
+    ulong a8a[ 200 ] __attribute__((aligned(64)));
+    ulong a8b[ 200 ] __attribute__((aligned(64)));
+    ulong const niter = 1000UL;
+    for( ulong it=0UL; it<niter; it++ ) {
+      for( ulong i=0UL; i<200UL; i++ ) a8a[ i ] = a8b[ i ] = fd_rng_ulong( rng );
+      fd_keccak256_avx512_keccak8a_f1600_asm( a8a, fd_keccak256_rc );
+      fd_keccak256_avx512_keccak8b_f1600_asm( a8b, fd_keccak256_rc );
+      if( FD_UNLIKELY( 0!=memcmp( a8a, a8b, sizeof(a8a) ) ) ) {
+        for( int i=0; i<200; i++ ) if( a8a[i]!=a8b[i] ) {
+          FD_LOG_ERR(( "iter %lu: 8a vs 8b divergence at u64 %d (state %d, lane %d): 8a=%016lx 8b=%016lx",
+                       it, i, i/25, i%25, a8a[i], a8b[i] ));
+        }
+      }
+    }
+    FD_LOG_NOTICE(( "fd_keccak256_avx512_keccak8b (asm): bit-identical to keccak8a over %lu random states", niter ));
+  } while(0);
+# endif
 # endif
 # endif
 
@@ -707,6 +820,43 @@ main( int     argc,
         fd_keccak256_avx512_keccak8_f1600_12r_raw( soa, fd_keccak256_rc ),
         &t );
       BENCH_RECORD( "avx512_keccak8 (64b,12r)", "C, raw",   8, t );
+    }
+#   endif
+
+    /* -- progression: keccak4a / keccak8a / keccak8b ------------------ */
+#   if FD_HAS_AVX512
+    {
+      /* 4a: 4 states, AVX-512 ops, top 4 zmm lanes zero, shift+or, andn+xor */
+      ulong s4[ 100 ] __attribute__((aligned(64)));
+      for( ulong i=0; i<100; i++ ) s4[ i ] = fd_rng_ulong( rng );
+      ulong * _s4 = s4; FD_COMPILER_FORGET( _s4 );
+      /* 4a (asm): mechanical AVX-512 lift of s2n keccak4 — same instructions,
+         same register allocation, same stack layout (slots widened to 64 B). */
+      ulong s4a[ 100 ] __attribute__((aligned(64)));
+      for( ulong i=0; i<100; i++ ) s4a[ i ] = fd_rng_ulong( rng );
+      ulong * _s4a = s4a; FD_COMPILER_FORGET( _s4a );
+      BENCH_TIME_BEST( ITER,
+        fd_keccak256_avx512_keccak4a_f1600_asm( s4a, fd_keccak256_rc ),
+        &t );
+      BENCH_RECORD( "avx512_keccak4a",          "asm, s2n-lift",   4, t );
+
+      /* 8a (asm): keccak4a round body extended with 8-state boundary. */
+      ulong s8a[ 200 ] __attribute__((aligned(64)));
+      for( ulong i=0; i<200; i++ ) s8a[ i ] = fd_rng_ulong( rng );
+      ulong * _s8a = s8a; FD_COMPILER_FORGET( _s8a );
+      BENCH_TIME_BEST( ITER,
+        fd_keccak256_avx512_keccak8a_f1600_asm( s8a, fd_keccak256_rc ),
+        &t );
+      BENCH_RECORD( "avx512_keccak8a",          "asm, shl/or+andn",8, t );
+
+      /* 8b (asm): same as 8a but with native vprolq rotates. */
+      ulong s8b[ 200 ] __attribute__((aligned(64)));
+      for( ulong i=0; i<200; i++ ) s8b[ i ] = fd_rng_ulong( rng );
+      ulong * _s8b = s8b; FD_COMPILER_FORGET( _s8b );
+      BENCH_TIME_BEST( ITER,
+        fd_keccak256_avx512_keccak8b_f1600_asm( s8b, fd_keccak256_rc ),
+        &t );
+      BENCH_RECORD( "avx512_keccak8b",          "asm, vprolq+andn",8, t );
     }
 #   endif
 
