@@ -936,7 +936,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
     FD_LOG_CRIT(( "invariant violation: block->fec_eos set but getting more FEC sets, slot %lu, parent slot %lu", fec->slot, fec->parent_slot ));
   }
-  if( FD_UNLIKELY( block->fec_eob && fec->is_last_in_batch ) ) {
+  if( FD_UNLIKELY( block->fec_eob ) ) {
     /* If the previous FEC set ingestion and parse was successful,
        block->fec_eob should be cleared.  The fact that fec_eob is set
        means that the previous batch didn't parse properly.  So this is
@@ -1014,10 +1014,14 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
-  if( FD_UNLIKELY( (fec->is_last_in_batch||fec->is_last_in_block) && (block->txns_rem||block->mblks_rem) ) ) {
+  if( FD_UNLIKELY( (fec->is_last_in_batch||fec->is_last_in_block) && (block->txns_rem||block->mblks_rem||block->fec_eob) ) ) {
     /* A malformed block that fails to parse out exactly as many
-       transactions and microblocks as it should. */
-    FD_LOG_INFO(( "bad block: bytes_rem %u, txns_rem %lu, mblks_rem %lu, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->slot, block->parent_slot ));
+       transactions and microblocks as it should.
+
+       Upon getting a last-in-batch FEC, everything in the ongoing batch
+       should completely parse, and the eob flag should be reset.  There
+       should be no go around for a last-in-batch FEC. */
+    FD_LOG_INFO(( "bad block: bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
     handle_bad_block( sched, block );
     return 0;
   }
