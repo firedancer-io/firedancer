@@ -380,8 +380,14 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     offset for each slot, and stick it into the appropriate bank in
     our chain. */
 
-  if( FD_UNLIKELY( blockhashes_len>301UL ) ) FD_LOG_ERR(( "corrupt snapshot: blockhash queue length %lu exceeds maximum 301", blockhashes_len ));
-  if( FD_UNLIKELY( !blockhashes_len ) ) FD_LOG_ERR(( "corrupt snapshot: blockhash queue is empty" ));
+  if( FD_UNLIKELY( blockhashes_len>301UL ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue length %lu exceeds maximum 301", blockhashes_len ));
+    return 1;
+  }
+  if( FD_UNLIKELY( !blockhashes_len ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue is empty" ));
+    return 1;
+  }
 
   ulong seq_min = ULONG_MAX;
   for( ulong i=0UL; i<blockhashes_len; i++ ) seq_min = fd_ulong_min( seq_min, blockhashes[ i ].hash_index );
@@ -389,7 +395,6 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   ulong seq_max;
   if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, blockhashes_len, &seq_max ) ) ) {
     FD_LOG_WARNING(( "corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, blockhashes_len ));
-    transition_malformed( ctx, ctx->stem );
     return 1;
   }
 
@@ -408,19 +413,16 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     ulong idx;
     if( FD_UNLIKELY( __builtin_usubl_overflow( elem->hash_index, seq_min, &idx ) ) ) {
       FD_LOG_WARNING(( "corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) idx=%lu)", seq_min, seq_max, blockhashes[ i ].hash_index ));
-      transition_malformed( ctx, ctx->stem );
       return 1;
     }
 
     if( FD_UNLIKELY( idx>=blockhashes_len ) ) {
       FD_LOG_WARNING(( "corrupt snapshot: blockhash queue index out of range (seq_min=%lu age_cnt=%lu idx=%lu)", seq_min, blockhashes_len, idx ));
-      transition_malformed( ctx, ctx->stem );
       return 1;
     }
 
     if( FD_UNLIKELY( banks[ blockhashes_len-1UL-idx ].exists ) ) {
       FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash hash_index %lu", elem->hash_index ));
-      transition_malformed( ctx, ctx->stem );
       return 1;
     }
 
@@ -447,7 +449,6 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     if( FD_UNLIKELY( blockhash_map_ele_query_const( blockhash_map, &blockhash_pool[ i ].blockhash, NULL, blockhash_pool ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( banks[ i ].blockhash, blockhash_b58 );
       FD_LOG_WARNING(( "corrupt snapshot: duplicate blockhash %s in 151 most recent blockhashes", blockhash_b58 ));
-      transition_malformed( ctx, ctx->stem );
       return 1;
     }
 
@@ -455,7 +456,10 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   /* Now load the blockhash offsets for these blockhashes ... */
-  if( FD_UNLIKELY( !ctx->blockhash_offsets_len ) ) FD_LOG_ERR(( "corrupt snapshot: no blockhash offsets found (nothing is rooted)" ));
+  if( FD_UNLIKELY( !ctx->blockhash_offsets_len ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: no blockhash offsets found (nothing is rooted)" ));
+    return 1;
+  }
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;
     fd_memcpy( key.uc, ctx->blockhash_offsets[ i ].blockhash, 32UL );
@@ -467,7 +471,6 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     if( FD_UNLIKELY( banks[ chain_idx ].txnhash_offset!=ULONG_MAX && banks[ chain_idx ].txnhash_offset!=ctx->blockhash_offsets[ i ].txnhash_offset ) ) {
       FD_BASE58_ENCODE_32_BYTES( entry->blockhash.uc, blockhash_b58 );
       FD_LOG_WARNING(( "corrupt snapshot: conflicting txnhash offsets for blockhash %s", blockhash_b58 ));
-      transition_malformed( ctx, ctx->stem );
       return 1;
     }
 
@@ -663,7 +666,10 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   if( FD_UNLIKELY( chunk<ctx->in.chunk0 || chunk>ctx->in.wmark || sz>ctx->in.mtu ) ) FD_LOG_ERR(( "invalid data frag bounds (chunk=%lu chunk0=%lu wmark=%lu sz=%lu mtu=%lu)", chunk, ctx->in.chunk0, ctx->in.wmark, sz, ctx->in.mtu ));
 
   if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
-    fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch );
+    if( FD_UNLIKELY( fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch )<0 ) ) {
+      transition_malformed( ctx, stem );
+      return 0;
+    }
     return 1;
   }
 
@@ -711,13 +717,21 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
             transition_malformed( ctx, stem );
             return 0;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
-            if( FD_UNLIKELY( ctx->blockhash_offsets_len>=FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ) ) FD_LOG_ERR(( "blockhash offsets overflow, max is %lu", FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ));
+            if( FD_UNLIKELY( ctx->blockhash_offsets_len>=FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ) ) {
+              FD_LOG_WARNING(( "blockhash offsets overflow, max is %lu", FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ));
+              transition_malformed( ctx, stem );
+              return 0;
+            }
 
             memcpy( ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].blockhash, sd_result->group.blockhash, 32UL );
             ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].txnhash_offset = sd_result->group.txnhash_offset;
             ctx->blockhash_offsets_len++;
           } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) ) {
-            if( FD_UNLIKELY( ctx->txncache_entries_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) FD_LOG_ERR(( "txncache entries overflow, max is %lu", FD_SNAPIN_TXNCACHE_MAX_ENTRIES ));
+            if( FD_UNLIKELY( ctx->txncache_entries_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) {
+              FD_LOG_WARNING(( "txncache entries overflow, max is %lu", FD_SNAPIN_TXNCACHE_MAX_ENTRIES ));
+              transition_malformed( ctx, stem );
+              return 0;
+            }
             ctx->txncache_entries[ ctx->txncache_entries_len++ ] = *sd_result->entry;
           }
 
@@ -730,6 +744,10 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
         early_exit = fd_snapin_process_account_header( ctx, result );
+        if( FD_UNLIKELY( early_exit<0 ) ) {
+          transition_malformed( ctx, stem );
+          return 0;
+        }
 
         if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX
                       && !memcmp( result->account_header.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) )
@@ -774,6 +792,10 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
         early_exit = fd_snapin_process_account_batch( ctx, result, NULL );
+        if( FD_UNLIKELY( early_exit<0 ) ) {
+          transition_malformed( ctx, stem );
+          return 0;
+        }
         break;
       case FD_SSPARSE_ADVANCE_DONE:
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;

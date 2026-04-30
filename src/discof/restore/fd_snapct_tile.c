@@ -1309,7 +1309,8 @@ static void
 snapld_frag( fd_snapct_tile_t *  ctx,
              ulong               sig,
              ulong               sz,
-             ulong               chunk ) {
+             ulong               chunk,
+             fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) {
     /* Before snapld starts sending down data fragments, it first sends
        a metadata message containing the total size of the snapshot as
@@ -1329,8 +1330,11 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
 
     if( FD_UNLIKELY( meta->total_sz==0UL ) ) {
-      FD_LOG_WARNING(( "received zero Content-Length metadata for %s snapshot, marking malformed", full ? "full" : "incremental" ));
-      ctx->malformed = 1;
+      if( FD_UNLIKELY( !ctx->malformed ) ) {
+        FD_LOG_WARNING(( "received zero Content-Length metadata for %s snapshot, marking malformed", full ? "full" : "incremental" ));
+        ctx->malformed = 1;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+      }
       return;
     }
 
@@ -1383,7 +1387,9 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       /* Based on previously received data frags, we expected that the
          current full / incremental snapshot was finished, but then we
          received additional data frags.  Unsafe to continue so throw
-         away the whole snapshot. */
+         away the whole snapshot.  Do not publish MSG_CTRL_ERROR here:
+         data forwarding is already complete, and the state machine
+         will publish MSG_CTRL_FAIL on the next tick. */
       if( !ctx->malformed ) {
         ctx->malformed = 1;
         FD_LOG_WARNING(( "complete snapshot loaded but read %lu extra bytes", sz ));
@@ -1404,6 +1410,7 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     if( !ctx->malformed ) {
       ctx->malformed = 1;
       FD_LOG_WARNING(( "received data frag for full snapshot with zero bytes_total" ));
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
     }
     return;
   }
@@ -1411,6 +1418,7 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     if( !ctx->malformed ) {
       ctx->malformed = 1;
       FD_LOG_WARNING(( "received data frag for incremental snapshot with zero bytes_total" ));
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
     }
     return;
   }
@@ -1444,8 +1452,9 @@ snapld_frag( fd_snapct_tile_t *  ctx,
                        full ? "full" : "incremental",
                        full ? ctx->metrics.full.bytes_total : ctx->metrics.incremental.bytes_total,
                        full ? ctx->metrics.full.bytes_read  : ctx->metrics.incremental.bytes_read ));
-
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
     }
+    return;
   }
 }
 
@@ -1524,6 +1533,9 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
         case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
         case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
         case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
+          /* Do not publish MSG_CTRL_ERROR: the error originated
+             downstream, so re-publishing would be redundant.
+             MSG_CTRL_FAIL follows on the next state machine tick. */
           FD_LOG_WARNING(( "received error from downstream tile while in state %s",
                            fd_snapct_state_str( ctx->state ) ));
           ctx->malformed = 1;
@@ -1546,11 +1558,11 @@ returnable_frag( fd_snapct_tile_t *  ctx,
                  ulong               ctl    FD_PARAM_UNUSED,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
-                 fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
+                 fd_stem_context_t * stem ) {
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     gossip_frag( ctx, sig, sz, chunk );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLD ) {
-    snapld_frag( ctx, sig, sz, chunk );
+    snapld_frag( ctx, sig, sz, chunk, stem );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
     ctrl_ack_frag( ctx, sig );
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
