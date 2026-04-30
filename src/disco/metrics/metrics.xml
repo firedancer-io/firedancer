@@ -1061,6 +1061,8 @@ metric introduced.
     <int value="19" name="DroppedPingSignature" label="Ping (signature)" />
 
     <int value="20" name="DroppedPongSignature" label="Pong (signature)" />
+
+    <int value="21" name="DroppedPushSignature" label="Push (signature)" />
 </enum>
 
 <enum name="GossvfCrdsOutcome">
@@ -1074,11 +1076,12 @@ metric introduced.
     <int value="6" name="DroppedPullResponseInactive" label="Pull Response (inactive)" />
     <int value="7" name="DroppedPullResponseWallclock" label="Pull Response (wallclock)" />
 
-    <int value="8" name="DroppedPushSignature" label="Push (signature)" />
-    <int value="9" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
-    <int value="10" name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
-    <int value="11" name="DroppedPushInactive" label="Push (inactive)" />
-    <int value="12" name="DroppedPushWallclock" label="Push (wallclock)" />
+    <int value="8" name="DroppedPushDuplicate" label="Push (duplicate)" />
+    <int value="9" name="DroppedPushSignature" label="Push (signature)" />
+    <int value="10" name="DroppedPushOriginNoContactInfo" label="Push (origin no contact info)" />
+    <int value="11" name="DroppedPushOriginShredVersion" label="Push (origin shred version)" />
+    <int value="12" name="DroppedPushInactive" label="Push (inactive)" />
+    <int value="13" name="DroppedPushWallclock" label="Push (wallclock)" />
 </enum>
 
 <tile name="gossvf">

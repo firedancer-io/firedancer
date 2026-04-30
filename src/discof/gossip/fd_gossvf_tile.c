@@ -408,16 +408,30 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PUSH: {
       ulong i = 0UL;
       while( i<view->push->values_len ) {
+        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( view->push->values[ i ].signature );
+        int ha_dup = 0;
+        FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
+        FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
+        if( FD_UNLIKELY( ha_dup ) ) {
+          if( FD_LIKELY( !failed[ i ] ) ) {
+            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ]++;
+            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ] += view->push->values[ i ].length;
+          }
+          view->push->values_len--;
+          view->push->values[ i ] = view->push->values[ view->push->values_len ];
+          failed[ i ] = failed[ view->push->values_len ];
+          continue;
+        }
+
         int err = verify_crds_value( &view->push->values[ i ], payload+view->push->values[ i ].offset, view->push->values[ i ].length, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
           if( FD_LIKELY( !failed[ i ] ) ) {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ]++;
             ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ] += view->push->values[ i ].length;
           }
-          view->push->values_len--;
-          view->push->values[ i ] = view->push->values[ view->push->values_len ];
-          failed[ i ] = failed[ view->push->values_len ];
-          continue;
+          /* A legitimate sender signs every CRDS value correctly, so
+             any invalid signature means the whole packet is suspect. */
+          return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX;
         }
 
         i++;
