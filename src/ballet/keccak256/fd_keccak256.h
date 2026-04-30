@@ -126,6 +126,50 @@ fd_keccak256_hash( void const * data,
                    ulong        sz,
                    void *       hash );
 
+#if FD_HAS_AVX
+/* fd_keccak256_avx2_keccak8_f1600 runs eight interleaved-limb Keccak-f[1600]
+   permutations in one call (AVX2).  state must hold 200 ulongs:
+   lane0 state[0..24], …, lane7 state[175..199].  rc is fd_keccak256_rc. */
+
+void
+fd_keccak256_avx2_keccak8_f1600( ulong state[ static 200 ], ulong const * rc );
+
+/* Even/odd bit-interleaved variant: each 64-bit lane split as
+   E = bits w[0,2,...,62], O = bits w[1,3,...,63].  Same external state layout
+   (200 ulongs, lane-major); pack/unpack happens internally. */
+void
+fd_keccak256_avx2_keccak8_eo_f1600( ulong state[ static 200 ], ulong const * rc );
+
+/* Raw permutation: state already in (E,O) SoA form (50 ymm = 1600 bytes,
+   alpha=ae[0..24]+ao[0..24]).  rc_eo = 48 uint32 of pre-deinterleaved RCs
+   (e0,o0,e1,o1,...).  Skips boundary bit-interleave so the round loop's
+   actual cost is measurable, and supports keeping state packed across blocks. */
+void
+fd_keccak256_avx2_keccak8_eo_f1600_raw( void * state_eo, uint const * rc_eo );
+
+/* Pre-deinterleave the 24 round constants once into 48 u32 (e,o pairs).
+   rc_eo must point to 48 uint32 (32-byte aligned recommended). */
+void
+fd_keccak256_avx2_keccak8_eo_rc_pack( ulong const * rc, uint * rc_eo );
+
+/* Absorb one Keccak-256 block (1088 bits = 17 u64) for each of 8 instances.
+   blocks = 8 instances of 17 contiguous ulongs (lane-major). XORs deinterleaved
+   bits into the rate of state_eo.  Pair with f1600_raw for full sponge step. */
+void
+fd_keccak256_avx2_keccak8_eo_absorb_block( void const * blocks, void * state_eo );
+
+#endif /* FD_HAS_AVX */
+
+#if FD_HAS_S2NBIGNUM
+/* fd_s2n_sha3_keccak4_f1600 runs s2n-bignum's batched Keccak-f[1600] on four
+   lanes in one call (SHA3 round constants).  state must hold 100 ulongs:
+   lane0 state[0..24], lane1 [25..49], lane2 [50..74], lane3 [75..99]. */
+
+void
+fd_s2n_sha3_keccak4_f1600( ulong state[ static 100 ] );
+
+#endif /* FD_HAS_S2NBIGNUM */
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_keccak256_fd_keccak256_h */

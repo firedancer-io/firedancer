@@ -5,16 +5,28 @@
 
 FD_PROTOTYPES_BEGIN
 
-static ulong const fd_keccak256_rc[24] = {
-  0x0000000000000001UL, 0x0000000000008082UL, 0x800000000000808AUL, 0x8000000080008000UL,
-  0x000000000000808BUL, 0x0000000080000001UL, 0x8000000080008081UL, 0x8000000000008009UL,
-  0x000000000000008AUL, 0x0000000000000088UL, 0x0000000080008009UL, 0x000000008000000AUL,
-  0x000000008000808BUL, 0x800000000000008BUL, 0x8000000000008089UL, 0x8000000000008003UL,
-  0x8000000000008002UL, 0x8000000000000080UL, 0x000000000000800AUL, 0x800000008000000AUL,
-  0x8000000080008081UL, 0x8000000000008080UL, 0x0000000080000001UL, 0x8000000080008008UL
-};
+/* SHA3 Keccak-f[1600] round constants (shared by reference core, s2n-bignum,
+   and optional fd_s2n_sha3_keccak4_f1600).  Defined in fd_keccak256.c. */
+extern ulong const fd_keccak256_rc[24];
 
-#if FD_HAS_S2NBIGNUM
+#if defined(FD_KECCAK256_USE_X86_64_LIMB_ASM) && defined(__x86_64__)
+/* x86_64 BMI andn + BMI2 rorx permutation (fd_keccak256_x86_64_limb_f1600.S).
+   LE u64 lanes match uint32 lo|hi limb layout.  Enable with
+   FD_KECCAK256_X86_64_LIMB_ASM=1 on make (keccak256/Local.mk). */
+void
+fd_keccak256_x86_64_limb_f1600( ulong * state, ulong const * rc );
+
+static inline void
+fd_keccak256_core( ulong * state ) {
+  fd_keccak256_x86_64_limb_f1600( state, fd_keccak256_rc );
+}
+
+#elif defined(FD_KECCAK256_USE_INTERLEAVED32)
+/* u64 lanes as two uint32 limbs (LE), same model as plonky2-crypto Keccak; see
+   fd_keccak256_interleaved.c.  Enable with FD_KECCAK256_INTERLEAVED32=1 on make
+   (keccak256/Local.mk). */
+#include "fd_keccak256_interleaved.c"
+#elif FD_HAS_S2NBIGNUM
 #include "fd_keccak256_s2n.c"
 #else
 
@@ -95,7 +107,7 @@ fd_keccak256_core( ulong * state ) {
 # undef ROTATE
 }
 
-#endif /* FD_HAS_S2NBIGNUM */
+#endif /* interleaved32 / s2n / reference */
 
 FD_PROTOTYPES_END
 

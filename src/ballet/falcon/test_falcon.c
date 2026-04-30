@@ -678,25 +678,32 @@ bench_shake256_absorb_1k( void ) {
 }
 
 static void
-bench_shake256_squeeze_128( void ) {
-  uchar          nonce[ 40 ];
-  uchar          out[ 128 ];
-  fd_shake256_t  s[1];
-  fd_memset( nonce, 0x3d, sizeof(nonce) );
+bench_shake256_squeeze_falcon_hash_to_point( void ) {
+  /* Same absorb as fd_falcon_hash_to_point; count 128-byte squeezes (see fd_falcon.c). */
+  enum { squeeze_bytes = 128 };
+  ulong const n_squeeze = 9;
+  FD_TEST( n_squeeze > 0UL );
 
-  fd_shake256_init( s );
-  fd_shake256_absorb( s, nonce, sizeof(nonce) );
-  fd_shake256_squeeze( s, out, sizeof(out) );
+  uchar         out[ squeeze_bytes ];
+  fd_shake256_t s[1];
 
-  ulong iter = 2000000UL;
+  ulong iter = 200000UL;
   long  dt   = -fd_log_wallclock();
   for( ulong i=0UL; i<iter; i++ ) {
-    uchar * _out = out;
-    FD_COMPILER_FORGET( _out );
-    fd_shake256_squeeze( s, out, sizeof(out) );
+    fd_shake256_init( s );
+    fd_shake256_absorb( s, tv_signature, 40UL );
+    fd_shake256_absorb( s, (uchar const *)tv_msg, TV_MSG_LEN );
+    fd_shake256_fini( s );
+    for( ulong k=0UL; k<n_squeeze; k++ ) {
+      uchar * _out = out;
+      FD_COMPILER_FORGET( _out );
+      fd_shake256_squeeze( s, out, sizeof(out) );
+    }
   }
   dt += fd_log_wallclock();
-  FD_LOG_NOTICE(( "shake256 squeeze 128B (primed sponge): %li ns/squeeze (%lu iterations)", dt/(long)iter, iter ));
+  FD_LOG_NOTICE((
+    "shake256 squeeze (falcon hash_to_point pattern): %lu × %dB after 40B nonce + msg absorb (%li ns/iter, %lu iterations)",
+    n_squeeze, squeeze_bytes, dt/(long)iter, iter ));
 }
 
 #if FD_TEST_FALCON_BENCH_ONLY
@@ -748,7 +755,7 @@ int main( int     argc,
   bench_hash_to_point();
   bench_shake256_absorb_40();
   bench_shake256_absorb_1k();
-  bench_shake256_squeeze_128();
+  bench_shake256_squeeze_falcon_hash_to_point();
 
 #if !FD_TEST_FALCON_BENCH_ONLY
   fd_rng_delete( fd_rng_leave( rng ) );
