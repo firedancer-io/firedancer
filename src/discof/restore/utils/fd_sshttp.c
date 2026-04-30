@@ -610,7 +610,7 @@ read_response( fd_sshttp_t * http,
 
   http->state = FD_SSHTTP_STATE_DL;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
-    ulong need_len = http->response_len - (ulong)parsed;
+    ulong need_len = fd_ulong_min( http->response_len - (ulong)parsed, http->content_len );
     if( FD_UNLIKELY( *data_len<need_len ) ) {
       FD_LOG_WARNING(( "data buffer too small (data_len=%lu required=%lu response_len=%lu parsed=%lu)",
                        *data_len, need_len, http->response_len, (ulong)parsed ));
