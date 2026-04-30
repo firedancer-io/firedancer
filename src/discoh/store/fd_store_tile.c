@@ -45,8 +45,10 @@ during_frag( fd_store_ctx_t * ctx,
              ulong            sz  FD_PARAM_UNUSED, /* sz is ignored because sizeof(fd_fec_set_t)>USHORT_MAX */
              ulong            ctl FD_PARAM_UNUSED ) {
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  /* dcache chunk bounds are validated centrally by fd_stem before
+     this callback is invoked.  sz is intentionally not validated here
+     because the producer publishes sizeof(fd_fec_set_t) (>USHORT_MAX)
+     which the link mtu accommodates. */
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
 

@@ -333,6 +333,9 @@ dump_cmd_fn( args_t      * args,
     stem_run1( ctx.link_cnt, /* in_cnt */
                mcaches,      /* in_mcache */
                fseqs,        /* in_fseq */
+               NULL,         /* in_chunk0 (skip centralized bounds check in trace tool) */
+               NULL,         /* in_wmark */
+               NULL,         /* in_mtu */
                0UL,          /* out_cnt */
                NULL,         /* out_mcache */
                0UL,          /* cons_cnt */

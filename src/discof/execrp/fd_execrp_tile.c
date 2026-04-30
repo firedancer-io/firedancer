@@ -201,7 +201,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               seq FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
-                 ulong               sz,
+                 ulong               sz FD_PARAM_UNUSED,
                  ulong               ctl FD_PARAM_UNUSED,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub,
@@ -210,9 +210,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
   if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
 
   if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
-    if( FD_UNLIKELY( chunk < ctx->replay_in->chunk0 || chunk > ctx->replay_in->wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in->chunk0, ctx->replay_in->wmark ));
-    }
+    /* dcache bounds are validated centrally by fd_stem before this
+       callback is invoked. */
     switch( sig>>32 ) {
       case FD_EXECRP_TT_TXN_EXEC: {
         /* Execute. */

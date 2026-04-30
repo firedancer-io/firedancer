@@ -119,8 +119,8 @@ during_frag( fd_bank_ctx_t * ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-  if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
+  /* dcache bounds (chunk0/wmark + sz<=link->mtu==USHORT_MAX) are
+     validated centrally by fd_stem before this callback is invoked. */
 
   /* Pack sends fd_txn_e_t (with ALT accounts), but PoH expects fd_txn_p_t.
      We copy the fd_txn_p_t portion to the PoH output buffer, and copy the

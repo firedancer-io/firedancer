@@ -73,8 +73,8 @@ during_frag( fd_plugin_ctx_t * ctx,
     ctx->sz = fd_stake_weight_msg_sz( staked_cnt, id_cnt );
   }
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, ctx->sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  /* dcache bounds (chunk0/wmark + sz<=link->mtu) are validated
+     centrally by fd_stem before this callback is invoked. */
 
   fd_memcpy( dst, src, ctx->sz );
 }

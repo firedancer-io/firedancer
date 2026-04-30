@@ -465,10 +465,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
 
   } else {
     // contact infos can be copied into a buffer
-    if( FD_UNLIKELY( chunk<ctx->in_links[ in_idx ].chunk0 || chunk>ctx->in_links[ in_idx ].wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->in_links[ in_idx ].chunk0, ctx->in_links[ in_idx ].wmark ));
-    }
+    /* dcache bounds validated centrally by fd_stem. */
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
     fd_memcpy( ctx->contact_info_buffer, dcache_entry, sz );
   }

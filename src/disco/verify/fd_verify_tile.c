@@ -69,8 +69,12 @@ during_frag( fd_verify_ctx_t * ctx,
 
   ulong in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_BUNDLE || in_kind==IN_KIND_QUIC || in_kind==IN_KIND_TXSEND ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>FD_TPU_RAW_MTU ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark, FD_TPU_RAW_MTU ));
+    /* Topology dcache bounds (chunk0/wmark/link->mtu) are validated
+       centrally by fd_stem.  We keep the FD_TPU_RAW_MTU check as a
+       defense-in-depth bound on the protocol-level raw TPU MTU
+       (which may differ from the producing link's mtu). */
+    if( FD_UNLIKELY( sz>FD_TPU_RAW_MTU ) )
+      FD_LOG_ERR(( "frag sz=%lu exceeds FD_TPU_RAW_MTU=%lu", sz, (ulong)FD_TPU_RAW_MTU ));
 
     uchar * src = fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
     uchar * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
@@ -81,8 +85,11 @@ during_frag( fd_verify_ctx_t * ctx,
       FD_LOG_ERR(( "fd_verify: txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
     }
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[in_idx].chunk0 || chunk>ctx->in[in_idx].wmark || sz>2048UL ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[in_idx].chunk0, ctx->in[in_idx].wmark ));
+    /* Topology dcache bounds validated centrally by fd_stem.  Keep
+       the application 2KiB upper bound for parsed gossip vote
+       messages as defense-in-depth. */
+    if( FD_UNLIKELY( sz>2048UL ) )
+      FD_LOG_ERR(( "gossip frag sz=%lu exceeds 2048", sz ));
 
     fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
     fd_txn_m_t * dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );

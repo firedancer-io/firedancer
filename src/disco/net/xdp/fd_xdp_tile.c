@@ -724,8 +724,11 @@ during_frag( fd_net_ctx_t * ctx,
              ulong          chunk,
              ulong          sz,
              ulong          ctl FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  /* Topology dcache bounds (chunk0/wmark + sz<=link->mtu==FD_NET_MTU)
+     are validated centrally by fd_stem before this callback runs.
+     The structural lower bound (eth+ip4 headers) and upper bound
+     (FD_ETH_PAYLOAD_MAX) are application-level invariants and are
+     enforced here. */
 
   if( FD_UNLIKELY( sz<( sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) ) ) )
     FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));

@@ -18,6 +18,24 @@ struct fd_stem_context {
 
 typedef struct fd_stem_context fd_stem_context_t;
 
+/* fd_stem_tile_in_t holds the state stem keeps about each input link of
+   a tile.  The struct is 64-byte aligned so each entry of the in[]
+   array starts on its own cache line.  Cache layout:
+
+     - First cache line (hot polling state):
+         mcache, depth, idx, seq, mline, fseq, accum[6]  -> 64 bytes.
+
+     - Second cache line (cached dcache bounds for the centralized
+       chunk/sz validation done by stem before invoking the tile's
+       during_frag callback; also touched only when a frag arrives,
+       so it shares the same access pattern as the first line):
+         chunk0, wmark, mtu                              -> 24 bytes.
+
+   Padding to 128 bytes total is added by the (aligned(64)) attribute.
+   The bounds fields live AFTER the polling state on purpose: they are
+   only read on the rare error path of corruption detection and don't
+   need to be co-located with the always-touched seq/mline pair. */
+
 struct __attribute__((aligned(64))) fd_stem_tile_in {
   fd_frag_meta_t const * mcache;   /* local join to this in's mcache */
   uint                   depth;    /* == fd_mcache_depth( mcache ), depth of this in's cache (const) */
@@ -28,6 +46,15 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
   ulong *                fseq;     /* local join to the fseq used to return flow control credits to the in */
   uint                   accum[6]; /* local diagnostic accumulators.  These are drained during in housekeeping. */
                                    /* Assumes FD_FSEQ_DIAG_{PUB_CNT,PUB_SZ,FILT_CNT,FILT_SZ,OVRNP_CNT,OVRNP_FRAG_CNT} are 0:5 */
+
+  /* Cached dcache bounds for centralized fragment validation.  See
+     fd_stem.c for the check performed before each during_frag callback.
+     mtu==0 is a sentinel meaning "no dcache / skip the bounds check"
+     (used for control-only links and for stem instances that do not
+     pass topology bounds, e.g. the QUIC trace tools). */
+  ulong                  chunk0;   /* lower (inclusive) chunk bound, from fd_dcache_compact_chunk0 */
+  ulong                  wmark;    /* upper (inclusive) chunk bound, from fd_dcache_compact_wmark  */
+  ulong                  mtu;      /* max sz; 0 disables the bounds check for this link             */
 };
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;

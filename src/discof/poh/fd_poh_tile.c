@@ -150,8 +150,8 @@ returnable_frag( fd_poh_tile_t *     ctx,
     return 0;
   }
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  /* dcache bounds (chunk0/wmark + sz<=link->mtu) are validated
+     centrally by fd_stem before this callback is invoked. */
 
   /* There's a race condition where we might receive microblocks from
      execles before we have learned what the leader bank is from replay

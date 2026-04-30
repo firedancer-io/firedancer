@@ -162,8 +162,8 @@ returnable_frag( fd_forkt_tile_t *   ctx,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   ctx->idle_cnt = 0;
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  /* dcache bounds (chunk0/wmark + sz<=link->mtu) are validated
+     centrally by fd_stem before this callback is invoked. */
   void const * msg_base = fd_chunk_to_laddr_const( ctx->in[ in_idx ].wksp, chunk );
   switch( ctx->in[ in_idx ].kind ) {
   case IN_KIND_REPLAY_OUT:

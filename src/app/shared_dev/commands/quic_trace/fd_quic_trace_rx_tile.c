@@ -541,13 +541,16 @@ fd_quic_trace_rx_tile( fd_quic_trace_ctx_t  * trace_ctx,
   fd_rng_t rng[1];
   FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)fd_tickcount(), 0UL ) ) );
 
-  uchar scratch[ sizeof(fd_stem_tile_in_t)+128 ] __attribute__((aligned(FD_STEM_SCRATCH_ALIGN)));
+  uchar scratch[ 2UL*sizeof(fd_stem_tile_in_t)+128 ] __attribute__((aligned(FD_STEM_SCRATCH_ALIGN)));
 
   fd_frag_meta_t const * in_mcache_tbl[2] = { rx_mcache, tx_mcache };
 
   stem_run1( /* in_cnt     */ 2UL,
              /* in_mcache  */ in_mcache_tbl,
              /* in_fseq    */ fseq_tbl,
+             /* in_chunk0  */ NULL,  /* trace tool: skip centralized bounds check */
+             /* in_wmark   */ NULL,
+             /* in_mtu     */ NULL,
              /* out_cnt    */ 0UL,
              /* out_mcache */ NULL,
              /* cons_cnt   */ 0UL,

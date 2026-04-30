@@ -152,9 +152,8 @@ during_frag( fd_event_tile_t * ctx,
     case IN_KIND_DEDUP:
     case IN_KIND_GENESI:
     case IN_KIND_IPECHO:
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
+      /* dcache bounds (chunk0/wmark + sz<=link->mtu) are validated
+         centrally by fd_stem before this callback is invoked. */
       ctx->chunk = chunk;
       break;
     default:

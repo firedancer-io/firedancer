@@ -242,6 +242,9 @@ static inline void
 STEM_(run1)( ulong                        in_cnt,
              fd_frag_meta_t const **      in_mcache,
              ulong **                     in_fseq,
+             ulong const *                in_chunk0,  /* in_chunk0[i]: lower dcache chunk bound for in i (NULL ⇒ skip bounds check) */
+             ulong const *                in_wmark,   /* in_wmark[i]:  upper dcache chunk bound for in i (NULL ⇒ skip bounds check) */
+             ulong const *                in_mtu,     /* in_mtu[i]:    max frag sz for in i; entry of 0 also skips bounds check     */
              ulong                        out_cnt,
              fd_frag_meta_t **            out_mcache,
              ulong                        cons_cnt,
@@ -322,6 +325,15 @@ STEM_(run1)( ulong                        in_cnt,
 
     this_in->accum[0] = 0U; this_in->accum[1] = 0U; this_in->accum[2] = 0U;
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
+
+    /* Cache the dcache bounds for the centralized validation done
+       below before invoking during_frag callbacks.  When the caller
+       does not provide bounds (e.g. the QUIC trace tools), or the
+       link has no dcache (mtu==0), we leave mtu==0 to disable the
+       check for this in. */
+    this_in->chunk0 = in_chunk0 ? in_chunk0[ in_idx ] : 0UL;
+    this_in->wmark  = in_wmark  ? in_wmark [ in_idx ] : 0UL;
+    this_in->mtu    = in_mtu    ? in_mtu   [ in_idx ] : 0UL;
   }
 
   /* out frag stream init */
@@ -686,6 +698,22 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
+    /* Centralized dcache bounds validation.  Before this change, every
+       tile repeated the same chunk/sz check inside its during_frag
+       callback to detect a corrupt frag (a producer publishing outside
+       the agreed bounds, e.g. via a memory bug or compromise).  We now
+       perform the check once here, right after loading the metadata
+       and right before invoking the tile callbacks, so a corrupt frag
+       is never observed by a callback.  We preserve the existing
+       contract by aborting via FD_LOG_ERR.  Skipped when this_in->mtu
+       is 0 (link without a dcache, or stem invocation that does not
+       provide bounds, e.g. the QUIC trace tools). */
+    if( FD_UNLIKELY( this_in->mtu &&
+                     ( chunk<this_in->chunk0 || chunk>this_in->wmark || sz>this_in->mtu ) ) ) {
+      FD_LOG_ERR(( "stem: corrupt frag in_idx=%u chunk=%lu sz=%lu not in [%lu,%lu] mtu=%lu",
+                   this_in->idx, chunk, sz, this_in->chunk0, this_in->wmark, this_in->mtu ));
+    }
+
 #ifdef STEM_CALLBACK_DURING_FRAG1
     STEM_CALLBACK_DURING_FRAG1( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, tsorig, tspub );
 #endif
@@ -748,14 +776,38 @@ STEM_(run)( fd_topo_t *      topo,
   const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
   ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
+  /* Cached dcache bounds for centralized fragment validation in
+     STEM_(run1).  in_chunk0/in_wmark/in_mtu are populated for each
+     polled in link from the topology; in_mtu==0 means "no dcache"
+     (control-only link) and disables the bounds check for that link. */
+  ulong in_chunk0[ FD_TOPO_MAX_LINKS ];
+  ulong in_wmark [ FD_TOPO_MAX_LINKS ];
+  ulong in_mtu   [ FD_TOPO_MAX_LINKS ];
+
   ulong polled_in_cnt = 0UL;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
 
-    in_mcache[ polled_in_cnt ] = topo->links[ tile->in_link_id[ i ] ].mcache;
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+
+    in_mcache[ polled_in_cnt ] = link->mcache;
     FD_TEST( in_mcache[ polled_in_cnt ] );
     in_fseq[ polled_in_cnt ]   = tile->in_link_fseq[ i ];
     FD_TEST( in_fseq[ polled_in_cnt ] );
+
+    if( FD_LIKELY( link->mtu && link->dcache ) ) {
+      fd_topo_wksp_t const * wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+      in_chunk0[ polled_in_cnt ] = fd_dcache_compact_chunk0( wksp->wksp, link->dcache );
+      in_wmark [ polled_in_cnt ] = fd_dcache_compact_wmark ( wksp->wksp, link->dcache, link->mtu );
+      in_mtu   [ polled_in_cnt ] = link->mtu;
+    } else {
+      /* Control-only link (no dcache).  Disable the centralized bounds
+         check for this in by leaving mtu==0 as a sentinel. */
+      in_chunk0[ polled_in_cnt ] = 0UL;
+      in_wmark [ polled_in_cnt ] = 0UL;
+      in_mtu   [ polled_in_cnt ] = 0UL;
+    }
+
     polled_in_cnt += 1;
   }
 
@@ -808,6 +860,9 @@ STEM_(run)( fd_topo_t *      topo,
   STEM_(run1)( polled_in_cnt,
                in_mcache,
                in_fseq,
+               in_chunk0,
+               in_wmark,
+               in_mtu,
                tile->out_cnt,
                out_mcache,
                reliable_cons_cnt,

@@ -424,9 +424,11 @@ during_frag( fd_shred_ctx_t * ctx,
   ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    /* Topology dcache bounds (chunk0/wmark/link->mtu) are validated
+       centrally by fd_stem.  We keep a defense-in-depth check on
+       FD_NET_MTU (network-level constant) before copying. */
+    if( FD_UNLIKELY( sz>FD_NET_MTU ) )
+      FD_LOG_ERR(( "repair frag sz=%lu exceeds FD_NET_MTU=%lu", sz, (ulong)FD_NET_MTU ));
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_memcpy( ctx->shred_buffer, dcache_entry, sz );
@@ -434,19 +436,19 @@ during_frag( fd_shred_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
+    /* dcache bounds validated centrally by fd_stem. */
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     handle_new_cluster_contact_info( ctx, dcache_entry );
     return;
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof(fd_gossip_update_message_t) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    /* Topology dcache bounds validated centrally by fd_stem.  Keep an
+       application bound: gossip frags are decoded as
+       fd_gossip_update_message_t and must fit. */
+    if( FD_UNLIKELY( sz>sizeof(fd_gossip_update_message_t) ) )
+      FD_LOG_ERR(( "gossip frag sz=%lu exceeds sizeof(fd_gossip_update_message_t)=%lu",
+                   sz, sizeof(fd_gossip_update_message_t) ));
     uchar const * gossip_upd_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_memcpy( ctx->gossip_upd_buf, gossip_upd_msg, sz );
     return;
@@ -454,9 +456,7 @@ during_frag( fd_shred_ctx_t * ctx,
 
   /* Firedancer only */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTED ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    /* dcache bounds validated centrally by fd_stem. */
     fd_tower_slot_rooted_t const * rooted_msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     ctx->new_root = rooted_msg->slot;
     return;
@@ -464,9 +464,7 @@ during_frag( fd_shred_ctx_t * ctx,
 
   /* Frankendancer only */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOTEDH ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    /* dcache bounds validated centrally by fd_stem. */
     /* The message format is a pointer to the bank (which is in the
        agave address space, so we couldn't access it even if we wanted
        to) followed by the rooted slot. */
@@ -477,10 +475,7 @@ during_frag( fd_shred_ctx_t * ctx,
 
   /* Firedancer only */
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
+    /* dcache bounds validated centrally by fd_stem. */
     uchar const *               dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_epoch_info_msg_t const * epoch_msg    = fd_type_pun_const( dcache_entry );
 
@@ -502,10 +497,7 @@ during_frag( fd_shred_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_STAKE ) ) {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                   ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
+    /* dcache bounds validated centrally by fd_stem. */
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_stake_ci_stake_msg_init( ctx->stake_ci, fd_type_pun_const( dcache_entry ) );
     return;
@@ -520,9 +512,11 @@ during_frag( fd_shred_ctx_t * ctx,
           bank, we are forced (so far) to receive them from the poh tile
           (as a POH_PKT_TYPE_FEAT_ACT_SLOT). */
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=(sizeof(fd_shred_features_activation_t)) ) )
-        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-              ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+      /* Topology dcache bounds validated centrally by fd_stem.  We
+         keep the strict-equality size check on the activation
+         message. */
+      if( FD_UNLIKELY( sz!=sizeof(fd_shred_features_activation_t) ) )
+        FD_LOG_ERR(( "feat_act_slot sz=%lu (expected %lu)", sz, sizeof(fd_shred_features_activation_t) ));
 
       fd_shred_features_activation_t const * act_data = (fd_shred_features_activation_t const *)dcache_entry;
       memcpy( ctx->features_activation, act_data, sizeof(fd_shred_features_activation_t) );
@@ -541,10 +535,16 @@ during_frag( fd_shred_ctx_t * ctx,
         producing a block that never lands on chain. */
 
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_POH_SHRED_MTU ||
+      /* Topology dcache bounds validated centrally by fd_stem.  Keep
+         the application sz window: lower bound prevents out-of-bounds
+         reads of the entry batch header; upper bound is the protocol
+         FD_POH_SHRED_MTU (kept as defense-in-depth even though the
+         link mtu currently equals USHORT_MAX). */
+      if( FD_UNLIKELY( sz>FD_POH_SHRED_MTU ||
           sz<(sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)) ) )
-        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-              ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+        FD_LOG_ERR(( "poh microblock sz=%lu out of range [%lu,%lu]", sz,
+              sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t),
+              (ulong)FD_POH_SHRED_MTU ));
 
       fd_entry_batch_meta_t const * entry_meta = (fd_entry_batch_meta_t const *)dcache_entry;
       uchar const *                 entry      = dcache_entry + sizeof(fd_entry_batch_meta_t);

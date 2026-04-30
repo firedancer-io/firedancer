@@ -946,9 +946,11 @@ during_frag( fd_pack_ctx_t * ctx,
     }
     if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
 
-    /* There was a leader transition.  Handle it. */
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    /* There was a leader transition.  Handle it.  Topology dcache
+       bounds (chunk0/wmark/link->mtu) are validated centrally by
+       fd_stem; we still enforce the strict size of the message here. */
+    if( FD_UNLIKELY( sz!=sizeof(fd_became_leader_t) ) )
+      FD_LOG_ERR(( "unexpected became_leader sz=%lu (expected %lu)", sz, sizeof(fd_became_leader_t) ));
 
     fd_memcpy( ctx->_became_leader, dcache_entry, sizeof(fd_became_leader_t) );
     return;
@@ -957,9 +959,11 @@ during_frag( fd_pack_ctx_t * ctx,
       /* Not interested in stamped microblocks, only leader updates. */
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
-    /* There was a leader transition.  Handle it. */
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    /* There was a leader transition.  Handle it.  Topology dcache
+       bounds (chunk0/wmark/link->mtu) are validated centrally by
+       fd_stem; we still enforce the strict size of the message here. */
+    if( FD_UNLIKELY( sz!=sizeof(fd_became_leader_t) ) )
+      FD_LOG_ERR(( "unexpected became_leader sz=%lu (expected %lu)", sz, sizeof(fd_became_leader_t) ));
 
     fd_memcpy( ctx->_became_leader, dcache_entry, sizeof(fd_became_leader_t) );
     return;
@@ -969,17 +973,25 @@ during_frag( fd_pack_ctx_t * ctx,
       /* For a previous slot */
     if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
 
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<FD_PACK_REBATE_MIN_SZ
-          || sz>FD_PACK_REBATE_MAX_SZ ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    /* Topology dcache bounds (chunk0/wmark/link->mtu) are validated
+       centrally by fd_stem; the rebate-specific size window is
+       application-level and stays here. */
+    if( FD_UNLIKELY( sz<FD_PACK_REBATE_MIN_SZ || sz>FD_PACK_REBATE_MAX_SZ ) )
+      FD_LOG_ERR(( "unexpected rebate sz=%lu (expected [%lu,%lu])", sz, (ulong)FD_PACK_REBATE_MIN_SZ, (ulong)FD_PACK_REBATE_MAX_SZ ));
 
     ctx->pending_rebate_sz = sz;
     fd_memcpy( ctx->rebate, dcache_entry, sz );
     return;
   }
   case IN_KIND_RESOLV: {
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_MTU ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    /* Topology dcache bounds (chunk0/wmark/link->mtu) are validated
+       centrally by fd_stem.  We retain a defense-in-depth check
+       against the protocol-level FD_TPU_RESOLVED_MTU: the resolv_pack
+       link mtu happens to equal it today, but this constant is part
+       of the TPU contract and we want pack to remain safe even if
+       the topology mtu were ever loosened. */
+    if( FD_UNLIKELY( sz>FD_TPU_RESOLVED_MTU ) )
+      FD_LOG_ERR(( "resolv frag sz=%lu exceeds FD_TPU_RESOLVED_MTU=%lu", sz, (ulong)FD_TPU_RESOLVED_MTU ));
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
     ulong payload_sz  = txnm->payload_sz;
