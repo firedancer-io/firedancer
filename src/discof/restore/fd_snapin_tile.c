@@ -683,6 +683,11 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_AGAIN:
         break;
       case FD_SSPARSE_ADVANCE_MANIFEST: {
+        if( FD_UNLIKELY( ctx->flags.manifest_done ) ) {
+          FD_LOG_WARNING(( "excess data after manifest" ));
+          transition_malformed( ctx, stem );
+          return 0;
+        }
         int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
                                                 result->manifest.data,
                                                 result->manifest.data_sz,

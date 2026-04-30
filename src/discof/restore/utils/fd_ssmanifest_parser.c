@@ -1567,7 +1567,10 @@ state_process( fd_ssmanifest_parser_t * parser,
                acc_vec_t *              acc_vec_pool ) {
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
-  FD_TEST( parser->state!=STATE_DONE );
+  if( FD_UNLIKELY( parser->state==STATE_DONE ) ) {
+    FD_LOG_WARNING(( "manifest parser re-entered after completion" ));
+    return -1;
+  }
 
   if( FD_UNLIKELY( parser->state==STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ && acc_vec_map && acc_vec_pool ) ) {
     if( FD_UNLIKELY( !acc_vec_pool_free( acc_vec_pool ) ) ) {
