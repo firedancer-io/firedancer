@@ -238,6 +238,24 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
   return (ulong)(txn_raw_cur_ptr - txn_raw_begin);
 }
 
+/* Due to how Firedancer's VM CU accounting works, when
+   virtual_address_space_adjustments is enabled and the transaction
+   fails due to the CU meter being exhausted, we cannot compare the
+   data region of the accounts with Agave. */
+static void
+direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runner,
+                                     fd_txn_out_t const *        txn_out,
+                                     int                         exec_res,
+                                     fd_exec_test_txn_result_t * txn_result ) {
+  if( FD_FEATURE_ACTIVE_BANK( runner->bank, virtual_address_space_adjustments )
+      && exec_res              == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR
+      && txn_out->err.exec_err == FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED ) {
+    for( pb_size_t i=0; i<txn_result->modified_accounts_count; i++ ) {
+      txn_result->modified_accounts[i].data = NULL;
+    }
+  }
+}
+
 void
 fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
                          fd_runtime_t *        runtime,
@@ -309,6 +327,8 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         txn_out,
         exec_res
     );
+
+    direct_mapping_handle_cu_exhaustion( runner, txn_out, exec_res, txn_result );
 
     txn_out->err.is_committable = 0;
     fd_runtime_cancel_txn( runner->runtime, txn_out );
