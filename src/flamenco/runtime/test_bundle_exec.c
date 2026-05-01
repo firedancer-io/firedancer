@@ -4,6 +4,8 @@
 #include "fd_bank.h"
 #include "fd_system_ids.h"
 #include "fd_alut.h"
+#include "../stakes/fd_stake_delegations.h"
+#include "../stakes/fd_stake_types.h"
 #include "program/fd_system_program.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -45,7 +47,7 @@ struct test_env {
 
   fd_runtime_t *       runtime;
   fd_txn_in_t          txn_in;
-  fd_txn_out_t         txn_out[ 5UL];
+  fd_txn_out_t         txn_out[ 5UL ];
   fd_log_collector_t   log_collector[ 1 ];
 };
 typedef struct test_env test_env_t;
@@ -71,6 +73,20 @@ create_test_account( fd_accdb_user_t *         user,
   rw->meta->executable = 0;
   memcpy( rw->meta->owner, owner->uc, 32UL );
   fd_accdb_close_rw( user, rw );
+}
+
+static fd_stake_delegation_t const *
+find_visible_stake_delegation( fd_stake_delegations_t const * stake_delegations,
+                               fd_pubkey_t const *            stake_account ) {
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * d = fd_stake_delegations_iter_ele( iter );
+    if( FD_UNLIKELY( d->is_tombstone ) ) continue;
+    if( FD_LIKELY( fd_pubkey_eq( &d->stake_account, stake_account ) ) ) return d;
+  }
+  return NULL;
 }
 
 static void
@@ -817,6 +833,98 @@ test_execute_bundles( fd_wksp_t * wksp ) {
 
   env->txn_out[2].err.is_committable = 0;
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
+
+  FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
+  FD_TEST( starting_ro_active == env->accdb->base.ro_active );
+  FD_TEST( starting_rw_active == env->accdb->base.rw_active );
+
+  /* Test 6: bundle carry-forward must preserve stake cache for a
+     closed stake account.  The bank starts with a visible delegation in
+     the parent/root view.  tx0 then simulates closing the stake account
+     after execution, and tx1 reuses the same pubkey as writable inside
+     the bundle.  Correct behavior is that committing the bundle removes
+     the stake delegation from the frontier view. */
+
+  fd_pubkey_t stake_account = { .ul[0] = 0x5154414b45UL };
+  fd_pubkey_t vote_account  = { .ul[0] = 0x564f5445UL };
+  uchar stake_data[ FD_STAKE_STATE_SZ ] = {0};
+  FD_STORE( fd_stake_state_t, stake_data, ((fd_stake_state_t) {
+    .stake_type = FD_STAKE_STATE_STAKE,
+    .stake = {
+      .meta = {
+        .staker     = stake_account,
+        .withdrawer = stake_account
+      },
+      .stake = {
+        .delegation = {
+          .voter_pubkey         = vote_account,
+          .stake                = 1000000000UL,
+          .activation_epoch     = 0UL,
+          .deactivation_epoch   = ULONG_MAX,
+          .warmup_cooldown_rate = 0.25
+        }
+      }
+    }
+  }) );
+  create_test_account( env->accdb, &env->xid, &stake_account, 2000000000UL,
+                       (uint)FD_STAKE_STATE_SZ, stake_data, 10UL,
+                       &fd_solana_stake_program_id );
+
+  fd_stake_delegations_t * root_stake_delegations = fd_banks_stake_delegations_root_query( env->banks );
+  fd_stake_delegations_root_update( root_stake_delegations,
+                                    &stake_account,
+                                    &vote_account,
+                                    1000000000UL,
+                                    0UL,
+                                    ULONG_MAX,
+                                    0UL,
+                                    FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+  FD_TEST( env->bank->stake_delegations_fork_id != USHORT_MAX );
+
+  {
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->banks, env->bank );
+    FD_TEST( find_visible_stake_delegation( frontier, &stake_account ) );
+    fd_bank_stake_delegations_end_frontier_query( env->banks, env->bank );
+  }
+
+  fd_pubkey_t stake_keys[2] = { pubkey1, stake_account };
+  txn_p = (fd_txn_p_t){0};
+  sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, stake_keys, &dummy_hash );
+  FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 0;
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+  FD_TEST( env->txn_out[0].err.is_committable );
+  FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( env->txn_out[0].accounts.is_writable[1] );
+  FD_TEST( env->txn_out[0].accounts.stake_update[1] );
+
+  /* Simulate the post-close reclaimed state after txn_check had already
+     queued stake_update for tx0.  This is the state tx1 carries
+     forward in the vulnerable bundle path. */
+  fd_memset( env->txn_out[0].accounts.account[1].meta, 0, sizeof(fd_account_meta_t) );
+  env->txn_out[0].accounts.account[1].meta->slot = env->bank->f.slot;
+
+  env->txn_in.txn                     = &txn_p;
+  env->txn_in.bundle.is_bundle        = 1;
+  env->txn_in.bundle.prev_txn_cnt     = 1;
+  env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+  FD_TEST( env->txn_out[1].err.is_committable );
+  FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+  FD_TEST( env->txn_out[1].accounts.is_writable[1] );
+  FD_TEST( env->txn_out[1].accounts.account[1].meta->lamports==0UL );
+
+  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+
+  {
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->banks, env->bank );
+    FD_TEST( !find_visible_stake_delegation( frontier, &stake_account ) );
+    fd_bank_stake_delegations_end_frontier_query( env->banks, env->bank );
+  }
 
   FD_TEST( fd_acc_pool_free( env->runtime->acc_pool ) == TEST_ACC_POOL_ACCOUNT_CNT );
   FD_TEST( starting_ro_active == env->accdb->base.ro_active );

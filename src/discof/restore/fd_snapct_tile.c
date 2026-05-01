@@ -1328,6 +1328,12 @@ snapld_frag( fd_snapct_tile_t *  ctx,
     FD_TEST( sz==sizeof(fd_ssctrl_meta_t) );
     fd_ssctrl_meta_t const * meta = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
 
+    if( FD_UNLIKELY( meta->total_sz==0UL ) ) {
+      FD_LOG_WARNING(( "received zero Content-Length metadata for %s snapshot, marking malformed", full ? "full" : "incremental" ));
+      ctx->malformed = 1;
+      return;
+    }
+
     if( full ) ctx->metrics.full.bytes_total        = meta->total_sz;
     else       ctx->metrics.incremental.bytes_total = meta->total_sz;
 
@@ -1394,8 +1400,20 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       return;
   }
 
-  if( full ) FD_TEST( ctx->metrics.full.bytes_total       !=0UL );
-  else       FD_TEST( ctx->metrics.incremental.bytes_total!=0UL );
+  if( FD_UNLIKELY( full  && ctx->metrics.full.bytes_total==0UL ) ) {
+    if( !ctx->malformed ) {
+      ctx->malformed = 1;
+      FD_LOG_WARNING(( "received data frag for full snapshot with zero bytes_total" ));
+    }
+    return;
+  }
+  if( FD_UNLIKELY( !full && ctx->metrics.incremental.bytes_total==0UL ) ) {
+    if( !ctx->malformed ) {
+      ctx->malformed = 1;
+      FD_LOG_WARNING(( "received data frag for incremental snapshot with zero bytes_total" ));
+    }
+    return;
+  }
 
   if( full ) ctx->metrics.full.bytes_read        += sz;
   else       ctx->metrics.incremental.bytes_read += sz;

@@ -5,6 +5,7 @@
 #include "../../ballet/sha1/fd_sha1.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../util/net/fd_ip4.h"
+#include "fd_http.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -15,6 +16,8 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+
+#define FD_HTTP_SERVER_POLL_CHUNK_SZ 128UL
 
 #if FD_HAS_ZSTD
 #define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
@@ -61,29 +64,29 @@
 FD_FN_CONST char const *
 fd_http_server_connection_close_reason_str( int reason ) {
   switch( reason ) {
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_OK:                           return "OK-Connection was closed normally";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED:                      return "EVICTED-Connection was evicted to make room for a new one";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW:                     return "TOO_SLOW-Client was too slow and did not read the reponse in time";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF:                 return "EXPECTED_EOF-Client continued to send data when we expected no more";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET:                   return "PEER_RESET-Connection was reset by peer";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST:                return "LARGE_REQUEST-Request body was too large";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST:                  return "BAD_REQUEST-Request was malformed";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER: return "MISSING_CONENT_LENGTH_HEADER-Missing Content-Length header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD:               return "UNKNOWN_METHOD-Request method was not recognized";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG:                return "PATH_TOO_LONG-Request path was too long";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY:                   return "WS_BAD_KEY-Malformed Sec-WebSocket-Key header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION:        return "WS_UNEXPECTED_VERSION-Unexpected Sec-Websocket-Version field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER:        return "WS_MISSING_KEY_HEADER-Missing Sec-WebSocket-Key header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER:    return "WS_MISSING_VERSION_HEADER-Missing Sec-WebSocket-Version header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK:                  return "WS_BAD_MASK-Got frame from client without mask flag set";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE:            return "WS_UNKNOWN_OPCODE-Unknown opcode in websocket frame";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME:            return "WS_OVERSIZE_FRAME-Websocket frame was too large";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW:           return "WS_CLIENT_TOO_SLOW-Client was too slow to keep up with sender";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE:           return "WS_MISSING_UPGRADE-Missing Upgrade header field";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE:      return "WS_EXPECTED_CONT_OPCODE-Expected continuation opcode in websocket frame";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE:      return "WS_EXPECTED_TEXT_OPCODE-Expected text opcode in websocket frame";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE:   return "WS_CONTROL_FRAME_TOO_LARGE-Websocket control frame was too large";
-    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE:            return "FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE-Websocket frame type changed unexpectedly";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_OK:                            return "OK-Connection was closed normally";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_EVICTED:                       return "EVICTED-Connection was evicted to make room for a new one";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_TOO_SLOW:                      return "TOO_SLOW-Client was too slow and did not read the response in time";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_EXPECTED_EOF:                  return "EXPECTED_EOF-Client continued to send data when we expected no more";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET:                    return "PEER_RESET-Connection was reset by peer";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST:                 return "LARGE_REQUEST-Request body was too large";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST:                   return "BAD_REQUEST-Request was malformed";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONTENT_LENGTH_HEADER: return "MISSING_CONTENT_LENGTH_HEADER-Missing Content-Length header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD:                return "UNKNOWN_METHOD-Request method was not recognized";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_PATH_TOO_LONG:                 return "PATH_TOO_LONG-Request path was too long";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY:                    return "WS_BAD_KEY-Malformed Sec-WebSocket-Key header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNEXPECTED_VERSION:         return "WS_UNEXPECTED_VERSION-Unexpected Sec-Websocket-Version field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_KEY_HEADER:         return "WS_MISSING_KEY_HEADER-Missing Sec-WebSocket-Key header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_VERSION_HEADER:     return "WS_MISSING_VERSION_HEADER-Missing Sec-WebSocket-Version header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_MASK:                   return "WS_BAD_MASK-Got frame from client without mask flag set";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_UNKNOWN_OPCODE:             return "WS_UNKNOWN_OPCODE-Unknown opcode in websocket frame";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_OVERSIZE_FRAME:             return "WS_OVERSIZE_FRAME-Websocket frame was too large";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW:            return "WS_CLIENT_TOO_SLOW-Client was too slow to keep up with sender";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_MISSING_UPGRADE:            return "WS_MISSING_UPGRADE-Missing Upgrade header field";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_CONT_OPCODE:       return "WS_EXPECTED_CONT_OPCODE-Expected continuation opcode in websocket frame";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE:       return "WS_EXPECTED_TEXT_OPCODE-Expected text opcode in websocket frame";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE:    return "WS_CONTROL_FRAME_TOO_LARGE-Websocket control frame was too large";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE:             return "FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE-Websocket frame type changed unexpectedly";
     default: break;
   }
 
@@ -170,6 +173,7 @@ fd_http_server_new( void *                     shmem,
   http->callback_ctx          = callback_ctx;
   http->evict_conn_id         = 0UL;
   http->evict_ws_conn_id      = 0UL;
+  http->poll_conn_idx         = 0UL;
   http->max_conns             = params.max_connection_cnt;
   http->max_ws_conns          = params.max_ws_connection_cnt;
   http->max_request_len       = params.max_request_len;
@@ -493,40 +497,28 @@ read_conn_http( fd_http_server_t * http,
   }
 
   ulong content_len = 0UL;
-  ulong content_length_len = 0UL;
   if( FD_UNLIKELY( method_enum==FD_HTTP_SERVER_METHOD_POST || method_enum==FD_HTTP_SERVER_METHOD_PUT ) ) {
-    char const * content_length = NULL;
+    int found = 0;
     for( ulong i=0UL; i<num_headers; i++ ) {
-      if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) && headers[ i ].value_len>0UL ) ) {
-        content_length = headers[ i ].value;
-        content_length_len = headers[ i ].value_len;
+      if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) ) ) {
+        int parse_err = fd_http_parse_content_len( headers[ i ].value, (ulong)headers[ i ].value_len, &content_len );
+        if( FD_UNLIKELY( parse_err ) ) {
+          close_conn( http, conn_idx, fd_int_if( parse_err==FD_HTTP_PARSE_CONTENT_LEN_OVERFLOW, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST ) );
+          return;
+        }
+        found = 1;
         break;
       }
     }
 
-    if( FD_UNLIKELY( !content_length ) ) {
-      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONENT_LENGTH_HEADER );
+    if( FD_UNLIKELY( !found ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_MISSING_CONTENT_LENGTH_HEADER );
       return;
-    }
-
-    for( ulong i=0UL; i<content_length_len; i++ ) {
-      if( FD_UNLIKELY( content_length[ i ]<'0' || content_length[ i ]>'9' ) ) {
-        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
-        return;
-      }
-
-      ulong digit = (ulong)(content_length[ i ]-'0');
-      if( FD_UNLIKELY( content_len>(ULONG_MAX-digit)/10UL ) ) { /* Overflow */
-        close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
-        return;
-      }
-
-      content_len = content_len*10UL + digit;
     }
 
     ulong total_len = (ulong)result+content_len;
 
-    if( FD_UNLIKELY( total_len<content_len ) ) { /* Overflow */
+    if( FD_UNLIKELY( total_len<content_len || total_len>http->max_request_len ) ) { /* Overflow */
       close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST );
       return;
     }
@@ -1170,18 +1162,30 @@ fd_http_server_poll( fd_http_server_t * http,
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
 
-  /* Poll existing connections for new data. */
-  for( ulong i=0UL; i<http->max_conns+http->max_ws_conns+1UL; i++ ) {
-    if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
-    if( FD_UNLIKELY( i==http->max_conns+http->max_ws_conns ) ) {
-      if( FD_LIKELY( http->pollfds[ i ].revents & POLLIN  ) ) accept_conns( http );
-    } else {
-      if( FD_LIKELY( http->pollfds[ i ].revents & POLLIN  ) ) read_conn(  http, i );
-      if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
-      if( FD_LIKELY( http->pollfds[ i ].revents & POLLOUT ) ) write_conn( http, i );
-      /* No need to handle POLLHUP, read() will return 0 soon enough. */
-    }
+  /* Always check the listener socket for new connections. */
+  ulong listener_idx = http->max_conns+http->max_ws_conns;
+  if( FD_UNLIKELY( http->pollfds[ listener_idx ].fd!=-1 && (http->pollfds[ listener_idx ].revents & POLLIN) ) ) {
+    accept_conns( http );
   }
+
+  /* Service existing connections in chunks of
+     FD_HTTP_SERVER_POLL_CHUNK_SZ to bound the amount of work done per
+     poll call.  poll_conn_idx tracks where we left off so all
+     connections get serviced fairly over multiple calls. */
+  ulong conn_cnt = http->max_conns+http->max_ws_conns;
+  ulong start    = http->poll_conn_idx;
+  ulong end      = start+FD_HTTP_SERVER_POLL_CHUNK_SZ;
+  if( FD_UNLIKELY( end>conn_cnt ) ) end = conn_cnt;
+
+  for( ulong i=start; i<end; i++ ) {
+    if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
+    if( FD_LIKELY( http->pollfds[ i ].revents & POLLIN  ) ) read_conn(  http, i );
+    if( FD_UNLIKELY( -1==http->pollfds[ i ].fd ) ) continue;
+    if( FD_LIKELY( http->pollfds[ i ].revents & POLLOUT ) ) write_conn( http, i );
+    /* No need to handle POLLHUP, read() will return 0 soon enough. */
+  }
+
+  http->poll_conn_idx = fd_ulong_if( end>=conn_cnt, 0UL, end );
 
   return 1;
 }

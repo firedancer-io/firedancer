@@ -36,7 +36,7 @@ main( int     argc,
   test_sysvar_recent_hashes( wksp );
   test_sysvar_rent();
   test_sysvar_slot_hashes();
-  test_sysvar_slot_history();
+  test_sysvar_slot_history( wksp );
   test_sysvar_stake_history( wksp );
 
   FD_TEST( fd_shmem_leave_anonymous( wksp_mem, NULL )==0 );

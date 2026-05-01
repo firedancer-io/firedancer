@@ -267,7 +267,13 @@ advance_tar( fd_ssparse_t *                ssparse,
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
-  if( FD_UNLIKELY( hdr->typeflag==FD_TAR_TYPE_DIR ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+  if( FD_UNLIKELY( hdr->typeflag==FD_TAR_TYPE_DIR ) ) {
+    if( FD_UNLIKELY( ssparse->tar.file_bytes ) ) {
+      FD_LOG_WARNING(( "invalid tar directory entry with non-zero size %lu", ssparse->tar.file_bytes ));
+      return FD_SSPARSE_ADVANCE_ERROR;
+    }
+    return FD_SSPARSE_ADVANCE_AGAIN;
+  }
 
   if( FD_UNLIKELY( !fd_tar_meta_is_reg( hdr ) ) ) {
     FD_LOG_WARNING(( "invalid tar header type %d", hdr->typeflag ));

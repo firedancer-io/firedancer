@@ -434,6 +434,22 @@ block_is_prunable( fd_sched_block_t * block ) {
   return !block->in_rdisp && !block_is_in_flight( block );
 }
 
+static int
+subtree_is_prunable( fd_sched_t * sched, fd_sched_block_t * block ) {
+  if( FD_UNLIKELY( !block_is_prunable( block ) ) ) return 0;
+
+  ulong child_idx = block->child_idx;
+  while( child_idx!=ULONG_MAX ) {
+    fd_sched_block_t * child_block = block_pool_ele( sched, child_idx );
+    if( FD_UNLIKELY( !subtree_is_prunable( sched, child_block ) ) ) {
+      return 0;
+    }
+    child_idx = child_block->sibling_idx;
+  }
+
+  return 1;
+}
+
 static inline ulong
 block_to_idx( fd_sched_t * sched, fd_sched_block_t * block ) { return (ulong)(block-sched->block_pool); }
 
@@ -1609,6 +1625,7 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
     ulong              child_idx          = curr->child_idx;
     while( child_idx!=ULONG_MAX ) {
       fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      child_idx = child->sibling_idx;
       if( child->rooted ) {
         rooted_child_block = child;
       } else {
@@ -1616,9 +1633,8 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
         ulong abandoned_cnt = sched->metrics->block_abandoned_cnt;
         subtree_abandon( sched, child );
         abandoned_cnt = sched->metrics->block_abandoned_cnt-abandoned_cnt;
-        if( FD_UNLIKELY( abandoned_cnt ) ) FD_LOG_DEBUG(( "abandoned %lu blocks on minority fork starting at block %lu:%lu", abandoned_cnt, child->slot, child_idx ));
+        if( FD_UNLIKELY( abandoned_cnt ) ) FD_LOG_DEBUG(( "abandoned %lu blocks on minority fork starting at block %lu:%lu", abandoned_cnt, child->slot, block_to_idx( sched, child ) ));
       }
-      child_idx = child->sibling_idx;
     }
     curr = rooted_child_block;
   }
@@ -1959,6 +1975,15 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( block->fec_buf+block->fec_buf_soff );
       block->fec_buf_soff      += (uint)sizeof(fd_microblock_hdr_t);
 
+      if( FD_UNLIKELY( hdr->txn_cnt>fd_ulong_sat_sub( FD_MAX_TXN_PER_SLOT, block->txn_parsed_cnt ) ) ) {
+        FD_LOG_INFO(( "bad block: illegally many transactions specified in microblock header in slot %lu, parent slot %lu, txn_parsed_cnt %u, hdr->txn_cnt %lu", block->slot, block->parent_slot, block->txn_parsed_cnt, hdr->txn_cnt ));
+        return FD_SCHED_BAD_BLOCK;
+      }
+      if( FD_UNLIKELY( hdr->hash_cnt>fd_ulong_sat_sub( FD_RUNTIME_MAX_HASHES_PER_TICK, block->curr_tick_hashcnt ) ) ) {
+        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, curr_tick_hashcnt %lu, hdr->hash_cnt %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, hdr->hash_cnt ));
+        return FD_SCHED_BAD_BLOCK;
+      }
+
       block->mblks_rem--;
       block->txns_rem = hdr->txn_cnt;
 
@@ -2037,6 +2062,11 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       FD_TEST( block->fec_buf_soff==0U );
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
       block->fec_buf_soff += (uint)sizeof(ulong);
+
+      if( FD_UNLIKELY( block->mblks_rem>fd_ulong_sat_sub( FD_SCHED_MAX_MBLK_PER_SLOT, block->mblk_cnt ) ) ) {
+        FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, mblk_cnt %u (%u ticks), hdr->mblk_cnt %lu >= %lu", block->slot, block->parent_slot, block->mblk_cnt, block->mblk_tick_cnt, block->mblks_rem, FD_SCHED_MAX_MBLK_PER_SLOT ));
+        return FD_SCHED_BAD_BLOCK;
+      }
 
       block->fec_sob = 0;
       continue;
@@ -2600,7 +2630,20 @@ subtree_mark_and_maybe_prune_rdisp( fd_sched_t * sched, fd_sched_block_t * block
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
   subtree_mark_and_maybe_prune_rdisp( sched, block );
-  if( block_is_prunable( block ) ) {
+  /* subtree_abandon can happen as a result of one of the following
+       - Bad block at head of lane
+       - Bad block at tail of lane
+       - Root advance
+       - Root notify
+
+     In the case of bad blocks, it suffices to check the in-flight task
+     count of the block that is bad.  In the case of root advance, the
+     refcnt on the bank is checked and that includes the in-flight task
+     count.  It is only in the case of root notify that there could
+     potentially be a non-zero in-flight count in the middle of a
+     subtree.  To be safe, we check the entire subtree here before
+     pruning. */
+  if( subtree_is_prunable( sched, block ) ) {
     fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
     if( FD_LIKELY( parent ) ) {
       /* Splice the block out of its parent's children list. */

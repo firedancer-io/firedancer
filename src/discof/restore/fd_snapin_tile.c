@@ -13,7 +13,6 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../flamenco/types/fd_types.h"
 #include "../../util/pod/fd_pod.h"
 
 #include "generated/fd_snapin_tile_seccomp.h"
@@ -113,11 +112,6 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
 
   fd_account_meta_t meta;
   uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
-  union {
-    uchar buf[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
-    fd_slot_history_global_t o;
-  } decoded;
-  FD_STATIC_ASSERT( offsetof( __typeof__(decoded), buf)==offsetof( __typeof__(decoded), o ), memory_layout );
   fd_snapin_read_account( ctx, &fd_sysvar_slot_history_id, &meta, data, sizeof(data) );
 
   if( FD_UNLIKELY( !meta.lamports || !meta.dlen ) ) {
@@ -134,13 +128,8 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     return -1;
   }
 
-  if( FD_UNLIKELY(
-      !fd_bincode_decode_static_global(
-          slot_history,
-          &decoded.o,
-          data,
-          meta.dlen )
-  ) ) {
+  fd_slot_history_view_t view[1];
+  if( FD_UNLIKELY( !fd_sysvar_slot_history_view( view, data, meta.dlen ) ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account data is corrupt" ));
     return -1;
   }
@@ -148,7 +137,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
   /* Sanity checks for slot history:
      https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L586 */
 
-  ulong newest_slot = fd_sysvar_slot_history_newest( &decoded.o );
+  ulong newest_slot = view->next_slot - 1UL;
   if( FD_UNLIKELY( newest_slot!=ctx->bank_slot ) ) {
     /* VerifySlotHistoryError::InvalidNewestSlot
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L621 */
@@ -156,18 +145,17 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     return -1;
   }
 
-  ulong slot_history_len = fd_sysvar_slot_history_len( &decoded.o );
-  if( FD_UNLIKELY( slot_history_len!=FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
+  if( FD_UNLIKELY( view->bits_len!=FD_SLOT_HISTORY_MAX_ENTRIES ) ) {
     /* VerifySlotHistoryError::InvalidNumEntries
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L625 */
-    FD_LOG_WARNING(( "SLotHistory sysvar has invalid number of entries: %lu != expected: %lu", slot_history_len, FD_SLOT_HISTORY_MAX_ENTRIES ));
+    FD_LOG_WARNING(( "SLotHistory sysvar has invalid number of entries: %lu != expected: %lu", view->bits_len, FD_SLOT_HISTORY_MAX_ENTRIES ));
     return -1;
   }
 
   /* All slots in the txncache should be present in the slot history */
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
-    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( view, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
       /* VerifySlotDeltasError::SlotNotFoundInHistory
          https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L144
          https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/snapshot_bank_utils.rs#L593 */
@@ -180,7 +168,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
      in the SlotHistory should be present in the txncache. */
   fd_slot_delta_slot_set_t slot_set = fd_slot_delta_parser_slot_set( ctx->slot_delta_parser );
   for( ulong i=newest_slot; i>newest_slot-slot_set.ele_cnt; i-- ) {
-    if( FD_LIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, i )==FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+    if( FD_LIKELY( fd_sysvar_slot_history_find_slot( view, i )==FD_SLOT_HISTORY_SLOT_FOUND ) ) {
       if( FD_UNLIKELY( slot_set_ele_query( slot_set.map, &i, NULL, slot_set.pool )==NULL ) ) {
         /* VerifySlotDeltasError::SlotNotFoundInDeltas
            https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L147

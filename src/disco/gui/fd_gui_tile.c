@@ -141,6 +141,7 @@ typedef struct {
   fd_pubkey_t const vote_key[ 1UL ];
 
   ulong           in_kind[ 64UL ];
+  int             in_reliable[ 64UL ];
   ulong           in_bank_idx[ 64UL ];
   fd_gui_in_ctx_t in[ 64UL ];
 
@@ -270,6 +271,8 @@ during_frag( fd_gui_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_EPOCH ) ) {
     fd_epoch_info_msg_t * epoch_info = (fd_epoch_info_msg_t *)src;
+    FD_TEST( epoch_info->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
+    FD_TEST( epoch_info->staked_id_cnt<=MAX_SHRED_DESTS );
     sz = fd_epoch_info_msg_sz( epoch_info->staked_vote_cnt, epoch_info->staked_id_cnt );
   }
 
@@ -328,6 +331,8 @@ after_frag( fd_gui_ctx_t *      ctx,
             ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)seq; (void)stem;
+
+  if( FD_LIKELY( ctx->in_reliable[ in_idx ] ) ) ctx->idle_cnt = 0UL;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, ctx->chunk );
 
@@ -797,6 +802,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_bank_idx[ i ] = topo->tiles[ producer ].kind_id;
     }
 
+    ctx->in_reliable[ i ] = tile->in_link_reliable[ i ];
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].mtu    = link->mtu;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );

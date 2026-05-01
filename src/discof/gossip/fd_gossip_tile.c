@@ -300,6 +300,11 @@ handle_local_vote( fd_gossip_tile_ctx_t * ctx,
 static void
 handle_epoch( fd_gossip_tile_ctx_t *      ctx,
               fd_epoch_info_msg_t const * msg ) {
+  if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
+    FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( msg->staked_id_cnt>MAX_SHRED_DESTS ) )
+    FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
+
   fd_stake_weight_t const * weights = fd_epoch_info_msg_id_weights( msg );
   fd_gossip_stakes_update( ctx->gossip, weights, msg->staked_id_cnt );
 }

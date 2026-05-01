@@ -86,6 +86,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   ulong const spad_max = 1500000000UL; /* 1.5GB to accommodate 128 accounts 10MB each */
   ulong const bank_max = 2UL;
   ulong const fork_max = 2UL;
+
   fd_solfuzz_runner_t * runner       = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),                                 wksp_tag );
   void *                funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_shmem_footprint( txn_max, rec_max ),                 wksp_tag );
   void *                funk_locks   = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_locks_footprint( txn_max, rec_max ),                 wksp_tag );
@@ -175,9 +176,9 @@ fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
 
   fd_progcache_shmem_t * shpcache = NULL;
   fd_progcache_leave( runner->progcache, &shpcache );
-  if( shpcache ) fd_wksp_free_laddr( fd_progcache_shmem_delete( shpcache ) );
 
-  if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
+  fd_wksp_free_laddr( fd_progcache_shmem_delete( shpcache ) );
+  fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
   fd_wksp_free_laddr( runner->banks );
   fd_wksp_free_laddr( runner );
 }

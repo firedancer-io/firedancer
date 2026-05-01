@@ -1646,6 +1646,89 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
 
 
 
+/* test_buffered_idx_oob
+
+   fd_forest_data_shred_insert used to OOB read on the idxs bitmap when
+   buffered_idx reaches FD_SHRED_BLK_MAX - 1 (32767).
+
+   The while loop:
+     while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) )
+       ele->buffered_idx++;
+
+   Could end up testing into the in merkle_roots array.  If that memory
+   has bit 0 set, buffered_idx advances to 32768 or beyond, corrupting
+   the slot.
+
+   Trigger: fill a slot to max capacity (32768 shreds across 1024 FEC
+   sets), then insert an equivocating data shred.  The equivocation sets
+   merkle_roots[0].mr = invalid_mr = {ULONG_MAX, ...}, whose bit 0 is
+   set, causing the OOB read to return true. */
+
+static void
+test_buffered_idx_oob( fd_wksp_t * wksp ) {
+
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  ulong slot        = 2;
+  ulong parent_slot = 0;
+
+  fd_forest_blk_insert( forest, slot, parent_slot, NULL );
+
+  /* Fill every FEC set (0 .. FD_FEC_BLK_MAX-1).  Each FEC set covers
+     32 shred indices.  The last FEC set marks slot_complete. */
+
+  for( uint fec = 0; fec < FD_FEC_BLK_MAX; fec++ ) {
+    uint fec_set_idx   = fec * FD_FEC_SHRED_CNT;
+    uint last_shred_idx = fec_set_idx + FD_FEC_SHRED_CNT - 1;
+    int  slot_complete  = (fec == FD_FEC_BLK_MAX - 1);
+
+    /* Each FEC gets a unique merkle root so they're all distinct. */
+    fd_hash_t mr  = {0}; mr.ul[0]  = fec + 1;
+    fd_hash_t cmr = {0}; cmr.ul[0] = fec;  /* chained to previous FEC's mr */
+
+    fd_forest_fec_insert( forest, slot, parent_slot,
+                          last_shred_idx, fec_set_idx, slot_complete, 0,
+                          &mr, &cmr );
+  }
+
+  /* the slot is fully buffered and complete. */
+  fd_forest_blk_t * blk = fd_forest_query( forest, slot );
+  FD_TEST( blk );
+  FD_TEST( blk->complete_idx == FD_SHRED_BLK_MAX - 1 );
+  FD_TEST( blk->buffered_idx == FD_SHRED_BLK_MAX - 1 ); /* orginally merkle root[0] causes buffered_idx to increment to FD_SHRED_BLK_MAX */
+
+  /* Now insert an equivocating data shred at index 0 with a DIFFERENT
+     merkle root.  This triggers:
+       merkle_roots[0].mr = invalid_mr = { ULONG_MAX, ULONG_MAX, ... }
+     which puts all-ones into the memory word immediately past idxs[]. */
+
+  fd_hash_t bad_mr  = {0}; bad_mr.ul[0]  = 0xBAD;
+  fd_hash_t bad_cmr = {0}; bad_cmr.ul[0] = 0xBAD;
+
+  fd_forest_data_shred_insert( forest, slot, parent_slot,
+                                0,   /* shred_idx */
+                                0,   /* fec_set_idx */
+                                0,   /* slot_complete */
+                                0,   /* ref_tick */
+                                SHRED_SRC_TURBINE,
+                                &bad_mr, &bad_cmr );
+
+  blk = fd_forest_query( forest, slot );
+  FD_TEST( blk );
+
+  /* buffered_idx should still be FD_SHRED_BLK_MAX - 1 */
+  FD_TEST( blk->buffered_idx == FD_SHRED_BLK_MAX - 1 );
+  FD_TEST( blk->merkle_roots[0].mr.ul[0] == ULONG_MAX );
+
+  /* no longer blocks consumed-frontier advancement and FEC chain verification. */
+  FD_TEST( blk->buffered_idx == blk->complete_idx );
+}
+
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1656,6 +1739,7 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_buffered_idx_oob( wksp );
   test_invalid_frontier_insert( wksp );
   test_publish( wksp );
   test_publish_incremental( wksp );

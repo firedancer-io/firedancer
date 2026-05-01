@@ -36,6 +36,10 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
+fd_runtime_update_next_leaders( fd_bank_t *          bank,
+                                fd_runtime_stack_t * runtime_stack );
+
+void
 fd_runtime_update_leaders( fd_bank_t *          bank,
                            fd_runtime_stack_t * runtime_stack );
 

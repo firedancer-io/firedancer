@@ -26,6 +26,8 @@
 
 #include "../../util/bits/fd_uwide.h"
 
+#include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>   /* snprintf(3) */
@@ -1251,15 +1253,16 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
              had queued an update to the vote/stakes caches and is
              writable in the new transaction, unmark the update to avoid
              double-counting the update. */
-          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] &&
-                           (prev_txn_out->accounts.stake_update[ j ] ||
-                            prev_txn_out->accounts.vote_update[ j ] ||
-                            prev_txn_out->accounts.new_vote[ j ]) ) ) {
-            prev_txn_out->accounts.stake_update[ j ] = 0;
-            prev_txn_out->accounts.vote_update[ j ]  = 0;
-            prev_txn_out->accounts.new_vote[ j ]     = 0;
+          if( FD_UNLIKELY( txn_out->accounts.is_writable[ idx ] ) ) {
+            if( prev_txn_out->accounts.stake_update[ j ] ) {
+              prev_txn_out->accounts.stake_update[ j ] = 0;
+              txn_out->accounts.stake_update[ idx ] = 1;
+            }
+            if( prev_txn_out->accounts.vote_update[ j ] ) {
+              prev_txn_out->accounts.vote_update[ j ] = 0;
+              txn_out->accounts.vote_update[ idx ] = 1;
+            }
           }
-
           break;
         }
       }
@@ -1451,6 +1454,13 @@ fd_executor_txn_check( fd_runtime_t * runtime,
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
     if( !txn_out->accounts.is_writable[i] ) continue;
 
+    /* Tips for bundles are collected in the bank: a user submitting a
+       bundle must include a instruction that transfers lamports to
+       a specific tip account.  Tips accumulated through the slot. */
+    if( fd_pack_tip_is_tip_account( fd_type_pun_const( txn_out->accounts.keys[i].uc ) ) ) {
+      txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( txn_out->accounts.account[i].ro ), runtime->accounts.starting_lamports[i] );
+    }
+
     ulong               starting_lamports = runtime->accounts.starting_lamports[i];
     ulong               starting_dlen     = runtime->accounts.starting_dlen[i];
     fd_account_meta_t * meta              = txn_out->accounts.account[i].meta;
@@ -1494,7 +1504,7 @@ fd_executor_txn_check( fd_runtime_t * runtime,
     if     ( !memcmp( meta->owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) txn_out->accounts.stake_update[i] = 1;
     else if( !memcmp( meta->owner, &fd_solana_vote_program_id,  sizeof(fd_pubkey_t) ) ) txn_out->accounts.vote_update[i] = 1;
 
-    if( FD_LIKELY( !runtime->fuzz.enabled ) ) {
+    if( FD_LIKELY( !runtime->fuzz.enabled || runtime->fuzz.reclaim_accounts ) ) {
       fd_executor_reclaim_account( meta, bank->f.slot );
     }
   }

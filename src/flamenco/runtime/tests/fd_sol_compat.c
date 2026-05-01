@@ -9,6 +9,7 @@
 #include "generated/invoke.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/txn.pb.h"
+#include "generated/bundle.pb.h"
 #include "generated/cost.pb.h"
 #include "generated/elf.pb.h"
 
@@ -177,6 +178,29 @@ sol_compat_txn_execute_v1( uchar *       out,
   fd_spad_pop( runner->spad );
 
   pb_release( &fd_exec_test_txn_context_t_msg, input );
+  fd_solfuzz_runner_leak_check( runner );
+  return ok;
+}
+
+int
+sol_compat_bundle_execute_v1( uchar *       out,
+                              ulong *       out_sz,
+                              uchar const * in,
+                              ulong         in_sz ) {
+  fd_exec_test_bundle_context_t input[1] = {0};
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_bundle_context_t_msg );
+  if( FD_UNLIKELY( !res ) ) return 0;
+
+  int ok = 0;
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_bundle_run );
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_bundle_effects_t_msg );
+  }
+  fd_spad_pop( runner->spad );
+
+  pb_release( &fd_exec_test_bundle_context_t_msg, input );
   fd_solfuzz_runner_leak_check( runner );
   return ok;
 }

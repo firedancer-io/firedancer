@@ -292,6 +292,7 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   ulong const               slot         = ctx->bank->f.slot;
   fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache;
   fd_slot_hash_t const *    slot_hashes  = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
+  if( FD_UNLIKELY( !slot_hashes ) ) FD_LOG_ERR(( "missing slot hashes sysvar" ));
 
   /* Write indirect addrs into here */
   fd_acct_addr_t * indir_addrs = fd_txn_m_alut( txnm );
@@ -500,7 +501,12 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   txnm->reference_slot = ctx->completed_slot;
-  blockhash_map_t const * blockhash = map_query_const( ctx->blockhash_map, *(blockhash_t*)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off ), NULL );
+
+  blockhash_t const * recent_blockhash = (blockhash_t const *)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off );
+  blockhash_map_t const * blockhash = NULL;
+  if( FD_LIKELY( !map_key_inval( *recent_blockhash ) ) ) {
+    blockhash = map_query_const( ctx->blockhash_map, *recent_blockhash, NULL );
+  }
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_slot = blockhash->slot;
     if( FD_UNLIKELY( txnm->reference_slot+151UL<ctx->completed_slot ) ) {

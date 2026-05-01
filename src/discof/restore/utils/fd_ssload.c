@@ -2,7 +2,6 @@
 
 #include "../../../disco/genesis/fd_genesis_cluster.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../../flamenco/runtime/fd_runtime_stack.h"
 #include "fd_ssmsg.h"
 
 void
@@ -198,6 +197,13 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         elem->credits_observed,
         FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025
     );
+  }
+
+  fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+  if( is_incremental ) fd_new_votes_reset_root( new_votes );
+  for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
+    fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
+    if( FD_UNLIKELY( elem->stake==0UL ) ) fd_new_votes_root_insert( new_votes, (fd_pubkey_t *)elem->vote_account_pubkey );
   }
 
   /* We also want to set the total stake to be the total amount of stake

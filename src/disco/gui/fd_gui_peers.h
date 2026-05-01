@@ -407,8 +407,8 @@ struct fd_gui_peers_ctx {
     ulong epoch;
 
     ulong                    stakes_cnt;
-    fd_gui_peers_voter_t     stakes  [ MAX_STAKED_LEADERS ];
-    fd_gui_peers_voter_idx_t vote_idx[ MAX_STAKED_LEADERS ];
+    fd_gui_peers_voter_t     stakes  [ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_idx_t vote_idx[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   } epochs[ 2 ];
 
   union {
@@ -423,7 +423,7 @@ struct fd_gui_peers_ctx {
       fd_stake_weight_t      manifest_id_weights  [ 40200UL ];
       fd_vote_stake_weight_t manifest_vote_weights[ 40200UL ];
     };
-    fd_gui_peers_voter_t voters_scratch[ MAX_STAKED_LEADERS ];
+    fd_gui_peers_voter_t voters_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   } scratch;
 
 #if FD_HAS_ZSTD
