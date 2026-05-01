@@ -483,6 +483,8 @@ fd_feature_activate( fd_bank_t *               bank,
                      fd_pubkey_t const *       addr ) {
   fd_features_t * features = &bank->f.features;
 
+  fd_features_set( features, id, FD_FEATURE_DISABLED );
+
   if( id->reverted==1 ) return;
 
   fd_accdb_ro_t ro[1];
