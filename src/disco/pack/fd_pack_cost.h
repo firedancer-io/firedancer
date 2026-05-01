@@ -117,7 +117,8 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
    no instruction data, which also consumes 3 bytes of payload.  The
    most expensive built-in is the BPF upgradeable loader.  We're limited
    to 64 instructions, so we can only consume it at most 62 times.  This
-   is about 675 CUs per byte.
+   is about 675 CUs per byte.  This is more efficient than precompiles,
+   which consume <609 CUs per byte in the worst case.
 
    We've maxed out the instruction limit, so we can only continue to
    increase the cost by adding writable accounts or writable signer
@@ -371,7 +372,8 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   fd_compute_budget_program_init( cbp );
 
   for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
-    instr_data_sz += txn->instr[i].data_sz;
+    ulong data_sz = txn->instr[i].data_sz;
+    instr_data_sz += data_sz;
 
     ulong prog_id_idx = (ulong)txn->instr[i].program_id;
     fd_acct_addr_t const * prog_id = addr_base + prog_id_idx;
@@ -383,22 +385,25 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     non_builtin_cnt += !in_tbl->cost_per_instr; /* null row has 0 cost */
 
     if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
-      if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
+      if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, data_sz, cbp ) ) )
         return 0UL;
     } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) ) ) {
       /* First byte is # of signatures.  Branchless tail reading here is
          probably okay, but this seems safer. */
-      ulong ed25519_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
-      precompile_sig_cnt += ed25519_signature_count;
-      signature_cost += ed25519_signature_count * FD_PACK_COST_PER_ED25519_SIGNATURE;
+      ulong ed25519_signature_cnt = (data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+      if( FD_UNLIKELY( data_sz<2UL+14UL*ed25519_signature_cnt ) ) return 0UL;
+      precompile_sig_cnt += ed25519_signature_cnt;
+      signature_cost += ed25519_signature_cnt * FD_PACK_COST_PER_ED25519_SIGNATURE;
     } else if( FD_UNLIKELY( (in_tbl==secp256k1_precomp_row) ) ) {
-      ulong secp256k1_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
-      precompile_sig_cnt += secp256k1_signature_count;
-      signature_cost += secp256k1_signature_count * FD_PACK_COST_PER_SECP256K1_SIGNATURE;
+      ulong secp256k1_signature_cnt = (data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+      if( FD_UNLIKELY( data_sz<1UL+11UL*secp256k1_signature_cnt ) ) return 0UL;
+      precompile_sig_cnt += secp256k1_signature_cnt;
+      signature_cost += secp256k1_signature_cnt * FD_PACK_COST_PER_SECP256K1_SIGNATURE;
     } else if( FD_UNLIKELY( (in_tbl==secp256r1_precomp_row) ) ) {
-      ulong secp256r1_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
-      precompile_sig_cnt += secp256r1_signature_count;
-      signature_cost += secp256r1_signature_count * FD_PACK_COST_PER_SECP256R1_SIGNATURE;
+      ulong secp256r1_signature_cnt = (data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+      if( FD_UNLIKELY( data_sz<2UL+14UL*secp256r1_signature_cnt ) ) return 0UL;
+      precompile_sig_cnt += secp256r1_signature_cnt;
+      signature_cost += secp256r1_signature_cnt * FD_PACK_COST_PER_SECP256R1_SIGNATURE;
     }
     /* BPF programs can allocate 10kB per account per instruction.
        The vote program (see below) and the address lookup table program
@@ -421,7 +426,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #define DEFAULT_ALLOC (10UL*1024UL)    /* == MAX_PERMITTED_DATA_INCREASE */
     else if( FD_UNLIKELY( in_tbl==system_program_row ) ) {
       ulong discriminant = ULONG_MAX;
-      ulong data_sz      = txn->instr[i].data_sz;
       uchar const * base = payload + txn->instr[i].data_off;
       if( FD_UNLIKELY( data_sz<12UL ) ) continue;
       discriminant = FD_LOAD( uint, base );
@@ -473,7 +477,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #if FD_PACK_COST_USE_TRUE_ALLOC_BOUND
     } else if( FD_UNLIKELY( in_tbl==upgradeable_loader_row ) ) {
       ulong discriminant = ULONG_MAX;
-      ulong data_sz      = txn->instr[i].data_sz;
       uchar const * base = payload + txn->instr[i].data_off;
       if( FD_UNLIKELY( data_sz<8UL ) ) continue;
       discriminant = FD_LOAD( uint, base );
@@ -489,7 +492,6 @@ fd_pack_compute_cost( fd_txn_t const * txn,
       }
     } else if( FD_UNLIKELY( in_tbl==loader_v4_row ) ) {
       ulong discriminant = ULONG_MAX;
-      ulong data_sz      = txn->instr[i].data_sz;
       uchar const * base = payload + txn->instr[i].data_off;
       if( FD_UNLIKELY( data_sz<8UL ) ) continue;
       discriminant = FD_LOAD( uint, base );
