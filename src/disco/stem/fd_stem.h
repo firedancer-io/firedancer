@@ -3,6 +3,8 @@
 
 #include "../fd_disco_base.h"
 
+#include <stddef.h> /* offsetof */
+
 #define FD_STEM_SCRATCH_ALIGN (128UL)
 
 struct fd_stem_context {
@@ -27,14 +29,16 @@ typedef struct fd_stem_context fd_stem_context_t;
 
      - Second cache line (cached dcache bounds for the centralized
        chunk/sz validation done by stem before invoking the tile's
-       during_frag callback; also touched only when a frag arrives,
-       so it shares the same access pattern as the first line):
+       during_frag callback; read on every fragment arrival to perform
+       the bounds check, but kept in a separate cache line so the
+       tight polling state in the first line is not evicted by
+       in[]-array iteration):
          chunk0, wmark, mtu                              -> 24 bytes.
 
    Padding to 128 bytes total is added by the (aligned(64)) attribute.
    The bounds fields live AFTER the polling state on purpose: they are
-   only read on the rare error path of corruption detection and don't
-   need to be co-located with the always-touched seq/mline pair. */
+   read during per-fragment validation but do not need to share a line
+   with the always-touched seq/mline pair. */
 
 struct __attribute__((aligned(64))) fd_stem_tile_in {
   fd_frag_meta_t const * mcache;   /* local join to this in's mcache */
@@ -58,6 +62,14 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
 };
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;
+
+/* Lock the cache layout described above so future edits cannot
+   silently break the two-cache-line split (hot polling state vs
+   bounds) that this struct relies on. */
+FD_STATIC_ASSERT( sizeof(fd_stem_tile_in_t)==128UL,                              fd_stem_tile_in_t_size    );
+FD_STATIC_ASSERT( offsetof(fd_stem_tile_in_t, chunk0)==64UL,                     fd_stem_tile_in_t_chunk0  );
+FD_STATIC_ASSERT( offsetof(fd_stem_tile_in_t, wmark )==64UL+ sizeof(ulong),      fd_stem_tile_in_t_wmark   );
+FD_STATIC_ASSERT( offsetof(fd_stem_tile_in_t, mtu   )==64UL+2*sizeof(ulong),     fd_stem_tile_in_t_mtu     );
 
 static inline void
 fd_stem_publish( fd_stem_context_t * stem,

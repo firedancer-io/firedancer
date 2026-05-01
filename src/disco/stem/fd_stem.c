@@ -327,13 +327,21 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[3] = 0U; this_in->accum[4] = 0U; this_in->accum[5] = 0U;
 
     /* Cache the dcache bounds for the centralized validation done
-       below before invoking during_frag callbacks.  When the caller
-       does not provide bounds (e.g. the QUIC trace tools), or the
-       link has no dcache (mtu==0), we leave mtu==0 to disable the
-       check for this in. */
-    this_in->chunk0 = in_chunk0 ? in_chunk0[ in_idx ] : 0UL;
-    this_in->wmark  = in_wmark  ? in_wmark [ in_idx ] : 0UL;
-    this_in->mtu    = in_mtu    ? in_mtu   [ in_idx ] : 0UL;
+       below before invoking during_frag callbacks.  Bounds are an
+       all-or-nothing contract: callers must pass all three arrays
+       together or omit them entirely.  When the caller omits them
+       (e.g. the QUIC trace tools, which run stem against external
+       mcaches that have no dcache), we force mtu==0 to disable the
+       check for every in. */
+    if( FD_LIKELY( in_chunk0 && in_wmark && in_mtu ) ) {
+      this_in->chunk0 = in_chunk0[ in_idx ];
+      this_in->wmark  = in_wmark [ in_idx ];
+      this_in->mtu    = in_mtu   [ in_idx ];
+    } else {
+      this_in->chunk0 = 0UL;
+      this_in->wmark  = 0UL;
+      this_in->mtu    = 0UL;
+    }
   }
 
   /* out frag stream init */

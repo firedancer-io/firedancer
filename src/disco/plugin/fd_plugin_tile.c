@@ -73,8 +73,17 @@ during_frag( fd_plugin_ctx_t * ctx,
     ctx->sz = fd_stake_weight_msg_sz( staked_cnt, id_cnt );
   }
 
-  /* dcache bounds (chunk0/wmark + sz<=link->mtu) are validated
-     centrally by fd_stem before this callback is invoked. */
+  /* Topology dcache bounds for the incoming fragment (chunk0/wmark +
+     sz<=link->mtu) are validated centrally by fd_stem before this
+     callback is invoked.  Because ctx->sz can be recomputed from the
+     payload (peer_cnt / staked_cnt / id_cnt), we must additionally
+     check that the recomputed size does not exceed the actual
+     fragment size or the input link mtu before copying, otherwise a
+     malformed message could trigger an over-read of stale dcache
+     contents. */
+  if( FD_UNLIKELY( ctx->sz>sz || ctx->sz>ctx->in[ in_idx ].mtu ) )
+    FD_LOG_ERR(( "plugin recomputed payload size %lu exceeds fragment bounds (frag sz %lu, mtu %lu)",
+                 ctx->sz, sz, ctx->in[ in_idx ].mtu ));
 
   fd_memcpy( dst, src, ctx->sz );
 }
