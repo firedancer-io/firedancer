@@ -679,8 +679,12 @@ acc_unlink( fd_accdb_t * accdb,
   int  had_valid = FD_ACCDB_SIZE_CACHE_VALID( cur_es );
   if( FD_UNLIKELY( had_valid ) ) {
     cidx = FD_VOLATILE_CONST( acc->cache_idx );
-    FD_VOLATILE( acc->cache_idx ) = FD_ACCDB_ACC_CIDX_INVAL;
+    /* Clear VALID before INVAL'ing cache_idx — matches the order in
+       evict_clear_acc_cache_ref so cold_load_acc's "VALID=1 +
+       cidx=INVAL" spin path resolves on the next iteration when it
+       observes VALID=0. */
     FD_ATOMIC_FETCH_AND_AND( &acc->executable_size, ~FD_ACCDB_SIZE_CACHE_VALID_BIT );
+    FD_VOLATILE( acc->cache_idx ) = FD_ACCDB_ACC_CIDX_INVAL;
   }
 
   /* Release CLAIM. */
@@ -2371,12 +2375,33 @@ fd_accdb_release( fd_accdb_t *       accdb,
       destination_cache_lines[ 7UL ]->persisted = 0;
       destination_committed[ 7UL ] = 1;
       if( FD_LIKELY( entries[ i ]._overwrite ) ) {
-        original_cache_line->persisted = 1;
-        original_cache_line->acc_idx   = UINT_MAX;
-        original_cache_line->key.generation = UINT_MAX;
-        /* Now safe to unpin and free — line is invalidated. */
+        /* Atomically clear acc.VALID and acc.cache_idx BEFORE freeing
+           the line, so a reader cannot observe acc.VALID=1 with
+           acc.cache_idx pointing at a line that has been recycled to
+           another acc.  evict_clear_acc_cache_ref uses the CLAIM
+           protocol to serialize with cold_load_acc. */
+        evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, entries[ i ]._original_cache_idx );
+
+        /* Drop our pin, then try to claim the line exclusively for
+           freeing.  A concurrent reader that pinned the line via
+           cache_try_pin BEFORE evict_clear_acc_cache_ref completed
+           may still hold a reference here (its ABA check on
+           line->key.generation is not synchronized with our writes
+           to that field).  CAS(refcnt, 0, EVICT_SENTINEL) succeeds
+           only when no such reader is outstanding; on failure we
+           must NOT free the line — leave acc_idx/key.generation
+           intact so CLOCK can reclaim it once the reader unpins.
+           At that point CLOCK's call to evict_clear_acc_cache_ref
+           is a no-op (acc.cache_idx no longer matches expected_cidx)
+           and the line is safely repurposed. */
         FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
-        cache_free_push( accdb, original_size_class, original_cache_line );
+        if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
+          original_cache_line->persisted = 1;
+          original_cache_line->acc_idx   = UINT_MAX;
+          original_cache_line->key.generation = UINT_MAX;
+          original_cache_line->refcnt    = 0;
+          cache_free_push( accdb, original_size_class, original_cache_line );
+        }
       }
       committed_line = destination_cache_lines[ 7UL ];
     } else {
@@ -2404,12 +2429,21 @@ fd_accdb_release( fd_accdb_t *       accdb,
         }
       } else {
         if( FD_LIKELY( entries[ i ]._overwrite ) ) {
-          original_cache_line->persisted = 1;
-          original_cache_line->acc_idx   = UINT_MAX;
-          original_cache_line->key.generation = UINT_MAX;
-          /* Now safe to unpin and free — line is invalidated. */
+          /* Atomically clear acc.VALID and acc.cache_idx BEFORE freeing
+             the line, so a reader cannot observe acc.VALID=1 with
+             acc.cache_idx pointing at a line that has been recycled to
+             another acc.  evict_clear_acc_cache_ref uses the CLAIM
+             protocol to serialize with cold_load_acc.  See the
+             size_class==7 path above for the refcnt CAS rationale. */
+          evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, entries[ i ]._original_cache_idx );
           FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
-          cache_free_push( accdb, original_size_class, original_cache_line );
+          if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
+            original_cache_line->persisted = 1;
+            original_cache_line->acc_idx   = UINT_MAX;
+            original_cache_line->key.generation = UINT_MAX;
+            original_cache_line->refcnt    = 0;
+            cache_free_push( accdb, original_size_class, original_cache_line );
+          }
         }
 
         destination_committed[ new_size_class ] = 1;
@@ -2462,8 +2496,16 @@ fd_accdb_release( fd_accdb_t *       accdb,
       fd_accdb_acc_t * acc = &accdb->acc_pool[ original_acc_idx ];
       /* The offset was already atomically swapped to FD_ACCDB_OFF_INVAL
          and bytes freed above, so just update the metadata and
-         re-publish the cache location. */
-      acc->executable_size     = FD_ACCDB_SIZE_PACK( (uint)entries[ i ].data_len, entries[ i ].executable );
+         re-publish the cache location.  CAS-loop preserves CLAIM bit
+         (a concurrent evict_clear_acc_cache_ref or acc_unlink may
+         hold it) and clears VALID; a plain store would clobber CLAIM
+         and break those protocols. */
+      for(;;) {
+        uint cur = FD_VOLATILE_CONST( acc->executable_size );
+        uint nxt = (cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT) | FD_ACCDB_SIZE_PACK( (uint)entries[ i ].data_len, entries[ i ].executable );
+        if( FD_LIKELY( FD_ATOMIC_CAS( &acc->executable_size, cur, nxt )==cur ) ) break;
+        FD_SPIN_PAUSE();
+      }
       acc->lamports = entries[ i ].lamports;
 
       fd_memcpy( committed_line->owner, entries[ i ].owner, 32UL );
@@ -2471,7 +2513,10 @@ fd_accdb_release( fd_accdb_t *       accdb,
       committed_line->key.generation = acc->key.generation;
       committed_line->acc_idx = original_acc_idx;
       FD_VOLATILE( acc->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)new_size_class, (uint)cache_line_idx( accdb, new_size_class, committed_line ) );
-      FD_VOLATILE( acc->executable_size ) |= FD_ACCDB_SIZE_CACHE_VALID_BIT;
+      /* Atomic OR so a concurrent evict_clear_acc_cache_ref's CLAIM
+         clear (FETCH_AND_AND with ~CLAIM) cannot be lost by an RMW
+         race with a plain |= store. */
+      FD_ATOMIC_FETCH_AND_OR( &acc->executable_size, FD_ACCDB_SIZE_CACHE_VALID_BIT );
 
       /* Now that acc->cache_idx is published, unpin so CLOCK can
          eventually evict it.  For same-size overwrites, committed_line
@@ -2500,7 +2545,10 @@ fd_accdb_release( fd_accdb_t *       accdb,
       fd_memcpy( committed_line->key.pubkey, acc->key.pubkey, 32UL );
       committed_line->key.generation = acc->key.generation;
       FD_VOLATILE( acc->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)new_size_class, (uint)cache_line_idx( accdb, new_size_class, committed_line ) );
-      FD_VOLATILE( acc->executable_size ) |= FD_ACCDB_SIZE_CACHE_VALID_BIT;
+      /* Atomic OR so a concurrent evict_clear_acc_cache_ref's CLAIM
+         clear (FETCH_AND_AND with ~CLAIM) cannot be lost by an RMW
+         race with a plain |= store. */
+      FD_ATOMIC_FETCH_AND_OR( &acc->executable_size, FD_ACCDB_SIZE_CACHE_VALID_BIT );
 
       /* Now that acc->cache_idx is published, unpin it so
          CLOCK can eventually evict it. */
