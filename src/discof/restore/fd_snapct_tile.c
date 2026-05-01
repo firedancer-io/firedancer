@@ -1419,15 +1419,18 @@ snapld_frag( fd_snapct_tile_t *  ctx,
   else       ctx->metrics.incremental.bytes_read += sz;
 
   if( !file && -1!=ctx->local_out.dir_fd ) {
+    uchar const * data = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
+    int fd = full ? ctx->local_out.full_snapshot_fd : ctx->local_out.incremental_snapshot_fd;
     ulong written_sz = 0;
     while( written_sz<sz ) {
-      uchar const * data = fd_chunk_to_laddr_const( ctx->snapld_in_mem, chunk );
-      int fd = full ? ctx->local_out.full_snapshot_fd : ctx->local_out.incremental_snapshot_fd;
-      long result = write( fd, data, sz );
+      long result = write( fd, data+written_sz, sz-written_sz );
+      if( FD_UNLIKELY( -1==result && errno==EINTR ) ) continue;
       if( FD_UNLIKELY( -1==result && errno==ENOSPC ) ) {
         FD_LOG_ERR(( "Out of disk space when writing out snapshot data to `%s`", ctx->config.snapshots_path ));
       } else if( FD_UNLIKELY( 0L>result ) ) {
         FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      } else if( FD_UNLIKELY( 0L==result ) ) {
+        FD_LOG_ERR(( "write() returned 0 for non-zero count" ));
       }
 
       written_sz += (ulong)result;
