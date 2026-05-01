@@ -55,13 +55,14 @@ fd_solfuzz_pb_restore_features( fd_features_t *                    features,
                                 fd_exec_test_feature_set_t const * feature_set );
 
 /* Due to how Firedancer's VM CU accounting works, when
-   virtual_address_space_adjustments is enabled and the transaction
-   fails due to the CU meter being exhausted, we cannot compare the
-   data region of the accounts with Agave. This function clears the
+   virtual_address_space_adjustments is enabled and execution
+   fails with the CU meter exhausted, we cannot compare the data
+   region of the accounts with Agave. This function clears the
    data field on each captured account in this case. */
 void
 fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runner,
-                                                int                         exec_err,
+                                                ulong                       cu_avail,
+                                                int                         has_err,
                                                 fd_exec_test_acct_state_t * accounts,
                                                 pb_size_t                   accounts_cnt );
 

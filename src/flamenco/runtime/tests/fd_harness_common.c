@@ -2,7 +2,6 @@
 #include "generated/context.pb.h"
 #include "../fd_runtime.h"
 #include "../fd_bank.h"
-#include "../fd_executor_err.h"
 #include "../fd_system_ids.h"
 #include "../../features/fd_features.h"
 #include "../../accdb/fd_accdb_sync.h"
@@ -115,11 +114,13 @@ fd_solfuzz_pb_restore_features( fd_features_t *                    features,
 
 void
 fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runner,
-                                                int                         exec_err,
+                                                ulong                       cu_avail,
+                                                int                         has_err,
                                                 fd_exec_test_acct_state_t * accounts,
                                                 pb_size_t                   accounts_cnt ) {
   if( FD_FEATURE_ACTIVE_BANK( runner->bank, virtual_address_space_adjustments )
-      && exec_err == FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED ) {
+      && cu_avail == 0UL
+      && has_err ) {
     for( pb_size_t i=0; i<accounts_cnt; i++ ) {
       accounts[i].data = NULL;
     }
