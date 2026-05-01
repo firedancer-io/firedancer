@@ -310,9 +310,8 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         exec_res
     );
 
-    int instr_exec_err = ( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) ? txn_out->err.exec_err : 0;
     fd_solfuzz_direct_mapping_handle_cu_exhaustion(
-        runner, instr_exec_err,
+        runner, txn_out->err.exec_err,
         txn_result->modified_accounts, txn_result->modified_accounts_count );
 
     txn_out->err.is_committable = 0;
