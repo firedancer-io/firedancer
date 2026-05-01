@@ -361,9 +361,13 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   effects->modified_accounts       = modified_accts;
   effects->modified_accounts_count = 0UL;
 
-  int skip_data = FD_FEATURE_ACTIVE_BANK( runner->bank, virtual_address_space_adjustments )
-               && effects->cu_avail == 0UL
-               && effects->result   != 0;
+  /* Due to how Firedancer's VM CU accounting works, when
+     virtual_address_space_adjustments is enabled and the transaction
+     fails due to the CU meter being exhausted, we cannot compare the
+     data region of the accounts with Agave. */
+  int zero_acc_data = FD_FEATURE_ACTIVE_BANK( runner->bank, virtual_address_space_adjustments )
+                      && effects->cu_avail == 0UL
+                      && effects->result   != 0;
 
   /* Capture borrowed accounts */
 
@@ -383,7 +387,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
     memcpy( out_acct->address, acc_key, sizeof(fd_pubkey_t) );
     out_acct->lamports = acc->lamports;
-    if( !skip_data && acc->dlen>0UL ) {
+    if( !zero_acc_data && acc->dlen>0UL ) {
       out_acct->data =
         FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                     PB_BYTES_ARRAY_T_ALLOCSIZE( acc->dlen ) );
