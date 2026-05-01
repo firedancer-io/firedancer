@@ -4,13 +4,15 @@
 #include "../../choreo/eqvoc/fd_eqvoc.h"
 #include "../../choreo/ghost/fd_ghost.h"
 #include "../../choreo/hfork/fd_hfork.h"
-#include "../../choreo/votes/fd_votes.h"
+#include "../../choreo/voter/fd_voter.h"
+#include "../../choreo/notar/fd_notar.h"
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serde.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/shred/fd_stake_ci.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/shred/fd_shred_tile.h"
@@ -72,7 +74,7 @@
       of the network.
 
       The processing of vote txns is important to (as already alluded)
-      fd_votes and fd_hfork.
+      fd_notar and fd_hfork.
 
   3. Processing "other" frags.  Vote account and vote transaction
      processing (1 and 2 above) is the meat and potatoes, but Tower also
@@ -224,19 +226,21 @@ struct fd_tower_tile {
   fd_eqvoc_t * eqvoc;
   fd_ghost_t * ghost;
   fd_hfork_t * hfork;
-  fd_votes_t * votes;
+  fd_notar_t * notar;
   fd_tower_t * tower;
+  fd_voter_t * voter;
 
   fd_tower_vote_t * scratch_votes; /* scratch votes for processing */
   ulong             scratch_root;  /* scratch root for processing */
 
   publish_t *                publishes; /* deque of slot_confirmed msgs queued for publishing */
-  fd_multi_epoch_leaders_t * mleaders; /* multi-epoch leaders */
+  fd_multi_epoch_leaders_t * mleaders;  /* multi-epoch leaders */
 
   /* borrowed joins */
 
-  fd_banks_t *    banks;
-  fd_accdb_user_t accdb[1];
+  fd_banks_t *      banks;
+  fd_stake_ci_t *   stake_ci;
+  fd_accdb_user_t   accdb[1];
 
   /* static structures */
 
@@ -502,11 +506,11 @@ static void
 update_metrics_votes( fd_tower_tile_t * ctx,
                       int               err ) {
   switch( err ) {
-  case FD_VOTES_SUCCESS:                                               break;
-  case FD_VOTES_ERR_VOTE_TOO_NEW:  ctx->metrics.votes_too_new++;       break;
-  case FD_VOTES_ERR_UNKNOWN_VTR:   ctx->metrics.votes_unknown_vtr++;   break;
-  case FD_VOTES_ERR_ALREADY_VOTED: ctx->metrics.votes_already_voted++; break;
-  default: FD_LOG_ERR(( "unhandled votes err %d", err ));
+  case FD_NOTAR_SUCCESS:                                               break;
+  case FD_NOTAR_ERR_VOTE_TOO_NEW:  ctx->metrics.votes_too_new++;       break;
+  case FD_NOTAR_ERR_UNKNOWN_VTR:   ctx->metrics.votes_unknown_vtr++;   break;
+  case FD_NOTAR_ERR_ALREADY_VOTED: ctx->metrics.votes_already_voted++; break;
+  default: FD_LOG_ERR(( "unhandled notar err %d", err ));
   }
 }
 
@@ -518,23 +522,23 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
 
   fd_ghost_blk_t * ghost_blk = fd_ghost_query( ctx->ghost, block_id );
   fd_tower_blk_t * tower_blk = fd_tower_query( ctx->tower, slot );
-  fd_votes_blk_t * votes_blk = fd_votes_query( ctx->votes, slot, block_id );
-  if( FD_UNLIKELY( !votes_blk ) ) return;
+  fd_notar_blk_t * notar_blk = fd_notar_query( ctx->notar, slot, block_id );
+  if( FD_UNLIKELY( !notar_blk ) ) return;
 
   static double const ratios[FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT] = FD_TOWER_SLOT_CONFIRMED_RATIOS;
   int const           levels[FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT] = FD_TOWER_SLOT_CONFIRMED_LEVELS;
   for( int i = 0; i < FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT; i++ ) {
-    if( FD_LIKELY( fd_uchar_extract_bit( votes_blk->flags, i ) ) ) continue; /* already contiguously confirmed */
-    double ratio = (double)votes_blk->stake / (double)total_stake;
+    if( FD_LIKELY( fd_uchar_extract_bit( notar_blk->flags, i ) ) ) continue; /* already contiguously confirmed */
+    double ratio = (double)notar_blk->stake / (double)total_stake;
     if( FD_LIKELY( ratio < ratios[i] ) ) break; /* threshold not met */
 
     /* If the ghost_blk is missing, then we know this is a forward
        confirmation (ie. we haven't replayed the block yet). */
 
     if( FD_UNLIKELY( !ghost_blk ) ) {
-      if( fd_uchar_extract_bit( votes_blk->flags, i+4 ) ) continue; /* already forward confirmed */
-      votes_blk->flags = fd_uchar_set_bit( votes_blk->flags, i+4 );
-      publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 1, .slot = votes_blk->key.slot, .block_id = votes_blk->key.block_id } } } );
+      if( FD_UNLIKELY( fd_uchar_extract_bit( notar_blk->flags, i+4 ) ) ) continue; /* already forward confirmed */
+      notar_blk->flags = fd_uchar_set_bit( notar_blk->flags, i+4 );
+      publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 1, .slot = notar_blk->key.slot, .block_id = notar_blk->key.block_id } } } );
 
       /* If we have a tower_blk for the slot when the ghost_blk is
          missing, this implies we replayed an equivocating block_id that
@@ -542,14 +546,14 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
          duplicate confirmed level.  */
 
       if( FD_UNLIKELY( levels[i]==FD_TOWER_SLOT_CONFIRMED_DUPLICATE && tower_blk ) ) {
-        FD_TEST( 0!=memcmp( &tower_blk->block_id, &votes_blk->key.block_id, sizeof(fd_hash_t) ) );
+        FD_TEST( 0!=memcmp( &tower_blk->block_id, &notar_blk->key.block_id, sizeof(fd_hash_t) ) );
 
         FD_BASE58_ENCODE_32_BYTES( tower_blk->block_id.uc, block_id_cstr );
-        FD_LOG_DEBUG(( "[%s] ancestor duplicate confirmation. slot: %lu. block_id: %s", __func__, votes_blk->key.slot, block_id_cstr ));
+        FD_LOG_DEBUG(( "[%s] ancestor duplicate confirmation. slot: %lu. block_id: %s", __func__, notar_blk->key.slot, block_id_cstr ));
         tower_blk->confirmed          = 1;
-        tower_blk->confirmed_block_id = votes_blk->key.block_id;
+        tower_blk->confirmed_block_id = notar_blk->key.block_id;
 
-        FD_LOG_DEBUG(( "[%s] equivocation detected via forward-confirmed block id mismatch (replayed before confirmed). slot: %lu. block_id: %s", __func__, votes_blk->key.slot, block_id_cstr ));
+        FD_LOG_DEBUG(( "[%s] equivocation detected via forward-confirmed block id mismatch (replayed before confirmed). slot: %lu. block_id: %s", __func__, notar_blk->key.slot, block_id_cstr ));
         fd_ghost_eqvoc( ctx->ghost, &tower_blk->block_id );
       }
       continue;
@@ -567,22 +571,22 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
 
     fd_ghost_blk_t * ghost_anc = ghost_blk;
     fd_tower_blk_t * tower_anc = tower_blk;
-    fd_votes_blk_t * votes_anc = votes_blk;
+    fd_notar_blk_t * notar_anc = notar_blk;
     while( FD_LIKELY( ghost_anc ) ) {
       tower_anc = fd_tower_query( ctx->tower, ghost_anc->slot );
-      votes_anc = fd_votes_query( ctx->votes, ghost_anc->slot, &ghost_anc->id );
-      if( FD_UNLIKELY( !tower_anc || !votes_anc ) ) break;
+      notar_anc = fd_notar_query( ctx->notar, ghost_anc->slot, &ghost_anc->id );
+      if( FD_UNLIKELY( !tower_anc || !notar_anc ) ) break;
 
       /* Terminate at the first ancestor that has already reached this
          confirmation level. */
 
-      if( FD_LIKELY( fd_uchar_extract_bit( votes_anc->flags, i ) ) ) break;
+      if( FD_LIKELY( fd_uchar_extract_bit( notar_anc->flags, i ) ) ) break;
 
       /* Mark the ancestor as confirmed at this level.  If this is the
          duplicate confirmation level, also mark the ghost and tower
          blocks as confirmed. */
 
-      votes_anc->flags = fd_uchar_set_bit( votes_anc->flags, i );
+      notar_anc->flags = fd_uchar_set_bit( notar_anc->flags, i );
       publishes_push_head( ctx->publishes, (publish_t){ .sig = FD_TOWER_SIG_SLOT_CONFIRMED, .msg = { .slot_confirmed = (fd_tower_slot_confirmed_t){ .level = levels[i], .fwd = 0, .slot = ghost_anc->slot, .block_id = ghost_anc->id } } } );
       if( FD_UNLIKELY( levels[i]==FD_TOWER_SLOT_CONFIRMED_PROPAGATED ) ) {
         tower_anc->propagated = 1;
@@ -635,7 +639,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   int         found_authority = deser_auth_vtr( ctx, slot_completed->epoch, found, authority, &authority_idx );
   if( FD_LIKELY( found_authority ) ) {
     msg->has_vote_txn = 1;
-    fd_txn_p_t          txn[1];
+    fd_txn_p_t txn[1];
     fd_tower_to_vote_txn( ctx->tower, &slot_completed->bank_hash, &slot_completed->block_id, &slot_completed->block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
     FD_TEST( !fd_tower_vote_empty( fd_tower_votes( ctx->tower ) ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
@@ -721,20 +725,24 @@ count_vote_acc( fd_tower_tile_t *            ctx,
       FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_completed->slot, vote_slot, vote_acc_cstr ));
     }
 
+    /* Agave uses the stakes as computed on the heaviest bank's epoch.
+       It is guaranteed the heaviest bank's epoch is within 1 epoch of
+       the current root bank's epoch. */
+
     int ghost_err = fd_ghost_count_vote( ctx->ghost, ancestor_blk, vote_acc, stake, vote_slot );
     update_metrics_ghost( ctx, ghost_err );
   }
 
   FD_TEST( !fd_vote_account_node_pubkey( data, data_sz, &ctx->id_keys[ctx->vtr_cnt] ) );
-  ctx->vote_accs [ctx->vtr_cnt] = *vote_acc;
-  ctx->stakes    [ctx->vtr_cnt] = stake;
+  ctx->vote_accs[ctx->vtr_cnt] = *vote_acc;
+  ctx->stakes   [ctx->vtr_cnt] = stake;
   ctx->vtr_cnt++;
 }
 
 /* count_vote_txn counts vote txns from Gossip, TPU and Replay.  Note
    these txns have already been parsed and sigverified before they are
    sent to tower.   In addition, vote txns coming from Replay have also
-   been successfully executed.  They are counted towards hfork and votes
+   been successfully executed.  They are counted towards hfork and notar
    (see point 2 in the top-level documentation). */
 
 static void
@@ -768,8 +776,8 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
   fd_txn_instr_t const * instr      = &txn->instr[0];
   uchar const *          instr_data = payload + instr->data_off;
-  if( FD_UNLIKELY( instr->data_sz<4 ) ) { ctx->metrics.txn_bad_deser++; return; }
 
+  if( FD_UNLIKELY( instr->data_sz<sizeof(uint) ) ) { ctx->metrics.txn_bad_deser++; return; }
   uint kind = fd_uint_load_4_fast( instr_data );
   if( FD_UNLIKELY( kind!=FD_VOTE_IX_KIND_TOWER_SYNC && kind!=FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) { ctx->metrics.txn_not_tower_sync++; return; };
 
@@ -815,31 +823,31 @@ count_vote_txn( fd_tower_tile_t * ctx,
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L476-L487 */
 
   fd_tower_vote_t const * their_last_vote = fd_tower_vote_peek_tail_const( ctx->scratch_votes );
-  fd_hash_t const *       their_block_id  = &ctx->compact_tower_sync_serde.block_id;
-  fd_hash_t const *       their_bank_hash = &ctx->compact_tower_sync_serde.hash;
+  fd_hash_t       const * their_block_id  = &ctx->compact_tower_sync_serde.block_id;
+  fd_hash_t       const * their_bank_hash = &ctx->compact_tower_sync_serde.hash;
 
   /* Return early if their last vote is too old. */
 
   if( FD_UNLIKELY( their_last_vote->slot <= fd_tower_root( ctx->tower ) ) ) { ctx->metrics.votes_too_old++; return; }
 
   /* Similar to what Agave does in cluster_info_vote_listener, we use
-     the stake associated with a vote account as of our current root's
-     epoch (which could potentially be a different epoch than the vote
-     we are counting or when we observe the vote).  They default stake
-     to 0 for voters who are not found. */
+     the stake associated with a vote account _as of_ the vote slot,
+     computed _as of_ our current root slot (bi-temporal).  Effectively,
+     this will be the vote account's stake in either the current or next
+     epoch relative to our current root slot.  They ignore votes by vote
+     accounts with unknown stake. */
 
-  /* FIXME use vote slot not root slot */
-
-  ulong their_stake = fd_tower_stakes_query_stake( ctx->tower, vote_acc, fd_tower_root( ctx->tower ) );
-  if( FD_UNLIKELY( their_stake==ULONG_MAX ) ) return; /* voter is not staked in current root's epoch */
+  fd_voter_vtr_t const * vtr = fd_voter_query( ctx->voter, vote_acc, fd_tower_root( ctx->tower ) );
+  if( FD_UNLIKELY( !vtr ) ) return;
+  ulong their_stake = vtr->stake;
   ulong total_stake = fd_ghost_root( ctx->ghost )->total_stake;
 
   int hfork_err = fd_hfork_count_vote( ctx->hfork, vote_acc, their_block_id, their_bank_hash, their_last_vote->slot, their_stake, total_stake );
   update_metrics_hfork( ctx, hfork_err, their_last_vote->slot, their_block_id );
 
-  int votes_err = fd_votes_count_vote( ctx->votes, vote_acc, their_last_vote->slot, their_block_id );
-  update_metrics_votes( ctx, votes_err );
-  if( FD_LIKELY( votes_err==FD_VOTES_SUCCESS ) ) publish_slot_confirmed( ctx, their_last_vote->slot, their_block_id, total_stake );
+  int notar_err = fd_notar_count_vote( ctx->notar, vote_acc, their_last_vote->slot, their_block_id );
+  update_metrics_votes( ctx, notar_err );
+  if( FD_LIKELY( notar_err==FD_NOTAR_SUCCESS ) ) publish_slot_confirmed( ctx, their_last_vote->slot, their_block_id, total_stake );
 
   /* Agave decides to count intermediate vote slots in the tower only if
      1. they've replayed the slot and 2. their replay bank hash matches
@@ -896,9 +904,9 @@ count_vote_txn( fd_tower_tile_t * ctx,
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
     fd_hash_t const * intermediate_block_id = &intermediate_tower_blk->block_id;
-    int votes_err = fd_votes_count_vote( ctx->votes, vote_acc, their_intermediate_vote->slot, intermediate_block_id );
-    update_metrics_votes( ctx, votes_err );
-    if( FD_LIKELY( votes_err==FD_VOTES_SUCCESS ) ) publish_slot_confirmed( ctx, their_intermediate_vote->slot, intermediate_block_id, total_stake );
+    int notar_err = fd_notar_count_vote( ctx->notar, vote_acc, their_intermediate_vote->slot, intermediate_block_id );
+    update_metrics_votes( ctx, notar_err );
+    if( FD_LIKELY( notar_err==FD_NOTAR_SUCCESS ) ) publish_slot_confirmed( ctx, their_intermediate_vote->slot, intermediate_block_id, total_stake );
   }
 }
 
@@ -1051,6 +1059,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     tower_blk->block_id          = slot_completed->block_id;
     tower_blk->parent_block_id   = slot_completed->parent_block_id;
     tower_blk->epoch             = slot_completed->epoch;
+    tower_blk->bank_idx          = slot_completed->bank_idx;
+    /* slot_completed->epoch is already stored in tower_blk->epoch */
     tower_blk->voted             = 0;
     tower_blk->confirmed         = 0;
     tower_blk->leader            = slot_completed->is_leader;
@@ -1070,17 +1080,17 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
     /* Check for forward confirmations. */
 
-    fd_votes_blk_t * fwd_votes_blk = fd_votes_query( ctx->votes, slot_completed->slot, NULL );
-    if( FD_UNLIKELY( fwd_votes_blk && fd_uchar_extract_bit( fwd_votes_blk->flags, FD_TOWER_SLOT_CONFIRMED_DUPLICATE+4 ) ) ) {
+    fd_notar_blk_t * fwd_notar_blk = fd_notar_query( ctx->notar, slot_completed->slot, NULL );
+    if( FD_UNLIKELY( fwd_notar_blk && fd_uchar_extract_bit( fwd_notar_blk->flags, FD_TOWER_SLOT_CONFIRMED_DUPLICATE+4 ) ) ) {
 
       /* A block_id for this slot was forward-confirmed at the duplicate
          level before replay (publish_slot_confirmed ran when no
          ghost_blk existed).  Resolve the pending confirmation now. */
 
       tower_blk->confirmed          = 1;
-      tower_blk->confirmed_block_id = fwd_votes_blk->key.block_id;
+      tower_blk->confirmed_block_id = fwd_notar_blk->key.block_id;
 
-      if( FD_LIKELY( 0==memcmp( &tower_blk->block_id, &fwd_votes_blk->key.block_id, sizeof(fd_hash_t) ) ) ) {
+      if( FD_LIKELY( 0==memcmp( &tower_blk->block_id, &fwd_notar_blk->key.block_id, sizeof(fd_hash_t) ) ) ) {
 
         /* The forward-confirmed block_id matches what we replayed. */
 
@@ -1109,7 +1119,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   if( FD_UNLIKELY( !ctx->init ) ) {
     fd_tower_publish( ctx->tower, slot_completed->slot );
-    fd_votes_publish( ctx->votes, slot_completed->slot );
+    fd_notar_publish( ctx->notar, slot_completed->slot );
   }
 
   /* Count the vote accounts and reconcile our own vote account. */
@@ -1124,7 +1134,10 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   if( FD_UNLIKELY( !ctx->init ) ) {
     fd_eqvoc_update_voters( ctx->eqvoc, ctx->id_keys, ctx->vtr_cnt );
     fd_hfork_update_voters( ctx->hfork, ctx->vote_accs, ctx->vtr_cnt );
-    fd_votes_update_voters( ctx->votes, ctx->vote_accs, ctx->stakes, ctx->vtr_cnt );
+    fd_notar_update_voters( ctx->notar, ctx->vote_accs, ctx->stakes, ctx->vtr_cnt );
+    if( FD_LIKELY( ctx->banks ) ) {
+      fd_voter_update( ctx->voter, ctx->accdb, ctx->banks, slot_completed->slot, slot_completed->bank_idx );
+    }
     ctx->init              = 1;
     ctx->metrics.init_slot = slot_completed->slot;
   }
@@ -1141,7 +1154,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   ulong reset_slot; fd_hash_t reset_block_id;
   ulong vote_slot;  fd_hash_t vote_block_id;
   ulong root_slot;  fd_hash_t root_block_id;
-  uchar flags = fd_tower_vote_and_reset( ctx->tower, ctx->ghost, ctx->votes,
+  uchar flags = fd_tower_vote_and_reset( ctx->tower, ctx->ghost, ctx->notar,
                                          &reset_slot, &reset_block_id,
                                          &vote_slot,  &vote_block_id,
                                          &root_slot,  &root_block_id );
@@ -1173,16 +1186,20 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
     FD_TEST( oldr_tower_blk->epoch==newr_tower_blk->epoch || oldr_tower_blk->epoch+1==newr_tower_blk->epoch ); /* root can only move forward one epoch */
 
-    /* Publish votes: 1. reindex if it's a new epoch. 2. publish the new
-       root to votes. */
+    /* Publish notar: 1. reindex if it's a new epoch. 2. publish the new
+       root to notar. */
 
     if( FD_UNLIKELY( oldr_tower_blk->epoch+1==newr_tower_blk->epoch ) ) {
       FD_TEST( newr_tower_blk->epoch==slot_completed->epoch ); /* new root's epoch must be same as current slot_completed */
       fd_eqvoc_update_voters( ctx->eqvoc, ctx->id_keys,                ctx->vtr_cnt );
       fd_hfork_update_voters( ctx->hfork, ctx->vote_accs,              ctx->vtr_cnt );
-      fd_votes_update_voters( ctx->votes, ctx->vote_accs, ctx->stakes, ctx->vtr_cnt );
+      fd_notar_update_voters( ctx->notar, ctx->vote_accs, ctx->stakes, ctx->vtr_cnt );
+
+      if( FD_LIKELY( ctx->banks ) ) {
+        fd_voter_update( ctx->voter, ctx->accdb, ctx->banks, newr_tower_blk->slot, newr_tower_blk->bank_idx );
+      }
     }
-    fd_votes_publish( ctx->votes, root_slot );
+    fd_notar_publish( ctx->notar, root_slot );
 
     /* Publish roots by walking up the ghost ancestry to publish new root
        frags for intermediate slots we couldn't vote for. */
@@ -1253,35 +1270,43 @@ init_choreo( void * scratch,
   ulong pub_max  = slot_max * FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t)                                       );
-  void  * auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),         auth_vtr_footprint()                                          );
-  void  * eqvoc         = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, PER_VTR_MAX, VTR_MAX ) );
-  void  * ghost         = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
-  void  * hfork         = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( PER_VTR_MAX, VTR_MAX )                    );
-  void  * votes         = FD_SCRATCH_ALLOC_APPEND( l, fd_votes_align(),         fd_votes_footprint( slot_max, VTR_MAX )                       );
-  void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
-  void  * scratch_votes = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
-  void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
-  void  * mleaders_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                       );
+  fd_tower_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t),       sizeof(fd_tower_tile_t)                                       );
+  void  * auth_vtr      = FD_SCRATCH_ALLOC_APPEND( l, auth_vtr_align(),               auth_vtr_footprint()                                          );
+  void  * eqvoc         = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_align(),               fd_eqvoc_footprint( slot_max, fec_max, PER_VTR_MAX, VTR_MAX ) );
+  void  * ghost         = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),               fd_ghost_footprint( blk_max, VTR_MAX )                        );
+  void  * hfork         = FD_SCRATCH_ALLOC_APPEND( l, fd_hfork_align(),               fd_hfork_footprint( PER_VTR_MAX, VTR_MAX )                    );
+  void  * notar         = FD_SCRATCH_ALLOC_APPEND( l, fd_notar_align(),               fd_notar_footprint( slot_max, VTR_MAX )                       );
+  void  * tower         = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),               fd_tower_footprint( slot_max, VTR_MAX )                       );
+  void  * voter         = FD_SCRATCH_ALLOC_APPEND( l, fd_voter_align(),               fd_voter_footprint( VTR_MAX )                                 );
+  void  * scratch_votes = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_vote_align(),          fd_tower_vote_footprint()                                     );
+  void  * publishes     = FD_SCRATCH_ALLOC_APPEND( l, publishes_align(),              publishes_footprint( pub_max )                                );
+  void  * mleaders      = FD_SCRATCH_ALLOC_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                            );
+  void  * stake_ci      = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),            fd_stake_ci_footprint()                                       );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align );
-  (void)auth_vtr; /* privileged_init */
-  ctx->eqvoc              = fd_eqvoc_join              ( fd_eqvoc_new              ( eqvoc, slot_max, fec_max, PER_VTR_MAX, VTR_MAX, ctx->seed ) );
-  ctx->ghost              = fd_ghost_join              ( fd_ghost_new              ( ghost, blk_max, VTR_MAX, ctx->seed )                        );
-  ctx->hfork              = fd_hfork_join              ( fd_hfork_new              ( hfork, PER_VTR_MAX, VTR_MAX, ctx->seed )                    );
-  ctx->votes              = fd_votes_join              ( fd_votes_new              ( votes, slot_max, VTR_MAX, ctx->seed )                       );
-  ctx->tower              = fd_tower_join              ( fd_tower_new              ( tower, slot_max, VTR_MAX, ctx->seed )                       );
-  ctx->scratch_votes      = fd_tower_vote_join         ( fd_tower_vote_new         ( scratch_votes )                                             );
-  ctx->publishes          = publishes_join             ( publishes_new             ( publishes, pub_max )                                        );
-  ctx->mleaders           = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders_mem )                                               );
 
+  (void)auth_vtr; /* privileged_init */
+  ctx->eqvoc         = fd_eqvoc_join              ( fd_eqvoc_new              ( eqvoc, slot_max, fec_max, PER_VTR_MAX, VTR_MAX, ctx->seed ) );
+  ctx->ghost         = fd_ghost_join              ( fd_ghost_new              ( ghost, blk_max, VTR_MAX, ctx->seed )                        );
+  ctx->hfork         = fd_hfork_join              ( fd_hfork_new              ( hfork, PER_VTR_MAX, VTR_MAX, ctx->seed )                    );
+  ctx->notar         = fd_notar_join              ( fd_notar_new              ( notar, slot_max, VTR_MAX, ctx->seed )                       );
+  ctx->tower         = fd_tower_join              ( fd_tower_new              ( tower, slot_max, VTR_MAX, ctx->seed )                       );
+  ctx->voter         = fd_voter_join              ( fd_voter_new              ( voter, VTR_MAX, ctx->seed )                                 );
+  ctx->scratch_votes = fd_tower_vote_join         ( fd_tower_vote_new         ( scratch_votes )                                             );
+  ctx->publishes     = publishes_join             ( publishes_new             ( publishes, pub_max )                                        );
+  ctx->mleaders      = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( mleaders )                                                  );
+  ctx->stake_ci      = fd_stake_ci_join           ( fd_stake_ci_new           ( stake_ci, ctx->identity_key )                               );
+
+  FD_TEST( ctx->auth_vtr );
   FD_TEST( ctx->eqvoc );
   FD_TEST( ctx->ghost );
   FD_TEST( ctx->hfork );
-  FD_TEST( ctx->votes );
+  FD_TEST( ctx->notar );
   FD_TEST( ctx->tower );
+  FD_TEST( ctx->voter );
   FD_TEST( ctx->scratch_votes );
   FD_TEST( ctx->publishes );
   FD_TEST( ctx->mleaders );
+  FD_TEST( ctx->stake_ci );
 
   memset( ctx->our_vote_acc,              0, sizeof(ctx->our_vote_acc)             );
   ctx->our_vote_acct_sz = 0;
@@ -1294,11 +1319,11 @@ init_choreo( void * scratch,
   memset( &ctx->compact_tower_sync_serde, 0, sizeof(ctx->compact_tower_sync_serde) );
   memset( ctx->vote_txn,                  0, sizeof(ctx->vote_txn)                 );
 
-  ctx->halt_signing    = 0;
-  ctx->hard_fork_fatal = 0;
-  ctx->wait_for_supermajority             = 0;
-  ctx->shred_version   = 0;
-  ctx->init            = 0;
+  ctx->halt_signing           = 0;
+  ctx->hard_fork_fatal        = 0;
+  ctx->init                   = 0;
+  ctx->shred_version          = 0;
+  ctx->wait_for_supermajority = 0;
 
   memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
@@ -1324,11 +1349,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_eqvoc_align(),         fd_eqvoc_footprint( slot_max, fec_max, PER_VTR_MAX, VTR_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( blk_max, VTR_MAX )                        );
   l = FD_LAYOUT_APPEND( l, fd_hfork_align(),         fd_hfork_footprint( PER_VTR_MAX, VTR_MAX )                    );
-  l = FD_LAYOUT_APPEND( l, fd_votes_align(),         fd_votes_footprint( slot_max, VTR_MAX )                       );
+  l = FD_LAYOUT_APPEND( l, fd_notar_align(),         fd_notar_footprint( slot_max, VTR_MAX )                       );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint( slot_max, VTR_MAX )                       );
+  l = FD_LAYOUT_APPEND( l, fd_voter_align(),         fd_voter_footprint( VTR_MAX )                                 );
   l = FD_LAYOUT_APPEND( l, fd_tower_vote_align(),    fd_tower_vote_footprint()                                     );
   l = FD_LAYOUT_APPEND( l, publishes_align(),        publishes_footprint( pub_max )                                );
   l = FD_LAYOUT_APPEND( l, fd_multi_epoch_leaders_align(), fd_multi_epoch_leaders_footprint()                       );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),            fd_stake_ci_footprint()                                   );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -1381,7 +1408,7 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
 
 static inline void
 metrics_write( fd_tower_tile_t * ctx ) {
-  FD_MCNT_SET( TOWER, NOT_READY,   ctx->metrics.not_ready );
+  FD_MCNT_SET( TOWER, NOT_READY,   ctx->metrics.not_ready   );
   FD_MCNT_SET( TOWER, IGNORED_CNT, ctx->metrics.ignored_cnt );
   FD_MCNT_SET( TOWER, EQVOC_CNT,   ctx->metrics.eqvoc_cnt   );
 
@@ -1504,6 +1531,10 @@ returnable_frag( fd_tower_tile_t *   ctx,
     fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     FD_TEST( msg->staked_vote_cnt<=MAX_COMPRESSED_STAKE_WEIGHTS );
     FD_TEST( msg->staked_id_cnt<=MAX_SHRED_DESTS );
+
+    fd_stake_ci_epoch_msg_init( ctx->stake_ci, ctx->epoch_msg );
+    *ctx->epoch_schedule                                = epoch_msg->epoch_schedule;
+
     fd_multi_epoch_leaders_epoch_msg_init( ctx->mleaders, msg );
     fd_multi_epoch_leaders_epoch_msg_fini( ctx->mleaders );
     return 0;

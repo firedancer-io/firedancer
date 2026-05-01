@@ -370,7 +370,7 @@
 
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
-#include "../votes/fd_votes.h"
+#include "../notar/fd_notar.h"
 #include "../../disco/pack/fd_microblock.h"
 
 #define FD_TOWER_FLAG_ANCESTOR_ROLLBACK 0 /* rollback to an ancestor of our prev vote */
@@ -442,7 +442,7 @@ struct fd_tower_blk {
   ulong     next;               /* for pool, map */
   ulong     slot;               /* map key */
   ulong     parent_slot;        /* parent slot */
-  fd_hash_t block_id;           /* the block_id. set to what we last replayed (even if a different block_id is confirmed via fd_votes) */
+  fd_hash_t block_id;           /* the block_id. set to what we last replayed (even if a different block_id is confirmed via fd_notar) */
   fd_hash_t parent_block_id;    /* the parent block_id */
   ulong     epoch;              /* epoch of this slot */
   int       voted;              /* whether we voted for this slot yet */
@@ -452,6 +452,7 @@ struct fd_tower_blk {
   int       leader;             /* whether this slot was our own leader slot */
   int       propagated;         /* whether this slot has been propagation confirmed (1/3 stake) */
   ulong     prev_leader_slot;   /* previous slot in which we were leader as of this slot (inclusive) */
+  ulong     bank_idx;           /* index into fd_banks for the bank that replayed this slot */
 };
 typedef struct fd_tower_blk fd_tower_blk_t;
 
@@ -687,7 +688,7 @@ fd_tower_stakes_query_stake( fd_tower_t const * tower,
 uchar
 fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_ghost_t * ghost,
-                         fd_votes_t * votes,
+                         fd_notar_t * notar,
                          ulong *      reset_slot,     /* slot to reset PoH to */
                          fd_hash_t *  reset_block_id, /* block ID to reset PoH to */
                          ulong *      vote_slot,      /* slot to vote for (ULONG_MAX if no vote) */
