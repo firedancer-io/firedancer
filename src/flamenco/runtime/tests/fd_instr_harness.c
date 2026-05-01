@@ -361,6 +361,10 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   effects->modified_accounts       = modified_accts;
   effects->modified_accounts_count = 0UL;
 
+  int skip_data = FD_FEATURE_ACTIVE_BANK( runner->bank, virtual_address_space_adjustments )
+               && effects->cu_avail == 0UL
+               && effects->result   != 0;
+
   /* Capture borrowed accounts */
 
   for( ulong j=0UL; j < ctx->txn_out->accounts.cnt; j++ ) {
@@ -379,7 +383,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
 
     memcpy( out_acct->address, acc_key, sizeof(fd_pubkey_t) );
     out_acct->lamports = acc->lamports;
-    if( acc->dlen>0UL ) {
+    if( !skip_data && acc->dlen>0UL ) {
       out_acct->data =
         FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                     PB_BYTES_ARRAY_T_ALLOCSIZE( acc->dlen ) );
