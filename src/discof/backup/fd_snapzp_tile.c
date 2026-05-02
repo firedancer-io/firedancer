@@ -244,7 +244,7 @@ append_account( fd_snapzp_t * ctx,
                 uint          data_sz ) {
   fd_funk_rec_t const *     rec       = &ctx->funk->rec_pool->ele[ rec_idx ];
   fd_account_meta_t const * val       = fd_wksp_laddr_fast( ctx->funk->wksp, val_gaddr );
-  ulong                     raw_chunk = sizeof(snap_acc_hdr_t) + data_sz;
+  ulong                     raw_chunk = fd_ulong_align_up( sizeof(snap_acc_hdr_t) + data_sz, 8UL );
 
   if( FD_UNLIKELY( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ) ) return;
 
@@ -271,6 +271,10 @@ append_account( fd_snapzp_t * ctx,
   ctx->raw_buf.size += sizeof(snap_acc_hdr_t);
   fd_memcpy( raw + ctx->raw_buf.size, fd_account_data( val ), data_sz );
   ctx->raw_buf.size += data_sz;
+
+  ulong pad_sz = fd_ulong_align_up( ctx->raw_buf.size, 8UL ) - ctx->raw_buf.size;
+  fd_memset( raw + ctx->raw_buf.size, 0, pad_sz );
+  ctx->raw_buf.size += pad_sz;
 
   /* Do some work */
   if( FD_UNLIKELY( ctx->raw_buf.size - ctx->raw_buf.pos >= (128UL<<10) ) ) {
