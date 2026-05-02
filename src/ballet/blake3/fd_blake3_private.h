@@ -149,6 +149,14 @@ fd_blake3_avx_compress8_fast( uchar const * restrict batch_data,  /* align==32 l
                               ulong                  counter,
                               uchar                  flags );
 
+void
+fd_blake3_avx_xof2048( uchar const * restrict root_msg,
+                       uint                   last_block_sz,
+                       ulong                  ctr0,
+                       uint                   last_block_flags,
+                       void *       restrict hash,
+                       uchar const * restrict root_cv_pre );
+
 #endif /* FD_HAS_AVX */
 
 #if FD_HAS_AVX512
