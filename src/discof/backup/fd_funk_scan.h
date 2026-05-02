@@ -20,7 +20,8 @@
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
-#define FUNK_SCAN_PARA 64
+#define FUNK_SCAN_PARA   64
+#define SLOW_WALK_MAX     8
 struct __attribute__((aligned(64))) fd_funk_scan_batch {
   ulong val_gaddr[ FUNK_SCAN_PARA ];  /* ULONG_MAX implies sentinel */
   uint  rec_idx  [ FUNK_SCAN_PARA ];
@@ -39,10 +40,9 @@ struct fd_funk_scan {
 
   /* Slow path for chains with more than one element */
   ulong slow_cnt;
-  /* The slow path is re-entrant to deal with excessively long chains */
-  ulong slow_last_chain_idx;
-  ulong slow_last_rec_idx;
-
+  ulong walk_cnt;
+  ulong walk_ele_idx  [ SLOW_WALK_MAX ];
+  ulong walk_chain_idx[ SLOW_WALK_MAX ];
   ulong slow_chain[ 3*FUNK_SCAN_PARA ]; /* actually only 2*FUNK_SCAN_PARA, but with tail region for spilled writes */
 };
 typedef struct fd_funk_scan fd_funk_scan_t;

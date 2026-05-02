@@ -21,8 +21,7 @@ fd_funk_scan_init( fd_funk_scan_t * scan,
     .chain_max = fd_funk_rec_map_chain_cnt( funk->rec_map ),
 
     .slow_cnt  = 0UL,
-    .slow_last_chain_idx = ULONG_MAX,
-    .slow_last_rec_idx   = ULONG_MAX
+    .walk_cnt  = 0UL
   };
 
   /* Handle tail end via slow path */
@@ -138,28 +137,9 @@ fd_funk_scan_fast( fd_funk_scan_t *       scan,
   return batch;
 }
 
-/* Walk a locked chain starting from iter, appending root records to
-   batch starting at position *cnt.  Returns the iterator position
-   (done or not) after filling up to FUNK_SCAN_PARA entries. */
-
-static fd_funk_rec_map_iter_t
-fd_funk_scan_walk_chain( fd_funk_scan_batch_t * batch,
-                         fd_funk_rec_map_iter_t iter,
-                         ulong *                cnt ) {
-  while( *cnt<FUNK_SCAN_PARA && !fd_funk_rec_map_iter_done( iter ) ) {
-    fd_funk_rec_t const * rec = fd_funk_rec_map_iter_ele_const( iter );
-    if( fd_funk_txn_xid_eq_root( rec->pair.xid ) ) {
-      ulong i = (*cnt)++;
-      batch->val_gaddr[ i ] = rec->val_gaddr;
-      batch->rec_idx  [ i ] = (uint)iter.ele_idx;
-      batch->data_sz  [ i ] = (uint)( rec->val_sz - sizeof(fd_account_meta_t) );
-    }
-    iter = fd_funk_rec_map_iter_next( iter );
-  }
-  return iter;
-}
-
-/* fd_funk_scan_slow runs the slow path */
+/* fd_funk_scan_slow runs the slow path.  Walks up to SLOW_WALK_MAX
+   chains simultaneously so that cache-miss loads from independent
+   chains overlap (memory-level parallelism). */
 
 __attribute__((noinline)) static fd_funk_scan_batch_t *
 fd_funk_scan_slow( fd_funk_scan_t *       scan,
@@ -176,52 +156,97 @@ fd_funk_scan_slow( fd_funk_scan_t *       scan,
   ulong slow_idx = 0UL;
   ulong slow_cnt = scan->slow_cnt;
 
-  /* Resume a partially consumed chain from last call (already locked) */
-  if( FD_UNLIKELY( scan->slow_last_chain_idx!=ULONG_MAX ) ) {
-    ulong chain_idx = scan->slow_last_chain_idx;
-
-    fd_funk_rec_map_iter_t iter = { .ele=rec_tbl, .ele_idx=scan->slow_last_rec_idx };
-    iter = fd_funk_scan_walk_chain( batch, iter, &cnt );
-
-    if( FD_UNLIKELY( !fd_funk_rec_map_iter_done( iter ) ) ) {
-      scan->slow_last_rec_idx = iter.ele_idx;
-      goto compact;
-    }
-
-    scan->slow_last_chain_idx = ULONG_MAX;
-    scan->slow_last_rec_idx   = ULONG_MAX;
-    fd_funk_rec_map_iter_unlock( rec_map, &chain_idx, 1UL );
+  ulong walk_cnt = scan->walk_cnt;
+  ulong walk_ele_idx  [ SLOW_WALK_MAX ];
+  ulong walk_chain_idx[ SLOW_WALK_MAX ];
+  for( ulong w=0UL; w<walk_cnt; w++ ) {
+    walk_ele_idx  [ w ] = scan->walk_ele_idx  [ w ];
+    walk_chain_idx[ w ] = scan->walk_chain_idx[ w ];
   }
 
-  /* Process queued chains */
-  while( slow_idx<slow_cnt && cnt<FUNK_SCAN_PARA ) {
-    ulong chain_idx = scan->slow_chain[ slow_idx ];
-    slow_idx++;
-
-    int err = fd_funk_rec_map_iter_lock( rec_map, &chain_idx, 1UL, FD_MAP_FLAG_BLOCKING );
-    if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "iter_lock failed (%i-%s)", err, fd_map_strerror( err ) ));
-
-    fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
-    iter = fd_funk_scan_walk_chain( batch, iter, &cnt );
-
-    if( FD_UNLIKELY( !fd_funk_rec_map_iter_done( iter ) ) ) {
-      scan->slow_last_chain_idx = chain_idx;
-      scan->slow_last_rec_idx   = iter.ele_idx;
-      goto compact;
-    }
-
-    fd_funk_rec_map_iter_unlock( rec_map, &chain_idx, 1UL );
+  /* Fill walk slots from the slow queue */
+# define FILL_WALKS                                                                                             \
+  while( walk_cnt<SLOW_WALK_MAX && slow_idx<slow_cnt ) {                                                        \
+    ulong ci_ = scan->slow_chain[ slow_idx++ ];                                                                 \
+    int err_ = fd_funk_rec_map_iter_lock( rec_map, &ci_, 1UL, FD_MAP_FLAG_BLOCKING );                           \
+    if( FD_UNLIKELY( err_!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "iter_lock failed (%i-%s)", err_, fd_map_strerror( err_ ) )); \
+    fd_funk_rec_map_iter_t it_ = fd_funk_rec_map_iter( rec_map, ci_ );                                          \
+    if( FD_UNLIKELY( fd_funk_rec_map_iter_done( it_ ) ) ) {                                                     \
+      fd_funk_rec_map_iter_unlock( rec_map, &ci_, 1UL );                                                        \
+      continue;                                                                                                 \
+    }                                                                                                           \
+    walk_chain_idx[ walk_cnt ] = ci_;                                                                           \
+    walk_ele_idx  [ walk_cnt ] = it_.ele_idx;                                                                   \
+    walk_cnt++;                                                                                                 \
   }
 
-compact:;
+  FILL_WALKS
+
+  /* Prefetch first elements of all active walks */
+  for( ulong w=0UL; w<walk_cnt; w++ )
+    __builtin_prefetch( &rec_tbl[ walk_ele_idx[ w ] ], 0, 0 );
+
+  /* Round-robin walk across active chains */
+  while( FD_LIKELY( walk_cnt>0UL ) ) {
+    ulong w = 0UL;
+    while( w<walk_cnt ) {
+      if( FD_UNLIKELY( cnt>=FUNK_SCAN_PARA ) ) goto suspend;
+
+      fd_funk_rec_t const * rec = &rec_tbl[ walk_ele_idx[ w ] ];
+
+      if( fd_funk_txn_xid_eq_root( rec->pair.xid ) ) {
+        batch->val_gaddr[ cnt ] = rec->val_gaddr;
+        batch->rec_idx  [ cnt ] = (uint)walk_ele_idx[ w ];
+        batch->data_sz  [ cnt ] = (uint)( rec->val_sz - sizeof(fd_account_meta_t) );
+        cnt++;
+      }
+
+      ulong next = (ulong)rec->map_next;
+      if( FD_UNPREDICTABLE( next==(ulong)(uint)(~0UL) ) ) {
+        fd_funk_rec_map_iter_unlock( rec_map, &walk_chain_idx[ w ], 1UL );
+        walk_cnt--;
+        walk_ele_idx  [ w ] = walk_ele_idx  [ walk_cnt ];
+        walk_chain_idx[ w ] = walk_chain_idx[ walk_cnt ];
+        continue;
+      }
+
+      walk_ele_idx[ w ] = next;
+      __builtin_prefetch( &rec_tbl[ next ], 0, 0 );
+      w++;
+    }
+
+    FILL_WALKS
+
+    for( ulong w2=0UL; w2<walk_cnt; w2++ )
+      __builtin_prefetch( &rec_tbl[ walk_ele_idx[ w2 ] ], 0, 0 );
+  }
+
+# undef FILL_WALKS
+
   /* Shift unprocessed chains to front */
   ulong remaining = slow_cnt - slow_idx;
   for( ulong j=0UL; j<remaining; j++ ) {
     scan->slow_chain[ j ] = scan->slow_chain[ slow_idx + j ];
   }
-  scan->slow_cnt = remaining;
+  scan->slow_cnt  = remaining;
+  scan->walk_cnt  = 0UL;
 
-  if( FD_UNLIKELY( !cnt && !scan->slow_cnt && scan->chain_idx>=scan->chain_max ) ) return NULL;
+  if( FD_UNLIKELY( !cnt && !remaining && scan->chain_idx>=scan->chain_max ) ) return NULL;
+  return batch;
+
+suspend:
+  /* Save all active walk states (chains remain locked) */
+  scan->walk_cnt = walk_cnt;
+  for( ulong w=0UL; w<walk_cnt; w++ ) {
+    scan->walk_ele_idx  [ w ] = walk_ele_idx  [ w ];
+    scan->walk_chain_idx[ w ] = walk_chain_idx[ w ];
+  }
+
+  ulong remaining2 = slow_cnt - slow_idx;
+  for( ulong j=0UL; j<remaining2; j++ ) {
+    scan->slow_chain[ j ] = scan->slow_chain[ slow_idx + j ];
+  }
+  scan->slow_cnt = remaining2;
 
   return batch;
 }
@@ -231,6 +256,7 @@ fd_funk_scan_poll( fd_funk_scan_t *       scan,
                    fd_funk_scan_batch_t * batch ) {
 
   if( FD_UNLIKELY( scan->slow_cnt  >  FUNK_SCAN_PARA ||
+                   scan->walk_cnt  >  0UL             ||
                    scan->chain_idx >= scan->chain_max ) ) {
     return fd_funk_scan_slow( scan, batch );
   }
