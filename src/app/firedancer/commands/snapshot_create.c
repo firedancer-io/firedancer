@@ -97,6 +97,7 @@ snapshot_create_cmd_fn( args_t *   args,
   long dt = -fd_log_wallclock();
 
   /* Send snapshot create command */
+  ulong start_signal = mk_tile_metrics[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ];
   ulong err = send_admin_cmd( admin_cmd_mcache, admin_rsp_mcache, REPLAY_ADMIN_CMD_SNAP_CREATE );
   switch( err ) {
   case REPLAY_ADMIN_SUCCESS:
@@ -115,8 +116,13 @@ snapshot_create_cmd_fn( args_t *   args,
     FD_LOG_ERR(( "failed to request snapshot creation %lu-%s", err, fd_replay_admin_strerror( err ) ));
   }
 
+  /* Wait for snapshot creation to start */
+  while( mk_tile_metrics[ MIDX( COUNTER, SNAPMK, SNAPSHOTS_CREATED ) ]==start_signal ) {
+    fd_log_sleep( (long)1e6 ); /* sleep 1ms */
+    /* FIXME also check the replay tile's heartbeat to bail if it's down */
+  }
+
   /* Wait for snapshot load to complete */
-  fd_log_sleep( (long)5e6 );
   ulong accounts_processed_prev = SUM_ZP_METRIC( ACCOUNTS_COMPRESSED );
   ulong tot_sz_prev             = SUM_ZP_METRIC( BYTES_COMPRESSED    );
   ulong tot_sz_before = tot_sz_prev;

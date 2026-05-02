@@ -239,6 +239,7 @@ extern action_t fd_action_watch;
 extern action_t fd_action_add_authorized_voter;
 extern action_t fd_action_forktest;
 extern action_t fd_action_snapshot_create;
+extern action_t fd_action_snapshot_create_offline;
 extern action_t fd_action_pid;
 extern action_t fd_action_tid;
 
@@ -282,6 +283,7 @@ action_t * ACTIONS[] = {
   &fd_action_add_authorized_voter,
   &fd_action_forktest,
   &fd_action_snapshot_create,
+  &fd_action_snapshot_create_offline,
   &fd_action_pid,
   &fd_action_tid,
   NULL,

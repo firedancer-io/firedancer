@@ -480,6 +480,7 @@ snap_begin( fd_snapmk_t * ctx,
   ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );
   fd_funk_scan_init( ctx->scan, ctx->funk );
   ctx->start_time = fd_log_wallclock();
+  FD_MCNT_INC( SNAPMK, SNAPSHOTS_CREATED, 1UL );
   FD_LOG_NOTICE(( "Snapshot creation started" ));
 }
 
