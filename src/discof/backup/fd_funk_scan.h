@@ -39,10 +39,11 @@ struct fd_funk_scan {
 
   /* Slow path for chains with more than one element */
   ulong slow_cnt;
-  ulong slow_chain[ 2*FUNK_SCAN_PARA ];
   /* The slow path is re-entrant to deal with excessively long chains */
   ulong slow_last_chain_idx;
   ulong slow_last_rec_idx;
+
+  ulong slow_chain[ 3*FUNK_SCAN_PARA ]; /* actually only 2*FUNK_SCAN_PARA, but with tail region for spilled writes */
 };
 typedef struct fd_funk_scan fd_funk_scan_t;
 

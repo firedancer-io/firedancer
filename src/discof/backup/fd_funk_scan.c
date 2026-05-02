@@ -36,15 +36,12 @@ fd_funk_scan_init( fd_funk_scan_t * scan,
   return scan;
 }
 
-static fd_funk_rec_t const rec_sentinel = {
-  .val_gaddr = ULONG_MAX
-};
-
 /* fd_funk_scan_fast runs the fast path, advancing by FUNK_SCAN_PARA
    hash chains.
 
-   To allow for compiler vectorization and speculative execution, there
-   are no dependencies between iterations of the same loop. */
+   Fused loop: for each group of 8 chain descriptors, compute the
+   visibility mask and do masked gathers in a single pass.  This avoids
+   an intermediate bitmask and the scalar epilogue GCC emits for it. */
 
 static fd_funk_scan_batch_t *
 fd_funk_scan_fast( fd_funk_scan_t *       scan,
@@ -52,62 +49,89 @@ fd_funk_scan_fast( fd_funk_scan_t *       scan,
   /* invariant: chain_idx+FUNK_SCAN_PARA <= chain_max */
   /* invariant: slow_cnt <= FUNK_SCAN_PARA */
 
-  fd_funk_rec_chain_t    heads[ FUNK_SCAN_PARA ];
-  fd_funk_rec_t const *  reca [ FUNK_SCAN_PARA ];
-
   fd_funk_rec_chain_t const * chain_tbl = scan->chain_tbl;
   fd_funk_rec_t const *       rec_tbl   = scan->rec_tbl;
 
-  ulong   chain = scan->chain_idx;
-  // ulong * slow  = scan->slow_chain + scan->slow_cnt;
+  ulong chain = scan->chain_idx;
 
-  /* Load map chain descriptors */
-  FD_STATIC_ASSERT( sizeof(fd_funk_rec_chain_t)==16UL, layout ); /* prevent silent breakage */
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i+=4 ) {
-    /* Dereferencing __m512i volatile forces an aligned AVX512 load,
-       which is atomic for each fd_funk_rec_chain_t (16 bytes). */
-    __m512i chain_sse = *((__m512i volatile *)( &chain_tbl[ chain+i ] ));
-    memcpy( &heads[ i ], &chain_sse, sizeof(__m512i) );
-  }
+  FD_STATIC_ASSERT( sizeof(fd_funk_rec_chain_t)==16UL, layout );
 
-  /* Locate map heads */
-  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    ulong ver_cnt   = heads[ i ].ver_cnt;
-    _Bool locked    = fd_funk_rec_map_private_vcnt_ver( ver_cnt ) &  1;
-    _Bool is_empty  = fd_funk_rec_map_private_vcnt_cnt( ver_cnt ) == 0;
-    _Bool is_long   = fd_funk_rec_map_private_vcnt_cnt( ver_cnt ) >  1;
-    _Bool fast_path = FD_UNPREDICTABLE( !locked   && !is_long  );
-    _Bool visible   = FD_UNPREDICTABLE( fast_path && !is_empty );
-
-    uint rec_idx = heads[ i ].head_cidx;
-    reca[ i ] = visible ? &rec_tbl[ rec_idx ] : &rec_sentinel;
-    batch->rec_idx[ i ] = rec_idx;
-
-    // slow[ i ] = fast_path ? ULONG_MAX : i;
-  }
-
-  /* Gather map recs */
+  __m512i sentinel  = _mm512_set1_epi64( (long)ULONG_MAX );
+  __m512i rec_base  = _mm512_set1_epi64( (long)(ulong)rec_tbl );
+  __m512i rec_sz    = _mm512_set1_epi64( (long)sizeof(fd_funk_rec_t) );
   __m512i off_gaddr = _mm512_set1_epi64( (long)offsetof(fd_funk_rec_t, val_gaddr)      );
   __m512i off_valsz = _mm512_set1_epi64( (long)offsetof(fd_funk_rec_t, val_gaddr) - 8L );
   __m512i mask28    = _mm512_set1_epi64( (1L<<28)-1L );
   __m512i meta_sz   = _mm512_set1_epi64( (long)sizeof(fd_account_meta_t) );
+
+  /* visible = !locked && cnt==1  ⟺  (ver_cnt & ((1<<44)-1)) == 1
+     (low 43 bits are cnt, bit 43 is the lock bit) */
+  __m512i mask44    = _mm512_set1_epi64( (1L<<44)-1L );
+  __m512i mask43    = _mm512_set1_epi64( (1L<<43)-1L );
+  __m512i one       = _mm512_set1_epi64( 1L );
+  __m512i zero      = _mm512_setzero_si512();
+  __m512i lane_off  = _mm512_set_epi64( 7, 6, 5, 4, 3, 2, 1, 0 );
+
+  /* Permute indices for deinterleaving 8 chain descriptors.
+     Each descriptor is {ver_cnt:u64, head_cidx:u32, pad:u32} = 2 qwords.
+     Two zmm registers hold 8 descriptors as 16 qwords.
+     ver_cnt  sits at even qword positions (0,2,4,6 in each zmm).
+     head_cidx sits at dword positions (2,6,10,14 in each zmm). */
+  __m512i perm_vcnt = _mm512_set_epi64( 14, 12, 10, 8, 6, 4, 2, 0 );
+  __m512i perm_cidx = _mm512_set_epi32( 0,0,0,0,0,0,0,0,
+                                        30,26,22,18, 14,10,6,2 );
+
+  ulong slow_cnt = scan->slow_cnt;
+
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i+=8UL ) {
-    __m512i ptrs   = _mm512_loadu_si512( &reca[ i ] );
-    __m512i gaddr  = _mm512_i64gather_epi64( _mm512_add_epi64( ptrs, off_gaddr ), NULL, 1 );
+    /* Load 8 chain descriptors (2 zmm, 4 descriptors each).
+       Volatile deref forces an aligned AVX-512 load, which is atomic
+       for each fd_funk_rec_chain_t (16 bytes). */
+    __m512i cd0 = *((__m512i volatile *)( &chain_tbl[ chain+i   ] ));
+    __m512i cd1 = *((__m512i volatile *)( &chain_tbl[ chain+i+4 ] ));
+
+    /* Extract ver_cnt for 8 chains and compute visibility mask */
+    __m512i vcnt = _mm512_permutex2var_epi64( cd0, perm_vcnt, cd1 );
+    __mmask8 vis  = _mm512_cmpeq_epi64_mask( _mm512_and_epi64( vcnt, mask44 ), one );
+
+    /* Append locked or multi-element chains to slow array */
+    __mmask8 not_empty = _mm512_cmpneq_epi64_mask( _mm512_and_epi64( vcnt, mask43 ), zero );
+    __mmask8 slow_mask = not_empty & (__mmask8)~vis;
+    if( FD_UNLIKELY( slow_mask ) ) {
+      __m512i chain_ids = _mm512_add_epi64( _mm512_set1_epi64( (long)(chain+i) ), lane_off );
+#     if defined(__znver4__)
+      __m512i compressed = _mm512_maskz_compress_epi64( slow_mask, chain_ids );
+      _mm512_storeu_si512( scan->slow_chain + slow_cnt, compressed );
+#     else
+      _mm512_mask_compressstoreu_epi64( scan->slow_chain + slow_cnt, slow_mask, chain_ids );
+#     endif
+      slow_cnt += (ulong)_mm_popcnt_u32( (uint)slow_mask );
+    }
+
+    /* Extract and store head_cidx for 8 chains */
+    __m256i cidx = _mm512_castsi512_si256(
+                     _mm512_permutex2var_epi32( cd0, perm_cidx, cd1 ) );
+    _mm256_storeu_si256( (__m256i *)&batch->rec_idx[ i ], cidx );
+
+    /* Compute record addresses: rec_tbl + head_cidx * sizeof(fd_funk_rec_t) */
+    __m512i idx64 = _mm512_cvtepu32_epi64( cidx );
+    __m512i addrs = _mm512_add_epi64( rec_base, _mm512_mullo_epi64( idx64, rec_sz ) );
+
+    /* Masked gather val_gaddr (inactive lanes get sentinel) */
+    __m512i gaddr = _mm512_mask_i64gather_epi64( sentinel, vis,
+                      _mm512_add_epi64( addrs, off_gaddr ), NULL, 1 );
     _mm512_storeu_si512( &batch->val_gaddr[ i ], gaddr );
-    __m512i bf     = _mm512_i64gather_epi64( _mm512_add_epi64( ptrs, off_valsz ), NULL, 1 );
-    __m512i valsz  = _mm512_and_epi64( bf, mask28 );
-    __m512i dsz    = _mm512_sub_epi64( valsz, meta_sz );
-    __m256i dsz32  = _mm512_cvtepi64_epi32( dsz );
+
+    /* Masked gather val_sz bitfield, extract data size */
+    __m512i bf    = _mm512_mask_i64gather_epi64( sentinel, vis,
+                      _mm512_add_epi64( addrs, off_valsz ), NULL, 1 );
+    __m512i valsz = _mm512_and_epi64( bf, mask28 );
+    __m512i dsz   = _mm512_sub_epi64( valsz, meta_sz );
+    __m256i dsz32 = _mm512_cvtepi64_epi32( dsz );
     _mm256_storeu_si256( (__m256i *)&batch->data_sz[ i ], dsz32 );
   }
 
-  /* Compact slow array */
-  // ulong j = 0UL;
-  // for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-  //   if( slow[ i ]!=ULONG_MAX ) slow[ j++ ] = slow[ i ];
-  // }
-  // scan->slow_cnt += j;
+  scan->slow_cnt = slow_cnt;
 
   scan->chain_idx += FUNK_SCAN_PARA;
 
