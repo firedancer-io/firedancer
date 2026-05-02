@@ -112,7 +112,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "ZSTD_CCtx_setParameter(ZSTD_c_stableOutBuffer=1) failed: %s", ZSTD_getErrorName( zst_err ) ));
   }
   ctx->raw = raw_buf;
-  ctx->raw_buf  = (ZSTD_inBuffer){ .src = raw_buf,  .size = RAW_BUF_SZ };
+  ctx->raw_buf  = (ZSTD_inBuffer){ .src = raw_buf,  .size = 0UL };
   ctx->comp_buf = (ZSTD_outBuffer){ .dst = comp_buf+COMP_HEAD, .size = COMP_BUF_SZ-COMP_HEAD };
 
   FD_TEST( tile->in_cnt==1UL );
