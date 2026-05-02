@@ -1943,10 +1943,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) {
 
     tile->snapmk.zp_fseq_id = fd_pod_query_ulong( config->topo.props, "snapzp.fseq", ULONG_MAX );
+    FD_TEST( fd_cstr_printf_check( tile->snapmk.out_path, PATH_MAX, NULL, "%s/snapshot.tar.zst", config->paths.snapshots ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapzp" ) ) ) {
 
     tile->snapzp.zp_fseq_id = fd_pod_query_ulong( config->topo.props, "snapzp.fseq", ULONG_MAX );
+    FD_TEST( fd_cstr_printf_check( tile->snapzp.out_path, PATH_MAX, NULL, "%s/snapshot.tar.zst", config->paths.snapshots ) );
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

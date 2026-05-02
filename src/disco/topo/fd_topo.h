@@ -688,10 +688,12 @@ struct fd_topo_tile {
 
     struct {
       ulong zp_fseq_id;
+      char  out_path[ PATH_MAX ];
     } snapzp;
 
     struct {
       ulong zp_fseq_id;
+      char  out_path[ PATH_MAX ];
     } snapmk;
   };
 };

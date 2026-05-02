@@ -74,7 +74,7 @@ privileged_init( fd_topo_t *      topo,
   fd_snapzp_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapzp_t), sizeof(fd_snapzp_t) );
   memset( ctx, 0, sizeof(fd_snapzp_t) );
 
-  char const * out_path = "/data/r/firedancer/snapout.zst";
+  char const * out_path = tile->snapzp.out_path;
   int fd = open( out_path, O_CREAT|O_WRONLY|O_DIRECT, 0644 );
   if( FD_UNLIKELY( fd<0 ) ) {
     FD_LOG_ERR(( "open(%s) failed: %s", out_path, fd_io_strerror( errno ) ));
@@ -131,12 +131,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo; (void)tile;
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  fd_snapzp_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = ctx->fd;
   return out_cnt;
 }
 

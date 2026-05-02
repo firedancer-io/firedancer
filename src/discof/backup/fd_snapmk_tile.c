@@ -10,6 +10,7 @@
 #include "../../util/pod/fd_pod.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define ZSTD_STATIC_LINKING_ONLY
@@ -34,6 +35,7 @@ struct fd_snapmk {
   ulong out_flush_pending; /* bit set */
 
   int              out_fd;
+  char             out_path[ PATH_MAX ];
   ulong volatile * zp_file_off;
   ulong            in_idle_cnt;
 
@@ -86,12 +88,13 @@ privileged_init( fd_topo_t *      topo,
   fd_snapmk_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t) );
   memset( ctx, 0, sizeof(fd_snapmk_t) );
 
-  char const * out_path = "/data/r/firedancer/snapout.zst";
+  char const * out_path = tile->snapmk.out_path;
   int fd = open( out_path, O_CREAT|O_WRONLY, 0644 );
   if( FD_UNLIKELY( fd<0 ) ) {
     FD_LOG_ERR(( "open(%s) failed: %s", out_path, fd_io_strerror( errno ) ));
   }
   ctx->out_fd = fd;
+  fd_cstr_ncpy( ctx->out_path, tile->snapmk.out_path, PATH_MAX );
 }
 
 static void
@@ -434,8 +437,13 @@ after_credit( fd_snapmk_t *       ctx,
       ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
       fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
       ctx->state = SNAPMK_STATE_IDLE;
-      FD_LOG_NOTICE(( "Snapshot created in %.3f seconds",
-                      (double)( fd_log_wallclock() - ctx->start_time )/1e9 ));
+      struct stat st;
+      if( FD_UNLIKELY( fstat( ctx->out_fd, &st ) ) ) {
+        FD_LOG_ERR(( "fstat failed: %s", fd_io_strerror( errno ) ));
+      }
+      FD_LOG_NOTICE(( "Snapshot created in %.3f seconds (%s, %.3f GB)",
+                      (double)( fd_log_wallclock() - ctx->start_time )/1e9,
+                      ctx->out_path, (double)st.st_size/1e9 ));
     }
     break;
   }
