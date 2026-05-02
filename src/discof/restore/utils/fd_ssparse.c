@@ -301,21 +301,19 @@ advance_tar( fd_ssparse_t *                ssparse,
       FD_LOG_WARNING(( "invalid account append vec name %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_NAME_SZ) "s", hdr->name ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
+    ssparse->slot = slot;
 
     acc_vec_key_t key = { .slot = slot, .id = id };
     acc_vec_t const * acc_vec = acc_vec_map_ele_query_const( ssparse->manifest.acc_vec_map, &key, NULL, ssparse->manifest.acc_vec_pool );
     if( FD_UNLIKELY( !acc_vec ) ) {
-      FD_LOG_WARNING(( "append vec %lu.%lu not found in manifest", slot, id ));
-      return FD_SSPARSE_ADVANCE_ERROR;
+      ssparse->acc_vec_bytes = ssparse->tar.file_bytes;
+    } else {
+      ssparse->acc_vec_bytes = acc_vec->file_sz;
+      if( FD_UNLIKELY( ssparse->acc_vec_bytes>ssparse->tar.file_bytes ) ) {
+        FD_LOG_WARNING(( "invalid append vec file size %lu > %lu", ssparse->acc_vec_bytes, ssparse->tar.file_bytes ));
+        return FD_SSPARSE_ADVANCE_ERROR;
+      }
     }
-
-    ssparse->acc_vec_bytes = acc_vec->file_sz;
-    if( FD_UNLIKELY( ssparse->acc_vec_bytes>ssparse->tar.file_bytes ) ) {
-      FD_LOG_WARNING(( "invalid append vec file size %lu > %lu", ssparse->acc_vec_bytes, ssparse->tar.file_bytes ));
-      return FD_SSPARSE_ADVANCE_ERROR;
-    }
-
-    ssparse->slot = slot;
   } else if( FD_LIKELY( !strncmp( hdr->name, "snapshots/status_cache", 22UL ) ) ) desired_state = FD_SSPARSE_STATE_STATUS_CACHE;
   else if( FD_LIKELY( !strncmp( hdr->name, "snapshots/", 10UL ) ) ) {
     desired_state = FD_SSPARSE_STATE_MANIFEST;
