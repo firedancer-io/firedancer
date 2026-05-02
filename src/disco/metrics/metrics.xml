@@ -1203,7 +1203,6 @@ metric introduced.
 <tile name="snapmk">
     <gauge name="Active" summary="State of the tile. 0=IDLE 1=ACTIVE" />
     <counter name="SnapshotsCreated" summary="Number of snapshots created (includes in-progress)" />
-    <counter name="AccountsCompressed" summary="Number of accounts processed" />
     <counter name="BytesCompressed" summary="Number of raw bytes compressed" />
     <counter name="BytesWritten" summary="Number of bytes compressed bytes written" />
     <counter name="IoBlockedDurationSeconds" converter="seconds" summary="Cumulative time blocked on I/O" />
