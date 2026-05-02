@@ -5,7 +5,7 @@
 #include "../../firedancer/topology.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/metrics/fd_metrics.h"
-#include "../../../discof/backup/fd_snapmk.h"
+#include "../../../discof/backup/fd_funk_scan.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../flamenco/runtime/fd_bank.h"
 #include "../../../util/pod/fd_pod_format.h"
@@ -52,8 +52,8 @@ snapshot_create_offline_topo( config_t * config ) {
   fd_topob_wksp( topo, "snapmk_zp"     );
   fd_topob_wksp( topo, "snapmk_replay" );
 
-  FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     32UL,  sizeof(fd_snapmk_batch_t), 1UL );
-  /**/                 fd_topob_link( topo, "snapmk_replay", "snapmk_replay", 128UL, 0UL,                       1UL )->permit_no_consumers = 1;
+  FOR(snapzp_tile_cnt) fd_topob_link( topo, "snapmk_zp",     "snapmk_zp",     32UL,  sizeof(fd_funk_scan_batch_t), 1UL );
+  /**/                 fd_topob_link( topo, "snapmk_replay", "snapmk_replay", 128UL, 0UL,                          1UL )->permit_no_consumers = 1;
   fd_topo_obj_t * zp_fseq = fd_topob_obj( topo, "fseq", "snapmk" );
   fd_pod_insert_ulong( topo->props, "snapzp.fseq", zp_fseq->id );
 

@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_snapmk.h"
+#include "fd_funk_scan.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../funk/fd_funk.h"
@@ -27,9 +28,9 @@ struct fd_snapzp {
 
   ulong idle_cnt;
 
-  ulong               kind_id;
-  ulong               frame_id;
-  fd_snapmk_batch_t * batch;
+  ulong                  kind_id;
+  ulong                  frame_id;
+  fd_funk_scan_batch_t * batch;
 
   int fd;
   ulong volatile * file_off;
@@ -282,7 +283,7 @@ append_account( fd_snapzp_t * ctx,
 static void
 process_batch( fd_snapzp_t * ctx,
                ulong         seq ) {
-  fd_snapmk_batch_t const * batch = ctx->batch + (seq & 31UL); /* FIXME depth mask hardcoded */
+  fd_funk_scan_batch_t const * batch = ctx->batch + (seq & 31UL); /* FIXME depth mask hardcoded */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
     ulong rec_idx = batch->rec_idx[ i ];
     ulong val_gaddr = batch->val_gaddr[ i ];

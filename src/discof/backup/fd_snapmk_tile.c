@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_snapmk.h"
+#include "fd_funk_scan.h"
 #include "fd_ssmanifest_writer.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/topo/fd_topo.h"
@@ -36,11 +37,8 @@ struct fd_snapmk {
   ulong volatile * zp_file_off;
   ulong            in_idle_cnt;
 
-  ulong chain;
-  ulong chain1;
-
-  fd_snapmk_batch_t * batch  [ FD_TOPO_MAX_TILE_OUT_LINKS ];
-  ushort              in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
+  fd_funk_scan_batch_t * batch  [ FD_TOPO_MAX_TILE_OUT_LINKS ];
+  ushort                 in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
 
   fd_banks_t *           banks;
   fd_bank_t const *      bank;
@@ -409,18 +407,16 @@ after_credit( fd_snapmk_t *       ctx,
   case SNAPMK_STATE_ACCOUNTS: {
     int out_idx = fd_ulong_find_lsb( ctx->out_ready );
     ulong seq = stem->seqs[ out_idx ];
-    ctx->scan->batch = ctx->batch[ out_idx ] + (seq & (stem->depths[ out_idx ]-1));
-    fd_funk_scan_refill( ctx->scan, ctx->chain );
-    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_BATCH, 0, 0, 0 );
-    fd_stem_publish( stem, (ulong)out_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
-    _Bool blocked = !stem->cr_avail[ out_idx ];
-    ctx->out_ready &= blocked ? ~fd_ulong_mask_bit( out_idx ) : ULONG_MAX;
-    ctx->chain += FUNK_SCAN_PARA;
-    if( FD_UNLIKELY( ctx->chain >= ctx->chain1 ) ) {
+    fd_funk_scan_batch_t * batch = ctx->batch[ out_idx ] + (seq & (stem->depths[ out_idx ]-1));
+    if( FD_UNLIKELY( !fd_funk_scan_poll( ctx->scan, batch ) ) ) {
       ctx->state = SNAPMK_STATE_ACCOUNTS_FLUSH;
       ctx->out_flush_pending = fd_ulong_mask( 0, (int)ctx->zp_cnt-1 );
       break;
     }
+    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_BATCH, 0, 0, 0 );
+    fd_stem_publish( stem, (ulong)out_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
+    _Bool blocked = !stem->cr_avail[ out_idx ];
+    ctx->out_ready &= blocked ? ~fd_ulong_mask_bit( out_idx ) : ULONG_MAX;
     *charge_busy = 1;
     break;
   }
@@ -476,11 +472,10 @@ snap_begin( fd_snapmk_t * ctx,
   fd_ssmanifest_writer_init( ctx->manifest_writer, bank );
 
   ctx->state = SNAPMK_STATE_TAR_HEADERS;
-  ctx->chain = 0UL;
-  ctx->chain1 = fd_ulong_align_dn( fd_funk_rec_map_chain_cnt( ctx->funk->rec_map ), FUNK_SCAN_PARA );
   fd_funk_scan_init( ctx->scan, ctx->funk );
   ctx->start_time = fd_log_wallclock();
-  FD_MCNT_INC( SNAPMK, SNAPSHOTS_CREATED, 1UL );
+  FD_MGAUGE_SET( SNAPMK, ACTIVE,            1UL );
+  FD_MCNT_INC  ( SNAPMK, SNAPSHOTS_CREATED, 1UL );
   FD_LOG_NOTICE(( "Snapshot creation started" ));
 }
 
