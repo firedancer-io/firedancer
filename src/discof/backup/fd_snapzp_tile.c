@@ -245,6 +245,8 @@ append_account( fd_snapzp_t * ctx,
   fd_account_meta_t const * val       = fd_wksp_laddr_fast( ctx->funk->wksp, val_gaddr );
   ulong                     raw_chunk = sizeof(snap_acc_hdr_t) + data_sz;
 
+  if( FD_UNLIKELY( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ) ) return;
+
   if( FD_UNLIKELY( ctx->raw_buf.size+raw_chunk > RAW_BUF_SZ ) ) {
     flush( ctx );
   }
@@ -285,9 +287,9 @@ process_batch( fd_snapzp_t * ctx,
                ulong         seq ) {
   fd_funk_scan_batch_t const * batch = ctx->batch + (seq & 31UL); /* FIXME depth mask hardcoded */
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
-    ulong rec_idx = batch->rec_idx[ i ];
+    ulong rec_idx   = batch->rec_idx  [ i ];
     ulong val_gaddr = batch->val_gaddr[ i ];
-    uint  data_sz   = batch->data_sz[ i ];
+    uint  data_sz   = batch->data_sz  [ i ];
     if( val_gaddr != ULONG_MAX ) {
       append_account( ctx, rec_idx, val_gaddr, data_sz );
     }
