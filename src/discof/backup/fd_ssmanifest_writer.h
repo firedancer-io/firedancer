@@ -7,8 +7,13 @@
 #include "../../flamenco/runtime/fd_bank.h"
 
 struct fd_ssmanifest_writer {
-  uint              state;
-  fd_bank_t const * bank;
+  uint        state;
+  fd_bank_t * bank;
+  uchar       epoch_idx;
+  uchar       epoch_cnt;
+  uint        vote_cnt;
+  uint        vote_idx;
+  ulong       total_stake;
 };
 
 typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;
@@ -18,7 +23,7 @@ typedef struct fd_ssmanifest_writer fd_ssmanifest_writer_t;
 
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * writer,
-                           fd_bank_t const *        bank );
+                           fd_bank_t *              bank );
 
 /* fd_snap_manifest_serialize serializes up to buf_sz worth of snapshot
    manifest data into out_buf.  Returns the number of bytes written.
@@ -43,6 +48,6 @@ fd_snap_manifest_serialize( fd_ssmanifest_writer_t * enc,
    that fd_snap_manifest_serialize would produce for the given bank. */
 
 ulong
-fd_snap_manifest_serialized_sz( fd_bank_t const * bank );
+fd_snap_manifest_serialized_sz( fd_bank_t * bank );
 
 #endif /* HEADER_fd_src_discof_backup_fd_ssmanifest_writer_h */

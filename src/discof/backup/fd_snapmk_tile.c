@@ -48,7 +48,7 @@ struct fd_snapmk {
   ushort                 in_kind[ FD_TOPO_MAX_TILE_IN_LINKS  ];
 
   fd_banks_t *           banks;
-  fd_bank_t const *      bank;
+  fd_bank_t *            bank;
   fd_txncache_t *        txncache;
   fd_wksp_t *            replay_in_mem;
   fd_ssmanifest_writer_t manifest_writer[1];

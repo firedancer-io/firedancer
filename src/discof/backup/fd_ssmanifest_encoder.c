@@ -143,20 +143,150 @@ ENCODE_FN {
     PUSH_VAL( ulong, 0UL ); /* historical_roots, unused */
     PUSH_VAL( ulong, 0UL ); /* historical_roots_with_hash, unused */
     /* ExtraFieldsToSerialize */
-    PUSH_VAL( ulong, 0UL ); /* FIXME lamports_per_signature */
-    PUSH_VAL( uchar, 0   ); /* unused_incremental_snapshot_persistence */
-    PUSH_VAL( uchar, 0   ); /* unused_epoch_accounts_hash */
-    PUSH_VAL( ulong, 0UL ); /* FIXME versioned_epoch_stakes */
-    enc->state = STATE_LTHASH;
+    PUSH_VAL( ulong, bank->f.rbh_lamports_per_sig );
+    PUSH_VAL( uchar, 0 ); /* unused_incremental_snapshot_persistence */
+    PUSH_VAL( uchar, 0 ); /* unused_epoch_accounts_hash */
+
+    ulong epoch = bank->f.epoch;
+    ulong epoch_cnt = (epoch > 0UL) ? 3UL : 2UL;
+    PUSH_VAL( ulong, epoch_cnt );
+    enc->epoch_cnt = (uchar)epoch_cnt;
+    enc->epoch_idx = 0;
+    enc->state = STATE_EPOCH_STAKES;
     break;
   }
-  case STATE_EPOCH_STAKES: { FD_LOG_ERR(( "TODO")); }
-  case STATE_EPOCH_STAKES_STAKES: { FD_LOG_ERR(( "TODO")); }
-  case STATE_EPOCH_STAKES_EPOCH: { FD_LOG_ERR(( "TODO")); }
-  case STATE_EPOCH_STAKE_HISTORY: { FD_LOG_ERR(( "TODO")); }
-  case STATE_EPOCH_TOTAL_STAKE: { FD_LOG_ERR(( "TODO")); }
-  case STATE_NODE_VOTE_ACCOUNTS: { FD_LOG_ERR(( "TODO")); }
-  case STATE_AUTH_VOTER: { FD_LOG_ERR(( "TODO")); }
+  case STATE_EPOCH_STAKES: {
+    ulong epoch = bank->f.epoch;
+    ulong epoch_stakes_base = (epoch > 0UL) ? (epoch - 1UL) : 0UL;
+    ulong epoch_key = epoch_stakes_base + (ulong)enc->epoch_idx;
+
+    /* entry_type: 0=T-3 commission, 1=T-2 stakes, 2=T-1 stakes+credits */
+    uint entry_type = (epoch > 0UL) ? enc->epoch_idx : (uint)(enc->epoch_idx + 1U);
+
+    uint vote_cnt;
+    if( entry_type==2U ) {
+      vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
+    } else if( entry_type==1U ) {
+      vote_cnt = (uint)*fd_bank_epoch_credits_len( enc->bank );
+    } else {
+      vote_cnt = (uint)*fd_bank_snapshot_commission_t_3_len( enc->bank );
+    }
+    enc->vote_cnt    = vote_cnt;
+    enc->vote_idx    = 0;
+    enc->total_stake = 0UL;
+
+    PUSH_VAL( ulong, epoch_key );
+    PUSH_VAL( uint,  0U ); /* variant = 0 (VersionedEpochStakes::Current) */
+    PUSH_VAL( ulong, (ulong)vote_cnt );
+
+    enc->state = (vote_cnt > 0U) ? STATE_EPOCH_STAKES_STAKES : STATE_EPOCH_STAKES_EPOCH;
+    break;
+  }
+  case STATE_EPOCH_STAKES_STAKES: {
+    ulong epoch = bank->f.epoch;
+    uint entry_type = (epoch > 0UL) ? enc->epoch_idx : (uint)(enc->epoch_idx + 1U);
+
+    fd_pubkey_t pubkey       = {0};
+    ulong       stake        = 0UL;
+    fd_pubkey_t node_account = {0};
+    uchar       commission   = 0;
+    ulong       ec_cnt       = 0UL;
+    fd_epoch_credits_t const * ec = NULL;
+
+    fd_vote_stakes_t * vs       = fd_bank_vote_stakes( bank );
+    ushort             fork_idx = fd_vote_stakes_get_root_idx( vs );
+
+    if( entry_type==2U ) {
+      ec     = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
+      ec_cnt = ec->cnt;
+      fd_memcpy( &pubkey, ec->pubkey, 32UL );
+      fd_vote_stakes_query_t_1( vs, fork_idx, &pubkey, &stake, &node_account, &commission );
+    } else if( entry_type==1U ) {
+      fd_epoch_credits_t const * ec_src = &fd_bank_epoch_credits( enc->bank )[ enc->vote_idx ];
+      fd_memcpy( &pubkey, ec_src->pubkey, 32UL );
+      fd_vote_stakes_query_t_2( vs, fork_idx, &pubkey, &stake, &node_account, &commission );
+    } else {
+      fd_stashed_commission_t const * sc = &fd_bank_snapshot_commission_t_3( enc->bank )[ enc->vote_idx ];
+      fd_memcpy( &pubkey, sc->pubkey, 32UL );
+      commission = sc->commission;
+    }
+
+    enc->total_stake += stake;
+    ulong data_length = 186UL + 24UL * ec_cnt;
+
+    /* Vote account key + stake */
+    PUSH_VAL( fd_pubkey_t, pubkey );
+    PUSH_VAL( ulong,       stake  );
+
+    /* AccountSharedData: lamports, data_length */
+    PUSH_VAL( ulong, 0UL         );
+    PUSH_VAL( ulong, data_length );
+
+    /* VoteStateV4 */
+    PUSH_VAL( uint,       3U           ); /* variant = V4 */
+    PUSH_VAL( fd_pubkey_t, node_account ); /* node_pubkey */
+    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* authorized_withdrawer */
+    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* inflation_rewards_collector */
+    PUSH_VAL( fd_pubkey_t, (fd_pubkey_t){0} ); /* block_revenue_collector */
+    PUSH_VAL( ushort, (ushort)((uint)commission * 100U) ); /* inflation_rewards_commission_bps */
+    PUSH_VAL( ushort, (ushort)0 ); /* block_revenue_commission_bps */
+    PUSH_VAL( ulong,  0UL      ); /* pending_delegator_rewards */
+    PUSH_VAL( uchar,  0        ); /* bls_pubkey_compressed = None */
+    PUSH_VAL( ulong,  0UL      ); /* votes_length = 0 */
+    PUSH_VAL( uchar,  0        ); /* root_slot = None */
+    PUSH_VAL( ulong,  0UL      ); /* authorized_voters_length = 0 */
+
+    /* Epoch credits */
+    PUSH_VAL( ulong, ec_cnt );
+    for( ulong j=0UL; j<ec_cnt; j++ ) {
+      PUSH_VAL( ulong, (ulong)ec->epoch[j] );
+      PUSH_VAL( ulong, ec->base_credits + (ulong)ec->credits_delta[j] );
+      PUSH_VAL( ulong, ec->base_credits + (ulong)ec->prev_credits_delta[j] );
+    }
+
+    PUSH_VAL( ulong, 0UL ); /* last_timestamp_slot */
+    PUSH_VAL( ulong, 0UL ); /* last_timestamp_timestamp */
+
+    /* AccountSharedData trailer */
+    PUSH_VAL( fd_pubkey_t, fd_solana_vote_program_id ); /* owner */
+    PUSH_VAL( uchar,       1                         ); /* executable */
+    PUSH_VAL( ulong,       0UL                       ); /* rent_epoch */
+
+    enc->vote_idx++;
+    if( enc->vote_idx >= enc->vote_cnt ) enc->state = STATE_EPOCH_STAKES_EPOCH;
+    break;
+  }
+  case STATE_EPOCH_STAKES_EPOCH: {
+    ulong epoch = bank->f.epoch;
+    ulong epoch_stakes_base = (epoch > 0UL) ? (epoch - 1UL) : 0UL;
+    ulong epoch_key = epoch_stakes_base + (ulong)enc->epoch_idx;
+
+    PUSH_VAL( ulong, 0UL       ); /* stake_delegations_length = 0 */
+    PUSH_VAL( ulong, 0UL       ); /* unused */
+    PUSH_VAL( ulong, epoch_key ); /* epoch */
+    PUSH_VAL( ulong, 0UL       ); /* stake_history_length = 0 */
+    enc->state = STATE_EPOCH_TOTAL_STAKE;
+    break;
+  }
+  case STATE_EPOCH_STAKE_HISTORY: { __builtin_unreachable(); }
+  case STATE_EPOCH_TOTAL_STAKE: {
+    uint entry_type = (bank->f.epoch > 0UL) ? enc->epoch_idx : (uint)(enc->epoch_idx + 1U);
+    ulong total_stake = (entry_type==2U) ? bank->f.total_epoch_stake : enc->total_stake;
+    PUSH_VAL( ulong, total_stake );
+    enc->state = STATE_NODE_VOTE_ACCOUNTS;
+    break;
+  }
+  case STATE_NODE_VOTE_ACCOUNTS: {
+    PUSH_VAL( ulong, 0UL ); /* node_id_to_vote_accounts_length = 0 */
+    enc->state = STATE_AUTH_VOTER;
+    break;
+  }
+  case STATE_AUTH_VOTER: {
+    PUSH_VAL( ulong, 0UL ); /* epoch_authorized_voters_length = 0 */
+    enc->epoch_idx++;
+    enc->state = (enc->epoch_idx < enc->epoch_cnt) ? STATE_EPOCH_STAKES : STATE_LTHASH;
+    break;
+  }
   case STATE_LTHASH: {
     PUSH_VAL( uchar, 1 );
     PUSH_VAL( fd_lthash_value_t, bank->f.lthash );

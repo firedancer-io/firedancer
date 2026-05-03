@@ -1,4 +1,6 @@
 #include "fd_ssmanifest_writer.h"
+#include "../../flamenco/stakes/fd_vote_stakes.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 
 #define STATE_BLOCKHASH_QUEUE        1
 #define STATE_HASHES                 2
@@ -24,9 +26,14 @@
 
 fd_ssmanifest_writer_t *
 fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
-                           fd_bank_t const *        bank ) {
-  enc->state = STATE_BLOCKHASH_QUEUE;
-  enc->bank = bank;
+                           fd_bank_t *              bank ) {
+  enc->state       = STATE_BLOCKHASH_QUEUE;
+  enc->bank        = bank;
+  enc->epoch_idx   = 0;
+  enc->epoch_cnt   = 0;
+  enc->vote_cnt    = 0;
+  enc->vote_idx    = 0;
+  enc->total_stake = 0UL;
   return enc;
 }
 
@@ -39,7 +46,7 @@ fd_ssmanifest_writer_init( fd_ssmanifest_writer_t * enc,
 #include "fd_ssmanifest_encoder.c"
 
 ulong
-fd_snap_manifest_serialized_sz( fd_bank_t const * bank ) {
+fd_snap_manifest_serialized_sz( fd_bank_t * bank ) {
   fd_ssmanifest_writer_t writer[1];
   fd_ssmanifest_writer_init( writer, bank );
   ulong sz = 0UL;
