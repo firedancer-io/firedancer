@@ -165,6 +165,14 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
                                          ulong                  full_slot,
                                          ulong                  incr_slot );
 
+/* Recompute the selector's cluster slot by scanning all remaining
+   peers to find the maximum full and incremental slots.  Call this
+   after removing a peer that may have contributed the current cluster
+   slot maximum.  If the recomputed cluster slot differs, all peers
+   are rescored. */
+void
+fd_sspeer_selector_recompute_cluster_slot( fd_sspeer_selector_t * selector );
+
 /* Obtain the cluster slot from the selector.  It is the highest
    resolved full/incremental slot pair seen from snapshot hashes or
    from resolved http peers. */

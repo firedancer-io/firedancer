@@ -316,6 +316,7 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
     fd_sspeer_selector_remove( ctx->selector, key );
     return;
   }
+  if( FD_UNLIKELY( fd_ssping_is_invalidated( ctx->ssping, addr ) ) ) return;
   /* The add may fail due to capacity/pool exhaustion, but the cluster
      slot should still be updated since the gossip observation is valid
      cluster-level intelligence regardless of whether this particular
@@ -839,6 +840,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
         break;
       }
 
@@ -863,6 +865,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
         break;
       }
 
@@ -950,6 +953,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
         break;
       }
 
@@ -974,6 +978,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
         break;
       }
 
@@ -1120,6 +1125,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
         break;
       }
       if( FD_UNLIKELY( ctx->metrics.full.bytes_total!=0UL && ctx->metrics.full.bytes_read==ctx->metrics.full.bytes_total ) ) {
@@ -1145,6 +1151,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
         fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
         break;
       }
       if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_total!=0UL && ctx->metrics.incremental.bytes_read==ctx->metrics.incremental.bytes_total ) ) {

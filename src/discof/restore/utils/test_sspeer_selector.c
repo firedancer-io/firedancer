@@ -2080,6 +2080,111 @@ test_invalid_clear_and_best_sentinel( fd_sspeer_selector_t * selector,
   FD_LOG_NOTICE(( "... pass" ));
 }
 
+static void
+test_recompute_cluster_slot_on_removal( fd_sspeer_selector_t * selector,
+                                        fd_rng_t *             rng ) {
+  FD_LOG_NOTICE(( "testing recompute cluster slot on removal" ));
+
+  /* Add 3 peers at slots 100/200/300, process cluster_slot to 300,
+     remove the peer at 300, recompute, and verify cluster_slot drops
+     to 200 and peers are rescored correctly. */
+
+  fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
+  fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
+  fd_sspeer_key_t key_C[1]; FD_TEST( generate_rand_sspeer_key( key_C, rng, fd_rng_uint( rng )&0x1 ) );
+  fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
+  fd_ip4_port_t addr_B; FD_TEST( generate_rand_addr_non_zero( &addr_B, rng ) );
+  fd_ip4_port_t addr_C; FD_TEST( generate_rand_addr_non_zero( &addr_C, rng ) );
+
+  /* Add peers at full_slots 100, 200, 300 with 2ms latency each. */
+  FD_TEST( add_peer( selector, key_A, addr_A, 100UL, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )!=FD_SSPEER_SCORE_INVALID );
+  FD_TEST( add_peer( selector, key_B, addr_B, 200UL, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )!=FD_SSPEER_SCORE_INVALID );
+  FD_TEST( add_peer( selector, key_C, addr_C, 300UL, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )!=FD_SSPEER_SCORE_INVALID );
+
+  /* Process cluster slot to 300. */
+  fd_sspeer_selector_process_cluster_slot( selector, 300UL, FD_SSPEER_SLOT_UNKNOWN );
+  fd_sscluster_slot_t cs = fd_sspeer_selector_cluster_slot( selector );
+  FD_TEST( cs.full==300UL );
+  FD_TEST( cs.incremental==FD_SSPEER_SLOT_UNKNOWN );
+
+  /* Best peer is C (at cluster slot, slots_behind=0, score=2ms). */
+  fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.addr.l==addr_C.l );
+  FD_TEST( best.score==2UL*1000UL*1000UL );
+
+  /* Remove peer C (the one at slot 300). */
+  fd_sspeer_selector_remove( selector, key_C );
+
+  /* Before recompute, cluster_slot is still 300.  Peer B (slot 200)
+     is 100 slots behind: score = 2ms + 100*1000 = 2_100_000. */
+  cs = fd_sspeer_selector_cluster_slot( selector );
+  FD_TEST( cs.full==300UL );
+
+  /* Now recompute cluster slot. */
+  fd_sspeer_selector_recompute_cluster_slot( selector );
+
+  /* Cluster slot should have dropped to 200 (the max among remaining
+     peers). */
+  cs = fd_sspeer_selector_cluster_slot( selector );
+  FD_TEST( cs.full==200UL );
+  FD_TEST( cs.incremental==FD_SSPEER_SLOT_UNKNOWN );
+
+  /* After recompute, peer B is at cluster slot (slots_behind=0),
+     score = 2ms.  Peer A is 100 slots behind, score = 2ms + 100*1000. */
+  best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.addr.l==addr_B.l );
+  FD_TEST( best.score==2UL*1000UL*1000UL );
+
+  /* Verify that peer A has been rescored correctly. */
+  fd_sspeer_selector_remove( selector, key_B );
+  best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.addr.l==addr_A.l );
+  FD_TEST( best.score==2UL*1000UL*1000UL + 100UL*1000UL );
+
+  /* Cleanup */
+  fd_sspeer_selector_remove( selector, key_A );
+  FD_TEST( !fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
+  FD_TEST( !fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
+static void
+test_recompute_cluster_slot_empty( fd_sspeer_selector_t * selector,
+                                   fd_rng_t *             rng ) {
+  FD_LOG_NOTICE(( "testing recompute cluster slot empty" ));
+
+  /* Add 1 peer, process cluster_slot, remove it, recompute, and
+     verify cluster_slot resets to {0, UNKNOWN}. */
+
+  fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
+  fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
+
+  /* Add a peer at full_slot=500, incr_slot=600. */
+  FD_TEST( add_peer( selector, key_A, addr_A, 500UL, 600UL, 2UL*1000UL*1000UL )!=FD_SSPEER_SCORE_INVALID );
+
+  /* Process cluster slot to (500, 600). */
+  fd_sspeer_selector_process_cluster_slot( selector, 500UL, 600UL );
+  fd_sscluster_slot_t cs = fd_sspeer_selector_cluster_slot( selector );
+  FD_TEST( cs.full==500UL );
+  FD_TEST( cs.incremental==600UL );
+
+  /* Remove the only peer. */
+  fd_sspeer_selector_remove( selector, key_A );
+  FD_TEST( !fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
+  FD_TEST( !fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+
+  /* Recompute cluster slot on empty selector. */
+  fd_sspeer_selector_recompute_cluster_slot( selector );
+
+  /* Cluster slot should have reset to {0, UNKNOWN}. */
+  cs = fd_sspeer_selector_cluster_slot( selector );
+  FD_TEST( cs.full==0UL );
+  FD_TEST( cs.incremental==FD_SSPEER_SLOT_UNKNOWN );
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -2211,6 +2316,12 @@ main( int     argc,
 
   test_wksp_reinit( &t_wksp_stress );
   test_stress_peer_count( t_wksp_stress.selector, rng, t_wksp_stress.max_peers );
+
+  test_wksp_reinit( &t_wksp_base );
+  test_recompute_cluster_slot_on_removal( t_wksp_base.selector, rng );
+
+  test_wksp_reinit( &t_wksp_base );
+  test_recompute_cluster_slot_empty( t_wksp_base.selector, rng );
 
   /* Cleanup. */
 

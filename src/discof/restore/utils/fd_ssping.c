@@ -345,6 +345,15 @@ fd_ssping_invalidate( fd_ssping_t * ssping,
   deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
 }
 
+int
+fd_ssping_is_invalidated( fd_ssping_t const * ssping,
+                          fd_ip4_port_t       addr ) {
+  if( FD_UNLIKELY( !ssping ) ) return 0;
+  fd_ssping_peer_t const * peer = peer_map_ele_query_const( ssping->map, &addr, NULL, ssping->pool );
+  if( FD_UNLIKELY( !peer ) ) return 0;
+  return peer->state == PEER_STATE_INVALID;
+}
+
 static inline void
 recv_pings( fd_ssping_t * ssping,
             fd_sspeer_selector_t * selector) {

@@ -585,6 +585,55 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
   };
 }
 
+/* Rescore all peers in the selector by rebuilding the score treap
+   via the shadow treap swap pattern.  This is called whenever the
+   cluster slot changes in a way that affects peer scores.
+   TODO: make more performant, maybe make a treap rebalance API */
+static void
+fd_sspeer_selector_rescore_all( fd_sspeer_selector_t * selector ) {
+  if( FD_UNLIKELY( score_treap_ele_cnt( selector->score_treap )==0UL ) ) return;
+
+  ulong idx = 0UL;
+  for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( selector->score_treap, selector->pool );
+        !score_treap_fwd_iter_done( iter );
+        iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
+    /* Do not remove the peer from the treap while the iterator is
+       running.  Removing from peer_map(s) here is ok. */
+    fd_sspeer_private_t * peer = score_treap_fwd_iter_ele( iter, selector->pool );
+    fd_sspeer_private_t * shadow_peer = peer_pool_ele_acquire( selector->pool );
+    shadow_peer->latency   = peer->latency;
+    shadow_peer->full_slot = peer->full_slot;
+    shadow_peer->incr_slot = peer->incr_slot;
+    shadow_peer->addr      = peer->addr;
+    shadow_peer->key       = peer->key;
+    shadow_peer->score     = fd_sspeer_selector_score( selector, shadow_peer->latency, shadow_peer->full_slot, shadow_peer->incr_slot );
+    shadow_peer->valid     = peer->valid;
+    fd_memcpy( shadow_peer->full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
+    fd_memcpy( shadow_peer->incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
+    score_treap_ele_insert( selector->shadow_score_treap, shadow_peer, selector->pool );
+    selector->peer_idx_list[ idx++ ] = peer_pool_idx( selector->pool, peer );
+    peer_map_by_key_ele_remove_fast( selector->map_by_key, peer, selector->pool );
+    peer_map_by_addr_ele_remove_fast( selector->map_by_addr, peer, selector->pool );
+    peer_map_by_key_ele_insert( selector->map_by_key, shadow_peer, selector->pool );
+    peer_map_by_addr_ele_insert( selector->map_by_addr, shadow_peer, selector->pool );
+  }
+
+  /* clear score treap*/
+  for( ulong i=0UL; i<idx; i++ ) {
+    fd_sspeer_private_t * peer = peer_pool_ele( selector->pool, selector->peer_idx_list[ i ] );
+    score_treap_ele_remove( selector->score_treap, peer, selector->pool );
+    peer_pool_ele_release( selector->pool, peer );
+  }
+
+  score_treap_t * tmp          = selector->score_treap;
+  selector->score_treap        = selector->shadow_score_treap;
+  selector->shadow_score_treap = tmp;
+
+#if FD_SSPEER_SELECTOR_DEBUG
+  FD_TEST( score_treap_verify( selector->score_treap, selector->pool )==0 );
+#endif
+}
+
 void
 fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
                                          ulong                  full_slot,
@@ -634,49 +683,34 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
     selector->cluster_slot.incremental = FD_SSPEER_SLOT_UNKNOWN;
   }
 
-  if( FD_UNLIKELY( score_treap_ele_cnt( selector->score_treap )==0UL ) ) return;
+  fd_sspeer_selector_rescore_all( selector );
+}
 
-  /* Rescore all peers
-     TODO: make more performant, maybe make a treap rebalance API */
-  ulong idx = 0UL;
+void
+fd_sspeer_selector_recompute_cluster_slot( fd_sspeer_selector_t * selector ) {
+  ulong max_full = 0UL;
+  ulong max_incr = FD_SSPEER_SLOT_UNKNOWN;
+
   for( score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( selector->score_treap, selector->pool );
-        !score_treap_fwd_iter_done( iter );
-        iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
-    /* Do not remove the peer from the treap while the iterator is
-       running.  Removing from peer_map(s) here is ok. */
-    fd_sspeer_private_t * peer = score_treap_fwd_iter_ele( iter, selector->pool );
-    fd_sspeer_private_t * shadow_peer = peer_pool_ele_acquire( selector->pool );
-    shadow_peer->latency   = peer->latency;
-    shadow_peer->full_slot = peer->full_slot;
-    shadow_peer->incr_slot = peer->incr_slot;
-    shadow_peer->addr      = peer->addr;
-    shadow_peer->key       = peer->key;
-    shadow_peer->score     = fd_sspeer_selector_score( selector, shadow_peer->latency, shadow_peer->full_slot, shadow_peer->incr_slot );
-    shadow_peer->valid     = peer->valid;
-    fd_memcpy( shadow_peer->full_hash, peer->full_hash, FD_HASH_FOOTPRINT );
-    fd_memcpy( shadow_peer->incr_hash, peer->incr_hash, FD_HASH_FOOTPRINT );
-    score_treap_ele_insert( selector->shadow_score_treap, shadow_peer, selector->pool );
-    selector->peer_idx_list[ idx++ ] = peer_pool_idx( selector->pool, peer );
-    peer_map_by_key_ele_remove_fast( selector->map_by_key, peer, selector->pool );
-    peer_map_by_addr_ele_remove_fast( selector->map_by_addr, peer, selector->pool );
-    peer_map_by_key_ele_insert( selector->map_by_key, shadow_peer, selector->pool );
-    peer_map_by_addr_ele_insert( selector->map_by_addr, shadow_peer, selector->pool );
+       !score_treap_fwd_iter_done( iter );
+       iter = score_treap_fwd_iter_next( iter, selector->pool ) ) {
+    fd_sspeer_private_t const * peer = score_treap_fwd_iter_ele_const( iter, selector->pool );
+    if( peer->full_slot!=FD_SSPEER_SLOT_UNKNOWN && peer->full_slot>max_full ) {
+      max_full = peer->full_slot;
+    }
+    if( FD_LIKELY( peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+      if( max_incr==FD_SSPEER_SLOT_UNKNOWN || peer->incr_slot>max_incr ) {
+        max_incr = peer->incr_slot;
+      }
+    }
   }
 
-  /* clear score treap*/
-  for( ulong i=0UL; i<idx; i++ ) {
-    fd_sspeer_private_t * peer = peer_pool_ele( selector->pool, selector->peer_idx_list[ i ] );
-    score_treap_ele_remove( selector->score_treap, peer, selector->pool );
-    peer_pool_ele_release( selector->pool, peer );
-  }
+  if( max_full==selector->cluster_slot.full && max_incr==selector->cluster_slot.incremental ) return;
 
-  score_treap_t * tmp          = selector->score_treap;
-  selector->score_treap        = selector->shadow_score_treap;
-  selector->shadow_score_treap = tmp;
+  selector->cluster_slot.full        = max_full;
+  selector->cluster_slot.incremental = max_incr;
 
-#if FD_SSPEER_SELECTOR_DEBUG
-  FD_TEST( score_treap_verify( selector->score_treap, selector->pool )==0 );
-#endif
+  fd_sspeer_selector_rescore_all( selector );
 }
 
 fd_sscluster_slot_t
