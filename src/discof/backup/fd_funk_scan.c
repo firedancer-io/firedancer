@@ -1,5 +1,7 @@
 #include "fd_funk_scan.h"
+#if FD_HAS_AVX512
 #include <x86intrin.h>
+#endif
 
 #if FD_USING_CLANG
 #define FD_UNPREDICTABLE(x) __builtin_unpredictable( x )
@@ -34,6 +36,12 @@ fd_funk_scan_init( fd_funk_scan_t * scan,
 
   return scan;
 }
+
+static fd_funk_scan_batch_t *
+fd_funk_scan_slow( fd_funk_scan_t *       scan,
+                   fd_funk_scan_batch_t * batch );
+
+#if FD_HAS_AVX512
 
 /* fd_funk_scan_fast runs the fast path, advancing by FUNK_SCAN_PARA
    hash chains.
@@ -125,6 +133,22 @@ fd_funk_scan_fast( fd_funk_scan_t *       scan,
 
   return batch;
 }
+
+#else /* fallback, no AVX512 */
+
+static fd_funk_scan_batch_t *
+fd_funk_scan_fast( fd_funk_scan_t *       scan,
+                   fd_funk_scan_batch_t * batch ) {
+  ulong chain = scan->chain_idx;
+  for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
+    scan->slow_chain[ scan->slow_cnt+i ] = chain+i;
+  }
+  scan->slow_cnt  += FUNK_SCAN_PARA;
+  scan->chain_idx += FUNK_SCAN_PARA;
+  return fd_funk_scan_slow( scan, batch );
+}
+
+#endif /* FD_HAS_AVX512 */
 
 /* fd_funk_scan_slow runs the slow path.  Walks up to SLOW_WALK_MAX
    chains simultaneously so that cache-miss loads from independent
