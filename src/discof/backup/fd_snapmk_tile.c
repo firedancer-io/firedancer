@@ -2,6 +2,7 @@
 #include "fd_snapmk.h"
 #include "fd_funk_scan.h"
 #include "fd_ssmanifest_writer.h"
+#include "fd_txncache_writer.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -44,9 +45,12 @@ struct fd_snapmk {
 
   fd_banks_t *           banks;
   fd_bank_t const *      bank;
+  fd_txncache_t *        txncache;
   fd_wksp_t *            replay_in_mem;
   fd_ssmanifest_writer_t manifest_writer[1];
+  fd_txncache_writer_t   txncache_writer[1];
   ulong                  manifest_pad;
+  ulong                  status_cache_pad;
   long                   start_time;
 
   ZSTD_CCtx *    zst;
@@ -74,10 +78,10 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t) );
   l = FD_LAYOUT_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),  fd_txncache_footprint( tile->snapmk.max_live_slots ) );
   return FD_LAYOUT_FINI( l, FD_SHMEM_HUGE_PAGE_SZ );
 }
 
@@ -101,8 +105,9 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
-  fd_snapmk_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t)                       );
-  void *        _zstd = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL ) );
+  fd_snapmk_t * ctx      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapmk_t), sizeof(fd_snapmk_t)                                  );
+  void *        _zstd    = FD_SCRATCH_ALLOC_APPEND( l, 32UL,                 ZSTD_estimateCStreamSize( FD_ZSTD_LEVEL )            );
+  void *        _txnc_lj = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),  fd_txncache_footprint( tile->snapmk.max_live_slots ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ctx->state = SNAPMK_STATE_IDLE;
@@ -115,6 +120,11 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
+
+  fd_txncache_shmem_t * tc_shmem = fd_txncache_shmem_join( fd_topo_obj_laddr( topo, tile->snapmk.txncache_obj_id ) );
+  FD_TEST( tc_shmem );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txnc_lj, tc_shmem ) );
+  FD_TEST( ctx->txncache );
 
   ulong * zp_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->snapmk.zp_fseq_id ) ); FD_TEST( zp_fseq );
   ctx->zp_file_off = fd_fseq_app_laddr( zp_fseq );
@@ -437,30 +447,48 @@ after_credit( fd_snapmk_t *       ctx,
     }
     break;
   }
-  case SNAPMK_STATE_ACCOUNTS_DRAIN:
+  case SNAPMK_STATE_ACCOUNTS_DRAIN: {
     if( FD_UNLIKELY( lseek( ctx->out_fd, 0L, SEEK_END )<0L ) ) {
       FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
     }
-    ctx->state = SNAPMK_STATE_STATUS_CACHE;
-    break;
-  case SNAPMK_STATE_STATUS_CACHE: {
-    /* Write status cache */
+
+    fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, ctx->bank->f.slot );
+    ulong sc_sz = fd_txncache_writer_serialized_sz( ctx->txncache, ctx->bank->f.slot );
+
     ctx->raw_buf.pos = ctx->raw_buf.size = 0UL;
-    uchar * p = ctx->raw;
     fd_tar_meta_t meta;
-    ulong status_cache_sz = sizeof(ulong);
-    fd_snapmk_tar_file_hdr( &meta, status_cache_sz );
+    fd_snapmk_tar_file_hdr( &meta, sc_sz );
     fd_cstr_ncpy( meta.name, "snapshots/status_cache", sizeof(meta.name) );
     fd_tar_meta_set_chksum( &meta );
-    memcpy( p, &meta, sizeof(fd_tar_meta_t) );
-    p += sizeof(fd_tar_meta_t);
-    FD_STORE( ulong, p, 0UL );
-    p += sizeof(ulong);
-    fd_memset( p, 0, 512UL - sizeof(ulong) );
-    p += 512UL - sizeof(ulong);
-    ctx->raw_buf.size = (ulong)( p - ctx->raw );
-    flush_buffer( ctx, ZSTD_e_end );
-    ctx->state = SNAPMK_STATE_EOF_MARKER;
+    memcpy( ctx->raw, &meta, sizeof(fd_tar_meta_t) );
+    ctx->raw_buf.size    = sizeof(fd_tar_meta_t);
+    ctx->status_cache_pad = fd_ulong_align_up( sc_sz, 512UL ) - sc_sz;
+
+    flush_buffer( ctx, ZSTD_e_continue );
+    ctx->state = SNAPMK_STATE_STATUS_CACHE;
+    break;
+  }
+  case SNAPMK_STATE_STATUS_CACHE: {
+    if( FD_UNLIKELY( ctx->raw_buf.size + FD_TXNCACHE_WRITER_BUF_MIN > RAW_BUF_SZ ) ) {
+      flush_buffer( ctx, ZSTD_e_continue );
+      *charge_busy = 1;
+      return;
+    }
+    ulong buf_rem  = RAW_BUF_SZ - ctx->raw_buf.size;
+    ulong chunk_sz = fd_txncache_writer_serialize(
+        ctx->txncache_writer,
+        (uchar *)ctx->raw_buf.src + ctx->raw_buf.size,
+        buf_rem );
+    ctx->raw_buf.size += chunk_sz;
+    if( FD_UNLIKELY( !chunk_sz ) ) {
+      flush_buffer( ctx, ZSTD_e_continue );
+      if( ctx->status_cache_pad ) {
+        fd_memset( ctx->raw, 0, ctx->status_cache_pad );
+        ctx->raw_buf.size = ctx->status_cache_pad;
+      }
+      flush_buffer( ctx, ZSTD_e_end );
+      ctx->state = SNAPMK_STATE_EOF_MARKER;
+    }
     *charge_busy = 1;
     break;
   }

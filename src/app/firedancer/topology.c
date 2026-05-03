@@ -1391,6 +1391,7 @@ fd_topo_initialize( config_t * config ) {
   }
   FOR(execle_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execle", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(execrp_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if(snapmk_enabled)  {fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapmk", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );}
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "genesi", 0UL ) ], funk_obj,       FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -1942,7 +1943,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapmk" ) ) ) {
 
-    tile->snapmk.zp_fseq_id = fd_pod_query_ulong( config->topo.props, "snapzp.fseq", ULONG_MAX );
+    tile->snapmk.zp_fseq_id      = fd_pod_query_ulong( config->topo.props, "snapzp.fseq", ULONG_MAX );
+    tile->snapmk.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache",    ULONG_MAX ); FD_TEST( tile->snapmk.txncache_obj_id!=ULONG_MAX );
+    tile->snapmk.max_live_slots  = config->firedancer.runtime.max_live_slots;
     FD_TEST( fd_cstr_printf_check( tile->snapmk.out_path, PATH_MAX, NULL, "%s/snapshot.tar.zst", config->paths.snapshots ) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapzp" ) ) ) {
