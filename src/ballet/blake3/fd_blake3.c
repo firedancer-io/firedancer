@@ -725,16 +725,7 @@ fd_blake3_fini_2048( fd_blake3_t * sha,
 
   /* Expand LtHash */
 #if FD_HAS_AVX512
-  for( ulong i=0UL; i<32UL; i+=FD_BLAKE3_PARA_MAX ) {
-    ulong  batch_data [ 16 ] __attribute__((aligned(64)));
-    /*                     */ for( ulong j=0; j<16; j++ ) batch_data [ j ] = (ulong)root_msg;
-    uint   batch_sz   [ 16 ]; for( ulong j=0; j<16; j++ ) batch_sz   [ j ] = last_block_sz;
-    ulong  batch_ctr  [ 16 ]; for( ulong j=0; j<16; j++ ) batch_ctr  [ j ] = ctr0+i+j;
-    uint   batch_flags[ 16 ]; for( ulong j=0; j<16; j++ ) batch_flags[ j ] = last_block_flags;
-    void * batch_hash [ 16 ]; for( ulong j=0; j<16; j++ ) batch_hash [ j ] = (uchar *)hash + (i+j)*64;
-    void * batch_cv   [ 16 ]; for( ulong j=0; j<16; j++ ) batch_cv   [ j ] = root_cv_pre;
-    fd_blake3_avx512_compress16( 16UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
-  }
+  fd_blake3_avx512_xof2048( root_msg, last_block_sz, ctr0, last_block_flags, hash, root_cv_pre );
 #elif FD_HAS_AVX
   fd_blake3_avx_xof2048( root_msg, last_block_sz, ctr0, last_block_flags, hash, root_cv_pre );
 #else
