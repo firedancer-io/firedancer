@@ -237,14 +237,13 @@ check_credit( fd_snapmk_t *       ctx,
     }
     break;
   case SNAPMK_STATE_ACCOUNTS_FLUSH:
+  case SNAPMK_STATE_ACCOUNTS_DRAIN:
     /* Block until all zp tiles are caught up */
     if( !all_out_links_caught_up( ctx, stem ) ) {
       *is_backpressured = 1;
       return;
     }
-    /* Send a flush packet */
     *is_backpressured = 0;
-    *charge_busy      = 1;
     break;
   }
 }
@@ -434,17 +433,54 @@ after_credit( fd_snapmk_t *       ctx,
       *charge_busy = 1;
     }
     if( !ctx->out_flush_pending ) {
-      ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
-      fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
-      ctx->state = SNAPMK_STATE_IDLE;
-      struct stat st;
-      if( FD_UNLIKELY( fstat( ctx->out_fd, &st ) ) ) {
-        FD_LOG_ERR(( "fstat failed: %s", fd_io_strerror( errno ) ));
-      }
-      FD_LOG_NOTICE(( "Snapshot created in %.3f seconds (%s, %.3f GB)",
-                      (double)( fd_log_wallclock() - ctx->start_time )/1e9,
-                      ctx->out_path, (double)st.st_size/1e9 ));
+      ctx->state = SNAPMK_STATE_ACCOUNTS_DRAIN;
     }
+    break;
+  }
+  case SNAPMK_STATE_ACCOUNTS_DRAIN:
+    if( FD_UNLIKELY( lseek( ctx->out_fd, 0L, SEEK_END )<0L ) ) {
+      FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
+    }
+    ctx->state = SNAPMK_STATE_STATUS_CACHE;
+    break;
+  case SNAPMK_STATE_STATUS_CACHE: {
+    /* Write status cache */
+    ctx->raw_buf.pos = ctx->raw_buf.size = 0UL;
+    uchar * p = ctx->raw;
+    fd_tar_meta_t meta;
+    ulong status_cache_sz = sizeof(ulong);
+    fd_snapmk_tar_file_hdr( &meta, status_cache_sz );
+    fd_cstr_ncpy( meta.name, "snapshots/status_cache", sizeof(meta.name) );
+    fd_tar_meta_set_chksum( &meta );
+    memcpy( p, &meta, sizeof(fd_tar_meta_t) );
+    p += sizeof(fd_tar_meta_t);
+    FD_STORE( ulong, p, 0UL );
+    p += sizeof(ulong);
+    fd_memset( p, 0, 512UL - sizeof(ulong) );
+    p += 512UL - sizeof(ulong);
+    ctx->raw_buf.size = (ulong)( p - ctx->raw );
+    flush_buffer( ctx, ZSTD_e_end );
+    ctx->state = SNAPMK_STATE_EOF_MARKER;
+    *charge_busy = 1;
+    break;
+  }
+  case SNAPMK_STATE_EOF_MARKER: {
+    ctx->raw_buf.pos = 0UL;
+    ctx->raw_buf.size = 1024UL;
+    fd_memset( ctx->raw, 0, 1024UL );
+    flush_buffer( ctx, ZSTD_e_end );
+
+    ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
+    fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
+    ctx->state = SNAPMK_STATE_IDLE;
+    struct stat st;
+    if( FD_UNLIKELY( fstat( ctx->out_fd, &st ) ) ) {
+      FD_LOG_ERR(( "fstat failed: %s", fd_io_strerror( errno ) ));
+    }
+    FD_LOG_NOTICE(( "Snapshot created in %.3f seconds (%s, %.3f GB)",
+                    (double)( fd_log_wallclock() - ctx->start_time )/1e9,
+                    ctx->out_path, (double)st.st_size/1e9 ));
+    *charge_busy = 1;
     break;
   }
   }

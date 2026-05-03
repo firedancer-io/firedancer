@@ -47,8 +47,11 @@
 #define SNAPMK_STATE_MANIFEST       2 /* writing manifest */
 #define SNAPMK_STATE_ACCOUNTS       3 /* writing accounts */
 #define SNAPMK_STATE_ACCOUNTS_FLUSH 4 /* done writing accounts, flush pipeline */
-#define SNAPMK_STATE_DONE           5 /* done, notify replay tile */
-#define SNAPMK_STATE_FAIL           6 /* error state, doing cleanup */
+#define SNAPMK_STATE_ACCOUNTS_DRAIN 5 /* wait for flush to complete */
+#define SNAPMK_STATE_STATUS_CACHE   6 /* writing status cache */
+#define SNAPMK_STATE_EOF_MARKER     7 /* writing tar EOF marker */
+#define SNAPMK_STATE_DONE           8 /* done, notify replay tile */
+#define SNAPMK_STATE_FAIL           9 /* error state, doing cleanup */
 
 /* snapmk message types (frag_meta orig field) */
 
