@@ -6,11 +6,14 @@
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/blake3/fd_blake3.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/pod/fd_pod.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -37,6 +40,7 @@ struct fd_snapmk {
 
   int              out_fd;
   char             out_path[ PATH_MAX ];
+  char             snap_dir[ PATH_MAX ];
   ulong volatile * zp_file_off;
   ulong            in_idle_cnt;
 
@@ -99,6 +103,10 @@ privileged_init( fd_topo_t *      topo,
   }
   ctx->out_fd = fd;
   fd_cstr_ncpy( ctx->out_path, tile->snapmk.out_path, PATH_MAX );
+
+  fd_cstr_ncpy( ctx->snap_dir, tile->snapmk.out_path, PATH_MAX );
+  char * last_slash = strrchr( ctx->snap_dir, '/' );
+  if( FD_LIKELY( last_slash ) ) *last_slash = '\0';
 }
 
 static void
@@ -498,6 +506,17 @@ after_credit( fd_snapmk_t *       ctx,
     fd_memset( ctx->raw, 0, 1024UL );
     flush_buffer( ctx, ZSTD_e_end );
 
+    uchar snap_hash[32];
+    fd_blake3_hash( ctx->bank->f.lthash.bytes, FD_LTHASH_LEN_BYTES, snap_hash );
+    char encoded_hash[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( snap_hash, NULL, encoded_hash );
+    char new_path[ PATH_MAX ];
+    FD_TEST( fd_cstr_printf_check( new_path, PATH_MAX, NULL,
+             "%s/snapshot-%lu-%s.tar.zst", ctx->snap_dir, ctx->bank->f.slot, encoded_hash ) );
+    if( FD_UNLIKELY( rename( ctx->out_path, new_path ) ) ) {
+      FD_LOG_ERR(( "rename(%s, %s) failed: %s", ctx->out_path, new_path, fd_io_strerror( errno ) ));
+    }
+
     ulong ctl = fd_frag_meta_ctl( SNAPMK_ORIG_DONE, 0, 1, 0 );
     fd_stem_publish( stem, ctx->out_meta_idx, 0UL, 0UL, 0UL, ctl, 0UL, 0UL );
     ctx->state = SNAPMK_STATE_IDLE;
@@ -507,7 +526,7 @@ after_credit( fd_snapmk_t *       ctx,
     }
     FD_LOG_NOTICE(( "Snapshot created in %.3f seconds (%s, %.3f GB)",
                     (double)( fd_log_wallclock() - ctx->start_time )/1e9,
-                    ctx->out_path, (double)st.st_size/1e9 ));
+                    new_path, (double)st.st_size/1e9 ));
     *charge_busy = 1;
     break;
   }
