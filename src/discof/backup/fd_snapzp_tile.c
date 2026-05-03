@@ -240,13 +240,14 @@ flush( fd_snapzp_t * ctx ) {
 static void
 append_account( fd_snapzp_t * ctx,
                 ulong         rec_idx,
-                ulong         val_gaddr,
-                uint          data_sz ) {
+                ulong         val_gaddr ) {
   fd_funk_rec_t const *     rec       = &ctx->funk->rec_pool->ele[ rec_idx ];
   fd_account_meta_t const * val       = fd_wksp_laddr_fast( ctx->funk->wksp, val_gaddr );
-  ulong                     raw_chunk = fd_ulong_align_up( sizeof(snap_acc_hdr_t) + data_sz, 8UL );
 
   if( FD_UNLIKELY( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ) ) return;
+
+  uint data_sz = val->dlen;
+  ulong raw_chunk = fd_ulong_align_up( sizeof(snap_acc_hdr_t) + data_sz, 8UL );
 
   if( FD_UNLIKELY( ctx->raw_buf.size+raw_chunk > RAW_BUF_SZ ) ) {
     flush( ctx );
@@ -294,9 +295,8 @@ process_batch( fd_snapzp_t * ctx,
   for( ulong i=0UL; i<FUNK_SCAN_PARA; i++ ) {
     ulong rec_idx   = batch->rec_idx  [ i ];
     ulong val_gaddr = batch->val_gaddr[ i ];
-    uint  data_sz   = batch->data_sz  [ i ];
     if( val_gaddr != ULONG_MAX ) {
-      append_account( ctx, rec_idx, val_gaddr, data_sz );
+      append_account( ctx, rec_idx, val_gaddr );
     }
   }
 }

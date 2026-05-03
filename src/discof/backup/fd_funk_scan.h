@@ -25,7 +25,6 @@
 struct __attribute__((aligned(64))) fd_funk_scan_batch {
   ulong val_gaddr[ FUNK_SCAN_PARA ];  /* ULONG_MAX implies sentinel */
   uint  rec_idx  [ FUNK_SCAN_PARA ];
-  uint  data_sz  [ FUNK_SCAN_PARA ];
 };
 typedef struct fd_funk_scan_batch fd_funk_scan_batch_t;
 

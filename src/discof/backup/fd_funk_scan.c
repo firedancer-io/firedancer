@@ -58,10 +58,7 @@ fd_funk_scan_fast( fd_funk_scan_t *       scan,
   __m512i sentinel  = _mm512_set1_epi64( (long)ULONG_MAX );
   __m512i rec_base  = _mm512_set1_epi64( (long)(ulong)rec_tbl );
   __m512i rec_sz    = _mm512_set1_epi64( (long)sizeof(fd_funk_rec_t) );
-  __m512i off_gaddr = _mm512_set1_epi64( (long)offsetof(fd_funk_rec_t, val_gaddr)      );
-  __m512i off_valsz = _mm512_set1_epi64( (long)offsetof(fd_funk_rec_t, val_gaddr) - 8L );
-  __m512i mask28    = _mm512_set1_epi64( (1L<<28)-1L );
-  __m512i meta_sz   = _mm512_set1_epi64( (long)sizeof(fd_account_meta_t) );
+  __m512i off_gaddr = _mm512_set1_epi64( (long)offsetof(fd_funk_rec_t, val_gaddr) );
 
   /* visible = !locked && cnt==1  ⟺  (ver_cnt & ((1<<44)-1)) == 1
      (low 43 bits are cnt, bit 43 is the lock bit) */
@@ -120,14 +117,6 @@ fd_funk_scan_fast( fd_funk_scan_t *       scan,
     __m512i gaddr = _mm512_mask_i64gather_epi64( sentinel, vis,
                       _mm512_add_epi64( addrs, off_gaddr ), NULL, 1 );
     _mm512_storeu_si512( &batch->val_gaddr[ i ], gaddr );
-
-    /* Masked gather val_sz bitfield, extract data size */
-    __m512i bf    = _mm512_mask_i64gather_epi64( sentinel, vis,
-                      _mm512_add_epi64( addrs, off_valsz ), NULL, 1 );
-    __m512i valsz = _mm512_and_epi64( bf, mask28 );
-    __m512i dsz   = _mm512_sub_epi64( valsz, meta_sz );
-    __m256i dsz32 = _mm512_cvtepi64_epi32( dsz );
-    _mm256_storeu_si256( (__m256i *)&batch->data_sz[ i ], dsz32 );
   }
 
   scan->slow_cnt = slow_cnt;
@@ -197,7 +186,6 @@ fd_funk_scan_slow( fd_funk_scan_t *       scan,
       if( fd_funk_txn_xid_eq_root( rec->pair.xid ) ) {
         batch->val_gaddr[ cnt ] = rec->val_gaddr;
         batch->rec_idx  [ cnt ] = (uint)walk_ele_idx[ w ];
-        batch->data_sz  [ cnt ] = (uint)( rec->val_sz - sizeof(fd_account_meta_t) );
         cnt++;
       }
 
