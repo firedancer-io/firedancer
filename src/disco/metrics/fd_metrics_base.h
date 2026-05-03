@@ -10,7 +10,6 @@
 #define FD_METRICS_CONVERTER_NONE        (0UL)
 #define FD_METRICS_CONVERTER_SECONDS     (1UL)
 #define FD_METRICS_CONVERTER_NANOSECONDS (2UL)
-#define FD_METRICS_CONVERTER_DOUBLE      (3UL)
 
 #define MIDX( type, group, measurement ) (FD_METRICS_##type##_##group##_##measurement##_OFF)
 
