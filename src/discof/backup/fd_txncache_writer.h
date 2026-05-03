@@ -3,10 +3,18 @@
 
 #include "../../flamenco/runtime/fd_txncache.h"
 
+struct fd_txnhash_20 { uchar b[20]; };
+typedef struct fd_txnhash_20 fd_txnhash_20_t;
+
 struct fd_txncache_writer {
   uint              state;
   fd_txncache_t *   tc;
   ulong             slot;
+
+  ulong             root_iter;
+  ulong             page_idx;
+  ulong             txn_idx;
+  ulong             txns_in_page;
 };
 
 typedef struct fd_txncache_writer fd_txncache_writer_t;
