@@ -110,7 +110,9 @@ typedef struct fd_sspeer_private fd_sspeer_private_t;
 #define TREAP_PRIO      score_treap.prio
 #include "../../../util/tmpl/fd_treap.c"
 
-#define DEFAULT_SLOTS_BEHIND         (1000UL*1000UL) /* 1,000,000 slots behind */
+#define DEFAULT_SLOTS_BEHIND         (1000UL*1000UL)  /* 1,000,000 slots behind */
+#define MAX_SLOTS_BEHIND_CAP         (2UL*432000UL)   /* 2 epochs = 864,000 slots */
+#define MAX_CLUSTER_SLOT_JUMP        (50000UL)        /* ~2 full snapshot intervals */
 /* Assumed latency (in nanos) for peers that have not been pinged yet.
    Pings are sent immediately on peer discovery, so this default is
    short-lived.  100ms is a neutral middle-ground: high enough that
@@ -307,6 +309,7 @@ fd_sspeer_selector_score( fd_sspeer_selector_t const * selector,
          against the cluster full slot. */
       slots_behind = selector->cluster_slot.full>full_slot ? selector->cluster_slot.full - full_slot : 0UL;
     }
+    slots_behind = fd_ulong_min( slots_behind, MAX_SLOTS_BEHIND_CAP );
   }
 
   /* Using saturating arithmetic to avoid overflow and cap at
@@ -423,6 +426,13 @@ fd_sspeer_selector_update_on_ping( fd_sspeer_selector_t * selector,
                                    ulong                  latency ) {
   ulong ele_idx = peer_map_by_addr_idx_query_const( selector->map_by_addr, &addr, ULONG_MAX, selector->pool );
   ulong cnt = 0UL;
+
+  /* Collect best slots from pinged peers for deferred cluster_slot
+     processing.  Cannot call process_cluster_slot inside the loop
+     because rescore_all modifies map_by_addr. */
+  ulong best_full = FD_SSPEER_SLOT_UNKNOWN;
+  ulong best_incr = FD_SSPEER_SLOT_UNKNOWN;
+
   for(;;) {
     if( FD_UNLIKELY( ele_idx==ULONG_MAX ) ) break;
     fd_sspeer_private_t * peer = selector->pool + ele_idx;
@@ -447,9 +457,25 @@ fd_sspeer_selector_update_on_ping( fd_sspeer_selector_t * selector,
                          FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
       }
     }
+
+    if( FD_LIKELY( peer->full_slot!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+      if( best_full==FD_SSPEER_SLOT_UNKNOWN || peer->full_slot>best_full ) best_full = peer->full_slot;
+      if( peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN &&
+          ( best_incr==FD_SSPEER_SLOT_UNKNOWN || peer->incr_slot>best_incr ) ) best_incr = peer->incr_slot;
+    }
+
     ele_idx = peer_map_by_addr_idx_next_const( ele_idx, ULONG_MAX, selector->pool );
     cnt++;
   }
+
+  /* Now that the peer has been verified as reachable via ping, its
+     stored gossip slots can be trusted for cluster_slot computation.
+     Deferred to here because process_cluster_slot -> rescore_all
+     modifies map_by_addr, which would invalidate the iterator above. */
+  if( FD_LIKELY( best_full!=FD_SSPEER_SLOT_UNKNOWN ) ) {
+    fd_sspeer_selector_process_cluster_slot( selector, best_full, best_incr );
+  }
+
   return cnt;
 }
 
@@ -673,6 +699,16 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
     if( FD_UNLIKELY( full_slot<=selector->cluster_slot.full ) ) return;
   }
 
+  /* Once a cluster slot is established, reject jumps that are
+     implausibly large.  This prevents a single malicious gossip peer
+     from poisoning cluster_slot to an extreme value (e.g. 10^15).
+     The cap is ~2 full snapshot intervals.  On cold start
+     (cluster_slot.full==0) the first peer is accepted unconditionally;
+     if that peer was malicious, the reactive recompute-on-removal
+     fix handles cleanup. */
+  if( FD_UNLIKELY( selector->cluster_slot.full &&
+                   full_slot>selector->cluster_slot.full+MAX_CLUSTER_SLOT_JUMP ) ) return;
+
   selector->cluster_slot.full = full_slot;
   if( FD_LIKELY( incr_slot!=FD_SSPEER_SLOT_UNKNOWN ) ) {
     selector->cluster_slot.incremental = incr_slot;
@@ -703,6 +739,13 @@ fd_sspeer_selector_recompute_cluster_slot( fd_sspeer_selector_t * selector ) {
         max_incr = peer->incr_slot;
       }
     }
+  }
+
+  /* Discard incremental if it fell behind the full slot.  This
+     preserves the incr >= full invariant that process_cluster_slot
+     enforces on the forward path. */
+  if( max_incr!=FD_SSPEER_SLOT_UNKNOWN && max_full && max_incr<max_full ) {
+    max_incr = FD_SSPEER_SLOT_UNKNOWN;
   }
 
   if( max_full==selector->cluster_slot.full && max_incr==selector->cluster_slot.incremental ) return;

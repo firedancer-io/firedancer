@@ -314,17 +314,16 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
        the selector: if previously added, remove it.  The remove
        operation becomes a no-op if the peer is not found. */
     fd_sspeer_selector_remove( ctx->selector, key );
+    fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
     return;
   }
   if( FD_UNLIKELY( fd_ssping_is_invalidated( ctx->ssping, addr ) ) ) return;
-  /* The add may fail due to capacity/pool exhaustion, but the cluster
-     slot should still be updated since the gossip observation is valid
-     cluster-level intelligence regardless of whether this particular
-     peer can be tracked. */
+  /* The add may fail due to capacity/pool exhaustion.  cluster_slot is
+     NOT updated here — it is deferred to on_ping (after the peer has
+     proven reachable) to prevent a free gossip-only poisoning attack. */
   fd_sspeer_selector_add( ctx->selector, key, addr, FD_SSPEER_LATENCY_UNKNOWN,
                           full_slot, incr_slot,
                           msg->snapshot_hashes->full_hash, incr_hash );
-  fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
 
@@ -1254,6 +1253,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
           fd_ssping_add( ctx->ssping, new_addr );
         } else {
           fd_sspeer_selector_remove( ctx->selector, &entry_key );
+          fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
         }
         if( FD_LIKELY( !!cur_addr.l ) ) {
           fd_ssping_remove( ctx->ssping, cur_addr );
@@ -1285,6 +1285,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         *entry_key.pubkey = entry->pubkey;
         entry_key.is_url  = 0;
         fd_sspeer_selector_remove( ctx->selector, &entry_key );
+        fd_sspeer_selector_recompute_cluster_slot( ctx->selector );
       }
       if( !ctx->config.sources.gossip.allow_any ) {
         FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, pubkey_b58 );
