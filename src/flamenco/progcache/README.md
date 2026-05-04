@@ -132,7 +132,7 @@ Each record access considers the following slot numbers:
 - **epoch_slot0**: the first slot of the epoch of load_slot
 - **deploy_slot**: the most recent slot in which the program was
   deployed or retracted, as of load_slot
-- **revision_slot**: derived from the above three (`>=deploy_slot`,
+- **revision_key**: derived from the above three (`>=deploy_slot`,
   `>=epoch_slot0`)
 
 ### Record life cycle
