@@ -123,6 +123,12 @@ fd_ssparse_new( void *  shmem,
 fd_ssparse_t *
 fd_ssparse_join( void * ssparse );
 
+void *
+fd_ssparse_leave( fd_ssparse_t * ssparse );
+
+void *
+fd_ssparse_delete( void * shssparse );
+
 /* fd_ssparse_reset rewinds the parser to accept a new snapshot stream */
 void
 fd_ssparse_reset( fd_ssparse_t * ssparse );
