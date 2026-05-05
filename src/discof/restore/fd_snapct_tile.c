@@ -55,6 +55,7 @@ typedef struct fd_snapct_out_link fd_snapct_out_link_t;
 struct gossip_ci_entry {
   fd_pubkey_t   pubkey;
   int           allowed;
+  int           banned;    /* permanently banned due to download failure */
   fd_ip4_port_t rpc_addr;
   ulong         map_next;
 };
@@ -71,6 +72,7 @@ typedef struct gossip_ci_entry gossip_ci_entry_t;
 
 struct fd_snapct_tile {
   struct fd_topo_tile_snapct config;
+  int                        incremental_snapshots_orig; /* original config value, restored on retry */
   int                        gossip_enabled;
   int                        download_enabled;
 
@@ -196,6 +198,18 @@ should_shutdown( fd_snapct_tile_t * ctx ) {
   return ctx->state==FD_SNAPCT_STATE_SHUTDOWN;
 }
 
+/* Find the gossip CI table index of the peer with the given RPC
+   address.  Returns ULONG_MAX if no matching gossip peer is found. */
+static ulong
+find_gossip_ci_idx_by_addr( fd_snapct_tile_t const * ctx,
+                            fd_ip4_port_t            addr ) {
+  for( ulong i=0UL; i<GOSSIP_PEERS_MAX; i++ ) {
+    gossip_ci_entry_t const * entry = ctx->gossip.ci_table + i;
+    if( entry->allowed && entry->rpc_addr.l==addr.l ) return i;
+  }
+  return ULONG_MAX;
+}
+
 static void
 metrics_write( fd_snapct_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_READ,               ctx->metrics.full.bytes_read );
@@ -272,7 +286,6 @@ on_resolve( void *                  _ctx,
       }
     }
   }
-  fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
 
@@ -316,14 +329,10 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
     fd_sspeer_selector_remove( ctx->selector, key );
     return;
   }
-  /* The add may fail due to capacity/pool exhaustion, but the cluster
-     slot should still be updated since the gossip observation is valid
-     cluster-level intelligence regardless of whether this particular
-     peer can be tracked. */
+  if( FD_UNLIKELY( fd_ssping_is_invalidated( ctx->ssping, addr ) ) ) return;
   fd_sspeer_selector_add( ctx->selector, key, addr, FD_SSPEER_LATENCY_UNKNOWN,
                           full_slot, incr_slot,
                           msg->snapshot_hashes->full_hash, incr_hash );
-  fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
   predict_incremental( ctx );
 }
 
@@ -649,6 +658,30 @@ after_credit( fd_snapct_tile_t *  ctx,
 
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, FD_SSPEER_SLOT_UNKNOWN );
       if( FD_UNLIKELY( !best.addr.l ) ) {
+        /* No usable peers available (either none exist or all have
+           unresolved snapshot slots).  If we have a local snapshot,
+           use it unconditionally — there is no peer reference to
+           age-check against, and using the local snapshot is strictly
+           better than waiting indefinitely. */
+        if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
+          ulong local_effective_slot = ctx->local_in.full_snapshot_slot;
+          if( FD_LIKELY( ctx->config.incremental_snapshots ) ) {
+            if( ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) {
+              local_effective_slot = ctx->local_in.incremental_snapshot_slot;
+            } else {
+              /* No local incremental and no peers to download one from.
+                 Fall back to full-only. */
+              ctx->config.incremental_snapshots = 0;
+            }
+          }
+          send_expected_slot( ctx, stem, local_effective_slot );
+          FD_LOG_NOTICE(( "no peers available, reading full snapshot at slot %lu from local file `%s`",
+                          ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
+          ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
+          ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
+          init_load( ctx, stem, 1, 1 );
+          break;
+        }
         if( !ctx->gossip_enabled ) {
           FD_LOG_ERR(( "no peers are available and discovery of new peers via gossip is disabled. aborting." ));
         }
@@ -657,18 +690,19 @@ after_credit( fd_snapct_tile_t *  ctx,
         break;
       }
 
-      fd_sscluster_slot_t cluster = fd_sspeer_selector_cluster_slot( ctx->selector );
-      if( FD_UNLIKELY( cluster.incremental==FD_SSPEER_SLOT_UNKNOWN && ctx->config.incremental_snapshots ) ) {
-        /* We must have a cluster full slot to be in this state. */
-        FD_TEST( cluster.full!=FD_SSPEER_SLOT_UNKNOWN );
-        /* fall back to full snapshot only if the highest cluster slot
-           is a full snapshot only */
-        FD_LOG_WARNING(( "incremental snapshots were enabled via [snapshots.incremental_snapshots], but no incremental snapshot is available in the cluster. "
-                         "falling back to full snapshots only." ));
-        ctx->config.incremental_snapshots = 0;
+      /* Compute the best effective slot achievable by downloading from
+         a peer.  This is used as the reference for local age checks. */
+      ulong peer_effective_slot = best.full_slot;
+      if( FD_UNLIKELY( ctx->config.incremental_snapshots ) ) {
+        fd_sspeer_t best_incr_check = fd_sspeer_selector_best( ctx->selector, 1, best.full_slot );
+        if( FD_UNLIKELY( !best_incr_check.addr.l ) ) {
+          FD_LOG_WARNING(( "incremental snapshots were enabled via [snapshots.incremental_snapshots], but no peer offers "
+                           "an incremental snapshot for base slot %lu. falling back to full snapshots only.", best.full_slot ));
+          ctx->config.incremental_snapshots = 0;
+        } else {
+          peer_effective_slot = best_incr_check.incr_slot;
+        }
       }
-
-      ulong cluster_slot = ctx->config.incremental_snapshots ? cluster.incremental : cluster.full;
 
       /* Determine the best effective slot achievable using the local
          full snapshot.  When incrementals are disabled, the effective
@@ -680,7 +714,8 @@ after_credit( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX ) ) {
         if( FD_LIKELY( ctx->config.incremental_snapshots ) ) {
           ulong local_incr = ctx->local_in.incremental_snapshot_slot;
-          if( local_incr!=ULONG_MAX && local_incr>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age ) ) {
+          if( local_incr!=ULONG_MAX &&
+              local_incr>=fd_ulong_sat_sub( peer_effective_slot, ctx->config.sources.max_local_incremental_age ) ) {
             local_effective_slot = local_incr;
           } else {
             fd_sspeer_t best_incr = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
@@ -696,12 +731,12 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       int can_use_local_full = local_effective_slot!=ULONG_MAX &&
-                               local_effective_slot>=fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_full_effective_age );
+                local_effective_slot>=fd_ulong_sat_sub( peer_effective_slot, ctx->config.sources.max_local_full_effective_age );
       if( FD_LIKELY( can_use_local_full ) ) {
         send_expected_slot( ctx, stem, local_effective_slot );
 
-        FD_LOG_NOTICE(( "reading full snapshot at slot %lu with cluster slot %lu from local file `%s`",
-                        ctx->local_in.full_snapshot_slot, cluster_slot, ctx->local_in.full_snapshot_path ));
+        FD_LOG_NOTICE(( "reading full snapshot at slot %lu with peer effective slot %lu from local file `%s`",
+                        ctx->local_in.full_snapshot_slot, peer_effective_slot, ctx->local_in.full_snapshot_path ));
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
@@ -710,16 +745,17 @@ after_credit( fd_snapct_tile_t *  ctx,
           if( local_effective_slot==ULONG_MAX ) {
             if( ctx->local_in.incremental_snapshot_slot!=ULONG_MAX ) {
               FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because local incremental snapshot at slot %lu "
-                              "is too old and no downloadable incremental could be found (cluster slot %lu), downloading instead",
-                              ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot, cluster_slot ));
+                              "is too old and no downloadable incremental could be found, downloading instead",
+                              ctx->local_in.full_snapshot_slot, ctx->local_in.incremental_snapshot_slot ));
             } else {
               FD_LOG_NOTICE(( "local full snapshot at slot %lu cannot be used because no matching incremental snapshot "
-                              "could be found (cluster slot %lu), downloading instead",
-                              ctx->local_in.full_snapshot_slot, cluster_slot ));
+                              "could be found, downloading instead",
+                              ctx->local_in.full_snapshot_slot ));
             }
           } else {
-            FD_LOG_NOTICE(( "local full snapshot at slot %lu (effective slot %lu) is too old for cluster slot %lu max age %u, downloading instead",
-                            ctx->local_in.full_snapshot_slot, local_effective_slot, cluster_slot, ctx->config.sources.max_local_full_effective_age ));
+            FD_LOG_NOTICE(( "local full snapshot at slot %lu (effective slot %lu) is too old for peer slot %lu max age %u, downloading instead",
+                            ctx->local_in.full_snapshot_slot, local_effective_slot, peer_effective_slot,
+                            ctx->config.sources.max_local_full_effective_age ));
           }
         } else {
           FD_LOG_NOTICE(( "no local snapshot available, downloading from peer" ));
@@ -759,11 +795,10 @@ after_credit( fd_snapct_tile_t *  ctx,
       }
 
       /* decide whether to use the local incremental snapshot if one
-         exists and is not too old, otherwise download a new incremental
-         snapshot. */
-      ulong cluster_slot  = fd_sspeer_selector_cluster_slot( ctx->selector ).incremental;
+         exists and is fresh enough, otherwise download a new
+         incremental snapshot. */
       ulong local_slot    = ctx->local_in.incremental_snapshot_slot;
-      int   local_too_old = local_slot<fd_ulong_sat_sub( cluster_slot, ctx->config.sources.max_local_incremental_age );
+      int   local_too_old = local_slot<fd_ulong_sat_sub( best.incr_slot, ctx->config.sources.max_local_incremental_age );
       if( FD_LIKELY( local_slot!=ULONG_MAX && !local_too_old ) ) {
         ctx->predicted_incremental.slot = local_slot;
         send_expected_slot( ctx, stem, local_slot );
@@ -775,7 +810,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->predicted_incremental.slot = best.incr_slot;
         send_expected_slot( ctx, stem, best.incr_slot );
 
-        ctx->peer  = best;
+        ctx->peer                = best;
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
         init_load( ctx, stem, 0, 0 );
         log_download( ctx, 0, best.addr, best.incr_slot );
@@ -837,8 +872,15 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure.",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        /* Blacklist the peer address (ssping) and remove from selector.
+           For gossip peers, also ban the pubkey to prevent address
+           cycling.  Configured servers are intentionally NOT permanently
+           banned: the resolver will re-add them after a cooldown,
+           allowing retry of transient failures up to max_retry_abort. */
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        ulong ci_idx = find_gossip_ci_idx_by_addr( ctx, ctx->peer.addr );
+        if( ci_idx!=ULONG_MAX ) ctx->gossip.ci_table[ ci_idx ].banned = 1;
         break;
       }
 
@@ -861,8 +903,10 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure.",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        ulong ci_idx = find_gossip_ci_idx_by_addr( ctx, ctx->peer.addr );
+        if( ci_idx!=ULONG_MAX ) ctx->gossip.ci_table[ ci_idx ].banned = 1;
         break;
       }
 
@@ -948,8 +992,10 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure.",
                          ctx->predicted_incremental.full_slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        ulong ci_idx = find_gossip_ci_idx_by_addr( ctx, ctx->peer.addr );
+        if( ci_idx!=ULONG_MAX ) ctx->gossip.ci_table[ ci_idx ].banned = 1;
         break;
       }
 
@@ -972,8 +1018,10 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure.",
                          ctx->predicted_incremental.full_slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        ulong ci_idx = find_gossip_ci_idx_by_addr( ctx, ctx->peer.addr );
+        if( ci_idx!=ULONG_MAX ) ctx->gossip.ci_table[ ci_idx ].banned = 1;
         break;
       }
 
@@ -1030,6 +1078,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.full_snapshot_path ));
       } else {
         if( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ) ctx->local_in.full_snapshot_slot = ULONG_MAX;
+        ctx->config.incremental_snapshots = ctx->incremental_snapshots_orig;
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS;
         ctx->deadline_nanos = 0L;
       }
@@ -1058,6 +1107,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_ERR(( "unable to load local snapshot %s and no snapshot peers were configured. aborting.", ctx->local_in.incremental_snapshot_path ));
       } else {
         if( ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
+        ctx->config.incremental_snapshots = ctx->incremental_snapshots_orig;
         ctx->state = FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL;
         ctx->deadline_nanos = 0L;
       }
@@ -1118,8 +1168,10 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure",
                          ctx->predicted_incremental.full_slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        ulong ci_idx = find_gossip_ci_idx_by_addr( ctx, ctx->peer.addr );
+        if( ci_idx!=ULONG_MAX ) ctx->gossip.ci_table[ ci_idx ].banned = 1;
         break;
       }
       if( FD_UNLIKELY( ctx->metrics.full.bytes_total!=0UL && ctx->metrics.full.bytes_read==ctx->metrics.full.bytes_total ) ) {
@@ -1143,8 +1195,10 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr );
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        ulong ci_idx = find_gossip_ci_idx_by_addr( ctx, ctx->peer.addr );
+        if( ci_idx!=ULONG_MAX ) ctx->gossip.ci_table[ ci_idx ].banned = 1;
         break;
       }
       if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_total!=0UL && ctx->metrics.incremental.bytes_read==ctx->metrics.incremental.bytes_total ) ) {
@@ -1194,6 +1248,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
         entry->pubkey      = *pubkey;
         entry->rpc_addr.l  = 0UL;
+        entry->banned      = 0;
         if( ctx->config.sources.gossip.allow_any ) {
           entry->allowed = 1;
           for( ulong i=0UL; i<ctx->config.sources.gossip.block_list_cnt; i++ ) {
@@ -1228,6 +1283,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         }
       }
       if( !entry->allowed ) break;
+      if( FD_UNLIKELY( entry->banned ) ) break;
       /* Maybe update the RPC address of a new or existing allowed gossip peer */
       fd_ip4_port_t cur_addr = entry->rpc_addr;
       fd_ip4_port_t new_addr;
@@ -1239,6 +1295,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         *entry_key.pubkey = entry->pubkey;
         entry_key.is_url  = 0;
         if( FD_LIKELY( !!new_addr.l ) ) {
+          if( FD_UNLIKELY( fd_ssping_is_invalidated( ctx->ssping, new_addr ) ) ) break;
           if( FD_UNLIKELY( FD_SSPEER_SCORE_INVALID==fd_sspeer_selector_add( ctx->selector, &entry_key, new_addr,
                                                                             FD_SSPEER_LATENCY_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN,
                                                                             FD_SSPEER_SLOT_UNKNOWN, NULL, NULL ) ) ) {
@@ -1292,6 +1349,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       if( FD_LIKELY( idx!=ULONG_MAX ) ) {
         gossip_ci_entry_t * entry = ctx->gossip.ci_table + idx;
         FD_TEST( entry->allowed );
+        if( FD_UNLIKELY( entry->banned ) ) break;
         fd_sspeer_key_t entry_key = {0};
         *entry_key.pubkey = entry->pubkey;
         entry_key.is_url  = 0;
@@ -1728,11 +1786,12 @@ unprivileged_init( fd_topo_t *      topo,
                             FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX ) );
   void * _selector        = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
 
-  ctx->config = tile->snapct;
-  ctx->gossip_enabled   = gossip_enabled( tile );
-  ctx->download_enabled = download_enabled( tile );
+  ctx->config                     = tile->snapct;
+  ctx->incremental_snapshots_orig = tile->snapct.incremental_snapshots;
+  ctx->gossip_enabled             = gossip_enabled( tile );
+  ctx->download_enabled           = download_enabled( tile );
 
-  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->config.incremental_snapshots, ctx->selector_seed ) );
+  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->selector_seed ) );
 
   if( ctx->config.sources.servers_cnt ) {
     for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {

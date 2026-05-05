@@ -69,7 +69,6 @@ struct test_wksp_struct {
    fd_sspeer_selector_t * selector;
    void *                 shmem;
    ulong                  max_peers;
-   int                    incr_snap_fetch;
    ulong                  seed;
 };
 typedef struct test_wksp_struct test_wksp_t;
@@ -78,23 +77,21 @@ static void
 test_wksp_init( fd_wksp_t *   wksp,
                 test_wksp_t * t_wksp,
                 ulong         max_peers,
-                int           incr_snap_fetch,
                 ulong         seed ) {
   FD_TEST( t_wksp->selector==NULL );
   FD_TEST( t_wksp->shmem==NULL );
   t_wksp->shmem    = fd_wksp_alloc_laddr( wksp, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( max_peers ), 1UL );
-  t_wksp->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( t_wksp->shmem, max_peers, incr_snap_fetch, seed ) );
+  t_wksp->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( t_wksp->shmem, max_peers, seed ) );
   FD_TEST( t_wksp->selector );
-  t_wksp->max_peers       = max_peers;
-  t_wksp->incr_snap_fetch = incr_snap_fetch;
-  t_wksp->seed            = seed;
+  t_wksp->max_peers = max_peers;
+  t_wksp->seed      = seed;
 }
 
 static void
 test_wksp_reinit( test_wksp_t * t_wksp ) {
   FD_TEST( t_wksp->selector!=NULL );
   FD_TEST( fd_sspeer_selector_delete( fd_sspeer_selector_leave( t_wksp->selector ) )==t_wksp->shmem );
-  FD_TEST( fd_sspeer_selector_join( fd_sspeer_selector_new( t_wksp->shmem, t_wksp->max_peers, t_wksp->incr_snap_fetch, t_wksp->seed ) )==t_wksp->selector );
+  FD_TEST( fd_sspeer_selector_join( fd_sspeer_selector_new( t_wksp->shmem, t_wksp->max_peers, t_wksp->seed ) )==t_wksp->selector );
 }
 
 static void
@@ -106,20 +103,9 @@ test_wksp_fini( test_wksp_t * t_wksp ) {
 }
 
 static void
-verify_initial_cluster_slot( fd_sspeer_selector_t * selector ) {
-  fd_sscluster_slot_t cluster_slot_0 = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cluster_slot_0.full==0UL );
-  FD_TEST( cluster_slot_0.incremental==FD_SSPEER_SLOT_UNKNOWN );
-}
-
-static void
 test_basic_peer_selection( fd_sspeer_selector_t * selector,
                            fd_rng_t *             rng ) {
   FD_LOG_NOTICE(( "testing basic peer selection"));
-
-  ulong cluster_full_slot = 1000UL;
-  ulong cluster_incr_slot = 1500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   FD_TEST( !fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
   FD_TEST( !fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
@@ -151,10 +137,10 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector,
   FD_TEST( 2UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
   FD_TEST( 2UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
 
-  /* Add a peer with the same latency but lagging slots behind */
+  /* Add a peer with higher latency */
   fd_sspeer_key_t key3[1]; FD_TEST( generate_rand_sspeer_key( key3, rng, fd_rng_int( rng )&0x1/*is_url*/ ) );
   fd_ip4_port_t addr3 = { .addr = FD_IP4_ADDR( 35, 123, 172, 229 ), .port = fd_ushort_bswap( 8899 ) };
-  FD_TEST( add_peer( selector, key3, addr3, 1000UL, 1400UL, 3UL*1000UL*1000UL )==3UL*1000UL*1000UL + 100UL*1000UL );
+  FD_TEST( add_peer( selector, key3, addr3, 1000UL, 1400UL, 4UL*1000UL*1000UL )==4UL*1000UL*1000UL );
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( best.addr.l==addr2.l );
   FD_TEST( best.full_slot==1000UL );
@@ -164,18 +150,15 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector,
   FD_TEST( 3UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
   FD_TEST( 3UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
 
-  cluster_incr_slot = 1600UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
-
-  /* Add a peer that is slightly slower but caught up in slots */
+  /* Add a peer that is slightly slower */
   fd_sspeer_key_t key4[1]; FD_TEST( generate_rand_sspeer_key( key4, rng, fd_rng_int( rng )&0x1/*is_url*/ ) );
   fd_ip4_port_t addr4 = { .addr = FD_IP4_ADDR( 35, 123, 172, 230 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, key4, addr4, 1000UL, 1600UL, 3UL*1000UL*1000UL + 75UL*1000UL )==3UL*1000UL*1000UL + 75UL*1000UL );
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
-  FD_TEST( best.addr.l==addr4.l );
+  FD_TEST( best.addr.l==addr2.l );
   FD_TEST( best.full_slot==1000UL );
-  FD_TEST( best.incr_slot==1600UL );
-  FD_TEST( best.score==3UL*1000UL*1000UL + 75UL*1000UL );
+  FD_TEST( best.incr_slot==1500UL );
+  FD_TEST( best.score==3UL*1000UL*1000UL );
 
   FD_TEST( 4UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
   FD_TEST( 4UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
@@ -183,25 +166,22 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector,
   /* Add a fast peer that doesn't have resolved slots */
   fd_sspeer_key_t key5[1]; FD_TEST( generate_rand_sspeer_key( key5, rng, fd_rng_int( rng )&0x1/*is_url*/ ) );
   fd_ip4_port_t addr5 = { .addr = FD_IP4_ADDR( 35, 123, 172, 231 ), .port = fd_ushort_bswap( 8899 ) };
-  FD_TEST( add_peer( selector, key5, addr5, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL + 1000UL*1000UL*1000UL);
+  FD_TEST( add_peer( selector, key5, addr5, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )==FD_SSPEER_SCORE_MAX );
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
-  FD_TEST( best.addr.l==addr4.l );
+  FD_TEST( best.addr.l==addr2.l );
   FD_TEST( best.full_slot==1000UL );
-  FD_TEST( best.incr_slot==1600UL );
-  FD_TEST( best.score==3UL*1000UL*1000UL + 75UL*1000UL );
+  FD_TEST( best.incr_slot==1500UL );
+  FD_TEST( best.score==3UL*1000UL*1000UL );
 
   FD_TEST( 5UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
   FD_TEST( 5UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
 
   /* Test incremental peer selection */
   best = fd_sspeer_selector_best( selector, 1, 1000UL );
-  FD_TEST( best.addr.l==addr4.l );
+  FD_TEST( best.addr.l==addr2.l );
   FD_TEST( best.full_slot==1000UL );
-  FD_TEST( best.incr_slot==1600UL );
-  FD_TEST( best.score==3UL*1000UL*1000UL + 75UL*1000UL );
-
-  cluster_incr_slot = 1700UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
+  FD_TEST( best.incr_slot==1500UL );
+  FD_TEST( best.score==3UL*1000UL*1000UL );
 
   /* Add a peer that is fast and at the highest slot but not building
      off full slot, which makes it an invalid incremental peer */
@@ -209,10 +189,10 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector,
   fd_ip4_port_t addr6 = { .addr = FD_IP4_ADDR( 35, 123, 172, 232 ), .port = fd_ushort_bswap( 8899 ) };
   FD_TEST( add_peer( selector, key6, addr6, 900UL, 1700UL, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL );
   best = fd_sspeer_selector_best( selector, 1, 1000UL );
-  FD_TEST( best.addr.l==addr4.l );
+  FD_TEST( best.addr.l==addr2.l );
   FD_TEST( best.full_slot==1000UL );
-  FD_TEST( best.incr_slot==1600UL );
-  FD_TEST( best.score==3UL*1000UL*1000UL + 75UL*1000UL + 100UL*1000UL );
+  FD_TEST( best.incr_slot==1500UL );
+  FD_TEST( best.score==3UL*1000UL*1000UL );
 
   FD_TEST( 6UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
   FD_TEST( 6UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
@@ -251,7 +231,6 @@ test_duplicate_peers( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 2000UL;
   ulong cluster_incr_slot = 2500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_pub_A[1]; FD_TEST( generate_rand_sspeer_key( key_pub_A, rng, 0 ) );
   fd_sspeer_key_t key_pub_B[1]; FD_TEST( generate_rand_sspeer_key( key_pub_B, rng, 0 ) );
@@ -318,7 +297,6 @@ test_peer_addr_change( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 3000UL;
   ulong cluster_incr_slot = 3500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
@@ -368,7 +346,6 @@ test_update_on_ping( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 4000UL;
   ulong cluster_incr_slot = 4500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
@@ -496,7 +473,6 @@ test_update_on_resolve( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 5000UL;
   ulong cluster_incr_slot = 5500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, 1/*is_url*/ ) );
   fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, 1/*is_url*/ ) );
@@ -569,7 +545,6 @@ test_address_zero( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 6000UL;
   ulong cluster_incr_slot = 6500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
@@ -631,7 +606,6 @@ test_duplicate_hostnames( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 7000UL;
   ulong cluster_incr_slot = 7500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   /* Two HTTP servers with same hostname but different resolved_addr. */
   fd_sspeer_key_t key_url_A[1]; FD_TEST( generate_rand_sspeer_key( key_url_A, rng, 1 ) );
@@ -675,7 +649,6 @@ test_add_clears_incremental( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 8000UL;
   ulong cluster_incr_slot = 8500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
@@ -849,7 +822,6 @@ test_on_resolve_clears_incremental( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 8700UL;
   ulong cluster_incr_slot = 8800UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
@@ -912,128 +884,27 @@ test_on_resolve_clears_incremental( fd_sspeer_selector_t * selector,
 }
 
 static void
-test_cluster_slot_incremental( fd_sspeer_selector_t * selector,
-                               fd_rng_t *             rng ) {
-  FD_LOG_NOTICE(( "testing cluster slot incremental" ));
-
-  ulong cluster_full_slot = 9000UL;
-  ulong cluster_incr_slot = 9500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
-
-  fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
-  fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
-  fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
-  fd_ip4_port_t addr_B; FD_TEST( generate_rand_addr_non_zero( &addr_B, rng ) );
-
-  /* Add two peers with valid incrementals at the cluster slot. */
-  FD_TEST( add_peer( selector, key_A, addr_A, cluster_full_slot, cluster_incr_slot, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL );
-  FD_TEST( add_peer( selector, key_B, addr_B, cluster_full_slot, cluster_incr_slot, 3UL*1000UL*1000UL )==3UL*1000UL*1000UL );
-
-  /* Peer A is the best incremental candidate. */
-  fd_sspeer_t best = fd_sspeer_selector_best( selector, 1, cluster_full_slot );
-  FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.incr_slot==cluster_incr_slot );
-  FD_TEST( best.score==2UL*1000UL*1000UL );
-
-  /* A newer full_slot arrives with no incremental.  The cluster full
-     slot advances but incremental is preserved (not reset). */
-  fd_sspeer_selector_process_cluster_slot( selector, 9001UL, FD_SSPEER_SLOT_UNKNOWN );
-
-  fd_sscluster_slot_t cs = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cs.full==9001UL );
-  FD_TEST( cs.incremental==cluster_incr_slot );
-
-  /* Peers still have incr_slot==9500 so they are still valid
-     incremental candidates for base_slot 9000.  Cluster incremental
-     is preserved at 9500, so slots_behind==0 and score==latency. */
-  best = fd_sspeer_selector_best( selector, 1, cluster_full_slot );
-  FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.incr_slot==cluster_incr_slot );
-  FD_TEST( best.score==2UL*1000UL*1000UL );
-
-  /* A subsequent observation with a higher incremental advances it. */
-  fd_sspeer_selector_process_cluster_slot( selector, 9001UL, 9600UL );
-  cs = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cs.full==9001UL );
-  FD_TEST( cs.incremental==9600UL );
-
-  /* Now peers are 100 slots behind (9600-9500). */
-  best = fd_sspeer_selector_best( selector, 1, cluster_full_slot );
-  FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 100UL*1000UL );
-
-  /* Advance full past incremental (9600) to 10000 with no new
-     incremental.  The cluster incremental is invalidated (set to
-     FD_SSPEER_SLOT_UNKNOWN).  All peers must be rescored: peers with
-     valid incr_slot now fall back to comparing full_slot against the
-     cluster full slot.  Peers have full_slot=9000, so
-     slots_behind = 10000-9000 = 1000. */
-  fd_sspeer_selector_process_cluster_slot( selector, 10000UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cs.full==10000UL );
-  FD_TEST( cs.incremental==FD_SSPEER_SLOT_UNKNOWN );
-
-  /* Peers still have incr_slot==9500 so they are still incremental
-     candidates for base_slot 9000.  Score: latency + 1000*1000. */
-  best = fd_sspeer_selector_best( selector, 1, cluster_full_slot );
-  FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.incr_slot==cluster_incr_slot );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 1000UL*1000UL );
-
-  best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
-  FD_TEST( best.addr.l==addr_A.l );
-  /* Full selection falls back to full_slot comparison when
-     cluster.incremental == FD_SSPEER_SLOT_UNKNOWN.
-     Same score as incremental. */
-  FD_TEST( best.score==2UL*1000UL*1000UL + 1000UL*1000UL );
-
-  /* Re-establish cluster incremental.  Peers should be rescored back
-     to using incremental slot difference. */
-  fd_sspeer_selector_process_cluster_slot( selector, 10000UL, 10000UL );
-  cs = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cs.full==10000UL );
-  FD_TEST( cs.incremental==10000UL );
-
-  /* Peers are now 500 slots behind (10000-9500).
-     Score = 2_000_000 + 500*1000 = 2_500_000. */
-  best = fd_sspeer_selector_best( selector, 1, cluster_full_slot );
-  FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 500UL*1000UL );
-
-  /* Cleanup */
-  fd_sspeer_selector_remove( selector, key_A );
-  fd_sspeer_selector_remove( selector, key_B );
-  FD_TEST( !fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
-  FD_TEST( !fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
-
-  FD_LOG_NOTICE(( "... pass" ));
-}
-
-static void
 test_slot_zero( fd_sspeer_selector_t * selector,
                 fd_rng_t *             rng ) {
   FD_LOG_NOTICE(( "testing slot zero" ));
 
-  /* full_slot==0 and incr_slot==0 are valid slot values (e.g. genesis).
-     Set (0, 1) so the peer at incr_slot=0 is one slot behind. */
-  fd_sspeer_selector_process_cluster_slot( selector, 0UL, 1UL );
+  /* full_slot==0 and incr_slot==0 are valid slot values (e.g. genesis). */
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
   fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
   fd_ip4_port_t addr_B; FD_TEST( generate_rand_addr_non_zero( &addr_B, rng ) );
 
-  /* Peer at full_slot=0, incr_slot=0, latency 2ms.  Cluster is at
-     (0, 1), which means the peer is 1 slot behind.  Then the score is
-     2_000_000 + 1*1000 = 2_001_000. */
-  FD_TEST( add_peer( selector, key_A, addr_A, 0UL, 0UL, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL + 1000UL );
+  /* Peer at full_slot=0, incr_slot=0, latency 2ms.  With latency-only
+     scoring, score = latency = 2_000_000. */
+  FD_TEST( add_peer( selector, key_A, addr_A, 0UL, 0UL, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL );
 
   /* Full selection: peer should be valid and best. */
   fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( best.addr.l==addr_A.l );
   FD_TEST( best.full_slot==0UL );
   FD_TEST( best.incr_slot==0UL );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 1000UL );
+  FD_TEST( best.score==2UL*1000UL*1000UL );
 
   /* Incremental selection with base_slot=0: peer's full_slot==0
      matches base_slot, and incr_slot==0 != FD_SSPEER_SLOT_UNKNOWN. */
@@ -1041,24 +912,21 @@ test_slot_zero( fd_sspeer_selector_t * selector,
   FD_TEST( best.addr.l==addr_A.l );
   FD_TEST( best.full_slot==0UL );
   FD_TEST( best.incr_slot==0UL );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 1000UL );
+  FD_TEST( best.score==2UL*1000UL*1000UL );
 
   /* Peer with full_slot==0, incr_slot==FD_SSPEER_SLOT_UNKNOWN: valid
-     for full but NOT for incremental selection.  full_slot uses the
-     full cluster slot branch: slots_behind = cluster_full(0) - 0 = 0.
-     score = 3_000_000. */
+     for full but NOT for incremental selection.  score = latency. */
   FD_TEST( add_peer( selector, key_B, addr_B, 0UL, FD_SSPEER_SLOT_UNKNOWN, 3UL*1000UL*1000UL )==3UL*1000UL*1000UL );
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 1000UL );
+  FD_TEST( best.score==2UL*1000UL*1000UL );
   best = fd_sspeer_selector_best( selector, 1, 0UL );
   FD_TEST( best.addr.l==addr_A.l );
   FD_TEST( best.incr_slot==0UL );
 
-  /* Score with incr_slot=0 when cluster has advanced.  Re-add peer A
-     to observe the rescored value via the add_peer return. */
-  fd_sspeer_selector_process_cluster_slot( selector, 0UL, 100UL );
-  FD_TEST( add_peer( selector, key_A, addr_A, 0UL, 0UL, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL + 100UL*1000UL );
+  /* Re-add peer A to observe the score via the add_peer return.
+     With latency-only scoring, score = latency = 2_000_000. */
+  FD_TEST( add_peer( selector, key_A, addr_A, 0UL, 0UL, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL );
 
   /* Cleanup */
   fd_sspeer_selector_remove( selector, key_A );
@@ -1077,11 +945,8 @@ test_score_saturation( fd_sspeer_selector_t * selector,
   fd_sspeer_key_t key[1]; FD_TEST( generate_rand_sspeer_key( key, rng, fd_rng_uint( rng )&0x1 ) );
   fd_ip4_port_t   addr;   FD_TEST( generate_rand_addr_non_zero( &addr, rng ) );
 
-  /* Cluster incremental is FD_SSPEER_SLOT_UNKNOWN (initial state):
-     the score function falls back to comparing full_slot against
-     cluster full slot.  Cluster full is 0, peer full is 10000, so
-     the peer is ahead of the cluster and slots_behind=0.
-     score = 5_000_000. */
+  /* With latency-only scoring, score = latency when full_slot is known.
+     Peers with full_slot==FD_SSPEER_SLOT_UNKNOWN get FD_SSPEER_SCORE_MAX. */
   ulong score = add_peer( selector, key, addr, 10000UL, 10500UL, 5UL*1000UL*1000UL );
   FD_TEST( score==5UL*1000UL*1000UL );
   fd_sspeer_selector_remove( selector, key );
@@ -1091,36 +956,29 @@ test_score_saturation( fd_sspeer_selector_t * selector,
   FD_TEST( score!=FD_SSPEER_SCORE_INVALID );
   FD_TEST( FD_SSPEER_SCORE_MAX<FD_SSPEER_SCORE_INVALID );
 
-  /* Establish a cluster with both full and incremental slots. */
-  ulong cluster_full_slot = 10000UL;
-  ulong cluster_incr_slot = 10500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
-
-  /* Normal score, no overflow: peer at cluster slot, latency 5ms.
-     score = 5_000_000 + 0 = 5_000_000. */
+  /* Normal score: peer with known full_slot, latency 5ms.
+     score = 5_000_000. */
   FD_TEST( add_peer( selector, key, addr, 10000UL, 10500UL, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL );
   fd_sspeer_selector_remove( selector, key );
 
-  /* Slots-behind penalty: peer incr_slot 100 behind cluster.
-     score = 5_000_000 + 100*1000 = 5_100_000. */
-  FD_TEST( add_peer( selector, key, addr, 10000UL, 10400UL, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL + 100UL*1000UL );
+  /* Latency-only: peer with different incr_slot still gets score = latency.
+     score = 5_000_000. */
+  FD_TEST( add_peer( selector, key, addr, 10000UL, 10400UL, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL );
   fd_sspeer_selector_remove( selector, key );
 
-  /* Default latency (FD_SSPEER_LATENCY_UNKNOWN input): peer at cluster slot.
+  /* Default latency (FD_SSPEER_LATENCY_UNKNOWN input): peer with known full_slot.
      score = DEFAULT_PEER_LATENCY = 100_000_000. */
   FD_TEST( add_peer( selector, key, addr, 10000UL, 10500UL, FD_SSPEER_LATENCY_UNKNOWN )==100UL*1000UL*1000UL );
   fd_sspeer_selector_remove( selector, key );
 
-  /* Default latency + slot-behind penalty combined: peer has unknown
-     latency and incr_slot 100 behind cluster.
-     score = DEFAULT_PEER_LATENCY + 100*1000 = 100_100_000. */
-  FD_TEST( add_peer( selector, key, addr, 10000UL, 10400UL, FD_SSPEER_LATENCY_UNKNOWN )==100UL*1000UL*1000UL + 100UL*1000UL );
+  /* Default latency: peer with known full_slot, different incr_slot.
+     score = DEFAULT_PEER_LATENCY = 100_000_000. */
+  FD_TEST( add_peer( selector, key, addr, 10000UL, 10400UL, FD_SSPEER_LATENCY_UNKNOWN )==100UL*1000UL*1000UL );
   fd_sspeer_selector_remove( selector, key );
 
   /* Unresolved full slot: peer has FD_SSPEER_SLOT_UNKNOWN for both slots.
-     slots_behind = DEFAULT_SLOTS_BEHIND = 1_000_000.
-     score = 5_000_000 + 1_000_000*1000 = 1_005_000_000. */
-  FD_TEST( add_peer( selector, key, addr, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL + 1000UL*1000UL*1000UL );
+     score = FD_SSPEER_SCORE_MAX. */
+  FD_TEST( add_peer( selector, key, addr, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL )==FD_SSPEER_SCORE_MAX );
   fd_sspeer_selector_remove( selector, key );
 
   /* Unresolved full slot with valid incr_slot:
@@ -1128,179 +986,10 @@ test_score_saturation( fd_sspeer_selector_t * selector,
      rejected (an incremental slot requires a known full slot). */
   FD_TEST( add_peer( selector, key, addr, FD_SSPEER_SLOT_UNKNOWN, 10500UL, 5UL*1000UL*1000UL )==FD_SSPEER_SCORE_INVALID );
 
-  /* Score saturation: peer's full_slot is far behind a very high cluster
-     full slot.  slots_behind = (ULONG_MAX-1) - 0 = ULONG_MAX-1, which
-     causes sat_mul(1000, ULONG_MAX-1) to overflow, then sat_add also
-     overflows, and the result is clamped to FD_SSPEER_SCORE_MAX. */
-  fd_sspeer_selector_process_cluster_slot( selector, ULONG_MAX-1UL, ULONG_MAX-1UL );
-  FD_TEST( add_peer( selector, key, addr, 0UL, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL )==FD_SSPEER_SCORE_MAX );
+  /* Peer with full_slot=0 (known), latency 5ms.
+     score = latency = 5_000_000. */
+  FD_TEST( add_peer( selector, key, addr, 0UL, FD_SSPEER_SLOT_UNKNOWN, 5UL*1000UL*1000UL )==5UL*1000UL*1000UL );
   fd_sspeer_selector_remove( selector, key );
-
-  FD_LOG_NOTICE(( "... pass" ));
-}
-
-static void
-test_cluster_slot_monotonicity( fd_sspeer_selector_t * selector_incr,
-                                fd_sspeer_selector_t * selector_full ) {
-  FD_LOG_NOTICE(( "testing cluster slot monotonicity" ));
-
-  /* Incremental mode (incremental_snapshot_fetch=1).
-     Use slot values higher than any previous test to avoid
-     monotonicity rejection from prior cluster slot state. */
-
-  /* Establish baseline: full=20000, incr=20200. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20000UL, 20200UL );
-  fd_sscluster_slot_t cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20000UL );
-  FD_TEST( cs.incremental==20200UL );
-
-  /* Both FD_SSPEER_SLOT_UNKNOWN => no-op. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20000UL );
-  FD_TEST( cs.incremental==20200UL );
-
-  /* full_slot==FD_SSPEER_SLOT_UNKNOWN with valid incr_slot => no-op. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, FD_SSPEER_SLOT_UNKNOWN, 99999UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20000UL );
-  FD_TEST( cs.incremental==20200UL );
-
-  /* incr_slot==stored incr (20200), same full => rejected (no forward
-     progress on either axis). */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20000UL, 20200UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20000UL );
-  FD_TEST( cs.incremental==20200UL );
-
-  /* incr_slot==stored incr (20200), but full advances (20050 > 20000):
-     accepted because the full slot has made forward progress. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20050UL, 20200UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20050UL );
-  FD_TEST( cs.incremental==20200UL );
-
-  /* incr_slot < stored incr => rejected. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20050UL, 20199UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20050UL );
-  FD_TEST( cs.incremental==20200UL );
-
-  /* incr_slot > stored incr => accepted. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20050UL, 20201UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20050UL );
-  FD_TEST( cs.incremental==20201UL );
-
-  /* Advance full with incr==FD_SSPEER_SLOT_UNKNOWN.  Full advances but
-     incremental is preserved (not reset). */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20150UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20150UL );
-  FD_TEST( cs.incremental==20201UL );
-
-  /* incr==FD_SSPEER_SLOT_UNKNOWN, full<=stored full => rejected. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20150UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20150UL );
-  FD_TEST( cs.incremental==20201UL );
-
-  /* incr==FD_SSPEER_SLOT_UNKNOWN, full<stored full => rejected. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20149UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20150UL );
-  FD_TEST( cs.incremental==20201UL );
-
-  /* incr_slot==stored incr, full<=stored full => rejected (no forward
-     progress). */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20150UL, 20201UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20150UL );
-  FD_TEST( cs.incremental==20201UL );
-
-  /* incr_slot < stored incr => rejected. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20150UL, 20200UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20150UL );
-  FD_TEST( cs.incremental==20201UL );
-
-  /* incr_slot > stored incr => accepted. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20150UL, 20202UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20150UL );
-  FD_TEST( cs.incremental==20202UL );
-
-  /* Advance full past incremental with incr==FD_SSPEER_SLOT_UNKNOWN.
-     The stored incremental (20202) is now stale because the full slot
-     (20300) advanced past it.  It must be invalidated. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20300UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20300UL );
-  FD_TEST( cs.incremental==FD_SSPEER_SLOT_UNKNOWN );
-
-  /* Re-establish incremental after invalidation. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20300UL, 20400UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20300UL );
-  FD_TEST( cs.incremental==20400UL );
-
-  /* full_slot regression with valid incr_slot: rejected.  Even though
-     incr_slot (20500) advances past stored incremental (20400),
-     full_slot (20200) is less than stored full (20300), so the update
-     must be rejected. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20200UL, 20500UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20300UL );
-  FD_TEST( cs.incremental==20400UL );
-
-  /* full_slot regression with valid incr_slot, stored incr unknown:
-     rejected.  First invalidate the stored incremental by advancing
-     full past it. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20500UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20500UL );
-  FD_TEST( cs.incremental==FD_SSPEER_SLOT_UNKNOWN );
-
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20400UL, 20600UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20500UL );
-  FD_TEST( cs.incremental==FD_SSPEER_SLOT_UNKNOWN );
-
-  /* Re-establish for subsequent tests. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20500UL, 20600UL );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20500UL );
-  FD_TEST( cs.incremental==20600UL );
-
-  /* Advance full to exactly the incremental slot with
-     incr==FD_SSPEER_SLOT_UNKNOWN.  incr==full is not stale
-     (incremental is at the same slot), so incremental is preserved. */
-  fd_sspeer_selector_process_cluster_slot( selector_incr, 20600UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_incr );
-  FD_TEST( cs.full==20600UL );
-  FD_TEST( cs.incremental==20600UL );
-
-  /* Full-only mode (incremental_snapshot_fetch=0). */
-
-  /* Establish baseline: full=500. */
-  fd_sspeer_selector_process_cluster_slot( selector_full, 500UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_full );
-  FD_TEST( cs.full==500UL );
-
-  /* full<=stored full => rejected. */
-  fd_sspeer_selector_process_cluster_slot( selector_full, 500UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_full );
-  FD_TEST( cs.full==500UL );
-
-  /* full<stored full => rejected. */
-  fd_sspeer_selector_process_cluster_slot( selector_full, 499UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_full );
-  FD_TEST( cs.full==500UL );
-
-  /* full>stored full => accepted. */
-  fd_sspeer_selector_process_cluster_slot( selector_full, 501UL, FD_SSPEER_SLOT_UNKNOWN );
-  cs = fd_sspeer_selector_cluster_slot( selector_full );
-  FD_TEST( cs.full==501UL );
 
   FD_LOG_NOTICE(( "... pass" ));
 }
@@ -1312,7 +1001,6 @@ test_pool_exhaustion( fd_sspeer_selector_t * selector,
 
   ulong cluster_full = 1000UL;
   ulong cluster_incr = 1500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full, cluster_incr );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, 0 ) );
   fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, 0 ) );
@@ -1375,7 +1063,6 @@ test_add_null_key( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 100UL;
   ulong cluster_incr_slot = 200UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   add_peer( selector, key_A, *addr_A, cluster_full_slot, cluster_incr_slot, 1UL*1000UL*1000UL );
   FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
@@ -1414,7 +1101,6 @@ test_remove_null_key( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 100UL;
   ulong cluster_incr_slot = 200UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   add_peer( selector, key_A, *addr_A, cluster_full_slot, cluster_incr_slot, 1UL*1000UL*1000UL );
   FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
@@ -1451,7 +1137,6 @@ test_remove_unknown_key( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 100UL;
   ulong cluster_incr_slot = 200UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   add_peer( selector, key_A, *addr_A, cluster_full_slot, cluster_incr_slot, 1UL*1000UL*1000UL );
   FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
@@ -1490,7 +1175,6 @@ test_remove_by_addr_unknown( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 100UL;
   ulong cluster_incr_slot = 200UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   add_peer( selector, key_A, *addr_A, cluster_full_slot, cluster_incr_slot, 1UL*1000UL*1000UL );
   FD_TEST( 1UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
@@ -1533,15 +1217,11 @@ test_best_incremental_on_full_only_selector( fd_sspeer_selector_t * selector,
                                              fd_rng_t *             rng ) {
   FD_LOG_NOTICE(( "testing best incremental on full-only selector" ));
 
-  /* The selector was created with incr_snap_fetch=0 (full-only mode).
-     Verify that fd_sspeer_selector_best(selector, 1, base_slot) still
-     works correctly.  The incremental flag in best() filters by peer
-     attributes (full_slot==base_slot && incr_slot!=FD_SSPEER_SLOT_UNKNOWN),
-     it does NOT depend on the selector's incremental_snapshot_fetch
-     setting. */
+  /* Verify that fd_sspeer_selector_best(selector, 1, base_slot) works
+     correctly.  The incremental flag in best() filters by peer
+     attributes (full_slot==base_slot && incr_slot!=FD_SSPEER_SLOT_UNKNOWN). */
 
   ulong cluster_full_slot = 30000UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, FD_SSPEER_SLOT_UNKNOWN );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
@@ -1556,15 +1236,13 @@ test_best_incremental_on_full_only_selector( fd_sspeer_selector_t * selector,
   FD_TEST( add_peer( selector, key_B, addr_B, cluster_full_slot, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )!=FD_SSPEER_SCORE_INVALID );
   FD_TEST( add_peer( selector, key_C, addr_C, cluster_full_slot - 1UL, cluster_full_slot + 400UL, 1UL*1000UL*1000UL )!=FD_SSPEER_SCORE_INVALID );
 
-  /* Full selection: peer C has the lowest score.  Cluster incremental
-     is UNKNOWN so all peers with incr_slot fall back to the full_slot
-     comparison.  Peer C: latency=1ms, slots_behind=1 (30000-29999),
-     score = 1_000_000 + 1_000 = 1_001_000.  Peer B: latency=2ms,
-     slots_behind=0, score = 2_000_000.  Peer A: latency=3ms,
-     slots_behind=0, score = 3_000_000. */
+  /* Full selection: peer C has the lowest score (latency-only).
+     Peer C: latency=1ms, score = 1_000_000.
+     Peer B: latency=2ms, score = 2_000_000.
+     Peer A: latency=3ms, score = 3_000_000. */
   fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   FD_TEST( best.addr.l==addr_C.l );
-  FD_TEST( best.score==1UL*1000UL*1000UL + 1UL*1000UL );
+  FD_TEST( best.score==1UL*1000UL*1000UL );
 
   /* Incremental selection with the right base_slot: only peer A
      qualifies (peer B has no incr, peer C has a different full_slot). */
@@ -1611,7 +1289,6 @@ test_ping_preserves_cleared_incremental( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 31000UL;
   ulong cluster_incr_slot = 31500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
@@ -1711,7 +1388,6 @@ test_stress_peer_count( fd_sspeer_selector_t * selector,
 
   ulong cluster_full_slot = 50000UL;
   ulong cluster_incr_slot = 50500UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t keys[ 34 ];
   fd_ip4_port_t   addrs[ 34 ];
@@ -1817,9 +1493,7 @@ test_stress_peer_count( fd_sspeer_selector_t * selector,
     FD_TEST( best.score!=FD_SSPEER_SCORE_INVALID );
   }
 
-  /* Advance the cluster slot and verify rescoring. */
-
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot + 100UL, cluster_incr_slot + 100UL );
+  /* Verify best is still valid after removals. */
 
   best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
   if( remaining>0UL ) {
@@ -1860,112 +1534,12 @@ test_stress_peer_count( fd_sspeer_selector_t * selector,
 }
 
 static void
-test_genesis_cluster_slot( fd_sspeer_selector_t * selector,
-                           fd_rng_t *             rng ) {
-  FD_LOG_NOTICE(( "testing genesis cluster slot (0, 0)" ));
-
-  /* Verify that process_cluster_slot(0, 0) succeeds from the initial
-     state {full=0, incremental=FD_SSPEER_SLOT_UNKNOWN}.  This is the
-     genesis case where both the full and incremental snapshots are at
-     slot 0. */
-  fd_sscluster_slot_t cs = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cs.full==0UL );
-  FD_TEST( cs.incremental==FD_SSPEER_SLOT_UNKNOWN );
-
-  fd_sspeer_selector_process_cluster_slot( selector, 0UL, 0UL );
-  cs = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cs.full==0UL );
-  FD_TEST( cs.incremental==0UL );
-
-  /* Verify scoring when cluster.incremental == cluster.full == 0.
-     Peer with incr_slot=0: slots_behind = 0.  Score = latency.
-     Peer with incr_slot=FD_SSPEER_SLOT_UNKNOWN: uses full branch,
-     slots_behind = 0.  Score = latency. */
-  fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
-  fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
-  fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
-  fd_ip4_port_t addr_B; FD_TEST( generate_rand_addr_non_zero( &addr_B, rng ) );
-
-  FD_TEST( add_peer( selector, key_A, addr_A, 0UL, 0UL,        2UL*1000UL*1000UL )==2UL*1000UL*1000UL );
-  FD_TEST( add_peer( selector, key_B, addr_B, 0UL, FD_SSPEER_SLOT_UNKNOWN,  3UL*1000UL*1000UL )==3UL*1000UL*1000UL );
-
-  /* Peer A has lower score, so it's best for full selection. */
-  fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
-  FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.score==2UL*1000UL*1000UL );
-
-  /* Peer A is the only incremental candidate (B has
-     incr_slot==FD_SSPEER_SLOT_UNKNOWN). */
-  best = fd_sspeer_selector_best( selector, 1, 0UL );
-  FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.incr_slot==0UL );
-  FD_TEST( best.score==2UL*1000UL*1000UL );
-
-  /* Advance cluster to (0, 5).  Peer A is now 5 slots behind.
-     Score = 2_000_000 + 5*1000 = 2_005_000. */
-  fd_sspeer_selector_process_cluster_slot( selector, 0UL, 5UL );
-  best = fd_sspeer_selector_best( selector, 1, 0UL );
-  FD_TEST( best.addr.l==addr_A.l );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 5UL*1000UL );
-
-  /* Cleanup */
-  fd_sspeer_selector_remove( selector, key_A );
-  fd_sspeer_selector_remove( selector, key_B );
-  FD_TEST( !fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
-  FD_TEST( !fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
-
-  FD_LOG_NOTICE(( "... pass" ));
-}
-
-static void
-test_cluster_slot_rescore_full_only( fd_sspeer_selector_t * selector,
-                                     fd_rng_t *             rng ) {
-  FD_LOG_NOTICE(( "testing cluster slot rescore full only" ));
-
-  ulong cluster_full_slot = 1000UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, FD_SSPEER_SLOT_UNKNOWN );
-
-  fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
-  fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
-  fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
-  fd_ip4_port_t addr_B; FD_TEST( generate_rand_addr_non_zero( &addr_B, rng ) );
-
-  /* Peer A at cluster slot, peer B 2 slots behind.
-     A: slots_behind=0, score=3_000_000.
-     B: slots_behind=2, score=2_000_000 + 2*1000 = 2_002_000. */
-  FD_TEST( add_peer( selector, key_A, addr_A, 1000UL, FD_SSPEER_SLOT_UNKNOWN, 3UL*1000UL*1000UL )==3UL*1000UL*1000UL );
-  FD_TEST( add_peer( selector, key_B, addr_B,  998UL, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )==2UL*1000UL*1000UL + 2UL*1000UL );
-
-  fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
-  FD_TEST( best.addr.l==addr_B.l );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 2UL*1000UL );
-
-  /* Advance cluster full slot.  All peers should be rescored.
-     A: slots_behind=100, score=3_000_000 + 100*1000 = 3_100_000.
-     B: slots_behind=102, score=2_000_000 + 102*1000 = 2_102_000. */
-  fd_sspeer_selector_process_cluster_slot( selector, 1100UL, FD_SSPEER_SLOT_UNKNOWN );
-
-  best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
-  FD_TEST( best.addr.l==addr_B.l );
-  FD_TEST( best.score==2UL*1000UL*1000UL + 102UL*1000UL );
-
-  /* Cleanup. */
-  fd_sspeer_selector_remove( selector, key_A );
-  fd_sspeer_selector_remove( selector, key_B );
-  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
-  FD_TEST( 0UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
-
-  FD_LOG_NOTICE(( "... pass" ));
-}
-
-static void
 test_invalid_clear_and_best_sentinel( fd_sspeer_selector_t * selector,
                                       fd_rng_t *             rng ) {
   FD_LOG_NOTICE(( "testing invalid clear and best sentinel" ));
 
   ulong cluster_full_slot = 9500UL;
   ulong cluster_incr_slot = 9600UL;
-  fd_sspeer_selector_process_cluster_slot( selector, cluster_full_slot, cluster_incr_slot );
 
   fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
   fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
@@ -2043,14 +1617,6 @@ test_invalid_clear_and_best_sentinel( fd_sspeer_selector_t * selector,
   FD_TEST( best.full_slot==cluster_full_slot );
   FD_TEST( best.incr_slot==cluster_incr_slot );
 
-  /* process_cluster_slot with incr_slot < full_slot should be silently
-     rejected (cluster slot unchanged). */
-  fd_sscluster_slot_t cs_before = fd_sspeer_selector_cluster_slot( selector );
-  fd_sspeer_selector_process_cluster_slot( selector, 50000UL, 40000UL );
-  fd_sscluster_slot_t cs_after = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cs_before.full==cs_after.full );
-  FD_TEST( cs_before.incremental==cs_after.incremental );
-
   /* incr_slot == full_slot boundary (non-genesis). */
 
   /* add() for a new peer with incr_slot == full_slot must be accepted. */
@@ -2066,14 +1632,61 @@ test_invalid_clear_and_best_sentinel( fd_sspeer_selector_t * selector,
                                                  600UL, 600UL,
                                                  full_hash, incr_hash )==FD_SSPEER_UPDATE_SUCCESS );
 
-  /* process_cluster_slot with incr_slot == full_slot must be accepted. */
-  fd_sspeer_selector_process_cluster_slot( selector, 60000UL, 60000UL );
-  fd_sscluster_slot_t cs_eq = fd_sspeer_selector_cluster_slot( selector );
-  FD_TEST( cs_eq.full==60000UL );
-  FD_TEST( cs_eq.incremental==60000UL );
+  /* Cleanup. */
+  fd_sspeer_selector_remove( selector, key_A );
+  FD_TEST( !fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
+  FD_TEST( !fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+
+  FD_LOG_NOTICE(( "... pass" ));
+}
+
+static void
+test_best_returns_sentinel_when_all_unresolved( fd_sspeer_selector_t * selector,
+                                                fd_rng_t *             rng ) {
+  FD_LOG_NOTICE(( "testing best returns sentinel when all peers have unresolved slots" ));
+
+  fd_sspeer_key_t key_A[1]; FD_TEST( generate_rand_sspeer_key( key_A, rng, fd_rng_uint( rng )&0x1 ) );
+  fd_sspeer_key_t key_B[1]; FD_TEST( generate_rand_sspeer_key( key_B, rng, fd_rng_uint( rng )&0x1 ) );
+  fd_sspeer_key_t key_C[1]; FD_TEST( generate_rand_sspeer_key( key_C, rng, fd_rng_uint( rng )&0x1 ) );
+  fd_ip4_port_t addr_A; FD_TEST( generate_rand_addr_non_zero( &addr_A, rng ) );
+  fd_ip4_port_t addr_B; FD_TEST( generate_rand_addr_non_zero( &addr_B, rng ) );
+  fd_ip4_port_t addr_C; FD_TEST( generate_rand_addr_non_zero( &addr_C, rng ) );
+
+  /* Add three peers, all with FD_SSPEER_SLOT_UNKNOWN full_slot.
+     These should all receive FD_SSPEER_SCORE_MAX and have valid=0. */
+  FD_TEST( add_peer( selector, key_A, addr_A, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 1UL*1000UL*1000UL )==FD_SSPEER_SCORE_MAX );
+  FD_TEST( add_peer( selector, key_B, addr_B, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 2UL*1000UL*1000UL )==FD_SSPEER_SCORE_MAX );
+  FD_TEST( add_peer( selector, key_C, addr_C, FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, 500UL*1000UL      )==FD_SSPEER_SCORE_MAX );
+
+  /* Peers are in the selector but all have valid=0, so best must
+     return the sentinel. */
+  FD_TEST( 3UL==fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
+  FD_TEST( 3UL==fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
+
+  fd_sspeer_t best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.addr.l==0UL );
+  FD_TEST( best.full_slot==FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.incr_slot==FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.score==FD_SSPEER_SCORE_INVALID );
+
+  /* Resolve one peer's full_slot.  Now best should return that peer. */
+  FD_TEST( fd_sspeer_selector_update_on_resolve( selector, key_B,
+                                                  5000UL, FD_SSPEER_SLOT_UNKNOWN,
+                                                  NULL, NULL )==FD_SSPEER_UPDATE_SUCCESS );
+  best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.addr.l==addr_B.l );
+  FD_TEST( best.full_slot==5000UL );
+  FD_TEST( best.score==2UL*1000UL*1000UL );
+
+  /* The other unresolved peers must still be skipped. */
+  fd_sspeer_selector_remove( selector, key_B );
+  best = fd_sspeer_selector_best( selector, 0, FD_SSPEER_SLOT_UNKNOWN );
+  FD_TEST( best.addr.l==0UL );
+  FD_TEST( best.score==FD_SSPEER_SCORE_INVALID );
 
   /* Cleanup. */
   fd_sspeer_selector_remove( selector, key_A );
+  fd_sspeer_selector_remove( selector, key_C );
   FD_TEST( !fd_sspeer_selector_peer_map_by_key_ele_cnt( selector ) );
   FD_TEST( !fd_sspeer_selector_peer_map_by_addr_ele_cnt( selector ) );
 
@@ -2099,42 +1712,26 @@ main( int     argc,
 
   FD_TEST( wksp );
   test_wksp_t t_wksp_base  = {0};
-  test_wksp_t t_wksp_full  = {0};
   test_wksp_t t_wksp_small = {0};
   test_wksp_t t_wksp_stress= {0};
 
   test_wksp_init( wksp,
                   &t_wksp_base,
                   65536UL/*max_peers*/,
-                  1/*incr_snap_fetch*/,
-                  fd_rng_ulong( rng )/*seed*/ );
-
-  test_wksp_init( wksp,
-                  &t_wksp_full,
-                  4UL/*max_peers*/,
-                  0/*incr_snap_fetch*/,
                   fd_rng_ulong( rng )/*seed*/ );
 
   test_wksp_init( wksp,
                   &t_wksp_small,
                   2UL/*max_peers*/,
-                  1/*incr_snap_fetch*/,
                   fd_rng_ulong( rng )/*seed*/ );
 
   test_wksp_init( wksp,
                   &t_wksp_stress,
                   32UL/*max_peers*/,
-                  1/*incr_snap_fetch*/,
                   fd_rng_ulong( rng )/*seed*/ );
 
-  verify_initial_cluster_slot( t_wksp_base.selector );
-  verify_initial_cluster_slot( t_wksp_full.selector );
-  verify_initial_cluster_slot( t_wksp_small.selector );
-  verify_initial_cluster_slot( t_wksp_stress.selector );
-
   /* Subtests.  To make them independent from each other, the test
-     workspaces need to be re-initialized before usage.  This is because
-     the cluster slot can only increase monotonically over time. */
+     workspaces need to be re-initialized before usage. */
 
   test_wksp_reinit( &t_wksp_base );
   test_slot_zero( t_wksp_base.selector, rng );
@@ -2167,14 +1764,7 @@ main( int     argc,
   test_on_resolve_clears_incremental( t_wksp_base.selector, rng );
 
   test_wksp_reinit( &t_wksp_base );
-  test_cluster_slot_incremental( t_wksp_base.selector, rng );
-
-  test_wksp_reinit( &t_wksp_base );
   test_score_saturation( t_wksp_base.selector, rng );
-
-  test_wksp_reinit( &t_wksp_base );
-  test_wksp_reinit( &t_wksp_full );
-  test_cluster_slot_monotonicity( t_wksp_base.selector, t_wksp_full.selector );
 
   test_wksp_reinit( &t_wksp_small );
   test_pool_exhaustion( t_wksp_small.selector, rng );
@@ -2195,19 +1785,16 @@ main( int     argc,
   test_best_empty_selector( t_wksp_base.selector, rng );
 
   test_wksp_reinit( &t_wksp_base );
-  test_genesis_cluster_slot( t_wksp_base.selector, rng );
-
-  test_wksp_reinit( &t_wksp_full );
-  test_cluster_slot_rescore_full_only( t_wksp_full.selector, rng );
-
-  test_wksp_reinit( &t_wksp_full );
-  test_best_incremental_on_full_only_selector( t_wksp_full.selector, rng );
+  test_best_incremental_on_full_only_selector( t_wksp_base.selector, rng );
 
   test_wksp_reinit( &t_wksp_base );
   test_invalid_clear_and_best_sentinel( t_wksp_base.selector, rng );
 
   test_wksp_reinit( &t_wksp_base );
   test_ping_preserves_cleared_incremental( t_wksp_base.selector, rng );
+
+  test_wksp_reinit( &t_wksp_base );
+  test_best_returns_sentinel_when_all_unresolved( t_wksp_base.selector, rng );
 
   test_wksp_reinit( &t_wksp_stress );
   test_stress_peer_count( t_wksp_stress.selector, rng, t_wksp_stress.max_peers );
@@ -2216,7 +1803,6 @@ main( int     argc,
 
   fd_rng_delete( fd_rng_leave( rng ) );
   test_wksp_fini( &t_wksp_base );
-  test_wksp_fini( &t_wksp_full );
   test_wksp_fini( &t_wksp_small );
   test_wksp_fini( &t_wksp_stress );
 

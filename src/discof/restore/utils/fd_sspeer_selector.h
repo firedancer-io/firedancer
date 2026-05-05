@@ -34,15 +34,6 @@
 #define FD_SSPEER_UPDATE_ERR_NOT_FOUND   (-2)
 #define FD_SSPEER_UPDATE_ERR_INVALID_ARG (-3)
 
-/* fd_sscluster_slot stores the highest full and incremental slot pair
-   seen in the cluster. */
-struct fd_sscluster_slot {
-  ulong full;
-  ulong incremental;
-};
-
-typedef struct fd_sscluster_slot fd_sscluster_slot_t;
-
  /* fd_sspeer_t represents a selected peer from the snapshot peer
     selector, including the peer's address, resolved snapshot slots,
     and selector score. */
@@ -71,7 +62,6 @@ fd_sspeer_selector_footprint( ulong max_peers );
 void *
 fd_sspeer_selector_new( void * shmem,
                         ulong  max_peers,
-                        int    incremental_snapshot_fetch,
                         ulong  seed );
 
 fd_sspeer_selector_t *
@@ -157,19 +147,6 @@ fd_sspeer_t
 fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
                          ulong                  base_slot );
-
-/* Updates the selector's internal cluster slot and re-score all peers
-   when the cluster slot updates (moves forward) */
-void
-fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
-                                         ulong                  full_slot,
-                                         ulong                  incr_slot );
-
-/* Obtain the cluster slot from the selector.  It is the highest
-   resolved full/incremental slot pair seen from snapshot hashes or
-   from resolved http peers. */
-fd_sscluster_slot_t
-fd_sspeer_selector_cluster_slot( fd_sspeer_selector_t * selector );
 
 /* Helper functions to count how many elements exist in both peer maps
    (by_key and by_addr).  Mainly used in unit tests.  These are not

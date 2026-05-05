@@ -77,13 +77,21 @@ int
 fd_ssping_remove( fd_ssping_t * ssping,
                   fd_ip4_port_t addr );
 
-/* Mark the peer as invalid for selection for a period of time, probably
-   if they refused a connection or served us a bad snapshot. */
+/* Mark the peer as permanently invalid for selection, probably if they
+   refused a connection or served us a bad snapshot.  The peer will not
+   be re-pinged for the remainder of the bootstrap. */
 
 void
 fd_ssping_invalidate( fd_ssping_t * ssping,
-                      fd_ip4_port_t addr,
-                      long          now );
+                      fd_ip4_port_t addr );
+
+/* Check if the peer is currently in the INVALID state.  Returns 1 if
+   the peer is invalidated, 0 otherwise (including if the peer is not
+   tracked or ssping is NULL). */
+
+int
+fd_ssping_is_invalidated( fd_ssping_t const * ssping,
+                          fd_ip4_port_t       addr );
 
 /* Advance the ping tracker forward in time until "now".  This should be
    called periodically to refresh pings and service networking to

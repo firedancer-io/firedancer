@@ -22,7 +22,6 @@
 
 #define PEER_DEADLINE_NANOS_PING    (1L*1000L*1000L*1000L)     /* 1 second */
 #define PEER_DEADLINE_NANOS_VALID   (2L*60L*1000L*1000L*1000L) /* 2 minutes */
-#define PEER_DEADLINE_NANOS_INVALID (5L*60L*1000L*1000L*1000L) /* 5 minutes */
 
 #define PING_BURST_MAX (16UL) /* Limit how many pings we can burst at once. */
 
@@ -318,8 +317,7 @@ fd_ssping_remove( fd_ssping_t * ssping,
 
 void
 fd_ssping_invalidate( fd_ssping_t * ssping,
-                      fd_ip4_port_t addr,
-                      long          now ) {
+                      fd_ip4_port_t addr ) {
   fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
   if( FD_UNLIKELY( !peer ) ) return;
   switch( peer->state ) {
@@ -340,9 +338,18 @@ fd_ssping_invalidate( fd_ssping_t * ssping,
     case PEER_STATE_INVALID:
       return;
   }
+  peer->deadline_nanos = 0L;
   peer->state = PEER_STATE_INVALID;
-  peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
   deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
+}
+
+int
+fd_ssping_is_invalidated( fd_ssping_t const * ssping,
+                          fd_ip4_port_t       addr ) {
+  if( FD_UNLIKELY( !ssping ) ) return 0;
+  fd_ssping_peer_t const * peer = peer_map_ele_query_const( ssping->map, &addr, NULL, ssping->pool );
+  if( FD_UNLIKELY( !peer ) ) return 0;
+  return peer->state == PEER_STATE_INVALID;
 }
 
 static inline void
@@ -379,8 +386,8 @@ recv_pings( fd_ssping_t * ssping,
       } else {
         /* This is pretty unlikely, but the host could respond with an
            RST packet I suppose. */
+        peer->deadline_nanos = 0L;
         peer->state = PEER_STATE_INVALID;
-        peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
         deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
         fd_sspeer_selector_remove_by_addr( selector, peer->addr );
       }
@@ -452,8 +459,8 @@ fd_ssping_advance( fd_ssping_t *          ssping,
 
     remove_fdesc_idx( ssping, peer->used_fd_idx );
 
+    peer->deadline_nanos = 0L;
     peer->state = PEER_STATE_INVALID;
-    peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
     deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
     fd_sspeer_selector_remove_by_addr( selector, peer->addr );
   }
@@ -475,22 +482,16 @@ fd_ssping_advance( fd_ssping_t *          ssping,
 
     remove_fdesc_idx( ssping, peer->used_fd_idx );
 
+    peer->deadline_nanos = 0L;
     peer->state = PEER_STATE_INVALID;
-    peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
     deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
     fd_sspeer_selector_remove_by_addr( selector, peer->addr );
   }
 
-  while( !deadline_list_is_empty( ssping->invalid, ssping->pool ) ) {
-    fd_ssping_peer_t * peer = deadline_list_ele_peek_head( ssping->invalid, ssping->pool );
-    if( FD_LIKELY( peer->deadline_nanos>now ) ) break;
-
-    deadline_list_ele_pop_head( ssping->invalid, ssping->pool );
-
-    peer->state = PEER_STATE_UNPINGED;
-    peer->deadline_nanos = 0L;
-    deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
-  }
+  /* Invalidated peers are permanently banned for the duration of
+     bootstrap and are never re-introduced into the unpinged list.
+     The invalid list is bounded by max_peers (the pool capacity).
+     Gossip CONTACT_INFO_REMOVE events free invalidated peers. */
 
   recv_pings( ssping, selector );
 }
