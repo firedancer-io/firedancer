@@ -82,7 +82,10 @@ verify_slot_deltas_with_slot_history( fd_snapwm_tile_t * ctx ) {
 
   fd_account_meta_t meta;
   uchar data[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ];
-  fd_snapwm_vinyl_read_account( ctx, &fd_sysvar_slot_history_id, &meta, data, sizeof(data) );
+  if( FD_UNLIKELY( fd_snapwm_vinyl_read_account( ctx, &fd_sysvar_slot_history_id, &meta, data, sizeof(data) ) ) ) {
+    FD_LOG_WARNING(( "failed to read SlotHistory sysvar account" ));
+    return -1;
+  }
 
   if( FD_UNLIKELY( !meta.lamports || !meta.dlen ) ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account missing or empty" ));
@@ -143,7 +146,10 @@ handle_data_frag( fd_snapwm_tile_t *  ctx,
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && acc_cnt<=FD_SNAPWM_PAIR_BATCH_CNT_MAX );
 
-  fd_snapwm_vinyl_process_account( ctx, chunk, acc_cnt, stem );
+  if( FD_UNLIKELY( fd_snapwm_vinyl_process_account( ctx, chunk, acc_cnt, stem ) ) ) {
+    transition_malformed( ctx, stem );
+    return 0;
+  }
 
   return 0;
 }

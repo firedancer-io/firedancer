@@ -41,7 +41,10 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
     should_publish = 1;
     int err;
     rec = fd_funk_rec_prepare( funk, ctx->xid, &id, prepare, &err );
-    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "failed to prepare funk record for account insertion at slot %lu (err=%d%s)", result->account_header.slot, err, err==FD_FUNK_ERR_REC ? ", increase [accounts.rec_max]" : "" ));
+    if( FD_UNLIKELY( !rec ) ) {
+      FD_LOG_WARNING(( "failed to prepare funk record for account insertion at slot %lu (err=%d%s)", result->account_header.slot, err, err==FD_FUNK_ERR_REC ? ", increase [accounts.rec_max]" : "" ));
+      return -1;
+    }
   }
 
   fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
@@ -50,7 +53,12 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   ulong const alloc_sz = sizeof(fd_account_meta_t)+result->account_header.data_len;
   ulong       alloc_max;
   meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of memory while loading snapshot (increase [accounts.file_size_gib])" ));
+  if( FD_UNLIKELY( !meta ) ) {
+    /* rec is left with no value (val_gaddr=0) after val_flush above.
+       This is safe because funk is fully reset on MSG_CTRL_FAIL. */
+    FD_LOG_WARNING(( "Ran out of memory while loading snapshot (increase [accounts.file_size_gib])" ));
+    return -1;
+  }
   memset( meta, 0, sizeof(fd_account_meta_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
@@ -87,7 +95,7 @@ fd_snapin_process_account_data_funk( fd_snapin_tile_t *            ctx,
 /* streamlined_insert inserts an unfragmented account.
    Only used while loading a full snapshot, not an incremental. */
 
-static void
+static int
 streamlined_insert( fd_snapin_tile_t * ctx,
                     fd_funk_rec_t *    rec,
                     uchar const *      frame,
@@ -99,12 +107,20 @@ streamlined_insert( fd_snapin_tile_t * ctx,
   _Bool executable = !!frame[ 0x60UL ];
 
   fd_funk_t * funk = ctx->funk;
-  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) {
+    FD_LOG_WARNING(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+    return -1;
+  }
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
   ulong const alloc_sz = sizeof(fd_account_meta_t)+data_len;
   ulong       alloc_max;
   fd_account_meta_t * meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of memory while loading snapshot (increase [accounts.file_size_gib])" ));
+  if( FD_UNLIKELY( !meta ) ) {
+    /* rec is left with no value (val_gaddr=0) after val_flush above.
+       This is safe because funk is fully reset on MSG_CTRL_FAIL. */
+    FD_LOG_WARNING(( "Ran out of memory while loading snapshot (increase [accounts.file_size_gib])" ));
+    return -1;
+  }
   memset( meta, 0, sizeof(fd_account_meta_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
@@ -123,6 +139,7 @@ streamlined_insert( fd_snapin_tile_t * ctx,
 
   /* update capitalization */
   ctx->capitalization = fd_ulong_sat_add( ctx->capitalization, lamports );
+  return 0;
 }
 
 /* process_account_batch is a happy path performance optimization
@@ -197,7 +214,10 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     fd_funk_rec_t * r = rec[ i ];
     if( FD_LIKELY( !r ) ) {  /* optimize for new account */
       r = fd_funk_rec_pool_acquire( funk->rec_pool );
-      if( FD_UNLIKELY( !r ) ) FD_LOG_ERR(( "funk record pool exhausted while loading snapshot batch (increase [accounts.rec_max])" ));
+      if( FD_UNLIKELY( !r ) ) {
+        FD_LOG_WARNING(( "funk record pool exhausted while loading snapshot batch (increase [accounts.rec_max])" ));
+        return -1;
+      }
       ulong rec_idx = (ulong)( r - rec_tbl );
 
       fd_funk_txn_xid_copy( r->pair.xid, ctx->xid );
@@ -225,8 +245,11 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
       rec[ i ]         = r;
     } else {  /* existing record for key found */
       fd_account_meta_t const * existing = fd_funk_val( r, funk->wksp );
-      if( FD_UNLIKELY( !existing ) ) FD_LOG_HEXDUMP_NOTICE(( "r", r, sizeof(fd_funk_rec_t) ));
-      if( FD_UNLIKELY( !existing ) ) FD_LOG_ERR(( "corrupt funk record: existing record has no value" ));
+      if( FD_UNLIKELY( !existing ) ) {
+        FD_LOG_HEXDUMP_NOTICE(( "r", r, sizeof(fd_funk_rec_t) ));
+        FD_LOG_WARNING(( "corrupt funk record: existing record has no value" ));
+        return -1;
+      }
       if( existing->slot > slot ) {
         rec[ i ] = NULL;  /* skip record if existing value is newer */
         /* send the skipped account to the subtracting hash tile */
@@ -238,7 +261,8 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
         ctx->dup_capitalization = fd_ulong_sat_add( ctx->dup_capitalization, existing->lamports );
         fd_snapin_send_duplicate_account( ctx, existing->lamports, (uchar const *)existing + sizeof(fd_account_meta_t), existing->dlen, existing->executable, existing->owner, pubkey, 1, &early_exit );
       } else { /* slot==existing->slot */
-        FD_LOG_ERR(( "corrupt snapshot: duplicate account in same slot (slot=%lu)", slot ));
+        FD_LOG_WARNING(( "corrupt snapshot: duplicate account in same slot (slot=%lu)", slot ));
+        return -1;
       }
 
       if( FD_LIKELY( early_exit ) ) {
@@ -262,7 +286,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     uchar const * frame = result ? result->account_batch.batch[ i ] : buffered_batch->batch[ i ];
     ulong slot = result ? result->account_batch.slot : buffered_batch->slot;
     if( rec[ i ] ) {
-      streamlined_insert( ctx, rec[ i ], frame, slot );
+      if( FD_UNLIKELY( streamlined_insert( ctx, rec[ i ], frame, slot ) ) ) return -1;
     }
   }
 
@@ -297,9 +321,11 @@ fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
 
   ulong data_sz = fd_accdb_ref_data_sz( ro );
   if( FD_UNLIKELY( data_sz>data_max ) ) {
-    FD_BASE58_ENCODE_32_BYTES( acct_addr, acct_addr_b58 );
-    FD_LOG_CRIT(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
-                  acct_addr_b58, data_sz, data_max ));
+    /* Don't copy data that doesn't fit.  Unlike the vinyl path, meta
+       fields (lamports, owner, etc.) are not yet populated here, so
+       we leave meta zeroed from the memset above (dlen==0). */
+    fd_accdb_close_ro( ctx->accdb, ro );
+    return;
   }
 
   fd_memcpy( meta->owner, fd_accdb_ref_owner( ro )->hash, sizeof(fd_pubkey_t) );

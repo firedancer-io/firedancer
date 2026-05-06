@@ -196,30 +196,32 @@ void
 fd_snapwm_vinyl_shutdown( fd_snapwm_tile_t * ctx );
 
 /* fd_snapwm_vinyl_process_account reads a set of pre-generated bstream
-   pairs and decides whether to actually add then to the vinyl database.
+   pairs and decides whether to actually add them to the vinyl database.
    It supports batch mode as well as single account (pair). */
 
-void
+int
 fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
                                  ulong               chunk,
                                  ulong               acc_cnt,
                                  fd_stem_context_t * stem );
 
 /* fd_snapwm_vinyl_read_account retrieves an account from the vinyl
-   database. */
+   database.  Returns 0 on success, -1 on failure (e.g. account not
+   found, or data exceeds data_max). */
 
-void
+int
 fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
                               void const *        acct_addr,
                               fd_account_meta_t * meta,
                               uchar *             data,
                               ulong               data_max );
 
-/* fd_snapwm_vinyl_duplicate_accounts_batch_{init,append,fini} handle
-   duplicate accounts batching when lthash computation is enabled.
+/* fd_snapwm_vinyl_duplicate_accounts_batch_{init,append,cancel,fini}
+   handle duplicate accounts batching when lthash computation is enabled.
    The batch is needed to minimize the STEM_BURST, and make the stem
    credit handling possible.  _fini is responsible for sending the
-   message downstream.
+   message downstream.  _cancel discards the accumulated batch without
+   publishing (used on error paths).
 
    Typical usage:
      fd_snapwm_vinyl_duplicate_accounts_batch_init( ctx, stem );
@@ -229,7 +231,9 @@ fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
      }
      fd_snapwm_vinyl_duplicate_accounts_batch_fini( ctx, stem );
 
-   They all return 1 on success, and 0 otherwise.
+   _init, _append, and _fini return 1 when work was performed
+   (output link credits consumed), 0 otherwise (e.g. lthash disabled
+   or empty batch).  _cancel always returns 0 (nothing is published).
 
    IMPORTANT: there is an fseq check inside init, since every append
    modifies the output link's dcache directly.  However, there is no
@@ -242,6 +246,8 @@ int
 fd_snapwm_vinyl_duplicate_accounts_batch_append( fd_snapwm_tile_t *        ctx,
                                                  fd_vinyl_bstream_phdr_t * phdr,
                                                  ulong                     seq );
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_cancel( fd_snapwm_tile_t * ctx );
 int
 fd_snapwm_vinyl_duplicate_accounts_batch_fini( fd_snapwm_tile_t *  ctx,
                                                fd_stem_context_t * stem );

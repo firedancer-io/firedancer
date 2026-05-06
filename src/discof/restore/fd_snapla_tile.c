@@ -256,6 +256,8 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
     return;
   };
 
+  int forward_msg = 1;
+
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR: {
@@ -279,9 +281,15 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
       /* This is a special case: handle_data_frag must have already
          processed FD_SSPARSE_ADVANCE_DONE and moved the state into
-         FD_SNAPSHOT_STATE_FINISHING. */
-      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
-      ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+         FD_SNAPSHOT_STATE_FINISHING.  Otherwise, treat this as a
+         malformed snapshot so that the pipeline can retry. */
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+        FD_LOG_WARNING(( "received FINI while in state %s (%lu), expected FINISHING (possibly truncated tar stream)",
+                         fd_ssctrl_state_str( (ulong)ctx->state ), (ulong)ctx->state ));
+        transition_malformed( ctx, stem );
+        forward_msg = 0;
+        break;
+      }
       fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
@@ -324,7 +332,9 @@ handle_control_frag( fd_snapla_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, FD_SNAPLA_OUT_CTRL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  if( FD_LIKELY( forward_msg ) ) {
+    fd_stem_publish( stem, FD_SNAPLA_OUT_CTRL, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static inline int

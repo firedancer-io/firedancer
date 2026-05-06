@@ -10,7 +10,9 @@
 #include "../../disco/shred/fd_shredder.h" /* FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ */
 #include "../../discof/poh/fd_poh.h" /* for MAX_SKIPPED_TICKS */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
@@ -936,7 +938,7 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
     FD_LOG_CRIT(( "invariant violation: block->fec_eos set but getting more FEC sets, slot %lu, parent slot %lu", fec->slot, fec->parent_slot ));
   }
-  if( FD_UNLIKELY( block->fec_eob && fec->is_last_in_batch ) ) {
+  if( FD_UNLIKELY( block->fec_eob ) ) {
     /* If the previous FEC set ingestion and parse was successful,
        block->fec_eob should be cleared.  The fact that fec_eob is set
        means that the previous batch didn't parse properly.  So this is
@@ -1014,10 +1016,14 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
     return 0;
   }
 
-  if( FD_UNLIKELY( (fec->is_last_in_batch||fec->is_last_in_block) && (block->txns_rem||block->mblks_rem) ) ) {
+  if( FD_UNLIKELY( (fec->is_last_in_batch||fec->is_last_in_block) && (block->txns_rem||block->mblks_rem||block->fec_eob) ) ) {
     /* A malformed block that fails to parse out exactly as many
-       transactions and microblocks as it should. */
-    FD_LOG_INFO(( "bad block: bytes_rem %u, txns_rem %lu, mblks_rem %lu, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->slot, block->parent_slot ));
+       transactions and microblocks as it should.
+
+       Upon getting a last-in-batch FEC, everything in the ongoing batch
+       should completely parse, and the eob flag should be reset.  There
+       should be no go around for a last-in-batch FEC. */
+    FD_LOG_INFO(( "bad block: bytes_rem %u, txns_rem %lu, mblks_rem %lu, fec_eob %d, slot %lu, parent slot %lu", block->fec_buf_sz-block->fec_buf_soff, block->txns_rem, block->mblks_rem, block->fec_eob, block->slot, block->parent_slot ));
     handle_bad_block( sched, block );
     return 0;
   }
@@ -2117,12 +2123,18 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   /* Try to expand ALUTs. */
   int serializing = 0;
   if( alt_cnt>0UL ) {
-    uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb, alut_ctx->xid, slot_hashes_mem );
-    if( FD_LIKELY( slot_hashes_global ) ) {
-      fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
-      serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hash, sched->aluts );
-      sched->metrics->alut_success_cnt += (uint)!serializing;
+    fd_accdb_ro_t ro[1];
+    if( FD_LIKELY( fd_accdb_open_ro( alut_ctx->accdb, ro, alut_ctx->xid, &fd_sysvar_slot_hashes_id ) ) ) {
+      fd_slot_hashes_t slot_hashes_view[1];
+      if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view,
+                                                 fd_accdb_ref_data_const( ro ),
+                                                 fd_accdb_ref_data_sz( ro ) ) ) ) {
+        serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->xid, alut_ctx->els, slot_hashes_view, sched->aluts );
+        sched->metrics->alut_success_cnt += (uint)!serializing;
+      } else {
+        serializing = 1;
+      }
+      fd_accdb_close_ro( alut_ctx->accdb, ro );
     } else {
       serializing = 1;
     }

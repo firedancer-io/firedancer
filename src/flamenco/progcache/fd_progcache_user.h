@@ -134,15 +134,25 @@ void *
 fd_progcache_leave( fd_progcache_t *        cache,
                     fd_progcache_shmem_t ** opt_shmem );
 
-/* fd_progcache_revision_slot returns the slot number under which a
-   progcache entry is indexed at.  epoch_slot0 is the first slot number
-   of the epoch.  deploy_slot is the slot at which the program was
-   deployed using the program loader. */
+/* fd_progcache_revision_key returns the search key of a progcache
+   entry.  The 63 upper bits are the effective slot of the entry.  The
+   LSB is 1 if this revision was created by a redeploy, and 0 if it was
+   created by a cache invalidation.  epoch_slot0 is the first slot
+   number of the epoch.  deploy_slot is the slot at which the program
+   was deployed using the program loader. */
 
 static inline ulong
-fd_progcache_revision_slot( ulong epoch_slot0,
-                            ulong deploy_slot ) {
-  return fd_ulong_max( epoch_slot0, deploy_slot );
+fd_progcache_revision_key( ulong epoch_slot0,
+                           ulong deploy_slot ) {
+  if( FD_UNLIKELY( deploy_slot < epoch_slot0 ) ) {
+    return epoch_slot0<<1;
+  }
+  return (deploy_slot<<1) | 1;
+}
+
+static inline ulong
+fd_progcache_revision_key_slot( ulong revision_key ) {
+  return revision_key>>1;
 }
 
 /* fd_progcache_peek queries the program cache for an existing cache
@@ -155,7 +165,7 @@ fd_progcache_rec_t * /* read locked */
 fd_progcache_peek( fd_progcache_t    * cache,
                    fd_xid_t    const * xid,
                    fd_pubkey_t const * prog_addr,
-                   ulong               revision_slot );
+                   ulong               revision_key );
 
 /* fd_progcache_pull loads a program from cache, filling the cache if
    necessary.  The load operation can have a number of outcomes:

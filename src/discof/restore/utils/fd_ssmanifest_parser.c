@@ -7,6 +7,9 @@
 
 #define SSMANIFEST_DEBUG 0
 
+#define MAX_SPARSE_ARRAY_LEN      (1UL<<20UL) /* upper bound on element count for sparsely validated arrays */
+#define MAX_VOTE_ACCOUNT_DATA_LEN (10UL*(1UL<<20UL)) /* 10 MiB upper bound on vote account data byte size */
+
 #define STATE_BLOCKHASH_QUEUE_LAST_HASH_INDEX                                                            (  0)
 #define STATE_BLOCKHASH_QUEUE_LAST_HASH_OPTION                                                           (  1)
 #define STATE_BLOCKHASH_QUEUE_LAST_HASH                                                                  (  2)
@@ -800,7 +803,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
 
   switch( parser->state ) {
     case STATE_BLOCKHASH_QUEUE_LAST_HASH_INDEX:                                                               return NULL;
-    case STATE_BLOCKHASH_QUEUE_LAST_HASH_OPTION:                                                              return NULL;
+    case STATE_BLOCKHASH_QUEUE_LAST_HASH_OPTION:                                                              return &parser->option;
     case STATE_BLOCKHASH_QUEUE_LAST_HASH:                                                                     return NULL;
     case STATE_BLOCKHASH_QUEUE_AGES_LENGTH:                                                                   return (uchar*)&manifest->blockhashes_len;
     case STATE_BLOCKHASH_QUEUE_AGES_HASH:                                                                     return (uchar*)manifest->blockhashes[ idx1 ].hash;
@@ -1021,7 +1024,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:                          return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                                   return NULL;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_OWNER:                                                        return NULL;
-    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                                   return NULL;
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                                   return &parser->option;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                                                   return NULL;
     case STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH:                                                         return (uchar*)&parser->length2;
     case STATE_EPOCH_STAKES_STAKE_DELEGATIONS_KEY:                                                            return NULL;
@@ -1143,7 +1146,7 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:         return parser->epoch_idx!=ULONG_MAX ? (uchar *)&manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ idx2 ].timestamp : NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY:                                  return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_OWNER:                                       return NULL;
-    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                  return NULL;
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:                                  return &parser->option;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                                  return NULL;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH:                                        return (uchar*)&parser->length2;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_KEY:                                           return NULL;
@@ -1236,6 +1239,17 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
+    case STATE_BLOCKHASH_QUEUE_LAST_HASH_OPTION: {
+      if( FD_UNLIKELY( !parser->option ) ) {
+        FD_LOG_WARNING(( "blockhash queue last hash option is None, expected Some" ));
+        return -1;
+      }
+      if( FD_UNLIKELY( parser->option>1 ) ) {
+        FD_LOG_WARNING(( "invalid blockhash queue last hash option %d", parser->option ));
+        return -1;
+      }
+      break;
+    }
     case STATE_HASHES_PER_TICK_OPTION: {
       if( FD_UNLIKELY( parser->option>1 ) ) {
         FD_LOG_WARNING(( "invalid hashes_per_tick option %d", parser->option ));
@@ -1257,16 +1271,20 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT: {
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT:
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_VARIANT: {
       if( FD_UNLIKELY( parser->variant>3 ) ) {
         FD_LOG_WARNING(( "invalid vote_accounts value data variant %u", parser->variant ));
         return -1;
       }
       break;
     }
-    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE: {
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE:
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_EXECUTABLE: {
       if( FD_UNLIKELY( parser->option>1 ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value executable %u", parser->variant ));
+        FD_LOG_WARNING(( "invalid vote_accounts value executable %d", parser->option ));
         return -1;
       }
       break;
@@ -1309,6 +1327,41 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_VARIANT: {
       if( FD_UNLIKELY( parser->variant ) ) {
         FD_LOG_WARNING(( "invalid epoch_stakes variant %u", parser->variant ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: {
+      if( FD_UNLIKELY( parser->option>1 ) ) {
+        FD_LOG_WARNING(( "invalid epoch_stakes.vote_accounts value data v4 bls pubkey compressed option %d", parser->option ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION: {
+      if( FD_UNLIKELY( parser->option>1 ) ) {
+        FD_LOG_WARNING(( "invalid epoch_stakes.vote_accounts value data current root slot option %d", parser->option ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION: {
+      if( FD_UNLIKELY( parser->option>1 ) ) {
+        FD_LOG_WARNING(( "invalid epoch_stakes.vote_accounts value data current root slot option %d", parser->option ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION: {
+      if( FD_UNLIKELY( parser->option>1 ) ) {
+        FD_LOG_WARNING(( "invalid epoch_stakes.vote_accounts value data v11411 root slot option %d", parser->option ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION: {
+      if( FD_UNLIKELY( parser->option>1 ) ) {
+        FD_LOG_WARNING(( "invalid epoch_stakes.vote_accounts value data v0235 root slot option %d", parser->option ));
         return -1;
       }
       break;
@@ -1462,7 +1515,7 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_ACCOUNTS_DB_STORAGES_LENGTH: {
-      if( FD_UNLIKELY( parser->length1>(1UL<<20UL ) ) ) {
+      if( FD_UNLIKELY( parser->length1>MAX_SPARSE_ARRAY_LEN ) ) {
         FD_LOG_WARNING(( "invalid accounts_db_storages length %lu", parser->length1 ));
         return -1;
       }
@@ -1485,15 +1538,16 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
+    case STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_DELEGATIONS_LENGTH: {
       if( FD_UNLIKELY( parser->length2>( 1UL<<22UL ) ) ) { /* 2^21 needed, arbitrarily put 2^22 to have some margin */
-        FD_LOG_WARNING(( "invalid versioned epoch stakes stake delegation length %lu", parser->length2 ));
+        FD_LOG_WARNING(( "invalid epoch stakes/versioned epoch stakes stake delegations length %lu", parser->length2 ));
         return -1;
       }
       break;
     }
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH: {
-      if( FD_UNLIKELY( parser->length2>10UL*(1UL<<20UL) ) ) { /* 10 MiB */
+      if( FD_UNLIKELY( parser->length2>MAX_VOTE_ACCOUNT_DATA_LEN ) ) { /* 10 MiB */
         FD_LOG_WARNING(( "invalid vote_accounts value data length %lu", parser->length2 ));
         return -1;
       }
@@ -1501,7 +1555,7 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     }
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH: {
-      if( FD_UNLIKELY( parser->length3>10UL*(1UL<<20UL) ) ) { /* 10 MiB */
+      if( FD_UNLIKELY( parser->length3>MAX_VOTE_ACCOUNT_DATA_LEN ) ) { /* 10 MiB */
         FD_LOG_WARNING(( "invalid version_epoch_stakes.vote_accounts value data length %lu", parser->length3 ));
         return -1;
       }
@@ -1556,6 +1610,81 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:
+    case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH: {
+      if( FD_UNLIKELY( parser->length3>1024UL ) ) {
+        FD_LOG_WARNING(( "invalid vote account authorized voters length %lu", parser->length3 ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:
+    case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH:
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_AUTHORIZED_VOTERS_LENGTH:
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_AUTHORIZED_VOTERS_LENGTH:
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_AUTHORIZED_VOTERS_LENGTH: {
+      if( FD_UNLIKELY( parser->length4>1024UL ) ) {
+        FD_LOG_WARNING(( "invalid epoch stakes vote account authorized voters length %lu", parser->length4 ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_STAKES_STAKE_HISTORY_LENGTH: {
+      if( FD_UNLIKELY( parser->length1>MAX_SPARSE_ARRAY_LEN ) ) {
+        FD_LOG_WARNING(( "invalid stake history length %lu", parser->length1 ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_STAKE_HISTORY_LENGTH: {
+      if( FD_UNLIKELY( parser->length2>MAX_SPARSE_ARRAY_LEN ) ) {
+        FD_LOG_WARNING(( "invalid epoch stakes stake history length %lu", parser->length2 ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_VERSIONED_EPOCH_STAKES_STAKES_STAKE_HISTORY_LENGTH: {
+      if( FD_UNLIKELY( parser->length2>MAX_SPARSE_ARRAY_LEN ) ) {
+        FD_LOG_WARNING(( "invalid versioned epoch stakes stake history length %lu", parser->length2 ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_UNUSED_ACCOUNTS1_LENGTH:
+    case STATE_UNUSED_ACCOUNTS2_LENGTH:
+    case STATE_UNUSED_ACCOUNTS3_LENGTH: {
+      if( FD_UNLIKELY( parser->length1>MAX_SPARSE_ARRAY_LEN ) ) {
+        FD_LOG_WARNING(( "invalid unused accounts length %lu", parser->length1 ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS_LENGTH:
+    case STATE_VERSIONED_EPOCH_STAKES_NODE_ID_TO_VOTE_ACCOUNTS_VOTE_ACCOUNTS_LENGTH: {
+      if( FD_UNLIKELY( parser->length3>MAX_SPARSE_ARRAY_LEN ) ) {
+        FD_LOG_WARNING(( "invalid node_id_to_vote_accounts vote accounts length %lu", parser->length3 ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH:
+    case STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS_LENGTH: {
+      if( FD_UNLIKELY( parser->length2>MAX_SPARSE_ARRAY_LEN ) ) {
+        FD_LOG_WARNING(( "invalid epoch authorized voters length %lu", parser->length2 ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_ACCOUNTS_DB_HISTORICAL_ROOTS_LENGTH:
+    case STATE_ACCOUNTS_DB_HISTORICAL_WITH_HASH_LENGTH: {
+      if( FD_UNLIKELY( parser->length1>MAX_SPARSE_ARRAY_LEN ) ) {
+        FD_LOG_WARNING(( "invalid accounts db historical length %lu", parser->length1 ));
+        return -1;
+      }
+      break;
+    }
   }
 
   return 0;
@@ -1567,7 +1696,10 @@ state_process( fd_ssmanifest_parser_t * parser,
                acc_vec_t *              acc_vec_pool ) {
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
-  FD_TEST( parser->state!=STATE_DONE );
+  if( FD_UNLIKELY( parser->state==STATE_DONE ) ) {
+    FD_LOG_WARNING(( "manifest parser re-entered after completion" ));
+    return -1;
+  }
 
   if( FD_UNLIKELY( parser->state==STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ && acc_vec_map && acc_vec_pool ) ) {
     if( FD_UNLIKELY( !acc_vec_pool_free( acc_vec_pool ) ) ) {
@@ -1685,6 +1817,10 @@ state_process( fd_ssmanifest_parser_t * parser,
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:
+      if( FD_UNLIKELY( parser->off-parser->account_data_start>parser->length2 ) ) {
+        FD_LOG_WARNING(( "invalid vote account data: consumed %lu bytes exceeds declared length %lu", parser->off-parser->account_data_start, parser->length2 ));
+        return -1;
+      }
       parser->state = STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY;
       return 0;
     default: break;
@@ -1713,6 +1849,10 @@ state_process( fd_ssmanifest_parser_t * parser,
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:
+      if( FD_UNLIKELY( parser->off-parser->account_data_start>parser->length3 ) ) {
+        FD_LOG_WARNING(( "invalid epoch stakes vote account data: consumed %lu bytes exceeds declared length %lu", parser->off-parser->account_data_start, parser->length3 ));
+        return -1;
+      }
       parser->state = STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY;
       return 0;
     default: break;
@@ -1741,12 +1881,17 @@ state_process( fd_ssmanifest_parser_t * parser,
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_LAST_TIMESTAMP_TIMESTAMP:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_LAST_TIMESTAMP_TIMESTAMP:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_LAST_TIMESTAMP_TIMESTAMP:
+      if( FD_UNLIKELY( parser->off-parser->account_data_start>parser->length3 ) ) {
+        FD_LOG_WARNING(( "invalid versioned epoch stakes vote account data: consumed %lu bytes exceeds declared length %lu", parser->off-parser->account_data_start, parser->length3 ));
+        return -1;
+      }
       parser->state = STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_DUMMY;
       return 0;
     default: break;
   }
 
   switch( parser->state ) {
+    case STATE_BLOCKHASH_QUEUE_LAST_HASH_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_HASHES_PER_TICK_OPTION:    manifest->has_hashes_per_tick    = !!parser->option; parser->state += 2-!!parser->option; return 0;
     case STATE_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_OPTION: {
       if( FD_LIKELY( !!parser->option ) ) parser->state += 1;

@@ -146,6 +146,41 @@ fd_ssparse_join( void * shssparse ) {
   return ssparse;
 }
 
+void *
+fd_ssparse_leave( fd_ssparse_t * ssparse ) {
+  if( FD_UNLIKELY( !ssparse ) ) {
+    FD_LOG_WARNING(( "NULL ssparse" ));
+    return NULL;
+  }
+  return (void *)ssparse;
+}
+
+void *
+fd_ssparse_delete( void * shssparse ) {
+  if( FD_UNLIKELY( !shssparse ) ) {
+    FD_LOG_WARNING(( "NULL shssparse" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shssparse, fd_ssparse_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shssparse" ));
+    return NULL;
+  }
+
+  fd_ssparse_t * ssparse = (fd_ssparse_t *)shssparse;
+
+  if( FD_UNLIKELY( ssparse->magic!=FD_SSPARSE_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  ssparse->magic = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return (void *)ssparse;
+}
+
 void
 fd_ssparse_reset( fd_ssparse_t * ssparse ) {
   ssparse->state = FD_SSPARSE_STATE_TAR_HEADER;

@@ -17,9 +17,7 @@
 struct __attribute__((aligned(64))) fd_progcache_rec {
   fd_funk_xid_key_pair_t pair;  /* Transaction id and record key pair */
 
-  /* Slot number at which this cache entry was created.
-     Matches the XID's slot number for in-preparation transactions. */
-  ulong slot;
+  ulong revision_key;
 
   uint        map_next;  /* Internal use by map */
   atomic_uint txn_idx;
