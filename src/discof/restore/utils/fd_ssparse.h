@@ -54,7 +54,7 @@ typedef struct acc_vec acc_vec_t;
 #define MAP_PREV          map_prev
 #define MAP_KEY_HASH(k,s) fd_hash( s, k, sizeof(acc_vec_key_t) )
 #define MAP_KEY_EQ(k0,k1) ( ((k0)->slot==(k1)->slot) && ((k0)->id==(k1)->id) )
-
+#define MAP_COUNT         1
 #include "../../../util/tmpl/fd_map_chain.c"
 
 /* FD_SSPARSE_ACC_BATCH_MAX controls the max number of accounts in a

@@ -403,8 +403,21 @@ test_acc_vec_map( fd_ssparse_t * p ) {
   ulong slots[2], ids[2], fsz[2];
   uchar acc[512];
 
+  /* acc_vec_map is empty, allow any AppendVec */
+  fd_ssparse_reset( p );
+  off = 0UL;
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
+  fd_memset( acc, 0, sizeof(acc) );
+  build_account_header( acc, 8UL, 0 );
+  fd_memset( acc+136, 0, 8UL );
+  off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "accounts/99.99", acc, 136UL + 8UL );
+  FD_TEST( feed_all( p, tar_buf, off )==FD_SSPARSE_ADVANCE_ACCOUNT_DATA );
+
   /* Account file not in acc_vec_map. */
   fd_ssparse_reset( p );
+  slots[0] = 0UL; ids[0] = 0UL; fsz[0] = 2000UL;
+  FD_TEST( fd_ssparse_populate_acc_vec_map( p, slots, ids, fsz, 1UL )==0 );
   off = 0UL;
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "version",       (uchar const *)"1.2.0", 5UL );
   off = append_tar_entry( tar_buf, sizeof(tar_buf), off, "snapshots/100", (uchar const *)"\xAB",  1UL );
