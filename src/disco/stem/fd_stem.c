@@ -53,6 +53,13 @@
    the before_credit function is doing work that should be accounted for
    as part of the tiles busy indicator.
 
+     CHECK_CREDIT
+   Is called every iteration of the stem run loop, regardless if there
+   is a new frag ready to receive or not.  Allows the user to override
+   default backpressure logic.  By default, stem is backpressured if any
+   output link might overrun a consumer if STEM_BURST frags were
+   published.
+
       AFTER_CREDIT
    Is called every iteration of the stem run loop, whether there is a
    new frag ready to receive or not, except in cases where the stem is
@@ -517,7 +524,7 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
     }
 
-#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG)
+#if defined(STEM_CALLBACK_BEFORE_CREDIT) || defined(STEM_CALLBACK_AFTER_CREDIT) || defined(STEM_CALLBACK_AFTER_FRAG) || defined(STEM_CALLBACK_RETURNABLE_FRAG) || defined(STEM_CALLBACK_CHECK_CREDIT)
     fd_stem_context_t stem = {
       .mcaches             = out_mcache,
       .depths              = out_depth,
@@ -543,7 +550,11 @@ STEM_(run1)( ulong                        in_cnt,
      different threads of execution.  We only count the transition
      from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( min_cr_avail<burst ) ) {
+    int is_backpressured = min_cr_avail<burst;
+#ifdef STEM_CALLBACK_CHECK_CREDIT
+    STEM_CALLBACK_CHECK_CREDIT( ctx, &stem, &charge_busy_before, &is_backpressured );
+#endif
+    if( FD_UNLIKELY( is_backpressured ) ) {
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
@@ -851,6 +862,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
 #undef STEM_CALLBACK_METRICS_WRITE
 #undef STEM_CALLBACK_BEFORE_CREDIT
+#undef STEM_CALLBACK_CHECK_CREDIT
 #undef STEM_CALLBACK_AFTER_CREDIT
 #undef STEM_CALLBACK_BEFORE_FRAG
 #undef STEM_CALLBACK_DURING_FRAG
