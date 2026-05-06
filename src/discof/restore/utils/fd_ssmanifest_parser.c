@@ -817,9 +817,9 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_HASH:                                                                                          return manifest->bank_hash;
     case STATE_PARENT_HASH:                                                                                   return manifest->parent_bank_hash;
     case STATE_PARENT_SLOT:                                                                                   return (uchar*)&manifest->parent_slot;
-    case STATE_HARD_FORKS_LENGTH:                                                                             return (uchar*)&manifest->hard_forks_len;
-    case STATE_HARD_FORKS_SLOT:                                                                               return (uchar*)&manifest->hard_forks[ idx1 ];
-    case STATE_HARD_FORKS_VAL:                                                                                return (uchar*)&manifest->hard_forks_cnts[ idx1 ];
+    case STATE_HARD_FORKS_LENGTH:                                                                             return (uchar*)&manifest->hard_fork_cnt;
+    case STATE_HARD_FORKS_SLOT:                                                                               return (uchar*)&manifest->hard_forks[ idx1 ].slot;
+    case STATE_HARD_FORKS_VAL:                                                                                return (uchar*)&manifest->hard_forks[ idx1 ].cnt;
     case STATE_TRANSACTION_COUNT:                                                                             return (uchar*)&manifest->transaction_count;
     case STATE_TICK_HEIGHT:                                                                                   return (uchar*)&manifest->tick_height;
     case STATE_SIGNATURE_COUNT:                                                                               return (uchar*)&manifest->signature_count;
@@ -1433,8 +1433,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_HARD_FORKS_LENGTH: {
-      if( FD_UNLIKELY( manifest->hard_forks_len>sizeof(manifest->hard_forks)/sizeof(manifest->hard_forks[0]) ) ) {
-        FD_LOG_WARNING(( "invalid hard_forks length %lu", manifest->hard_forks_len ));
+      if( FD_UNLIKELY( manifest->hard_fork_cnt>sizeof(manifest->hard_forks)/sizeof(manifest->hard_forks[0]) ) ) {
+        FD_LOG_WARNING(( "invalid hard_forks length %lu", manifest->hard_fork_cnt ));
         return -1;
       }
       break;
@@ -1925,7 +1925,7 @@ state_process( fd_ssmanifest_parser_t * parser,
   switch( parser->state ) {
     case STATE_BLOCKHASH_QUEUE_AGES_LENGTH:                            length = manifest->blockhashes_len;   idx = &parser->idx1; next_target = STATE_BLOCKHASH_QUEUE_MAX_AGE;                                break;
     case STATE_ANCESTORS_LENGTH:                                       length = parser->length1;             idx = &parser->idx1; next_target = STATE_HASH;                                                   break;
-    case STATE_HARD_FORKS_LENGTH:                                      length = manifest->hard_forks_len;    idx = &parser->idx1; next_target = STATE_TRANSACTION_COUNT;                                      break;
+    case STATE_HARD_FORKS_LENGTH:                                      length = manifest->hard_fork_cnt;    idx = &parser->idx1; next_target = STATE_TRANSACTION_COUNT;                                      break;
     case STATE_STAKES_VOTE_ACCOUNTS_LENGTH:                            length = manifest->vote_accounts_len; idx = &parser->idx1; next_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH;                        break;
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH:                        length = manifest->stake_delegations_len;        idx = &parser->idx1; next_target = STATE_STAKES_UNUSED;                                          break;
     case STATE_EPOCH_STAKES_LENGTH:                                    length = parser->epoch_stakes_len;    idx = &parser->idx1; next_target = STATE_IS_DELTA;                                               break;
@@ -1953,7 +1953,7 @@ state_process( fd_ssmanifest_parser_t * parser,
   switch( parser->state ) {
     case STATE_BLOCKHASH_QUEUE_AGES_TIMESTAMP:                                   length = manifest->blockhashes_len;       idx = &parser->idx1; next_target = STATE_BLOCKHASH_QUEUE_MAX_AGE;                                iter_target = STATE_BLOCKHASH_QUEUE_AGES_LENGTH+1UL;                            break;
     case STATE_ANCESTORS_VAL:                                                    length = parser->length1;                 idx = &parser->idx1; next_target = STATE_HASH;                                                   iter_target = STATE_ANCESTORS_LENGTH+1UL;                                       break;
-    case STATE_HARD_FORKS_VAL:                                                   length = manifest->hard_forks_len;        idx = &parser->idx1; next_target = STATE_TRANSACTION_COUNT;                                      iter_target = STATE_HARD_FORKS_LENGTH+1UL;                                      break;
+    case STATE_HARD_FORKS_VAL:                                                   length = manifest->hard_fork_cnt;        idx = &parser->idx1; next_target = STATE_TRANSACTION_COUNT;                                      iter_target = STATE_HARD_FORKS_LENGTH+1UL;                                      break;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                            length = manifest->vote_accounts_len;     idx = &parser->idx1; next_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH;                        iter_target = STATE_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;                            break;
     case STATE_STAKES_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE:                    length = manifest->stake_delegations_len; idx = &parser->idx1; next_target = STATE_STAKES_UNUSED;                                          iter_target = STATE_STAKES_STAKE_DELEGATIONS_LENGTH+1UL;                        break;
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_RENT_EPOCH:                      length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2; idx = &parser->idx2; next_target = STATE_EPOCH_STAKES_STAKE_DELEGATIONS_LENGTH;                  iter_target = STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH+1UL;                      break;
@@ -2094,4 +2094,3 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
 
   return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
 }
-

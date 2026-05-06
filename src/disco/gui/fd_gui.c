@@ -2523,9 +2523,9 @@ void
 fd_gui_stage_snapshot_manifest( fd_gui_t *                    gui,
                                  fd_snapshot_manifest_t const * manifest ) {
   ulong attempt = 0UL;
-  for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
-    if( FD_UNLIKELY( manifest->hard_forks[ i ]==manifest->slot ) ) {
-      attempt = manifest->hard_forks_cnts[ i ];
+  for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
+    if( FD_UNLIKELY( manifest->hard_forks[ i ].slot==manifest->slot ) ) {
+      attempt = manifest->hard_forks[ i ].cnt;
       break;
     }
   }

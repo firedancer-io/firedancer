@@ -4,6 +4,8 @@
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_ssmsg.h"
 
+FD_STATIC_ASSERT( FD_HARD_FORKS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->hard_forks)/sizeof(fd_hard_fork_t), hard_forks_max );
+
 void
 blockhashes_recover( fd_blockhashes_t *                       blockhashes,
                      fd_snapshot_manifest_blockhash_t const * ages,
@@ -169,9 +171,14 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
      SIMD-0047: The first restart slot should be `0` */
   bank->f.last_restart_slot = 0UL;
-  if( FD_LIKELY( manifest->hard_forks_len ) ) {
-    for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
-      ulong slot = manifest->hard_forks[ manifest->hard_forks_len-1UL-i ];
+  bank->f.hard_fork_cnt = manifest->hard_fork_cnt;
+  if( FD_LIKELY( manifest->hard_fork_cnt ) ) {
+    for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
+      bank->f.hard_forks[ i ] = manifest->hard_forks[ i ];
+    }
+
+    for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
+      ulong slot = manifest->hard_forks[ manifest->hard_fork_cnt-1UL-i ].slot;
       if( FD_LIKELY( slot<=manifest->slot ) ) {
         bank->f.last_restart_slot = slot;
         break;
