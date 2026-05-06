@@ -2,13 +2,16 @@
 #include "fd_snapmk.h"
 #include "fd_funk_scan.h"
 #include "fd_ssmanifest_writer.h"
+#include "fd_txncache_writer.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/pod/fd_pod.h"
 #include <errno.h>
@@ -52,6 +55,7 @@ struct fd_snapmk {
   fd_txncache_t *        txncache;
   fd_wksp_t *            replay_in_mem;
   fd_ssmanifest_writer_t manifest_writer[1];
+  fd_txncache_writer_t   txncache_writer[1];
   ulong                  manifest_pad;
   ulong                  status_cache_pad;
   long                   start_time;
@@ -461,30 +465,49 @@ after_credit( fd_snapmk_t *       ctx,
       FD_LOG_ERR(( "lseek failed: %i-%s", errno, fd_io_strerror( errno ) ));
     }
 
+    ulong slot_history_sz = 0UL;
+    uchar const * slot_history_data = fd_sysvar_cache_data_query( &ctx->bank->f.sysvar_cache, &fd_sysvar_slot_history_id, &slot_history_sz );
+    fd_slot_history_view_t slot_history[1];
+    if( FD_UNLIKELY( !fd_sysvar_slot_history_view( slot_history, slot_history_data, slot_history_sz ) ) ) {
+      FD_LOG_ERR(( "cannot serialize status cache: SlotHistory sysvar is missing or corrupt" ));
+    }
+    fd_txncache_writer_init( ctx->txncache_writer, ctx->txncache, ctx->bank->f.slot, slot_history );
+    ulong sc_sz = fd_txncache_writer_serialized_sz( ctx->txncache_writer );
+
     ctx->raw_buf.pos = ctx->raw_buf.size = 0UL;
     fd_tar_meta_t meta;
-    fd_snapmk_tar_file_hdr( &meta, 8UL );
+    fd_snapmk_tar_file_hdr( &meta, sc_sz );
     fd_cstr_ncpy( meta.name, "snapshots/status_cache", sizeof(meta.name) );
     fd_tar_meta_set_chksum( &meta );
     memcpy( ctx->raw, &meta, sizeof(fd_tar_meta_t) );
     ctx->raw_buf.size     = sizeof(fd_tar_meta_t);
-    ctx->status_cache_pad = fd_ulong_align_up( 8UL, 512UL ) - 8UL;
+    ctx->status_cache_pad = fd_ulong_align_up( sc_sz, 512UL ) - sc_sz;
 
     flush_buffer( ctx, ZSTD_e_continue );
     ctx->state = SNAPMK_STATE_STATUS_CACHE;
     break;
   }
   case SNAPMK_STATE_STATUS_CACHE: {
-    FD_TEST( ctx->raw_buf.size==0 );
-    FD_STORE( ulong, ctx->raw_buf.src, 0UL );
-    ctx->raw_buf.size += 8UL;
-    flush_buffer( ctx, ZSTD_e_continue );
-    if( ctx->status_cache_pad ) {
-      fd_memset( ctx->raw + ctx->raw_buf.size, 0, ctx->status_cache_pad );
-      ctx->raw_buf.size += ctx->status_cache_pad;
+    if( FD_UNLIKELY( ctx->raw_buf.size + FD_TXNCACHE_WRITER_BUF_MIN > RAW_BUF_SZ ) ) {
+      flush_buffer( ctx, ZSTD_e_continue );
+      *charge_busy = 1;
+      return;
     }
-    flush_buffer( ctx, ZSTD_e_end );
-    ctx->state = SNAPMK_STATE_EOF_MARKER;
+    ulong buf_rem  = RAW_BUF_SZ - ctx->raw_buf.size;
+    ulong chunk_sz = fd_txncache_writer_serialize(
+        ctx->txncache_writer,
+        (uchar *)ctx->raw_buf.src + ctx->raw_buf.size,
+        buf_rem );
+    ctx->raw_buf.size += chunk_sz;
+    if( FD_UNLIKELY( !chunk_sz ) ) {
+      flush_buffer( ctx, ZSTD_e_continue );
+      if( ctx->status_cache_pad ) {
+        fd_memset( ctx->raw, 0, ctx->status_cache_pad );
+        ctx->raw_buf.size = ctx->status_cache_pad;
+      }
+      flush_buffer( ctx, ZSTD_e_end );
+      ctx->state = SNAPMK_STATE_EOF_MARKER;
+    }
     *charge_busy = 1;
     break;
   }
