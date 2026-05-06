@@ -103,6 +103,11 @@
      ulong mymap_chain_cnt( mymap_t const * join );
      ulong mymap_seed     ( mymap_t const * join );
 
+     // mymap_ele_cnt returns the current number of elements in the map.
+     // Requires MAP_COUNT.
+
+     ulong mymap_ele_cnt( mymap_t const * join );
+
      // mymap_key_{eq,hash} expose the provided MAP_KEY_{EQ,HASH} macros
      // as inline functions with strict semantics.  They assume that the
      // provided pointers are in the caller's address space to keys that
@@ -231,8 +236,8 @@
 
      int
      mymap_verify( mymap_t const * join,    // Current local join to a mymap.
-                   ulong           ele_cnt, // Element storage size, in [0,mymap_ele_max()]
-                   myele_t const * pool );  // Current local join to element storage, indexed [0,ele_cnt)
+                   ulong           ele_max, // Element storage size, in [0,mymap_ele_max()]
+                   myele_t const * pool );  // Current local join to element storage, indexed [0,ele_max)
 
    You can do this as often as you like in a compilation unit to get
    different types of maps.  Variants exist for making header prototypes
@@ -370,6 +375,12 @@
 #define MAP_INSERT_FENCE 0
 #endif
 
+/* MAP_COUNT specifies whether to keep track of map element count. */
+
+#ifndef MAP_COUNT
+#define MAP_COUNT 0
+#endif
+
 /* Implementation *****************************************************/
 
 /* Constructors and verification log details on failure (rest only needs
@@ -393,6 +404,9 @@ struct MAP_(private) {
   ulong magic;     /* == MAP_MAGIC */
   ulong seed;      /* Hash seed, arbitrary */
   ulong chain_cnt; /* Number of chains, positive integer power-of-two */
+# if MAP_COUNT
+  ulong ele_cnt;   /* Number of elements */
+# endif
 
   /* MAP_IDX_T chain[ chain_cnt ] here */
 
@@ -484,6 +498,9 @@ MAP_(chain_cnt_est)( ulong ele_max_est ) {
 
 FD_FN_PURE static inline ulong MAP_(chain_cnt)( MAP_(t) const * join ) { return MAP_(private_const)( join )->chain_cnt; }
 FD_FN_PURE static inline ulong MAP_(seed)     ( MAP_(t) const * join ) { return MAP_(private_const)( join )->seed;      }
+#if MAP_COUNT
+FD_FN_PURE static inline ulong MAP_(ele_cnt)  ( MAP_(t) const * join ) { return MAP_(private_const)( join )->ele_cnt;   }
+#endif
 
 FD_FN_PURE static inline int
 MAP_(key_eq)( MAP_KEY_T const * k0,
@@ -662,7 +679,7 @@ MAP_(idx_next_const)( ulong             prev,     // Previous result of mymap_id
 
 int
 MAP_(verify)( MAP_(t) const *   join,
-              ulong             ele_cnt,
+              ulong             ele_max,
               MAP_ELE_T const * pool );
 
 FD_PROTOTYPES_END
@@ -712,6 +729,9 @@ MAP_(new)( void * shmap,
 
   map->seed      = seed;
   map->chain_cnt = chain_cnt;
+# if MAP_COUNT
+  map->ele_cnt   = 0UL;
+# endif
 
   /* Set all the chains to NULL */
 
@@ -790,6 +810,10 @@ MAP_(reset)( MAP_(t) * join ) {
 
   MAP_IDX_T * chain = MAP_(private_chain)( map );
   for( ulong chain_idx=0UL; chain_idx<map->chain_cnt; chain_idx++ ) chain[ chain_idx ] = MAP_(private_box)( MAP_(private_idx_null)() );
+
+# if MAP_COUNT
+  map->ele_cnt = 0UL;
+# endif
 }
 
 MAP_IMPL_STATIC ulong
@@ -850,6 +874,9 @@ MAP_(idx_insert)( MAP_(t) *   join,
   FD_COMPILER_MFENCE();
 # endif
   *head = MAP_(private_box)( ele_idx );
+# if MAP_COUNT
+  map->ele_cnt++;
+# endif
 
   return join;
 }
@@ -871,6 +898,9 @@ MAP_(idx_remove)( MAP_(t) *         join,
       *cur = pool[ ele_idx ].MAP_NEXT;
 #if MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
     if( FD_UNLIKELY( !MAP_(private_idx_is_null)( pool[ ele_idx ].MAP_NEXT ) ) ) pool[ pool[ ele_idx ].MAP_NEXT ].MAP_PREV = pool[ ele_idx ].MAP_PREV;
+#endif
+#if MAP_COUNT
+      map->ele_cnt--;
 #endif
       return ele_idx;
     }
@@ -895,6 +925,10 @@ MAP_(idx_remove_fast)( MAP_(t) *   join,
 
   if( FD_UNLIKELY( !MAP_(private_idx_is_null)( ele->MAP_PREV ) ) )          pool[ ele->MAP_PREV ].MAP_NEXT = ele->MAP_NEXT;
   else { MAP_(private_chain)( map )[ MAP_(private_chain_idx)( &ele->MAP_KEY, map->seed, map->chain_cnt ) ] = ele->MAP_NEXT; }
+
+#if MAP_COUNT
+  map->ele_cnt--;
+#endif
 }
 
 MAP_IMPL_STATIC MAP_ELE_T *
@@ -954,7 +988,7 @@ MAP_(idx_next_const)( ulong             prev,     // Previous result of mymap_id
 
 MAP_IMPL_STATIC int
 MAP_(verify)( MAP_(t) const *   join,
-              ulong             ele_cnt,
+              ulong             ele_max,
               MAP_ELE_T const * pool ) {
 
 # define MAP_TEST(c) do {                                                        \
@@ -964,8 +998,8 @@ MAP_(verify)( MAP_(t) const *   join,
   /* Validate input arguments */
 
   MAP_TEST( join );
-  MAP_TEST( ele_cnt<=MAP_(ele_max)() );
-  MAP_TEST( (!!pool) | (!ele_cnt) );
+  MAP_TEST( ele_max<=MAP_(ele_max)() );
+  MAP_TEST( (!!pool) | (!ele_max) );
 
   /* Validate metadata */
 
@@ -984,7 +1018,8 @@ MAP_(verify)( MAP_(t) const *   join,
 
   MAP_IDX_T const * chain = MAP_(private_chain_const)( map );
 
-  ulong rem = ele_cnt; /* We can visit at most ele_cnt elements */
+  ulong ele_cnt = 0UL; (void)ele_cnt;
+  ulong rem = ele_max; /* We can visit at most ele_max elements */
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     ulong prev_ele = MAP_(private_idx_null)();
     (void)prev_ele;
@@ -992,14 +1027,19 @@ MAP_(verify)( MAP_(t) const *   join,
          !MAP_(private_idx_is_null)( ele_idx );
          ele_idx = MAP_(private_unbox)( pool[ ele_idx ].MAP_NEXT ) ) {
       MAP_TEST( rem ); rem--;                                                                      /* Check for cycles */
-      MAP_TEST( ele_idx<ele_cnt );                                                                 /* Check valid element index */
+      MAP_TEST( ele_idx<ele_max );                                                                 /* Check valid element index */
       MAP_TEST( MAP_(private_chain_idx)( &pool[ ele_idx ].MAP_KEY, seed, chain_cnt )==chain_idx ); /* Check in correct chain */
 #if MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
       MAP_TEST( pool[ ele_idx ].MAP_PREV==prev_ele );
       prev_ele = ele_idx;
 #endif
+      ele_cnt++;
     }
   }
+
+# if MAP_COUNT
+  MAP_TEST( MAP_(ele_cnt)( join )==ele_cnt );
+# endif
 
   /* At this point, we know that there are no cycles in the map chains,
      all indices are inbounds and elements are in the correct chains for
@@ -1104,3 +1144,4 @@ FD_PROTOTYPES_END
 #undef MAP_MULTI
 #undef MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
 #undef MAP_INSERT_FENCE
+#undef MAP_COUNT
