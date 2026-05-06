@@ -367,7 +367,7 @@ run_monitor( config_t const * config,
         for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
           fd_topo_link_t link = topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
           ulong producer_tile_id = fd_topo_find_link_producer( topo, &link );
-          FD_TEST( producer_tile_id != ULONG_MAX );
+          if( producer_tile_id == ULONG_MAX ) continue;
 
           if( tile_snap_cur[ producer_tile_id ].status==2UL && tile_snap_cur[ tile_idx ].status==2UL ) {
             link_idx++;
