@@ -110,6 +110,8 @@ struct fd_tower {
   lck_t *     lck_pool; /* lockout interval pool */
   lck_map_t * lck_map;  /* lockout interval map chain */
 
+  /* TODO remove and use epoch_voters instead */
+
   stk_map_t *             stk_map;      /* voter stakes map chain */
   stk_t *                 stk_pool;     /* voter stakes pool */
   stk_set_t * stk_set; /* used account scratch set */
@@ -198,8 +200,8 @@ stk_insert( fd_tower_t *      tower,
   stk_t * pool = tower->stk_pool;
   if( FD_UNLIKELY( !stk_pool_free( pool ) ) ) FD_LOG_CRIT(( "no free voter stakes in pool" ));
 
-  stk_key_t sentinel_key = { .addr = {{0}}, .slot = slot };
-  stk_t * sentinel = stk_map_ele_query( tower->stk_map, &sentinel_key, NULL, pool );
+  stk_key_t sentinel_key = { .addr = { { 0 } }, .slot = slot };
+  stk_t *   sentinel     = stk_map_ele_query( tower->stk_map, &sentinel_key, NULL, pool );
   if( FD_UNLIKELY( !sentinel ) ) {
     FD_TEST( stk_pool_free( pool ) );
     sentinel       = stk_pool_ele_acquire( pool );
@@ -486,7 +488,7 @@ switch_check( fd_tower_t * tower,
   ulong            null = fd_ghost_blk_idx_null( ghost );
   fd_ghost_blk_t * head = fd_ghost_blk_map_remove( ghost, fd_ghost_root( ghost ) );
   fd_ghost_blk_t * tail = head;
-  head->next = null;
+  head->next            = null;
 
   while( FD_LIKELY( head ) ) {
     fd_ghost_blk_t * blk = head; /* guaranteed to not be purged */
@@ -1007,7 +1009,7 @@ fd_tower_stakes_query_stake( fd_tower_t const * tower,
 uchar
 fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_ghost_t * ghost,
-                         fd_votes_t * votes FD_PARAM_UNUSED,
+                         fd_notar_t * notar FD_PARAM_UNUSED,
                          ulong *      reset_slot,
                          fd_hash_t *  reset_block_id,
                          ulong *      vote_slot,
@@ -1182,7 +1184,7 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
 
      Specifically, we need to make sure we're not locked out, pass the
      threshold check and that our previous leader block has propagated
-     (reached the prop threshold according to fd_votes).
+     (reached the prop threshold according to fd_notar).
 
      https://github.com/firedancer-io/agave/blob/master/core/src/consensus/fork_choice.rs#L382-L385
 

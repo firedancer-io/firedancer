@@ -398,11 +398,11 @@ mock_confirmed( fd_tower_tile_t * ctx,
   /* Create a votes_blk entry for (slot, block_id) if it doesn't
      already exist, then set stake high enough for DUPLICATE (52%). */
 
-  if( !fd_votes_query( ctx->votes, slot, block_id ) ) {
-    int err = fd_votes_count_vote( ctx->votes, &ctx->vote_accs[0], slot, block_id );
-    FD_TEST( err==FD_VOTES_SUCCESS );
+  if( !fd_notar_query( ctx->notar, slot, block_id ) ) {
+    int err = fd_notar_count_vote( ctx->notar, &ctx->vote_accs[0], slot, block_id );
+    FD_TEST( err==FD_NOTAR_SUCCESS );
   }
-  fd_votes_blk_t * vblk = fd_votes_query( ctx->votes, slot, block_id );
+  fd_notar_blk_t * vblk = fd_notar_query( ctx->notar, slot, block_id );
   FD_TEST( vblk );
   vblk->stake = 52;
   publish_slot_confirmed( ctx, slot, block_id, 100 );
@@ -559,7 +559,7 @@ test_eqvoc_cre_diff( void * scratch ) {
 
   mock_replay ( ctx, slot, &A );
 
-  /* Bug 2 fix: fd_votes_query(NULL) finds B's fwd entry, sets
+  /* Bug 2 fix: fd_notar_query(NULL) finds B's fwd entry, sets
      tower confirmed and ghost_eqvoc(A). */
 
   fd_tower_blk_t * tb = fd_tower_query( ctx->tower, slot );

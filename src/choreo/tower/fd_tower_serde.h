@@ -91,6 +91,12 @@ struct __attribute__((packed)) fd_lat_vote {
 };
 typedef struct fd_lat_vote fd_lat_vote_t;
 
+struct __attribute__((packed)) fd_authorized_voter {
+  ulong       epoch;
+  fd_pubkey_t pubkey;
+};
+typedef struct fd_authorized_voter fd_authorized_voter_t;
+
 struct __attribute__((packed)) fd_vote_acc {
   uint kind;
   union __attribute__((packed)) {
@@ -105,6 +111,7 @@ struct __attribute__((packed)) fd_vote_acc {
       } votes[31]; /* variable-length */
       /* uchar root_option */
       /* ulong root */
+      /* authorized_voters */
     } v2;
 
     struct __attribute__((packed)) {
@@ -151,6 +158,18 @@ fd_vote_acc_vote_slot( uchar const * buf );
 
 FD_FN_PURE ulong
 fd_vote_acc_root_slot( uchar const * buf );
+
+/* fd_vote_acc_authorized_voter_cnt returns the number of authorized
+   voters in the vote account data. */
+
+ulong
+fd_vote_acc_authorized_voter_cnt( uchar const * buf );
+
+/* fd_vote_acc_authorized_voters returns a pointer to the authorized
+   voters region of the vote account data. */
+
+fd_authorized_voter_t const *
+fd_vote_acc_authorized_voters( uchar const * buf );
 
 /* fd_txn_parse_simple_vote optionally extracts the vote account pubkey,
    identity pubkey, and largest voted-for slot from a vote transaction. */

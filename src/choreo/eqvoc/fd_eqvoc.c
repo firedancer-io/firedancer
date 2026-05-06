@@ -906,9 +906,9 @@ fd_eqvoc_update_voters( fd_eqvoc_t *        eqvoc,
                         fd_pubkey_t const * id_keys,
                         ulong               cnt ) {
 
-  for( vtr_dlist_iter_t iter = vtr_dlist_iter_fwd_init( eqvoc->vtr_dlist, eqvoc->vtr_pool );
-       !vtr_dlist_iter_done( iter, eqvoc->vtr_dlist, eqvoc->vtr_pool );
-       iter = vtr_dlist_iter_fwd_next( iter, eqvoc->vtr_dlist, eqvoc->vtr_pool ) ) {
+  for( vtr_dlist_iter_t iter = vtr_dlist_iter_fwd_init(       eqvoc->vtr_dlist, eqvoc->vtr_pool );
+                              !vtr_dlist_iter_done    ( iter, eqvoc->vtr_dlist, eqvoc->vtr_pool );
+                        iter = vtr_dlist_iter_fwd_next( iter, eqvoc->vtr_dlist, eqvoc->vtr_pool ) ) {
     eqvoc->vtr_pool[iter].next = 1; /* mark for removal */
   }
 

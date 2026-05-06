@@ -166,7 +166,7 @@ fd_vote_acc_vote_cnt( uchar const * vote_account_data ) {
 ulong
 fd_vote_acc_vote_slot( uchar const * vote_account_data ) {
   fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  ulong              cnt   = fd_vote_acc_vote_cnt( vote_account_data );
+  ulong                 cnt   = fd_vote_acc_vote_cnt( vote_account_data );
   switch( voter->kind ) {
   case FD_VOTE_ACC_V4: return cnt ? v4_off( voter )[cnt-1].slot : ULONG_MAX;
   case FD_VOTE_ACC_V3: return cnt ? voter->v3.votes[cnt-1].slot : ULONG_MAX;
@@ -181,13 +181,43 @@ fd_vote_acc_vote_slot( uchar const * vote_account_data ) {
 ulong
 fd_vote_acc_root_slot( uchar const * vote_account_data ) {
   fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  ulong              cnt   = fd_vote_acc_vote_cnt( vote_account_data );
+  ulong                 cnt   = fd_vote_acc_vote_cnt( vote_account_data );
   switch( voter->kind ) {
-  case FD_VOTE_ACC_V4: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&v4_off( voter )[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&v4_off( voter )[cnt] + 1UL ) : ULONG_MAX; }
-  case FD_VOTE_ACC_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->v3.votes[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->v3.votes[cnt] + 1UL ) : ULONG_MAX; }
-  case FD_VOTE_ACC_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->v2.votes[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->v2.votes[cnt] + 1UL ) : ULONG_MAX; }
-  default:          FD_LOG_CRIT(( "unhandled kind %u", voter->kind ));
+  case FD_VOTE_ACC_V4: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&v4_off( voter )[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar const *)&v4_off( voter )[cnt] + 1UL ) : ULONG_MAX; }
+  case FD_VOTE_ACC_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&voter->v3.votes[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar const *)&voter->v3.votes[cnt] + 1UL ) : ULONG_MAX; }
+  case FD_VOTE_ACC_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&voter->v2.votes[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar const *)&voter->v2.votes[cnt] + 1UL ) : ULONG_MAX; }
+  default: FD_LOG_ERR(( "unhandled kind %u", voter->kind ));
   }
+}
+
+ulong
+fd_vote_acc_authorized_voter_cnt( uchar const * vote_acc ) {
+  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
+  ulong                 cnt   = fd_vote_acc_vote_cnt( vote_acc );
+
+  uchar const * cur;
+  switch( voter->kind ) {
+  case FD_VOTE_ACC_V4: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&v4_off( voter )[cnt] ); cur = root_option ? (uchar const *)&v4_off( voter )[cnt] + 9UL : (uchar const *)&v4_off( voter )[cnt] + 1UL; break; }
+  case FD_VOTE_ACC_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&voter->v3.votes[cnt] ); cur = root_option ? (uchar const *)&voter->v3.votes[cnt] + 9UL : (uchar const *)&voter->v3.votes[cnt] + 1UL; break; }
+  case FD_VOTE_ACC_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&voter->v2.votes[cnt] ); cur = root_option ? (uchar const *)&voter->v2.votes[cnt] + 9UL : (uchar const *)&voter->v2.votes[cnt] + 1UL; break; }
+  default: FD_LOG_ERR(( "unhandled kind %u", voter->kind ));
+  }
+  return fd_ulong_load_8_fast( cur );
+}
+
+fd_authorized_voter_t const *
+fd_vote_acc_authorized_voters( uchar const * vote_acc ) {
+  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
+  ulong                 cnt   = fd_vote_acc_vote_cnt( vote_acc );
+
+  uchar const * cur;
+  switch( voter->kind ) {
+  case FD_VOTE_ACC_V4: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&v4_off( voter )[cnt] ); cur = root_option ? (uchar const *)&v4_off( voter )[cnt] + 9UL : (uchar const *)&v4_off( voter )[cnt] + 1UL; break; }
+  case FD_VOTE_ACC_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&voter->v3.votes[cnt] ); cur = root_option ? (uchar const *)&voter->v3.votes[cnt] + 9UL : (uchar const *)&voter->v3.votes[cnt] + 1UL; break; }
+  case FD_VOTE_ACC_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar const *)&voter->v2.votes[cnt] ); cur = root_option ? (uchar const *)&voter->v2.votes[cnt] + 9UL : (uchar const *)&voter->v2.votes[cnt] + 1UL; break; }
+  default: FD_LOG_ERR(( "unhandled kind %u", voter->kind ));
+  }
+  return (fd_authorized_voter_t const *)fd_type_pun_const( cur + sizeof(ulong) );
 }
 
 int
