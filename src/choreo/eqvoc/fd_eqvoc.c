@@ -880,6 +880,10 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
 
   if( FD_UNLIKELY( off!=prf->buf_sz ) ) goto cleanup;
 
+  err = FD_EQVOC_ERR_SLOT;
+  if( FD_UNLIKELY( shred1->slot!=chunk->slot ) ) goto cleanup;
+  if( FD_UNLIKELY( shred2->slot!=chunk->slot ) ) goto cleanup;
+
   err = verify_proof( eqvoc, shred_version, leader_schedule, shred1, shred2 );
   if( FD_UNLIKELY( err > FD_EQVOC_SUCCESS ) ) {
     construct_proof( shred1, shred2, chunks_out );
