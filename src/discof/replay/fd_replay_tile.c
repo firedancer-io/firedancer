@@ -85,6 +85,7 @@
 #define IN_KIND_RPC        ( 9)
 #define IN_KIND_GOSSIP_OUT (10)
 #define IN_KIND_ADMIN      (11)
+#define IN_KIND_SNAPMK     (12)
 
 #define DEBUG_LOGGING 0
 
@@ -819,7 +820,9 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   }
 
   /* Signals fd_sleep_until_replay_started */
+  FD_COMPILER_MFENCE();
   FD_MGAUGE_SET( REPLAY, RUNTIME_STATUS, 1UL );
+  FD_COMPILER_MFENCE();
 }
 
 static inline int
@@ -2455,6 +2458,13 @@ returnable_frag( fd_replay_tile_t *  ctx,
       admin_cmd( ctx, stem, fd_frag_meta_ctl_orig( ctl ) );
       break;
     }
+    case IN_KIND_SNAPMK: {
+      ctx->is_creating_snap = 0;
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->published_root_bank_idx );
+      FD_TEST( bank->refcnt>0UL );
+      bank->refcnt--;
+      break;
+    }
     default:
       FD_LOG_ERR(( "unhandled kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -2761,6 +2771,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "rpc_replay"    ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else if( !strcmp( link->name, "gossip_out"    ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;
     else if( !strcmp( link->name, "admin_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_ADMIN;
+    else if( !strcmp( link->name, "snapmk_replay" ) ) ctx->in_kind[ i ] = IN_KIND_SNAPMK;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
 
     if( ctx->in_kind[ i ]==IN_KIND_ADMIN ) {
