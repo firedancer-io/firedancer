@@ -48,6 +48,11 @@ union fd_signature {
 };
 typedef union fd_signature fd_signature_t;
 
+struct fd_hard_fork {
+  ulong slot;
+  ulong cnt; /* number of hard forks in that slot */
+};
+typedef struct fd_hard_fork fd_hard_fork_t;
 
 FD_FN_PURE
 static inline int

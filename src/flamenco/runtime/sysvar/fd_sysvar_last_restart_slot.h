@@ -2,10 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_last_restart_slot_h
 
 #include "fd_sysvar_base.h"
-#include "../../types/fd_types.h"
 #include "../../accdb/fd_accdb_user.h"
-
-typedef struct fd_hard_forks_global fd_hard_forks_global_t;
 
 FD_PROTOTYPES_BEGIN
 

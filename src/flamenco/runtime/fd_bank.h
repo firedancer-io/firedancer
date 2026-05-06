@@ -314,6 +314,8 @@ struct fd_bank {
     ulong                  signature_count;
     fd_hash_t              poh;
     ulong                  last_restart_slot;
+    ulong                  hard_fork_cnt;
+    fd_hard_fork_t         hard_forks[ FD_HARD_FORKS_MAX ]; /* never changes at runtime, required for snapshot creation */
     fd_hash_t              bank_hash;
     fd_hash_t              prev_bank_hash;
     fd_hash_t              genesis_hash;

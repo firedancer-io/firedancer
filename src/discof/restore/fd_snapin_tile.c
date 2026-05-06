@@ -274,8 +274,7 @@ verify_bank_hash( fd_snapin_tile_t const *       ctx,
       manifest->slot,
       manifest->parent_slot,
       manifest->hard_forks,
-      manifest->hard_forks_cnts,
-      manifest->hard_forks_len );
+      manifest->hard_fork_cnt );
 
   if( FD_UNLIKELY( memcmp( computed_bank_hash, manifest->bank_hash, FD_HASH_FOOTPRINT ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( computed_bank_hash->hash, computed_bank_hash_enc );
