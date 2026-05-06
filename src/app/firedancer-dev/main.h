@@ -240,6 +240,7 @@ extern action_t fd_action_add_authorized_voter;
 #if FD_HAS_ROCKSDB
 extern action_t fd_action_forktest;
 #endif
+extern action_t fd_action_snapshot_create;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -282,6 +283,7 @@ action_t * ACTIONS[] = {
 #if FD_HAS_ROCKSDB
   &fd_action_forktest,
 #endif
+  &fd_action_snapshot_create,
   NULL,
 };
 
