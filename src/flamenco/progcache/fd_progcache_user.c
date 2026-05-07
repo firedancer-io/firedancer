@@ -560,15 +560,14 @@ fd_progcache_pull( fd_progcache_t           * cache,
                    fd_xid_t           const * xid,
                    fd_pubkey_t        const * prog_addr,
                    fd_prog_load_env_t const * env,
-                   fd_accdb_ro_t            * prog_ro,
-                   fd_pubkey_t        const * program_owner ) {
+                   fd_accdb_ro_t            * prog_ro ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   long dt = -fd_tickcount();
   fd_progcache_load_fork( cache, xid );
   cache->metrics->lookup_cnt++;
 
   fd_prog_info_t info[1];
-  if( FD_UNLIKELY( !fd_prog_info( info, prog_ro, program_owner ) ) ) return NULL;
+  if( FD_UNLIKELY( !fd_prog_info( info, prog_ro ) ) ) return NULL;
   ulong revision_key = fd_progcache_revision_key( env->epoch_slot0, info->deploy_slot );
 
   insert_params_t insert[1];

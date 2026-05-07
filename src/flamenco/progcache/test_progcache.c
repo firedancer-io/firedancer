@@ -141,7 +141,7 @@ test_pull( fd_progcache_t *           cache,
            fd_xid_t const *           xid,
            fd_pubkey_t const *        prog_addr,
            fd_prog_load_env_t const * env ) {
-  fd_progcache_rec_t * rec = fd_progcache_pull( cache, xid, prog_addr, env, prog_ro, fd_accdb_ref_owner( prog_ro ) );
+  fd_progcache_rec_t * rec = fd_progcache_pull( cache, xid, prog_addr, env, prog_ro );
   if( rec ) fd_progcache_rec_close( cache, rec );
   return rec;
 }

@@ -41,13 +41,11 @@ fd_prog_info_v1( fd_prog_info_t *      out,
   return out;
 }
 
-/* We determine the BPF loader type based off of the program acount owner,
-   instead of the programdata owner.
-   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.5/svm/src/program_loader.rs#L29 */
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.5/svm/src/program_loader.rs#L29 */
 fd_prog_info_t *
 fd_prog_info( fd_prog_info_t     * out,
-              fd_accdb_ro_t      * ro,
-              fd_pubkey_t const  * program_owner ){
+              fd_accdb_ro_t      * ro ) {
+  fd_pubkey_t const * program_owner = fd_accdb_ref_owner( ro );
   if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_upgradeable_program_id ) ) {
     return fd_prog_info_v3( out, ro );
   } else if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_program_id ) ||
