@@ -744,7 +744,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
   if( bank->f.slot != 0 ) {
     fd_sysvar_slot_hashes_update( bank, accdb, xid, capture_ctx );
   }
-  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx, bank->f.last_restart_slot );
+  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx );
 }
 
 int
