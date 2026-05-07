@@ -227,6 +227,68 @@ fd_ssping_join( void * shping ) {
   return ssping;
 }
 
+void *
+fd_ssping_leave( fd_ssping_t * ssping ) {
+  if( FD_UNLIKELY( !ssping ) ) {
+    FD_LOG_WARNING(( "NULL ssping" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)ssping, fd_ssping_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned ssping" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( ssping->magic!=FD_SSPING_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  ssping->pool       = peer_pool_leave( ssping->pool );
+  ssping->map        = peer_map_leave( ssping->map );
+  ssping->unpinged   = deadline_list_leave( ssping->unpinged );
+  ssping->pinged     = deadline_list_leave( ssping->pinged );
+  ssping->valid      = deadline_list_leave( ssping->valid );
+  ssping->refreshing = deadline_list_leave( ssping->refreshing );
+  ssping->invalid    = deadline_list_leave( ssping->invalid );
+
+  return (void *)ssping;
+}
+
+void *
+fd_ssping_delete( void * shping ) {
+  if( FD_UNLIKELY( !shping ) ) {
+    FD_LOG_WARNING(( "NULL shping" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shping, fd_ssping_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shping" ));
+    return NULL;
+  }
+
+  fd_ssping_t * ssping = (fd_ssping_t *)shping;
+
+  if( FD_UNLIKELY( ssping->magic!=FD_SSPING_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  /* Close all file descriptors opened by fd_ssping_new. */
+  for( ulong i=0UL; i<ssping->used_fd_cnt; i++ ) {
+    close( ssping->used_fds[ i ].fd );
+  }
+  for( ulong i=0UL; i<FD_SSPING_FD_CNT-ssping->used_fd_cnt; i++ ) {
+    close( ssping->idle_fds[ i ] );
+  }
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( ssping->magic ) = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return (void *)ssping;
+}
+
 void
 fd_ssping_add( fd_ssping_t * ssping,
                fd_ip4_port_t addr ) {
@@ -320,6 +382,7 @@ void
 fd_ssping_invalidate( fd_ssping_t * ssping,
                       fd_ip4_port_t addr,
                       long          now ) {
+  if( FD_UNLIKELY( !ssping ) ) return;
   fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
   if( FD_UNLIKELY( !peer ) ) return;
   switch( peer->state ) {
@@ -493,4 +556,13 @@ fd_ssping_advance( fd_ssping_t *          ssping,
   }
 
   recv_pings( ssping, selector );
+}
+
+int
+fd_ssping_is_invalidated( fd_ssping_t * ssping,
+                          fd_ip4_port_t addr ) {
+  if( FD_UNLIKELY( !ssping ) ) return 0;
+  fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
+  if( FD_UNLIKELY( !peer ) ) return 0;
+  return peer->state==PEER_STATE_INVALID;
 }
