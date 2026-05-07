@@ -310,6 +310,10 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         exec_res
     );
 
+    fd_solfuzz_direct_mapping_handle_cu_exhaustion(
+        runner, txn_out->details.compute_budget.compute_meter, exec_res,
+        txn_result->modified_accounts, txn_result->modified_accounts_count );
+
     txn_out->err.is_committable = 0;
     fd_runtime_cancel_txn( runner->runtime, txn_out );
     fd_solfuzz_txn_ctx_destroy( runner );
