@@ -2179,9 +2179,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   fd_funk_txn_xid_t xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
   fd_progcache_t * progcache = ctx->runtime->progcache;
   fd_progcache_rec_t * cache_entry =
-      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro, fd_type_pun_const( metadata->owner ) );
+      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro );
   if( FD_UNLIKELY( !cache_entry ) ) {
-    fd_log_collector_msg_literal( ctx, "Program is not cached" );
+    fd_log_collector_msg_literal( ctx, "Program is not deployed" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

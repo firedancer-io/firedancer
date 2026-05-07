@@ -31,8 +31,7 @@ typedef struct fd_prog_info fd_prog_info_t;
 
 fd_prog_info_t *
 fd_prog_info( fd_prog_info_t    * out,
-              fd_accdb_ro_t     * progdata_ro,
-              fd_pubkey_t const * program_owner );
+              fd_accdb_ro_t     * progdata_ro );
 
 /* fd_prog_versions derives sBPF versions from the current feature set. */
 
