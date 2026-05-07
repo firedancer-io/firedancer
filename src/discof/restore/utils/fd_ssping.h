@@ -85,6 +85,14 @@ fd_ssping_invalidate( fd_ssping_t * ssping,
                       fd_ip4_port_t addr,
                       long          now );
 
+/* Returns 1 if the peer at addr is currently in the INVALID state
+   (i.e. temporarily banned), 0 otherwise.  Safe to call with a NULL
+   ssping (returns 0). */
+
+int
+fd_ssping_is_invalidated( fd_ssping_t * ssping,
+                          fd_ip4_port_t addr );
+
 /* Advance the ping tracker forward in time until "now".  This should be
    called periodically to refresh pings and service networking to
    maintain ping states.  Takes a handle to the peer selector to

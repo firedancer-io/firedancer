@@ -483,7 +483,7 @@ poll_advance( fd_http_resolver_t * resolver,
       deadline_list_ele_push_tail( resolver->valid, peer, resolver->pool );
       remove_peer( resolver, peer->fd.idx );
 
-      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->full_slot, peer->incr_slot, peer->full_hash,
+      resolver->on_resolve_cb( resolver->cb_arg, &peer->key, peer->addr, peer->full_slot, peer->incr_slot, peer->full_hash,
                                peer->incr_slot!=FD_SSPEER_SLOT_UNKNOWN ? peer->incr_hash : NULL );
     }
   }
@@ -501,13 +501,11 @@ fd_http_resolver_advance( fd_http_resolver_t *   resolver,
        Without this, a previously-valid peer could carry stale
        incr_slot/incr_hash through the invalid->unresolved cycle. */
     clear_peer_snapshot_data( peer );
-    /* Re-add the peer to the selector with unknown data.  The peer may
-       have been removed from the selector during a previous timeout or
-       failed re-resolve.  The add call may fail if the selector is
-       full, which is fine — the peer will still attempt to resolve and
-       the next cycle will try again. */
-    fd_sspeer_selector_add( selector, &peer->key, peer->addr, FD_SSPEER_LATENCY_UNKNOWN,
-                            FD_SSPEER_SLOT_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN, NULL, NULL );
+    /* Peers that were already removed from the selector due to
+       timeout or blacklist handling stay absent while resolving.
+       Re-adding such peers here with unknown slots would bypass
+       blacklist checks and contribute no useful data.  The
+       on_resolve callback re-adds them once resolution succeeds. */
     int result = peer_connect( resolver, peer );
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state          = PEER_STATE_INVALID;

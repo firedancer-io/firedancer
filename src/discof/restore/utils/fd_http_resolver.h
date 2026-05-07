@@ -15,6 +15,7 @@ typedef struct fd_http_resolver_private fd_http_resolver_t;
 typedef void
 (* fd_http_resolver_on_resolve_fn_t)( void *                  _ctx,
                                       fd_sspeer_key_t const * key,
+                                      fd_ip4_port_t           addr,
                                       ulong                   full_slot,
                                       ulong                   incr_slot,
                                       uchar                   full_hash[ FD_HASH_FOOTPRINT ],

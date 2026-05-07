@@ -494,3 +494,12 @@ fd_ssping_advance( fd_ssping_t *          ssping,
 
   recv_pings( ssping, selector );
 }
+
+int
+fd_ssping_is_invalidated( fd_ssping_t * ssping,
+                          fd_ip4_port_t addr ) {
+  if( FD_UNLIKELY( !ssping ) ) return 0;
+  fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
+  if( FD_UNLIKELY( !peer ) ) return 0;
+  return peer->state==PEER_STATE_INVALID;
+}

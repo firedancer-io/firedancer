@@ -69,6 +69,37 @@ typedef struct gossip_ci_entry gossip_ci_entry_t;
 #define MAP_KEY_HASH(key,seed) fd_hash( seed, key, sizeof(fd_pubkey_t) )
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* Standalone blacklist keyed on fd_sspeer_key_t (peer identity).
+   Keying on identity rather than network address is intentional:
+   a peer's address can change freely, but its identity cannot.
+   For gossip peers the identity is the pubkey; for URL peers it is
+   the (hostname, resolved_addr) pair.  Blacklisted peers are
+   permanently banned for the bootstrap lifetime.  The blacklist uses
+   its own dedicated pool so entries are never evicted by pool
+   pressure, unlike the ssping peer pool. */
+
+struct fd_sspeer_blacklist_entry {
+  fd_sspeer_key_t key;
+  ulong           pool_next;
+  ulong           map_next;
+};
+typedef struct fd_sspeer_blacklist_entry fd_sspeer_blacklist_entry_t;
+
+#define POOL_NAME  blacklist_pool
+#define POOL_T     fd_sspeer_blacklist_entry_t
+#define POOL_IDX_T ulong
+#define POOL_NEXT  pool_next
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               blacklist_map
+#define MAP_KEY                key
+#define MAP_ELE_T              fd_sspeer_blacklist_entry_t
+#define MAP_KEY_T              fd_sspeer_key_t
+#define MAP_NEXT               map_next
+#define MAP_KEY_EQ(k0,k1)      (fd_sspeer_key_eq(k0,k1))
+#define MAP_KEY_HASH(key,seed) (fd_sspeer_key_hash(key,seed))
+#include "../../util/tmpl/fd_map_chain.c"
+
 struct fd_snapct_tile {
   struct fd_topo_tile_snapct config;
   int                        gossip_enabled;
@@ -78,6 +109,9 @@ struct fd_snapct_tile {
   fd_http_resolver_t *   ssresolver;
   fd_sspeer_selector_t * selector;
   ulong                  selector_seed;
+
+  fd_sspeer_blacklist_entry_t * blacklist_pool;
+  blacklist_map_t *             blacklist_map;
 
   int           state;
   int           malformed;
@@ -175,7 +209,9 @@ scratch_align( void ) {
          fd_ulong_max( alignof(gossip_ci_entry_t),
          fd_ulong_max( gossip_ci_map_align(),
          fd_ulong_max( fd_http_resolver_align(),
-                       fd_sspeer_selector_align() ) ) ) ) );
+         fd_ulong_max( fd_sspeer_selector_align(),
+         fd_ulong_max( blacklist_pool_align(),
+                       blacklist_map_align() ) ) ) ) ) ) );
 }
 
 static ulong
@@ -187,6 +223,8 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
   l = FD_LAYOUT_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX )                             );
   l = FD_LAYOUT_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX )                            );
+  l = FD_LAYOUT_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( TOTAL_PEERS_MAX )                               );
+  l = FD_LAYOUT_APPEND( l, blacklist_map_align(),      blacklist_map_footprint( blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ) )  );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()                                                       );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -249,30 +287,37 @@ predict_incremental( fd_snapct_tile_t * ctx ) {
 static void
 on_resolve( void *                  _ctx,
             fd_sspeer_key_t const * key,
+            fd_ip4_port_t           addr,
             ulong                   full_slot,
             ulong                   incr_slot,
             uchar                   full_hash[ FD_HASH_FOOTPRINT ],
             uchar                   incr_hash[ FD_HASH_FOOTPRINT ] ) {
   fd_snapct_tile_t * ctx = (fd_snapct_tile_t *)_ctx;
 
-  int status = fd_sspeer_selector_update_on_resolve( ctx->selector, key, full_slot, incr_slot, full_hash, incr_hash );
-  if( FD_UNLIKELY( status<0 ) ) {
-    /* The update may fail in normal operation, e.g. after a peer has
-       been removed from the selector.  The log level is set to a
-       minimum accordingly. */
+  /* Do not update peers that have been permanently blacklisted. */
+  if( FD_UNLIKELY( key && blacklist_map_ele_query( ctx->blacklist_map, key, NULL, ctx->blacklist_pool ) ) ) return;
+  /* Do not re-add peers whose addr is temporarily banned by ssping. */
+  if( FD_UNLIKELY( fd_ssping_is_invalidated( ctx->ssping, addr ) ) ) return;
+
+  /* add() handles both new and existing peers, so peers removed from
+     the selector during a previous blacklist, timeout, or failed
+     re-resolve are re-added with the freshly resolved data. */
+  ulong score = fd_sspeer_selector_add( ctx->selector, key, addr, FD_SSPEER_LATENCY_UNKNOWN,
+                                        full_slot, incr_slot, full_hash, incr_hash );
+  if( FD_UNLIKELY( score==FD_SSPEER_SCORE_INVALID ) ) {
     if( FD_UNLIKELY( key==NULL ) ) {
-      FD_LOG_DEBUG(( "selector update on resolve returned %d for NULL peer key", status ) );
+      FD_LOG_DEBUG(( "selector add on resolve failed for NULL peer key" ));
     } else {
       if( FD_UNLIKELY( !key->is_url ) ) {
         FD_BASE58_ENCODE_32_BYTES( key->pubkey->key, pubkey_b58 );
-        FD_LOG_DEBUG(( "selector update on resolve returned %d for peer with pubkey %s", status, pubkey_b58 ) );
+        FD_LOG_DEBUG(( "selector add on resolve failed for peer with pubkey %s", pubkey_b58 ));
       } else {
-        FD_LOG_DEBUG(( "selector update on resolve returned %d for peer %s with addr " FD_IP4_ADDR_FMT ":%hu", status, key->url.hostname,
+        FD_LOG_DEBUG(( "selector add on resolve failed for peer %s with addr " FD_IP4_ADDR_FMT ":%hu", key->url.hostname,
                        FD_IP4_ADDR_FMT_ARGS( key->url.resolved_addr.addr ), fd_ushort_bswap( key->url.resolved_addr.port ) ));
       }
     }
   }
-  fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
   predict_incremental( ctx );
 }
 
@@ -316,14 +361,17 @@ on_snapshot_hash( fd_snapct_tile_t *                 ctx,
     fd_sspeer_selector_remove( ctx->selector, key );
     return;
   }
-  /* The add may fail due to capacity/pool exhaustion, but the cluster
-     slot should still be updated since the gossip observation is valid
-     cluster-level intelligence regardless of whether this particular
-     peer can be tracked. */
+  /* Do not re-add peers that have been permanently blacklisted. */
+  if( FD_UNLIKELY( blacklist_map_ele_query( ctx->blacklist_map, key, NULL, ctx->blacklist_pool ) ) ) return;
+  /* Do not re-add peers whose addr is temporarily banned by ssping. */
+  if( FD_UNLIKELY( fd_ssping_is_invalidated( ctx->ssping, addr ) ) ) return;
+  /* The add may fail due to capacity/pool exhaustion.  The cluster
+     slot is recomputed from tracked peers only, so a failed add will
+     not influence the median. */
   fd_sspeer_selector_add( ctx->selector, key, addr, FD_SSPEER_LATENCY_UNKNOWN,
                           full_slot, incr_slot,
                           msg->snapshot_hashes->full_hash, incr_hash );
-  fd_sspeer_selector_process_cluster_slot( ctx->selector, full_slot, incr_slot );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
   predict_incremental( ctx );
 }
 
@@ -579,6 +627,32 @@ log_completion( fd_snapct_tile_t * ctx,
   FD_LOG_NOTICE(( "%s snapshot load completed in %.3f seconds", full ? "full" : "incremental", elapsed ));
 }
 
+/* Blacklist the current peer: invalidate in ssping, remove from the
+   selector, and add to the dedicated blacklist map.  Skips the insert
+   if the peer is already blacklisted (dedup).  Warns if the pool is
+   full (the ssping ban still provides temporary protection). */
+static void
+blacklist_peer( fd_snapct_tile_t * ctx ) {
+  fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
+  fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
+  if( FD_UNLIKELY( blacklist_map_ele_query( ctx->blacklist_map, &ctx->peer.key, NULL, ctx->blacklist_pool ) ) ) return;
+  if( FD_LIKELY( blacklist_pool_free( ctx->blacklist_pool ) ) ) {
+    fd_sspeer_blacklist_entry_t * bl = blacklist_pool_ele_acquire( ctx->blacklist_pool );
+    bl->key = ctx->peer.key;
+    blacklist_map_ele_insert( ctx->blacklist_map, bl, ctx->blacklist_pool );
+    if( FD_UNLIKELY( !ctx->peer.key.is_url ) ) {
+      FD_BASE58_ENCODE_32_BYTES( ctx->peer.key.pubkey->uc, pubkey_b58 );
+      FD_LOG_WARNING(( "permanently blacklisted peer identity %s", pubkey_b58 ));
+    } else {
+      FD_LOG_WARNING(( "permanently blacklisted peer identity %s",
+                       ctx->peer.key.url.hostname[0] ? ctx->peer.key.url.hostname : "(none)" ));
+    }
+  } else {
+    FD_LOG_WARNING(( "blacklist pool full, peer banned via ssping only" ));
+  }
+}
+
 static void
 after_credit( fd_snapct_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -588,6 +662,11 @@ after_credit( fd_snapct_tile_t *  ctx,
 
   if( FD_LIKELY( ctx->ssping ) ) fd_ssping_advance( ctx->ssping, now, ctx->selector );
   if( FD_LIKELY( ctx->ssresolver ) ) fd_http_resolver_advance( ctx->ssresolver, now, ctx->selector );
+
+  /* Advances above may remove peers, making cluster_slot dirty.
+     Recompute so best() calls below use up-to-date scores.
+     No-op when the dirty flag is not set internally. */
+  fd_sspeer_selector_process_cluster_slot( ctx->selector );
 
   /* send an expected slot message as the predicted incremental
      could have changed as a result of the pinger, resolver, or from
@@ -837,8 +916,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure.",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        blacklist_peer( ctx );
         break;
       }
 
@@ -861,8 +939,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure.",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        blacklist_peer( ctx );
         break;
       }
 
@@ -948,8 +1025,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure.",
                          ctx->predicted_incremental.full_slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        blacklist_peer( ctx );
         break;
       }
 
@@ -972,8 +1048,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure.",
                          ctx->predicted_incremental.full_slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        blacklist_peer( ctx );
         break;
       }
 
@@ -1118,8 +1193,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure",
                          ctx->predicted_incremental.full_slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_full_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        blacklist_peer( ctx );
         break;
       }
       if( FD_UNLIKELY( ctx->metrics.full.bytes_total!=0UL && ctx->metrics.full.bytes_read==ctx->metrics.full.bytes_total ) ) {
@@ -1143,8 +1217,7 @@ after_credit( fd_snapct_tile_t *  ctx,
                          "blacklisting peer due to download failure",
                          ctx->predicted_incremental.slot,
                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ), ctx->http_incr_snapshot_name ));
-        fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
-        fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
+        blacklist_peer( ctx );
         break;
       }
       if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_total!=0UL && ctx->metrics.incremental.bytes_read==ctx->metrics.incremental.bytes_total ) ) {
@@ -1239,12 +1312,18 @@ gossip_frag( fd_snapct_tile_t *  ctx,
         *entry_key.pubkey = entry->pubkey;
         entry_key.is_url  = 0;
         if( FD_LIKELY( !!new_addr.l ) ) {
-          if( FD_UNLIKELY( FD_SSPEER_SCORE_INVALID==fd_sspeer_selector_add( ctx->selector, &entry_key, new_addr,
+          /* Do not re-add peers that have been permanently blacklisted
+             or whose new address is temporarily banned by ssping.
+             Bookkeeping (ssping cleanup, rpc_addr update) still runs
+             so the CI table and ssping pool stay consistent. */
+          if( FD_LIKELY( !blacklist_map_ele_query( ctx->blacklist_map, &entry_key, NULL, ctx->blacklist_pool ) &&
+                         !fd_ssping_is_invalidated( ctx->ssping, new_addr ) ) ) {
+            if( FD_LIKELY( FD_SSPEER_SCORE_INVALID!=fd_sspeer_selector_add( ctx->selector, &entry_key, new_addr,
                                                                             FD_SSPEER_LATENCY_UNKNOWN, FD_SSPEER_SLOT_UNKNOWN,
                                                                             FD_SSPEER_SLOT_UNKNOWN, NULL, NULL ) ) ) {
-            break;
+              fd_ssping_add( ctx->ssping, new_addr );
+            }
           }
-          fd_ssping_add( ctx->ssping, new_addr );
         } else {
           fd_sspeer_selector_remove( ctx->selector, &entry_key );
         }
@@ -1584,6 +1663,8 @@ privileged_init( fd_topo_t *      topo,
                                    FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
   void *             _ssresolver = FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX )  );
                                    FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
+                                   FD_SCRATCH_ALLOC_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( TOTAL_PEERS_MAX ) );
+                                   FD_SCRATCH_ALLOC_APPEND( l, blacklist_map_align(),      blacklist_map_footprint( blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ) ) );
 
 #if FD_HAS_OPENSSL
   void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
@@ -1730,12 +1811,16 @@ unprivileged_init( fd_topo_t *      topo,
   void * _ci_map          = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ) ) );
                             FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( SERVER_PEERS_MAX ) );
   void * _selector        = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( TOTAL_PEERS_MAX ) );
+  void * _bl_pool         = FD_SCRATCH_ALLOC_APPEND( l, blacklist_pool_align(),     blacklist_pool_footprint( TOTAL_PEERS_MAX ) );
+  void * _bl_map          = FD_SCRATCH_ALLOC_APPEND( l, blacklist_map_align(),      blacklist_map_footprint( blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ) ) );
 
   ctx->config = tile->snapct;
   ctx->gossip_enabled   = gossip_enabled( tile );
   ctx->download_enabled = download_enabled( tile );
 
-  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->config.incremental_snapshots, ctx->selector_seed ) );
+  ctx->selector       = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, TOTAL_PEERS_MAX, ctx->selector_seed ) );
+  ctx->blacklist_pool = blacklist_pool_join( blacklist_pool_new( _bl_pool, TOTAL_PEERS_MAX ) );
+  ctx->blacklist_map  = blacklist_map_join( blacklist_map_new( _bl_map, blacklist_map_chain_cnt_est( TOTAL_PEERS_MAX ), ctx->selector_seed ) );
 
   if( ctx->config.sources.servers_cnt ) {
     for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {
