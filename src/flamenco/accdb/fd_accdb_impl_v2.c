@@ -1,6 +1,7 @@
 #include "fd_accdb_impl_v2.h"
 #include "fd_accdb_funk.h"
 #include "fd_vinyl_req_pool.h"
+#include "../../util/racesan/fd_racesan_target.h"
 #include <stdatomic.h>
 
 FD_STATIC_ASSERT( alignof(fd_accdb_user_v2_t)<=alignof(fd_accdb_user_t), layout );
@@ -150,9 +151,11 @@ funk_rec_acquire( fd_accdb_user_v2_t const * accdb,
   fd_funk_rec_t *                               rec_tbl   = accdb->funk->rec_pool->ele;
   ulong                                         rec_max   = fd_funk_rec_pool_ele_max( accdb->funk->rec_pool );
 
-  uint            ele_idx   = chain->head_cidx;
+  fd_racesan_hook( "accdb_v2_funk_rec_acquire:seqlock_peek" );
   ulong _Atomic * ver_cnt_p = (ulong _Atomic *)&chain->ver_cnt;
   ulong           ver_cnt   = atomic_load_explicit( ver_cnt_p, memory_order_acquire );
+  uint            ele_idx   = chain->head_cidx;
+  fd_racesan_hook( "accdb_v2_funk_rec_acquire:seqlock_peek_after_head" );
 
   /* Start a speculative transaction for the chain containing revisions
      of the account key we are looking for. */
@@ -165,14 +168,18 @@ funk_rec_acquire( fd_accdb_user_v2_t const * accdb,
      (Each chain is sorted newest-to-oldest) */
   fd_funk_rec_t * best = NULL;
   for( ulong i=0UL; i<cnt; i++ ) {
+    fd_racesan_hook( "accdb_v2_funk_rec_acquire:walk_step" );
+    if( FD_UNLIKELY( ele_idx>=rec_max ) ) {
+      if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
+        return ACQUIRE_FAILED;
+      }
+      FD_LOG_CRIT(( "funk_rec_acquire detected memory corruption: invalid ele_idx at node %lu:%u (rec_max %lu)",
+                    chain_idx, ele_idx, rec_max ));
+    }
+
     uint ele_next = rec_tbl[ ele_idx ].map_next;
     if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
       return ACQUIRE_FAILED;
-    }
-
-    if( FD_UNLIKELY( ele_idx>=rec_max ) ) {
-      FD_LOG_CRIT(( "funk_rec_acquire detected memory corruption: invalid ele_idx at node %lu:%u (rec_max %lu)",
-                    chain_idx, ele_idx, rec_max ));
     }
 
     fd_funk_rec_t * rec = &rec_tbl[ ele_idx ];
@@ -191,6 +198,10 @@ funk_rec_acquire( fd_accdb_user_v2_t const * accdb,
 
 next:
     ele_idx = ele_next;
+  }
+  fd_racesan_hook( "accdb_v2_funk_rec_acquire:seqlock_check" );
+  if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
+    return ACQUIRE_FAILED;
   }
   if( FD_UNLIKELY( !best && ele_idx!=FD_FUNK_REC_IDX_NULL ) ) {
     FD_LOG_CRIT(( "funk_rec_acquire detected malformed chain (%lu): found more nodes than chain header indicated (%lu)", chain_idx, cnt ));
