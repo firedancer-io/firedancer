@@ -1104,7 +1104,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted ); /* FIXME manifest block_id */
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted );
   fec->bank_idx              = bank->idx;
   fec->bank_seq              = bank->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1232,7 +1232,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted ); /* FIXME manifest block_id */
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted );
     fec->bank_idx        = bank->idx;
     fec->bank_seq        = bank->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -1561,13 +1561,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
-  FD_TEST( bank );
-  if( sched_fec->is_first_in_block ) {
-    bank->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
-  }
-
   /* Read FEC set from the store.  This should happen before we try to
      ingest the FEC set.  This allows us to filter out frags that were
      in-flight when we published away minority forks that the frags land
@@ -1575,7 +1568,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
      their corresponding banks, or parent banks, have also been pruned
      during publishing.  A query against store will rightfully tell us
      that the underlying data is not found, implying that this is for a
-     minority fork that we can safeljy ignore. */
+     minority fork that we can safely ignore. */
 
   ulong wait = (ulong)fd_log_wallclock();
   ulong work = wait;
@@ -1599,6 +1592,13 @@ insert_fec_set( fd_replay_tile_t *  ctx,
       FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
       return 0;
     }
+    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
+    FD_TEST( bank );
+    if( sched_fec->is_first_in_block ) {
+      bank->refcnt++;
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
+    }
+
     sched_fec->fec  = store_fec;
     sched_fec->data = fd_store_fec_data( ctx->store, store_fec );
     if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and shred_offs. */
@@ -1610,6 +1610,57 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   ctx->metrics.store_query_release++;
   fd_histf_sample( ctx->metrics.store_query_work, (ulong)fd_log_wallclock() - work );
   return 0;
+}
+
+static void
+backfill_fec_sets( fd_replay_tile_t *  ctx,
+                   fd_stem_context_t * stem,
+                   fd_reasm_fec_t *    reasm_fec ) {
+  fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
+  if( FD_UNLIKELY( !parent ) ) {
+    FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is unconnected in reasm", reasm_fec->slot, reasm_fec->fec_set_idx ));
+    return;
+  }
+
+  fd_reasm_fec_t * path[ FD_BANKS_MAX_BANKS ];
+  ulong            path_cnt = 0UL;
+  path[ path_cnt++ ] = reasm_fec;
+
+  for( fd_reasm_fec_t * curr = reasm_fec;; ) {
+    curr = fd_reasm_parent( ctx->reasm, curr );
+    FD_TEST( curr );
+    if( FD_LIKELY( !curr->slot_complete ) ) continue;
+
+    fd_bank_t * curr_bank = fd_banks_bank_query( ctx->banks, curr->bank_idx );
+    if( FD_LIKELY( curr_bank && curr_bank->bank_seq==curr->bank_seq ) ) break;
+
+    FD_TEST( path_cnt<FD_BANKS_MAX_BANKS );
+    path[ path_cnt++ ] = curr;
+  }
+
+  for( ulong i=path_cnt; i>0UL; i-- ) {
+    fd_reasm_fec_t * leaf = path[ i-1 ];
+
+    /* If there's no capacity in the sched or banks, return early and
+       drop the FEC.  We have inserted as much as we can for now. */
+    if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched ) < (leaf->fec_set_idx/FD_FEC_SHRED_CNT + 1) ) ) return;
+    if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return;
+
+    /* Gather all FECs for this slot */
+    fd_reasm_fec_t * slot_fecs[ FD_FEC_BLK_MAX ];
+    fd_reasm_fec_t * curr = leaf;
+    for(;;) {
+      slot_fecs[ curr->fec_set_idx/FD_FEC_SHRED_CNT ] = curr;
+      if( curr->fec_set_idx==0U ) break;
+      curr = fd_reasm_parent( ctx->reasm, curr );
+      FD_TEST( curr );
+    }
+    FD_LOG_NOTICE(( "backfilling FEC sets for slot %lu from fec_set_idx %u to fec_set_idx %u", leaf->slot, leaf->fec_set_idx, curr->fec_set_idx ));
+
+    for( ulong j=0UL; j<=leaf->fec_set_idx/FD_FEC_SHRED_CNT; j++ ) {
+      if( FD_UNLIKELY( insert_fec_set( ctx, stem, slot_fecs[ j ] ) ) ) return;
+    }
+  }
 }
 
 static void
@@ -1633,58 +1684,26 @@ process_fec_set( fd_replay_tile_t *  ctx,
     return;
   }
 
-  /* Standard case, the parent FEC has a valid corresponding bank. */
+  /* An invariant from reasm is that if we receive a FEC set that is
+     both with eqvoc and confirmed set, we know that we must replay the
+     slot associated with this FEC. */
+  int eqvoc_detected = reasm_fec->fec_set_idx!=0 && (reasm_fec->eqvoc && !parent->eqvoc);
+  if( FD_UNLIKELY( eqvoc_detected ) ) FD_TEST( reasm_fec->confirmed && parent->confirmed );
+
+  /* If the bank associated with the parent FEC set is not valid, or if
+     the bank has been recycled, that means that we have evicted the
+     bank associated with this FEC.  This happens if the bank has been
+     evicted. */
   fd_bank_t * parent_fec_bank = fd_banks_bank_query( ctx->banks, parent->bank_idx );
-  if( FD_LIKELY( parent_fec_bank &&
-                 parent_fec_bank->bank_seq==parent->bank_seq ) ) {
+  int has_evicted = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
+
+  /* If the parent FEC has a valid corresponding bank and there has been
+     no mid-slot equivocation detected so far, we can insert the FEC
+     set.  Otherwise, we need to backfill any missing FEC sets. */
+  if( FD_LIKELY( !has_evicted && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
-    return;
-  }
-
-  /* In the case the FEC doesn't directly connect, iterate up the reasm
-     tree to find the closest valid slot complete that corresponds to a
-     valid bank. */
-
-  /* First keep track of all of the slot completes up to and including
-     the fec we want to insert off of. */
-  fd_reasm_fec_t * path[ FD_BANKS_MAX_BANKS ];
-  ulong            path_cnt = 0UL;
-  path[ path_cnt++ ] = reasm_fec;
-
-  for( fd_reasm_fec_t * curr = reasm_fec;; ) {
-    curr = fd_reasm_parent( ctx->reasm, curr );
-    FD_TEST( curr );
-    if( FD_LIKELY( !curr->slot_complete ) ) continue;
-
-    fd_bank_t * curr_bank = fd_banks_bank_query( ctx->banks, curr->bank_idx );
-    if( FD_LIKELY( curr_bank && curr_bank->bank_seq==curr->bank_seq ) ) break;
-
-    FD_TEST( path_cnt<FD_BANKS_MAX_BANKS );
-    path[ path_cnt++ ] = curr;
-  }
-
-  for( ulong i=path_cnt; i>0UL; i-- ) {
-    fd_reasm_fec_t * leaf = path[ i-1 ];
-
-    /* If there's not capacity in the sched or banks, return early and
-       drop the FEC.  We have inserted as much as we can for now. */
-    if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched ) < (leaf->fec_set_idx/FD_FEC_SHRED_CNT + 1) ) ) return;
-    if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) ) ) return;
-
-    /* Gather all FECs for this slot; */
-    fd_reasm_fec_t * slot_fecs[ FD_FEC_BLK_MAX ];
-    fd_reasm_fec_t * curr = leaf;
-    for(;;) {
-      slot_fecs[ curr->fec_set_idx/FD_FEC_SHRED_CNT ] = curr;
-      if( curr->fec_set_idx==0U ) break;
-      curr = fd_reasm_parent( ctx->reasm, curr );
-      FD_TEST( curr );
-    }
-    FD_LOG_NOTICE(( "backfilling FEC sets for slot %lu from fec_set_idx %u to fec_set_idx %u", leaf->slot, leaf->fec_set_idx, curr->fec_set_idx ));
-
-    for( ulong j=0UL; j<=leaf->fec_set_idx/FD_FEC_SHRED_CNT; j++ ) {
-      if( FD_UNLIKELY( insert_fec_set( ctx, stem, slot_fecs[ j ] ) ) ) return;
-    }
+  } else {
+    backfill_fec_sets( ctx, stem, reasm_fec );
   }
 }
 
@@ -1824,8 +1843,7 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   /* if reasm evicted is set, publish starting from reasm_evicted down
-     to the leaf node to repair so repair can re-request for it */
-
+     to the leaf node to repair so repair can re-request for it. */
   if( FD_UNLIKELY( ctx->reasm_evicted ) ) {
     fd_replay_fec_evicted_t evicted = (fd_replay_fec_evicted_t){ .mr = ctx->reasm_evicted->key, .slot = ctx->reasm_evicted->slot, .fec_set_idx = ctx->reasm_evicted->fec_set_idx, .bank_idx = ctx->reasm_evicted->bank_idx };
     fd_memcpy( fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk ), &evicted, sizeof(fd_replay_fec_evicted_t) );
@@ -1836,7 +1854,6 @@ after_credit( fd_replay_tile_t *  ctx,
        fork, so guaranteed that the evict path is always the left-child */
     fd_reasm_pool_release( ctx->reasm, ctx->reasm_evicted );
     ctx->reasm_evicted = fd_reasm_child( ctx->reasm, ctx->reasm_evicted ); /* indexes into pool, safe to use */
-
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1853,18 +1870,6 @@ after_credit( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( ctx->is_leader && bank_idx==ctx->leader_bank->idx ) ) return;
     mark_bank_dead( ctx, stem, bank->idx );
     fd_sched_block_abandon( ctx->sched, bank->idx );
-
-    /* evict it from reasm */
-
-    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank->idx ];
-    fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
-    FD_TEST( fec );
-    fd_reasm_fec_t * evicted_head = fd_reasm_remove( ctx->reasm, fec, ctx->store );
-    if( FD_UNLIKELY( ctx->reasm_evicted ) ) {
-      /* already have a chain we are evicting. Prepend the new chain to the existing chain */
-      fec->child = fd_reasm_pool_idx( ctx->reasm, ctx->reasm_evicted );
-    }
-    ctx->reasm_evicted = evicted_head;
     return;
   }
 
@@ -2117,9 +2122,8 @@ process_tower_slot_done( fd_replay_tile_t *           ctx,
 }
 
 static void
-process_fec_complete( fd_replay_tile_t *    ctx,
-                      fd_stem_context_t *   stem,
-                      ulong                 sig,
+process_fec_complete( fd_replay_tile_t *  ctx,
+                      ulong               sig,
                       fd_fec_complete_t * complete_msg ) {
   fd_shred_t const * shred = &complete_msg->last_shred_hdr;
 
@@ -2145,11 +2149,6 @@ process_fec_complete( fd_replay_tile_t *    ctx,
        pool element with the data of the failed insert, so we make sure
        to publish the failed insert data to repair in after_credit. */
     return;
-  }
-
-  if( FD_UNLIKELY( ctx->reasm_evicted && ctx->reasm_evicted->bank_idx != ULONG_MAX ) ) {
-    mark_bank_dead( ctx, stem, ctx->reasm_evicted->bank_idx );
-    fd_sched_block_abandon( ctx->sched, ctx->reasm_evicted->bank_idx );
   }
 }
 
@@ -2341,7 +2340,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_REPAIR: {
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
-        process_fec_complete( ctx, stem, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+        process_fec_complete( ctx, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
     }
