@@ -1962,14 +1962,13 @@ fd_quic_handle_v1_retry(
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   if( FD_UNLIKELY( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
-    if( FD_UNLIKELY( conn ) ) { /* likely a misbehaving client w/o a conn */
-      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
-    }
+    /* RFC 9000 Section 5.2.2: servers MUST drop incoming packets for
+       which the RFC does not specify behavior */
     return FD_QUIC_PARSE_FAIL;
   }
 
   if( FD_UNLIKELY( !conn ) ) {
-    FD_DTRACE_PROBE_2( fd_quic_handle_v1_retry_no_conn , state->now, pkt->pkt_number );
+    FD_DTRACE_PROBE_2( fd_quic_handle_v1_retry_no_conn, state->now, pkt->pkt_number );
     quic->metrics.pkt_no_conn_cnt[1]++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2012,19 +2011,6 @@ fd_quic_handle_v1_retry(
   fd_quic_svc_prep_schedule_now( conn );
 
   return cur_sz;
-}
-
-ulong
-fd_quic_handle_v1_zero_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t const * pkt, uchar const * cur_ptr, ulong cur_sz ) {
-  (void)pkt;
-  (void)quic;
-  (void)cur_ptr;
-  (void)cur_sz;
-  /* since we do not support zero-rtt, simply fail the packet */
-  if( conn ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-  }
-  return FD_QUIC_PARSE_FAIL;
 }
 
 int
@@ -2277,7 +2263,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
         rc = fd_quic_handle_v1_retry( quic, conn, pkt, cur_ptr, cur_sz );
         break;
       case FD_QUIC_PKT_TYPE_ZERO_RTT:
-        rc = fd_quic_handle_v1_zero_rtt( quic, conn, pkt, cur_ptr, cur_sz );
+        /* fd_quic does not support 0-RTT */
+        rc = FD_QUIC_PARSE_FAIL;
         break;
     }
 
