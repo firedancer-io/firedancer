@@ -15,8 +15,8 @@ $(call add-objs,fd_block_harness,fd_flamenco_test)
 endif
 $(call add-objs,fd_sol_compat,fd_flamenco_test)
 
-$(call add-hdrs,generated/context.pb.h generated/invoke.pb.h generated/txn.pb.h generated/bundle.pb.h generated/block.pb.h generated/vm.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h generated/elf.pb.h)
-$(call add-objs,generated/context.pb generated/invoke.pb generated/txn.pb generated/bundle.pb generated/block.pb generated/vm.pb generated/metadata.pb generated/gossip.pb generated/cost.pb generated/elf.pb,fd_flamenco)
+$(call add-hdrs,generated/context.pb.h generated/instr.pb.h generated/txn.pb.h generated/bundle.pb.h generated/block.pb.h generated/vm.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h generated/elf.pb.h)
+$(call add-objs,generated/context.pb generated/instr.pb generated/txn.pb generated/bundle.pb generated/block.pb generated/vm.pb generated/metadata.pb generated/gossip.pb generated/cost.pb generated/elf.pb,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128

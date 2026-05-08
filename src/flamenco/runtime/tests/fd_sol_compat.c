@@ -6,7 +6,7 @@
 #include "fd_cost_harness.h"
 
 #include "generated/block.pb.h"
-#include "generated/invoke.pb.h"
+#include "generated/instr.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/txn.pb.h"
 #include "generated/bundle.pb.h"

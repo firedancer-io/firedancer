@@ -2,7 +2,7 @@
 
 #include "fd_solfuzz_private.h"
 #include "generated/block.pb.h"
-#include "generated/invoke.pb.h"
+#include "generated/instr.pb.h"
 #include "generated/txn.pb.h"
 #include "generated/bundle.pb.h"
 #include "generated/vm.pb.h"

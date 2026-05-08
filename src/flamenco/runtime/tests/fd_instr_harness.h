@@ -5,7 +5,7 @@
    tests. */
 
 #include "fd_solfuzz.h"
-#include "generated/invoke.pb.h"
+#include "generated/instr.pb.h"
 
 FD_PROTOTYPES_BEGIN
 

@@ -5,7 +5,7 @@
 #define PB_ORG_SOLANA_SEALEVEL_V1_VM_PB_H_INCLUDED
 
 #include "../../../../ballet/nanopb/pb_firedancer.h"
-#include "invoke.pb.h"
+#include "instr.pb.h"
 #include "context.pb.h"
 #include "metadata.pb.h"
 

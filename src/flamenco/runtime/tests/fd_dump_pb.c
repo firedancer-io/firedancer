@@ -1,6 +1,6 @@
 #include "fd_dump_pb.h"
 #include "generated/block.pb.h"
-#include "generated/invoke.pb.h"
+#include "generated/instr.pb.h"
 #include "generated/txn.pb.h"
 #include "generated/vm.pb.h"
 #include "../fd_system_ids.h"
