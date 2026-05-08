@@ -544,7 +544,15 @@ struct fd_topo_tile {
       ulong max_live_slots;
 
       ulong rpc_epoch_obj_id;
+      ulong resolv_epoch_obj_ids[ 16 ];
+      ulong resolv_epoch_obj_cnt;
     } accdb;
+
+    struct {
+      ulong max_live_slots;
+      ulong accdb_obj_id;
+      ulong accdb_epoch_fseq_obj_id;
+    } resolv;
 
     struct {
       char   folder_path[ PATH_MAX ];
