@@ -1561,13 +1561,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
-  FD_TEST( bank );
-  if( sched_fec->is_first_in_block ) {
-    bank->refcnt++;
-    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
-  }
-
   /* Read FEC set from the store.  This should happen before we try to
      ingest the FEC set.  This allows us to filter out frags that were
      in-flight when we published away minority forks that the frags land
@@ -1575,7 +1568,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
      their corresponding banks, or parent banks, have also been pruned
      during publishing.  A query against store will rightfully tell us
      that the underlying data is not found, implying that this is for a
-     minority fork that we can safeljy ignore. */
+     minority fork that we can safely ignore. */
 
   ulong wait = (ulong)fd_log_wallclock();
   ulong work = wait;
@@ -1599,6 +1592,13 @@ insert_fec_set( fd_replay_tile_t *  ctx,
       FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
       return 0;
     }
+    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
+    FD_TEST( bank );
+    if( sched_fec->is_first_in_block ) {
+      bank->refcnt++;
+      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
+    }
+
     sched_fec->fec  = store_fec;
     sched_fec->data = fd_store_fec_data( ctx->store, store_fec );
     if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and shred_offs. */
@@ -1698,8 +1698,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
   int has_evicted = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
 
   /* If the parent FEC has a valid corresponding bank and there has been
-     no equivocation detected so far, we can insert the FEC set.
-     Otherwise, we need to backfill any missing FEC sets. */
+     no mid-slot equivocation detected so far, we can insert the FEC
+     set.  Otherwise, we need to backfill any missing FEC sets. */
   if( FD_LIKELY( !has_evicted && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
   } else {
