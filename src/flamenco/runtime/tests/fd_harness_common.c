@@ -143,7 +143,8 @@ fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
     fd_accdb_rw_t rw[1];
     FD_TEST( fd_accdb_open_rw( accdb, rw, xid, &id->id, sizeof(feature_data), FD_ACCDB_FLAG_CREATE ) );
     fd_accdb_ref_data_set    ( accdb, rw, feature_data, sizeof(feature_data) );
-    fd_accdb_ref_lamports_set( rw, 1UL );
+
+    fd_accdb_ref_lamports_set( rw, 100000000 );
     fd_accdb_ref_exec_bit_set( rw, 0 );
     fd_memcpy( rw->meta->owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
     fd_accdb_close_rw( accdb, rw );
