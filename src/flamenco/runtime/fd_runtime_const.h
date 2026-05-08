@@ -135,9 +135,6 @@ FD_PROTOTYPES_BEGIN
    - 32 bytes for the program id
    - up to 7 bytes of padding + 255 instr accounts * 8 bytes for the
      direct_account_pointers_in_program_input account pointer array
-     (the array is padded up to FD_BPF_ALIGN_OF_U128=8 and then has one
-      u64 per instruction account; reserved unconditionally so the static
-      buffer can host the maximum even when the feature is enabled)
 
   So the total footprint is:
   8 header bytes +
