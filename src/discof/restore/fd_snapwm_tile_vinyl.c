@@ -315,7 +315,49 @@ fd_snapwm_vinyl_txn_begin( fd_snapwm_tile_t * ctx ) {
   ctx->vinyl.txn_active = 1;
 }
 
-void
+/* count_new_keys does a read-only scan of the bstream [seq0,seq1) and
+   returns the number of PAIR keys not already present in the meta map. */
+static ulong
+count_new_keys( fd_vinyl_meta_t const * meta_map,
+                uchar const *           mmio,
+                ulong                   seq0,
+                ulong                   seq1 ) {
+  ulong cnt = 0UL;
+  for( ulong seq=seq0; fd_vinyl_seq_lt( seq, seq1 ); ) {
+    fd_vinyl_bstream_block_t const * block = (void const *)( mmio+seq );
+
+    ulong                   ctl  = FD_VOLATILE_CONST( block->ctl  );
+    fd_vinyl_bstream_phdr_t phdr = FD_VOLATILE_CONST( block->phdr );
+
+    ulong val_esz    = fd_vinyl_bstream_ctl_sz  ( ctl );
+    int   block_type = fd_vinyl_bstream_ctl_type( ctl );
+    ulong block_sz;
+
+    if( FD_LIKELY( block_type==FD_VINYL_BSTREAM_CTL_TYPE_PAIR ) ) {
+      block_sz = fd_vinyl_bstream_pair_sz( val_esz );
+      ulong memo = fd_vinyl_key_memo( meta_map->seed, &phdr.key );
+      ulong ele_idx;
+      int   err = fd_vinyl_meta_query_fast( meta_map->ele, meta_map->ele_max, &phdr.key, memo, &ele_idx );
+      if( err ) cnt++;  /* key not found, genuinely new */
+    } else if( block_type==FD_VINYL_BSTREAM_CTL_TYPE_ZPAD ) {
+      block_sz = FD_VINYL_BSTREAM_BLOCK_SZ;
+    } else {
+      FD_LOG_CRIT(( "unexpected block type %d", block_type ));
+    }
+
+    if( FD_UNLIKELY( !block_sz ) ) {
+      FD_LOG_CRIT(( "Invalid block header at vinyl seq %lu, ctl=%016lx (zero block_sz)", seq, ctl ));
+    }
+    if( FD_UNLIKELY( block_sz > 64UL<<20 ) ) {
+      FD_LOG_CRIT(( "Invalid block header at vinyl seq %lu, ctl=%016lx, block_sz=%lu (unreasonably large block size)", seq, ctl, block_sz ));
+    }
+
+    seq += block_sz;
+  }
+  return cnt;
+}
+
+int
 fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
   FD_CRIT( ctx->vinyl.txn_active, "txn_commit called while not in txn" );
   FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
@@ -342,7 +384,7 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
   ulong txn_sz   = txn_seq1-txn_seq0;
   FD_CRIT( fd_vinyl_seq_le( txn_seq0, txn_seq1 ), "invalid txn seq range" );
   FD_CRIT( txn_seq1 <= mmio_sz,                   "invalid txn seq range" );
-  if( FD_UNLIKELY( fd_vinyl_seq_eq( txn_seq0, txn_seq1 ) ) ) return;
+  if( FD_UNLIKELY( fd_vinyl_seq_eq( txn_seq0, txn_seq1 ) ) ) return 0;
 
   void *  madv_base = (void *)fd_ulong_align_dn( (ulong)mmio+txn_seq0, FD_SHMEM_NORMAL_PAGE_SZ );
   ulong   madv_sz   = /*    */fd_ulong_align_up(             txn_sz,   FD_SHMEM_NORMAL_PAGE_SZ );
@@ -352,9 +394,31 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
                      errno, fd_io_strerror( errno ) ));
   }
 
-  /* Replay incremental account updates */
+  /* Reset pair_cnt to the authoritative full-snapshot count before
+     replaying incremental updates.  Defensive; pair_cnt should already
+     equal full_pair_cnt since !do_meta_update does not modify it. */
+
+  ctx->vinyl.pair_cnt = ctx->vinyl.full_pair_cnt;
+
+  /* Pre-validate that the incremental snapshot will not push
+     pair_cnt past pair_cnt_max.  Bail before the mutating replay
+     loop so recovery remains possible. */
 
   fd_vinyl_meta_t * meta_map = ctx->vinyl.map;
+  ulong new_key_cnt = count_new_keys( meta_map, mmio, txn_seq0, txn_seq1 );
+
+  if( FD_UNLIKELY( ctx->vinyl.full_pair_cnt + new_key_cnt > ctx->vinyl.pair_cnt_max ) ) {
+    FD_LOG_WARNING(( "txn_commit: incremental snapshot would exceed max_accounts "
+                     "(full_pair_cnt=%lu + new_key_cnt=%lu > pair_cnt_max=%lu)",
+                     ctx->vinyl.full_pair_cnt, new_key_cnt, ctx->vinyl.pair_cnt_max ));
+    fd_vinyl_io_rewind( io, ctx->vinyl.txn_seq );
+    int sync_err = fd_vinyl_io_sync( io, FD_VINYL_IO_FLAG_BLOCKING );
+    if( FD_UNLIKELY( sync_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_sync(io_mm) failed (%i-%s)", sync_err, fd_vinyl_strerror( sync_err ) ));
+    return -1;
+  }
+
+  /* Replay incremental account updates */
+
   for( ulong seq=txn_seq0; fd_vinyl_seq_lt( seq, txn_seq1 ); ) {
     fd_vinyl_bstream_block_t * block = (void *)( mmio+seq );
 
@@ -375,22 +439,22 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
          to restore overwritten full-snapshot entries. */
       if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "fd_vinyl_meta_prepare failed (full)" ));
 
-      /* Erase value if existing is newer */
+      /* Erase value if existing is newer or same slot.  >= ensures
+         same-slot accounts are ignored, preserving the invariant that
+         recovery_seq always points to a strictly older slot (required
+         by revert_incr). */
       if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {  /* key exists */
         ulong exist_slot = fd_snapin_vinyl_pair_info_slot( &ele->phdr.info );
         ulong cur_slot   = fd_snapin_vinyl_pair_info_slot( &phdr.info );
-        if( exist_slot > cur_slot ) {
+        if( exist_slot >= cur_slot ) {
           ctx->metrics.accounts_ignored++;
           fd_memset( block, 0, block_sz );
           goto next;
         }
         ctx->metrics.accounts_replaced++;
       } else {
-        /* Unable to recover from errors mid-commit: the meta_map is
-           partially updated and txn_cancel has no rollback mechanism
-           to restore overwritten full-snapshot entries. */
         if( FD_UNLIKELY( ctx->vinyl.pair_cnt >= ctx->vinyl.pair_cnt_max ) ) {
-          FD_LOG_ERR(( "failed to load snapshot: exceeded [accounts.max_accounts] (%lu)", ctx->vinyl.pair_cnt_max ));
+          FD_LOG_CRIT(( "failed to load snapshot: exceeded [accounts.max_accounts] (%lu)", ctx->vinyl.pair_cnt_max ));
         }
         ctx->vinyl.pair_cnt++;
       }
@@ -427,6 +491,8 @@ next:
 
   dt += fd_log_wallclock();
   FD_LOG_INFO(( "vinyl txn_commit took %g seconds", (double)dt/1e9 ));
+
+  return 0;
 }
 
 void
@@ -546,9 +612,12 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
       }
 
       if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
-        /* Drop current value if existing is newer */
+        /* Drop current value if existing is newer or same slot.
+           >= ensures same-slot accounts are ignored, preserving the
+           invariant that recovery_seq always points to a strictly
+           older slot (required by revert_incr). */
         ulong const exist_slot = fd_snapin_vinyl_pair_info_slot( &ele->phdr.info );
-        if( FD_UNLIKELY( exist_slot > account_header_slot ) ) {
+        if( FD_UNLIKELY( exist_slot >= account_header_slot ) ) {
           ctx->metrics.accounts_ignored++;
           src += pair_sz;
           continue;

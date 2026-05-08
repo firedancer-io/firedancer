@@ -161,9 +161,12 @@ fd_snapwm_vinyl_txn_begin( fd_snapwm_tile_t * ctx );
 
 /* fd_snapwm_vinyl_txn_commit finishes a transactional burst write.
    Assumes vinyl uses the io_mm backend.  Reads through bstream records
-   written since txn_begin was called and updates the vinyl_meta index. */
+   written since txn_begin was called and updates the vinyl_meta index.
+   Returns 0 on success, -1 if the incremental snapshot would exceed
+   max_accounts (in which case the txn is cancelled and the bstream
+   is rewound). */
 
-void
+int
 fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx );
 
 /* fd_snapwm_vinyl_txn_cancel abandons a transactional burst write.
