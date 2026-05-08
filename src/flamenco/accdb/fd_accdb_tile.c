@@ -109,6 +109,12 @@ unprivileged_init( fd_topo_t *      topo,
     FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
     external_epoch_slots[ external_epoch_cnt++ ] = fseq;
   }
+  for( ulong i=0UL; i<tile->accdb.resolv_epoch_obj_cnt; i++ ) {
+    ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, tile->accdb.resolv_epoch_obj_ids[ i ] ) );
+    FD_TEST( fseq );
+    FD_TEST( external_epoch_cnt<FD_ACCDB_TILE_MAX_EXTERNAL_EPOCHS );
+    external_epoch_slots[ external_epoch_cnt++ ] = fseq;
+  }
 
   ctx->accdb = fd_accdb_join( fd_accdb_new( _accdb, accdb_shmem, FD_ACCDB_FD_RW, external_epoch_cnt, external_epoch_slots ) );
   FD_TEST( ctx->accdb );

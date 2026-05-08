@@ -1095,7 +1095,7 @@ fd_topo_initialize( config_t * config ) {
 
   /* +1 for either snapin (snapshots enabled) or genesi (bootstrap), which
      are mutually exclusive accdb writers. */
-  ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+1UL;
+  ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+resolv_tile_cnt+1UL;
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots,
@@ -1120,6 +1120,7 @@ fd_topo_initialize( config_t * config ) {
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
+  FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   /* Per-RO-joiner accdb epoch fseq objects.  Each read-only accdb
@@ -1135,6 +1136,14 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, rpc_tile,   fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, accdb_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
     FD_TEST( fd_pod_insertf_ulong( topo->props, fseq_obj->id, "accdb_epoch.rpc" ) );
+  }
+  for( ulong i=0UL; i<resolv_tile_cnt; i++ ) {
+    fd_topo_obj_t * fseq_obj = fd_topob_obj( topo, "fseq", "metric" );
+    fd_topo_tile_t * resolv_tile = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ];
+    fd_topo_tile_t * accdb_tile  = &topo->tiles[ fd_topo_find_tile( topo, "accdb",  0UL ) ];
+    fd_topob_tile_uses( topo, resolv_tile, fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, accdb_tile,  fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, fseq_obj->id, "accdb_epoch.resolv.%lu", i ) );
   }
 
   fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
@@ -1416,6 +1425,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->accdb.rpc_epoch_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.rpc", ULONG_MAX );
 
+    tile->accdb.resolv_epoch_obj_cnt = config->firedancer.layout.resolv_tile_count;
+    FD_TEST( tile->accdb.resolv_epoch_obj_cnt<=sizeof(tile->accdb.resolv_epoch_obj_ids)/sizeof(tile->accdb.resolv_epoch_obj_ids[0]) );
+    for( ulong i=0UL; i<tile->accdb.resolv_epoch_obj_cnt; i++ ) {
+      tile->accdb.resolv_epoch_obj_ids[ i ] = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "accdb_epoch.resolv.%lu", i );
+      FD_TEST( tile->accdb.resolv_epoch_obj_ids[ i ]!=ULONG_MAX );
+    }
+
   } else if( FD_UNLIKELY( !strcmp( tile->name, "txsend" ) ) ) {
 
     tile->txsend.txsend_src_port = config->tiles.txsend.txsend_src_port;
@@ -1443,6 +1459,12 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "resolv" ) ) ) {
+
+    tile->resolv.max_live_slots = config->firedancer.runtime.max_live_slots;
+    tile->resolv.accdb_obj_id   = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
+    FD_TEST( tile->resolv.accdb_obj_id!=ULONG_MAX );
+    tile->resolv.accdb_epoch_fseq_obj_id = fd_pod_queryf_ulong( config->topo.props, ULONG_MAX, "accdb_epoch.resolv.%lu", tile->kind_id );
+    FD_TEST( tile->resolv.accdb_epoch_fseq_obj_id!=ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
 
