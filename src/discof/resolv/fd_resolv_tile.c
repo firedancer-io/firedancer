@@ -7,6 +7,7 @@
 #include "../../flamenco/accdb/fd_accdb.h"
 #include "../../flamenco/accdb/fd_accdb_shmem.h"
 #include "../../flamenco/runtime/fd_alut.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../tango/fseq/fd_fseq.h"
@@ -177,6 +178,14 @@ typedef struct {
 
   fd_resolv_out_ctx_t out_pack[ 1UL ];
   fd_resolv_out_ctx_t out_replay[ 1UL ];
+
+  /* Scratch buffers for fd_accdb_read_one_nocache.  RO accdb joiners
+     must use the nocache API (see fd_accdb.h), which writes the account
+     data into caller-provided buffers rather than returning a pointer
+     into the cache.  Reused across alut reads; peek_alut consumes the
+     bytes synchronously inside fd_alut_interp_next. */
+  uchar alut_owner[ 32UL ];
+  uchar alut_data[ FD_RUNTIME_ACC_SZ_MAX ];
 } fd_resolv_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -201,6 +210,8 @@ metrics_write( fd_resolv_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED,                    ctx->metrics.lut );
   FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION,                 ctx->metrics.stash );
   FD_MCNT_SET(       RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure );
+
+  FD_ACCDB_METRICS_WRITE_RO( RESOLV, fd_accdb_metrics( ctx->accdb ) );
 }
 
 static int
@@ -259,14 +270,18 @@ peek_alut( fd_resolv_ctx_t *  ctx,
   fd_txn_acct_addr_lut_t const * addr_lut = &fd_txn_get_address_tables_const( txn )[ alut_idx ];
   fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, txn_payload+addr_lut->addr_off );
 
-  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
-  fd_accdb_entry_t entry = fd_accdb_read_one( ctx->accdb, ctx->bank->accdb_fork_id, addr_lut_acc.uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+  /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94
 
-  int err = fd_alut_interp_next( interp, &addr_lut_acc, entry.owner, entry.data, entry.data_len );
-  fd_accdb_unread_one( ctx->accdb, &entry );
+     The resolv tile maps accdb read-only and so must use the nocache
+     read API; fd_accdb_read_one would mutate writer-only shmem. */
+  ulong lamports;
+  int   executable;
+  ulong data_len;
+  fd_accdb_read_one_nocache( ctx->accdb, ctx->bank->accdb_fork_id, addr_lut_acc.uc,
+                             &lamports, &executable, ctx->alut_owner, ctx->alut_data, &data_len );
+  if( FD_UNLIKELY( !lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
 
-  return err;
+  return fd_alut_interp_next( interp, &addr_lut_acc, ctx->alut_owner, ctx->alut_data, data_len );
 }
 
 /* peek_aluts reads address lookup tables from database cache.

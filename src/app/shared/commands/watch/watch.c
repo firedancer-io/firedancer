@@ -520,6 +520,15 @@ accdb_per_tile_offsets( char const * name,
     offs[6] =MIDX(COUNTER,RPC,ACCDB_BYTES_COPIED     ); offs[7]=ULONG_MAX;
     offs[8] =ULONG_MAX;                                 offs[9]=ULONG_MAX;
     offs[10]=ULONG_MAX;
+  } else if( !strcmp( name, "resolv" ) ) {
+    /* Resolv is a read-only accdb consumer (address lookup table
+       reads on the receive path).  Same RO subset as RPC. */
+    offs[0] =MIDX(COUNTER,RESOLV,ACCDB_ACCOUNTS_ACQUIRED ); offs[1]=ULONG_MAX;
+    offs[2] =MIDX(COUNTER,RESOLV,ACCDB_ACCOUNTS_NOT_FOUND); offs[3]=MIDX(COUNTER,RESOLV,ACCDB_ACCOUNTS_WAITED);
+    offs[4] =MIDX(COUNTER,RESOLV,ACCDB_BYTES_READ        ); offs[5]=ULONG_MAX;
+    offs[6] =MIDX(COUNTER,RESOLV,ACCDB_BYTES_COPIED      ); offs[7]=ULONG_MAX;
+    offs[8] =ULONG_MAX;                                     offs[9]=ULONG_MAX;
+    offs[10]=ULONG_MAX;
   } else {
     for( ulong i=0UL; i<11UL; i++ ) offs[i] = ULONG_MAX;
   }

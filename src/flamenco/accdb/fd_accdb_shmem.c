@@ -380,6 +380,26 @@ fd_accdb_shmem_new( void * shmem,
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_class_max[ c ] = cache_class_max[ c ];
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_region_off[ c ] = (ulong)_cache_regions[ c ] - (ulong)shmem;
 
+  /* Pre-initialize every cache slot's metadata to the "empty" sentinel
+     (gen=UINT_MAX, acc_idx=UINT_MAX, refcnt=0).  Without this, the
+     lazy-init path in acquire_cache_line bumps cache_class_init before
+     writing the sentinels into the freshly-claimed line; a concurrent
+     background_preevict reading the bumped init counter could then sweep
+     a slot whose memory still reads as zero, see (gen=0, acc_idx=0)
+     instead of the skip predicate, CAS refcnt 0->EVICT_SENTINEL, and
+     "evict" a line the lazy-init owner is about to publish. */
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    ulong slot_sz = fd_accdb_cache_slot_sz[ c ];
+    for( ulong i=0UL; i<cache_class_max[ c ]; i++ ) {
+      fd_accdb_cache_line_t * line = (fd_accdb_cache_line_t *)( (uchar *)_cache_regions[ c ] + i*slot_sz );
+      line->key.generation = UINT_MAX;
+      line->acc_idx        = UINT_MAX;
+      line->refcnt         = 0U;
+      line->referenced     = 0;
+      line->persisted      = 1;
+    }
+  }
+
   /* If a class has enough slots for every joiner's worst case
      simultaneously (cache_min_reserved per joiner), no reservation can
      ever overflow.  Sentinel ULONG_MAX tells acquire/release to skip
