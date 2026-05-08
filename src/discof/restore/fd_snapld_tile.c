@@ -263,7 +263,7 @@ check_download_progress( fd_snapld_tile_t *  ctx,
                        "is below the minimum download speed %u MiB/s, cancelling download",
                        download_speed_mibs, FD_SNAPLD_DOWNLOAD_WINDOW_NS / (ulong)1e9,
                        ctx->load_full ? "full" : "incremental", ctx->config.min_download_speed_mibs ));
-      transition_malformed(ctx, stem );
+      transition_malformed( ctx, stem );
       fd_sshttp_cancel( ctx->sshttp );
       return -1;
     }
@@ -306,8 +306,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
       } else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
         FD_LOG_WARNING(( "read() failed on %s snapshot file (%i-%s)", ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
-        ctx->state = FD_SNAPSHOT_STATE_ERROR;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+        transition_malformed( ctx, stem );
         return; /* verbose return */
       }
     } else {
@@ -323,7 +322,9 @@ after_credit( fd_snapld_tile_t *  ctx,
     int   result      = fd_sshttp_advance( ctx->sshttp, &data_len, out, &downloading, now );
     switch( result ) {
       case FD_SSHTTP_ADVANCE_AGAIN:
-        if( FD_UNLIKELY( -1==check_download_progress( ctx, stem, downloading, now ) ) ) break;
+        /* Return value ignored: on failure, check_download_progress
+           already calls transition_malformed and fd_sshttp_cancel. */
+        check_download_progress( ctx, stem, downloading, now );
         break;
       case FD_SSHTTP_ADVANCE_DATA: {
         ctx->bytes_in_window += data_len;
@@ -335,14 +336,17 @@ after_credit( fd_snapld_tile_t *  ctx,
              we received with the headers (if any) to the next dcache
              chunk and then publish both in order. */
           ctx->start_batch = fd_log_wallclock();
-          ctx->sent_meta = 1;
           fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)out;
           ulong next_chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
           memmove( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
           meta->total_sz = fd_sshttp_content_len( ctx->sshttp );
           if( FD_UNLIKELY( meta->total_sz==ULONG_MAX ) ) {
-            FD_LOG_ERR(( "HTTP response for %s snapshot is missing Content-Length header", ctx->load_full ? "full" : "incremental" ));
+            FD_LOG_WARNING(( "HTTP response for %s snapshot is missing Content-Length header", ctx->load_full ? "full" : "incremental" ));
+            transition_malformed( ctx, stem );
+            fd_sshttp_cancel( ctx->sshttp );
+            break;
           }
+          ctx->sent_meta = 1;
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_META, ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), 0UL, 0UL, 0UL );
           ctx->out_dc.chunk = next_chunk;
         }
@@ -366,7 +370,9 @@ after_credit( fd_snapld_tile_t *  ctx,
                                "cancelling snapshot download",
                                ctx->download_speed_mibs, ctx->bytes_in_batch>>20UL, ctx->load_full ? "full" : "incremental",
                                (double)(ctx->config.min_download_speed_mibs) ));
-              transition_malformed(ctx, stem );
+              transition_malformed( ctx, stem );
+              fd_sshttp_cancel( ctx->sshttp );
+              break;
             }
             ctx->start_batch    = ctx->end_batch;
             ctx->bytes_in_batch = 0UL;
@@ -379,6 +385,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         if( FD_UNLIKELY( !ctx->sent_meta ) ) {
           FD_LOG_WARNING(( "zero-length HTTP response for %s snapshot", ctx->load_full ? "full" : "incremental" ));
           transition_malformed( ctx, stem );
+          fd_sshttp_cancel( ctx->sshttp );
           break;
         }
         FD_LOG_NOTICE(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
@@ -479,6 +486,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR: {
       FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
+      fd_sshttp_cancel( ctx->sshttp );
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
       break;
     }
