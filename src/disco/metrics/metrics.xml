@@ -430,6 +430,13 @@ metric introduced.
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
+
+    <counter name="AccdbAccountsAcquired" summary="Number of accounts read from the account database (one per address lookup table account fetched)" />
+    <counter name="AccdbAccountsNotFound" summary="Number of accounts that were not found in the account database cache and had to be read from disk" />
+    <counter name="AccdbAccountsWaited" summary="Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read" />
+    <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
+    <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
+    <counter name="AccdbBytesCopied" summary="Number of bytes copied out of the account database cache on a cache hit" />
 </tile>
 
 <tile name="resolh" telemetry="false">

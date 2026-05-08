@@ -412,6 +412,12 @@
 | <span class="metrics-name">resolv_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
 | <span class="metrics-name">resolv_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
 | <span class="metrics-name">resolv_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
+| <span class="metrics-name">resolv_&#8203;accdb_&#8203;accounts_&#8203;acquired</span> | counter | Number of accounts read from the account database (one per address lookup table account fetched) |
+| <span class="metrics-name">resolv_&#8203;accdb_&#8203;accounts_&#8203;not_&#8203;found</span> | counter | Number of accounts that were not found in the account database cache and had to be read from disk |
+| <span class="metrics-name">resolv_&#8203;accdb_&#8203;accounts_&#8203;waited</span> | counter | Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read |
+| <span class="metrics-name">resolv_&#8203;accdb_&#8203;bytes_&#8203;read</span> | counter | Number of bytes read from the account database |
+| <span class="metrics-name">resolv_&#8203;accdb_&#8203;read_&#8203;ops</span> | counter | Number of read operations performed on the account database |
+| <span class="metrics-name">resolv_&#8203;accdb_&#8203;bytes_&#8203;copied</span> | counter | Number of bytes copied out of the account database cache on a cache hit |
 
 </div>
 
