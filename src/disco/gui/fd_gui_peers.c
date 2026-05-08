@@ -1281,7 +1281,7 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
   const cJSON * _col = cJSON_GetObjectItemCaseSensitive( params, "col" );
   if( FD_UNLIKELY( !cJSON_IsArray( _col ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  fd_gui_peers_live_table_sort_key_t sort_key;
+  fd_gui_peers_live_table_sort_key_t sort_key = {0};
 
   do {
     cJSON * c;
@@ -1295,6 +1295,7 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
         return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
       }
     }
+    if( FD_UNLIKELY( i!=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } while( 0 );
 
   const cJSON * _dir = cJSON_GetObjectItemCaseSensitive( params, "dir" );
@@ -1305,8 +1306,10 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
     ulong i;
     for( c = _dir->child, i=0UL; c; c = c->next, i++ ) {
       if( FD_UNLIKELY( i >= fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      if( FD_UNLIKELY( !cJSON_IsNumber( c ) || c->valuedouble!=(double)c->valueint || c->valueint<-1 || c->valueint>1 ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
       sort_key.dir[ i ] = c->valueint;
     }
+    if( FD_UNLIKELY( i!=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } while( 0 );
 
   if( FD_UNLIKELY( !fd_gui_peers_live_table_verify_sort_key( &sort_key ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
