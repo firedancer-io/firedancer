@@ -786,6 +786,23 @@ struct fd_gui {
 
 typedef struct fd_gui fd_gui_t;
 
+/* fd_gui_staged_push returns a pointer to the next free staging slot
+   and advances staged_tail.  If the ring is full staged_head is
+   advanced first so the oldest entry is silently dropped. */
+static inline fd_gui_slot_staged_shred_event_t *
+fd_gui_staged_push( fd_gui_t * gui ) {
+  if( FD_UNLIKELY( gui->shreds.staged_tail - gui->shreds.staged_head >= FD_GUI_SHREDS_STAGING_SZ ) ) {
+    gui->shreds.staged_head = gui->shreds.staged_tail - FD_GUI_SHREDS_STAGING_SZ + 1UL;
+    if( FD_UNLIKELY( gui->shreds.staged_next_broadcast < gui->shreds.staged_head ) ) {
+      gui->shreds.staged_next_broadcast = gui->shreds.staged_head;
+    }
+  }
+  fd_gui_slot_staged_shred_event_t * dst =
+      &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+  gui->shreds.staged_tail++;
+  return dst;
+}
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong

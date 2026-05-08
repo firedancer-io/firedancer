@@ -1003,8 +1003,7 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now ) {
 
 void
 fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long now ) {
-  fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-  gui->shreds.staged_tail++;
+  fd_gui_slot_staged_shred_event_t * recv_event = fd_gui_staged_push( gui );
   recv_event->timestamp = now;
   recv_event->shred_idx = (ushort)shred_idx;
   recv_event->slot      = slot;
@@ -1961,8 +1960,7 @@ fd_gui_handle_shred( fd_gui_t * gui,
     if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_run_length_slot( gui->summary.catch_up_turbine, FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_turbine_sz, slot );
   }
 
-  fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-  gui->shreds.staged_tail++;
+  fd_gui_slot_staged_shred_event_t * recv_event = fd_gui_staged_push( gui );
   recv_event->timestamp = tsorig;
   recv_event->shred_idx = (ushort)shred_idx;
   recv_event->slot      = slot;
@@ -1976,8 +1974,7 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
                           int        is_end_of_slot,
                           long       tsorig ) {
   for( ulong i=gui->shreds.leader_shred_cnt; i<gui->shreds.leader_shred_cnt+fec_shred_cnt; i++ ) {
-    fd_gui_slot_staged_shred_event_t * exec_end_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-    gui->shreds.staged_tail++;
+    fd_gui_slot_staged_shred_event_t * exec_end_event = fd_gui_staged_push( gui );
     exec_end_event->timestamp = tsorig;
     exec_end_event->shred_idx = (ushort)i;
     exec_end_event->slot      = slot;
@@ -2008,8 +2005,7 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
       exec_start_event->event     = FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START;
     */
 
-    fd_gui_slot_staged_shred_event_t * exec_end_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-    gui->shreds.staged_tail++;
+    fd_gui_slot_staged_shred_event_t * exec_end_event = fd_gui_staged_push( gui );
     exec_end_event->timestamp = tspub_ns;
     exec_end_event->shred_idx = (ushort)i;
     exec_end_event->slot      = slot;
@@ -2742,6 +2738,7 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
     if( FD_UNLIKELY( gui->shreds.history_slot!=ULONG_MAX && src->slot<=gui->shreds.history_slot ) ) continue;
 
     if( FD_UNLIKELY( src->slot<=root_slot ) ) {
+      if( FD_UNLIKELY( archive_cnt>=FD_GUI_SHREDS_STAGING_SZ ) ) continue;
       gui->shreds._staged_scratch[ archive_cnt++ ] = *src;
       continue;
     }
@@ -2980,8 +2977,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
 
   /* Add a "slot complete" event for all of the shreds in this slot */
   if( FD_UNLIKELY( slot->shred_cnt > FD_GUI_MAX_SHREDS_PER_BLOCK ) ) FD_LOG_ERR(( "unexpected shred_cnt=%lu", (ulong)slot->shred_cnt ));
-  fd_gui_slot_staged_shred_event_t * slot_complete_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-  gui->shreds.staged_tail++;
+  fd_gui_slot_staged_shred_event_t * slot_complete_event = fd_gui_staged_push( gui );
   slot_complete_event->event     = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
   slot_complete_event->timestamp = slot_completed->completion_time_nanos;
   slot_complete_event->shred_idx = USHORT_MAX;
