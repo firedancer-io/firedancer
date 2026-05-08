@@ -4,6 +4,7 @@
 #include "sysvar/fd_sysvar_base.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../accdb/fd_accdb.h"
+#include "sysvar/fd_sysvar_base.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
