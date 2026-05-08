@@ -43,6 +43,12 @@ Some code is auto-generated. Do not edit generated files directly — regenerate
   ```
   Regenerates `fd_features_generated.h` and `fd_features_generated.c`.
 
+- **Protobufs:** After protosol proto definitions change, run:
+  ```bash
+  make -C src/flamenco/runtime/tests protobufs
+  ```
+  Regenerates all files in `src/flamenco/runtime/tests/generated/`.
+
 ## Fuzzing
 
 ### build fuzzer

@@ -198,6 +198,15 @@ fd_solfuzz_pb_syscall_fixture( fd_solfuzz_runner_t * runner,
                                uchar const *         in,
                                ulong                 in_sz );
 
+/* SVM BPF Loader Serialization */
+
+ulong
+fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
+                                void const *          input_,
+                                void **               output_,
+                                void *                output_buf,
+                                ulong                 output_bufsz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h */

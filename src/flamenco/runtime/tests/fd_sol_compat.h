@@ -126,6 +126,12 @@ sol_compat_elf_loader_v1( uchar *       out,
                           uchar const * in,
                           ulong         in_sz );
 
+int
+sol_compat_vm_serialize_execute_v1( uchar *       out,
+                                    ulong *       out_sz,
+                                    uchar const * in,
+                                    ulong         in_sz );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_tests_fd_sol_compat_h */
