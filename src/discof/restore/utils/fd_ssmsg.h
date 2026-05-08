@@ -383,14 +383,9 @@ struct fd_snapshot_manifest {
   /* A hard fork is a deliberate deviation from the canonical blockchain
      progression.  This contains the list of slots which have
      historically undergone a hard fork.  The typical case for these is
-     a feature is deactivated and the cluster is restarted.
-
-     Sometimes, a given slot needs to be hard forked multiple times.
-     hard_forks_cnts contains the number of times a particular slot was
-     hard forked. */
-  ulong hard_forks_len;
-  ulong hard_forks[ 64UL ];
-  ulong hard_forks_cnts[ 64UL ];
+     a feature is deactivated and the cluster is restarted. */
+  ulong          hard_fork_cnt;
+  fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
   /* The proof of history component "proves" the passage of time (see
      extended discussion in PoH tile for what that acutally means) by

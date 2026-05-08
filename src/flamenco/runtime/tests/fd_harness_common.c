@@ -111,3 +111,18 @@ fd_solfuzz_pb_restore_features( fd_features_t *                    features,
   }
   return 1;
 }
+
+void
+fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runner,
+                                                ulong                       cu_avail,
+                                                int                         has_err,
+                                                fd_exec_test_acct_state_t * accounts,
+                                                pb_size_t                   accounts_cnt ) {
+  if( FD_FEATURE_ACTIVE_BANK( runner->bank, virtual_address_space_adjustments )
+      && cu_avail == 0UL
+      && has_err ) {
+    for( pb_size_t i=0; i<accounts_cnt; i++ ) {
+      accounts[i].data = NULL;
+    }
+  }
+}

@@ -204,6 +204,7 @@ struct fd_runtime {
 
   struct {
     int enabled;
+    int reclaim_accounts;
   } fuzz;
 };
 typedef struct fd_runtime fd_runtime_t;

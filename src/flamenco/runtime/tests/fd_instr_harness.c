@@ -397,6 +397,10 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
     effects->modified_accounts_count++;
   }
 
+  fd_solfuzz_direct_mapping_handle_cu_exhaustion(
+      runner, effects->cu_avail, effects->result,
+      effects->modified_accounts, (pb_size_t)effects->modified_accounts_count );
+
   /* Capture return data */
   fd_txn_return_data_t * return_data = &ctx->txn_out->details.return_data;
   if( return_data->len>0UL ) {

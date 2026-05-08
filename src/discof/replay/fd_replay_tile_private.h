@@ -122,10 +122,8 @@ struct fd_replay_tile {
   int   has_expected_genesis_timestamp;
   ulong expected_genesis_timestamp;
 
-#define FD_REPLAY_HARD_FORKS_MAX (64UL)
-  ulong hard_forks_cnt;
-  ulong hard_forks[ FD_REPLAY_HARD_FORKS_MAX ];
-  ulong hard_forks_cnts[ FD_REPLAY_HARD_FORKS_MAX ];
+  ulong          hard_fork_cnt;
+  fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
   ushort expected_shred_version;
   ushort ipecho_shred_version;

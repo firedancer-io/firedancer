@@ -370,6 +370,9 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
       block_sz = fd_vinyl_bstream_pair_sz( val_esz );
       ulong                 memo = fd_vinyl_key_memo( meta_map->seed, &phdr.key );
       fd_vinyl_meta_ele_t * ele  = fd_vinyl_meta_prepare_nolock( meta_map, &phdr.key, memo );
+      /* Unable to recover from errors mid-commit: the meta_map is
+         partially updated and txn_cancel has no rollback mechanism
+         to restore overwritten full-snapshot entries. */
       if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "fd_vinyl_meta_prepare failed (full)" ));
 
       /* Erase value if existing is newer */
@@ -383,9 +386,13 @@ fd_snapwm_vinyl_txn_commit( fd_snapwm_tile_t * ctx ) {
         }
         ctx->metrics.accounts_replaced++;
       } else {
-        if( FD_UNLIKELY( ctx->vinyl.pair_cnt++ > ctx->vinyl.pair_cnt_max ) ) {
+        /* Unable to recover from errors mid-commit: the meta_map is
+           partially updated and txn_cancel has no rollback mechanism
+           to restore overwritten full-snapshot entries. */
+        if( FD_UNLIKELY( ctx->vinyl.pair_cnt >= ctx->vinyl.pair_cnt_max ) ) {
           FD_LOG_ERR(( "failed to load snapshot: exceeded [accounts.max_accounts] (%lu)", ctx->vinyl.pair_cnt_max ));
         }
+        ctx->vinyl.pair_cnt++;
       }
 
       /* Overwrite map entry */
@@ -495,7 +502,7 @@ bstream_alloc( fd_vinyl_io_t * io,
    pre-generated bstream pairs, handles the meta_map, and determines
    whether to forward each of the accounts (pairs) to the database. */
 
-void
+int
 fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
                                  ulong               chunk,
                                  ulong               acc_cnt,
@@ -532,7 +539,11 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
     if( FD_LIKELY( do_meta_update ) ) {
       ulong memo = fd_vinyl_key_memo( map->seed, &phdr.key );
       ele = fd_vinyl_meta_prepare_nolock( map, &phdr.key, memo );
-      if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+      if( FD_UNLIKELY( !ele ) ) {
+        FD_LOG_WARNING(( "Failed to update vinyl index (meta map exhausted)" ));
+        fd_snapwm_vinyl_duplicate_accounts_batch_cancel( ctx );
+        return -1;
+      }
 
       if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
         /* Drop current value if existing is newer */
@@ -547,9 +558,12 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
           ctx->metrics.accounts_replaced++;
         }
       } else {
-        if( FD_UNLIKELY( ctx->vinyl.pair_cnt++ > ctx->vinyl.pair_cnt_max ) ) {
-          FD_LOG_ERR(( "failed to load snapshot: exceeded [accounts.max_accounts] (%lu)", ctx->vinyl.pair_cnt_max ));
+        if( FD_UNLIKELY( ctx->vinyl.pair_cnt >= ctx->vinyl.pair_cnt_max ) ) {
+          FD_LOG_WARNING(( "failed to load snapshot: exceeded [accounts.max_accounts] (%lu)", ctx->vinyl.pair_cnt_max ));
+          fd_snapwm_vinyl_duplicate_accounts_batch_cancel( ctx );
+          return -1;
         }
+        ctx->vinyl.pair_cnt++;
       }
 
       fd_snapin_vinyl_pair_info_update_recovery_seq( &phdr.info, recovery_seq );
@@ -573,6 +587,7 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
   }
 
   fd_snapwm_vinyl_duplicate_accounts_batch_fini( ctx, stem );
+  return 0;
 }
 
 void
@@ -586,7 +601,7 @@ fd_snapwm_vinyl_shutdown( fd_snapwm_tile_t * ctx ) {
   fd_vinyl_io_wd_ctrl( ctx->vinyl.io_wd, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL );
 }
 
-void
+int
 fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
                               void const *        acct_addr,
                               fd_account_meta_t * meta,
@@ -606,7 +621,7 @@ fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
   fd_vinyl_meta_ele_t const * ele = fd_vinyl_meta_prepare_nolock( ctx->vinyl.map, key, memo );
   if( FD_UNLIKELY( !ele || !fd_vinyl_meta_ele_in_use( ele ) ) ) {
     /* account not found */
-    return;
+    return -1;
   }
 
   uchar * mmio    = fd_vinyl_mmio   ( ctx->vinyl.io_mm );
@@ -651,14 +666,16 @@ fd_snapwm_vinyl_read_account( fd_snapwm_tile_t *  ctx,
 
   memcpy( meta, mmio+seq_meta, sizeof(fd_account_meta_t) );
   if( FD_UNLIKELY( sizeof(fd_account_meta_t)+(ulong)meta->dlen > val_esz ) ) {
-    FD_LOG_CRIT(( "corrupt bstream record: seq0=%lu val_esz=%lu dlen=%u", seq0, val_esz, meta->dlen ));
+    FD_LOG_WARNING(( "corrupt bstream record: seq0=%lu val_esz=%lu dlen=%u", seq0, val_esz, meta->dlen ));
+    return -1;
   }
   if( FD_UNLIKELY( meta->dlen > data_max ) ) {
-    FD_BASE58_ENCODE_32_BYTES( acct_addr, acct_addr_b58 );
-    FD_LOG_CRIT(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
-                  acct_addr_b58, (ulong)meta->dlen, data_max ));
+    /* Don't copy data that doesn't fit.  Preserve meta->dlen so the
+       caller can detect the oversized account gracefully. */
+    return -1;
   }
   memcpy( data, mmio+seq_data, meta->dlen );
+  return 0;
 }
 
 /* handle_hash_out_fseq_check is a blocking operation */
@@ -701,6 +718,13 @@ fd_snapwm_vinyl_duplicate_accounts_batch_append( fd_snapwm_tile_t *        ctx,
   ctx->vinyl.duplicate_accounts_batch_sz  += FD_SNAPWM_DUP_META_SZ;
   ctx->vinyl.duplicate_accounts_batch_cnt +=1UL;
   return 1;
+}
+
+int
+fd_snapwm_vinyl_duplicate_accounts_batch_cancel( fd_snapwm_tile_t * ctx ) {
+  ctx->vinyl.duplicate_accounts_batch_sz  = 0UL;
+  ctx->vinyl.duplicate_accounts_batch_cnt = 0UL;
+  return 0;
 }
 
 int

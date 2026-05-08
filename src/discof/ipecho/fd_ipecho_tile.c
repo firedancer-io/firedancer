@@ -118,7 +118,7 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
   fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr( ctx->genesi_in_mem, chunk );
 
   if( FD_UNLIKELY( genesis_meta->bootstrap ) ) {
-    ushort shred_version = compute_shred_version( genesis_meta->genesis_hash.uc, NULL, NULL, 0UL );
+    ushort shred_version = compute_shred_version( genesis_meta->genesis_hash.uc, NULL, 0UL );
     FD_TEST( shred_version );
 
     FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, shred_version );

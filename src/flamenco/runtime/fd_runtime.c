@@ -744,7 +744,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
   if( bank->f.slot != 0 ) {
     fd_sysvar_slot_hashes_update( bank, accdb, xid, capture_ctx );
   }
-  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx, bank->f.last_restart_slot );
+  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx );
 }
 
 int
@@ -754,7 +754,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
                                            fd_accdb_user_t *         accdb,
                                            fd_funk_txn_xid_t const * xid,
                                            ulong                     slot,
-                                           fd_slot_hash_t const *    hashes, /* deque */
+                                           fd_slot_hashes_t const *  hashes,
                                            fd_acct_addr_t *          out_accts_alt ) {
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -1246,11 +1246,12 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       }
 
       if( txn_out->accounts.vote_update[i] ) {
-        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_owner_and_init( account->meta ) ) ) {
+        fd_vote_block_timestamp_t last_vote;
+        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL ||
+                         !fd_vsv_is_correct_size_owner_and_init( account->meta ) ||
+                         fd_vote_account_last_timestamp( fd_account_data( account->meta ), account->meta->dlen, &last_vote ) ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
         } else {
-          fd_vote_block_timestamp_t last_vote;
-          FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( account->meta ), account->meta->dlen, &last_vote ) );
           fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
         }
       }

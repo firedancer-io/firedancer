@@ -1,6 +1,7 @@
 #include "fd_sysvar_cache.h"
 #include "fd_sysvar_cache_private.h"
 #include "fd_sysvar_recent_hashes.h"
+#include "fd_sysvar_slot_hashes.h"
 #include "fd_sysvar_slot_history.h"
 #include <errno.h>
 
@@ -137,25 +138,6 @@ fd_sysvar_cache_recent_hashes_is_empty( fd_sysvar_cache_t const * sysvar_cache )
   return len == 0UL;
 }
 
-fd_slot_hash_t const *
-fd_sysvar_cache_slot_hashes_join_const(
-    fd_sysvar_cache_t const * cache
-) {
-  if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_is_valid( cache ) ) ) return NULL;
-  fd_slot_hashes_global_t * var = (void *)cache->obj_slot_hashes;
-  fd_slot_hash_t * deq = deq_fd_slot_hash_t_join( (uchar *)var+var->hashes_offset );
-  /* If the above is_valid check is passed, then join is guaranteed to succeed */
-  if( FD_UNLIKELY( !deq ) ) FD_LOG_CRIT(( "slot hashes sysvar corruption detected" ));
-  return deq; /* demote to const ptr */
-}
-
-void
-fd_sysvar_cache_slot_hashes_leave_const(
-    fd_sysvar_cache_t const * sysvar_cache,
-    fd_slot_hash_t const *    slot_hashes
-) {
-  (void)sysvar_cache; (void)slot_hashes;
-}
 
 fd_stake_history_t const *
 fd_sysvar_cache_stake_history_join_const(
@@ -280,8 +262,7 @@ fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
   [FD_SYSVAR_slot_hashes_IDX] =
     { .name="slot hashes",
       .data_off=offsetof(fd_sysvar_cache_t, bin_slot_hashes      ), .data_max=FD_SYSVAR_SLOT_HASHES_BINCODE_SZ,
-      .obj_off =offsetof(fd_sysvar_cache_t, obj_slot_hashes      ), .obj_max =FD_SYSVAR_SLOT_HASHES_FOOTPRINT,
-      TYPES_CALLBACKS( slot_hashes, _global ) },
+      .validate=fd_sysvar_slot_hashes_validate },
   [FD_SYSVAR_slot_history_IDX] =
     { .name="slot history",
       .data_off=offsetof(fd_sysvar_cache_t, bin_slot_history     ), .data_max=FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ,
@@ -292,5 +273,13 @@ fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
       .obj_off =offsetof(fd_sysvar_cache_t, obj_stake_history    ), .obj_max =FD_SYSVAR_STAKE_HISTORY_FOOTPRINT,
       TYPES_CALLBACKS( stake_history, ) },
 };
+
+fd_slot_hashes_t *
+fd_sysvar_cache_slot_hashes_view( fd_sysvar_cache_t const * cache,
+                                  fd_slot_hashes_t *        view ) {
+  fd_sysvar_desc_t const * desc = &cache->desc[ FD_SYSVAR_slot_hashes_IDX ];
+  if( FD_UNLIKELY( !( desc->flags & FD_SYSVAR_FLAG_VALID ) ) ) return NULL;
+  return fd_sysvar_slot_hashes_view( view, cache->bin_slot_hashes, desc->data_sz );
+}
 
 #undef TYPES_CALLBACKS

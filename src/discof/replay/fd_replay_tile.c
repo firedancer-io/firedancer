@@ -1260,10 +1260,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                          msg==FD_SSMSG_MANIFEST_INCREMENTAL );
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      ctx->hard_forks_cnt = manifest->hard_forks_len;
-      for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
+      ctx->hard_fork_cnt = manifest->hard_fork_cnt;
+      for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
         ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
-        ctx->hard_forks_cnts[ i ] = manifest->hard_forks_cnts[ i ];
       }
       ctx->has_expected_genesis_timestamp = 1;
       ctx->expected_genesis_timestamp     = manifest->creation_time_seconds;
@@ -2189,10 +2188,10 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
     }
   }
 
-  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_forks_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
+  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_fork_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
     ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
 
-    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_forks_cnts, ctx->hard_forks_cnt );
+    ushort actual_shred_version = compute_shred_version( ctx->genesis_hash->uc, ctx->hard_forks, ctx->hard_fork_cnt );
 
     if( FD_UNLIKELY( expected_shred_version!=actual_shred_version ) ) {
       FD_BASE58_ENCODE_32_BYTES( ctx->genesis_hash->uc, genesis_hash_b58 );
@@ -2512,7 +2511,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->has_genesis_timestamp          = 0;
   ctx->has_expected_genesis_timestamp = 0;
   ctx->cluster_type = FD_CLUSTER_UNKNOWN;
-  ctx->hard_forks_cnt = ULONG_MAX;
+  ctx->hard_fork_cnt = ULONG_MAX;
 
   if( FD_UNLIKELY( tile->replay.bundle.enabled ) ) {
     ctx->bundle.enabled = 1;

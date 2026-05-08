@@ -114,15 +114,14 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
 }
 
 void
-fd_hashes_apply_hard_forks( fd_hash_t *   hash,
-                            ulong         slot,
-                            ulong         parent_slot,
-                            ulong const * hard_forks,
-                            ulong const * hard_forks_cnts,
-                            ulong         hard_forks_cnt ) {
+fd_hashes_apply_hard_forks( fd_hash_t *            hash,
+                            ulong                  slot,
+                            ulong                  parent_slot,
+                            fd_hard_fork_t const * hard_forks,
+                            ulong                  hard_fork_cnt ) {
   ulong sum = 0UL;
-  for( ulong i=0UL; i<hard_forks_cnt; i++ ) {
-    if( FD_UNLIKELY( parent_slot<hard_forks[ i ] && hard_forks[ i ]<=slot ) ) sum += hard_forks_cnts[ i ];
+  for( ulong i=0UL; i<hard_fork_cnt; i++ ) {
+    if( FD_UNLIKELY( parent_slot<hard_forks[ i ].slot && hard_forks[ i ].slot<=slot ) ) sum += hard_forks[ i ].cnt;
   }
 
   if( FD_UNLIKELY( !sum ) ) return;
