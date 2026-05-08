@@ -418,13 +418,7 @@ handle_lthash_completion( fd_snaplh_t * ctx,
     fd_memcpy( out->lthash.bytes, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
     long capitalization_add = fd_long_if( ctx->running_capitalization_add>LONG_MAX, LONG_MAX, (long)ctx->running_capitalization_add );
     long capitalization_sub = fd_long_if( ctx->running_capitalization_sub>LONG_MAX, LONG_MAX, (long)ctx->running_capitalization_sub );
-    if( FD_UNLIKELY( capitalization_add==LONG_MAX ) ) {
-      FD_LOG_ERR(( "capitalization overflow detected: add=%lu", ctx->running_capitalization_add ));
-    }
-    if( FD_UNLIKELY( capitalization_sub==LONG_MAX ) ) {
-      FD_LOG_ERR(( "capitalization overflow detected: sub=%lu", ctx->running_capitalization_sub ));
-    }
-    out->capitalization = capitalization_add - capitalization_sub;
+    out->capitalization = fd_long_sat_sub( capitalization_add, capitalization_sub );
     fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, sizeof(fd_ssctrl_hash_result_t), 0UL, 0UL, 0UL );
     ctx->out.chunk = fd_dcache_compact_next( ctx->out.chunk, sizeof(fd_ssctrl_hash_result_t), ctx->out.chunk0, ctx->out.wmark );
     ctx->lthash_completion_pending = 0;
