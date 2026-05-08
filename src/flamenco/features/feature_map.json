@@ -245,6 +245,7 @@
   {"name":"syscall_parameter_address_restrictions","pubkey":"EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF"},
   {"name":"virtual_address_space_adjustments","pubkey":"7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz"},
   {"name":"account_data_direct_mapping","pubkey":"CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE"},
+  {"name":"direct_account_pointers_in_program_input","pubkey":"ptr9umikaeAS7ZBBp2fsfRhie16F1V2jCKA2y6gXNAK"},
   {"name":"fix_alt_bn128_pairing_length_check","pubkey":"bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm","cleaned_up":1,"hardcode_for_fuzzing":1},
   {"name":"poseidon_enforce_padding","pubkey":"poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb","hardcode_for_fuzzing":1},
   {"name":"relax_intrabatch_account_locks","pubkey":"4WeHX6QoXCCwqbSFgi6dxnB6QsPo6YApaNTH7P4MLQ99","old":"ENTRYnPAoT5Swwx73YDGzMp3XnNH1kxacyvLosRHza1i","comment":"sched suppports this no need for feature gate"},

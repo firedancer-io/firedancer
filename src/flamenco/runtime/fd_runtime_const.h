@@ -133,13 +133,19 @@ FD_PROTOTYPES_BEGIN
    - 8 bytes for instruction data length
    - 10240 bytes for the instruction data (CPI_MAX_INSTR_DATA_LEN)
    - 32 bytes for the program id
+   - up to 7 bytes of padding + 255 instr accounts * 8 bytes for the
+     direct_account_pointers_in_program_input account pointer array
+     (the array is padded up to FD_BPF_ALIGN_OF_U128=8 and then has one
+      u64 per instruction account; reserved unconditionally so the static
+      buffer can host the maximum even when the feature is enabled)
 
   So the total footprint is:
   8 header bytes +
   191 duplicate accounts (255 instr accounts - 64 unique accounts) * 8 bytes     = 1528      duplicate account bytes +
   64 unique accounts * (96 header bytes + 10485760 bytes + 10240 resizing bytes) = 671750144 unique account bytes +
-  8 + 10240 + 32                                                                 = 10280     trailer bytes
-  Subtotal: 671761960 bytes, aligned up to 16 = 671761968 bytes
+  8 + 10240 + 32                                                                 = 10280     trailer bytes +
+  7 + 255 * 8                                                                    = 2047      account pointer array bytes
+  Subtotal: 671764007 bytes, aligned up to 16 = 671764016 bytes
 
   This is a reasonably tight-ish upper bound on the input region
   footprint for a single instruction at a single stack depth. */
@@ -221,18 +227,20 @@ FD_PROTOTYPES_BEGIN
                                                sizeof(ulong))              /* rent_epoch        */
 #define FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT (8UL) /* 1 dup byte + 7 bytes for padding */
 
-#define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit, direct_mapping)                                                                      \
-                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)                      /* acct_cnt       */                          + \
-                                                                   account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)        + \
+#define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit, direct_mapping)                                                                          \
+                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)                      /* acct_cnt       */                          +     \
+                                                                   account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)        +     \
                                                                    (FD_BPF_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
-                                                                   sizeof(ulong)                      /* instr data len */                          + \
-                                                                   FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN  /* instr data  */                             + \
-                                                                   sizeof(fd_pubkey_t)),              /* program id     */                            \
+                                                                   sizeof(ulong)                      /* instr data len */                          +     \
+                                                                   FD_RUNTIME_CPI_MAX_INSTR_DATA_LEN  /* instr data  */                             +     \
+                                                                   sizeof(fd_pubkey_t)                /* program id     */                          +     \
+                                                                   (FD_BPF_ALIGN_OF_U128-1UL) +                                                           \
+                                                                   FD_BPF_INSTR_ACCT_MAX*sizeof(ulong) /* direct_account_pointers_in_program_input */),   \
                                                                    FD_RUNTIME_EBPF_HOST_ALIGN ))
 
 
 
-#define BPF_LOADER_SERIALIZATION_FOOTPRINT (671761968UL)
+#define BPF_LOADER_SERIALIZATION_FOOTPRINT (671764016UL)
 FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
 
 #define FD_EPOCH_CREDITS_MAX (64UL)

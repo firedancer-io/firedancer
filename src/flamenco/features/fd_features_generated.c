@@ -1693,6 +1693,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "account_data_direct_mapping",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, direct_account_pointers_in_program_input)>>3,
+    .id                        = {"\x0c\x44\xec\x12\x55\x21\x26\x43\xc3\xaa\xb7\x2e\xab\x43\x54\xb1\xb3\xab\xad\xef\xe3\x95\x02\xd3\xb7\xd1\x2e\x7f\xb8\xa3\x41\xd0"},
+                                 /* ptr9umikaeAS7ZBBp2fsfRhie16F1V2jCKA2y6gXNAK */
+    .name                      = "direct_account_pointers_in_program_input",
+    .cleaned_up                = 0 },
+
   { .index                     = offsetof(fd_features_t, fix_alt_bn128_pairing_length_check)>>3,
     .id                        = {"\x08\xe9\x40\xc0\xc3\x42\x8a\xf0\xbd\x9d\x09\x80\xa6\xce\x78\xcb\x1c\xc6\x57\x4e\x44\xfe\xf5\x52\xe7\x0c\x40\x70\xe9\x51\xec\x74"},
                                  /* bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm */
@@ -2113,31 +2119,32 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_243 0x14bfb27001414cc4UL, .val = &ids[243]
 #define MAP_PERFECT_244 0xce2f9f1c3aeba901UL, .val = &ids[244]
 #define MAP_PERFECT_245 0x35639bb5e67799a9UL, .val = &ids[245]
-#define MAP_PERFECT_246 0xf08a42c3c040e908UL, .val = &ids[246]
-#define MAP_PERFECT_247 0x8c7bee4552d93e0cUL, .val = &ids[247]
-#define MAP_PERFECT_248 0x99e38f77f30f2b34UL, .val = &ids[248]
-#define MAP_PERFECT_249 0x7c4802b8ba3fa849UL, .val = &ids[249]
-#define MAP_PERFECT_250 0xab2a2311ca83eb09UL, .val = &ids[250]
-#define MAP_PERFECT_251 0x55792888a8cf31efUL, .val = &ids[251]
-#define MAP_PERFECT_252 0xf4792febab30b80cUL, .val = &ids[252]
-#define MAP_PERFECT_253 0xdab5b6a991a03e4bUL, .val = &ids[253]
-#define MAP_PERFECT_254 0x8921a3abf23afaecUL, .val = &ids[254]
-#define MAP_PERFECT_255 0x640dddd90caae808UL, .val = &ids[255]
-#define MAP_PERFECT_256 0x9e11ee2f4bbcb608UL, .val = &ids[256]
-#define MAP_PERFECT_257 0x010f656d89a4e808UL, .val = &ids[257]
-#define MAP_PERFECT_258 0xfc12b1cef363afa7UL, .val = &ids[258]
-#define MAP_PERFECT_259 0xe24990064fed4a91UL, .val = &ids[259]
-#define MAP_PERFECT_260 0xa5ce8f931961b80cUL, .val = &ids[260]
-#define MAP_PERFECT_261 0xf55c421c9eccc012UL, .val = &ids[261]
-#define MAP_PERFECT_262 0x7428565ab3b6d152UL, .val = &ids[262]
-#define MAP_PERFECT_263 0xd2ff523ae3f23607UL, .val = &ids[263]
-#define MAP_PERFECT_264 0x6735cf1d3c656109UL, .val = &ids[264]
-#define MAP_PERFECT_265 0x632b9b7c9e9a3257UL, .val = &ids[265]
-#define MAP_PERFECT_266 0xa4c86f030ee0440cUL, .val = &ids[266]
-#define MAP_PERFECT_267 0xf5434d796d0f975aUL, .val = &ids[267]
-#define MAP_PERFECT_268 0x7f5bea39613bbc0dUL, .val = &ids[268]
-#define MAP_PERFECT_269 0xfde26f7b21c28506UL, .val = &ids[269]
-#define MAP_PERFECT_270 0x154206ed5990d30cUL, .val = &ids[270]
+#define MAP_PERFECT_246 0x4326215512ec440cUL, .val = &ids[246]
+#define MAP_PERFECT_247 0xf08a42c3c040e908UL, .val = &ids[247]
+#define MAP_PERFECT_248 0x8c7bee4552d93e0cUL, .val = &ids[248]
+#define MAP_PERFECT_249 0x99e38f77f30f2b34UL, .val = &ids[249]
+#define MAP_PERFECT_250 0x7c4802b8ba3fa849UL, .val = &ids[250]
+#define MAP_PERFECT_251 0xab2a2311ca83eb09UL, .val = &ids[251]
+#define MAP_PERFECT_252 0x55792888a8cf31efUL, .val = &ids[252]
+#define MAP_PERFECT_253 0xf4792febab30b80cUL, .val = &ids[253]
+#define MAP_PERFECT_254 0xdab5b6a991a03e4bUL, .val = &ids[254]
+#define MAP_PERFECT_255 0x8921a3abf23afaecUL, .val = &ids[255]
+#define MAP_PERFECT_256 0x640dddd90caae808UL, .val = &ids[256]
+#define MAP_PERFECT_257 0x9e11ee2f4bbcb608UL, .val = &ids[257]
+#define MAP_PERFECT_258 0x010f656d89a4e808UL, .val = &ids[258]
+#define MAP_PERFECT_259 0xfc12b1cef363afa7UL, .val = &ids[259]
+#define MAP_PERFECT_260 0xe24990064fed4a91UL, .val = &ids[260]
+#define MAP_PERFECT_261 0xa5ce8f931961b80cUL, .val = &ids[261]
+#define MAP_PERFECT_262 0xf55c421c9eccc012UL, .val = &ids[262]
+#define MAP_PERFECT_263 0x7428565ab3b6d152UL, .val = &ids[263]
+#define MAP_PERFECT_264 0xd2ff523ae3f23607UL, .val = &ids[264]
+#define MAP_PERFECT_265 0x6735cf1d3c656109UL, .val = &ids[265]
+#define MAP_PERFECT_266 0x632b9b7c9e9a3257UL, .val = &ids[266]
+#define MAP_PERFECT_267 0xa4c86f030ee0440cUL, .val = &ids[267]
+#define MAP_PERFECT_268 0xf5434d796d0f975aUL, .val = &ids[268]
+#define MAP_PERFECT_269 0x7f5bea39613bbc0dUL, .val = &ids[269]
+#define MAP_PERFECT_270 0xfde26f7b21c28506UL, .val = &ids[270]
+#define MAP_PERFECT_271 0x154206ed5990d30cUL, .val = &ids[271]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2394,29 +2401,30 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit               
 FD_STATIC_ASSERT( offsetof( fd_features_t, syscall_parameter_address_restrictions                  )>>3==243UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, virtual_address_space_adjustments                       )>>3==244UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==245UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==246UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==247UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==248UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, provide_instruction_data_offset_in_vm_r2                )>>3==249UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_fixed_fec_set                                   )>>3==250UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, increase_cpi_account_info_limit                         )>>3==251UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_rent_exemption_threshold                      )>>3==252UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, static_instruction_limit                                )>>3==253UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==254UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==255UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==256UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==257UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==258UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==259UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, relax_programdata_account_check_migration               )>>3==260UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model                      )>>3==261UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==262UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==263UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, discard_unexpected_data_complete_shreds                 )>>3==264UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, create_account_allow_prefund                            )>>3==265UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, replace_spl_token_with_p_token                          )>>3==266UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, delay_commission_updates                                )>>3==267UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id                               )>>3==268UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5                         )>>3==269UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sha512_syscall                                   )>>3==270UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, direct_account_pointers_in_program_input                )>>3==246UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==247UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==248UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==249UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, provide_instruction_data_offset_in_vm_r2                )>>3==250UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_fixed_fec_set                                   )>>3==251UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, increase_cpi_account_info_limit                         )>>3==252UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_rent_exemption_threshold                      )>>3==253UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, static_instruction_limit                                )>>3==254UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==255UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==256UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==257UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==258UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==259UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==260UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_programdata_account_check_migration               )>>3==261UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model                      )>>3==262UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==263UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==264UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, discard_unexpected_data_complete_shreds                 )>>3==265UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, create_account_allow_prefund                            )>>3==266UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, replace_spl_token_with_p_token                          )>>3==267UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, delay_commission_updates                                )>>3==268UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id                               )>>3==269UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5                         )>>3==270UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sha512_syscall                                   )>>3==271UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

@@ -388,6 +388,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
   int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
+  int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, direct_account_pointers_in_program_input );
 
   ulong instruction_data_offset = 0UL;
   /* 16-byte aligned buffer:
@@ -395,7 +396,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, virtual_address_space_adjustments, direct_mapping, is_deprecated,
+                                                  acc_region_metas, virtual_address_space_adjustments, direct_mapping,
+                                                  direct_account_pointers_in_program_input, is_deprecated,
                                                   &instruction_data_offset, &input_sz );
   if( FD_UNLIKELY( err ) ) {
     return err;

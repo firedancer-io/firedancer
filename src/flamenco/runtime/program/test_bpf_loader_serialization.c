@@ -57,6 +57,7 @@ struct fixture_input {
   fd_pubkey_t               program_id;
   uchar                     virtual_address_space_adj;
   uchar                     direct_mapping;
+  uchar                     direct_account_pointers_in_program_input;
   uchar                     is_deprecated;
 };
 typedef struct fixture_input fixture_input_t;
@@ -271,9 +272,10 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
     cJSON_Delete( root ); return -1;
   }
 
-  in->virtual_address_space_adj = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "virtual_address_space_adjustments" ) ) ? 1U : 0U;
-  in->direct_mapping            = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"          ) ) ? 1U : 0U;
-  in->is_deprecated             = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                 ) ) ? 1U : 0U;
+  in->virtual_address_space_adj                = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "virtual_address_space_adjustments"        ) ) ? 1U : 0U;
+  in->direct_mapping                           = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"              ) ) ? 1U : 0U;
+  in->direct_account_pointers_in_program_input = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "direct_account_pointers_in_program_input" ) ) ? 1U : 0U;
+  in->is_deprecated                            = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                     ) ) ? 1U : 0U;
 
   cJSON * output = cJSON_GetObjectItemCaseSensitive( root, "output" );
   out->result = cJSON_GetObjectItemCaseSensitive( output, "result" )->valueint;
@@ -482,8 +484,9 @@ run_fixture( fd_alloc_t * alloc,
   int program_idx = find_program_index( in );
   FD_TEST( program_idx>=0 );
 
-  FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, is_deprecated=%d",
-                  in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping, in->is_deprecated ));
+  FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, direct_account_pointers=%d, is_deprecated=%d",
+                  in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping,
+                  in->direct_account_pointers_in_program_input, in->is_deprecated ));
 
   uchar **           storage = NULL;
   fd_txn_out_t *     txn_out = NULL;
@@ -508,6 +511,7 @@ run_fixture( fd_alloc_t * alloc,
   int result = fd_bpf_loader_input_serialize_parameters(
       ctx, pre_lens, regions, &region_cnt, acc_metas,
       in->virtual_address_space_adj, in->direct_mapping,
+      in->direct_account_pointers_in_program_input,
       in->is_deprecated,
       &idata_offset, &serialized_sz );
 

@@ -147,14 +147,15 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
 
-  ulong                   input_sz                               = 0UL;
-  ulong                   pre_lens[256]                          = {0};
-  fd_vm_input_region_t    input_mem_regions[1000]                = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]                  = {0}; /* instr acc idx to idx */
-  uint                    input_mem_regions_cnt                  = 0U;
-  int                     direct_mapping                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
-  int                     syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( ctx->bank, syscall_parameter_address_restrictions );
-  int                     virtual_address_space_adjustments      = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
+  ulong                   input_sz                                 = 0UL;
+  ulong                   pre_lens[256]                            = {0};
+  fd_vm_input_region_t    input_mem_regions[1000]                  = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]                    = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt                    = 0U;
+  int                     direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
+  int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( ctx->bank, syscall_parameter_address_restrictions );
+  int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
+  int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
   uchar               program_id_idx = ctx->instr->program_id;
   fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
@@ -176,6 +177,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                                                       acc_region_metas,
                                                       virtual_address_space_adjustments,
                                                       direct_mapping,
+                                                      direct_account_pointers_in_program_input,
                                                       is_deprecated,
                                                       &instr_data_offset,
                                                       &input_sz );
