@@ -100,6 +100,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258-v4.0.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-v4.0.0 -y 1 -m 1000 -e 75
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.0.0-alpha.0 -y 1 -m 10000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary -y 2 -m 2000000 -e 391824016
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry -y 1 -m 10000 -e 135
 
 # Direct mapping has 3 different interplaying feature gates:
 # syscall_parameter_address_restrictions, virtual_address_space_adjustments and account_data_direct_mapping
@@ -131,4 +132,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -y 1 -m 2000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall -y 1 -m 1000 -e 379
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account_rekey -y 1 -m 1000 -e 329
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m -y 1 -m 10000 -e 603
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry -y 1 -m 10000 -e 135
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct_account_pointers_in_program_input -y 1 -m 10000 -e 386
