@@ -928,6 +928,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
       ulong       stake;
       int         is_valid = fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL );
       fd_top_votes_iter_next( top_votes_t_2, iter );
+      total_stake += stake;
       if( FD_UNLIKELY( !is_valid ) ) continue;
 
       fd_accdb_ro_pipe_enqueue( ro_pipe, vote_acc.key );
@@ -949,7 +950,6 @@ query_vote_accs( fd_tower_tile_t *            ctx,
 
       count_vote_acc( ctx, slot_completed, ghost_blk, vote_acc, stake, data, ro->meta->dlen );
 
-      total_stake += stake;
       prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, vote_acc, stake, prev_voter_idx );
     }
   }
