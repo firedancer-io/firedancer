@@ -10,6 +10,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "fd_runtime_err.h"
 #include "fd_system_ids.h"
+#include "sysvar/fd_sysvar_base.h"
 #include "../types/fd_types.h"
 
 #define FD_ADDRLUT_STATUS_ACTIVATED    (0)
