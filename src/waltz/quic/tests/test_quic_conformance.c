@@ -231,6 +231,85 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
 }
 
+/* RFC 9000 Section 19.6. CRYPTO Frames
+
+   > The CRYPTO frame offers the cryptographic protocol an in-order stream
+   > of bytes.
+
+   This test injects a retransmitted overlapping CRYPTO frame and verifies
+   that the contiguous receive watermark does not move backward. */
+
+static __attribute__((noinline)) void
+test_quic_crypto_rx_watermark_monotonic( fd_quic_sandbox_t * sandbox,
+                                         fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  ulong             our_conn_id_u64  = fd_rng_ulong( rng );
+  ulong             peer_conn_id_u64 = fd_rng_ulong( rng );
+  fd_quic_conn_id_t peer_conn_id     = fd_quic_conn_id_new( &peer_conn_id_u64, 8UL );
+
+  fd_quic_conn_t * conn = fd_quic_conn_create(
+      quic,
+      our_conn_id_u64,
+      &peer_conn_id,
+      FD_QUIC_SANDBOX_PEER_IP4,
+      FD_QUIC_SANDBOX_PEER_PORT,
+      FD_QUIC_SANDBOX_SELF_IP4,
+      FD_QUIC_SANDBOX_SELF_PORT,
+      1 /* server */ );
+  FD_TEST( conn );
+
+  fd_quic_transport_params_t tp[1] = {0};
+  fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
+      fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+      state->tls,
+      (void *)conn,
+      1 /* is_server */,
+      tp,
+      state->now );
+  FD_TEST( tls_hs );
+  conn->tls_hs = tls_hs;
+
+  ushort const rx_off_before = 100U;
+  ushort const rx_sz_before  = 300U;
+  ulong  const overlap_sz    = 150UL;
+
+  tls_hs->rx_enc_level = (uchar)fd_quic_enc_level_initial_id;
+  tls_hs->rx_off       = rx_off_before;
+  tls_hs->rx_sz        = rx_sz_before;
+  memset( tls_hs->rx_hs_buf, 0xaa, rx_sz_before );
+
+  uchar frame_buf[ 16 + overlap_sz ];
+  fd_quic_crypto_frame_t crypto = {
+    .type   = 0x06,
+    .offset = 0UL,
+    .length = overlap_sz,
+  };
+  ulong hdr_sz = fd_quic_encode_crypto_frame( frame_buf, sizeof(frame_buf), &crypto );
+  FD_TEST( hdr_sz!=FD_QUIC_ENCODE_FAIL );
+  FD_TEST( hdr_sz + overlap_sz <= sizeof(frame_buf) );
+  memset( frame_buf + hdr_sz, 0xaa, overlap_sz );
+
+  fd_quic_pkt_t pkt = {
+    .pkt_number = 0UL,
+    .rcv_time   = sandbox->wallclock,
+    .enc_level  = fd_quic_enc_level_initial_id,
+  };
+  fd_quic_sandbox_send_frame( sandbox, conn, &pkt, frame_buf, hdr_sz + overlap_sz );
+
+  FD_TEST( tls_hs->rx_off == rx_off_before );
+  FD_TEST( tls_hs->rx_sz  == rx_sz_before  );
+  FD_TEST( tls_hs->rx_hs_buf[ rx_off_before       ] == 0xaa );
+  FD_TEST( tls_hs->rx_hs_buf[ overlap_sz - 1UL    ] == 0xaa );
+  FD_TEST( tls_hs->rx_hs_buf[ rx_sz_before - 1UL  ] == 0xaa );
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_HANDSHAKE );
+  FD_TEST( conn->reason == 0U );
+}
+
 /* Ensure that outgoing ACKs and metrics are done correctly if incoming
    packets skip packet numbers aggressively. */
 
@@ -846,6 +925,7 @@ main( int     argc,
   test_quic_stream_concurrency           ( sandbox, rng );
   test_quic_ping_frame                   ( sandbox, rng );
   test_quic_server_alpn_fail             ( sandbox, rng );
+  test_quic_crypto_rx_watermark_monotonic( sandbox, rng );
   test_quic_pktnum_skip                  ( sandbox, rng );
   test_quic_conn_initial_limits          ( sandbox, rng );
   test_quic_rx_max_data_frame            ( sandbox, rng );

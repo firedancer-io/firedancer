@@ -2832,7 +2832,7 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
     return FD_QUIC_PARSE_FAIL;
   }
 
-  tls_hs->rx_sz = (ushort)rcv_hi;
+  if( rcv_hi > tls_hs->rx_sz ) tls_hs->rx_sz = (ushort)rcv_hi;
   fd_memcpy( tls_hs->rx_hs_buf + rcv_off, p, rcv_sz );
 
   int provide_rc = fd_quic_tls_process( conn->tls_hs );
