@@ -37,7 +37,7 @@ fd_quic_limits_t quic_limits = {
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed) fd_funk_rec_key_hash1( (key)->uc, (seed) )
 #define MAP_IMPL_STYLE         2
 #include "../../util/tmpl/fd_map_chain.c"
 
