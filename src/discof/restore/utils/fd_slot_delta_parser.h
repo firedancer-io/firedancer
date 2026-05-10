@@ -16,6 +16,11 @@ typedef struct fd_sstxncache_entry fd_sstxncache_entry_t;
 
 #define FD_SLOT_DELTA_MAX_ENTRIES (300UL)
 
+/* status cache txn hashes are a 20 byte extract of the 32 byte txn
+   message hash.  The txnhash_offset specifies where it is sampled at.
+   Due to an Agave bug, the max offset is 11 bytes.  */
+#define FD_SLOT_DELTA_MAX_TXNHASH_OFFSET (11UL)
+
 struct fd_slot_entry {
   ulong slot;
 
@@ -87,6 +92,7 @@ fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
    https://github.com/anza-xyz/agave/blob/v3.1.8/snapshots/src/error.rs#L132 */
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES           (-3)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER      (-4)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET     (-5)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN                            ( 0)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY                            ( 1)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_GROUP                            ( 2)
@@ -99,6 +105,7 @@ fd_slot_delta_parser_advance_str( int err ) {
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES: return "error_slot_hash_multiple_entries";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES:           return "error_too_many_entries";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER:      return "error_excess_data_in_buffer";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET:     return "error_invalid_txnhash_offset";
     case FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN:                            return "again";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY:                            return "entry";
     case FD_SLOT_DELTA_PARSER_ADVANCE_GROUP:                            return "group";

@@ -149,6 +149,14 @@ state_validate( fd_slot_delta_parser_t * parser ) {
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT;
       }
       break;
+    case STATE_STATUS_TXN_IDX:
+      if( FD_UNLIKELY( parser->txnhash_offset>FD_SLOT_DELTA_MAX_TXNHASH_OFFSET ) ) {
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)",
+                         fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET ),
+                         FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET ));
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET;
+      }
+      break;
     default: break;
   }
 
