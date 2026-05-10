@@ -290,7 +290,7 @@ fd_bpf_loader_v3_program_set_state( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
-  return FD_BINCODE_SUCCESS;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1299-L1331 */
@@ -347,7 +347,7 @@ common_close_account( fd_pubkey_t *         authority_address,
 
   state->discriminant = FD_BPF_STATE_UNINITIALIZED;
   err = fd_bpf_loader_v3_program_set_state( &close_account, state );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+  if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return err;
   }
 
@@ -885,7 +885,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   if( upgrade_authority_address ) programdata_state->inner.program_data.upgrade_authority_address = *upgrade_authority_address;
 
   err = fd_bpf_loader_v3_program_set_state( &programdata_account, programdata_state );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+  if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return err;
   }
 
@@ -933,7 +933,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_bpf_state_t buffer_state[1];
       err = fd_bpf_loader_program_get_state( buffer.meta, buffer_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
 
@@ -954,7 +954,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       buffer_state->inner.buffer.authority_address     = *authority_key;
 
       err = fd_bpf_loader_v3_program_set_state( &buffer, buffer_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
 
@@ -1084,7 +1084,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_bpf_state_t loader_state[1];
       int err = fd_bpf_loader_program_get_state( program.meta, loader_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
       if( FD_UNLIKELY( loader_state->discriminant!=FD_BPF_STATE_UNINITIALIZED ) ) {
@@ -1292,7 +1292,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           },
         };
         err = fd_bpf_loader_v3_program_set_state( &programdata, &programdata_loader_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
 
@@ -1337,7 +1337,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       loader_state->discriminant = FD_BPF_STATE_PROGRAM;
       loader_state->inner.program.programdata_address =  *programdata_key;
       err = fd_bpf_loader_v3_program_set_state( &program, loader_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
       err = fd_borrowed_account_set_executable( &program, 1 );
@@ -1566,7 +1566,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         programdata_state->inner.program_data.has_upgrade_authority_address = 1;
         programdata_state->inner.program_data.upgrade_authority_address     = *authority_key;
         err = fd_bpf_loader_v3_program_set_state( &programdata, programdata_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
 
@@ -1666,7 +1666,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_bpf_state_t account_state[1];
       err = fd_bpf_loader_program_get_state( account.meta, account_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
 
@@ -1698,7 +1698,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
       } else if( account_state->discriminant==FD_BPF_STATE_PROGRAM_DATA ) {
@@ -1725,7 +1725,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
       } else {
@@ -1802,7 +1802,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         account_state->inner.buffer.has_authority_address = 1;
         account_state->inner.buffer.authority_address     = *new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
       } else if( account_state->discriminant==FD_BPF_STATE_PROGRAM_DATA ) {
@@ -1831,7 +1831,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         account_state->inner.program_data.has_upgrade_authority_address = 1;
         account_state->inner.program_data.upgrade_authority_address     = *new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
       } else {
