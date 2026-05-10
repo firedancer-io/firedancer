@@ -100,9 +100,9 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
 
   /* AcctState -> owner */
   if( !fd_memeq( expected->owner, actual->owner, sizeof(fd_pubkey_t) ) ) {
-    char a[ FD_BASE58_ENCODED_32_SZ ];
-    char b[ FD_BASE58_ENCODED_32_SZ ];
-    FD_LOG_WARNING(( "Owner mismatch: expected=%s, actual=%s", fd_acct_addr_cstr( a, expected->owner ), fd_acct_addr_cstr( b, actual->owner ) ));
+    FD_BASE58_ENCODE_32_BYTES( expected->owner, expected_b58 );
+    FD_BASE58_ENCODE_32_BYTES( actual->owner,   actual_b58   );
+    FD_LOG_WARNING(( "Owner mismatch: expected=%s, actual=%s", expected_b58, actual_b58 ));
     return 0;
   }
 
@@ -134,8 +134,8 @@ _diff_accounts( fd_exec_test_acct_state_t * expected,
       }
     }
     if( !found ) {
-      char a[ FD_BASE58_ENCODED_32_SZ ];
-      FD_LOG_WARNING(( "Account state not found in actual: expected=%s", fd_acct_addr_cstr( a, expected[i].address ) ));
+      FD_BASE58_ENCODE_32_BYTES( expected[i].address, a );
+      FD_LOG_WARNING(( "Account state not found in actual: expected=%s", a ));
       return 0;
     }
   }
