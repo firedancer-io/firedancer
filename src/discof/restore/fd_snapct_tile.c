@@ -95,9 +95,9 @@ struct fd_snapct_tile {
   char http_full_snapshot_name[ PATH_MAX ];
   char http_incr_snapshot_name[ PATH_MAX ];
 
-  fd_wksp_t const * gossip_in_mem;
-  fd_wksp_t const * snapld_in_mem;
-  uchar             in_kind[ MAX_IN_LINKS ];
+  void const * gossip_in_mem;
+  void const * snapld_in_mem;
+  uchar        in_kind[ MAX_IN_LINKS ];
 
   struct {
     ulong full_slot;
@@ -1268,21 +1268,22 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       FD_TEST( msg->contact_info_remove->idx<GOSSIP_PEERS_MAX );
       gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info_remove->idx;
       ulong rem_idx = gossip_ci_map_idx_remove( ctx->gossip.ci_map, &entry->pubkey, ULONG_MAX, ctx->gossip.ci_table );
-      if( rem_idx==ULONG_MAX ) break;
-      FD_TEST( entry->allowed && rem_idx==msg->contact_info_remove->idx );
-      ctx->gossip.allowed_cnt--;
-      fd_ip4_port_t addr = entry->rpc_addr;
-      if( FD_LIKELY( !!addr.l ) ) {
-        fd_ssping_remove( ctx->ssping, addr );
-        fd_sspeer_key_t entry_key = {0};
-        *entry_key.pubkey = entry->pubkey;
-        entry_key.is_url  = 0;
-        fd_sspeer_selector_remove( ctx->selector, &entry_key );
-      }
-      if( !ctx->config.sources.gossip.allow_any ) {
-        FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, pubkey_b58 );
-        FD_LOG_WARNING(( "allowed gossip peer removed with public key `%s` and RPC address `" FD_IP4_ADDR_FMT ":%hu`",
-                         pubkey_b58, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
+      if( rem_idx!=ULONG_MAX ) {
+        FD_TEST( entry->allowed && rem_idx==msg->contact_info_remove->idx );
+        ctx->gossip.allowed_cnt--;
+        fd_ip4_port_t addr = entry->rpc_addr;
+        if( FD_LIKELY( !!addr.l ) ) {
+          fd_ssping_remove( ctx->ssping, addr );
+          fd_sspeer_key_t entry_key = {0};
+          *entry_key.pubkey = entry->pubkey;
+          entry_key.is_url  = 0;
+          fd_sspeer_selector_remove( ctx->selector, &entry_key );
+        }
+        if( !ctx->config.sources.gossip.allow_any ) {
+          FD_BASE58_ENCODE_32_BYTES( entry->pubkey.uc, pubkey_b58 );
+          FD_LOG_WARNING(( "allowed gossip peer removed with public key `%s` and RPC address `" FD_IP4_ADDR_FMT ":%hu`",
+                           pubkey_b58, FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
+        }
       }
       fd_memset( entry, 0, sizeof(*entry) );
       break;
@@ -1822,6 +1823,7 @@ unprivileged_init( fd_topo_t *      topo,
 
 #include "../../disco/stem/fd_stem.c"
 
+#ifndef FD_TILE_TEST
 fd_topo_run_tile_t fd_tile_snapct = {
   .name                     = NAME,
   .rlimit_file_cnt_fn       = rlimit_file_cnt,
@@ -1837,5 +1839,6 @@ fd_topo_run_tile_t fd_tile_snapct = {
   .allow_connect            = 1,
   .allow_renameat           = 1,
 };
+#endif
 
 #undef NAME
