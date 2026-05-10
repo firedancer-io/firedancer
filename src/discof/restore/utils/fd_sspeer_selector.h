@@ -8,7 +8,6 @@
 
 #include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
-#include "../../../flamenco/types/fd_types_custom.h"
 #include "fd_sspeer.h"
 
 #define FD_SSPEER_SELECTOR_MAGIC (0xF17EDA2CE5593350) /* FIREDANCE SSPING V0 */

@@ -2,7 +2,6 @@
 #define HEADER_fd_src_discof_genesis_genesis_hash_h
 
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../flamenco/types/fd_types_custom.h"
 
 #include <errno.h>
 #include <fcntl.h>

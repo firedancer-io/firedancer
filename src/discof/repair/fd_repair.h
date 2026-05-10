@@ -65,7 +65,7 @@
     fd_types. */
 
 #include "../../ballet/ed25519/fd_ed25519.h"
-#include "../../flamenco/types/fd_types_custom.h"
+#include "../../flamenco/fd_flamenco_base.h"
 
 /* FD_REPAIR_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */

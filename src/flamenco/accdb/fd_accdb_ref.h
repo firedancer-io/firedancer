@@ -14,7 +14,6 @@
 
 #include "fd_accdb_base.h"
 #include "../fd_flamenco_base.h"
-#include "../types/fd_types_custom.h"
 
 /* fd_accdb_ref_t is an opaque account database handle. */
 

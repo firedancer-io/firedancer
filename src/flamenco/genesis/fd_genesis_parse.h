@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_genesis_fd_genesis_parse_h
 
 #include "../fd_flamenco_base.h"
-#include "../types/fd_types_custom.h"
 
 /* Hardcoded max serialized genesis blob size */
 #define FD_GENESIS_MAX_MESSAGE_SIZE (1UL<<28) /* 256 MiB */

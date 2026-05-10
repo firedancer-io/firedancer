@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_vote_stakes_h
 #define HEADER_fd_src_flamenco_stakes_fd_vote_stakes_h
 
-#include "../../util/fd_util_base.h"
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 
 /* fd_vote_stakes_t is a data structure that stores vote account stake
    updates across epoch boundaries.  It offers a mapping from vote

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_discof_backtest_fd_backtest_src_h
 #define HEADER_fd_src_discof_backtest_fd_backtest_src_h
 
-#include "../../flamenco/types/fd_types_custom.h"
+#include "../../flamenco/fd_flamenco_base.h"
 
 struct fd_backt_slot_info {
   ulong     slot;

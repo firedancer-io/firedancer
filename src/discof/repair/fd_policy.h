@@ -17,7 +17,6 @@
    This policy dedups identical repair requests that occur within a
    specified amount of time window of each other. */
 
-#include "../../flamenco/types/fd_types_custom.h"
 #include "../forest/fd_forest.h"
 #include "../../util/net/fd_net_headers.h"
 #include "fd_repair.h"

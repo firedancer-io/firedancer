@@ -4,7 +4,6 @@
 #ifndef HEADER_fd_src_app_fdshredcap_fdshredcap_h
 #define HEADER_fd_src_app_fdshredcap_fdshredcap_h
 
-#include "../flamenco/types/fd_types_custom.h"
 #include "../flamenco/runtime/fd_runtime.h"
 
 /* TODO: Consider adding a file-wide header and trailer to both of the

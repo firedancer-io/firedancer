@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_sspeer_h
 #define HEADER_fd_src_discof_restore_utils_fd_sspeer_h
 
-#include "../../../flamenco/types/fd_types_custom.h"
 #include "../../../util/net/fd_net_headers.h"
+#include "../../../flamenco/fd_flamenco_base.h"
 
 struct fd_sspeer_key {
   union {

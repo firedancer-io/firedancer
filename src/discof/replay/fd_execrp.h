@@ -2,7 +2,7 @@
 #define HEADER_fd_src_discof_replay_fd_exec_h
 
 #include "../../disco/fd_txn_p.h"
-#include "../../flamenco/types/fd_types_custom.h"
+#include "../../flamenco/fd_flamenco_base.h"
 
 /* Exec tile task types. */
 #define FD_EXECRP_TT_TXN_EXEC      (1UL) /* Transaction execution. */

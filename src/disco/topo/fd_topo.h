@@ -5,6 +5,7 @@
 #include "../../tango/fd_tango.h"
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/net/fd_net_headers.h"
 
 /* Maximum number of workspaces that may be present in a topology. */

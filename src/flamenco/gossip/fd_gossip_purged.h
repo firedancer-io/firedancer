@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_gossip_purged_h
 #define HEADER_fd_src_flamenco_gossip_fd_gossip_purged_h
 
-#include "../../util/fd_util_base.h"
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 
 /* fd_gossip_purged implements the "purged" side-table of the CRDS.
    When a CRDS entry is overridden by a newer value, fails to insert

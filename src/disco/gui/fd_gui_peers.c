@@ -2,9 +2,7 @@
 #include "fd_gui_printf.h"
 #include "fd_gui_config_parse.h"
 #include "fd_gui_metrics.h"
-
 #include "../../disco/metrics/fd_metrics_base.h"
-#include "../../disco/shred/fd_stake_ci.h"
 
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
 
@@ -953,7 +951,7 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
 
   ulong stakes_cnt = 0UL;
   for( ulong i=0UL; i<epoch_info->staked_vote_cnt; i++ ) {
-    if( FD_UNLIKELY( fd_pubkey_eq( &weights[ i ].id_key, &FD_DUMMY_ACCOUNT_PUBKEY ) ) ) continue;
+    if( FD_UNLIKELY( fd_pubkey_check_zero( &weights[ i ].id_key ) ) ) continue;
     peers->epochs[ epoch_idx ].stakes[ stakes_cnt ] = (fd_gui_peers_voter_t){
       .weight    = weights[ i ],
       .vote_slot = ULONG_MAX,

@@ -1,9 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_top_votes_h
 #define HEADER_fd_src_flamenco_stakes_fd_top_votes_h
 
-#include "../../util/fd_util_base.h"
 #include "../../funk/fd_funk_base.h"
-#include "../types/fd_types_custom.h"
+#include "../../flamenco/fd_flamenco_base.h"
 #include "../accdb/fd_accdb_base.h"
 
 /* With the introduction of VAT, the set of vote accounts that receive
