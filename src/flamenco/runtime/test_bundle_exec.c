@@ -18,6 +18,7 @@
 #include "../features/fd_features.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "../log_collector/fd_log_collector.h"
+#include "../../ballet/txn/fd_compact_u16.h"
 
 /* Values before deprecate_rent_exemption_threshold is activated */
 #define TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR (3480UL)
@@ -251,13 +252,11 @@ FD_TEST( parent_bank->state==FD_BANK_STATE_FROZEN );
 })
 
 #define FD_CHECKED_ADD_CU16_TO_TXN_DATA( _begin, _cur_data, _to_add ) __extension__({ \
-  do {                                                                               \
-     uchar _buf[3];                                                                  \
-     fd_bincode_encode_ctx_t _encode_ctx = { .data = _buf, .dataend = _buf+3 };      \
-     fd_bincode_compact_u16_encode( &_to_add, &_encode_ctx );                        \
-     ulong _sz = (ulong) ((uchar *)_encode_ctx.data - _buf );                        \
-     FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _buf, _sz );                     \
-  } while(0);                                                                        \
+  do {                                                                                \
+     uchar _buf[3];                                                                   \
+     ulong _sz = (ulong)fd_cu16_enc( (ushort)_to_add, _buf );                         \
+     FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _buf, _sz );                      \
+  } while(0);                                                                         \
 })
 
 struct txn_instr {
