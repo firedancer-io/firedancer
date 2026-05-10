@@ -129,6 +129,38 @@ test_sysvar_stake_history_update_grows_small_account( fd_wksp_t * wksp ) {
 }
 
 static void
+test_sysvar_stake_history_update_truncates_large_account( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  test_stake_history_env_setup( env, wksp );
+
+  uchar data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ+sizeof(fd_stake_history_entry_t) ];
+  fd_memset( data, 0xAB, sizeof(data) );
+  FD_STORE( ulong, data, FD_SYSVAR_STAKE_HISTORY_CAP+1UL );
+  fd_stake_history_entry_t * entries = fd_type_pun( data+8UL );
+  for( ulong i=0UL; i<FD_SYSVAR_STAKE_HISTORY_CAP+1UL; i++ ) entries[i] = test_stake_history_entry( 1000UL-i );
+  write_stake_history_account( env, data, sizeof(data), 1UL );
+
+  fd_stake_history_entry_t const entry = test_stake_history_entry( 2000UL );
+  fd_sysvar_stake_history_update( env->bank, env->accdb, &env->xid, NULL, &entry );
+
+  fd_accdb_ro_t ro[1];
+  fd_stake_history_t view[1];
+  read_stake_history_view( env, ro, view );
+
+  FD_TEST( fd_accdb_ref_lamports( ro )==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
+  FD_TEST( view->len==FD_SYSVAR_STAKE_HISTORY_CAP );
+  FD_TEST( view->entries[0].epoch==2000UL );
+  FD_TEST( view->entries[1].epoch==1000UL );
+  FD_TEST( view->entries[FD_SYSVAR_STAKE_HISTORY_CAP-1UL].epoch==490UL );
+  FD_TEST( fd_sysvar_stake_history_query( view, 2000UL ) );
+  FD_TEST( fd_sysvar_stake_history_query( view, 2000UL )->effective==entry.effective );
+  FD_TEST( !fd_sysvar_stake_history_query( view, 489UL ) );
+
+  fd_accdb_close_ro( env->accdb, ro );
+  test_sysvar_cache_env_destroy( env );
+}
+
+static void
 test_sysvar_stake_history_update_tops_low_balance( fd_wksp_t * wksp ) {
   test_sysvar_cache_env_t env[1];
   test_stake_history_env_setup( env, wksp );
@@ -304,6 +336,7 @@ test_sysvar_stake_history( fd_wksp_t * wksp ) {
   test_sysvar_stake_history_bounds();
   test_sysvar_stake_history_update( wksp );
   test_sysvar_stake_history_update_grows_small_account( wksp );
+  test_sysvar_stake_history_update_truncates_large_account( wksp );
   test_sysvar_stake_history_update_tops_low_balance( wksp );
   test_sysvar_stake_history_update_replaces_existing_epoch( wksp );
   test_sysvar_stake_history_update_inserts_descending( wksp );

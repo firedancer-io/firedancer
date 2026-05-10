@@ -48,16 +48,20 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
   if( FD_UNLIKELY( data_sz < 8UL ) ) {
     FD_LOG_ERR(( "invalid stake history sysvar" ));
   }
-  fd_stake_history_entry_t * entries = fd_type_pun( data+8UL );
 
   ulong len = FD_LOAD( ulong, data );
-  if( FD_UNLIKELY( len > FD_SYSVAR_STAKE_HISTORY_CAP ) ) {
-    FD_LOG_ERR(( "invalid stake history sysvar: len too large (%lu)", len ));
-  }
+  len = fd_ulong_min( len, FD_SYSVAR_STAKE_HISTORY_CAP );
   ulong min_sz = 8UL + len * sizeof(fd_stake_history_entry_t);
   if( FD_UNLIKELY( data_sz < min_sz ) ) {
     FD_LOG_ERR(( "invalid stake history sysvar: data_sz too small (%lu, required %lu)", data_sz, min_sz ));
   }
+
+  /* https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
+  if( data_sz!=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) {
+    fd_accdb_ref_data_sz_set( accdb, rw, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ, 0 );
+  }
+
+  fd_stake_history_entry_t * entries = fd_type_pun( data+8UL );
 
   /* https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L83 */
   ulong idx   = 0UL;
@@ -79,12 +83,6 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
       }
     }
     if( !found ) idx = lo;
-  }
-
-  /* Grow account if needed
-     https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
-  if( data_sz < FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) {
-    fd_accdb_ref_data_sz_set( accdb, rw, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ, 0 );
   }
 
   /* Ensure account is rent exempt
