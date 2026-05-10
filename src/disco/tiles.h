@@ -183,12 +183,4 @@ struct fd_microblock_execle_trailer {
 };
 typedef struct fd_microblock_execle_trailer fd_microblock_execle_trailer_t;
 
-typedef struct __attribute__((packed)) {
-  ulong  tick_duration_ns;
-  ulong  hashcnt_per_tick;
-  ulong  ticks_per_slot;
-  ulong  tick_height;
-  uchar  last_entry_hash[32];
-} fd_poh_init_msg_t;
-
 #endif /* HEADER_fd_src_disco_tiles_h */
