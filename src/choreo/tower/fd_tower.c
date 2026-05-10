@@ -247,7 +247,7 @@ fd_tower_delete( void * shtower ) {
 
 static fd_vote_acc_vote_t const *
 v4_off( fd_vote_acc_t const * voter ) {
-  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
+  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + (!!voter->v4.has_bls_pubkey_compressed) * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
 }
 
 /* expiration calculates the expiration slot of vote given a slot and
