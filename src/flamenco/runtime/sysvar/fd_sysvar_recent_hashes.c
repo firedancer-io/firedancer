@@ -3,10 +3,6 @@
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_sync.h"
 
-/* Skips fd_types encoding preflight checks and directly serializes the
-   blockhash queue into a buffer representing account data for the
-   recent blockhashes sysvar. */
-
 static void
 encode_rbh_from_blockhash_queue( fd_bank_t * bank,
                                  uchar       out_mem[ static FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
@@ -20,10 +16,6 @@ encode_rbh_from_blockhash_queue( fd_bank_t * bank,
 
   enc += sizeof(ulong);
 
-  /* Iterate over blockhash queue and encode the recent blockhashes.
-     We can do direct memcpying and avoid redundant checks from fd_types
-     encoders since the enc buffer is already sized out to the
-     worst-case bound. */
   ulong out_idx = 0UL;
   for( fd_blockhash_deq_iter_t iter = fd_blockhash_deq_iter_init_rev( bhq->d.deque );
        out_idx<FD_SYSVAR_RECENT_HASHES_CAP &&

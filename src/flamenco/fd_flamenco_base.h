@@ -5,8 +5,8 @@
 #include "types/fd_cast.h"
 
 /* fd_w_u128 is a wrapped "uint128" type providing basic 128-bit
-   unsigned int functionality to fd_types, even if the compile target
-   does not natively support uint128. */
+   unsigned int functionality even if the compile target does not
+   natively support uint128. */
 
 union __attribute__((packed)) fd_w_u128 {
   uchar uc[16];
