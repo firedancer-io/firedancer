@@ -98,18 +98,4 @@ fd_account_data( fd_account_meta_t const * acc ) {
   return (uchar *)( acc+1 );
 }
 
-FD_PROTOTYPES_BEGIN
-
-/* fd_acct_addr_cstr converts the given Solana address into a base58-
-   encoded cstr.  Returns cstr.  On return cstr contains a string with
-   length in [32,44] (excluding NULL terminator). */
-
-static inline char *
-fd_acct_addr_cstr( char        cstr[ FD_BASE58_ENCODED_32_SZ ],
-                   uchar const addr[ 32 ] ) {
-  return fd_base58_encode_32( addr, NULL, cstr );
-}
-
-FD_PROTOTYPES_END
-
 #endif /* HEADER_fd_src_flamenco_fd_flamenco_base_h */
