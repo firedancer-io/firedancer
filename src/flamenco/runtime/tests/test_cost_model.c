@@ -8,7 +8,7 @@
 #include "../program/fd_compute_budget_program.h"
 #include "../program/fd_system_program.h"
 #include "../../features/fd_features.h"
-#include "../../types/fd_types.h"
+#include "../../../ballet/txn/fd_compact_u16.h"
 #include "../../../ballet/txn/fd_txn.h"
 #include "../../../disco/fd_txn_p.h"
 #include "../../../util/fd_util.h"
@@ -24,9 +24,7 @@
 #define FD_CHECKED_ADD_CU16_TO_TXN_DATA( _begin, _cur_data, _to_add ) __extension__({ \
   do {                                                                               \
      uchar _buf[3];                                                                  \
-     fd_bincode_encode_ctx_t _encode_ctx = { .data = _buf, .dataend = _buf+3 };      \
-     fd_bincode_compact_u16_encode( &_to_add, &_encode_ctx );                        \
-     ulong _sz = (ulong) ((uchar *)_encode_ctx.data - _buf );                        \
+     ulong _sz = (ulong)fd_cu16_enc( (ushort)_to_add, _buf );                        \
      FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _buf, _sz );                     \
   } while(0);                                                                        \
 })
