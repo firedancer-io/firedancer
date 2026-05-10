@@ -26,7 +26,7 @@ fd_neigh4_netlink_request_dump( fd_netlink_t * netlink,
 
 /* fd_neigh4_netlink_ingest_message imports an RTM_NEWNEIGH or RTM_DELNEIGH
    message.  Logs warning if a netlink message with a different type is
-   inserted.  Logs warning if link-layer addresses is not 6 bytes long.
+   inserted.  Logs warning if a link-layer address is not 6 bytes long.
    (The caller is expected to verify that if_idx is an Ethernet interface.)
    Ignores messages with an interface index other than if_idx.  Causes
    insert, update, or remove of a neighbor table entry.   Only respects
