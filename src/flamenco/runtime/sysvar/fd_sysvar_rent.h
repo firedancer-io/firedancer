@@ -3,7 +3,6 @@
 
 #include "fd_sysvar_base.h"
 #include "../../accdb/fd_accdb_user.h"
-#include "../../types/fd_types.h"
 
 /* SIMD-0194: deprecate_rent_exemption_threshold
    https://github.com/anza-xyz/agave/blob/v3.1.4/runtime/src/bank.rs#L5322-L5329 */

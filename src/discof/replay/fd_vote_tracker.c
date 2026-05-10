@@ -1,5 +1,5 @@
 #include "fd_vote_tracker.h"
-#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/fd_flamenco_base.h"
 
 #define VOTE_TRACKER_MAX (512UL)
 

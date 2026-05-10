@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
 #include "../leaders/fd_leaders.h"
-#include "../types/fd_types.h"
 #include "../../ballet/txn/fd_txn.h" /* for fd_acct_addr_t */
 #include "../vm/fd_vm_base.h" /* fd_vm_trace_t */
 

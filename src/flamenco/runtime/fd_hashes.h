@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_hashes_h
 
 #include "../fd_flamenco_base.h"
-#include "../types/fd_types.h"
+#include "../types/fd_types_custom.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
 /* fd_hashes.h provides functions for computing and updating the bank hash

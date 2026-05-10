@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 
-#include "../../../flamenco/types/fd_types.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */

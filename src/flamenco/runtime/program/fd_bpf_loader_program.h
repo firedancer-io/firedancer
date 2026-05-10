@@ -8,7 +8,6 @@
 
 #include "../../progcache/fd_progcache_rec.h"
 #include "../../features/fd_features.h"
-#include "../../types/fd_types.h"
 #include "../../../funk/fd_funk_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */

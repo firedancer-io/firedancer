@@ -2,7 +2,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
-#include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
@@ -13,7 +12,6 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
 
 #include <errno.h>

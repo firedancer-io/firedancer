@@ -3,7 +3,6 @@
 #include "fd_sysvar_recent_hashes.h"
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
-#include "../../types/fd_types.h"
 
 FD_IMPORT_BINARY( example_recent_hashes, "src/flamenco/runtime/sysvar/test_sysvar_recent_hashes.bin" );
 

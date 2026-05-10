@@ -2,7 +2,6 @@
 #include "fd_bank_abi.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
-#include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_alut.h"
 #include "../../disco/pack/fd_pack_unwritable.h"
 #include "../../disco/pack/fd_compute_budget_program.h"
