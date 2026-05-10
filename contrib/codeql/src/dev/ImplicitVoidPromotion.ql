@@ -18,8 +18,6 @@ predicate implicitVoidPromotion(Type lvalue, Type rvalue) {
   rvalue.getUnderlyingType() instanceof VoidPointer
 }
 
-predicate allowedSourceFile(File file) { file.getBaseName() != "fd_types.c" }
-
 class BroadAssign extends Locatable {
   BroadAssign() { this instanceof Variable or this instanceof AssignExpr }
 
@@ -39,7 +37,6 @@ class BroadAssign extends Locatable {
 from BroadAssign assign
 where
   implicitVoidPromotion(assign.getLType(), assign.getRType()) and
-  allowedSourceFile(assign.getLocation().getFile()) and
   not assign.getRExpr().isInMacroExpansion() and
   not assign.getRExpr().hasExplicitConversion() and
   not assign.getRExpr().(FunctionCall).getTarget().getName().matches("fd_type_pun%")
