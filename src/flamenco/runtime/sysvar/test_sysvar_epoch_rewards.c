@@ -2,7 +2,6 @@
 #include "fd_sysvar.h"
 #include "test_sysvar_cache_util.h"
 #include "../fd_system_ids.h"
-#include "../../types/fd_types.h"
 
 FD_STATIC_ASSERT( alignof ( fd_sysvar_epoch_rewards_t                                     )==0x01UL,                             layout );
 FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, distribution_starting_block_height )==0x00UL,                             layout );

@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_bank_h
 #define HEADER_fd_src_flamenco_runtime_fd_bank_h
 
-#include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_new_votes.h"

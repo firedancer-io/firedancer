@@ -19,7 +19,6 @@
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../discof/tower/fd_tower_slot_rooted.h"
 

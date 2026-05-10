@@ -5,7 +5,6 @@
 
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../../types/fd_bincode.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
 #define FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND ( 160UL )

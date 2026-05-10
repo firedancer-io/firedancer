@@ -1,5 +1,4 @@
 #include "fd_ssmanifest_parser.h"
-#include "../../../flamenco//types/fd_types.h"
 #include "../../../util/fd_util.h"
 
 #include <unistd.h>

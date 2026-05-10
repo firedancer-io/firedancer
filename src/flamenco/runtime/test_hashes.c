@@ -1,9 +1,7 @@
 #include "../../util/fd_util_base.h"
 #include "fd_hashes.h"
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../types/fd_types.h"
 #include <string.h>
-#include <stdio.h>
 
 /* Helper function to check if two hashes are equal */
 static int

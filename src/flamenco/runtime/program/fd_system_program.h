@@ -12,7 +12,6 @@
    https://github.com/anza-xyz/solana-sdk/blob/system-interface%40v3.0.0/system-interface/src/instruction.rs#L92-L299 */
 
 #include "../../fd_flamenco_base.h"
-#include "../../types/fd_types.h"
 #include "../../../ballet/utf8/fd_utf8.h"
 
 /* Custom error types */

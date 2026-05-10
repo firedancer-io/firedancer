@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_rocksdb_h
 
 #include "../../ballet/block/fd_microblock.h"
-#include "../types/fd_types.h"
 
 /** allocations made for offline-replay in the blockstore */
 struct fd_block {
@@ -32,7 +31,6 @@ typedef struct fd_block fd_block_t;
 
 #if FD_HAS_ROCKSDB
 
-#include "../../ballet/shred/fd_shred.h"
 #include <rocksdb/c.h>
 
 #define FD_ROCKSDB_CF_CNT (20UL)

@@ -15,7 +15,6 @@
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
 #include "../../rewards/fd_rewards.h"
-#include "../../types/fd_types.h"
 #include "generated/block.pb.h"
 #include "../../capture/fd_capture_ctx.h"
 #include "../../capture/fd_solcap_writer.h"

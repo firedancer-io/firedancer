@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_discof_repair_fd_inflight_h
 #define HEADER_fd_src_discof_repair_fd_inflight_h
 
-#include "../../flamenco/types/fd_types.h"
 #include "fd_policy.h"
 
 /* fd_inflight tracks repair requests that are inflight to other

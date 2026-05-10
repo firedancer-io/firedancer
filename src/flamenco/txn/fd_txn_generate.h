@@ -7,8 +7,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/txn/fd_compact_u16.h"
-#include "../../flamenco/types/fd_types_custom.h"
-#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/fd_flamenco_base.h"
 
 /* Struct used to define a list of accounts supplied in a txn.
    Also provides information on number of signers/writeable accounts. */

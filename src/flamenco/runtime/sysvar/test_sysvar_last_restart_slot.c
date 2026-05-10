@@ -1,5 +1,4 @@
 #include "fd_sysvar_last_restart_slot.h"
-#include "../../types/fd_types.h"
 
 static void
 test_sysvar_last_restart_slot_bounds( void ) {
