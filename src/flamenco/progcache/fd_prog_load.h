@@ -5,7 +5,6 @@
    from the account database. */
 
 #include "../accdb/fd_accdb_ref.h"
-#include "../types/fd_types_custom.h"
 
 FD_PROTOTYPES_BEGIN
 

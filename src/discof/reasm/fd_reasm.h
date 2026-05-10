@@ -39,7 +39,6 @@
    does observe (with a flag indicating its detection). */
 
 #include "../../disco/store/fd_store.h"
-#include "../../flamenco/types/fd_types_custom.h"
 
 /* FD_REASM_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */

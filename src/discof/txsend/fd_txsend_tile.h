@@ -2,7 +2,6 @@
 #define HEADER_fd_src_discof_txsend_fd_txsend_tile_h
 
 #include "../../waltz/quic/fd_quic.h"
-#include "../../flamenco/types/fd_types_custom.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../disco/stem/fd_stem.h"

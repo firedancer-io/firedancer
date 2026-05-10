@@ -3,7 +3,6 @@
 #include "../fd_action.h"
 #include "../../../util/fd_util.h"
 #include "../../../ballet/base58/fd_base58.h"
-#include "../../../flamenco/types/fd_types_custom.h"
 #include "../../../disco/shred/fd_shred_tile.h"
 #include "../../../disco/keyguard/fd_keyswitch.h"
 #include <unistd.h>

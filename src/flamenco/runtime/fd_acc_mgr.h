@@ -3,7 +3,7 @@
 
 /* fd_acc_mgr provides APIs for the Solana account database. */
 
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"

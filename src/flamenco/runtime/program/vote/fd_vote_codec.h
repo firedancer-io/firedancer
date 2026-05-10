@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_codec_h
 #define HEADER_fd_src_flamenco_runtime_program_vote_fd_vote_codec_h
 
-#include "../../../types/fd_types_custom.h"
+#include "../../../fd_flamenco_base.h"
 
 /* Vote program type definitions and (de)serializers.
 

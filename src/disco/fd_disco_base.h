@@ -4,7 +4,7 @@
 #include "../tango/fd_tango.h"
 #include "../ballet/shred/fd_shred.h"
 #include "../ballet/txn/fd_txn.h"
-#include "../flamenco/types/fd_types_custom.h"
+#include "../flamenco/fd_flamenco_base.h"
 #include "../util/wksp/fd_wksp_private.h"
 
 #define DST_PROTO_OUTGOING (0UL)

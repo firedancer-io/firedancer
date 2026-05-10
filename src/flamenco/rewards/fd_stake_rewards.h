@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h
 #define HEADER_fd_src_flamenco_rewards_fd_stake_rewards_h
 
-#include "../../util/fd_util_base.h"
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 
 /* fd_stake_rewards is a fork aware structure that stores and keeps
    track of pending stake rewards for the purposes of partitioned epoch

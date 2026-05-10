@@ -6,7 +6,7 @@
 #include "fd_gossip_purged.h"
 #include "fd_ping_tracker.h"
 #include "fd_active_set.h"
-
+#include "../stakes/fd_stake_weight.h"
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
 

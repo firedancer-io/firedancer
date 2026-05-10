@@ -6,7 +6,6 @@
 #include "../../../waltz/openssl/fd_openssl_tile.h"
 #include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
-#include "../../../flamenco/types/fd_types_custom.h"
 #include "../../../waltz/http/fd_http.h"
 
 #include <unistd.h>

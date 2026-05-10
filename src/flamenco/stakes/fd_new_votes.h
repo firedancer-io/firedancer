@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_new_votes_h
 #define HEADER_fd_src_flamenco_stakes_fd_new_votes_h
 
-#include "../../util/fd_util_base.h"
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 #include "../fd_rwlock.h"
 
 /* fd_new_votes_t tracks vote account presence across epoch boundaries.

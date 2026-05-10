@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_discof_restore_utils_fd_ssarchive_h
 #define HEADER_fd_src_discof_restore_utils_fd_ssarchive_h
 
-#include "../../../util/fd_util_base.h"
-#include "../../../flamenco/types/fd_types_custom.h"
+#include "../../../flamenco/fd_flamenco_base.h"
 
 FD_PROTOTYPES_BEGIN
 

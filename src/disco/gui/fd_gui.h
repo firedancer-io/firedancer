@@ -16,7 +16,6 @@
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../flamenco/leaders/fd_leaders.h"
-#include "../../flamenco/types/fd_types_custom.h"
 #include "../../util/fd_util_base.h"
 #include "../../util/hist/fd_histf.h"
 #include "../../waltz/http/fd_http_server.h"

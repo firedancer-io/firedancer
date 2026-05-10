@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_fd_txncache_private_h
 
 #include "fd_txncache_shmem.h"
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 #include "../fd_rwlock.h"
 
 /* The number of transactions in each page.  This needs to be high

@@ -133,6 +133,8 @@ typedef struct fd_stake_rewards fd_stake_rewards_t;
 struct fd_top_votes;
 typedef struct fd_top_votes fd_top_votes_t;
 
+/* Misc types */
+
 #define FD_EPOCH_CREDITS_MAX (64UL)
 struct fd_epoch_credits {
   uchar  pubkey[32];
@@ -164,5 +166,30 @@ FD_FN_PURE static inline uchar *
 fd_account_data( fd_account_meta_t const * acc ) {
   return (uchar *)( acc+1 );
 }
+
+struct fd_hard_fork {
+  ulong slot;
+  ulong cnt; /* number of hard forks in that slot */
+};
+typedef struct fd_hard_fork fd_hard_fork_t;
+
+struct fd_fee_rate_governor {
+  ulong target_lamports_per_signature;
+  ulong target_signatures_per_slot;
+  ulong min_lamports_per_signature;
+  ulong max_lamports_per_signature;
+  uchar burn_percent;
+};
+typedef struct fd_fee_rate_governor fd_fee_rate_governor_t;
+
+struct fd_inflation {
+  double initial;
+  double terminal;
+  double taper;
+  double foundation;
+  double foundation_term;
+  double unused;
+};
+typedef struct fd_inflation fd_inflation_t;
 
 #endif /* HEADER_fd_src_flamenco_fd_flamenco_base_h */
