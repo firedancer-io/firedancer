@@ -125,7 +125,7 @@ mock_one_input( uchar * input,
   p += 32UL;
 
   /* txn idx */
-  *(ulong *)p = 12345UL;
+  *(ulong *)p = FD_SLOT_DELTA_MAX_TXNHASH_OFFSET;
   p += sizeof(ulong);
 
   /* cache status len */
@@ -268,7 +268,7 @@ mock_slot_delta_input( uchar * input,
       fd_memcpy( p, blockhash, 32UL );
       p += 32UL;
 
-      *(ulong *)p = 12345UL; /* txn idx */
+      *(ulong *)p = FD_SLOT_DELTA_MAX_TXNHASH_OFFSET; /* txn idx */
       p += sizeof(ulong);
 
       *(ulong *)p = num_cache_statuses[j]; /* cache status len */
@@ -446,6 +446,23 @@ test_zero_slot_deltas( fd_slot_delta_parser_t * parser ) {
 }
 
 static void
+test_invalid_txnhash_offset( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 97UL ];
+  fd_slot_delta_parser_init( parser );
+  mock_one_input_with_error( input, sizeof(input), 1, 1000UL, MOCK_ERROR_TYPE_NONE, 0 );
+
+  uchar * p = input;
+  p += sizeof(ulong); /* slot deltas len */
+  p += sizeof(ulong); /* slot */
+  p += sizeof(uchar); /* is_root */
+  p += sizeof(ulong); /* status len */
+  p += 32UL;          /* blockhash */
+  *(ulong *)p = FD_SLOT_DELTA_MAX_TXNHASH_OFFSET + 1UL;
+
+  consume( parser, input, sizeof(input), entry_cb_no_err, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET );
+}
+
+static void
 test_too_many_entries( fd_slot_delta_parser_t * parser ) {
   uchar input[ 5125UL ];
   ulong slots[ 301UL ];
@@ -490,6 +507,7 @@ int main( int     argc,
   test_zero_slot_deltas( slot_delta_parser );
   test_multiple_slot_deltas_no_entries( slot_delta_parser );
   test_duplicate_slots( slot_delta_parser );
+  test_invalid_txnhash_offset( slot_delta_parser );
   test_too_many_entries( slot_delta_parser );
 
   fd_wksp_free_laddr( fd_slot_delta_parser_delete( fd_slot_delta_parser_leave( slot_delta_parser ) ) );
