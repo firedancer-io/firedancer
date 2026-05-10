@@ -1119,7 +1119,9 @@ fd_tower_from_vote_acc( fd_tower_vote_t * votes,
                         uchar  const    * vote_acc ) {
   fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
   uint                  kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
+  ulong                 vote_cnt = fd_vote_acc_vote_cnt( vote_acc );
+  FD_TEST( vote_cnt <= MAX_LOCKOUT_HISTORY );
+  for( ulong i=0; i<vote_cnt; i++ ) {
     switch( kind ) {
     case FD_VOTE_ACC_V4: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
     case FD_VOTE_ACC_V3: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
@@ -1132,10 +1134,13 @@ fd_tower_from_vote_acc( fd_tower_vote_t * votes,
 
 ulong
 fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_MAX ],
-                                 uchar const *      vote_acc ) {
+                                 uchar const        vote_acc[ static FD_VOTE_STATE_DATA_MAX ] ) {
   fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
-  uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
+  uint                  kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
+
+  ulong vote_cnt = fd_vote_acc_vote_cnt( vote_acc );
+  FD_TEST( vote_cnt <= MAX_LOCKOUT_HISTORY );
+  for( ulong i=0; i<vote_cnt; i++ ) {
     switch( kind ) {
     case FD_VOTE_ACC_V4: tower[ i ] = (fd_vote_acc_vote_t){ .latency = v4_off( voter )[i].latency, .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf }; break;
     case FD_VOTE_ACC_V3: tower[ i ] = (fd_vote_acc_vote_t){ .latency = voter->v3.votes[i].latency, .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf }; break;
@@ -1143,8 +1148,7 @@ fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_
     default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
     }
   }
-
-  return fd_vote_acc_vote_cnt( vote_acc );
+  return vote_cnt;
 }
 
 void
