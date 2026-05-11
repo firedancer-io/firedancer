@@ -228,11 +228,10 @@ add_feature_account( test_env_t *            env,
     .is_active       = 1,
     .activation_slot = activation_slot
   };
-  uchar feature_data[ sizeof(fd_feature_t) ];
-  fd_memcpy( feature_data, &feature, sizeof(feature) );
 
   fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, id->id.key );
-  entry.data_len   = sizeof(feature_data);
+  fd_memcpy( entry.data, &feature, sizeof(feature) );
+  entry.data_len   = sizeof(feature);
   entry.lamports   = 1UL;
   entry.executable = 0;
   fd_memcpy( entry.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
