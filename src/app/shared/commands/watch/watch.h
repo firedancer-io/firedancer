@@ -6,6 +6,7 @@
 
 FD_PROTOTYPES_BEGIN
 
+void watch_cmd_args( int * pargc, char *** pargv, args_t * args );
 void watch_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 void watch_cmd_fn  ( args_t * args, config_t * config );
 
