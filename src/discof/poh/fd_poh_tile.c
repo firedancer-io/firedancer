@@ -137,10 +137,11 @@ returnable_frag( fd_poh_tile_t *     ctx,
   /* Pack periodically publishes a tighter microblock bound over the
      pack_poh link. */
   if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    if( FD_UNLIKELY( !fd_poh_have_leader_bank( ctx->poh ) ) ) return 0; /* must have become leader first */
     FD_TEST( sz==sizeof(ulong) );
     ulong const * new_max = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_poh_update_max_microblocks( ctx->poh, *new_max );
-    ctx->idle_cnt = 0UL;
     return 0;
   }
 
