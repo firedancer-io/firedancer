@@ -690,6 +690,12 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   } else {
     /* This is not the first shred in the set */
 
+    /* Verify that the shred's slot and fec_set_idx match the context
+       established by the first shred. */
+    if( FD_UNLIKELY( shred->slot!=ctx->slot || shred->fec_set_idx!=ctx->fec_set_idx ) ) {
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
+
     /* First ensure that all the shreds in the FEC set have consistent
        variants.  They all must have the same tree_depth and the same
        chained/not chained, resigned/not resigned bits. */
