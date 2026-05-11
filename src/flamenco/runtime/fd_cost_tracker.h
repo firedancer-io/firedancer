@@ -31,10 +31,28 @@
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT (4)
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT (5)
 
-/* A reasonably tight bound can be derived based on CUs.  The most
-   optimal use of CUs is to pack as many writable accounts as possible
-   for as cheaply as possible.  This means we should try to pack as many
-   writable accounts as possible into each transaction.  Each
+/* A reasonably tight bound of the number of writable accounts per slot
+   can be derived from worst-case CU limits.  For the cost tracker,
+   there are two main codepaths:
+   - Simple vote transactions: legacy transactions that invoke the vote
+     program.  These can have unused writable accounts.
+   - Everything else: these trasnactions are charged based on CUs per
+     signature and write lock.
+
+   For the simple vote transactions, the worst-case transaction has 35
+   writable accounts.  These transactions can not use ALTs and are
+   subject to fitting within the transaction size limit (1232B).
+
+   36000000 vote CUs per slot
+   3428 CUs per simple vote transaction
+   35 writable accounts per simple vote transaction
+   Therefore, the number of simple vote transactions per slot is:
+   (36000000 / 3428) = 10499 vote txns per slot
+   Therefore, the number of writable accounts per slot is:
+   (10499 * 35) = 367535 writable accounts per slot
+
+   Now consider the general case.  This means we should try to pack as
+   many writable accounts as possible into each transaction.  Each
    transaction requires at least one signature.  We will assume that all
    of these accounts have no account data.
 
@@ -50,11 +68,15 @@
    So, 5020 transactions per slot * 64 accounts per transaction =
    321280 writable accounts per slot.
 
-   NOTE: A slightly tighter bound can probably be derived. */
+   We should use the bound derived from simple vote transactions.
 
-#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT ( \
-  FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION * (FD_MAX_BLOCK_UNITS_SIMD_0286 / ( FD_WRITE_LOCK_UNITS * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION + FD_PACK_COST_PER_SIGNATURE)) )
-FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==321280UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
+   TODO: After remove_simple_vote_from_cost_model is activated, the
+   smaller bound can be used. */
+
+   #define FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT               (FD_MAX_VOTE_UNITS / FD_SIMPLE_VOTE_USAGE_COST)
+   #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS (35UL) /* see FD_TXN_ACCT_ADDR_MAX */
+   #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT      (FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS)
+   FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
 
 /* TODO: Extremely gross.  Used because these are in a pool which needs
    to be compile time sized T. */
