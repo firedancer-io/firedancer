@@ -36,7 +36,7 @@
    there are two main codepaths:
    - Simple vote transactions: legacy transactions that invoke the vote
      program.  These can have unused writable accounts.
-   - Everything else: these trasnactions are charged based on CUs per
+   - Everything else: these transactions are charged based on CUs per
      signature and write lock.
 
    For the simple vote transactions, the worst-case transaction has 35
@@ -47,9 +47,9 @@
    3428 CUs per simple vote transaction
    35 writable accounts per simple vote transaction
    Therefore, the number of simple vote transactions per slot is:
-   (36000000 / 3428) = 10499 vote txns per slot
+   (36000000 / 3428) = 10501 vote txns per slot
    Therefore, the number of writable accounts per slot is:
-   (10499 * 35) = 367535 writable accounts per slot
+   (10501 * 35) = 367535 writable accounts per slot
 
    Now consider the general case.  This means we should try to pack as
    many writable accounts as possible into each transaction.  Each
@@ -73,10 +73,10 @@
    TODO: After remove_simple_vote_from_cost_model is activated, the
    smaller bound can be used. */
 
-   #define FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT               (FD_MAX_VOTE_UNITS / FD_SIMPLE_VOTE_USAGE_COST)
-   #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS (35UL) /* see FD_TXN_ACCT_ADDR_MAX */
-   #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT      (FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS)
-   FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
+#define FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT               (FD_MAX_VOTE_UNITS / FD_SIMPLE_VOTE_USAGE_COST)
+#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS (35UL) /* see FD_TXN_ACCT_ADDR_MAX */
+#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT      (FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS)
+FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
 
 /* TODO: Extremely gross.  Used because these are in a pool which needs
    to be compile time sized T. */
