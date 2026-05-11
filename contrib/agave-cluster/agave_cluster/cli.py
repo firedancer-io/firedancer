@@ -4,7 +4,7 @@
 
 import os
 import sys
-import subprocess
+import subprocess  # nosec B404
 import shutil
 import click
 from pathlib import Path
@@ -45,6 +45,7 @@ def solana_binary(name):
 def create_key(key_path):
     solana_keygen = solana_binary('solana-keygen')
     subprocess.run([solana_keygen, "new", "--no-bip39-passphrase", "--silent", "--outfile", key_path, "--force"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    os.chmod(key_path, 0o600)
 
 def get_pubkey(key_path):
     """Get the public key from a key file."""
@@ -1163,7 +1164,7 @@ def show_logs(ctx, node_id, follow, lines):
 
         if follow:
             try:
-                subprocess.run(['tail', '-f', '-n', str(lines), log_file])
+                subprocess.run(['tail', '-f', '-n', str(lines), log_file])  # nosec B603
             except KeyboardInterrupt:
                 click.echo("\nStopped following logs.")
             except FileNotFoundError:
