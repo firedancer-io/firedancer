@@ -1,0 +1,198 @@
+<?xml version="1.0"?>
+<!--
+The eXtended Keccak Code Package (XKCP)
+https://github.com/XKCP/XKCP
+
+Implementation by Gilles Van Assche and Ronny Van Keer, hereby denoted as "the implementer".
+
+For more information, feedback or questions, please refer to the Keccak Team website:
+https://keccak.team/
+
+To the extent possible under law, the implementer has waived all copyright
+and related or neighboring rights to the source code in this file.
+http://creativecommons.org/publicdomain/zero/1.0/
+-->
+<build all="all" xmlns:xi="http://www.w3.org/2001/XInclude">
+
+    <xi:include href="lib/HighLevel.build"/>
+    <xi:include href="lib/LowLevel.build"/>
+    <xi:include href="tests/SUPERCOP/SUPERCOP.build"/>
+    <xi:include href="tests/NIST_LWC/NIST_LWC.build"/>
+    <xi:include href="doc/HOWTO-customize.build"/>
+
+    <!-- For the name of the targets, please see the end of this file. -->
+
+    <fragment name="common">
+        <h>lib/common/align.h</h>
+        <h>lib/common/brg_endian.h</h>
+        <h>lib/low/common/SnP-implementations.h</h>
+        <c>lib/low/common/SnP-implementations.c</c>
+    </fragment>
+
+    <!-- *** Utilities *** -->
+
+    <!-- The unit tests -->
+    <fragment name="UT" inherits="common">
+        <c>tests/UnitTests/main.c</c>
+        <c>tests/UnitTests/UT.c</c>
+        <h>tests/UnitTests/UT.h</h>
+        <c>tests/UnitTests/testPermutations.c</c>
+        <h>tests/UnitTests/testPermutations.h</h>
+        <inc>tests/UnitTests/testSnP.inc</inc>
+        <inc>tests/UnitTests/testSnPnominal.inc</inc>
+        <inc>tests/UnitTests/testPlSnP.inc</inc>
+        <c>tests/UnitTests/testSponge.c</c>
+        <inc>tests/UnitTests/testSponge.inc</inc>
+        <h>tests/UnitTests/testSponge.h</h>
+        <c>tests/UnitTests/testDuplex.c</c>
+        <c>tests/UnitTests/testShakingUpAE.c</c>
+        <inc>tests/UnitTests/testDuplex.inc</inc>
+        <h>tests/UnitTests/testDuplex.h</h>
+        <h>tests/UnitTests/testShakingUpAE.h</h>
+        <c>tests/UnitTests/genKAT.c</c>
+        <h>tests/UnitTests/genKAT.h</h>
+        <c>tests/UnitTests/testPRG.c</c>
+        <inc>tests/UnitTests/testPRG.inc</inc>
+        <h>tests/UnitTests/testPRG.h</h>
+        <c>tests/UnitTests/testKangarooTwelve.c</c>
+        <h>tests/UnitTests/testKangarooTwelve.h</h>
+        <c>tests/UnitTests/testKravatte.c</c>
+        <h>tests/UnitTests/testKravatte.h</h>
+        <c>tests/UnitTests/testKravatteModes.c</c>
+        <h>tests/UnitTests/testKravatteModes.h</h>
+        <c>tests/UnitTests/testSP800-185.c</c>
+        <h>tests/UnitTests/testSP800-185.h</h>
+        <c>tests/UnitTests/testXoofff.c</c>
+        <h>tests/UnitTests/testXoofff.h</h>
+        <c>tests/UnitTests/testXoofffModes.c</c>
+        <h>tests/UnitTests/testXoofffModes.h</h>
+        <c>tests/UnitTests/testXoodyak.c</c>
+        <h>tests/UnitTests/testXoodyak.h</h>
+        <inc>tests/UnitTests/testXoodyakHash.inc</inc>
+        <inc>tests/UnitTests/testXoodyakKeyed.inc</inc>
+    </fragment>
+
+    <fragment name="UnitTests" inherits="All UT"/>
+
+
+    <!-- The benchmarking tool -->
+
+    <fragment name="BM" inherits="common">
+        <c>tests/Benchmarks/main.c</c>
+        <c>tests/Benchmarks/testPerformance.c</c>
+        <c>tests/Benchmarks/timing.c</c>
+        <h>tests/Benchmarks/timing.h</h>
+        <h>tests/Benchmarks/testPerformance.h</h>
+        <inc>tests/Benchmarks/timingSnP.inc</inc>
+        <inc>tests/Benchmarks/timingPlSnP.inc</inc>
+        <inc>tests/Benchmarks/timingSponge.inc</inc>
+        <c>tests/Benchmarks/testXooPerformance.c</c>
+        <h>tests/Benchmarks/testXooPerformance.h</h>
+        <inc>tests/Benchmarks/timingXooSnP.inc</inc>
+        <inc>tests/Benchmarks/timingXooPlSnP.inc</inc>
+        <gcc>-lm</gcc>
+    </fragment>
+
+    <fragment name="Benchmarks" inherits="All BM"/>
+
+    <!-- To compute a hash of a file -->
+    <fragment name="KeccakSum" inherits="FIPS202 SP800-185 KangarooTwelve">
+        <c>util/KeccakSum/KeccakSum.c</c>
+        <c>util/KeccakSum/base64.c</c>
+        <h>util/KeccakSum/base64.h</h>
+    </fragment>
+
+    <!-- To make a library -->
+    <fragment name="libXKCP.a" inherits="All"/>
+    <fragment name="libXKCP.so" inherits="All"/>
+
+    <!-- *** CAESAR-related targets *** -->
+
+    <fragment name="crypto_aead_test">
+        <h>tests/SUPERCOP/test_crypto_aead.h</h>
+        <c>tests/SUPERCOP/test_crypto_aead.c</c>
+    </fragment>
+
+    <!-- *** Targets *** -->
+
+    <!-- Reference implementations -->
+    <fragment name="reference" inherits="K1600-ref-64bits Xoodoo-ref">
+        <c>tests/UnitTests/displayIntermediateValues.c</c>
+        <h>tests/UnitTests/displayIntermediateValues.h</h>
+        <define>KeccakReference</define>
+        <gcc>-O</gcc>
+    </fragment>
+
+    <!-- Reference implementations dedicated to 32-bit platforms
+        (i.e., featuring bit interleaving for Keccak-p[1600]) -->
+    <fragment name="reference32bits" inherits="K1600-ref-32bits Xoodoo-ref">
+        <c>tests/UnitTests/displayIntermediateValues.c</c>
+        <h>tests/UnitTests/displayIntermediateValues.h</h>
+        <define>KeccakReference</define>
+        <define>KeccakReference32BI</define>
+        <gcc>-O</gcc>
+    </fragment>
+
+    <!-- Compact implementations -->
+    <fragment name="compact" inherits="K1600-compact Xoodoo-plain-ua"/>
+
+    <!-- Generically optimized 32-bit implementations -->
+    <fragment name="generic32" inherits="K1600-plain-32bits-inplace Xoodoo-plain-ua"/>
+    <!-- Generically optimized 32-bit implementations, featuring lane complementing -->
+    <fragment name="generic32lc" inherits="K1600-plain-32bits-inplace Xoodoo-plain-ua"/>
+
+    <!-- Generically optimized 64-bit implementations -->
+    <fragment name="generic64" inherits="K1600-plain-64bits-ua Xoodoo-plain-ua"/>
+    <!-- Generically optimized 64-bit implementations, featuring lane complementing -->
+    <fragment name="generic64lc" inherits="K1600-plain-64bits-lcua Xoodoo-plain-ua"/>
+
+    <!-- Implementations selected for the processors that support the SSSE3 instruction set -->
+    <fragment name="SSSE3" inherits="K1600-plain-64bits-lcua K1600x2-SSSE3-u2 Xoodoo-SSSE3 Xoodoox4-SSSE3"/>
+
+    <!-- Implementations selected for processors that support the AVX instruction set (e.g., Sandy Bridge microarchitectures) -->
+    <fragment name="AVX" inherits="K1600-plain-64bits-lcua-shld K1600x2-SSSE3-ua Xoodoo-SSSE3 Xoodoox4-SSSE3">
+        <msvc>/arch:AVX</msvc>
+    </fragment>
+    <!-- Implementations selected for processors that support the XOP instruction set (e.g., Bulldozer microarchitecture) -->
+    <fragment name="XOP" inherits="K1600-XOP-ua K1600x2-XOP-ua Xoodoo-SSSE3 Xoodoox4-SSSE3"/>
+    <!-- Implementations selected for processors that support the AVX2 instruction set (e.g., Haswell and Skylake microarchitectures) -->
+    <fragment name="AVX2" inherits="K1600-AVX2 K1600x2-SSSE3-u2 K1600x4-AVX2-u12 Xoodoo-SSSE3 Xoodoox4-SSSE3 Xoodoox8-AVX2"/>
+    <!-- Same, but without the assembly file (for MS Visual Studio) -->
+    <fragment name="AVX2noAsm" inherits="K1600-plain-64bits-ua K1600x2-SSSE3-u2 K1600x4-AVX2-u12 Xoodoo-SSSE3 Xoodoox4-SSSE3 Xoodoox8-AVX2">
+        <msvc>/arch:AVX2</msvc>
+    </fragment>
+
+    <!-- Implementations selected for the processors that support the AVX-512 instruction set (e.g., SkylakeX microarchitecture) -->
+    <fragment name="AVX512"  inherits="K1600-AVX512 K1600x2-AVX512-u12 K1600x4-AVX512-u12 K1600x8-AVX512-u12 Xoodoo-AVX512 Xoodoox4-AVX512 Xoodoox8-AVX512 Xoodoox16-AVX512"/>
+    <!-- Same, but without the assembly file (for MS Visual Studio) -->
+    <fragment name="AVX512noAsm"  inherits="K1600-AVX512-C K1600x2-AVX512-u12 K1600x4-AVX512-u12 K1600x8-AVX512-u12 Xoodoo-AVX512 Xoodoox4-AVX512 Xoodoox8-AVX512 Xoodoox16-AVX512">
+        <msvc>/arch:AVX512</msvc>
+    </fragment>
+
+    <!-- Dispatcher over implementations selected for x86_64 platforms -->
+    <fragment name="x86-64" inherits="K1600-x86-64 Xoodoo-x86-64"/>
+
+    <!-- Implementations selected for ARMv6 -->
+    <fragment name="ARMv6" inherits="K1600-ARMv6M-u2 Xoodoo-ARMv6"/>
+    <!-- Implementations selected for ARMv6M -->
+    <fragment name="ARMv6M" inherits="K1600-ARMv6M-u2 Xoodoo-ARMv6M"/>
+    <!-- Implementations selected for ARMv7M -->
+    <fragment name="ARMv7M" inherits="K1600-ARMv7M-inplace Xoodoo-ARMv7M"/>
+    <!-- Implementations selected for ARMv7A -->
+    <fragment name="ARMv7A" inherits="K1600-ARMv7A-NEON K1600x2-ARMv7A-NEON Xoodoo-ARMv7A-NEON Xoodoox4-ARMv7A-NEON"/>
+
+    <!-- Implementations selected for ARMv8A -->
+    <fragment name="ARMv8A" inherits="K1600-plain-64bits-ua Xoodoo-plain-ua"/>
+
+    <!-- Implementations selected for 8-bit AVR -->
+    <fragment name="AVR8" inherits="K1600-AVR8 Xoodoo-AVR8"/>
+
+    <!-- Target names are of the form x/y where x is taken from the first set and y from the second set. -->
+    <group all="XKCP">
+        <product delimiter="/">
+            <factor set="reference reference32bits compact generic32 generic32lc generic64 generic64lc SSSE3 AVX XOP AVX2 AVX2noAsm AVX512 AVX512noAsm x86-64 ARMv6 ARMv6M ARMv7M ARMv7A ARMv8A AVR8"/>
+            <factor set="UnitTests Benchmarks KeccakSum libXKCP.a libXKCP.so libXKCP.dylib"/>
+        </product>
+    </group>
+
+</build>

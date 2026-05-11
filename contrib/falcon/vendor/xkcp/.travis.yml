@@ -1,0 +1,117 @@
+notifications:
+  email:
+    recipients:
+      - gilles-travis@noekeon.org
+    on_success: always
+    on_failure: always
+
+language: c
+
+sudo: required
+
+before_install:
+  - if [ "$TRAVIS_OS_NAME" = "linux" ]; then sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test && sudo apt-get -qq update && sudo apt-get install xsltproc; fi  
+
+jobs:
+  allow_failures:
+    - script: make generic64/UnitTests && bin/generic64/UnitTests -a
+      arch: arm64
+      compiler: clang
+    - script: make ARMv8A/UnitTests && bin/ARMv8A/UnitTests -a
+      arch: arm64
+  include:
+    - stage: "Tests on ARM64 (linux)"
+      script: make generic64/UnitTests && bin/generic64/UnitTests -a
+      os: linux
+      arch: arm64
+      compiler: gcc
+      name: "generic64 (gcc)"
+    - script: make generic64/UnitTests && bin/generic64/UnitTests -a
+      os: linux
+      arch: arm64
+      compiler: clang
+      name: "generic64 (clang)"
+    - script: make ARMv8A/UnitTests && bin/ARMv8A/UnitTests -a
+      os: linux
+      arch: arm64
+      compiler: gcc
+      name: "ARMv8A (gcc)"
+    - script: make ARMv8A/UnitTests && bin/ARMv8A/UnitTests -a
+      os: linux
+      arch: arm64
+      compiler: clang
+      name: "ARMv8A (clang)"
+
+    - stage: "Tests on AMD64 (linux)"
+      script: make generic64/UnitTests && bin/generic64/UnitTests -a
+      os: linux
+      arch: amd64
+      compiler: gcc
+      name: "generic64 (gcc)"
+    - script: make generic64/UnitTests && bin/generic64/UnitTests -a
+      os: linux
+      arch: amd64
+      compiler: clang
+      name: "generic64 (clang)"
+    - script: make SSSE3/UnitTests && bin/SSSE3/UnitTests -a
+      os: linux
+      arch: amd64
+      compiler: gcc
+      name: "SSSE3 (gcc)"
+    - script: make SSSE3/UnitTests && bin/SSSE3/UnitTests -a
+      os: linux
+      arch: amd64
+      compiler: clang
+      name: "SSSE3 (clang)"
+    - script: make AVX/UnitTests && bin/AVX/UnitTests -a
+      os: linux
+      arch: amd64
+      compiler: gcc
+      name: "AVX (gcc)"
+    - script: make AVX/UnitTests && bin/AVX/UnitTests -a
+      os: linux
+      arch: amd64
+      compiler: clang
+      name: "AVX (clang)"
+    - script: make AVX2/UnitTests && bin/AVX2/UnitTests -a
+      os: linux
+      arch: amd64
+      compiler: gcc
+      name: "AVX2 (gcc)"
+    - script: make AVX2/UnitTests && bin/AVX2/UnitTests -a
+      os: linux
+      arch: amd64
+      compiler: clang
+      name: "AVX2 (clang)"
+ 
+    - stage: "Tests on AMD64 (osx)"
+      script: make generic64/UnitTests && bin/generic64/UnitTests -a
+      os: osx
+      arch: amd64
+      compiler: gcc
+      name: "generic64 (gcc)"
+    - script: make generic64/UnitTests && bin/generic64/UnitTests -a
+      os: osx
+      arch: amd64
+      compiler: clang
+      name: "generic64 (clang)"
+    - script: make SSSE3/UnitTests && bin/SSSE3/UnitTests -a
+      os: osx
+      arch: amd64
+      compiler: gcc
+      name: "SSSE3 (gcc)"
+    - script: make SSSE3/UnitTests && bin/SSSE3/UnitTests -a
+      os: osx
+      arch: amd64
+      compiler: clang
+      name: "SSSE3 (clang)"
+    - script: make AVX/UnitTests && bin/AVX/UnitTests -a
+      os: osx
+      arch: amd64
+      compiler: gcc
+      name: "AVX (gcc)"
+    - script: make AVX/UnitTests && bin/AVX/UnitTests -a
+      os: osx
+      arch: amd64
+      compiler: clang
+      name: "AVX (clang)"
