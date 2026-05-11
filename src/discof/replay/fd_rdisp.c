@@ -914,10 +914,13 @@ update_ema( acct_info_t * info,
   /* last_ref only captures the low 24 bits, so we guess its the highest
      value for them that would still make it less than
      global_insert_cnt.  Turns out, we can calculate that with just an
-     AND. */
+     AND.  We need to make sure that in the rare case it is actually
+     2^24 away, we don't use a delta of 0.  We also want to make sure
+     that even with inexact float math, we never get to 1.0, so we bias
+     the exponent up slightly. */
   ulong last_ref = (ulong)info->last_ref;
-  ulong delta = (global_insert_cnt - last_ref) & 0xFFFFFFUL;
-  float ema_refs = ALPHA + powf( 1.0f-ALPHA, (float)delta ) * info->ema_refs;
+  ulong delta = fd_ulong_max( (global_insert_cnt - last_ref) & 0xFFFFFFUL, 1UL );
+  float ema_refs = ALPHA + powf( 1.0f-ALPHA, 0.05f+(float)delta ) * info->ema_refs;
 
   info->ema_refs = ema_refs;
   info->last_ref = (uint)(global_insert_cnt & 0xFFFFFFUL);
@@ -1011,8 +1014,10 @@ add_edges( fd_rdisp_t           * disp,
        Since for the treap, a lower value means we'll schedule it
        earlier, we'll use the probability of non-conflict as the
        fractional part of the score. */
-    float score_change = 1.0f - update_ema( ai, disp->global_insert_cnt );
-    ele->score *= fd_float_if( writable & update_score, score_change, 1.0f );
+    if( FD_LIKELY( update_score ) ) {
+      float score_change = 1.0f - update_ema( ai, disp->global_insert_cnt );
+      ele->score *= fd_float_if( writable, score_change, 1.0f );
+    }
 
     /* Step 2: add edge. There are 4 cases depending on whether this is
        a writer or not and whether the previous reference was a writer
