@@ -790,7 +790,7 @@ fd_executor_create_rollback_fee_payer_account( fd_runtime_t *      runtime,
       fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     } else {
       /* Copy from account database */
-      fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
+      fd_funk_txn_xid_t xid = fd_bank_xid( bank );
       fd_accdb_ro_t fee_payer_ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( runtime->accdb, fee_payer_ro, &xid, fee_payer_key ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( fee_payer_key->uc, fee_payer_key_b58 );
@@ -885,7 +885,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
       FD_LOG_DEBUG(( "fd_executor_setup_txn_alut_account_keys(): failed to get slot hashes" ));
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
-    fd_funk_txn_xid_t xid       = { .ul = { bank->f.slot, bank->idx } };
+    fd_funk_txn_xid_t xid       = fd_bank_xid( bank );
     fd_acct_addr_t *  accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_out->accounts.keys[txn_out->accounts.cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( txn_in,
                                                          TXN( txn_in->txn ),
@@ -1267,7 +1267,7 @@ fd_executor_setup_txn_account( fd_runtime_t *      runtime,
   }
 
   if( FD_LIKELY( !account ) ) {
-    fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
+    fd_funk_txn_xid_t xid = fd_bank_xid( bank );
     account = (fd_accdb_rw_t *)fd_accdb_open_ro( runtime->accdb, ref_slot->ro, &xid, address );
     /* creates a database reference, which is explicitly dropped here
        or in commit/cancel */
@@ -1346,7 +1346,7 @@ fd_executor_setup_executable_account( fd_runtime_t *            runtime,
      will fail at the instruction execution level since the programdata
      account will not exist within the executable accounts list. */
   fd_pubkey_t *     programdata_acc = &program_loader_state->inner.program.programdata_address;
-  fd_funk_txn_xid_t xid             = { .ul = { bank->f.slot, bank->idx } };
+  fd_funk_txn_xid_t xid             = fd_bank_xid( bank );
 
   fd_accdb_ro_t * ro = &runtime->accounts.executable[ *executable_idx ];
 

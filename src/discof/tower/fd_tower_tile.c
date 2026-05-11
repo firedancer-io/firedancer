@@ -916,7 +916,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
   fd_top_votes_iter_t *  iter          = fd_top_votes_iter_init( top_votes_t_2, ctx->iter_mem );
 
   fd_accdb_ro_pipe_t ro_pipe[1];
-  fd_funk_txn_xid_t  xid = { .ul = { slot_completed->slot, slot_completed->bank_idx } };
+  fd_funk_txn_xid_t  xid = fd_bank_xid( bank );
   fd_accdb_ro_pipe_init( ro_pipe, ctx->accdb, &xid );
 
   for(;;) {
@@ -965,7 +965,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
 
   *our_vote_acct_bal    = ULONG_MAX;
   *found_our_vote_acct  = 0;
-  fd_funk_txn_xid_t reconcile_xid = { .ul = { slot_completed->slot, slot_completed->bank_idx } };
+  fd_funk_txn_xid_t reconcile_xid = fd_bank_xid( bank );
   fd_accdb_ro_t reconcile_ro[1];
   if( FD_LIKELY( fd_accdb_open_ro( ctx->accdb, reconcile_ro, &reconcile_xid, ctx->vote_account ) ) ) {
     *found_our_vote_acct = 1;

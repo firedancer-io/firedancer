@@ -224,6 +224,8 @@ test_env_create( test_env_t * env,
 
   env->bank = fd_banks_init_bank( env->banks );
   FD_TEST( env->bank );
+  env->bank->f.slot  = 1UL;
+  env->bank->f.epoch = 1UL;
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
@@ -231,7 +233,7 @@ test_env_create( test_env_t * env,
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 1UL, env->bank->idx } };
+  env->xid = fd_bank_xid( env->bank );
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
 
   init_rent_sysvar( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
@@ -239,9 +241,6 @@ test_env_create( test_env_t * env,
   init_stake_history_sysvar( env );
   init_clock_sysvar( env );
   init_blockhash_queue( env );
-
-  env->bank->f.slot = 1UL;
-  env->bank->f.epoch = 1UL;
 
   fd_bank_top_votes_t_2_modify( env->bank );
 
@@ -343,8 +342,8 @@ process_slot( test_env_t * env,
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
   new_bank->f.epoch = epoch;
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+  fd_funk_txn_xid_t xid        = fd_bank_xid( new_bank    );
+  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
   fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
 
   env->xid  = xid;

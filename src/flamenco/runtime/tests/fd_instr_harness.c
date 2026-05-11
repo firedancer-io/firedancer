@@ -210,10 +210,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-  fd_funk_txn_xid_t exec_xid[1] = {{ .ul={ runner->bank->f.slot, runner->bank->idx } }};
-  fd_accdb_attach_child    ( runner->accdb_admin,     xid, exec_xid );
-  fd_progcache_attach_child( runner->progcache->join, xid, exec_xid );
-
   /* Load instruction accounts */
 
   if( FD_UNLIKELY( test_ctx->instr_accounts_count > FD_INSTR_ACCT_MAX ) ) {
@@ -234,6 +230,10 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, clock_ );
   FD_TEST( clock );
   runner->bank->f.slot = clock->slot;
+
+  fd_funk_txn_xid_t exec_xid[1] = { fd_bank_xid( runner->bank ) };
+  fd_accdb_attach_child    ( runner->accdb_admin,     xid, exec_xid );
+  fd_progcache_attach_child( runner->progcache->join, xid, exec_xid );
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );

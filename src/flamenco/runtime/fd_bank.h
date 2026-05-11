@@ -341,6 +341,7 @@ typedef struct fd_bank fd_bank_t;
 struct fd_banks_prune_cancel_info {
   fd_txncache_fork_id_t txncache_fork_id;
   ulong                 slot;
+  ulong                 bank_seq;
   ulong                 bank_idx;
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
@@ -665,7 +666,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
 /* fd_banks_clear releases all banks back to the pool and resets the
    banks manager to its post-new state.  Assumes no active references to
-   any bank. */
+   any bank.  WARNING: collision risk, resets bank_seq to 0. */
 
 void
 fd_banks_clear( fd_banks_t * banks );
@@ -762,6 +763,14 @@ fd_banks_get_frontier( fd_banks_t * banks,
 
 int
 fd_banks_is_full( fd_banks_t * banks );
+
+/* fd_bank_xid returns the accdb/progcache xid for the given bank. */
+
+static inline fd_xid_t
+fd_bank_xid( fd_bank_t const * bank ) {
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "NULL bank" ));
+  return (fd_xid_t){ .ul = { bank->f.slot, bank->bank_seq } };
+}
 
 FD_PROTOTYPES_END
 

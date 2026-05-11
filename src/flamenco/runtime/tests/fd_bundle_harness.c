@@ -37,13 +37,15 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 
   fd_accdb_user_t * accdb = runner->accdb;
 
-  ulong             slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
-  fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->idx } };
+  fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
+  ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
+  runner->bank->f.slot = slot;
+
+  fd_funk_txn_xid_t xid = fd_bank_xid( runner->bank );
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
   fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
 
-  fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
 
@@ -51,7 +53,6 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   runner->bank->stake_delegations_fork_id = fd_stake_delegations_new_fork( stake_delegations );
   runner->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( runner->bank ) );
 
-  runner->bank->f.slot = slot;
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
   runner->bank->f.rbh_lamports_per_sig = txn_bank->rbh_lamports_per_signature;
 

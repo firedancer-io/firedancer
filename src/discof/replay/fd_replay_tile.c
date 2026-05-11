@@ -89,7 +89,7 @@
 
 /* The first bank that the replay tile produces either for genesis
    or the snapshot boot will always be at bank index 0. */
-#define FD_REPLAY_BOOT_BANK_IDX (0UL)
+#define FD_REPLAY_BOOT_BANK_SEQ (0UL)
 
 static inline ulong
 fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) {
@@ -264,8 +264,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
   FD_CRIT( parent_bank, "invariant violation: parent bank is NULL" );
   FD_CRIT( parent_bank->state==FD_BANK_STATE_FROZEN, "invariant violation: parent bank is not in correct state" );
 
-  ulong parent_slot = parent_bank->f.slot;
-
   /* Clone the bank from the parent.  We must special case the first
      slot that is executed as the snapshot does not provide a parent
      block id. */
@@ -279,8 +277,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   /* Create a new funk txn for the block. */
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, bank_idx } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+  fd_funk_txn_xid_t xid        = fd_bank_xid( bank        );
+  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
   fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_attach_child( ctx->progcache,   &parent_xid, &xid );
 
@@ -405,6 +403,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++; /* rpc tile */
   slot_info->bank_idx = bank->idx;
+  slot_info->xid      = fd_bank_xid( bank );
   FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for tower, rpc", bank->idx, slot, bank->refcnt ));
 
   fd_bank_t * parent_bank = fd_banks_get_parent( ctx->banks, bank );
@@ -509,7 +508,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   /* fetch identity / vote balance updates infrequently */
   ulong slot = bank->f.slot;
-  fd_funk_txn_xid_t xid = { .ul = { slot, bank->idx } };
+  fd_funk_txn_xid_t xid = fd_bank_xid( bank );
   slot_info->identity_balance = FD_UNLIKELY( slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
   /* Mark the bank as frozen. */
@@ -559,7 +558,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !parent_bank ) ) {
     FD_LOG_CRIT(( "invariant violation: parent bank not found for bank index %lu", parent_bank_idx ));
   }
-  ulong parent_slot = parent_bank->f.slot;
 
   ctx->leader_bank = fd_banks_new_bank( ctx->banks, parent_bank_idx, now );
   if( FD_UNLIKELY( !ctx->leader_bank ) ) {
@@ -576,8 +574,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   ctx->leader_bank->f.slot = slot;
   ctx->leader_bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
   /* prepare the funk transaction for the leader bank */
-  fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->idx } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+  fd_funk_txn_xid_t xid        = fd_bank_xid( ctx->leader_bank );
+  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank      );
   fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
   fd_progcache_attach_child( ctx->progcache,   &parent_xid, &xid );
 
@@ -648,7 +646,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( ctx->leader_bank, slot_info );
-  fd_funk_txn_xid_t xid = { .ul = { curr_slot, ctx->leader_bank->idx } };
+  fd_funk_txn_xid_t xid = fd_bank_xid( ctx->leader_bank );
   slot_info->identity_balance = FD_UNLIKELY( curr_slot%4096==0UL ) ? get_identity_balance( ctx, xid ) : ULONG_MAX;
 
   fd_banks_mark_bank_frozen( ctx->leader_bank );
@@ -751,9 +749,9 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
      of data required for the stake delegations. See
      fd_stake_delegations.h for why this is required. */
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
   if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
+    FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
   }
 
   fd_runtime_update_next_leaders( bank, ctx->runtime_stack );
@@ -768,7 +766,7 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
   publish_epoch_info( ctx, stem, bank, 0 );
   publish_epoch_info( ctx, stem, bank, 1 );
 
-  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_funk_txn_xid_t xid = fd_bank_xid( bank );
   init_funk( ctx, bank->f.slot );
 
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
@@ -896,7 +894,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
   /* Acquires bank, sets up initial state, and refcnts it. */
   fd_bank_t *       bank = prepare_leader_bank( ctx, stem, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id );
-  fd_funk_txn_xid_t xid  = { .ul = { ctx->next_leader_slot, ctx->leader_bank->idx } };
+  fd_funk_txn_xid_t xid  = fd_bank_xid( ctx->leader_bank );
 
   fd_bundle_crank_tip_payment_config_t config[1] = { 0 };
   fd_pubkey_t tip_receiver_owner = {0};
@@ -1061,9 +1059,9 @@ boot_genesis( fd_replay_tile_t *        ctx,
   FD_TEST( meta->bootstrap && meta->has_lthash );
   FD_TEST( fd_genesis_parse( ctx->genesis, genesis_blob, meta->blob_sz ) );
 
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
   FD_TEST( bank );
-  fd_funk_txn_xid_t xid = { .ul = { 0UL, FD_REPLAY_BOOT_BANK_IDX } };
+  fd_funk_txn_xid_t xid = fd_bank_xid( bank );
 
   /* Do genesis-related processing in a non-rooted transaction */
   fd_funk_txn_xid_t root_xid = { .ul = { LONG_MAX, LONG_MAX } };
@@ -1169,9 +1167,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        state machine and set the state here accordingly. */
     ctx->is_booted = 1;
 
-    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
+    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ );
     if( FD_UNLIKELY( !bank ) ) {
-      FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
+      FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_SEQ ));
     }
 
     ulong snapshot_slot = bank->f.slot;
@@ -1193,7 +1191,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        the block id of the snapshot slot from repair. */
     fd_hash_t manifest_block_id = ctx->initial_block_id;
 
-    fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
+    fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_SEQ } };
     fd_features_restore( bank, ctx->accdb, &xid );
 
     FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb, &xid ) );
@@ -1259,7 +1257,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
       fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                          ctx->banks,
-                         fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
+                         fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
                          msg==FD_SSMSG_MANIFEST_INCREMENTAL );
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
@@ -1721,21 +1719,19 @@ accdb_root_op_total( fd_replay_tile_t const * ctx ) {
 
 static void
 accdb_advance_root( fd_replay_tile_t * ctx,
-                    ulong              slot,
-                    ulong              bank_idx ) {
-  fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = bank_idx };
-  FD_LOG_DEBUG(( "advancing root to slot=%lu", slot ));
+                    fd_xid_t const *   xid ) {
+  FD_LOG_DEBUG(( "advancing root to slot=%lu", xid->ul[0] ));
 
   long rooted_accounts   = -(long)accdb_root_op_total( ctx );
   long t0                = fd_tickcount();
-  fd_accdb_advance_root( ctx->accdb_admin, &xid );
+  fd_accdb_advance_root( ctx->accdb_admin, xid );
   rooted_accounts       += (long)accdb_root_op_total( ctx );
   long t1                = fd_tickcount();
   long root_accounts_dt  = t1 - t0;
   fd_histf_sample( ctx->metrics.root_slot_dur,    (ulong)root_accounts_dt );
   fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
 
-  fd_progcache_advance_root( ctx->progcache, &xid );
+  fd_progcache_advance_root( ctx->progcache, xid );
   long t2 = fd_tickcount();
   FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
 }
@@ -1773,7 +1769,8 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
   ulong advanceable_root_slot = bank->f.slot;
-  accdb_advance_root( ctx, advanceable_root_slot, bank->idx );
+  fd_xid_t const xid = fd_bank_xid( bank );
+  accdb_advance_root( ctx, &xid );
 
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
@@ -1837,7 +1834,7 @@ after_credit( fd_replay_tile_t *  ctx,
   int pruned = fd_banks_prune_one_dead_bank( ctx->banks, cancel_info );
   if( FD_UNLIKELY( pruned==2 ) ) {
     fd_txncache_cancel_fork( ctx->txncache, cancel_info->txncache_fork_id );
-    fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_idx } };
+    fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_seq } };
     fd_accdb_cancel    ( ctx->accdb_admin, &xid );
     fd_progcache_cancel( ctx->progcache,   &xid );
     *charge_busy = 1;
@@ -2501,7 +2498,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
   FD_TEST( bank );
   bank->f.slot = 0UL;
-  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_IDX );
+  FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_SEQ );
 
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->consensus_root      = ctx->initial_block_id;
