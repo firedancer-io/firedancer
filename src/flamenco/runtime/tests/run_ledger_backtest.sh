@@ -117,10 +117,6 @@ while [[ $# -gt 0 ]]; do
         DISABLE_LTHASH_VERIFICATION=false
         shift
         ;;
-    --funk)
-        DB=funk
-        shift
-        ;;
     --exec)
         EXECRP_TILE_COUNT="$2"
         shift
