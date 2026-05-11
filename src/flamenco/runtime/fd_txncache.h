@@ -247,4 +247,84 @@ fd_txncache_query( fd_txncache_t *       tc,
 
 FD_PROTOTYPES_END
 
+/* API to iterate over rooted blockhashes */
+
+struct fd_txncache_root_iter_ele {
+  fd_txncache_fork_id_t fork_id;
+  ulong                 txnhash_offset;
+  uchar                 blockhash[ 32UL ];
+};
+typedef struct fd_txncache_root_iter_ele fd_txncache_root_iter_ele_t;
+
+struct fd_txncache_root_iter {
+  fd_txncache_t *             tc;
+  ulong                       root_idx;
+  int                         done;
+  fd_txncache_root_iter_ele_t ele[ 1 ];
+};
+typedef struct fd_txncache_root_iter fd_txncache_root_iter_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* {init,fini} {acquire,release} a write lock on the txncache */
+
+fd_txncache_root_iter_t *
+fd_txncache_root_iter_init( fd_txncache_t *           tc,
+                            fd_txncache_root_iter_t * iter );
+
+fd_txncache_root_iter_t *
+fd_txncache_root_iter_fini( fd_txncache_root_iter_t * iter );
+
+int
+fd_txncache_root_iter_done( fd_txncache_root_iter_t const * iter );
+
+fd_txncache_root_iter_t *
+fd_txncache_root_iter_next( fd_txncache_root_iter_t * iter );
+
+fd_txncache_root_iter_ele_t const *
+fd_txncache_root_iter_ele( fd_txncache_root_iter_t const * iter );
+
+FD_PROTOTYPES_END
+
+/* API to iterate over transactions executed in a given blockhash */
+
+struct fd_txncache_iter_ele {
+  fd_txncache_fork_id_t fork_id; /* Fork where this transaction executed. */
+  uchar                 txnhash[ 20UL ];
+};
+typedef struct fd_txncache_iter_ele fd_txncache_iter_ele_t;
+
+struct fd_txncache_iter {
+  fd_txncache_t *        tc;
+  fd_txncache_fork_id_t  blockhash_fork_id;
+  ulong                  page_idx;
+  ulong                  txn_idx;
+  int                    done;
+  fd_txncache_iter_ele_t ele[ 1 ];
+};
+typedef struct fd_txncache_iter fd_txncache_iter_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* {init,fini} {acquire,release} a write lock on the txncache */
+
+fd_txncache_iter_t *
+fd_txncache_iter_init( fd_txncache_t *       tc,
+                       fd_txncache_iter_t *  iter,
+                       fd_txncache_fork_id_t blockhash_fork_id );
+
+fd_txncache_iter_t *
+fd_txncache_iter_fini( fd_txncache_iter_t * iter );
+
+int
+fd_txncache_iter_done( fd_txncache_iter_t const * iter );
+
+fd_txncache_iter_t *
+fd_txncache_iter_next( fd_txncache_iter_t * iter );
+
+fd_txncache_iter_ele_t const *
+fd_txncache_iter_ele( fd_txncache_iter_t const * iter );
+
+FD_PROTOTYPES_END
+
 #endif /* HEADER_fd_src_flamenco_runtime_fd_txncache_h */

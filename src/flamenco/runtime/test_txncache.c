@@ -50,6 +50,55 @@ test0( uchar * scratch0,
   FD_TEST(  fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(5UL) ) );
   FD_TEST( !fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(6UL) ) );
   FD_TEST(  fd_txncache_query( tc, slot1, BLOCKHASH(1UL), TXNHASH(9UL) ) );
+
+  fd_txncache_fork_id_t slot2 = fd_txncache_attach_child( tc, slot1 );
+  fd_txncache_insert( tc, slot2, BLOCKHASH(1UL), TXNHASH(2UL) );
+  fd_txncache_insert( tc, slot2, BLOCKHASH(3UL), TXNHASH(3UL) );
+  fd_txncache_finalize_fork( tc, slot2, 0UL, BLOCKHASH(4UL) );
+
+  fd_txncache_advance_root( tc, slot1 );
+  fd_txncache_advance_root( tc, slot2 );
+
+  ulong seen_cnt = 0UL;
+  ulong seen_1   = 0UL;
+  ulong seen_2   = 0UL;
+  ulong seen_3   = 0UL;
+  ulong seen_5   = 0UL;
+  ulong seen_9   = 0UL;
+  ulong seen_blockhash_1 = 0UL;
+  ulong seen_blockhash_3 = 0UL;
+
+  fd_txncache_fork_id_t forks[ 2 ] = { root, slot1 };
+  ulong blockhashes[ 2 ] = { 1UL, 3UL };
+  for( ulong i=0UL; i<2UL; i++ ) {
+    fd_txncache_iter_t iter[ 1 ];
+    for( fd_txncache_iter_init( tc, iter, forks[ i ] );
+         !fd_txncache_iter_done( iter );
+         fd_txncache_iter_next( iter ) ) {
+      fd_txncache_iter_ele_t const * ele = fd_txncache_iter_ele( iter );
+      FD_TEST( ele->fork_id.val==slot1.val || ele->fork_id.val==slot2.val );
+
+      ulong txnhash = FD_LOAD( ulong, ele->txnhash );
+      seen_blockhash_1 += blockhashes[ i ]==1UL;
+      seen_blockhash_3 += blockhashes[ i ]==3UL;
+      seen_1           += txnhash==1UL;
+      seen_2           += txnhash==2UL;
+      seen_3           += txnhash==3UL;
+      seen_5           += txnhash==5UL;
+      seen_9           += txnhash==9UL;
+      seen_cnt++;
+    }
+    fd_txncache_iter_fini( iter );
+  }
+
+  FD_TEST( seen_cnt==5UL );
+  FD_TEST( seen_1==1UL );
+  FD_TEST( seen_2==1UL );
+  FD_TEST( seen_3==1UL );
+  FD_TEST( seen_5==1UL );
+  FD_TEST( seen_9==1UL );
+  FD_TEST( seen_blockhash_1==4UL );
+  FD_TEST( seen_blockhash_3==1UL );
 }
 
 void

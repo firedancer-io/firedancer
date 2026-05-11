@@ -577,3 +577,168 @@ fd_txncache_query( fd_txncache_t *       tc,
   fd_rwlock_unread( tc->shmem->lock );
   return found;
 }
+
+static inline int
+fd_txncache_iter_txn_valid( fd_txncache_t const *            tc,
+                            fd_txncache_single_txn_t const * txn ) {
+  blockcache_t const * txn_fork = &tc->blockcache_pool[ txn->fork_id.val ];
+  return txn_fork->shmem->frozen>=0 && txn_fork->shmem->generation==txn->generation;
+}
+
+static inline int
+fd_txncache_fork_is_rooted( fd_txncache_t const *       tc,
+                            fd_txncache_fork_id_t      fork_id ) {
+  for( root_slist_iter_t root = root_slist_iter_init( tc->shmem->root_ll, tc->blockcache_shmem_pool );
+       !root_slist_iter_done( root, tc->shmem->root_ll, tc->blockcache_shmem_pool );
+       root = root_slist_iter_next( root, tc->shmem->root_ll, tc->blockcache_shmem_pool ) ) {
+    if( FD_LIKELY( root_slist_iter_idx( root, tc->shmem->root_ll, tc->blockcache_shmem_pool )==fork_id.val ) ) return 1;
+  }
+  return 0;
+}
+
+static void
+fd_txncache_iter_populate_ele( fd_txncache_iter_t * iter ) {
+  fd_txncache_t const * tc = iter->tc;
+  blockcache_t const * blockcache = &tc->blockcache_pool[ iter->blockhash_fork_id.val ];
+
+  for( ; iter->page_idx<blockcache->shmem->pages_cnt; iter->page_idx++, iter->txn_idx=0UL ) {
+    ushort txnpage_idx = blockcache->pages[ iter->page_idx ];
+    FD_TEST( txnpage_idx<tc->shmem->max_txnpages );
+
+    fd_txncache_txnpage_t const * txnpage = &tc->txnpages[ txnpage_idx ];
+    ulong txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE-txnpage->free;
+    for( ; iter->txn_idx<txn_cnt; iter->txn_idx++ ) {
+      fd_txncache_single_txn_t const * txn = txnpage->txns[ iter->txn_idx ];
+      if( FD_UNLIKELY( !fd_txncache_fork_is_rooted( tc, txn->fork_id ) ) ) continue;
+      if( FD_UNLIKELY( !fd_txncache_iter_txn_valid( tc, txn ) ) ) continue;
+
+      iter->ele->fork_id = txn->fork_id;
+      memcpy( iter->ele->txnhash, txn->txnhash, 20UL );
+      iter->done = 0;
+      return;
+    }
+  }
+
+  iter->done = 1;
+}
+
+fd_txncache_iter_t *
+fd_txncache_iter_init( fd_txncache_t *       tc,
+                       fd_txncache_iter_t *  iter,
+                       fd_txncache_fork_id_t blockhash_fork_id ) {
+  FD_TEST( tc );
+  FD_TEST( iter );
+
+  fd_rwlock_write( tc->shmem->lock );
+
+  FD_TEST( blockhash_fork_id.val<tc->shmem->active_slots_max );
+  FD_TEST( fd_txncache_fork_is_rooted( tc, blockhash_fork_id ) );
+
+  iter->tc             = tc;
+  iter->blockhash_fork_id = blockhash_fork_id;
+  iter->page_idx       = 0UL;
+  iter->txn_idx        = 0UL;
+  iter->done           = 1;
+
+  fd_txncache_iter_populate_ele( iter );
+  return iter;
+}
+
+int
+fd_txncache_iter_done( fd_txncache_iter_t const * iter ) {
+  return iter->done;
+}
+
+fd_txncache_iter_t *
+fd_txncache_iter_next( fd_txncache_iter_t * iter ) {
+  if( FD_LIKELY( !iter->done ) ) {
+    iter->txn_idx++;
+    fd_txncache_iter_populate_ele( iter );
+  }
+  return iter;
+}
+
+fd_txncache_iter_ele_t const *
+fd_txncache_iter_ele( fd_txncache_iter_t const * iter ) {
+  FD_TEST( !iter->done );
+  return iter->ele;
+}
+
+fd_txncache_iter_t *
+fd_txncache_iter_fini( fd_txncache_iter_t * iter ) {
+  FD_TEST( iter );
+  FD_TEST( iter->tc );
+
+  fd_rwlock_unwrite( iter->tc->shmem->lock );
+  iter->tc = NULL;
+  return iter;
+}
+
+static void
+fd_txncache_root_iter_populate_ele( fd_txncache_root_iter_t * iter ) {
+  fd_txncache_t const * tc = iter->tc;
+  if( FD_UNLIKELY( iter->root_idx>=tc->shmem->active_slots_max ) ) {
+    iter->done = 1;
+    return;
+  }
+
+  blockcache_t const * root = &tc->blockcache_pool[ iter->root_idx ];
+  iter->ele->fork_id        = (fd_txncache_fork_id_t){ .val = (ushort)iter->root_idx };
+  iter->ele->txnhash_offset = root->shmem->txnhash_offset;
+  memcpy( iter->ele->blockhash, root->shmem->blockhash.uc, 32UL );
+  iter->done = 0;
+}
+
+fd_txncache_root_iter_t *
+fd_txncache_root_iter_init( fd_txncache_t *           tc,
+                            fd_txncache_root_iter_t * iter ) {
+  FD_TEST( tc );
+  FD_TEST( iter );
+
+  fd_rwlock_write( tc->shmem->lock );
+
+  iter->tc   = tc;
+  iter->done = 1;
+  if( FD_UNLIKELY( root_slist_is_empty( tc->shmem->root_ll, tc->blockcache_shmem_pool ) ) ) {
+    iter->root_idx = tc->shmem->active_slots_max;
+    return iter;
+  }
+
+  iter->root_idx = root_slist_idx_peek_head( tc->shmem->root_ll, tc->blockcache_shmem_pool );
+  fd_txncache_root_iter_populate_ele( iter );
+  return iter;
+}
+
+int
+fd_txncache_root_iter_done( fd_txncache_root_iter_t const * iter ) {
+  return iter->done;
+}
+
+fd_txncache_root_iter_t *
+fd_txncache_root_iter_next( fd_txncache_root_iter_t * iter ) {
+  if( FD_LIKELY( !iter->done ) ) {
+    root_slist_iter_t root = iter->root_idx;
+    root = root_slist_iter_next( root, iter->tc->shmem->root_ll, iter->tc->blockcache_shmem_pool );
+    iter->root_idx = root_slist_iter_done( root, iter->tc->shmem->root_ll, iter->tc->blockcache_shmem_pool )
+        ? iter->tc->shmem->active_slots_max
+        : root_slist_iter_idx( root, iter->tc->shmem->root_ll, iter->tc->blockcache_shmem_pool );
+    fd_txncache_root_iter_populate_ele( iter );
+  }
+  return iter;
+}
+
+fd_txncache_root_iter_ele_t const *
+fd_txncache_root_iter_ele( fd_txncache_root_iter_t const * iter ) {
+  FD_TEST( !iter->done );
+  return iter->ele;
+}
+
+fd_txncache_root_iter_t *
+fd_txncache_root_iter_fini( fd_txncache_root_iter_t * iter ) {
+  FD_TEST( iter );
+  FD_TEST( iter->tc );
+
+  fd_rwlock_unwrite( iter->tc->shmem->lock );
+  iter->tc = NULL;
+  return iter;
+}

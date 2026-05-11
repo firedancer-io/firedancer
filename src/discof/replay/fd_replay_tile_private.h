@@ -313,6 +313,8 @@ struct fd_replay_tile {
   */
   uint        is_leader : 1;
   uint        supports_leader : 1;
+  uint        supports_snap_create : 1;
+  uint        is_creating_snap : 1;
   int         recv_poh;
   ulong       next_leader_slot;
   long        next_leader_tickcount;
@@ -341,6 +343,8 @@ struct fd_replay_tile {
   fd_replay_out_link_t replay_out[1];
 
   fd_replay_out_link_t epoch_out[1];
+
+  ulong                admin_out_idx;
 
   /* The rpc tile needs to occasionally own a reference to a live bank.
      Replay needs to know if the rpc as a consumer is enabled so it can

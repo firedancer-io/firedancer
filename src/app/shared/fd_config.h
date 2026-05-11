@@ -123,6 +123,7 @@ struct fd_configf {
     uint execrp_tile_count;
     uint snapshot_hash_tile_count;
     uint snapwr_tile_count;
+    uint snapzp_tile_count;
   } layout;
 
   struct {
