@@ -126,3 +126,27 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
     }
   }
 }
+
+void
+fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
+                                       fd_funk_txn_xid_t const *          xid,
+                                       fd_exec_test_feature_set_t const * feature_set ) {
+  for( ulong j=0UL; j<feature_set->features_count; j++ ) {
+    fd_feature_id_t const * id = fd_feature_id_query( feature_set->features[j] );
+    if( FD_UNLIKELY( !id ) ) continue;
+
+    /* Genesis activation slot */
+    fd_feature_t feature = { .is_active = 1, .activation_slot = 0UL };
+    uchar feature_data[ sizeof(fd_feature_t) ];
+    fd_memcpy( feature_data, &feature, sizeof(feature) );
+
+    fd_accdb_rw_t rw[1];
+    FD_TEST( fd_accdb_open_rw( accdb, rw, xid, &id->id, sizeof(feature_data), FD_ACCDB_FLAG_CREATE ) );
+    fd_accdb_ref_data_set    ( accdb, rw, feature_data, sizeof(feature_data) );
+
+    fd_accdb_ref_lamports_set( rw, 100000000 );
+    fd_accdb_ref_exec_bit_set( rw, 0 );
+    fd_memcpy( rw->meta->owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
+    fd_accdb_close_rw( accdb, rw );
+  }
+}

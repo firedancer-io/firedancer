@@ -66,6 +66,13 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
                                                 fd_exec_test_acct_state_t * accounts,
                                                 pb_size_t                   accounts_cnt );
 
+/* Create feature accounts for all active features in the given feature set,
+   with an activation slot of 0. */
+void
+fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
+                                       fd_funk_txn_xid_t const *          xid,
+                                       fd_exec_test_feature_set_t const * feature_set );
+
 typedef ulong( exec_test_run_pb_fn_t )( fd_solfuzz_runner_t *,
                                         void const *,
                                         void **,
