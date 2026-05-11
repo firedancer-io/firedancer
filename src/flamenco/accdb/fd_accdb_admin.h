@@ -96,7 +96,9 @@ fd_accdb_attach_child( fd_accdb_admin_t *        admin,
 }
 
 /* fd_accdb_advance_root merges the given fork node into the database
-   root. */
+   root.  xid must be the first nonrooted slot: its parent in the fork
+   graph must be the current root (no parent nodes).  Aborts on
+   violation. */
 
 static inline void
 fd_accdb_advance_root( fd_accdb_admin_t *        admin,
