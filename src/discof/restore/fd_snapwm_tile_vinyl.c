@@ -525,6 +525,11 @@ fd_snapwm_vinyl_process_account( fd_snapwm_tile_t *  ctx,
 
     ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
     uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    if( FD_UNLIKELY( !pair ) ) {
+      FD_LOG_WARNING(( "vinyl bstream out of space" ));
+      fd_snapwm_vinyl_duplicate_accounts_batch_cancel( ctx );
+      return -1;
+    }
     uchar * dst     = pair;
 
     ulong const account_header_slot = fd_snapin_vinyl_pair_info_slot( &phdr.info );

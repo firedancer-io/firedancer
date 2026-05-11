@@ -33,7 +33,7 @@ wd_block_used( fd_vinyl_io_wd_t * wd ) {
 /* wd_dispatch enqueues the current APPEND buffer for writing, moving it
    to IOWAIT. */
 
-static void
+static int
 wd_dispatch( fd_vinyl_io_wd_t * wd ) {
 
   /* Map the current buffer to a bstream sequence range */
@@ -66,7 +66,8 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
 
   FD_CRIT( buf->bstream_seq+block_sz==wd->base->seq_future, "corrupt bstream io state" );
   if( FD_UNLIKELY( wd->base->seq_future > wd->dev_sz ) ) {
-    FD_LOG_ERR(( "vinyl database %s is out of space (dev_sz=%lu)", wd->bstream_path, wd->dev_sz ));
+    FD_LOG_WARNING(( "vinyl database %s is out of space (dev_sz=%lu)", wd->bstream_path, wd->dev_sz ));
+    return -1;
   }
   ulong dev_off = wd->dev_base + buf->bstream_seq;
 
@@ -87,6 +88,7 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
   if( wd->buf_iowait_tail  ) wd->buf_iowait_tail->next = buf;
   if( !wd->buf_iowait_head ) wd->buf_iowait_head       = buf;
   wd->buf_iowait_tail = buf;
+  return 0;
 }
 
 static void
@@ -209,7 +211,7 @@ fd_vinyl_io_wd_commit( fd_vinyl_io_t * io,
   if( FD_UNLIKELY( fd_vinyl_seq_ne( wd->base->seq_present, wd->base->seq_future ) ) ) {
     FD_CRIT( wd->buf_append, "no append buf to commit, but seq_future indicates inflight write" );
 
-    wd_dispatch( wd );
+    if( FD_UNLIKELY( wd_dispatch( wd ) ) ) return FD_VINYL_ERR_AGAIN;
 
     wd->base->seq_present = wd->base->seq_future;
     wd->base->spad_used   = 0UL;
@@ -244,7 +246,8 @@ fd_vinyl_io_wd_alloc1( fd_vinyl_io_t * io,
   fd_vinyl_io_wd_t * wd = (fd_vinyl_io_wd_t *)io; /* Note: io must be non-NULL to have even been called */
 
   if( FD_UNLIKELY( sz > wd->wr_mtu ) ) {
-    FD_LOG_CRIT(( "requested write sz (%lu) exceeds MTU (%lu)", sz, wd->wr_mtu ));
+    FD_LOG_WARNING(( "requested write sz (%lu) exceeds MTU (%lu)", sz, wd->wr_mtu ));
+    return NULL;
   }
 
   /* Acquire an append buffer */
@@ -258,7 +261,7 @@ fd_vinyl_io_wd_alloc1( fd_vinyl_io_t * io,
     if( FD_LIKELY( sz <= buf_free ) ) {
       buf = wd->buf_append;
     } else {
-      wd_dispatch( wd );  /* transition buf from APPEND to IOWAIT */
+      if( FD_UNLIKELY( wd_dispatch( wd ) ) ) return NULL;  /* transition buf from APPEND to IOWAIT */
       buf      = NULL;
       buf_used = 0UL;
     }
