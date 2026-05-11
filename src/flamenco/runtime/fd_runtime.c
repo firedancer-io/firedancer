@@ -346,7 +346,7 @@ fd_runtime_freeze( fd_bank_t *         bank,
                    fd_accdb_user_t *   accdb,
                    fd_capture_ctx_t *  capture_ctx ) {
 
-  fd_funk_txn_xid_t const xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_funk_txn_xid_t const xid = fd_bank_xid( bank );
 
   if( FD_LIKELY( bank->f.slot != 0UL ) ) {
     fd_sysvar_recent_hashes_update( bank, accdb, &xid, capture_ctx );
@@ -857,7 +857,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
 
-  fd_funk_txn_xid_t const xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_funk_txn_xid_t const xid = fd_bank_xid( bank );
 
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
 
@@ -1176,7 +1176,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   }
 
-  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_funk_txn_xid_t xid = fd_bank_xid( bank );
 
   if( FD_UNLIKELY( txn_out->err.txn_err ) ) {
 

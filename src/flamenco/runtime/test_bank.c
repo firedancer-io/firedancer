@@ -337,7 +337,13 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   FD_TEST( bank_D->state==FD_BANK_STATE_DEAD );
 
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  ulong bank_D_slot = bank_D->f.slot;
+  ulong bank_D_seq  = bank_D->bank_seq;
+  ulong bank_D_idx  = bank_D->idx;
+  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel )==2 );
+  FD_TEST( cancel->slot    ==bank_D_slot );
+  FD_TEST( cancel->bank_seq==bank_D_seq  );
+  FD_TEST( cancel->bank_idx==bank_D_idx  );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
 
   /* Case: multiple isolated dead banks get pruned at once. */

@@ -167,14 +167,16 @@ init_rent_sysvar( test_env_t * env,
 
     env->bank = fd_banks_init_bank( env->banks );
     FD_TEST( env->bank );
+    env->bank->f.slot  = 9UL;
+    env->bank->f.epoch = 4UL;
 
     env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
     FD_TEST( env->runtime_stack );
     FD_TEST( fd_runtime_stack_join( fd_runtime_stack_new( env->runtime_stack, 2048UL, 2048UL, 2048UL, 999UL ) ) );
 
-    fd_funk_txn_xid_t root[1];
+    fd_xid_t root[1];
     fd_funk_txn_xid_set_root( root );
-    env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->idx } };
+    env->xid = fd_bank_xid( env->bank );
     fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
 
     init_rent_sysvar( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
@@ -183,9 +185,6 @@ init_rent_sysvar( test_env_t * env,
     init_clock_sysvar( env );
     init_blockhash_queue( env );
     fd_sysvar_recent_hashes_init( env->bank, env->accdb, &env->xid, NULL );
-
-    env->bank->f.slot = 9UL;
-    env->bank->f.epoch = 4UL;
 
     fd_features_t features = {0};
     fd_features_disable_all( &features );
@@ -234,8 +233,8 @@ FD_TEST( parent_bank->state==FD_BANK_STATE_FROZEN );
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
   new_bank->f.epoch = epoch;
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+  fd_funk_txn_xid_t xid        = fd_bank_xid( new_bank    );
+  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
   fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
 
   env->xid  = xid;

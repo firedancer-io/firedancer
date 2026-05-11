@@ -45,20 +45,20 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                               fd_exec_test_txn_context_t const * test_ctx ) {
   fd_accdb_user_t * accdb = runner->accdb;
 
-  /* Set up the funk transaction */
-  ulong             slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
-  fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->idx } };
-  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
+  ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
   /* Initialize bank from input txn bank */
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
+  runner->bank->f.slot = slot;
+
+  /* Set up the funk transaction */
+  fd_xid_t xid = fd_bank_xid( runner->bank );
+  fd_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
+  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
+
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
-
-  /* Slot*/
-  runner->bank->f.slot = slot;
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );

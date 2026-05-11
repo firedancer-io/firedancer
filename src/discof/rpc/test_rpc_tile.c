@@ -191,6 +191,7 @@ main( int     argc,
   fd_funk_txn_xid_t root_xid;
   fd_funk_txn_xid_set_root( &root_xid );
   fd_funk_txn_xid_t test_xid = { .ul = { 42UL, 0UL } };
+  ctx->banks[0].xid = test_xid;
   fd_funk_txn_prepare( funk, &root_xid, &test_xid );
 
   /* Account A: 4 bytes of data, 1000000 lamports */

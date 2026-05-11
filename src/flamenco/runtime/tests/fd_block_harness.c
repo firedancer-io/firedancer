@@ -320,7 +320,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_runtime_update_leaders( bank, runtime_stack );
 
   /* Make a new funk transaction since we're done loading in accounts for context */
-  fd_funk_txn_xid_t fork_xid = { .ul = { slot, 0UL } };
+  fd_funk_txn_xid_t fork_xid = fd_bank_xid( bank );
   fd_accdb_attach_child    ( runner->accdb_admin,     xid, &fork_xid );
   fd_progcache_attach_child( runner->progcache->join, xid, &fork_xid );
   xid[0] = fork_xid;
@@ -397,7 +397,7 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
     /* TODO: Make sure this is able to work with booting up inside
        the partitioned epoch rewards distribution phase. */
-    fd_funk_txn_xid_t xid = { .ul = { runner->bank->f.slot, runner->bank->idx } };
+    fd_funk_txn_xid_t xid = fd_bank_xid( runner->bank );
     fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb, &xid, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets

@@ -393,7 +393,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   bank->f.slot = params->root_slot;
 
-  fd_xid_t root_xid = { .ul = { params->root_slot, bank_idx } };
+  fd_xid_t root_xid = fd_bank_xid( bank );
   fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
   fd_funk_txn_xid_copy( funk->shmem->last_publish, &root_xid );
   fd_funk_txn_xid_copy( mini->progcache->join->shmem->txn.last_publish, &root_xid );
@@ -559,7 +559,7 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   if( FD_UNLIKELY( !parent_bank ) ) FD_LOG_ERR(( "invalid parent_bank_idx" ));
   ulong parent_slot = parent_bank->f.slot;
   if( FD_UNLIKELY( child_slot<=parent_slot ) ) FD_LOG_ERR(( "child_slot (%lu) <= parent_slot (%lu)", child_slot, parent_slot ));
-  fd_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+  fd_xid_t parent_xid = fd_bank_xid( parent_bank );
 
   fd_bank_t * bank = fd_banks_new_bank( mini->banks, parent_bank_idx, 0L );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "fd_banks_new_bank failed" ));
@@ -567,7 +567,7 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "fd_banks_clone_from_parent failed" ));
   ulong bank_idx = bank->idx;
   bank->f.slot = child_slot;
-  fd_xid_t xid = { .ul = { child_slot, bank_idx } };
+  fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_attach_child    ( mini->accdb_admin,     &parent_xid, &xid );
   fd_progcache_attach_child( mini->progcache->join, &parent_xid, &xid );
@@ -595,7 +595,7 @@ fd_svm_mini_cancel_fork( fd_svm_mini_t * mini,
 
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  fd_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_cancel    ( mini->accdb_admin,     &xid );
   fd_progcache_cancel( mini->progcache->join, &xid );
@@ -607,8 +607,7 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
 
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  ulong slot = bank->f.slot;
-  fd_xid_t xid = { .ul = { slot, bank_idx } };
+  fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_advance_root    ( mini->accdb_admin,     &xid );
   fd_progcache_advance_root( mini->progcache->join, &xid );
@@ -628,8 +627,7 @@ fd_xid_t
 fd_svm_mini_xid( fd_svm_mini_t * mini,
                  ulong           bank_idx ) {
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  return (fd_xid_t){ .ul = { bank->f.slot, bank->idx } };
+  return fd_bank_xid( bank );
 }
 
 void
