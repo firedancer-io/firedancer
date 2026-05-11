@@ -235,10 +235,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( clock );
   runner->bank->f.slot = clock->slot;
 
-  fd_funk_txn_xid_t exec_xid[1] = { fd_bank_xid( runner->bank ) };
-  fd_accdb_attach_child    ( runner->accdb_admin,     xid, exec_xid );
-  fd_progcache_attach_child( runner->progcache->join, xid, exec_xid );
-
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
   FD_TEST( epoch_schedule );

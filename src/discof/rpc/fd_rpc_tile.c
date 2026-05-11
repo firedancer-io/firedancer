@@ -194,7 +194,6 @@ struct bank_info {
   ulong epoch;
   ulong slot_in_epoch;
   ulong slots_per_epoch;
-  fd_xid_t xid;
 
   ulong transaction_count;
   uchar block_hash[ 32 ];
@@ -457,7 +456,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         bank->epoch = slot_completed->epoch;
         bank->slot_in_epoch = slot_completed->slot_in_epoch;
         bank->slots_per_epoch = slot_completed->slots_per_epoch;
-        bank->xid = slot_completed->xid;
         bank->transaction_count = slot_completed->transaction_count;
         bank->block_height = slot_completed->block_height;
         fd_memcpy( bank->block_hash, slot_completed->block_hash.uc, 32 );
