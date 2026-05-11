@@ -44,6 +44,13 @@ setup_xdp_tile( fd_topo_t *             topo,
   tile->xdp.zero_copy           = net_cfg->xdp.xdp_zero_copy;
   fd_cstr_ncpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, sizeof(tile->xdp.xdp_mode) );
 
+  fd_cstr_ncpy( tile->xdp.poll_mode, net_cfg->xdp.poll_mode, sizeof(tile->xdp.poll_mode) );
+
+  tile->xdp.prefbusy_timebudget_micros   = net_cfg->xdp.prefbusy_timebudget_micros;
+  tile->xdp.prefbusy_rx_budget           = net_cfg->xdp.prefbusy_rx_budget;
+  tile->xdp.prefbusy_min_interval_nanos  = (long)net_cfg->xdp.prefbusy_min_interval_micros * 1000L;
+  tile->xdp.prefbusy_stall_timeout_nanos = (long)net_cfg->xdp.prefbusy_stall_timeout_micros * 1000L;
+
   tile->xdp.net.umem_dcache_obj_id = umem_obj->id;
   tile->xdp.netdev_dbl_buf_obj_id  = netlink_tile->netlink.netdev_dbl_buf_obj_id;
   tile->xdp.fib4_main_obj_id       = netlink_tile->netlink.fib4_main_obj_id;
