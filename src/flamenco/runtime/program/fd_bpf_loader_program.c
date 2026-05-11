@@ -116,7 +116,8 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
-                   ulong                 programdata_size ) {
+                   ulong                 programdata_size,
+                   int                   disable_sbpf_v0_v1_v2_deployment ) {
   int deploy_mode                            = 1;
   int direct_mapping                         = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
   int syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
@@ -145,6 +146,14 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
   fd_prog_versions_t versions = fd_prog_versions( &instr_ctx->bank->f.features, deploy_slot );
+
+  /* SIMD-0500: when active, restrict program deployment to SBPF v3+.
+     Older SBPF versions remain executable.
+     TODO: fix link when 4.1 is releaed
+     https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/program-runtime/src/deploy.rs#L30-L32 */
+  if( disable_sbpf_v0_v1_v2_deployment ) {
+    versions.min_sbpf_version = FD_SBPF_V3;
+  }
 
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = deploy_mode;
@@ -864,7 +873,8 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   ulong         programdata_size = new_len - PROGRAMDATA_METADATA_SIZE;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1512-L1522 */
-  err = fd_deploy_program( instr_ctx, programdata_data, programdata_size );
+  /* SIMD-0500: extend_program is exempt from the deployment-version gate. */
+  err = fd_deploy_program( instr_ctx, programdata_data, programdata_size, /* disable_sbpf_v0_v1_v2_deployment */ 0 );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1270,7 +1280,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
 
-      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len,
+                               FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ) );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1549,7 +1560,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
-      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len,
+                               FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ) );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }

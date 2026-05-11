@@ -469,7 +469,8 @@ fd_bpf_loader_program_get_state( fd_account_meta_t const * meta,
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
-                   ulong                 programdata_size );
+                   ulong                 programdata_size,
+                   int                   disable_sbpf_v0_v1_v2_deployment );
 
 int
 fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
