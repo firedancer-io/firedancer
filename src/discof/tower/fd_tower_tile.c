@@ -939,7 +939,6 @@ query_vote_accs( fd_tower_tile_t *            ctx,
       if( FD_UNLIKELY( !entries[ j ].lamports ) ) continue;
       FD_TEST( fd_vsv_is_correct_size_owner_and_init( entries[ j ].owner, entries[ j ].data, entries[ j ].data_len ) );
       count_vote_acc( ctx, slot_completed, ghost_blk, &vote_accs[ j ], stakes[ j ], entries[ j ].data, entries[ j ].data_len );
-      total_stake += stakes[ j ];
       prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_accs[ j ], stakes[ j ], prev_voter_idx );
     }
 
