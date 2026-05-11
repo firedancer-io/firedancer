@@ -882,6 +882,13 @@ run( config_t const * config,
 }
 
 void
+watch_cmd_args( int *    pargc FD_PARAM_UNUSED,
+                char *** pargv FD_PARAM_UNUSED,
+                args_t * args ) {
+  args->watch.drain_output_fd = -1;
+}
+
+void
 watch_cmd_fn( args_t *   args,
               config_t * config ) {
   int allow_fds[ 5 ];
@@ -927,7 +934,7 @@ watch_cmd_fn( args_t *   args,
 
 action_t fd_action_watch = {
   .name           = "watch",
-  .args           = NULL,
+  .args           = watch_cmd_args,
   .fn             = watch_cmd_fn,
   .require_config = 1,
   .perm           = watch_cmd_perm,
