@@ -5,14 +5,29 @@
 #include "fd_ssmsg.h"
 
 FD_STATIC_ASSERT( FD_HARD_FORKS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->hard_forks)/sizeof(fd_hard_fork_t), hard_forks_max );
+FD_STATIC_ASSERT( FD_SNAPSHOT_MANIFEST_BLOCKHASHES_MAX==sizeof(((fd_snapshot_manifest_t *)0)->blockhashes)/sizeof(fd_snapshot_manifest_blockhash_t), blockhashes_max );
+FD_STATIC_ASSERT( FD_SNAPSHOT_MANIFEST_BLOCKHASHES_MAX==FD_BLOCKHASHES_MAX, blockhashes_max_consistent );
+FD_STATIC_ASSERT( FD_SNAPSHOT_MANIFEST_VOTE_ACCOUNTS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->vote_accounts)/sizeof(fd_snapshot_manifest_vote_account_t), vote_accounts_max );
+FD_STATIC_ASSERT( FD_SNAPSHOT_MANIFEST_STAKE_DELEGATIONS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->stake_delegations)/sizeof(fd_snapshot_manifest_stake_delegation_t), stake_delegations_max );
+FD_STATIC_ASSERT( FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN==sizeof(((fd_snapshot_manifest_t *)0)->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t), epoch_stakes_len );
+FD_STATIC_ASSERT( FD_SNAPSHOT_MANIFEST_EPOCH_VOTE_STAKES_MAX==sizeof(((fd_snapshot_manifest_epoch_stakes_t *)0)->vote_stakes)/sizeof(fd_snapshot_manifest_vote_stakes_t), epoch_vote_stakes_max );
+FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==sizeof(((fd_snapshot_manifest_vote_account_t *)0)->epoch_credits)/sizeof(epoch_credits_t), vote_account_epoch_credits_max );
+FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==sizeof(((fd_snapshot_manifest_vote_stakes_t *)0)->epoch_credits)/sizeof(epoch_credits_t), vote_stakes_epoch_credits_max );
 
-void
+static int
 blockhashes_recover( fd_blockhashes_t *                       blockhashes,
                      fd_snapshot_manifest_blockhash_t const * ages,
                      ulong                                    age_cnt,
                      ulong                                    seed ) {
-  FD_TEST( fd_blockhashes_init( blockhashes, seed ) );
-  FD_TEST( age_cnt && age_cnt<=FD_BLOCKHASHES_MAX );
+  if( FD_UNLIKELY( !fd_blockhashes_init( blockhashes, seed ) ) ) {
+    FD_LOG_WARNING(( "Failed to initialize blockhash queue" ));
+    return -1;
+  }
+
+  if( FD_UNLIKELY( !age_cnt || age_cnt>FD_BLOCKHASHES_MAX ) ) {
+    FD_LOG_WARNING(( "Corrupt snapshot: invalid blockhash age count %lu (max %lu)", age_cnt, (ulong)FD_BLOCKHASHES_MAX ));
+    return -1;
+  }
 
   /* For depressing reasons, the ages array is not sorted when ingested
      from a snapshot.  The hash_index field is also not validated.
@@ -25,8 +40,8 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
   }
   ulong seq_max;
   if( FD_UNLIKELY( __builtin_uaddl_overflow( seq_min, age_cnt, &seq_max ) ) ) {
-    /* TODO: Move to snapin validations so we can retry */
-    FD_LOG_ERR(( "Corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, age_cnt ));
+    FD_LOG_WARNING(( "Corrupt snapshot: blockhash queue sequence number wraparound (seq_min=%lu age_cnt=%lu)", seq_min, age_cnt ));
+    return -1;
   }
 
   /* Reset */
@@ -41,25 +56,27 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
   for( ulong i=0UL; i<age_cnt; i++ ) {
     fd_snapshot_manifest_blockhash_t const * elem = &ages[ i ];
     ulong idx;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( elem->hash_index, seq_min, &idx ) ) ) {
-      /* TODO: Move to snapin validations so we can retry */
-      FD_LOG_ERR(( "Corrupt snapshot: gap in blockhash queue (seq=[%lu,%lu) idx=%lu)",
-                   seq_min, seq_max, elem->hash_index ));
+    if( FD_UNLIKELY( __builtin_usubl_overflow( elem->hash_index, seq_min, &idx ) || idx>=age_cnt ) ) {
+      FD_LOG_WARNING(( "Corrupt snapshot: blockhash queue index out of range (seq=[%lu,%lu) hash_index=%lu)",
+                       seq_min, seq_max, elem->hash_index ));
+      return -1;
     }
     fd_blockhash_info_t * info = &blockhashes->d.deque[ idx ];
     if( FD_UNLIKELY( info->exists ) ) {
-      /* TODO: Move to snapin validations so we can retry */
-      FD_LOG_HEXDUMP_NOTICE(( "info", info, sizeof(fd_blockhash_info_t) ));
-      FD_LOG_ERR(( "Corrupt snapshot: duplicate blockhash queue index %lu", idx ));
+      FD_LOG_HEXDUMP_WARNING(( "info", info, sizeof(fd_blockhash_info_t) ));
+      FD_LOG_WARNING(( "Corrupt snapshot: duplicate blockhash queue index %lu", idx ));
+      return -1;
     }
     info->exists = 1;
     fd_memcpy( info->hash.uc, elem->hash, 32UL );
     info->lamports_per_signature = elem->lamports_per_signature;
     fd_blockhash_map_idx_insert( blockhashes->map, idx, blockhashes->d.deque );
   }
+
+  return 0;
 }
 
-void
+int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
@@ -125,7 +142,9 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_lthash_end_locking_modify( bank );
 
   fd_blockhashes_t * blockhashes = &bank->f.block_hash_queue;
-  blockhashes_recover( blockhashes, manifest->blockhashes, manifest->blockhashes_len, 42UL /* TODO */ );
+  if( FD_UNLIKELY( blockhashes_recover( blockhashes, manifest->blockhashes, manifest->blockhashes_len, 42UL /* TODO */ ) ) ) {
+    return -1;
+  }
 
   /* PoH */
   fd_blockhashes_t const * bhq = &bank->f.block_hash_queue;
@@ -171,6 +190,10 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
      SIMD-0047: The first restart slot should be `0` */
   bank->f.last_restart_slot = 0UL;
+  if( FD_UNLIKELY( manifest->hard_fork_cnt > FD_HARD_FORKS_MAX ) ) {
+    FD_LOG_WARNING(( "Corrupt snapshot: hard_fork_cnt %lu exceeds max %lu", manifest->hard_fork_cnt, (ulong)FD_HARD_FORKS_MAX ));
+    return -1;
+  }
   bank->f.hard_fork_cnt = manifest->hard_fork_cnt;
   if( FD_LIKELY( manifest->hard_fork_cnt ) ) {
     for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
@@ -187,6 +210,14 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
 
   /* Stake delegations for the current epoch. */
+  if( FD_UNLIKELY( manifest->stake_delegations_len > FD_SNAPSHOT_MANIFEST_STAKE_DELEGATIONS_MAX ) ) {
+    FD_LOG_WARNING(( "Corrupt snapshot: stake_delegations_len %lu exceeds max %lu", manifest->stake_delegations_len, (ulong)FD_SNAPSHOT_MANIFEST_STAKE_DELEGATIONS_MAX ));
+    return -1;
+  }
+  if( FD_UNLIKELY( manifest->stake_delegations_len > banks->max_stake_accounts ) ) {
+    FD_LOG_WARNING(( "Corrupt snapshot: stake_delegations_len %lu exceeds max_stake_accounts %lu", manifest->stake_delegations_len, banks->max_stake_accounts ));
+    return -1;
+  }
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   if( is_incremental ) fd_stake_delegations_reset( stake_delegations );
   for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
@@ -206,6 +237,21 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     );
   }
 
+  if( FD_UNLIKELY( manifest->vote_accounts_len > FD_SNAPSHOT_MANIFEST_VOTE_ACCOUNTS_MAX ) ) {
+    FD_LOG_WARNING(( "Corrupt snapshot: vote_accounts_len %lu exceeds max %lu", manifest->vote_accounts_len, (ulong)FD_SNAPSHOT_MANIFEST_VOTE_ACCOUNTS_MAX ));
+    return -1;
+  }
+  if( FD_UNLIKELY( manifest->vote_accounts_len > banks->max_vote_accounts ) ) {
+    FD_LOG_WARNING(( "Corrupt snapshot: vote_accounts_len %lu exceeds max_vote_accounts %lu", manifest->vote_accounts_len, banks->max_vote_accounts ));
+    return -1;
+  }
+  for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
+    if( FD_UNLIKELY( manifest->vote_accounts[i].epoch_credits_history_len > FD_EPOCH_CREDITS_MAX ) ) {
+      FD_LOG_WARNING(( "Corrupt snapshot: vote_accounts[%lu].epoch_credits_history_len %lu exceeds max %lu",
+                       i, manifest->vote_accounts[i].epoch_credits_history_len, (ulong)FD_EPOCH_CREDITS_MAX ));
+      return -1;
+    }
+  }
   fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
   if( is_incremental ) fd_new_votes_reset_root( new_votes );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
@@ -244,12 +290,70 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( epoch_schedule, manifest->slot );
   ulong epoch_stakes_base     = epoch > 0UL ? epoch - 1UL : 0UL;
 
-  FD_TEST( leader_schedule_epoch >= epoch_stakes_base );
+  if( FD_UNLIKELY( leader_schedule_epoch < epoch_stakes_base ) ) {
+    FD_LOG_WARNING(( "Corrupt snapshot: leader_schedule_epoch %lu < epoch_stakes_base %lu", leader_schedule_epoch, epoch_stakes_base ));
+    return -1;
+  }
   ulong t_1_idx = leader_schedule_epoch - epoch_stakes_base;
-  FD_TEST( t_1_idx < FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+  if( FD_UNLIKELY( t_1_idx >= FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN ) ) {
+    FD_LOG_WARNING(( "Corrupt snapshot: epoch stakes index %lu out of range (max %lu)", t_1_idx, (ulong)FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN ));
+    return -1;
+  }
 
   int   has_t_2 = (t_1_idx > 0UL);
   ulong t_2_idx = has_t_2 ? t_1_idx - 1UL : 0UL;
+
+  /* Validate vote_stakes_len, epoch_credits_history_len, and
+     commission for all epoch_stakes entries.  Check vote_stakes_len
+     against both the manifest array bound (prevents OOB reads from the
+     manifest struct) and the bank buffer capacity (prevents OOB writes
+     into epoch_credits and snapshot_commission_t_3). */
+  for( ulong i=0UL; i<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+    if( FD_UNLIKELY( manifest->epoch_stakes[i].vote_stakes_len > FD_SNAPSHOT_MANIFEST_EPOCH_VOTE_STAKES_MAX ) ) {
+      FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[%lu].vote_stakes_len %lu exceeds max %lu",
+                       i, manifest->epoch_stakes[i].vote_stakes_len, (ulong)FD_SNAPSHOT_MANIFEST_EPOCH_VOTE_STAKES_MAX ));
+      return -1;
+    }
+    if( FD_UNLIKELY( manifest->epoch_stakes[i].vote_stakes_len > banks->max_vote_accounts ) ) {
+      FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[%lu].vote_stakes_len %lu exceeds max_vote_accounts %lu",
+                       i, manifest->epoch_stakes[i].vote_stakes_len, banks->max_vote_accounts ));
+      return -1;
+    }
+    for( ulong j=0UL; j<manifest->epoch_stakes[i].vote_stakes_len; j++ ) {
+      fd_snapshot_manifest_vote_stakes_t const * vs = &manifest->epoch_stakes[i].vote_stakes[j];
+      if( FD_UNLIKELY( vs->epoch_credits_history_len > FD_EPOCH_CREDITS_MAX ) ) {
+        FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits_history_len %lu exceeds max %lu",
+                         i, j, vs->epoch_credits_history_len, (ulong)FD_EPOCH_CREDITS_MAX ));
+        return -1;
+      }
+      if( FD_UNLIKELY( vs->commission > UCHAR_MAX ) ) {
+        FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].commission %hu exceeds UCHAR_MAX",
+                         i, j, vs->commission ));
+        return -1;
+      }
+      /* Validate epoch credits entries for safe narrowing into
+         fd_epoch_credits_t (epoch→ushort, credit deltas→uint). */
+      ulong ec_base = vs->epoch_credits_history_len > 0UL ? vs->epoch_credits[0].prev_credits : 0UL;
+      for( ulong k=0UL; k<vs->epoch_credits_history_len; k++ ) {
+        epoch_credits_t const * epc = &vs->epoch_credits[k];
+        if( FD_UNLIKELY( epc->epoch > (ulong)USHORT_MAX ) ) {
+          FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].epoch %lu exceeds USHORT_MAX",
+                           i, j, k, epc->epoch ));
+          return -1;
+        }
+        if( FD_UNLIKELY( epc->credits < ec_base || epc->credits - ec_base > (ulong)UINT_MAX ) ) {
+          FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].credits %lu out of range (base %lu)",
+                           i, j, k, epc->credits, ec_base ));
+          return -1;
+        }
+        if( FD_UNLIKELY( epc->prev_credits < ec_base || epc->prev_credits - ec_base > (ulong)UINT_MAX ) ) {
+          FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[%lu].vote_stakes[%lu].epoch_credits[%lu].prev_credits %lu out of range (base %lu)",
+                           i, j, k, epc->prev_credits, ec_base ));
+          return -1;
+        }
+      }
+    }
+  }
 
   bank->f.total_epoch_stake = manifest->epoch_stakes[t_1_idx].total_stake;
 
@@ -259,6 +363,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      snapshot is in epoch T. */
   for( ulong i=0UL; i<manifest->epoch_stakes[t_1_idx].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_1_idx].vote_stakes[i];
+
     fd_vote_stakes_root_insert_key(
         vote_stakes,
         (fd_pubkey_t *)elem->vote,
@@ -269,6 +374,13 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
     fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
 
+    /* epoch_credits buffer is sized to max_vote_accounts (validated in
+       the pre-validation loop above). Guard explicitly at point of use
+       to protect against future refactors that might change the loop. */
+    if( FD_UNLIKELY( epoch_credits_len>=banks->max_vote_accounts ) ) {
+      FD_LOG_WARNING(( "Corrupt snapshot: epoch_credits_len %lu exceeds max_vote_accounts %lu", epoch_credits_len, banks->max_vote_accounts ));
+      return -1;
+    }
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
     ec->cnt          = elem->epoch_credits_history_len;
@@ -285,6 +397,14 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   /* Populate the vote stakes for the end of the T-2 epoch if the
      snapshot is in epoch T. */
   if( has_t_2 ) {
+    /* epoch_stakes[t_2_idx].vote_stakes_len is validated in the
+       pre-validation loop above.  Guard explicitly at point of use
+       to protect against future refactors that might change the loop. */
+    if( FD_UNLIKELY( manifest->epoch_stakes[t_2_idx].vote_stakes_len > banks->max_vote_accounts ) ) {
+      FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[%lu].vote_stakes_len %lu exceeds max_vote_accounts %lu",
+                       t_2_idx, manifest->epoch_stakes[t_2_idx].vote_stakes_len, banks->max_vote_accounts ));
+      return -1;
+    }
     for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
 
@@ -302,6 +422,14 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   /* Store commissions in the banks for the end of the T-3 epoch if the
      snapshot is in epoch T. */
   if( manifest->epoch_stakes[0].vote_stakes_len > 0UL ) {
+    /* snapshot_commission_t_3 buffer is sized to max_vote_accounts
+       (validated in the pre-validation loop above).  Guard explicitly
+       at point of use to protect against future refactors. */
+    if( FD_UNLIKELY( manifest->epoch_stakes[0].vote_stakes_len > banks->max_vote_accounts ) ) {
+      FD_LOG_WARNING(( "Corrupt snapshot: epoch_stakes[0].vote_stakes_len %lu exceeds max_vote_accounts %lu",
+                       manifest->epoch_stakes[0].vote_stakes_len, banks->max_vote_accounts ));
+      return -1;
+    }
     *fd_bank_snapshot_commission_t_3_len( bank ) = manifest->epoch_stakes[0].vote_stakes_len;
     fd_stashed_commission_t * snapshot_commission = fd_bank_snapshot_commission_t_3( bank );
     for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
@@ -314,4 +442,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
 
   bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
+
+  return 0;
 }

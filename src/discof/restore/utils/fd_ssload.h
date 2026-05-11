@@ -6,13 +6,10 @@
 
 FD_PROTOTYPES_BEGIN
 
-void
-blockhashes_recover( fd_blockhashes_t *                       blockhashes,
-                     fd_snapshot_manifest_blockhash_t const * ages,
-                     ulong                                    age_cnt,
-                     ulong                                    seed );
-
-void
+/* Returns 0 on success, -1 on corrupt manifest.  On failure, bank and
+   associated structures are left partially mutated.  Caller must treat
+   failure as unrecoverable (e.g. abort or discard the bank). */
+int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,

@@ -1251,12 +1251,17 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
         FD_LOG_ERR(( "chunk %lu from in %d corrupt, not in range [%lu,%lu]", chunk, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-      fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
-                         ctx->banks,
-                         fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
-                         msg==FD_SSMSG_MANIFEST_INCREMENTAL );
+      if( FD_UNLIKELY( fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
+                                          ctx->banks,
+                                          fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
+                                          msg==FD_SSMSG_MANIFEST_INCREMENTAL ) ) ) {
+        FD_LOG_ERR(( "Corrupt snapshot manifest, cannot recover. Aborting. Retry with a different snapshot." ));
+      }
 
       fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      /* fd_ssload_recover already validated hard_fork_cnt<=FD_HARD_FORKS_MAX */
+      if( FD_UNLIKELY( manifest->hard_fork_cnt>FD_HARD_FORKS_MAX ) )
+        FD_LOG_ERR(( "hard_fork_cnt %lu exceeds FD_HARD_FORKS_MAX %lu", manifest->hard_fork_cnt, (ulong)FD_HARD_FORKS_MAX ));
       ctx->hard_fork_cnt = manifest->hard_fork_cnt;
       for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
         ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
