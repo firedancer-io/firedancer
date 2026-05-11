@@ -50,3 +50,6 @@ endif
 
 $(call make-unit-test,test_compute_budget_decode,test_compute_budget_decode,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_compute_budget_decode)
+
+$(call make-unit-test,test_precompiles,test_precompiles,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_precompiles)
