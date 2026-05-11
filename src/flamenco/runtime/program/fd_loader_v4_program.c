@@ -913,7 +913,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-    fd_progcache_xid_t xid = { .ul = { instr_ctx->bank->f.slot, instr_ctx->bank->idx } };
+    fd_progcache_xid_t xid = fd_bank_xid( instr_ctx->bank );
     fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->bank );
     fd_progcache_t * progcache = instr_ctx->runtime->progcache;
     fd_progcache_rec_t * cache_entry = fd_progcache_pull(

@@ -2225,7 +2225,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
   fd_progcache_t * progcache = ctx->runtime->progcache;
-  fd_progcache_xid_t xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
+  fd_progcache_xid_t xid = fd_bank_xid( ctx->bank );
   fd_progcache_rec_t * cache_entry =
       fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro );
   if( FD_UNLIKELY( !cache_entry ) ) {

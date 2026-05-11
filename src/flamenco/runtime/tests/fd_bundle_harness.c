@@ -36,7 +36,9 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
   ulong              slot    = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
   fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, runner->root_fork_id );
 
-  fd_progcache_xid_t xid = { .ul = { slot, runner->bank->idx } };
+  runner->bank->f.slot = slot;
+  runner->bank->bank_seq = runner->bank->idx;
+  fd_progcache_xid_t xid = fd_bank_xid( runner->bank );
   fd_progcache_xid_t parent_xid; fd_progcache_txn_xid_set_root( &parent_xid );
   fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
 

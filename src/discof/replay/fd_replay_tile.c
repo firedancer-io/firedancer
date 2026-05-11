@@ -1696,7 +1696,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   ulong advanceable_root_slot = bank->f.slot;
   fd_accdb_advance_root( ctx->accdb, bank->accdb_fork_id );
   long t1 = fd_tickcount();
-  fd_progcache_xid_t xid = { .ul[0] = advanceable_root_slot, .ul[1] = bank->idx };
+  fd_progcache_xid_t xid = fd_bank_xid( bank );
   fd_progcache_advance_root( ctx->progcache, &xid );
   long t2 = fd_tickcount();
   FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
@@ -1763,7 +1763,7 @@ after_credit( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( pruned==2 ) ) {
     fd_txncache_cancel_fork( ctx->txncache, cancel_info->txncache_fork_id );
     fd_accdb_purge( ctx->accdb, cancel_info->accdb_fork_id );
-    fd_progcache_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_idx } };
+    fd_progcache_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_seq } };
     fd_progcache_cancel( ctx->progcache, &xid );
     *charge_busy = 1;
     *opt_poll_in = 0;
