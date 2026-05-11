@@ -3,6 +3,7 @@
 
 #include "fd_stake_delegations.h"
 #include "fd_stake_types.h"
+#include "fd_stake_weight.h"
 
 FD_PROTOTYPES_BEGIN
 
