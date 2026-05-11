@@ -1206,21 +1206,6 @@ fd_gui_peers_viewport_snap( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {
   if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt==0UL ) ) return; /* empty viewport */
   if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu", peers->client_viewports[ ws_conn_id ].row_cnt ));
 
-  if( FD_UNLIKELY( fd_gui_peers_live_table_active_sort_key_cnt( peers->live_table )==FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT ) ) {
-    /* we're out of cached sort keys. disconnect the oldest client */
-    ulong oldest_ws_conn_id    = ULONG_MAX;
-    long oldest_connected_time = LONG_MAX;
-    for( ulong i=0UL; i<peers->max_ws_conn_cnt; i++ ) {
-      if( FD_UNLIKELY( peers->client_viewports[ i ].connected && peers->client_viewports[ i ].connected_time < oldest_connected_time ) ) {
-        oldest_ws_conn_id = i;
-        oldest_connected_time = peers->client_viewports[ i ].connected_time;
-      }
-    }
-    FD_TEST( oldest_ws_conn_id!=ULONG_MAX );
-    fd_gui_peers_live_table_sort_key_remove( peers->live_table, &peers->client_viewports[ oldest_ws_conn_id ].sort_key );
-    FD_TEST( fd_gui_peers_live_table_active_sort_key_cnt( peers->live_table )==FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT-1UL );
-  }
-
   for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0;
        !fd_gui_peers_live_table_fwd_iter_done( iter ) && j<peers->client_viewports[ ws_conn_id ].start_row+peers->client_viewports[ ws_conn_id ].row_cnt;
        iter = fd_gui_peers_live_table_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
