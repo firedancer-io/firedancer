@@ -650,6 +650,7 @@ after_credit( fd_pack_ctx_t *     ctx,
      happen in the first after_credit after a housekeeping. */
   if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
     *charge_busy = 1;
+    *opt_poll_in = 0;
 
     fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->poh_out_mem, ctx->poh_out_chunk );
     get_done_packing( ctx, done_packing, FD_PACK_END_SLOT_REASON_TIME ); /* needs to be called before fd_pack_end_block */
@@ -702,6 +703,9 @@ after_credit( fd_pack_ctx_t *     ctx,
          TODO: This is only needed for Frankendancer, not Firedancer,
          which manages bank lifetime different. */
       fd_stem_publish( stem, 1UL, FD_PACK_MSG_DONE_DRAINING, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      *charge_busy = 1;
+      *opt_poll_in = 0;
+      return;
     } else {
       return;
     }
@@ -895,6 +899,9 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   /* Did we send the maximum allowed microblocks? Then end the slot. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_dynamic_max_microblocks )) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_EXECLES,      0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
@@ -917,6 +924,8 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     remove_ib( ctx );
+
+    return;
   }
 }
 
@@ -1525,7 +1534,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL) /* 1 frag from after_credit + 1 frag from after_frag */
 
 /* We want lazy (measured in ns) to be small enough that the producer
     and the consumer never have to wait for credits.  For most tango
