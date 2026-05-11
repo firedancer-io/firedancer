@@ -431,6 +431,8 @@ test_account_initialize( fd_wksp_t * wksp ) {
   fd_account_meta_t * vote_account_meta = env->txn_out->accounts.account[1].meta;
   FD_TEST( vote_account_meta->dlen>0 );
   FD_TEST( !fd_mem_iszero( fd_account_data( vote_account_meta ), vote_account_meta->dlen ) );
+  FD_TEST( env->txn_out->accounts.new_vote[1] );
+  FD_TEST( !env->txn_out->accounts.rm_vote[1] );
 
   test_env_cleanup( env );
   FD_LOG_NOTICE(( "test_account_initialize... ok" ));
@@ -450,6 +452,8 @@ test_account_initialize_simd_0387( fd_wksp_t * wksp ) {
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
   FD_TEST( txn_succeeded( env ) );
+  FD_TEST( env->txn_out->accounts.new_vote[1] );
+  FD_TEST( !env->txn_out->accounts.rm_vote[1] );
 
   test_env_cleanup( env );
   FD_LOG_NOTICE(( "test_account_initialize_simd_0387... ok" ));

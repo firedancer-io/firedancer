@@ -167,6 +167,33 @@ int main( int argc, char * argv[] ) {
     fd_new_votes_reset( nv );
   }
 
+  /* Ordered bundle commits can append insert, remove, insert for one
+     pubkey to the same bank fork.  Applying the delta should keep the
+     final recreated vote account visible. */
+  {
+    ushort f = fd_new_votes_new_fork( nv );
+    fd_new_votes_insert( nv, f, &pk_a );
+    fd_new_votes_remove( nv, f, &pk_a );
+    fd_new_votes_insert( nv, f, &pk_a );
+    FD_TEST( fd_new_votes_cnt( nv )==3UL );
+
+    fd_new_votes_apply_delta( nv, f );
+    FD_TEST( fd_new_votes_cnt( nv )==1UL );
+
+    uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)))
+      local_iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
+    int local_is_tombstone = 1;
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, local_iter_mem );
+    FD_TEST( !fd_new_votes_iter_done( it ) );
+    fd_pubkey_t const * pk = fd_new_votes_iter_ele( it, &local_is_tombstone );
+    FD_TEST( !local_is_tombstone );
+    FD_TEST( fd_pubkey_eq( pk, &pk_a ) );
+    fd_new_votes_iter_next( it );
+    FD_TEST( fd_new_votes_iter_done( it ) );
+    fd_new_votes_iter_fini( it );
+    fd_new_votes_reset( nv );
+  }
+
   uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN)))
     iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
 

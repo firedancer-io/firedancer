@@ -1689,6 +1689,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     if( FD_LIKELY( !rc ) ) {
       ctx->txn_out->accounts.new_vote[ ctx->instr->accounts[0].index_in_transaction ] = 1;
+      ctx->txn_out->accounts.rm_vote[ ctx->instr->accounts[0].index_in_transaction ] = 0;
     }
 
     break;
@@ -2135,6 +2136,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     );
 
     if( FD_LIKELY( !rc && deinitialized ) ) {
+      ctx->txn_out->accounts.new_vote[ ctx->instr->accounts[0].index_in_transaction ] = 0;
       ctx->txn_out->accounts.rm_vote[ ctx->instr->accounts[0].index_in_transaction ] = 1;
     }
 
@@ -2233,6 +2235,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     if( FD_LIKELY( !rc ) ) {
       ctx->txn_out->accounts.new_vote[ ctx->instr->accounts[0].index_in_transaction ] = 1;
+      ctx->txn_out->accounts.rm_vote[ ctx->instr->accounts[0].index_in_transaction ] = 0;
     }
 
     break;

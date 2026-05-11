@@ -1389,6 +1389,55 @@ test_execute_bundles( fd_wksp_t * wksp ) {
     fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
     fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
   }
+
+  /* Test: bundle vote account lifecycle deltas remain ordered across
+     separate txn_out commits.  This simulates tx0 open, tx1 close,
+     tx2 open for the same vote account. */
+
+  fd_txn_p_t lifecycle_txn_p[3] = {0};
+  fd_pubkey_t vote_lifecycle_keys[2] = { pubkey1, pubkey2 };
+  for( ulong i=0UL; i<3UL; i++ ) {
+    sz = txn_serialize( lifecycle_txn_p[i].payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, vote_lifecycle_keys, &dummy_hash );
+    lifecycle_txn_p[i].payload_sz = (ushort)sz;
+    FD_TEST( fd_txn_parse( lifecycle_txn_p[i].payload, sz, TXN( &lifecycle_txn_p[i] ), NULL ) );
+
+    env->txn_in.txn                 = &lifecycle_txn_p[i];
+    env->txn_in.bundle.is_bundle    = 1;
+    env->txn_in.bundle.prev_txn_cnt = i;
+    for( ulong j=0UL; j<i; j++ ) env->txn_in.bundle.prev_txn_outs[j] = &env->txn_out[j];
+
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
+    FD_TEST( env->txn_out[i].err.is_committable );
+    FD_TEST( env->txn_out[i].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
+    FD_TEST( fd_pubkey_eq( &env->txn_out[i].accounts.keys[1], &pubkey2 ) );
+    FD_TEST( env->txn_out[i].accounts.is_writable[1] );
+  }
+
+  env->txn_out[0].accounts.new_vote[1] = 1;
+  env->txn_out[1].accounts.rm_vote [1] = 1;
+  env->txn_out[2].accounts.new_vote[1] = 1;
+
+  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+  fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[2] );
+
+  fd_new_votes_t * new_votes = fd_bank_new_votes( env->bank );
+  ushort fork_idx = env->bank->new_votes_fork_id;
+  fd_new_votes_apply_delta( new_votes, fork_idx );
+
+  uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) iter_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
+  fd_new_votes_iter_t * iter = fd_new_votes_iter_init( new_votes, NULL, 0UL, iter_mem );
+  FD_TEST( !fd_new_votes_iter_done( iter ) );
+  int is_tombstone = 1;
+  fd_pubkey_t const * pubkey = fd_new_votes_iter_ele( iter, &is_tombstone );
+  FD_TEST( !is_tombstone );
+  FD_TEST( fd_pubkey_eq( pubkey, &pubkey2 ) );
+  fd_new_votes_iter_next( iter );
+  FD_TEST( fd_new_votes_iter_done( iter ) );
+  fd_new_votes_iter_fini( iter );
+
+  fd_new_votes_evict_fork( new_votes, fork_idx );
+  env->bank->new_votes_fork_id = USHORT_MAX;
 }
 
 int
