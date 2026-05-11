@@ -1,0 +1,3 @@
+*.o
+bench
+test_falcon

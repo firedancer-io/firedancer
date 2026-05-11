@@ -1,0 +1,145 @@
+<?xml version="1.0"?>
+<!--
+The eXtended Keccak Code Package (XKCP)
+https://github.com/XKCP/XKCP
+
+Implementation by Gilles Van Assche and Ronny Van Keer, hereby denoted as "the implementer".
+
+For more information, feedback or questions, please refer to the Keccak Team website:
+https://keccak.team/
+
+To the extent possible under law, the implementer has waived all copyright
+and related or neighboring rights to the source code in this file.
+http://creativecommons.org/publicdomain/zero/1.0/
+-->
+<group>
+
+<!--
+The fragments below allow to select the desired cryptographic functions (a.k.a. high-level services above the SnP or PlSnP interface).
+
+* KeccakSponge: the Keccak sponge function on top of the supported Keccak-f permutations.
+* FIPS202: all the functions approved in the FIPS 202 standard, i.e., the extendable output functions (SHAKE{128, 256}) and hash functions (SHA3-{224, 256, 384, 512}). This includes also the Keccak hash functions without suffix (e.g., such as Keccak[r=1088, c=512] as used in Ethereum).
+* SP800-185: all the functions defined in the NIST SP 800-185 standard, i.e., cSHAKE, TupleHash, KMAC and ParallelHash.
+* TurboSHAKE: the 12-round variant of Keccak
+* KeccakDuplex: the Keccak duplex object on top of the supported Keccak-f permutations.
+* KeccakPRG: a pseudo-random bit generator based on Keccak.
+* KangarooTwelve: the KangarooTwelve extendable output function.
+* Kravatte: the Kravatte pseudo-random function and its modes (Kravatte-SANE, -SANSE, -WBC and -WBC-AE).
+
+* Xoofff: the Xoofff pseudo-random function and its modes (Xoofff-SANE, Xoofff-SANSE, Xoofff-WBC and Xoofff-WBC-AE).
+* Xoodyak: the lightweight cryptographic scheme Xoodyak that can be used for hashing, encryption, MAC computation and authenticated encryption.
+-->
+
+    <!-- *** High-level services *** -->
+
+    <!-- Keccak sponge functions -->
+
+    <fragment name="KeccakSponge" inherits="common">
+        <config>XKCP_has_Sponge_Keccak</config>
+        <h>lib/high/Keccak/KeccakSponge.h</h>
+        <inc>lib/high/Keccak/KeccakSponge.inc</inc>
+        <c>lib/high/Keccak/KeccakSponge.c</c>
+    </fragment>
+
+    <fragment name="TurboSHAKE" inherits="KeccakSponge">
+        <config>XKCP_has_TurboSHAKE</config>
+        <h>lib/high/TurboSHAKE/TurboSHAKE.h</h>
+        <c>lib/high/TurboSHAKE/TurboSHAKE.c</c>
+    </fragment>
+
+    <!-- NIST standards -->
+
+    <fragment name="FIPS202" inherits="KeccakSponge">
+        <config>XKCP_has_FIPS202</config>
+        <c>lib/high/Keccak/FIPS202/SimpleFIPS202.c</c>
+        <h>lib/high/Keccak/FIPS202/SimpleFIPS202.h</h>
+        <c>lib/high/Keccak/FIPS202/KeccakHash.c</c>
+        <h>lib/high/Keccak/FIPS202/KeccakHash.h</h>
+    </fragment>
+
+    <fragment name="SP800-185" inherits="KeccakSponge">
+        <config>XKCP_has_SP800_185</config>
+        <c>lib/high/Keccak/SP800-185/SP800-185.c</c>
+        <inc>lib/high/Keccak/SP800-185/SP800-185.inc</inc>
+        <h>lib/high/Keccak/SP800-185/SP800-185.h</h>
+        <h>lib/high/common/Phases.h</h>
+    </fragment>
+
+    <!-- Keccak duplex objects -->
+
+    <fragment name="KeccakDuplex" inherits="common">
+        <config>XKCP_has_Duplex_Keccak</config>
+        <h>lib/high/Keccak/KeccakDuplex.h</h>
+        <inc>lib/high/Keccak/KeccakDuplex.inc</inc>
+        <c>lib/high/Keccak/KeccakDuplex.c</c>
+    </fragment>
+
+    <fragment name="KeccakOD" inherits="common">
+        <config>XKCP_has_OD_Keccak</config>
+        <h>lib/high/Keccak/KeccakOD.h</h>
+        <c>lib/high/Keccak/KeccakOD.c</c>
+        <inc>lib/high/Keccak/KeccakOD.inc</inc>
+    </fragment>
+
+    <!-- Shaking up authenticated encryption -->
+
+    <fragment name="ShakingUpAE" inherits="KeccakOD">
+        <config>XKCP_has_ShakingUpAE</config>
+        <h>lib/high/ShakingUpAE/ShakingUpAE.h</h>
+        <c>lib/high/ShakingUpAE/ShakingUpAE.c</c>
+        <inc>lib/high/ShakingUpAE/ShakingUpAE.inc</inc>
+    </fragment>
+
+    <!-- Pseudo-random bit generation -->
+
+    <fragment name="KeccakPRG" inherits="common KeccakDuplex">
+        <config>XKCP_has_PRG_Keccak</config>
+        <h>lib/high/Keccak/PRG/KeccakPRG.h</h>
+        <inc>lib/high/Keccak/PRG/KeccakPRG.inc</inc>
+        <c>lib/high/Keccak/PRG/KeccakPRG.c</c>
+    </fragment>
+
+    <!-- KangarooTwelve -->
+
+    <fragment name="KangarooTwelve" inherits="TurboSHAKE">
+        <config>XKCP_has_KangarooTwelve</config>
+        <c>lib/high/KangarooTwelve/KangarooTwelve.c</c>
+        <h>lib/high/KangarooTwelve/KangarooTwelve.h</h>
+        <h>lib/high/common/Phases.h</h>
+    </fragment>
+
+    <!-- Kravatte and modes on top of it -->
+
+    <fragment name="Kravatte" inherits="common">
+        <config>XKCP_has_Kravatte</config>
+        <c>lib/high/Kravatte/Kravatte.c</c>
+        <h>lib/high/Kravatte/Kravatte.h</h>
+        <c>lib/high/Kravatte/KravatteModes.c</c>
+        <h>lib/high/Kravatte/KravatteModes.h</h>
+    </fragment>
+
+    <!-- Xoofff and modes on top of it -->
+
+    <fragment name="Xoofff" inherits="common">
+        <config>XKCP_has_Xoofff</config>
+        <c>lib/high/Xoofff/Xoofff.c</c>
+        <h>lib/high/Xoofff/Xoofff.h</h>
+        <c>lib/high/Xoofff/XoofffModes.c</c>
+        <h>lib/high/Xoofff/XoofffModes.h</h>
+    </fragment>
+
+    <!-- Xoodyak -->
+
+    <fragment name="Xoodyak" inherits="common">
+        <config>XKCP_has_Xoodyak</config>
+        <c>lib/high/Xoodyak/Xoodyak.c</c>
+        <h>lib/high/Xoodyak/Xoodyak.h</h>
+        <h>lib/high/Xoodyak/Cyclist.h</h>
+        <inc>lib/high/Xoodyak/Cyclist.inc</inc>
+    </fragment>
+
+    <!--- All high-level services -->
+
+    <fragment name="All" inherits="common KeccakSponge KeccakDuplex KeccakOD ShakingUpAE KeccakPRG FIPS202 SP800-185 KangarooTwelve Kravatte Xoofff Xoodyak"/>
+
+</group>

@@ -1,0 +1,15 @@
+ifeq ($(CI_FORCE_REBUILD),1)
+NOCACHE=--no-cache
+RECREATE=--force-recreate
+else
+NOCACHE=
+RECREATE=
+endif
+ifeq ($(CI_VERBOSE),1)
+BUILDKIT_PROGRESS=plain
+endif
+
+all:
+	DOCKER_BUILDKIT=1 BUILDKIT_PROGRESS=$(BUILDKIT_PROGRESS) docker build $(NOCACHE) --build-arg OTHER_PLATFORMS=$(OTHER_PLATFORMS) --build-arg FAILURE_ARTIFACTS=$(FAILURE_ARTIFACTS) --file CI/Dockerfile.ci -o type=local,dest=./CI/ .
+	# Clean the empty folders created by exporting the layers
+	rm -rf CI/etc CI/dev CI/proc CI/sys
