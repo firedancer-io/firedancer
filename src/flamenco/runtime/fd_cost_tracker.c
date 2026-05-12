@@ -8,10 +8,10 @@
 
 struct account_cost {
   fd_pubkey_t account;
-  ulong       cost;
+  uint        cost;
 
   struct {
-    ulong next;
+    uint next;
   } map;
 };
 
@@ -24,6 +24,7 @@ typedef struct account_cost account_cost_t;
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
 #define MAP_NEXT               map.next
+#define MAP_IDX_T              uint
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct cost_tracker_outer {
@@ -417,11 +418,11 @@ add_transaction_execution_cost( fd_cost_tracker_t * _cost_tracker,
       cost_tracker->accounts_used++;
 
       account_cost->account = *writable_acc;
-      account_cost->cost    = adjustment;
+      account_cost->cost    = (uint)adjustment;
 
       account_cost_map_ele_insert( map, account_cost, pool );
     } else {
-      account_cost->cost = fd_ulong_sat_add( account_cost->cost, adjustment );
+      account_cost->cost = (uint)fd_ulong_sat_add( account_cost->cost, adjustment );
     }
   }
 

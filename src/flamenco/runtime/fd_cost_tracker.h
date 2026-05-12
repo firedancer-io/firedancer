@@ -86,8 +86,8 @@ FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrec
     FD_LAYOUT_INIT,                                                                                 \
       128UL /* alignof(fd_cost_tracker_t) */,  128UL /* sizeof(fd_cost_tracker_t) */          ),    \
       128UL /* alignof(cost_tracker_out_t )*/, 128UL /* sizeof(cost_tracker_out_t ) */        ),    \
-      8UL   /* alignof(account_cost_map_t) */, FD_COST_TRACKER_CHAIN_CNT_EST*8UL /*sizeof(ulong)*/ +24UL /* sizeof(account_cost_map_t) */ ), \
-      8UL   /* alignof(account_cost_t) */,     FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*48UL /*sizeof(account_cost_t)*/ ), \
+      8UL   /* alignof(account_cost_map_t) */, FD_COST_TRACKER_CHAIN_CNT_EST*4UL /*sizeof(uint)*/ +24UL /* sizeof(account_cost_map_t) */ ), \
+      4UL   /* alignof(account_cost_t) */,     FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*40UL /*sizeof(account_cost_t)*/ ), \
       128UL ) )                                               \
 
 #define FD_COST_TRACKER_MAGIC (0xF17EDA2CE7C05170UL) /* FIREDANCER COST V0 */
