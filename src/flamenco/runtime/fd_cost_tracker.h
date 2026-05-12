@@ -80,6 +80,10 @@ FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrec
 
 /* TODO: Extremely gross.  Used because these are in a pool which needs
    to be compile time sized T. */
+
+/* The average mainnet block uses around 4200 distinct writable
+   accounts. We size the cost tracker's account map at 8192 chains
+   to give ~2x headroom over the observed average load. */
 #define FD_COST_TRACKER_CHAIN_CNT_EST (8192UL)
 #define FD_COST_TRACKER_FOOTPRINT                                                                   \
   ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(         \
