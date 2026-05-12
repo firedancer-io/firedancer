@@ -1856,14 +1856,16 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   /* Mark a frontier eviction victim bank as dead.  As refcnts on said
-     banks are drained, they will be pruned away. */
+     banks are drained, they will be pruned away.  The list of frontier
+     banks maybe be stale: don't evict leader banks or frozen banks. */
   if( FD_UNLIKELY( ctx->frontier_cnt ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     bank_idx = ctx->frontier_indices[ --ctx->frontier_cnt ];
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
-    FD_TEST( bank );
+    if( FD_UNLIKELY( !bank || bank->child_idx!=ULONG_MAX ) ) return;
     if( FD_UNLIKELY( ctx->is_leader && bank_idx==ctx->leader_bank->idx ) ) return;
+    if( FD_UNLIKELY( bank->state==FD_BANK_STATE_FROZEN ) ) return; // only possible if leader bank races
     mark_bank_dead( ctx, stem, bank->idx );
     fd_sched_block_abandon( ctx->sched, bank->idx );
     return;
