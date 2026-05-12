@@ -17,9 +17,6 @@
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
 total( fd_inflation_t const * inflation, double year ) {
-  if ( FD_UNLIKELY( year == 0.0 ) ) {
-    FD_LOG_ERR(( "inflation year 0" ));
-  }
   double tapered = inflation->initial * pow( (1.0 - inflation->taper), year );
   return (tapered > inflation->terminal) ? tapered : inflation->terminal;
 }
