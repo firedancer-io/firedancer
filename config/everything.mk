@@ -504,14 +504,17 @@ dist-cov-report: $(BASEDIR)/cov/html/index.html
 # that require internal testing before releasing to frankendancer
 FRONTEND_RELEASE_CHANNEL := stable
 ifeq ($(FRONTEND_RELEASE_CHANNEL),stable)
+FRONTEND_VALIDATOR_CLIENT := Frankendancer
 else ifeq ($(FRONTEND_RELEASE_CHANNEL),alpha)
+FRONTEND_VALIDATOR_CLIENT := Frankendancer
 else ifeq ($(FRONTEND_RELEASE_CHANNEL),dev)
+FRONTEND_VALIDATOR_CLIENT := Firedancer
 else
 $(error "unexpected FRONTEND_RELEASE_CHANNEL")
 endif
 
 frontend: frontend-clean
-	cd frontend && npm ci && npm run build
+	cd frontend && npm ci && VITE_VALIDATOR_CLIENT=$(FRONTEND_VALIDATOR_CLIENT) npm run build
 	rm -rf src/disco/gui/dist_$(FRONTEND_RELEASE_CHANNEL)
 	mkdir -p src/disco/gui/dist_$(FRONTEND_RELEASE_CHANNEL)
 	cp -r frontend/dist/* src/disco/gui/dist_$(FRONTEND_RELEASE_CHANNEL)
