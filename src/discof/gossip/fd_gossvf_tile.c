@@ -580,7 +580,7 @@ is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
 
   /* 3. If the node has actively ponged a ping, it is active */
   ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );
-  return ping!=NULL;
+  return ping!=NULL && ping->addr.l==addr.l;
 }
 
 static int

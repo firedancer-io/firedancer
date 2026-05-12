@@ -122,7 +122,8 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
 
 int
 fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
-                        uchar const *       peer_pubkey );
+                        uchar const *       peer_pubkey,
+                        fd_ip4_port_t       peer_address );
 
 /* fd_ping_tracker_pop_request informs the caller if a ping request
    needs to be sent to a peer.  If a ping request needs to be sent, the

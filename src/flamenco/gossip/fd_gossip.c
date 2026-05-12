@@ -555,23 +555,28 @@ rx_values( fd_gossip_t *             gossip,
     }
 
     ulong origin_stake = get_stake( gossip, value->origin );
-    int origin_ping_tracker_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin );
     int is_me = !memcmp( value->origin, gossip->identity_pubkey, 32UL );
+
+    int origin_ping_tracker_active = 0;
+    fd_ip4_port_t origin_addr = { 0 };
+    if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+      origin_addr = (fd_ip4_port_t){
+        .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
+        .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
+      };
+      origin_ping_tracker_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr );
+    }
 
     results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, now, stem );
     if( FD_UNLIKELY( results[ i ] ) ) continue;
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      fd_ip4_port_t origin_addr = {
-        .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
-        .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
-      };
       if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, value->origin, origin_stake, origin_addr, now );
 
       /* We just learned this peer's contact info.  Drain any
          no_contact_info hashes associated with this origin from the
          purged set so peers re-send those CRDS values. */
-      if( FD_LIKELY( fd_ping_tracker_active( gossip->ping_tracker, value->origin ) ) ) fd_gossip_purged_drain_no_contact_info( gossip->purged, value->origin );
+      if( FD_LIKELY( fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr ) ) ) fd_gossip_purged_drain_no_contact_info( gossip->purged, value->origin );
     }
 
     fd_active_set_push( gossip->active_set, payload+value->offset, value->length, value->origin, origin_stake, stem, now, 0 );

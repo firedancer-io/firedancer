@@ -410,10 +410,12 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
 
 int
 fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
-                        uchar const *       peer_pubkey ) {
+                        uchar const *       peer_pubkey,
+                        fd_ip4_port_t       peer_address ) {
+  if( FD_UNLIKELY( !peer_address.addr ) ) return 0;
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
   if( FD_UNLIKELY( !peer ) ) return 0;
-  return peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING;
+  return (peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING) && peer->address.l==peer_address.l;
 }
 
 int
