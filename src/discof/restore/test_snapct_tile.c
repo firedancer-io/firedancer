@@ -164,6 +164,48 @@ test_block_list_contact_info_insert( void ) {
 }
 
 static void
+test_load_complete_signal( void ) {
+  fd_snapct_tile_t ctx[1];
+  memset( ctx, 0, sizeof(fd_snapct_tile_t) );
+
+  /* snapld_frag never dereferences stem in the paths below. */
+
+  /* READING_FULL_FILE with matching bytes sets load_complete */
+  ctx->state                    = FD_SNAPCT_STATE_READING_FULL_FILE;
+  ctx->metrics.full.bytes_read  = 1000UL;
+  ctx->metrics.full.bytes_total = 1000UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( ctx->load_complete==1 );
+  ctx->load_complete = 0;
+
+  /* READING_INCREMENTAL_HTTP with matching bytes sets load_complete */
+  ctx->state                           = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
+  ctx->metrics.incremental.bytes_read  = 500UL;
+  ctx->metrics.incremental.bytes_total = 500UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( ctx->load_complete==1 );
+  ctx->load_complete = 0;
+
+  /* Ignored during reset states */
+  ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( ctx->load_complete==0 );
+
+  ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( ctx->load_complete==0 );
+
+  /* Ignored when already malformed */
+  ctx->state                    = FD_SNAPCT_STATE_READING_FULL_HTTP;
+  ctx->malformed                = 1;
+  ctx->metrics.full.bytes_read  = 1000UL;
+  ctx->metrics.full.bytes_total = 1000UL;
+  snapld_frag( ctx, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, NULL );
+  FD_TEST( ctx->load_complete==0 );
+  ctx->malformed = 0;
+}
+
+static void
 test_contact_info_slot_reuse_after_unallowed_peer_expires( void ) {
   void * scratch = aligned_alloc( scratch_align(), scratch_footprint( NULL ) ); FD_TEST( scratch );
 
@@ -217,6 +259,7 @@ main( int     argc,
   test_allow_list_contact_info_insert();
   test_block_list_contact_info_insert();
   test_contact_info_slot_reuse_after_unallowed_peer_expires();
+  test_load_complete_signal();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
