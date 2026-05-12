@@ -1865,7 +1865,7 @@ after_credit( fd_replay_tile_t *  ctx,
     fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
     if( FD_UNLIKELY( !bank || bank->child_idx!=ULONG_MAX ) ) return;
     if( FD_UNLIKELY( ctx->is_leader && bank_idx==ctx->leader_bank->idx ) ) return;
-    if( FD_UNLIKELY( bank->state==FD_BANK_STATE_FROZEN ) ) return; // only possible if leader bank races
+    if( FD_UNLIKELY( bank->state==FD_BANK_STATE_FROZEN ) ) return; /* only possible if leader bank races */
     mark_bank_dead( ctx, stem, bank->idx );
     fd_sched_block_abandon( ctx->sched, bank->idx );
     return;
