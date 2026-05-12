@@ -1857,7 +1857,7 @@ after_credit( fd_replay_tile_t *  ctx,
 
   /* Mark a frontier eviction victim bank as dead.  As refcnts on said
      banks are drained, they will be pruned away.  The list of frontier
-     banks maybe be stale: don't evict leader banks or frozen banks. */
+     banks may be stale: don't evict leader banks or frozen banks. */
   if( FD_UNLIKELY( ctx->frontier_cnt ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
