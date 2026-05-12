@@ -444,6 +444,7 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
 
   cur->out.turbine = 0UL;
   cur->out.repair  = 0UL;
+  cur->out.rserve  = 0UL;
   cur->out.tpu     = 0UL;
   for( ulong i=0UL; i<net_tile_cnt; i++ ) {
     ulong net_tile_idx = fd_topo_find_tile( topo, "net", i );
@@ -456,6 +457,9 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
 
       if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "repair_net" ) ) ) {
           cur->out.repair += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+      }
+      if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "rserve_net" ) ) ) {
+          cur->out.rserve += fd_metrics_link_in( net->metrics, j )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
       }
 
       if( FD_UNLIKELY( !strcmp( topo->links[ net->in_link_id[ j ] ].name, "send_net" ) ) ) {
@@ -472,6 +476,18 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
     for( ulong i=0UL; i<repair->in_cnt; i++ ) {
       if( FD_UNLIKELY( !strcmp( topo->links[ repair->in_link_id[ i ] ].name, "net_repair" ) ) ) {
           cur->in.repair += fd_metrics_link_in( repair->metrics, i )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+      }
+    }
+  }
+
+  cur->in.rserve = 0UL;
+  ulong rserve_tile_idx = fd_topo_find_tile( topo, "rserve", 0UL );
+  if( FD_LIKELY( rserve_tile_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t const * rserve = &topo->tiles[ rserve_tile_idx ];
+
+    for( ulong i=0UL; i<rserve->in_cnt; i++ ) {
+      if( FD_UNLIKELY( !strcmp( topo->links[ rserve->in_link_id[ i ] ].name, "net_rserve" ) ) ) {
+          cur->in.rserve += fd_metrics_link_in( rserve->metrics, i )[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
       }
     }
   }
