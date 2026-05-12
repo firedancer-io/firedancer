@@ -406,7 +406,9 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
     int is_epoch_boundary = 0;
     fd_runtime_block_execute_prepare( runner->banks, runner->bank, runner->accdb, runner->runtime_stack, capture_ctx, &is_epoch_boundary );
 
-    /* Sequential transaction execution */
+    /* Sequential transaction execution.  Continue processing
+       transactions even if a prior one was uncommitable. */
+    int has_err = 0;
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_txn_p_t * txn = &txn_ptrs[i];
 
@@ -423,16 +425,17 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
 
       if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
         fd_runtime_cancel_txn( runtime, &txn_out );
-        return 0;
+        has_err = 1;
+        continue;
       }
 
       /* Finalize the transaction */
       fd_runtime_commit_txn( runtime, runner->bank, &txn_out );
 
       if( FD_UNLIKELY( !txn_out.err.is_committable ) ) {
-        return 0;
+        has_err = 1;
+        continue;
       }
-
     }
 
     /* At this point we want to set the poh.  This is what will get
@@ -440,9 +443,9 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
     runner->bank->f.poh = *poh;
     /* Finalize the block */
     fd_runtime_block_execute_finalize( runner->bank, runner->accdb, capture_ctx );
-  } FD_SPAD_FRAME_END;
 
-  return 1;
+    return !has_err;
+  } FD_SPAD_FRAME_END;
 }
 
 /* Canonical (Agave-aligned) schedule hash
