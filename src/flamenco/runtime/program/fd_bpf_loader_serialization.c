@@ -263,6 +263,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
                                          int                       virtual_address_space_adjustments,
                                          int                       direct_mapping,
+                                         int                       direct_account_pointers_in_program_input,
                                          ulong *                   instr_data_offset,
                                          ulong *                   serialized_bytes_written ) {
   fd_pubkey_t * txn_accs = ctx->txn_out->accounts.keys;
@@ -304,6 +305,9 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
     } else {
       acc_idx_seen[acc_idx] = 1;
       dup_acc_idx[acc_idx]  = i;
+
+      acc_region_metas[i].vm_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
+        (ulong)(serialized_params - curr_serialized_params_start);
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L376 */
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
@@ -415,6 +419,19 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L400 */
   FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx->instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
+
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/program-runtime/src/serialization.rs#L522-L529 */
+  if( direct_account_pointers_in_program_input ) {
+    ulong cur_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
+      (ulong)(serialized_params - curr_serialized_params_start);
+    ulong padding = FD_ULONG_ALIGN_UP( cur_vaddr, FD_BPF_ALIGN_OF_U128 ) - cur_vaddr;
+    fd_memset( serialized_params, 0, padding );
+    serialized_params += padding;
+    for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
+      FD_STORE( ulong, serialized_params, acc_region_metas[i].vm_addr );
+      serialized_params += sizeof(ulong);
+    }
+  }
 
   /* Write out the final region. */
   ulong region_sz = (ulong)(serialized_params - curr_serialized_params_start);
@@ -786,6 +803,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           fd_vm_acc_region_meta_t * acc_region_metas,
                                           int                       virtual_address_space_adjustments,
                                           int                       direct_mapping,
+                                          int                       direct_account_pointers_in_program_input,
                                           uchar                     is_deprecated,
                                           ulong *                   instr_data_offset,
                                           ulong *                   serialized_bytes_written ) {
@@ -806,7 +824,8 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
     return fd_bpf_loader_input_serialize_for_abiv1( instr_ctx, pre_lens,
                                                     input_mem_regions, input_mem_regions_cnt,
                                                     acc_region_metas, virtual_address_space_adjustments,
-                                                    direct_mapping, instr_data_offset, serialized_bytes_written );
+                                                    direct_mapping, direct_account_pointers_in_program_input,
+                                                    instr_data_offset, serialized_bytes_written );
   }
 }
 

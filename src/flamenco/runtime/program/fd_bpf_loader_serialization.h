@@ -16,6 +16,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           fd_vm_acc_region_meta_t * acc_region_metas,
                                           int                       virtual_address_space_adjustments,
                                           int                       direct_mapping,
+                                          int                       direct_account_pointers_in_program_input,
                                           uchar                     is_deprecated,
                                           ulong *                   instr_data_offset,
                                           ulong *                   serialized_bytes_written );
