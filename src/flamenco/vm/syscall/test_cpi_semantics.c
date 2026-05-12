@@ -227,8 +227,8 @@ env_build( fd_svm_mini_t *        mini,
   /* Reset svm_mini */
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
-  ulong bank_idx = fd_svm_mini_reset( mini, params );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
+  ulong root_bank_idx = fd_svm_mini_reset( mini, params );
+  fd_bank_t * bank = fd_svm_mini_bank( mini, root_bank_idx );
 
   fd_features_disable_all( &bank->f.features );
   bank->f.features.loosen_cpi_size_restriction = 0UL;
@@ -269,6 +269,9 @@ env_build( fd_svm_mini_t *        mini,
   for( ulong i=0UL; i<txn_acc_cnt; i++ ) {
     fd_svm_mini_put_account_rooted( mini, txn_out->accounts.account[i].ro );
   }
+
+  ulong exec_bank_idx = fd_svm_mini_attach_child( mini, root_bank_idx, bank->f.slot + 1UL );
+  bank = fd_svm_mini_bank( mini, exec_bank_idx );
 
   fd_instr_info_t * instr = &runtime->instr.trace[0];
   memset( instr, 0, sizeof(fd_instr_info_t) );

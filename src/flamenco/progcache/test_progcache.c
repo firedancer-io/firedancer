@@ -345,6 +345,7 @@ test_epoch_boundary2( fd_wksp_t * wksp ) {
   test_env_txn_prepare( env, &fork_a, &fork_b );
   fd_progcache_rec_t const * rec2 = test_pull( env->progcache, prog0_data.ro, &fork_b, &prog_key, &load_env2 );
   FD_TEST( rec1!=rec2 );
+  FD_TEST( query_rec_exact( env, &fork_b, &prog_key )==rec2 );
 
   /* Invoke new (redeployed) program at epoch1 */
   test_account_init_v3( &prog1, prog1_buf, sizeof(prog1_buf), &prog_key, &prog1_data_key );
@@ -359,6 +360,7 @@ test_epoch_boundary2( fd_wksp_t * wksp ) {
   test_env_txn_prepare( env, &fork_b, &fork_c );
   fd_progcache_rec_t const * rec3 = test_pull( env->progcache, prog1_data.ro, &fork_c, &prog_key, &load_env2 );
   FD_TEST( rec3!=rec1 && rec3!=rec2 );
+  FD_TEST( query_rec_exact( env, &fork_c, &prog_key )==rec3 );
 
   test_env_txn_cancel( env, &fork_c );
   test_env_txn_cancel( env, &fork_b );
@@ -493,9 +495,10 @@ test_root_nonroot_prio( fd_wksp_t * wksp ) {
     .epoch       = 0UL,
     .epoch_slot0 = 1UL
   };
-  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, acc.ro, &fork_1, &key, &load_env1 );
+  fd_progcache_rec_t const * rec1 = test_pull( env->progcache, acc.ro, &fork_2, &key, &load_env1 );
   FD_TEST( rec1 );
   FD_TEST( fd_progcache_revision_key_slot( rec1->revision_key )==1UL );
+  test_env_txn_publish( env, &fork_2 );
 
   fd_prog_load_env_t load_env4 = {
     .features    = env->features,
@@ -977,6 +980,78 @@ test_loader_v3_epoch_boundary( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
+static void
+test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
+  test_env_t * env = test_env_create( wksp );
+
+  ulong const mainnet_slots_per_epoch = 432000UL;
+  ulong const epoch                   = 1000UL;
+  ulong const e0                      = mainnet_slots_per_epoch * epoch;
+
+  fd_pubkey_t key = test_key( 1UL );
+  test_account_t fork_a_acc;
+  uchar fork_a_buf[ 65536 ];
+  test_account_init_v3_data(
+      &fork_a_acc,
+      fork_a_buf, sizeof(fork_a_buf),
+      &key,
+      bigger_valid_program_data, bigger_valid_program_data_sz,
+      e0-1UL
+  );
+
+  test_account_t fork_b_acc;
+  uchar fork_b_buf[ 65536 ];
+  test_account_init_v3_data(
+      &fork_b_acc,
+      fork_b_buf, sizeof(fork_b_buf),
+      &key,
+      valid_program_data, valid_program_data_sz,
+      1UL
+  );
+  FD_TEST( fork_a_acc.meta->dlen!=fork_b_acc.meta->dlen );
+
+  fd_prog_load_env_t load_env = {
+    .features    = env->features,
+    .epoch       = epoch,
+    .epoch_slot0 = e0
+  };
+
+  fd_xid_t root; fd_funk_txn_xid_set_root( &root );
+
+  /* Fork A upgraded the program at e0-1 and invokes after skipped slot e0. */
+  fd_xid_t fork_a_deploy = { .ul = { e0-1UL, 1UL } };
+  test_env_txn_prepare( env, NULL, &fork_a_deploy );
+
+  fd_xid_t fork_a_invoke = { .ul = { e0+1UL, 2UL } };
+  test_env_txn_prepare( env, &fork_a_deploy, &fork_a_invoke );
+
+  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, fork_a_acc.ro, &fork_a_invoke, &key, &load_env );
+  FD_TEST( rec_a );
+  FD_TEST( rec_a->data_gaddr );
+  FD_TEST( fd_progcache_revision_key_slot( rec_a->revision_key )==e0 );
+  FD_TEST( query_rec_exact( env, &fork_a_deploy, &key )==NULL  );
+  FD_TEST( query_rec_exact( env, &fork_a_invoke, &key )==rec_a );
+  FD_TEST( query_rec_exact( env, &root, &key )==NULL );
+
+  /* Fork B crosses the same skipped epoch boundary without fork A's
+     upgrade.  It supplies different loader-v3 ProgramData bytes, so it
+     must not receive fork A's loaded program record. */
+  fd_xid_t fork_b_invoke = { .ul = { e0+1UL, 3UL } };
+  test_env_txn_prepare( env, NULL, &fork_b_invoke );
+
+  fd_progcache_rec_t const * rec_b = test_pull( env->progcache, fork_b_acc.ro, &fork_b_invoke, &key, &load_env );
+  FD_TEST( rec_b );
+  FD_TEST( rec_b!=rec_a );
+  FD_TEST( query_rec_exact( env, &fork_a_invoke, &key )==rec_a );
+  FD_TEST( query_rec_exact( env, &fork_b_invoke, &key )==rec_b );
+  FD_TEST( query_rec_exact( env, &root,          &key )==NULL  );
+
+  test_env_txn_cancel( env, &fork_b_invoke );
+  test_env_txn_cancel( env, &fork_a_deploy );
+
+  test_env_destroy( env );
+}
+
 /* test_clock_evict_all_visited: First pass clears visited bits,
    second pass evicts. */
 
@@ -1239,6 +1314,7 @@ main( int     argc,
     TEST( test_loader_v3_undersize ),
     TEST( test_loader_v3_corrupt ),
     TEST( test_loader_v3_epoch_boundary ),
+    TEST( test_loader_v3_epoch_boundary_skipped_slots ),
     TEST( test_clock_evict_all_visited ),
     TEST( test_clock_evict_wraps_around ),
     TEST( test_clock_evict_empty_cache ),
