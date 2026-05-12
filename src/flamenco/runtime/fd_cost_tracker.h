@@ -78,9 +78,14 @@
 #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT      (FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS)
 FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
 
+/* Observed average number of distinct writable accounts per mainnet
+   block. Used to size the cost tracker's map chain count. Passed
+   to chain_cnt_est as 2*AVG to get 8192 chains (~2x headroom). */
+#define FD_RUNTIME_AVG_WRITABLE_ACCOUNTS_PER_SLOT (4200UL)
+
 /* TODO: Extremely gross.  Used because these are in a pool which needs
    to be compile time sized T. */
-#define FD_COST_TRACKER_CHAIN_CNT_EST (262144UL)
+#define FD_COST_TRACKER_CHAIN_CNT_EST (8192UL)
 #define FD_COST_TRACKER_FOOTPRINT                                                                   \
   ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(         \
     FD_LAYOUT_INIT,                                                                                 \
