@@ -4733,8 +4733,6 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
                            int                   is_largest,
                            long                  now,
                            ulong                 ack_delay ) {
-  /* FIXME: Close connection if peer ACKed a higher packet number than we sent */
-
   fd_quic_pkt_t * pkt = context->pkt;
 
   /* inclusive range */
@@ -4774,7 +4772,11 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
   ulong const       largest_ack = data->largest_ack;
 
   if( FD_UNLIKELY( data->first_ack_range > largest_ack ) ) {
-    /* this is a protocol violation, so inform the peer */
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  if( FD_UNLIKELY( largest_ack >= conn->pkt_number[pn_space] ) ) {
     fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }

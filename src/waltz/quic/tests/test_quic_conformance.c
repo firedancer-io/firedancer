@@ -873,6 +873,45 @@ test_quic_rtt_sample( void ) {
 #undef SAMPLE
 }
 
+static __attribute__ ((noinline)) void
+test_quic_ack_unsent_future_pktnum( fd_quic_sandbox_t * sandbox,
+                                    fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_t *       quic  = sandbox->quic;
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_conn_t *  conn  = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->tx_max_data                    = 1UL<<20;
+  conn->tx_initial_max_stream_data_uni = 1UL<<15;
+  conn->idle_timeout_ns                = (long)60e9;
+
+  for( uint j = 0; j < 5; j++ ) {
+    conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
+    sandbox->wallclock  += (long)10e6;
+    conn->svc_meta.next_timeout = sandbox->wallclock;
+    fd_quic_svc_timers_schedule( state->svc_timers, conn, sandbox->wallclock );
+    fd_quic_service( quic, sandbox->wallclock );
+  }
+  FD_TEST( conn->pkt_number[2] == 5UL );
+
+  fd_quic_ack_frame_t ack_frame = {
+    .type            = 0x02,
+    .largest_ack     = 100UL,
+    .ack_delay       = 0UL,
+    .ack_range_count = 0UL,
+    .first_ack_range = 0UL,
+  };
+  uchar buf[ 64 ];
+  ulong sz = fd_quic_encode_ack_frame( buf, sizeof(buf), &ack_frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
+  FD_TEST( conn->reason == FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION );
+  FD_TEST( conn->highest_acked[ 2 ] == 0UL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -938,6 +977,7 @@ main( int     argc,
   test_quic_pktmeta_pktnum_skip          ( sandbox, rng );
   test_quic_ack_largest_ack_zero         ( sandbox, rng );
   test_quic_rtt_sample();
+  test_quic_ack_unsent_future_pktnum     ( sandbox, rng );
 
   /* Wind down */
 
