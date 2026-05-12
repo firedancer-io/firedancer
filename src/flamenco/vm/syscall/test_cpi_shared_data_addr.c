@@ -103,8 +103,8 @@ test_env_setup( fd_svm_mini_t * mini ) {
   /* Reset svm_mini to get a fresh bank */
   fd_svm_mini_params_t params[1];
   fd_svm_mini_params_default( params );
-  ulong bank_idx = fd_svm_mini_reset( mini, params );
-  fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
+  ulong root_bank_idx = fd_svm_mini_reset( mini, params );
+  fd_bank_t * bank = fd_svm_mini_bank( mini, root_bank_idx );
 
   fd_features_disable_all( &bank->f.features );
   bank->f.features.loosen_cpi_size_restriction = 0UL;
@@ -139,6 +139,9 @@ test_env_setup( fd_svm_mini_t * mini ) {
   fd_accdb_rw_init_nodb( &txn_out->accounts.account[2], &acct2_pubkey, acct2_meta, FD_RUNTIME_ACC_SZ_MAX );
 
   for( uint i=0; i<3; i++ ) fd_svm_mini_put_account_rooted( mini, txn_out->accounts.account[i].ro );
+
+  ulong exec_bank_idx = fd_svm_mini_attach_child( mini, root_bank_idx, bank->f.slot + 1UL );
+  bank = fd_svm_mini_bank( mini, exec_bank_idx );
 
   /* Instruction info */
   fd_instr_info_t * instr = &runtime->instr.trace[0];
