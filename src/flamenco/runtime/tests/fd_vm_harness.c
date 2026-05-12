@@ -408,8 +408,9 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   *effects = (fd_exec_test_vm_serialization_effects_t) FD_EXEC_TEST_VM_SERIALIZATION_EFFECTS_INIT_ZERO;
 
   /* Determine feature flags and is_deprecated */
-  int direct_mapping                    = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
-  int virtual_address_space_adjustments = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
+  int direct_mapping                           = FD_FEATURE_ACTIVE_BANK( ctx->bank, account_data_direct_mapping );
+  int virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( ctx->bank, virtual_address_space_adjustments );
+  int direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
   uchar               program_id_idx = ctx->instr->program_id;
   fd_account_meta_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx].meta;
@@ -435,6 +436,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
     acc_region_metas,
     virtual_address_space_adjustments,
     direct_mapping,
+    direct_account_pointers_in_program_input,
     is_deprecated,
     &instr_data_offset,
     &input_sz
