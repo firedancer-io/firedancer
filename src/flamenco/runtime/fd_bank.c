@@ -1008,9 +1008,9 @@ fd_banks_subtree_mark_dead( fd_banks_t * banks,
   /* Recursively mark all children as dead. */
   ulong child_idx = bank->child_idx;
   while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
-    fd_bank_t * child = fd_banks_pool_ele( bank_pool, child_idx );
-    ulong * opt_child_idxs = opt_idxs ? opt_idxs+idxs_cnt : NULL;
-    idxs_cnt += fd_banks_subtree_mark_dead( banks, bank_pool, child, opt_child_idxs );
+    fd_bank_t * child      = fd_banks_pool_ele( bank_pool, child_idx );
+    ulong *     child_idxs = opt_idxs ? opt_idxs+idxs_cnt : NULL;
+    idxs_cnt += fd_banks_subtree_mark_dead( banks, bank_pool, child, child_idxs );
     child_idx = child->sibling_idx;
   }
 

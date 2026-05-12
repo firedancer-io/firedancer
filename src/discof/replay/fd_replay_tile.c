@@ -1361,9 +1361,8 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
 
   for( ulong i=0UL; i<dead_idxs_cnt; i++ ) {
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ dead_idxs[ i ] ];
-    fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
-    if( FD_UNLIKELY( !fec ) ) continue;
-    fec->bank_dead = 1;
+    fd_reasm_fec_t *    fec          = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
+    if( FD_LIKELY( fec ) ) fec->bank_dead = 1;
   }
 }
 

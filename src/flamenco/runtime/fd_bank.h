@@ -698,15 +698,15 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
                                ulong *      advanceable_bank_idx_out );
 
 /* fd_banks_mark_bank_dead marks the current bank (and all of its
-   descendants) as dead.  If opt_idxs is non-NULL, it is
-   populated with each bank index marked dead.  The caller is
-   responsible for ensuring the buffer is large enough to hold the whole
-   subtree.  If opt_idxs_cnt is non-NULL, it is set to the number of
-   banks marked dead.  The caller is still responsible for handling the
-   behavior of the dead bank correctly.  The function should not be
-   called on a bank that is already dead nor on any ancestor of an
-   already dead bank.  After a bank is marked dead, the caller should
-   never increment the reference count on the bank. */
+   descendants) as dead.  If opt_idxs is non-NULL, it is populated with
+   each bank index marked dead.  The caller is responsible for ensuring
+   the buffer is large enough to hold the whole subtree.  If
+   opt_idxs_cnt is non-NULL, it is set to the number of banks marked
+   dead.  The caller is still responsible for handling the behavior of
+   the dead bank correctly.  The function should not be called on a bank
+   that is already dead nor on any ancestor of an already dead bank.
+   After a bank is marked dead, the caller should never increment the
+   reference count on the bank. */
 
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
