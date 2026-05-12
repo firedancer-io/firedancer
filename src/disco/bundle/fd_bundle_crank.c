@@ -385,6 +385,7 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
   int inserted2 = 0;
   fd_bundle_crank_gen_pidx_t dummy1[1] = {{ .idx = 11UL }};
   fd_bundle_crank_gen_pidx_t dummy2[1] = {{ .idx = 12UL }};
+  ulong swap2_unused_idx = ULONG_MAX;
 
   fd_bundle_crank_gen_pidx_t * old_tr_pidx = pidx_map_query( gen->map, *old_tip_payment_config->tip_receiver, NULL );
   if( FD_LIKELY( NULL==old_tr_pidx ) ) {
@@ -394,15 +395,20 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
   } else if( FD_UNLIKELY( !swap3 && old_tr_pidx->idx>18UL ) ) {
     /* Not an account we use in swap2, so it's okay to use index 11 for
        the old tip receiver. */
-    old_tr_pidx = dummy1;
+    swap2_unused_idx = old_tr_pidx->idx;
+    old_tr_pidx      = dummy1;
   } else {
     /* perturb the account at index 11, where the old tip receiver
        pubkey normally goes, so that it's not a duplicate, then use the
-       other index.  There are not two pubkeys we've inserted that
-       differ only in the first byte, so by incrementing the first byte,
-       we know this no longer matches another pubkey. */
-    gen->crank3->old_tip_receiver[0]++;
-    gen->crank2->old_tip_receiver[0]++;
+       other index.  None of the non-attacker controlled keys look
+       anything like 0xEE, 0xEE, ..., 0xEE, so we just need to make sure
+       it doesn't match the old block builder (which will end up with a
+       first byte of either 0xFE or the current value of
+       old_block_builder[0]). */
+    memset( gen->crank3->old_tip_receiver, (char)0xEE, 32UL );
+    memset( gen->crank2->old_tip_receiver, (char)0xEE, 32UL );
+    gen->crank3->old_tip_receiver[0] = gen->crank3->old_block_builder[0]+1;
+    gen->crank2->old_tip_receiver[0] = gen->crank2->old_block_builder[0]+1;
   }
 
   fd_bundle_crank_gen_pidx_t * old_bb_pidx = pidx_map_query( gen->map, *old_tip_payment_config->block_builder, NULL );
@@ -410,17 +416,16 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
     old_bb_pidx = pidx_map_insert( gen->map, *old_tip_payment_config->block_builder );
     old_bb_pidx->idx = 12UL;
     inserted2 = 1;
-  } else if( FD_UNLIKELY( !swap3 && old_bb_pidx->idx>18UL ) ) {
+  } else if( FD_UNLIKELY( !swap3 && old_bb_pidx->idx>18UL && old_bb_pidx->idx!=swap2_unused_idx ) ) {
+    /* If it happens to be the same account that we don't use in swap2,
+       then we need to handle it differently. */
     old_bb_pidx = dummy2;
   } else {
-    /* perturb; the same ++ logic from the old_tip_receiver applies, but
-       it's possible that after the increment it matches the
-       old_tip_receiver, so we need to do more. */
-    gen->crank3->old_block_builder[0]++;
-    gen->crank2->old_block_builder[0]++;
-
-    gen->crank3->old_block_builder[1] = gen->crank3->old_tip_receiver[1]+1;
-    gen->crank2->old_block_builder[1] = gen->crank2->old_tip_receiver[1]+1;
+    memset( gen->crank3->old_block_builder, (char)0xFE, 32UL );
+    memset( gen->crank2->old_block_builder, (char)0xFE, 32UL );
+    gen->crank3->old_block_builder[2] = gen->crank3->old_tip_receiver[2]+1;
+    gen->crank2->old_block_builder[2] = gen->crank2->old_tip_receiver[2]+1;
+    if( FD_UNLIKELY( old_bb_pidx->idx==swap2_unused_idx ) ) old_bb_pidx = dummy1;
   }
 
   gen->crank3->change_tip_receiver.acct_idx [1] = (uchar)(old_tr_pidx->idx);
