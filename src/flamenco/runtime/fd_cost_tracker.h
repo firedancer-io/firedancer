@@ -14,14 +14,14 @@
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
 
-#define FD_WRITE_LOCK_UNITS                   (      300UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20 */
-#define FD_MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA (100000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L42 */
-#define FD_MAX_WRITABLE_ACCOUNT_UNITS         ( 12000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L34 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0207          ( 50000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L50-L56 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0256          ( 60000000UL) /* https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0286          (100000000UL) /* https://github.com/anza-xyz/agave/blob/v3.0.0/cost-model/src/block_cost_limits.rs#L30 */
-#define FD_MAX_VOTE_UNITS                     ( 36000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
-#define FD_SIMPLE_VOTE_USAGE_COST             (     3428UL) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
+#define FD_WRITE_LOCK_UNITS                   (      300U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20 */
+#define FD_MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA (100000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L42 */
+#define FD_MAX_WRITABLE_ACCOUNT_UNITS         ( 12000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L34 */
+#define FD_MAX_BLOCK_UNITS_SIMD_0207          ( 50000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L50-L56 */
+#define FD_MAX_BLOCK_UNITS_SIMD_0256          ( 60000000U) /* https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56 */
+#define FD_MAX_BLOCK_UNITS_SIMD_0286          (100000000U) /* https://github.com/anza-xyz/agave/blob/v3.0.0/cost-model/src/block_cost_limits.rs#L30 */
+#define FD_MAX_VOTE_UNITS                     ( 36000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
+#define FD_SIMPLE_VOTE_USAGE_COST             (     3428U) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
 #define FD_COST_TRACKER_SUCCESS                                     (0)
@@ -117,11 +117,11 @@ typedef struct fd_cost_tracker fd_cost_tracker_t;
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
 
 struct fd_usage_cost_details {
-  ulong signature_cost;
-  ulong write_lock_cost;
-  ulong data_bytes_cost;
-  ulong programs_execution_cost;
-  ulong loaded_accounts_data_size_cost;
+  uint  signature_cost;
+  uint  write_lock_cost;
+  uint  data_bytes_cost;
+  uint  programs_execution_cost;
+  uint  loaded_accounts_data_size_cost;
   ulong allocated_accounts_data_size;
 };
 typedef struct fd_usage_cost_details fd_usage_cost_details_t;
@@ -182,7 +182,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
                       ulong                 slot );
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
-FD_FN_PURE ulong
+FD_FN_PURE uint
 fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * txn_out );
 
 /* fd_cost_tracker_calculate_cost_and_add takes a transaction,

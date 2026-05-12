@@ -61,7 +61,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t *               runner,
      raw actual value here for parity. */
   if( input->mode==FD_EXEC_TEST_TXN_COST_MODE_ACTUAL &&
       txn_out.details.txn_cost.type==FD_TXN_COST_TYPE_TRANSACTION ) {
-    txn_out.details.txn_cost.transaction.programs_execution_cost = input->actual_programs_execution_cost;
+    txn_out.details.txn_cost.transaction.programs_execution_cost = (uint)input->actual_programs_execution_cost;
   }
 
   *output = (fd_exec_test_cost_result_t)FD_EXEC_TEST_COST_RESULT_INIT_ZERO;
