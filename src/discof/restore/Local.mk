@@ -3,7 +3,7 @@ ifdef FD_HAS_ALLOCA
 ifdef FD_HAS_SSE
 $(call add-hdrs,fd_snapct_tile.h)
 $(call add-objs,fd_snapct_tile,fd_discof)
-$(call make-unit-test,test_snapct_tile,test_snapct_tile,fd_discof fd_waltz fd_flamenco fd_ballet fd_util,$(OPENSSL_LIBS))
+$(call make-unit-test,test_snapct_tile,test_snapct_tile,fd_discof fd_disco fd_waltz fd_flamenco fd_ballet fd_tango fd_util,$(OPENSSL_LIBS))
 $(call run-unit-test,test_snapct_tile)
 $(call add-objs,fd_snapld_tile,fd_discof)
 ifdef FD_HAS_ZSTD
