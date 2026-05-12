@@ -116,13 +116,13 @@ create_nonce_account_initialized( fd_svm_mini_t *        mini,
   FD_TEST( fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written )==0 );
 
   fd_accdb_t * accdb = mini->runtime->accdb;
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key );
-  fd_memcpy( entry.data, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
-  entry.data_len = FD_SYSTEM_PROGRAM_NONCE_DLEN;
-  entry.lamports = 10000000UL;
-  fd_memcpy( entry.owner, fd_solana_system_program_id.key, 32UL );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key );
+  fd_memcpy( acc.data, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
+  acc.data_len = FD_SYSTEM_PROGRAM_NONCE_DLEN;
+  acc.lamports = 10000000UL;
+  fd_memcpy( acc.owner, fd_solana_system_program_id.key, 32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 }
 
 static void
@@ -139,13 +139,13 @@ create_nonce_account_uninitialized( fd_svm_mini_t *        mini,
   FD_TEST( fd_nonce_state_versions_encode( &state, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN, &written )==0 );
 
   fd_accdb_t * accdb = mini->runtime->accdb;
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key );
-  fd_memcpy( entry.data, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
-  entry.data_len = FD_SYSTEM_PROGRAM_NONCE_DLEN;
-  entry.lamports = 10000000UL;
-  fd_memcpy( entry.owner, fd_solana_system_program_id.key, 32UL );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, nonce_pubkey->key );
+  fd_memcpy( acc.data, nonce_data, FD_SYSTEM_PROGRAM_NONCE_DLEN );
+  acc.data_len = FD_SYSTEM_PROGRAM_NONCE_DLEN;
+  acc.lamports = 10000000UL;
+  fd_memcpy( acc.owner, fd_solana_system_program_id.key, 32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 }
 
 static ulong
@@ -153,12 +153,12 @@ read_nonce_fee( fd_svm_mini_t *        mini,
                 fd_accdb_fork_id_t     fork_id,
                 fd_pubkey_t const *    nonce_pubkey ) {
   fd_accdb_t * accdb = mini->runtime->accdb;
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, nonce_pubkey->key );
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, nonce_pubkey->key );
 
   fd_nonce_state_versions_t state = {0};
   FD_TEST( fd_nonce_state_versions_decode(
-      &state, entry.data, entry.data_len )==0 );
-  fd_accdb_unread_one( accdb, &entry );
+      &state, acc.data, acc.data_len )==0 );
+  fd_accdb_unread_one( accdb, &acc );
 
   FD_TEST( state.version == FD_NONCE_VERSION_CURRENT );
   FD_TEST( state.kind    == FD_NONCE_STATE_INITIALIZED );

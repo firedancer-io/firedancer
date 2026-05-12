@@ -138,7 +138,7 @@ test_peek( fd_progcache_t *            cache,
 
 static fd_progcache_rec_t *
 test_pull( fd_progcache_t *           cache,
-           fd_accdb_entry_t *         prog_ro,
+           fd_acc_t *                 prog_ro,
            fd_progcache_xid_t const * xid,
            fd_pubkey_t const *        prog_addr,
            fd_prog_load_env_t const * env ) {

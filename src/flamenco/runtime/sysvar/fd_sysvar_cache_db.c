@@ -15,20 +15,20 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
   fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
 
   /* Read account from database */
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork, key->uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) {
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork, key->uc );
+  if( FD_UNLIKELY( !acc.lamports ) ) {
     if( log_fails ) FD_LOG_DEBUG(( "Sysvar %s not found", pos->name ));
     return 0;
   }
 
-  /* Fill data cache entry */
-  ulong data_sz = fd_ulong_min( entry.data_len, pos->data_max );
+  /* Fill data cache acc */
+  ulong data_sz = fd_ulong_min( acc.data_len, pos->data_max );
   uchar * data = (uchar *)cache+pos->data_off;
-  fd_memcpy( data, entry.data, data_sz );
+  fd_memcpy( data, acc.data, data_sz );
   desc->data_sz = (uint)data_sz;
-  fd_accdb_unread_one( accdb, &entry );
+  fd_accdb_unread_one( accdb, &acc );
 
-  /* Recover object cache entry from data cache entry */
+  /* Recover object cache acc from data cache acc */
   return fd_sysvar_obj_restore( cache, desc, pos );
 }
 
@@ -63,23 +63,23 @@ fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
 }
 
 void
-fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t *      cache,
-                                  fd_accdb_entry_t const * entry ) {
+fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t * cache,
+                                  fd_acc_t const *    acc ) {
   ulong idx;
   for( idx=0UL; idx<FD_SYSVAR_CACHE_ENTRY_CNT; idx++ ) {
-    if( 0==memcmp( entry->pubkey, fd_sysvar_key_tbl[ idx ].uc, sizeof(fd_pubkey_t) ) ) break;
+    if( 0==memcmp( acc->pubkey, fd_sysvar_key_tbl[ idx ].uc, sizeof(fd_pubkey_t) ) ) break;
   }
   if( FD_UNLIKELY( idx==FD_SYSVAR_CACHE_ENTRY_CNT ) ) return;
-  if( FD_UNLIKELY( !entry->lamports ) ) return;
+  if( FD_UNLIKELY( !acc->lamports ) ) return;
 
   fd_sysvar_pos_t const * pos  = &fd_sysvar_pos_tbl[ idx ];
   fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
 
-  ulong data_sz = fd_ulong_min( entry->data_len, pos->data_max );
+  ulong data_sz = fd_ulong_min( acc->data_len, pos->data_max );
   uchar * data    = (uchar *)cache+pos->data_off;
-  fd_memcpy( data, entry->data, data_sz );
+  fd_memcpy( data, acc->data, data_sz );
   desc->data_sz = (uint)data_sz;
 
-  /* Recover object cache entry from data cache entry */
+  /* Recover object cache acc from data cache acc */
   fd_sysvar_obj_restore( cache, desc, pos );
 }

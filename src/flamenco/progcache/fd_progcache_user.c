@@ -357,12 +357,12 @@ insert_params( insert_params_t *          p,
                fd_progcache_xid_t const * load_xid,
                void const *               prog_addr,
                fd_prog_load_env_t const * env,
-               fd_accdb_entry_t const *   entry,
+               fd_acc_t const *           acc,
                fd_prog_info_t const *     info ) {
   memset( p, 0, sizeof(insert_params_t) );
 
   /* Derive executable info */
-  uchar const * bin          = entry->data + info->elf_off;
+  uchar const * bin          = acc->data + info->elf_off;
   ulong         bin_sz       = info->elf_sz;
   ulong         revision_key = fd_progcache_revision_key( env->epoch_slot0, info->deploy_slot );
 
@@ -561,7 +561,7 @@ fd_progcache_pull( fd_progcache_t           * cache,
                    fd_progcache_xid_t const * xid,
                    fd_pubkey_t        const * prog_addr,
                    fd_prog_load_env_t const * env,
-                   fd_accdb_entry_t   const * prog_ro ) {
+                   fd_acc_t           const * prog_ro ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   long dt = -fd_tickcount();
   fd_progcache_load_fork( cache, xid );

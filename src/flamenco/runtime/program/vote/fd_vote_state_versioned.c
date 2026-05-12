@@ -47,9 +47,9 @@ last_lockout( fd_vote_state_versioned_t * self ) {
 /**********************************************************************/
 
 int
-fd_vsv_get_state( fd_accdb_entry_t const *    entry,
+fd_vsv_get_state( fd_acc_t const *            acc,
                   fd_vote_state_versioned_t * versioned ) {
-  if( FD_UNLIKELY( !fd_vote_state_versioned_deserialize( versioned, entry->data, entry->data_len ) ) ) {
+  if( FD_UNLIKELY( !fd_vote_state_versioned_deserialize( versioned, acc->data, acc->data_len ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -57,9 +57,9 @@ fd_vsv_get_state( fd_accdb_entry_t const *    entry,
 }
 
 int
-fd_vsv_deserialize( fd_accdb_entry_t const *    entry,
+fd_vsv_deserialize( fd_acc_t const *            acc,
                     fd_vote_state_versioned_t * versioned ) {
-  int rc = fd_vsv_get_state( entry, versioned );
+  int rc = fd_vsv_get_state( acc, versioned );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   if( FD_UNLIKELY( versioned->kind==fd_vote_state_versioned_enum_uninitialized ) ) {

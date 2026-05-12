@@ -39,20 +39,20 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
   ulong            serialized_sz = instructions_serialized_size( txn );
   FD_TEST( serialized_sz<=FD_SYSVAR_INSTRUCTIONS_FOOTPRINT );
 
-  fd_accdb_entry_t * entry = &txn_out->accounts.account[ txn_idx ];
+  fd_acc_t * acc = &txn_out->accounts.account[ txn_idx ];
   /* Agave sets up the borrowed account for the instructions sysvar to contain
      default values except for the data which is serialized into the account.
      The accdb returns data=NULL for the sysvar instructions account because
      it is constructed on the fly and never persisted; point it at the
      dedicated scratch buffer in txn_out. */
 
-  fd_memcpy( entry->owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
-  entry->lamports   = 0UL;
-  entry->executable = 0;
-  entry->data       = txn_out->accounts.sysvar_instructions_data;
-  entry->data_len   = serialized_sz;
+  fd_memcpy( acc->owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) );
+  acc->lamports   = 0UL;
+  acc->executable = 0;
+  acc->data       = txn_out->accounts.sysvar_instructions_data;
+  acc->data_len   = serialized_sz;
 
-  uchar * serialized_instructions = entry->data;
+  uchar * serialized_instructions = acc->data;
   ulong offset = 0;
 
   // num_instructions
@@ -113,13 +113,13 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
 /* Stores the current instruction index in the instructions sysvar account.
    https://github.com/anza-xyz/solana-sdk/blob/instructions-sysvar%40v2.2.1/instructions-sysvar/src/lib.rs#L164-L167 */
 void
-fd_sysvar_instructions_update_current_instr_idx( fd_accdb_entry_t * entry,
-                                                 ushort             current_instr_idx ) {
+fd_sysvar_instructions_update_current_instr_idx( fd_acc_t * acc,
+                                                 ushort     current_instr_idx ) {
   /* Extra safety checks */
-  if( FD_UNLIKELY( entry->data_len<sizeof(ushort) ) ) {
+  if( FD_UNLIKELY( acc->data_len<sizeof(ushort) ) ) {
     return;
   }
 
-  uchar * serialized_current_instr_idx = entry->data + (entry->data_len - sizeof(ushort));
+  uchar * serialized_current_instr_idx = acc->data + (acc->data_len - sizeof(ushort));
   FD_STORE( ushort, serialized_current_instr_idx, current_instr_idx );
 }

@@ -463,8 +463,8 @@ FD_PROTOTYPES_BEGIN
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
 
 int
-fd_bpf_loader_program_get_state( fd_accdb_entry_t const * acc,
-                                 fd_bpf_state_t *         state );
+fd_bpf_loader_program_get_state( fd_acc_t const * acc,
+                                 fd_bpf_state_t * state );
 
 int
 fd_bpf_loader_program_get_state2( uchar const *    data,

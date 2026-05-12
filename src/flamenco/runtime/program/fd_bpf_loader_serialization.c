@@ -163,7 +163,7 @@ write_account( fd_borrowed_account_t *   account,
   ulong         dlen = account ? fd_borrowed_account_get_data_len( account ) : 0UL;
 
   acc_region_metas[instr_acc_idx].original_data_len = dlen;
-  acc_region_metas[instr_acc_idx].entry             = account->entry;
+  acc_region_metas[instr_acc_idx].acc               = account->acc;
 
   /* Legacy behavior: no virtual_address_space_adjustments (also implies no direct mapping)
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L132-L142 */
@@ -326,7 +326,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
       serialized_params += sizeof(uchar);
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L546-L547 */
-      uchar is_executable = (uchar)view_acc.entry->executable;
+      uchar is_executable = (uchar)view_acc.acc->executable;
       FD_STORE( uchar, serialized_params, is_executable );
       serialized_params += sizeof(uchar);
 
@@ -344,20 +344,20 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
       serialized_params += sizeof(fd_pubkey_t);
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L550 */
-      fd_pubkey_t owner = *(fd_pubkey_t *)&view_acc.entry->owner;
+      fd_pubkey_t owner = *(fd_pubkey_t *)&view_acc.acc->owner;
       acc_region_metas[i].vm_owner_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
         (ulong)(serialized_params - curr_serialized_params_start);
       FD_STORE( fd_pubkey_t, serialized_params, owner );
       serialized_params += sizeof(fd_pubkey_t);
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L551 */
-      ulong lamports = view_acc.entry->lamports;
+      ulong lamports = view_acc.acc->lamports;
       acc_region_metas[i].vm_lamports_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
         (ulong)(serialized_params - curr_serialized_params_start);
       FD_STORE( ulong, serialized_params, lamports );
       serialized_params += sizeof(ulong);
 
-      ulong acc_data_len = view_acc.entry->data_len;
+      ulong acc_data_len = view_acc.acc->data_len;
       pre_lens[i] = acc_data_len;
 
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L552 */
@@ -602,7 +602,7 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
         return err;
       }
 
-      pre_lens[ i ] = view_acc.entry->data_len;
+      pre_lens[ i ] = view_acc.acc->data_len;
 
       uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx->instr, (uchar)i, NULL );
       FD_STORE( uchar, serialized_params, is_signer );
@@ -618,13 +618,13 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( fd_pubkey_t, serialized_params, key );
       serialized_params += sizeof(fd_pubkey_t);
 
-      ulong lamports = view_acc.entry->lamports;
+      ulong lamports = view_acc.acc->lamports;
       acc_region_metas[i].vm_lamports_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
         (ulong)(serialized_params - curr_serialized_params_start);
       FD_STORE( ulong, serialized_params, lamports );
       serialized_params += sizeof(ulong);
 
-      ulong acc_data_len = view_acc.entry->data_len;
+      ulong acc_data_len = view_acc.acc->data_len;
       FD_STORE( ulong, serialized_params, acc_data_len );
       serialized_params += sizeof(ulong);
 
@@ -642,13 +642,13 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
         input_mem_regions[*input_mem_regions_cnt-1U].vaddr_offset +
         input_mem_regions[*input_mem_regions_cnt-1U].address_space_reserved;
 
-      fd_pubkey_t owner = *(fd_pubkey_t *)&view_acc.entry->owner;
+      fd_pubkey_t owner = *(fd_pubkey_t *)&view_acc.acc->owner;
       acc_region_metas[i].vm_owner_addr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
         (ulong)(serialized_params - curr_serialized_params_start);
       FD_STORE( fd_pubkey_t, serialized_params, owner );
       serialized_params += sizeof(fd_pubkey_t);
 
-      uchar is_executable = (uchar)view_acc.entry->executable;
+      uchar is_executable = (uchar)view_acc.acc->executable;
       FD_STORE( uchar, serialized_params, is_executable );
       serialized_params += sizeof(uchar);
 

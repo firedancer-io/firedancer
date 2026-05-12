@@ -913,11 +913,11 @@ query_vote_accs( fd_tower_tile_t *            ctx,
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
 
 #define BATCH 128UL
-  fd_pubkey_t      vote_accs[ BATCH ];
-  ulong            stakes[ BATCH ];
-  uchar const *    pubkeys[ BATCH ];
-  int              writable[ BATCH ];
-  fd_accdb_entry_t entries[ BATCH ];
+  fd_pubkey_t   vote_accs[ BATCH ];
+  ulong         stakes[ BATCH ];
+  uchar const * pubkeys[ BATCH ];
+  int           writable[ BATCH ];
+  fd_acc_t      accs[ BATCH ];
 
   fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes_t_2, iter_mem );
   while( !fd_top_votes_iter_done( top_votes_t_2, iter ) ) {
@@ -933,16 +933,16 @@ query_vote_accs( fd_tower_tile_t *            ctx,
     }
     if( FD_UNLIKELY( !batch_n ) ) continue;
 
-    fd_accdb_acquire( ctx->accdb, bank->accdb_fork_id, batch_n, pubkeys, writable, entries );
+    fd_accdb_acquire( ctx->accdb, bank->accdb_fork_id, batch_n, pubkeys, writable, accs );
 
     for( ulong j=0UL; j<batch_n; j++ ) {
-      if( FD_UNLIKELY( !entries[ j ].lamports ) ) continue;
-      FD_TEST( fd_vsv_is_correct_size_owner_and_init( entries[ j ].owner, entries[ j ].data, entries[ j ].data_len ) );
-      count_vote_acc( ctx, slot_completed, ghost_blk, &vote_accs[ j ], stakes[ j ], entries[ j ].data, entries[ j ].data_len );
+      if( FD_UNLIKELY( !accs[ j ].lamports ) ) continue;
+      FD_TEST( fd_vsv_is_correct_size_owner_and_init( accs[ j ].owner, accs[ j ].data, accs[ j ].data_len ) );
+      count_vote_acc( ctx, slot_completed, ghost_blk, &vote_accs[ j ], stakes[ j ], accs[ j ].data, accs[ j ].data_len );
       prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_accs[ j ], stakes[ j ], prev_voter_idx );
     }
 
-    fd_accdb_release( ctx->accdb, batch_n, entries );
+    fd_accdb_release( ctx->accdb, batch_n, accs );
   }
 #undef BATCH
 
@@ -956,7 +956,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
 
   *our_vote_acct_bal   = ULONG_MAX;
   *found_our_vote_acct = 0;
-  fd_accdb_entry_t reconcile_ro = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
+  fd_acc_t reconcile_ro = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, ctx->vote_account->uc );
   if( FD_LIKELY( reconcile_ro.lamports ) ) {
     *found_our_vote_acct = 1;
     ctx->our_vote_acct_sz = fd_ulong_min( reconcile_ro.data_len, FD_VOTE_STATE_DATA_MAX );

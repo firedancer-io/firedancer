@@ -96,15 +96,15 @@ main( int     argc,
 
     uchar const * pks[1] = { pubkey };
     int wr[1] = { 1 };
-    fd_accdb_entry_t ent[1];
-    memset( ent, 0, sizeof(ent) );
-    fd_accdb_acquire( accdb, fork, 1UL, pks, wr, ent );
-    ent[0].lamports = i+1UL;
-    ent[0].data_len = sz;
-    memcpy( ent[0].owner, dummy_owner, 32UL );
-    memcpy( ent[0].data, data_buf, sz );
-    ent[0].commit = 1;
-    fd_accdb_release( accdb, 1UL, ent );
+    fd_acc_t acc[1];
+    memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( accdb, fork, 1UL, pks, wr, acc );
+    acc[0].lamports = i+1UL;
+    acc[0].data_len = sz;
+    memcpy( acc[0].owner, dummy_owner, 32UL );
+    memcpy( acc[0].data, data_buf, sz );
+    acc[0].commit = 1;
+    fd_accdb_release( accdb, 1UL, acc );
   }
 
   /* Warm: read every account once to ensure cache residency */
@@ -112,10 +112,10 @@ main( int     argc,
     make_pubkey( pubkey, i );
     uchar const * pks[1] = { pubkey };
     int wr[1] = { 0 };
-    fd_accdb_entry_t ent[1];
-    memset( ent, 0, sizeof(ent) );
-    fd_accdb_acquire( accdb, fork, 1UL, pks, wr, ent );
-    fd_accdb_release( accdb, 1UL, ent );
+    fd_acc_t acc[1];
+    memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( accdb, fork, 1UL, pks, wr, acc );
+    fd_accdb_release( accdb, 1UL, acc );
   }
 
   FD_LOG_NOTICE(( "populated %lu accounts, starting hot read loop", account_cnt ));
@@ -133,10 +133,10 @@ main( int     argc,
 
       uchar const * pks[1] = { pubkey };
       int wr[1] = { 0 };
-      fd_accdb_entry_t ent[1];
-      memset( ent, 0, sizeof(ent) );
-      fd_accdb_acquire( accdb, fork, 1UL, pks, wr, ent );
-      fd_accdb_release( accdb, 1UL, ent );
+      fd_acc_t acc[1];
+      memset( acc, 0, sizeof(acc) );
+      fd_accdb_acquire( accdb, fork, 1UL, pks, wr, acc );
+      fd_accdb_release( accdb, 1UL, acc );
       ops++;
     }
   }

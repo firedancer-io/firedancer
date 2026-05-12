@@ -30,8 +30,8 @@ struct fd_prog_info {
 typedef struct fd_prog_info fd_prog_info_t;
 
 fd_prog_info_t *
-fd_prog_info( fd_prog_info_t *         out,
-              fd_accdb_entry_t const * entry );
+fd_prog_info( fd_prog_info_t * out,
+              fd_acc_t const * acc );
 
 /* fd_prog_versions derives sBPF versions from the current feature set. */
 

@@ -183,22 +183,22 @@ test_env_create( test_env_t * env,
   env->txn_out->accounts.cnt = 3;
 
   memcpy( &env->txn_out->accounts.keys[0], &fd_solana_system_program_id, sizeof(fd_pubkey_t) );
-  fd_accdb_entry_t * sysprog_ent = &env->txn_out->accounts.account[0];
-  memset( sysprog_ent, 0, sizeof(fd_accdb_entry_t) );
+  fd_acc_t * sysprog_ent = &env->txn_out->accounts.account[0];
+  memset( sysprog_ent, 0, sizeof(fd_acc_t) );
   memcpy( sysprog_ent->pubkey, fd_solana_system_program_id.key, 32 );
   memcpy( sysprog_ent->owner, fd_solana_native_loader_id.key, 32 );
   sysprog_ent->executable = 1;
 
   memcpy( &env->txn_out->accounts.keys[1], &test_transfer_from_pubkey, sizeof(fd_pubkey_t) );
-  fd_accdb_entry_t * source_ent = &env->txn_out->accounts.account[1];
-  memset( source_ent, 0, sizeof(fd_accdb_entry_t) );
+  fd_acc_t * source_ent = &env->txn_out->accounts.account[1];
+  memset( source_ent, 0, sizeof(fd_acc_t) );
   memcpy( source_ent->pubkey, test_transfer_from_pubkey.key, 32 );
   memcpy( source_ent->owner, fd_solana_system_program_id.key, 32 );
   source_ent->lamports = 1000000UL;
 
   memcpy( &env->txn_out->accounts.keys[2], &test_transfer_to_pubkey, sizeof(fd_pubkey_t) );
-  fd_accdb_entry_t * dest_ent = &env->txn_out->accounts.account[2];
-  memset( dest_ent, 0, sizeof(fd_accdb_entry_t) );
+  fd_acc_t * dest_ent = &env->txn_out->accounts.account[2];
+  memset( dest_ent, 0, sizeof(fd_acc_t) );
   memcpy( dest_ent->pubkey, test_transfer_to_pubkey.key, 32 );
   memcpy( dest_ent->owner, fd_solana_system_program_id.key, 32 );
   dest_ent->lamports = 0UL;
@@ -218,13 +218,13 @@ test_env_create( test_env_t * env,
   memset( env->acc_region_metas, 0, sizeof(env->acc_region_metas) );
   env->acc_region_metas[0].region_idx        = 0;
   env->acc_region_metas[0].original_data_len = 0UL;
-  env->acc_region_metas[0].entry             = &env->txn_out->accounts.account[0];
+  env->acc_region_metas[0].acc             = &env->txn_out->accounts.account[0];
   env->acc_region_metas[1].region_idx        = 0;
   env->acc_region_metas[1].original_data_len = 0UL;
-  env->acc_region_metas[1].entry             = &env->txn_out->accounts.account[1];
+  env->acc_region_metas[1].acc             = &env->txn_out->accounts.account[1];
   env->acc_region_metas[2].region_idx        = 0;
   env->acc_region_metas[2].original_data_len = 0UL;
-  env->acc_region_metas[2].entry             = &env->txn_out->accounts.account[2];
+  env->acc_region_metas[2].acc             = &env->txn_out->accounts.account[2];
 
   memset( env->rodata, 0, sizeof(env->rodata) );
   int vm_ok = !!fd_vm_init(

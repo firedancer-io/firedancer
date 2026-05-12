@@ -80,18 +80,18 @@ accdb_read( fd_accdb_t *       accdb,
             uchar *            out_owner ) {
   uchar const * pks[1] = { pubkey };
   int wr[1] = { 0 };
-  fd_accdb_entry_t ent[1];
-  memset( ent, 0, sizeof(ent) );
-  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, ent );
-  int found = ent[0].lamports!=0UL;
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  int found = acc[0].lamports!=0UL;
   if( found ) {
-    if( out_lamports ) *out_lamports = ent[0].lamports;
-    if( out_data_len ) *out_data_len = ent[0].data_len;
-    if( out_owner )    memcpy( out_owner, ent[0].owner, 32UL );
-    if( out_data && ent[0].data && ent[0].data_len )
-      memcpy( out_data, ent[0].data, ent[0].data_len );
+    if( out_lamports ) *out_lamports = acc[0].lamports;
+    if( out_data_len ) *out_data_len = acc[0].data_len;
+    if( out_owner )    memcpy( out_owner, acc[0].owner, 32UL );
+    if( out_data && acc[0].data && acc[0].data_len )
+      memcpy( out_data, acc[0].data, acc[0].data_len );
   }
-  fd_accdb_release( accdb, 1UL, ent );
+  fd_accdb_release( accdb, 1UL, acc );
   return found;
 }
 
@@ -106,15 +106,15 @@ accdb_write( fd_accdb_t *       accdb,
              uchar const *      owner ) {
   uchar const * pks[1] = { pubkey };
   int wr[1] = { 1 };
-  fd_accdb_entry_t ent[1];
-  memset( ent, 0, sizeof(ent) );
-  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, ent );
-  ent[0].lamports = lamports;
-  ent[0].data_len = data_len;
-  memcpy( ent[0].owner, owner, 32UL );
-  if( data_len && data ) memcpy( ent[0].data, data, data_len );
-  ent[0].commit = 1;
-  fd_accdb_release( accdb, 1UL, ent );
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  acc[0].lamports = lamports;
+  acc[0].data_len = data_len;
+  memcpy( acc[0].owner, owner, 32UL );
+  if( data_len && data ) memcpy( acc[0].data, data, data_len );
+  acc[0].commit = 1;
+  fd_accdb_release( accdb, 1UL, acc );
 }
 
 void
@@ -185,27 +185,27 @@ test_missing_readonly_account_initializes_entry( void ) {
   uchar zeros[ 32UL ]          = { 0 };
   uchar const * pks[ 1 ]       = { missing_pubkey };
   int wr[ 1 ]                  = { 0 };
-  fd_accdb_entry_t ent[ 1 ];
+  fd_acc_t acc[ 1 ];
 
-  memset( ent, 0xA5, sizeof(ent) );
-  fd_accdb_acquire( accdb, slot1, 1UL, pks, wr, ent );
+  memset( acc, 0xA5, sizeof(acc) );
+  fd_accdb_acquire( accdb, slot1, 1UL, pks, wr, acc );
 
-  FD_TEST( !memcmp( ent[ 0 ].pubkey, missing_pubkey, 32UL ) );
-  FD_TEST( !memcmp( ent[ 0 ].owner,  zeros,          32UL ) );
-  FD_TEST( !memcmp( ent[ 0 ].prior_owner, zeros, 32UL ) );
-  FD_TEST( ent[ 0 ].lamports==0UL );
-  FD_TEST( ent[ 0 ].data_len==0UL );
-  FD_TEST( ent[ 0 ].data==NULL );
-  FD_TEST( ent[ 0 ].executable==0 );
-  FD_TEST( ent[ 0 ].prior_lamports==0UL );
-  FD_TEST( ent[ 0 ].prior_data_len==0UL );
-  FD_TEST( ent[ 0 ].prior_data==NULL );
-  FD_TEST( ent[ 0 ].prior_executable==0 );
-  FD_TEST( ent[ 0 ]._writable==0 );
-  FD_TEST( ent[ 0 ]._original_size_class==ULONG_MAX );
-  FD_TEST( ent[ 0 ]._original_cache_idx==ULONG_MAX );
+  FD_TEST( !memcmp( acc[ 0 ].pubkey, missing_pubkey, 32UL ) );
+  FD_TEST( !memcmp( acc[ 0 ].owner,  zeros,          32UL ) );
+  FD_TEST( !memcmp( acc[ 0 ].prior_owner, zeros, 32UL ) );
+  FD_TEST( acc[ 0 ].lamports==0UL );
+  FD_TEST( acc[ 0 ].data_len==0UL );
+  FD_TEST( acc[ 0 ].data==NULL );
+  FD_TEST( acc[ 0 ].executable==0 );
+  FD_TEST( acc[ 0 ].prior_lamports==0UL );
+  FD_TEST( acc[ 0 ].prior_data_len==0UL );
+  FD_TEST( acc[ 0 ].prior_data==NULL );
+  FD_TEST( acc[ 0 ].prior_executable==0 );
+  FD_TEST( acc[ 0 ]._writable==0 );
+  FD_TEST( acc[ 0 ]._original_size_class==ULONG_MAX );
+  FD_TEST( acc[ 0 ]._original_cache_idx==ULONG_MAX );
 
-  fd_accdb_release( accdb, 1UL, ent );
+  fd_accdb_release( accdb, 1UL, acc );
   close( fd );
 }
 
@@ -565,9 +565,9 @@ test_deep_chain_rooting( void ) {
 
   /* Rooting should have tombstoned the versions from chain[0]..chain[3]
      (4 old versions removed).  The 5 remaining forks (chain[4]..chain[9])
-     each still have one live entry, but they all share the same pubkey.
-     However only chain[5]..chain[9] wrote separate entries (chain[4] is
-     the new root and its entry persists).  The first rooting (chain[0])
+     each still have one live acc, but they all share the same pubkey.
+     However only chain[5]..chain[9] wrote separate accs (chain[4] is
+     the new root and its acc persists).  The first rooting (chain[0])
      does not tombstone anything because root had no txns, so 4 versions
      are removed.  10 original - 4 tombstoned = 6. */
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==6UL );
@@ -685,7 +685,7 @@ test_root_tombstones_old_version( void ) {
   drain_background( accdb );
 
   /* After rooting, the older version on root should have been
-     tombstoned, leaving exactly one live entry. */
+     tombstoned, leaving exactly one live acc. */
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==1UL );
 
   FD_TEST( accdb_read( accdb, a, pubkey1, &lamports, &d, &data_len, owner ) );

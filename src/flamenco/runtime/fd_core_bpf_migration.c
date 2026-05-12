@@ -44,16 +44,16 @@ tmp_account_read( fd_tmp_account_t *        acc,
                   fd_accdb_t *              accdb,
                   fd_accdb_fork_id_t        fork_id,
                   fd_pubkey_t const *       addr ) {
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, addr->uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) return NULL;
+  fd_acc_t db_acc = fd_accdb_read_one( accdb, fork_id, addr->uc );
+  if( FD_UNLIKELY( !db_acc.lamports ) ) return NULL;
 
-  acc->lamports = entry.lamports;
-  fd_memcpy( acc->owner.uc, entry.owner, 32UL );
-  acc->executable = entry.executable;
-  fd_memcpy( acc->data, entry.data, entry.data_len );
-  acc->data_sz = entry.data_len;
+  acc->lamports = db_acc.lamports;
+  fd_memcpy( acc->owner.uc, db_acc.owner, 32UL );
+  acc->executable = db_acc.executable;
+  fd_memcpy( acc->data, db_acc.data, db_acc.data_len );
+  acc->data_sz = db_acc.data_len;
 
-  fd_accdb_unread_one( accdb, &entry );
+  fd_accdb_unread_one( accdb, &db_acc );
   return acc;
 }
 
@@ -65,15 +65,15 @@ tmp_account_store( fd_bank_t *        bank,
   if( FD_UNLIKELY( fd_pubkey_eq( &acc->pubkey, &fd_solana_system_program_id ) ) ) FD_LOG_ERR(( "attempted to write to the system program account" ));
 
   fd_accdb_svm_update_t update[1];
-  fd_accdb_entry_t entry = fd_accdb_svm_open_rw( bank, accdb, update, &acc->pubkey, 1 );
+  fd_acc_t db_acc = fd_accdb_svm_open_rw( bank, accdb, update, &acc->pubkey, 1 );
 
-  entry.executable = acc->executable;
-  fd_memcpy( entry.owner, acc->owner.uc, 32UL );
-  entry.lamports = acc->lamports;
-  fd_memcpy( entry.data, acc->data, acc->data_sz );
-  entry.data_len = acc->data_sz;
+  db_acc.executable = acc->executable;
+  fd_memcpy( db_acc.owner, acc->owner.uc, 32UL );
+  db_acc.lamports = acc->lamports;
+  fd_memcpy( db_acc.data, acc->data, acc->data_sz );
+  db_acc.data_len = acc->data_sz;
 
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &entry, update );
+  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &db_acc, update );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L12 */
@@ -140,7 +140,7 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
   ulong program_data_account_lamports = 0UL;
   do {
     /* Program data account should not exist */
-    fd_accdb_entry_t progdata = fd_accdb_read_one( accdb, fork_id, program_data_address.uc );
+    fd_acc_t progdata = fd_accdb_read_one( accdb, fork_id, program_data_address.uc );
     int progdata_exists = !!progdata.lamports;
 
     /* SIMD-0444: relax_programdata_account_check_migration
@@ -290,8 +290,8 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L49-L74 */
   ulong program_data_account_lamports = 0UL;
   do {
-    fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, program_data_address.uc );
-    int progdata_exists = !!entry.lamports;
+    fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, program_data_address.uc );
+    int progdata_exists = !!acc.lamports;
 
     /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L49-L74 */
     if( FD_LIKELY( allow_prefunded ) ) {
@@ -300,20 +300,20 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
 
          https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L50-L61 */
       if( FD_UNLIKELY( progdata_exists ) ) {
-        if( FD_UNLIKELY( !fd_pubkey_eq( (fd_pubkey_t*)entry.owner, &fd_solana_system_program_id ) ) ) {
+        if( FD_UNLIKELY( !fd_pubkey_eq( (fd_pubkey_t*)acc.owner, &fd_solana_system_program_id ) ) ) {
           /* CoreBpfMigrationError::ProgramHasDataAccount(*program_address) */
-          fd_accdb_unread_one( accdb, &entry );
+          fd_accdb_unread_one( accdb, &acc );
           return NULL;
         } else {
-          program_data_account_lamports = entry.lamports;
-          fd_accdb_unread_one( accdb, &entry );
+          program_data_account_lamports = acc.lamports;
+          fd_accdb_unread_one( accdb, &acc );
         }
       }
     } else {
       /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L62-L74 */
       if( FD_UNLIKELY( progdata_exists ) ) {
         /* CoreBpfMigrationError::ProgramHasDataAccount(*program_address) */
-        fd_accdb_unread_one( accdb, &entry );
+        fd_accdb_unread_one( accdb, &acc );
         return NULL;
       }
     }

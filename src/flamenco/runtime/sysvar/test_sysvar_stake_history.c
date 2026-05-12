@@ -57,12 +57,12 @@ write_stake_history_account( test_sysvar_cache_env_t * env,
 
 static void
 read_stake_history_view( test_sysvar_cache_env_t * env,
-                         fd_accdb_entry_t *        entry,
+                         fd_acc_t *                acc,
                          fd_stake_history_t *      view ) {
-  *entry = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-  FD_TEST( entry->lamports );
-  FD_TEST( entry->data_len==FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
-  FD_TEST( fd_sysvar_stake_history_view( view, entry->data, entry->data_len ) );
+  *acc = fd_accdb_read_one( env->accdb, env->bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
+  FD_TEST( acc->lamports );
+  FD_TEST( acc->data_len==FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  FD_TEST( fd_sysvar_stake_history_view( view, acc->data, acc->data_len ) );
 }
 
 static void
@@ -121,16 +121,16 @@ test_sysvar_stake_history_update_grows_small_account( fd_wksp_t * wksp ) {
   fd_stake_history_entry_t const entry = test_stake_history_entry( 42UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
 
-  fd_accdb_entry_t ent[1];
+  fd_acc_t acc[1];
   fd_stake_history_t view[1];
-  read_stake_history_view( env, ent, view );
+  read_stake_history_view( env, acc, view );
 
-  FD_TEST( ent->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
+  FD_TEST( acc->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
   FD_TEST( view->len==1UL );
   FD_TEST( fd_sysvar_stake_history_query( view, 42UL ) );
   FD_TEST( fd_sysvar_stake_history_query( view, 42UL )->effective==entry.effective );
 
-  fd_accdb_unread_one( env->accdb, ent );
+  fd_accdb_unread_one( env->accdb, acc );
   test_sysvar_cache_env_destroy( env );
 }
 
@@ -149,11 +149,11 @@ test_sysvar_stake_history_update_truncates_large_account( fd_wksp_t * wksp ) {
   fd_stake_history_entry_t const entry = test_stake_history_entry( 2000UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
 
-  fd_accdb_entry_t ent[1];
+  fd_acc_t acc[1];
   fd_stake_history_t view[1];
-  read_stake_history_view( env, ent, view );
+  read_stake_history_view( env, acc, view );
 
-  FD_TEST( ent->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
+  FD_TEST( acc->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
   FD_TEST( view->len==FD_SYSVAR_STAKE_HISTORY_CAP );
   FD_TEST( view->entries[0].epoch==2000UL );
   FD_TEST( view->entries[1].epoch==1000UL );
@@ -162,7 +162,7 @@ test_sysvar_stake_history_update_truncates_large_account( fd_wksp_t * wksp ) {
   FD_TEST( fd_sysvar_stake_history_query( view, 2000UL )->effective==entry.effective );
   FD_TEST( !fd_sysvar_stake_history_query( view, 489UL ) );
 
-  fd_accdb_unread_one( env->accdb, ent );
+  fd_accdb_unread_one( env->accdb, acc );
   test_sysvar_cache_env_destroy( env );
 }
 
@@ -178,15 +178,15 @@ test_sysvar_stake_history_update_tops_low_balance( fd_wksp_t * wksp ) {
   fd_stake_history_entry_t const entry = test_stake_history_entry( 7UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
 
-  fd_accdb_entry_t ent[1];
+  fd_acc_t acc[1];
   fd_stake_history_t view[1];
-  read_stake_history_view( env, ent, view );
+  read_stake_history_view( env, acc, view );
 
-  FD_TEST( ent->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
+  FD_TEST( acc->lamports==fd_rent_exempt_minimum_balance( &env->bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
   FD_TEST( view->len==1UL );
   FD_TEST( fd_sysvar_stake_history_query( view, 7UL ) );
 
-  fd_accdb_unread_one( env->accdb, ent );
+  fd_accdb_unread_one( env->accdb, acc );
   test_sysvar_cache_env_destroy( env );
 }
 
@@ -213,9 +213,9 @@ test_sysvar_stake_history_update_replaces_existing_epoch( fd_wksp_t * wksp ) {
   };
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &replacement );
 
-  fd_accdb_entry_t ent[1];
+  fd_acc_t acc[1];
   fd_stake_history_t view[1];
-  read_stake_history_view( env, ent, view );
+  read_stake_history_view( env, acc, view );
 
   FD_TEST( view->len==3UL );
   FD_TEST( view->entries[0].epoch==9UL );
@@ -227,7 +227,7 @@ test_sysvar_stake_history_update_replaces_existing_epoch( fd_wksp_t * wksp ) {
   FD_TEST( e->activating==0xaaaaUL );
   FD_TEST( e->deactivating==0xffffUL );
 
-  fd_accdb_unread_one( env->accdb, ent );
+  fd_accdb_unread_one( env->accdb, acc );
   test_sysvar_cache_env_destroy( env );
 }
 
@@ -246,9 +246,9 @@ test_sysvar_stake_history_update_inserts_descending( fd_wksp_t * wksp ) {
   entry = test_stake_history_entry( 20UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
 
-  fd_accdb_entry_t ent[1];
+  fd_acc_t acc[1];
   fd_stake_history_t view[1];
-  read_stake_history_view( env, ent, view );
+  read_stake_history_view( env, acc, view );
 
   FD_TEST( view->len==3UL );
   FD_TEST( view->entries[0].epoch==30UL );
@@ -258,7 +258,7 @@ test_sysvar_stake_history_update_inserts_descending( fd_wksp_t * wksp ) {
   FD_TEST( fd_sysvar_stake_history_query( view, 20UL ) );
   FD_TEST( fd_sysvar_stake_history_query( view, 10UL ) );
 
-  fd_accdb_unread_one( env->accdb, ent );
+  fd_accdb_unread_one( env->accdb, acc );
   test_sysvar_cache_env_destroy( env );
 }
 
@@ -278,9 +278,9 @@ test_sysvar_stake_history_update_at_capacity( fd_wksp_t * wksp ) {
   fd_stake_history_entry_t newest = test_stake_history_entry( 2000UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &newest );
 
-  fd_accdb_entry_t ent[1];
+  fd_acc_t acc[1];
   fd_stake_history_t view[1];
-  read_stake_history_view( env, ent, view );
+  read_stake_history_view( env, acc, view );
 
   FD_TEST( view->len==FD_SYSVAR_STAKE_HISTORY_CAP );
   FD_TEST( view->entries[0].epoch==2000UL );
@@ -288,18 +288,18 @@ test_sysvar_stake_history_update_at_capacity( fd_wksp_t * wksp ) {
   FD_TEST( view->entries[FD_SYSVAR_STAKE_HISTORY_CAP-1UL].epoch==490UL );
   FD_TEST( !fd_sysvar_stake_history_query( view, 489UL ) );
 
-  fd_accdb_unread_one( env->accdb, ent );
+  fd_accdb_unread_one( env->accdb, acc );
 
   fd_stake_history_entry_t too_old = test_stake_history_entry( 1UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &too_old );
 
-  read_stake_history_view( env, ent, view );
+  read_stake_history_view( env, acc, view );
   FD_TEST( view->len==FD_SYSVAR_STAKE_HISTORY_CAP );
   FD_TEST( view->entries[0].epoch==2000UL );
   FD_TEST( view->entries[FD_SYSVAR_STAKE_HISTORY_CAP-1UL].epoch==490UL );
   FD_TEST( !fd_sysvar_stake_history_query( view, 1UL ) );
 
-  fd_accdb_unread_one( env->accdb, ent );
+  fd_accdb_unread_one( env->accdb, acc );
   test_sysvar_cache_env_destroy( env );
 }
 
@@ -322,18 +322,18 @@ test_sysvar_stake_history_update_zeros_trailing( fd_wksp_t * wksp ) {
   fd_stake_history_entry_t insert = test_stake_history_entry( 7UL );
   fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &insert );
 
-  fd_accdb_entry_t ent[1];
+  fd_acc_t acc[1];
   fd_stake_history_t view[1];
-  read_stake_history_view( env, ent, view );
+  read_stake_history_view( env, acc, view );
 
   FD_TEST( view->len==4UL );
   ulong used = 8UL + 4UL * sizeof(fd_stake_history_entry_t);
-  uchar const * raw = ent->data;
+  uchar const * raw = acc->data;
   for( ulong i=used; i<FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ; i++ ) {
     FD_TEST( raw[i]==0 );
   }
 
-  fd_accdb_unread_one( env->accdb, ent );
+  fd_accdb_unread_one( env->accdb, acc );
   test_sysvar_cache_env_destroy( env );
 }
 

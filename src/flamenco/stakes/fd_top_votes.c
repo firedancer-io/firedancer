@@ -284,19 +284,19 @@ fd_top_votes_refresh( fd_top_votes_t *   top_votes,
     fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL, NULL );
 
     int is_valid = 1;
-    fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, pubkey.uc );
-    if( FD_UNLIKELY( !entry.lamports ) ) {
+    fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, pubkey.uc );
+    if( FD_UNLIKELY( !acc.lamports ) ) {
       is_valid = 0;
-    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( entry.owner, entry.data, entry.data_len ) ) ) {
-      fd_accdb_unread_one( accdb, &entry );
+    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
+      fd_accdb_unread_one( accdb, &acc );
       is_valid = 0;
     }
 
     if( FD_LIKELY( is_valid ) ) {
       fd_vote_block_timestamp_t last_vote;
-      FD_TEST( !fd_vote_account_last_timestamp( entry.data, entry.data_len, &last_vote ) );
+      FD_TEST( !fd_vote_account_last_timestamp( acc.data, acc.data_len, &last_vote ) );
       fd_top_votes_update( top_votes, &pubkey, last_vote.slot, last_vote.timestamp );
-      fd_accdb_unread_one( accdb, &entry );
+      fd_accdb_unread_one( accdb, &acc );
     } else {
       fd_top_votes_invalidate( top_votes, &pubkey );
     }

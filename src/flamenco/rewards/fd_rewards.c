@@ -583,7 +583,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                              fd_capture_ctx_t *             capture_ctx,
                              ulong                          rewarded_epoch,
                              ulong *                        rewards_out ) {
-  fd_accdb_entry_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
+  fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
   if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "Unable to read stake history sysvar" ));
   fd_stake_history_t stake_history[1];
   if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, ro.data, ro.data_len ) ) ) {
@@ -757,21 +757,21 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
                                       fd_pubkey_t *      stake_pubkey,
                                       ulong              reward_lamports,
                                       ulong              new_credits_observed ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, stake_pubkey->uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) return 1; /* account does not exist */
+  fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, stake_pubkey->uc );
+  if( FD_UNLIKELY( !acc.lamports ) ) return 1; /* account does not exist */
 
-  fd_stake_state_t const * stake_state_orig = fd_stakes_get_state( &entry );
+  fd_stake_state_t const * stake_state_orig = fd_stakes_get_state( &acc );
   if( FD_UNLIKELY( !stake_state_orig || stake_state_orig->stake_type!=FD_STAKE_STATE_STAKE ) ) {
-    fd_accdb_unwrite_one( accdb, &entry );
+    fd_accdb_unwrite_one( accdb, &acc );
     return 1;  /* not a valid stake account */
   }
 
   fd_stake_state_t stake_state[1] = { *stake_state_orig };
 
   fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash_simple( stake_pubkey->uc, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, prev_hash );
+  fd_hashes_account_lthash_simple( stake_pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, prev_hash );
 
-  FD_TEST( !__builtin_add_overflow( entry.lamports, reward_lamports, &entry.lamports ) );
+  FD_TEST( !__builtin_add_overflow( acc.lamports, reward_lamports, &acc.lamports ) );
 
   ulong old_credits_observed                = stake_state->stake.stake.credits_observed;
   stake_state->stake.stake.credits_observed = new_credits_observed;
@@ -793,7 +793,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
                                                 bank->f.slot,
                                                 *stake_pubkey,
                                                 bank->f.slot,
-                                                entry.lamports,
+                                                acc.lamports,
                                                 (long)reward_lamports,
                                                 new_credits_observed,
                                                 (long)( new_credits_observed - old_credits_observed ),
@@ -801,11 +801,11 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
                                                 (long)reward_lamports );
   }
 
-  FD_STORE( fd_stake_state_t, entry.data, *stake_state );
+  FD_STORE( fd_stake_state_t, acc.data, *stake_state );
   fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, prev_hash, stake_pubkey->uc, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, bank, capture_ctx );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_hashes_update_simple( post, prev_hash, stake_pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 
   return 0;
 }
@@ -1015,7 +1015,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong const epoch          = bank->f.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
-  fd_accdb_entry_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
+  fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
   if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "Unable to read stake history sysvar" ));
   fd_stake_history_t stake_history[1];
   if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, ro.data, ro.data_len ) ) ) {

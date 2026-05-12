@@ -313,13 +313,13 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
       fd_vote_authorized_voters_treap_ele_insert( vs->authorized_voters.treap, ele, vs->authorized_voters.pool );
       FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
-      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fk, vote_key.uc );
-      entry.lamports = vote_min_bal;
-      fd_memcpy( entry.owner, fd_solana_vote_program_id.uc, 32UL );
-      fd_memcpy( entry.data, vote_state_data, FD_VOTE_STATE_V3_SZ );
-      entry.data_len = FD_VOTE_STATE_V3_SZ;
-      entry.commit = 1;
-      fd_accdb_unwrite_one( accdb, &entry );
+      fd_acc_t acc = fd_accdb_write_one( accdb, root_fk, vote_key.uc );
+      acc.lamports = vote_min_bal;
+      fd_memcpy( acc.owner, fd_solana_vote_program_id.uc, 32UL );
+      fd_memcpy( acc.data, vote_state_data, FD_VOTE_STATE_V3_SZ );
+      acc.data_len = FD_VOTE_STATE_V3_SZ;
+      acc.commit = 1;
+      fd_accdb_unwrite_one( accdb, &acc );
     }
 
     /* Stake account */
@@ -347,13 +347,13 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
         },
       }) );
 
-      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fk, stake_key.uc );
-      entry.lamports = fd_ulong_max( stake_min_bal, uniform_stake );
-      fd_memcpy( entry.owner, fd_solana_stake_program_id.uc, 32UL );
-      fd_memcpy( entry.data, stake_data, FD_STAKE_STATE_SZ );
-      entry.data_len = FD_STAKE_STATE_SZ;
-      entry.commit = 1;
-      fd_accdb_unwrite_one( accdb, &entry );
+      fd_acc_t acc = fd_accdb_write_one( accdb, root_fk, stake_key.uc );
+      acc.lamports = fd_ulong_max( stake_min_bal, uniform_stake );
+      fd_memcpy( acc.owner, fd_solana_stake_program_id.uc, 32UL );
+      fd_memcpy( acc.data, stake_data, FD_STAKE_STATE_SZ );
+      acc.data_len = FD_STAKE_STATE_SZ;
+      acc.commit = 1;
+      fd_accdb_unwrite_one( accdb, &acc );
     }
 
     /* Populate bank structures */
@@ -480,15 +480,15 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
       char const * data = builtins[i].data;
       ulong        sz   = strlen( data );
-      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fork_id, builtins[i].pubkey->uc );
-      entry.lamports = 1UL;
-      fd_memcpy( entry.owner, fd_solana_native_loader_id.uc, 32UL );
-      if( sz ) fd_memcpy( entry.data, data, sz );
-      entry.data_len   = sz;
-      entry.executable = 1;
-      entry.commit     = 1;
-      fd_accdb_unwrite_one( accdb, &entry );
-      bank->f.capitalization += entry.lamports;
+      fd_acc_t acc = fd_accdb_write_one( accdb, root_fork_id, builtins[i].pubkey->uc );
+      acc.lamports = 1UL;
+      fd_memcpy( acc.owner, fd_solana_native_loader_id.uc, 32UL );
+      if( sz ) fd_memcpy( acc.data, data, sz );
+      acc.data_len   = sz;
+      acc.executable = 1;
+      acc.commit     = 1;
+      fd_accdb_unwrite_one( accdb, &acc );
+      bank->f.capitalization += acc.lamports;
     }
 
     fd_pubkey_t const * precompiles[] = {
@@ -497,14 +497,14 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
       &fd_solana_secp256r1_program_id,
     };
     for( ulong i=0UL; i<3UL; i++ ) {
-      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fork_id, precompiles[i]->uc );
-      entry.lamports   = 1UL;
-      fd_memcpy( entry.owner, fd_solana_native_loader_id.uc, 32UL );
-      entry.data_len   = 0;
-      entry.executable = 1;
-      entry.commit     = 1;
-      fd_accdb_unwrite_one( accdb, &entry );
-      bank->f.capitalization += entry.lamports;
+      fd_acc_t acc = fd_accdb_write_one( accdb, root_fork_id, precompiles[i]->uc );
+      acc.lamports   = 1UL;
+      fd_memcpy( acc.owner, fd_solana_native_loader_id.uc, 32UL );
+      acc.data_len   = 0;
+      acc.executable = 1;
+      acc.commit     = 1;
+      fd_accdb_unwrite_one( accdb, &acc );
+      bank->f.capitalization += acc.lamports;
     }
   }
 
@@ -516,14 +516,14 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
       if( activation_slot==FD_FEATURE_DISABLED ) continue;
 
       fd_feature_t feature = { .is_active = 1, .activation_slot = activation_slot };
-      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fork_id, id->id.uc );
-      entry.lamports = 1UL;
-      fd_memcpy( entry.owner, fd_solana_feature_program_id.uc, 32UL );
-      fd_memcpy( entry.data, &feature, sizeof(fd_feature_t) );
-      entry.data_len = sizeof(fd_feature_t);
-      entry.commit   = 1;
-      fd_accdb_unwrite_one( accdb, &entry );
-      bank->f.capitalization += entry.lamports;
+      fd_acc_t acc = fd_accdb_write_one( accdb, root_fork_id, id->id.uc );
+      acc.lamports = 1UL;
+      fd_memcpy( acc.owner, fd_solana_feature_program_id.uc, 32UL );
+      fd_memcpy( acc.data, &feature, sizeof(fd_feature_t) );
+      acc.data_len = sizeof(fd_feature_t);
+      acc.commit   = 1;
+      fd_accdb_unwrite_one( accdb, &acc );
+      bank->f.capitalization += acc.lamports;
     }
   }
 
@@ -547,7 +547,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     /* Last restart slot */
     uchar last_restart_enc[ FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ ] = {0};
 
-    /* Recent hashes (encodes from blockhash queue -- initially 1 entry) */
+    /* Recent hashes (encodes from blockhash queue -- initially 1 acc) */
     uchar recent_hashes_enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
     ulong rbh_cnt = 1UL;
     memcpy( recent_hashes_enc, &rbh_cnt, sizeof(ulong) );
@@ -581,14 +581,14 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
       { &fd_sysvar_stake_history_id,       stake_history_enc,       sizeof(stake_history_enc)         },
     };
     for( ulong i=0UL; i<8UL; i++ ) {
-      fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fork_id, sysvars[i].addr->uc );
-      entry.lamports = fd_rent_exempt_minimum_balance( &bank->f.rent, sysvars[i].sz );
-      fd_memcpy( entry.owner, fd_sysvar_owner_id.uc, 32UL );
-      if( sysvars[i].sz ) fd_memcpy( entry.data, sysvars[i].data, sysvars[i].sz );
-      entry.data_len = sysvars[i].sz;
-      entry.commit   = 1;
-      fd_accdb_unwrite_one( accdb, &entry );
-      bank->f.capitalization += entry.lamports;
+      fd_acc_t acc = fd_accdb_write_one( accdb, root_fork_id, sysvars[i].addr->uc );
+      acc.lamports = fd_rent_exempt_minimum_balance( &bank->f.rent, sysvars[i].sz );
+      fd_memcpy( acc.owner, fd_sysvar_owner_id.uc, 32UL );
+      if( sysvars[i].sz ) fd_memcpy( acc.data, sysvars[i].data, sysvars[i].sz );
+      acc.data_len = sysvars[i].sz;
+      acc.commit   = 1;
+      fd_accdb_unwrite_one( accdb, &acc );
+      bank->f.capitalization += acc.lamports;
     }
 
     free( slot_history_enc );
@@ -695,8 +695,8 @@ fd_svm_mini_fork_id( fd_svm_mini_t * mini,
 }
 
 void
-fd_svm_mini_put_account_rooted( fd_svm_mini_t *          mini,
-                                fd_accdb_entry_t const * ro ) {
+fd_svm_mini_put_account_rooted( fd_svm_mini_t *  mini,
+                                fd_acc_t const * ro ) {
   fd_accdb_t *       accdb   = mini->runtime->accdb;
   fd_bank_t *        root    = fd_banks_root( mini->banks );
   fd_accdb_fork_id_t root_fk = root->accdb_fork_id;
@@ -704,14 +704,14 @@ fd_svm_mini_put_account_rooted( fd_svm_mini_t *          mini,
   ulong old_lamports = fd_accdb_lamports( accdb, root_fk, ro->pubkey );
   if( old_lamports==ULONG_MAX ) old_lamports = 0UL;
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fk, ro->pubkey );
-  entry.lamports   = ro->lamports;
-  fd_memcpy( entry.owner, ro->owner, 32UL );
-  entry.executable = ro->executable;
-  entry.data_len   = ro->data_len;
-  if( ro->data_len && ro->data ) fd_memcpy( entry.data, ro->data, ro->data_len );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( accdb, root_fk, ro->pubkey );
+  acc.lamports   = ro->lamports;
+  fd_memcpy( acc.owner, ro->owner, 32UL );
+  acc.executable = ro->executable;
+  acc.data_len   = ro->data_len;
+  if( ro->data_len && ro->data ) fd_memcpy( acc.data, ro->data, ro->data_len );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 
   if( root ) {
     if( ro->lamports >= old_lamports )
@@ -729,12 +729,12 @@ fd_svm_mini_add_lamports_rooted( fd_svm_mini_t *     mini,
   fd_bank_t *        root    = fd_banks_root( mini->banks );
   fd_accdb_fork_id_t root_fk = root->accdb_fork_id;
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, root_fk, pubkey->uc );
-  ulong balance = entry.lamports;
+  fd_acc_t acc = fd_accdb_write_one( accdb, root_fk, pubkey->uc );
+  ulong balance = acc.lamports;
   FD_TEST( !__builtin_uaddl_overflow( balance, lamports, &balance ) );
-  entry.lamports = balance;
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  acc.lamports = balance;
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 
   if( root ) root->f.capitalization += lamports;
 }
@@ -746,12 +746,12 @@ fd_svm_mini_add_lamports( fd_svm_mini_t *     mini,
                           ulong               lamports ) {
   fd_accdb_t * accdb = mini->runtime->accdb;
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->uc );
-  ulong balance = entry.lamports;
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->uc );
+  ulong balance = acc.lamports;
   FD_TEST( !__builtin_uaddl_overflow( balance, lamports, &balance ) );
-  entry.lamports = balance;
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  acc.lamports = balance;
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 
   /* Find the bank with this fork_id to update capitalization.
      Linear scan is fine for test code. */

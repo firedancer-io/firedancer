@@ -383,16 +383,16 @@ setup_instr_ctx( fixture_input_t const * in,
     if( dlen ) fd_memcpy( data_buf, in->accounts[i].data, dlen );
     storage[i] = data_buf;
 
-    fd_accdb_entry_t * ent = &g_txn_out->accounts.account[i];
-    fd_memset( ent, 0, sizeof(*ent) );
-    memcpy( ent->pubkey, in->accounts[i].pubkey.key, 32 );
-    memcpy( ent->owner,  in->accounts[i].owner.key,  32 );
-    ent->lamports   = in->accounts[i].lamports;
-    ent->executable = in->accounts[i].executable;
-    ent->data_len   = (uint)dlen;
-    ent->data       = data_buf;
-    ent->_writable  = 1;
-    ent->commit     = 0;
+    fd_acc_t * acc = &g_txn_out->accounts.account[i];
+    fd_memset( acc, 0, sizeof(*acc) );
+    memcpy( acc->pubkey, in->accounts[i].pubkey.key, 32 );
+    memcpy( acc->owner,  in->accounts[i].owner.key,  32 );
+    acc->lamports   = in->accounts[i].lamports;
+    acc->executable = in->accounts[i].executable;
+    acc->data_len   = (uint)dlen;
+    acc->data       = data_buf;
+    acc->_writable  = 1;
+    acc->commit     = 0;
 
     memcpy( g_txn_out->accounts.keys[i].key, in->accounts[i].pubkey.key, 32 );
 

@@ -20,12 +20,12 @@ static fd_stake_t
 read_stake( fd_svm_mini_t *     mini,
             fd_accdb_fork_id_t  fork_id,
             fd_pubkey_t const * pubkey ) {
-  fd_accdb_entry_t entry = fd_accdb_read_one( mini->runtime->accdb, fork_id, pubkey->key );
-  FD_TEST( entry.lamports > 0UL );
-  fd_stake_state_t const * ss = fd_stake_state_view( entry.data, entry.data_len );
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, fork_id, pubkey->key );
+  FD_TEST( acc.lamports > 0UL );
+  fd_stake_state_t const * ss = fd_stake_state_view( acc.data, acc.data_len );
   FD_TEST( ss && ss->stake_type==FD_STAKE_STATE_STAKE );
   fd_stake_t s = ss->stake.stake;
-  fd_accdb_unread_one( mini->runtime->accdb, &entry );
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
   return s;
 }
 
@@ -52,16 +52,16 @@ patch_vote_account( fd_svm_mini_t *     mini,
                     ulong               prev_credits ) {
   fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
 
-  fd_accdb_entry_t entry = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote_key->key );
-  FD_TEST( entry.lamports > 0UL );
-  ulong data_sz = entry.data_len;
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, vote_key->key );
+  FD_TEST( acc.lamports > 0UL );
+  ulong data_sz = acc.data_len;
   FD_TEST( data_sz<=FD_VOTE_STATE_V3_SZ );
   uchar data_copy[ FD_VOTE_STATE_V3_SZ ];
-  memcpy( data_copy, entry.data, data_sz );
-  uchar owner_copy[32]; memcpy( owner_copy, entry.owner, 32 );
-  ulong lamports_copy = entry.lamports;
-  int   exec_copy     = entry.executable;
-  fd_accdb_unread_one( mini->runtime->accdb, &entry );
+  memcpy( data_copy, acc.data, data_sz );
+  uchar owner_copy[32]; memcpy( owner_copy, acc.owner, 32 );
+  ulong lamports_copy = acc.lamports;
+  int   exec_copy     = acc.executable;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
 
   fd_vote_state_versioned_t versioned[1];
   FD_TEST( fd_vote_state_versioned_deserialize( versioned, data_copy, data_sz ) );
@@ -74,14 +74,14 @@ patch_vote_account( fd_svm_mini_t *     mini,
   uchar new_data[ FD_VOTE_STATE_V3_SZ ] = {0};
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, new_data, sizeof(new_data) ) );
 
-  fd_accdb_entry_t new_entry = {0};
-  memcpy( new_entry.pubkey, vote_key->key, 32 );
-  memcpy( new_entry.owner, owner_copy, 32 );
-  new_entry.lamports   = lamports_copy;
-  new_entry.executable = exec_copy;
-  new_entry.data_len   = sizeof(new_data);
-  new_entry.data       = new_data;
-  fd_svm_mini_put_account_rooted( mini, &new_entry );
+  fd_acc_t new_acc = {0};
+  memcpy( new_acc.pubkey, vote_key->key, 32 );
+  memcpy( new_acc.owner, owner_copy, 32 );
+  new_acc.lamports   = lamports_copy;
+  new_acc.executable = exec_copy;
+  new_acc.data_len   = sizeof(new_data);
+  new_acc.data       = new_data;
+  fd_svm_mini_put_account_rooted( mini, &new_acc );
 }
 
 static void
@@ -91,25 +91,25 @@ clone_stake_account( fd_svm_mini_t *     mini,
                      fd_pubkey_t const * dst_key ) {
   fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
 
-  fd_accdb_entry_t entry = fd_accdb_read_one( mini->runtime->accdb, root_fk, src_key->key );
-  FD_TEST( entry.lamports > 0UL );
-  ulong data_sz = entry.data_len;
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, src_key->key );
+  FD_TEST( acc.lamports > 0UL );
+  ulong data_sz = acc.data_len;
   FD_TEST( data_sz<=FD_STAKE_STATE_SZ );
   uchar data_copy[ FD_STAKE_STATE_SZ ];
-  memcpy( data_copy, entry.data, data_sz );
-  uchar owner_copy[32]; memcpy( owner_copy, entry.owner, 32 );
-  ulong lamports_copy = entry.lamports;
-  int   exec_copy     = entry.executable;
-  fd_accdb_unread_one( mini->runtime->accdb, &entry );
+  memcpy( data_copy, acc.data, data_sz );
+  uchar owner_copy[32]; memcpy( owner_copy, acc.owner, 32 );
+  ulong lamports_copy = acc.lamports;
+  int   exec_copy     = acc.executable;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
 
-  fd_accdb_entry_t new_entry = {0};
-  memcpy( new_entry.pubkey, dst_key->key, 32 );
-  memcpy( new_entry.owner, owner_copy, 32 );
-  new_entry.lamports   = lamports_copy;
-  new_entry.executable = exec_copy;
-  new_entry.data_len   = data_sz;
-  new_entry.data       = data_copy;
-  fd_svm_mini_put_account_rooted( mini, &new_entry );
+  fd_acc_t new_acc = {0};
+  memcpy( new_acc.pubkey, dst_key->key, 32 );
+  memcpy( new_acc.owner, owner_copy, 32 );
+  new_acc.lamports   = lamports_copy;
+  new_acc.executable = exec_copy;
+  new_acc.data_len   = data_sz;
+  new_acc.data       = data_copy;
+  fd_svm_mini_put_account_rooted( mini, &new_acc );
 }
 
 static uchar
@@ -315,27 +315,27 @@ patch_stake_activation_epoch( fd_svm_mini_t *     mini,
                                ulong               new_activation_epoch ) {
   fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
 
-  fd_accdb_entry_t entry = fd_accdb_read_one( mini->runtime->accdb, root_fk, stake_key->key );
-  FD_TEST( entry.lamports > 0UL );
-  fd_stake_state_t const * ss_orig = fd_stake_state_view( entry.data, entry.data_len );
+  fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, stake_key->key );
+  FD_TEST( acc.lamports > 0UL );
+  fd_stake_state_t const * ss_orig = fd_stake_state_view( acc.data, acc.data_len );
   FD_TEST( ss_orig && ss_orig->stake_type==FD_STAKE_STATE_STAKE );
   fd_stake_state_t ss_new = *ss_orig;
   ss_new.stake.stake.delegation.activation_epoch = new_activation_epoch;
-  uchar owner_copy[32]; memcpy( owner_copy, entry.owner, 32 );
-  ulong lamports_copy = entry.lamports;
-  int   exec_copy     = entry.executable;
-  fd_accdb_unread_one( mini->runtime->accdb, &entry );
+  uchar owner_copy[32]; memcpy( owner_copy, acc.owner, 32 );
+  ulong lamports_copy = acc.lamports;
+  int   exec_copy     = acc.executable;
+  fd_accdb_unread_one( mini->runtime->accdb, &acc );
 
   uchar new_data[ FD_STAKE_STATE_SZ ] = {0};
   FD_STORE( fd_stake_state_t, new_data, ss_new );
-  fd_accdb_entry_t new_entry = {0};
-  memcpy( new_entry.pubkey, stake_key->key, 32 );
-  memcpy( new_entry.owner, owner_copy, 32 );
-  new_entry.lamports   = lamports_copy;
-  new_entry.executable = exec_copy;
-  new_entry.data_len   = sizeof(new_data);
-  new_entry.data       = new_data;
-  fd_svm_mini_put_account_rooted( mini, &new_entry );
+  fd_acc_t new_acc = {0};
+  memcpy( new_acc.pubkey, stake_key->key, 32 );
+  memcpy( new_acc.owner, owner_copy, 32 );
+  new_acc.lamports   = lamports_copy;
+  new_acc.executable = exec_copy;
+  new_acc.data_len   = sizeof(new_data);
+  new_acc.data       = new_data;
+  fd_svm_mini_put_account_rooted( mini, &new_acc );
 
   fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( mini->banks );
   fd_stake_delegations_root_update( sd, stake_key, vote_key,
@@ -589,27 +589,27 @@ test_credit_rewind_force_update( fd_svm_mini_t * mini ) {
 
   {
     fd_accdb_fork_id_t root_fk = fd_svm_mini_fork_id( mini, root_idx );
-    fd_accdb_entry_t entry = fd_accdb_read_one( mini->runtime->accdb, root_fk, stake_key.key );
-    FD_TEST( entry.lamports > 0UL );
-    fd_stake_state_t const * ss_orig = fd_stake_state_view( entry.data, entry.data_len );
+    fd_acc_t acc = fd_accdb_read_one( mini->runtime->accdb, root_fk, stake_key.key );
+    FD_TEST( acc.lamports > 0UL );
+    fd_stake_state_t const * ss_orig = fd_stake_state_view( acc.data, acc.data_len );
     FD_TEST( ss_orig && ss_orig->stake_type==FD_STAKE_STATE_STAKE );
     fd_stake_state_t ss_new = *ss_orig;
     ss_new.stake.stake.credits_observed = 10UL;
-    uchar owner_copy[32]; memcpy( owner_copy, entry.owner, 32 );
-    ulong lamports_copy = entry.lamports;
-    int   exec_copy     = entry.executable;
-    fd_accdb_unread_one( mini->runtime->accdb, &entry );
+    uchar owner_copy[32]; memcpy( owner_copy, acc.owner, 32 );
+    ulong lamports_copy = acc.lamports;
+    int   exec_copy     = acc.executable;
+    fd_accdb_unread_one( mini->runtime->accdb, &acc );
 
     uchar new_data[ FD_STAKE_STATE_SZ ] = {0};
     FD_STORE( fd_stake_state_t, new_data, ss_new );
-    fd_accdb_entry_t new_entry = {0};
-    memcpy( new_entry.pubkey, stake_key.key, 32 );
-    memcpy( new_entry.owner, owner_copy, 32 );
-    new_entry.lamports   = lamports_copy;
-    new_entry.executable = exec_copy;
-    new_entry.data_len   = sizeof(new_data);
-    new_entry.data       = new_data;
-    fd_svm_mini_put_account_rooted( mini, &new_entry );
+    fd_acc_t new_acc = {0};
+    memcpy( new_acc.pubkey, stake_key.key, 32 );
+    memcpy( new_acc.owner, owner_copy, 32 );
+    new_acc.lamports   = lamports_copy;
+    new_acc.executable = exec_copy;
+    new_acc.data_len   = sizeof(new_data);
+    new_acc.data       = new_data;
+    fd_svm_mini_put_account_rooted( mini, &new_acc );
 
     fd_stake_delegations_t * sd = fd_banks_stake_delegations_root_query( mini->banks );
     fd_stake_delegations_root_update( sd, &stake_key, &vote_key,

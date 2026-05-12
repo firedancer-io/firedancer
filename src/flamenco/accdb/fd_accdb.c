@@ -1492,7 +1492,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
                         ulong                 pubkeys_cnt,
                         uchar const * const * pubkeys,
                         int *                 writable,
-                        fd_accdb_entry_t *    out_entries ) {
+                        fd_acc_t *            out_accs ) {
   accdb->metrics->acquire_calls++;
   accdb->metrics->accounts_acquired += pubkeys_cnt;
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
@@ -1867,66 +1867,66 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accs[ i ] && !writable[ i ] ) ) {
-      out_entries[ i ].data = NULL;
-      out_entries[ i ].data_len = 0UL;
-      out_entries[ i ].lamports = 0UL;
-      out_entries[ i ].executable = 0;
-      memset( out_entries[ i ].owner, 0, 32UL );
-      fd_memcpy( out_entries[ i ].pubkey, pubkeys[ i ], 32UL );
-      out_entries[ i ].prior_lamports = 0UL;
-      out_entries[ i ].prior_data_len = 0UL;
-      out_entries[ i ].prior_executable = 0;
-      memset( out_entries[ i ].prior_owner, 0, 32UL );
-      out_entries[ i ].prior_data = NULL;
-      out_entries[ i ].commit = 0;
-      out_entries[ i ]._writable = 0;
-      out_entries[ i ]._original_size_class = ULONG_MAX;
-      out_entries[ i ]._original_cache_idx = ULONG_MAX;
+      out_accs[ i ].data = NULL;
+      out_accs[ i ].data_len = 0UL;
+      out_accs[ i ].lamports = 0UL;
+      out_accs[ i ].executable = 0;
+      memset( out_accs[ i ].owner, 0, 32UL );
+      fd_memcpy( out_accs[ i ].pubkey, pubkeys[ i ], 32UL );
+      out_accs[ i ].prior_lamports = 0UL;
+      out_accs[ i ].prior_data_len = 0UL;
+      out_accs[ i ].prior_executable = 0;
+      memset( out_accs[ i ].prior_owner, 0, 32UL );
+      out_accs[ i ].prior_data = NULL;
+      out_accs[ i ].commit = 0;
+      out_accs[ i ]._writable = 0;
+      out_accs[ i ]._original_size_class = ULONG_MAX;
+      out_accs[ i ]._original_cache_idx = ULONG_MAX;
       continue;
     }
 
-    if( FD_LIKELY( !writable[ i ] ) ) out_entries[ i ].data = (uchar *)(original_cache_line[ i ]+1UL);
-    else                              out_entries[ i ].data = (uchar *)(destination_cache_lines[ i ][ 7UL ]+1UL);
+    if( FD_LIKELY( !writable[ i ] ) ) out_accs[ i ].data = (uchar *)(original_cache_line[ i ]+1UL);
+    else                              out_accs[ i ].data = (uchar *)(destination_cache_lines[ i ][ 7UL ]+1UL);
     /* Tombstone reset: agave's account loader returns AccountSharedData::default()
        (System owner, empty data, exec=0) for any account with lamports==0.
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
     int tombstone = accs[ i ] && accs[ i ]->lamports==0UL;
-    out_entries[ i ].data_len = ( accs[ i ] && !tombstone ) ? FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) : 0UL;
-    out_entries[ i ].executable = ( accs[ i ] && !tombstone ) ? FD_ACCDB_SIZE_EXEC( accs[ i ]->executable_size ) : 0;
-    out_entries[ i ].lamports = accs[ i ] ? accs[ i ]->lamports : 0UL;
-    if( FD_UNLIKELY( !accs[ i ] ) ) memset( out_entries[ i ].owner, 0, 32UL );
+    out_accs[ i ].data_len = ( accs[ i ] && !tombstone ) ? FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) : 0UL;
+    out_accs[ i ].executable = ( accs[ i ] && !tombstone ) ? FD_ACCDB_SIZE_EXEC( accs[ i ]->executable_size ) : 0;
+    out_accs[ i ].lamports = accs[ i ] ? accs[ i ]->lamports : 0UL;
+    if( FD_UNLIKELY( !accs[ i ] ) ) memset( out_accs[ i ].owner, 0, 32UL );
     /* For accs[i] != NULL, the owner is copied from the cache line
        below in step 14, after step 11 has populated it from disk for
        cold loads. */
 
-    out_entries[ i ].prior_lamports   = out_entries[ i ].lamports;
-    out_entries[ i ].prior_data_len   = out_entries[ i ].data_len;
-    out_entries[ i ].prior_executable = out_entries[ i ].executable;
-    out_entries[ i ].prior_data       = (uchar *)(original_cache_line[ i ] ? (original_cache_line[ i ]+1UL) : NULL);
+    out_accs[ i ].prior_lamports   = out_accs[ i ].lamports;
+    out_accs[ i ].prior_data_len   = out_accs[ i ].data_len;
+    out_accs[ i ].prior_executable = out_accs[ i ].executable;
+    out_accs[ i ].prior_data       = (uchar *)(original_cache_line[ i ] ? (original_cache_line[ i ]+1UL) : NULL);
 
-    out_entries[ i ].commit = 0;
-    out_entries[ i ]._writable = writable[ i ];
-    if( FD_UNLIKELY( writable[ i ] && accs[ i ] ) ) out_entries[ i ]._overwrite = accdb->fork_pool[ fork_id.val ].shmem->generation==accs[ i ]->key.generation;
-    else                                            out_entries[ i ]._overwrite = 0;
+    out_accs[ i ].commit = 0;
+    out_accs[ i ]._writable = writable[ i ];
+    if( FD_UNLIKELY( writable[ i ] && accs[ i ] ) ) out_accs[ i ]._overwrite = accdb->fork_pool[ fork_id.val ].shmem->generation==accs[ i ]->key.generation;
+    else                                            out_accs[ i ]._overwrite = 0;
 
     if( FD_UNLIKELY( writable[ i ] ) ) {
-      out_entries[ i ]._fork_id = fork_id.val;
-      out_entries[ i ]._generation = fork->shmem->generation;
-      out_entries[ i ]._acc_map_idx = acc_map_idxs[ i ];
+      out_accs[ i ]._fork_id = fork_id.val;
+      out_accs[ i ]._generation = fork->shmem->generation;
+      out_accs[ i ]._acc_map_idx = acc_map_idxs[ i ];
     }
-    fd_memcpy( out_entries[ i ].pubkey, pubkeys[ i ], 32UL );
+    fd_memcpy( out_accs[ i ].pubkey, pubkeys[ i ], 32UL );
 
     if( FD_UNLIKELY( !accs[ i ] ) ) {
-      out_entries[ i ]._original_size_class = ULONG_MAX;
-      out_entries[ i ]._original_cache_idx = ULONG_MAX;
+      out_accs[ i ]._original_size_class = ULONG_MAX;
+      out_accs[ i ]._original_cache_idx = ULONG_MAX;
     } else {
-      out_entries[ i ]._original_size_class = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) );
-      out_entries[ i ]._original_cache_idx = cache_line_idx( accdb, out_entries[ i ]._original_size_class, original_cache_line[ i ] );
+      out_accs[ i ]._original_size_class = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accs[ i ]->executable_size ) );
+      out_accs[ i ]._original_cache_idx = cache_line_idx( accdb, out_accs[ i ]._original_size_class, original_cache_line[ i ] );
     }
 
     if( FD_UNLIKELY( writable[ i ] ) ) {
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-        out_entries[ i ]._write.destination_cache_idx[ j ] = cache_line_idx( accdb, j, destination_cache_lines[ i ][ j ] );
+        out_accs[ i ]._write.destination_cache_idx[ j ] = cache_line_idx( accdb, j, destination_cache_lines[ i ][ j ] );
       }
     }
   }
@@ -2129,11 +2129,11 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     if( FD_UNLIKELY( !accs[ i ] ) ) continue;
     /* Tombstone reset: see STEP 7 comment. */
     if( FD_UNLIKELY( accs[ i ]->lamports==0UL ) ) {
-      memset( out_entries[ i ].owner,       0, 32UL );
-      memset( out_entries[ i ].prior_owner, 0, 32UL );
+      memset( out_accs[ i ].owner,       0, 32UL );
+      memset( out_accs[ i ].prior_owner, 0, 32UL );
     } else {
-      fd_memcpy( out_entries[ i ].owner,       original_cache_line[ i ]->owner, 32UL );
-      fd_memcpy( out_entries[ i ].prior_owner, original_cache_line[ i ]->owner, 32UL );
+      fd_memcpy( out_accs[ i ].owner,       original_cache_line[ i ]->owner, 32UL );
+      fd_memcpy( out_accs[ i ].prior_owner, original_cache_line[ i ]->owner, 32UL );
     }
   }
 
@@ -2159,8 +2159,8 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
                   ulong                 pubkeys_cnt,
                   uchar const * const * pubkeys,
                   int *                 writable,
-                  fd_accdb_entry_t *    out_entries ) {
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_SIMPLE, pubkeys_cnt, pubkeys, writable, out_entries );
+                  fd_acc_t *            out_accs ) {
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_SIMPLE, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
 void
@@ -2169,8 +2169,8 @@ fd_accdb_acquire_a( fd_accdb_t *             accdb,
                        ulong                 pubkeys_cnt,
                        uchar const * const * pubkeys,
                        int *                 writable,
-                       fd_accdb_entry_t *    out_entries ) {
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, pubkeys_cnt, pubkeys, writable, out_entries );
+                       fd_acc_t *            out_accs ) {
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
 void
@@ -2180,7 +2180,7 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     ulong                 pubkeys_cnt,
                     uchar const * const * pubkeys,
                     int *                 writable,
-                    fd_accdb_entry_t *    out_entries ) {
+                    fd_acc_t *            out_accs ) {
   /* acquire_a reserved one slot in EVERY class per maybe-programdata
      candidate (reserved_cnt total per class).  Now that we know the
      actual programdata pubkeys, we keep one reservation per actual
@@ -2230,13 +2230,13 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
     if( FD_UNLIKELY( refund[ k ] ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ k ].val, refund[ k ] );
   }
 
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, pubkeys_cnt, pubkeys, writable, out_entries );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
 void
-fd_accdb_release( fd_accdb_t *       accdb,
-                  ulong              entries_cnt,
-                  fd_accdb_entry_t * entries ) {
+fd_accdb_release( fd_accdb_t * accdb,
+                  ulong        accs_cnt,
+                  fd_acc_t *   accs ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE(); /* StoreLoad: epoch store must be globally visible
@@ -2250,37 +2250,37 @@ fd_accdb_release( fd_accdb_t *       accdb,
   //   but follows the more complete logic below this, we just pull the
   //   memcpy out so they are not done inside the cache lock.
 
-  for( ulong i=0UL; i<entries_cnt; i++ ) {
-    if( FD_UNLIKELY( entries[ i ]._original_size_class==ULONG_MAX && !entries[ i ]._writable ) ) continue;
+  for( ulong i=0UL; i<accs_cnt; i++ ) {
+    if( FD_UNLIKELY( accs[ i ]._original_size_class==ULONG_MAX && !accs[ i ]._writable ) ) continue;
 
 #if FD_TMPL_USE_HANDHOLDING
-    if( FD_LIKELY( entries[ i ]._original_size_class!=ULONG_MAX ) ) {
-      FD_TEST( entries[ i ]._original_cache_idx<accdb->shmem->cache_class_max[ entries[ i ]._original_size_class ] );
+    if( FD_LIKELY( accs[ i ]._original_size_class!=ULONG_MAX ) ) {
+      FD_TEST( accs[ i ]._original_cache_idx<accdb->shmem->cache_class_max[ accs[ i ]._original_size_class ] );
     }
-    if( FD_UNLIKELY( entries[ i ].commit ) ) FD_TEST( entries[ i ]._writable );
+    if( FD_UNLIKELY( accs[ i ].commit ) ) FD_TEST( accs[ i ]._writable );
 #endif
 
-    if( FD_LIKELY( !entries[ i ]._writable || !entries[ i ].commit ) ) continue;
+    if( FD_LIKELY( !accs[ i ]._writable || !accs[ i ].commit ) ) continue;
 #if FD_TMPL_USE_HANDHOLDING
-    if( FD_UNLIKELY( entries[ i ]._overwrite ) ) {
-      FD_TEST( entries[ i ]._writable );
-      FD_TEST( entries[ i ]._original_cache_idx!=ULONG_MAX );
-      FD_TEST( entries[ i ]._original_size_class!=ULONG_MAX );
+    if( FD_UNLIKELY( accs[ i ]._overwrite ) ) {
+      FD_TEST( accs[ i ]._writable );
+      FD_TEST( accs[ i ]._original_cache_idx!=ULONG_MAX );
+      FD_TEST( accs[ i ]._original_size_class!=ULONG_MAX );
     }
 #endif
 
-    ulong original_size_class = entries[ i ]._original_size_class;
-    ulong new_size_class = fd_accdb_cache_class( entries[ i ].data_len );
+    ulong original_size_class = accs[ i ]._original_size_class;
+    ulong new_size_class = fd_accdb_cache_class( accs[ i ].data_len );
     if( FD_UNLIKELY( new_size_class==7UL ) ) continue;
 
     fd_accdb_cache_line_t * target_cache_line;
-    if( FD_LIKELY( original_size_class==new_size_class && entries[ i ]._overwrite ) ) target_cache_line = cache_line( accdb, original_size_class, entries[ i ]._original_cache_idx );
-    else                                                                              target_cache_line = cache_line( accdb, new_size_class, entries[ i ]._write.destination_cache_idx[ new_size_class ] );
+    if( FD_LIKELY( original_size_class==new_size_class && accs[ i ]._overwrite ) ) target_cache_line = cache_line( accdb, original_size_class, accs[ i ]._original_cache_idx );
+    else                                                                              target_cache_line = cache_line( accdb, new_size_class, accs[ i ]._write.destination_cache_idx[ new_size_class ] );
 
-    fd_accdb_cache_line_t * staging_line = cache_line( accdb, 7UL, entries[ i ]._write.destination_cache_idx[ 7UL ] );
-    fd_memcpy( target_cache_line->owner, entries[ i ].owner, 32UL );
-    fd_memcpy( target_cache_line+1UL, staging_line+1UL, entries[ i ].data_len );
-    accdb->metrics->bytes_copied += entries[ i ].data_len;
+    fd_accdb_cache_line_t * staging_line = cache_line( accdb, 7UL, accs[ i ]._write.destination_cache_idx[ 7UL ] );
+    fd_memcpy( target_cache_line->owner, accs[ i ].owner, 32UL );
+    fd_memcpy( target_cache_line+1UL, staging_line+1UL, accs[ i ].data_len );
+    accdb->metrics->bytes_copied += accs[ i ].data_len;
   }
 
   // STEP 2.
@@ -2288,11 +2288,11 @@ fd_accdb_release( fd_accdb_t *       accdb,
   //   fact that we are done with these cache lines.  This is fully
   //   atomic with CLOCK.
 
-  for( ulong i=0UL; i<entries_cnt; i++ ) {
-    if( FD_UNLIKELY( entries[ i ]._original_size_class==ULONG_MAX && !entries[ i ]._writable ) ) continue;
+  for( ulong i=0UL; i<accs_cnt; i++ ) {
+    if( FD_UNLIKELY( accs[ i ]._original_size_class==ULONG_MAX && !accs[ i ]._writable ) ) continue;
 
-    ulong original_size_class = entries[ i ]._original_size_class;
-    fd_accdb_cache_line_t * original_cache_line = entries[ i ]._original_cache_idx==ULONG_MAX ? NULL : cache_line( accdb, original_size_class, entries[ i ]._original_cache_idx );
+    ulong original_size_class = accs[ i ]._original_size_class;
+    fd_accdb_cache_line_t * original_cache_line = accs[ i ]._original_cache_idx==ULONG_MAX ? NULL : cache_line( accdb, original_size_class, accs[ i ]._original_cache_idx );
     /* For overwrite commits, defer the refcnt decrement on
        original_cache_line until after invalidation completes.  If
        we dropped refcnt to 0 here, a concurrent CLOCK sweep could
@@ -2304,12 +2304,12 @@ fd_accdb_release( fd_accdb_t *       accdb,
 #if FD_TMPL_USE_HANDHOLDING
       FD_TEST( original_cache_line->refcnt>0U );
 #endif
-      if( FD_LIKELY( !entries[ i ]._writable || !entries[ i ].commit || !entries[ i ]._overwrite ) ) {
+      if( FD_LIKELY( !accs[ i ]._writable || !accs[ i ].commit || !accs[ i ]._overwrite ) ) {
         FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
       }
     }
 
-    if( FD_LIKELY( !entries[ i ]._writable ) ) {
+    if( FD_LIKELY( !accs[ i ]._writable ) ) {
       /* For readonly accounts, mark as recently used so the CLOCK
          algorithm gives it a second chance before eviction. */
 #if FD_TMPL_USE_HANDHOLDING
@@ -2320,10 +2320,10 @@ fd_accdb_release( fd_accdb_t *       accdb,
     }
 
     fd_accdb_cache_line_t * destination_cache_lines[ FD_ACCDB_CACHE_CLASS_CNT ];
-    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ j ] = cache_line( accdb, j, entries[ i ]._write.destination_cache_idx[ j ] );
+    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) destination_cache_lines[ j ] = cache_line( accdb, j, accs[ i ]._write.destination_cache_idx[ j ] );
     int destination_committed[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
 
-    if( FD_LIKELY( !entries[ i ].commit ) ) {
+    if( FD_LIKELY( !accs[ i ].commit ) ) {
       /* If it's writable but it didn't commit, all of the destination
          cache lines (including the staging buffer which is trashed) are
          unused and can be pushed to the CAS free list for immediate
@@ -2346,18 +2346,18 @@ fd_accdb_release( fd_accdb_t *       accdb,
       continue;
     }
 
-    ulong new_size_class = fd_accdb_cache_class( entries[ i ].data_len );
+    ulong new_size_class = fd_accdb_cache_class( accs[ i ].data_len );
     uint original_acc_idx = original_cache_line ? original_cache_line->acc_idx : UINT_MAX;
     fd_accdb_cache_line_t * committed_line;
 
     /* For overwrites, invalidate the on-disk offset BEFORE removing
-       the cache entry.  This ensures a concurrent acquire that misses
+       the cache acc.  This ensures a concurrent acquire that misses
        the cache will see offset==FD_ACCDB_OFF_INVAL and spin-wait,
        rather than reading stale on-disk bytes from the old location.
        The CAS-loop exchange also serializes with a concurrent
        compaction CAS (old_offset -> dest_offset). */
     ulong old_offset = FD_ACCDB_OFF_INVAL;
-    if( FD_LIKELY( entries[ i ]._overwrite ) ) {
+    if( FD_LIKELY( accs[ i ]._overwrite ) ) {
       fd_accdb_acc_t * ow_acc = &accdb->acc_pool[ original_acc_idx ];
       old_offset = fd_accdb_acc_xchg_offset( ow_acc, FD_ACCDB_OFF_INVAL );
       if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
@@ -2374,13 +2374,13 @@ fd_accdb_release( fd_accdb_t *       accdb,
          the CAS free list) and removed from the cache. */
       destination_cache_lines[ 7UL ]->persisted = 0;
       destination_committed[ 7UL ] = 1;
-      if( FD_LIKELY( entries[ i ]._overwrite ) ) {
+      if( FD_LIKELY( accs[ i ]._overwrite ) ) {
         /* Atomically clear acc.VALID and acc.cache_idx BEFORE freeing
            the line, so a reader cannot observe acc.VALID=1 with
            acc.cache_idx pointing at a line that has been recycled to
            another acc.  evict_clear_acc_cache_ref uses the CLAIM
            protocol to serialize with cold_load_acc. */
-        evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, entries[ i ]._original_cache_idx );
+        evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, accs[ i ]._original_cache_idx );
 
         /* Drop our pin, then try to claim the line exclusively for
            freeing.  A concurrent reader that pinned the line via
@@ -2415,7 +2415,7 @@ fd_accdb_release( fd_accdb_t *       accdb,
          line in place. */
       fd_accdb_cache_line_t * target_cache_line;
       if( FD_LIKELY( original_size_class==new_size_class ) ) {
-        if( FD_LIKELY( entries[ i ]._overwrite ) ) {
+        if( FD_LIKELY( accs[ i ]._overwrite ) ) {
           original_cache_line->key.generation = UINT_MAX;
           /* Keep refcnt>=1 through the reuse window so CLOCK cannot
              steal the line between invalidation and re-publish. The
@@ -2428,14 +2428,14 @@ fd_accdb_release( fd_accdb_t *       accdb,
           destination_committed[ new_size_class ] = 1;
         }
       } else {
-        if( FD_LIKELY( entries[ i ]._overwrite ) ) {
+        if( FD_LIKELY( accs[ i ]._overwrite ) ) {
           /* Atomically clear acc.VALID and acc.cache_idx BEFORE freeing
              the line, so a reader cannot observe acc.VALID=1 with
              acc.cache_idx pointing at a line that has been recycled to
              another acc.  evict_clear_acc_cache_ref uses the CLAIM
              protocol to serialize with cold_load_acc.  See the
              size_class==7 path above for the refcnt CAS rationale. */
-          evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, entries[ i ]._original_cache_idx );
+          evict_clear_acc_cache_ref( &accdb->acc_pool[ original_acc_idx ], original_size_class, accs[ i ]._original_cache_idx );
           FD_ATOMIC_FETCH_AND_SUB( &original_cache_line->refcnt, 1U );
           if( FD_LIKELY( FD_ATOMIC_CAS( &original_cache_line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )==0U ) ) {
             original_cache_line->persisted = 1;
@@ -2461,7 +2461,7 @@ fd_accdb_release( fd_accdb_t *       accdb,
     /* For non-overwrite commits, the original cache line (if any) still
        holds valid ancestor data but is no longer pinned.  Mark it as
        recently used so the CLOCK algorithm retains it. */
-    if( FD_UNLIKELY( !entries[ i ]._overwrite && original_cache_line ) ) {
+    if( FD_UNLIKELY( !accs[ i ]._overwrite && original_cache_line ) ) {
       original_cache_line->referenced = 1;
     }
 
@@ -2486,10 +2486,10 @@ fd_accdb_release( fd_accdb_t *       accdb,
 
     /* Update the accounts index for this committed write.  For an
        overwrite (same fork+generation), update the existing acc
-       entry in place.  Otherwise allocate a new acc, prepend it
+       acc in place.  Otherwise allocate a new acc, prepend it
        to the hash chain, and record the write in a txn linked to
        the fork so advance_root can clean up old versions. */
-    if( FD_LIKELY( entries[ i ]._overwrite ) ) {
+    if( FD_LIKELY( accs[ i ]._overwrite ) ) {
       accdb->metrics->accounts_committed_overwrite_per_class[ new_size_class ]++;
       committed_line->acc_idx = original_acc_idx;
 
@@ -2502,13 +2502,13 @@ fd_accdb_release( fd_accdb_t *       accdb,
          and break those protocols. */
       for(;;) {
         uint cur = FD_VOLATILE_CONST( acc->executable_size );
-        uint nxt = (cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT) | FD_ACCDB_SIZE_PACK( (uint)entries[ i ].data_len, entries[ i ].executable );
+        uint nxt = (cur & FD_ACCDB_SIZE_CACHE_CLAIM_BIT) | FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable );
         if( FD_LIKELY( FD_ATOMIC_CAS( &acc->executable_size, cur, nxt )==cur ) ) break;
         FD_SPIN_PAUSE();
       }
-      acc->lamports = entries[ i ].lamports;
+      acc->lamports = accs[ i ].lamports;
 
-      fd_memcpy( committed_line->owner, entries[ i ].owner, 32UL );
+      fd_memcpy( committed_line->owner, accs[ i ].owner, 32UL );
       fd_memcpy( committed_line->key.pubkey, acc->key.pubkey, 32UL );
       committed_line->key.generation = acc->key.generation;
       committed_line->acc_idx = original_acc_idx;
@@ -2530,18 +2530,18 @@ fd_accdb_release( fd_accdb_t *       accdb,
       fd_accdb_acc_t * acc = acc_pool_acquire( accdb->acc_pool_join );
       FD_TEST( acc );
       ulong acc_idx = acc_pool_idx( accdb->acc_pool_join, acc );
-      fd_memcpy( acc->key.pubkey, entries[ i ].pubkey, 32UL );
-      acc->lamports        = entries[ i ].lamports;
-      acc->executable_size = FD_ACCDB_SIZE_PACK( (uint)entries[ i ].data_len, entries[ i ].executable );
-      acc->key.generation  = entries[ i ]._generation;
-      acc->offset_fork     = fd_accdb_acc_pack_offset_fork( FD_ACCDB_OFF_INVAL, entries[ i ]._fork_id );
+      fd_memcpy( acc->key.pubkey, accs[ i ].pubkey, 32UL );
+      acc->lamports        = accs[ i ].lamports;
+      acc->executable_size = FD_ACCDB_SIZE_PACK( (uint)accs[ i ].data_len, accs[ i ].executable );
+      acc->key.generation  = accs[ i ]._generation;
+      acc->offset_fork     = fd_accdb_acc_pack_offset_fork( FD_ACCDB_OFF_INVAL, accs[ i ]._fork_id );
 
       /* Publish in the cache BEFORE the acc_map head so that a
          concurrent acquire that finds this acc in the hash chain will
          also find a cache hit, rather than inserting a conflicting
-         placeholder cache entry. */
+         placeholder cache acc. */
       committed_line->acc_idx = (uint)acc_idx;
-      fd_memcpy( committed_line->owner, entries[ i ].owner, 32UL );
+      fd_memcpy( committed_line->owner, accs[ i ].owner, 32UL );
       fd_memcpy( committed_line->key.pubkey, acc->key.pubkey, 32UL );
       committed_line->key.generation = acc->key.generation;
       FD_VOLATILE( acc->cache_idx ) = FD_ACCDB_ACC_CIDX_PACK( (uint)new_size_class, (uint)cache_line_idx( accdb, new_size_class, committed_line ) );
@@ -2561,14 +2561,14 @@ fd_accdb_release( fd_accdb_t *       accdb,
          CAS.  Multiple concurrent releases may also race on the head
          pointer — the CAS retry handles this. */
       for(;;) {
-        uint old_head = FD_VOLATILE_CONST( accdb->acc_map[ entries[ i ]._acc_map_idx ] );
+        uint old_head = FD_VOLATILE_CONST( accdb->acc_map[ accs[ i ]._acc_map_idx ] );
         acc->map.next = old_head;
         FD_COMPILER_MFENCE();
-        if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_map[ entries[ i ]._acc_map_idx ], old_head, (uint)acc_idx )==old_head ) ) break;
+        if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->acc_map[ accs[ i ]._acc_map_idx ], old_head, (uint)acc_idx )==old_head ) ) break;
         FD_SPIN_PAUSE();
       }
 
-      /* CONCURRENCY: The cache entry is published before the acc_map
+      /* CONCURRENCY: The cache acc is published before the acc_map
          head so that a concurrent fd_accdb_acquire reader that
          observes the new head also finds a cache hit, preventing
          duplicate cache insertion.
@@ -2593,13 +2593,13 @@ fd_accdb_release( fd_accdb_t *       accdb,
 
       fd_accdb_txn_t * txn = txn_pool_acquire( accdb->txn_pool );
       FD_TEST( txn ); /* Sized so it always succeeds */
-      txn->acc_map_idx  = (uint)entries[ i ]._acc_map_idx;
+      txn->acc_map_idx  = (uint)accs[ i ]._acc_map_idx;
       txn->acc_pool_idx = (uint)acc_idx;
       uint txn_idx = (uint)txn_pool_idx( accdb->txn_pool, txn );
       for(;;) {
-        uint old_head = FD_VOLATILE_CONST( accdb->fork_pool[ entries[ i ]._fork_id ].shmem->txn_head );
+        uint old_head = FD_VOLATILE_CONST( accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head );
         txn->fork.next = old_head;
-        if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->fork_pool[ entries[ i ]._fork_id ].shmem->txn_head, old_head, txn_idx )==old_head ) ) break;
+        if( FD_LIKELY( FD_ATOMIC_CAS( &accdb->fork_pool[ accs[ i ]._fork_id ].shmem->txn_head, old_head, txn_idx )==old_head ) ) break;
         FD_SPIN_PAUSE();
       }
 
@@ -2614,13 +2614,13 @@ fd_accdb_release( fd_accdb_t *       accdb,
   //   immediately.
 
   ulong refund[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
-  for( ulong i=0UL; i<entries_cnt; i++ ) {
-    if( FD_LIKELY( entries[ i ]._original_size_class!=ULONG_MAX ) ) {
-      if( FD_UNLIKELY( accdb->shmem->cache_class_used[ entries[ i ]._original_size_class ].val!=ULONG_MAX ) ) {
-        refund[ entries[ i ]._original_size_class ]++;
+  for( ulong i=0UL; i<accs_cnt; i++ ) {
+    if( FD_LIKELY( accs[ i ]._original_size_class!=ULONG_MAX ) ) {
+      if( FD_UNLIKELY( accdb->shmem->cache_class_used[ accs[ i ]._original_size_class ].val!=ULONG_MAX ) ) {
+        refund[ accs[ i ]._original_size_class ]++;
       }
     }
-    if( FD_UNLIKELY( entries[ i ]._writable ) ) {
+    if( FD_UNLIKELY( accs[ i ]._writable ) ) {
       for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
         if( FD_UNLIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
           refund[ j ]++;
@@ -2636,34 +2636,34 @@ fd_accdb_release( fd_accdb_t *       accdb,
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
 }
 
-fd_accdb_entry_t
+fd_acc_t
 fd_accdb_read_one( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey ) {
-  fd_accdb_entry_t entry;
-  fd_accdb_acquire( accdb, fork_id, 1UL, &pubkey, (int[]){0}, &entry );
-  return entry;
+  fd_acc_t acc;
+  fd_accdb_acquire( accdb, fork_id, 1UL, &pubkey, (int[]){0}, &acc );
+  return acc;
 }
 
 void
-fd_accdb_unread_one( fd_accdb_t *       accdb,
-                     fd_accdb_entry_t * entry ) {
-  fd_accdb_release( accdb, 1UL, entry );
+fd_accdb_unread_one( fd_accdb_t * accdb,
+                     fd_acc_t *   acc ) {
+  fd_accdb_release( accdb, 1UL, acc );
 }
 
-fd_accdb_entry_t
+fd_acc_t
 fd_accdb_write_one( fd_accdb_t *       accdb,
                     fd_accdb_fork_id_t fork_id,
                     uchar const *      pubkey ) {
-  fd_accdb_entry_t entry;
-  fd_accdb_acquire( accdb, fork_id, 1UL, &pubkey, (int[]){1}, &entry );
-  return entry;
+  fd_acc_t acc;
+  fd_accdb_acquire( accdb, fork_id, 1UL, &pubkey, (int[]){1}, &acc );
+  return acc;
 }
 
 void
-fd_accdb_unwrite_one( fd_accdb_t *       accdb,
-                      fd_accdb_entry_t * entry ) {
-  fd_accdb_release( accdb, 1UL, entry );
+fd_accdb_unwrite_one( fd_accdb_t * accdb,
+                      fd_acc_t *   acc ) {
+  fd_accdb_release( accdb, 1UL, acc );
 }
 
 void

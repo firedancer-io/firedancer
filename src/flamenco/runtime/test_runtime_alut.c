@@ -63,15 +63,15 @@ create_test_account( test_ctx_t *              ctx,
                      ulong                     data_len,
                      ulong                     lamports,
                      uchar                     executable ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( ctx->accdb, fork_id, (uchar const *)pubkey );
-  if( data && data_len ) memcpy( entry.data, data, data_len );
-  entry.data_len   = (uint)data_len;
-  entry.lamports   = lamports;
-  entry.executable = executable;
-  if( owner ) memcpy( entry.owner, owner, 32UL );
-  else        memset( entry.owner, 0,     32UL );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( ctx->accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( ctx->accdb, fork_id, (uchar const *)pubkey );
+  if( data && data_len ) memcpy( acc.data, data, data_len );
+  acc.data_len   = (uint)data_len;
+  acc.lamports   = lamports;
+  acc.executable = executable;
+  if( owner ) memcpy( acc.owner, owner, 32UL );
+  else        memset( acc.owner, 0,     32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( ctx->accdb, &acc );
 }
 
 /* Helper to allocate transaction with flexible array member */

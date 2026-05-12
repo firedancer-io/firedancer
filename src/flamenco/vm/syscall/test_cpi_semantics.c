@@ -190,24 +190,24 @@ static uchar prog_data_buf[ 4096 ] __attribute__((aligned(8)));
 static uchar acct_data_buf[ MAX_CFG_ACCTS ][ ACCT_BUF_SZ ] __attribute__((aligned(8)));
 
 static void
-init_entry_from_spec( fd_accdb_entry_t *  entry,
+init_entry_from_spec( fd_acc_t *          acc,
                       uchar *             data_buf,
                       ulong               data_buf_sz,
                       acct_spec_t const * spec ) {
   FD_TEST( data_buf_sz >= spec->dlen );
-  memset( entry, 0, sizeof(*entry) );
-  memcpy( entry->pubkey, spec->pubkey, sizeof(fd_pubkey_t) );
-  memcpy( entry->owner,  spec->owner,  sizeof(fd_pubkey_t) );
-  entry->lamports   = spec->lamports;
-  entry->executable = (int)spec->executable;
-  entry->data_len   = spec->dlen;
-  entry->data       = data_buf;
+  memset( acc, 0, sizeof(*acc) );
+  memcpy( acc->pubkey, spec->pubkey, sizeof(fd_pubkey_t) );
+  memcpy( acc->owner,  spec->owner,  sizeof(fd_pubkey_t) );
+  acc->lamports   = spec->lamports;
+  acc->executable = (int)spec->executable;
+  acc->data_len   = spec->dlen;
+  acc->data       = data_buf;
   if( spec->dlen ) {
     memset( data_buf, spec->data_fill, spec->dlen );
   }
 }
 
-static fd_accdb_entry_t * g_acct_entries[ MAX_CFG_ACCTS ];
+static fd_acc_t * g_acct_entries[ MAX_CFG_ACCTS ];
 
 static void
 env_build( fd_svm_mini_t *        mini,
@@ -245,7 +245,7 @@ env_build( fd_svm_mini_t *        mini,
 
   /* Program account at index 0 */
   FD_TEST( sizeof(prog_data_buf) >= elf_sz );
-  fd_accdb_entry_t * prog_entry = &txn_out->accounts.account[0];
+  fd_acc_t * prog_entry = &txn_out->accounts.account[0];
   memset( prog_entry, 0, sizeof(*prog_entry) );
   memcpy( prog_entry->pubkey, &callee_program_pubkey, sizeof(fd_pubkey_t) );
   memcpy( prog_entry->owner, &fd_solana_bpf_loader_program_id, sizeof(fd_pubkey_t) );
@@ -258,9 +258,9 @@ env_build( fd_svm_mini_t *        mini,
 
   /* Data accounts at indices 1..n_accts */
   for( ulong i=0UL; i<cfg->n_accts; i++ ) {
-    fd_accdb_entry_t * entry = &txn_out->accounts.account[1UL+i];
-    init_entry_from_spec( entry, acct_data_buf[i], sizeof(acct_data_buf[i]), &cfg->accts[i] );
-    g_acct_entries[i] = entry;
+    fd_acc_t * acc = &txn_out->accounts.account[1UL+i];
+    init_entry_from_spec( acc, acct_data_buf[i], sizeof(acct_data_buf[i]), &cfg->accts[i] );
+    g_acct_entries[i] = acc;
     memcpy( &txn_out->accounts.keys[1UL+i], cfg->accts[i].pubkey, sizeof(fd_pubkey_t) );
   }
   for( ulong i=0UL; i<txn_acc_cnt; i++ ) {
@@ -312,7 +312,7 @@ env_build( fd_svm_mini_t *        mini,
   memset( arm, 0, sizeof(arm) );
   for( ulong i=0UL; i<cfg->n_outer; i++ ) {
     ulong block = i*ACCT_SERIALIZED_SZ;
-    arm[ 1UL + i ].entry             = g_acct_entries[ cfg->outer[i].acct_idx ];
+    arm[ 1UL + i ].acc             = g_acct_entries[ cfg->outer[i].acct_idx ];
     arm[ 1UL + i ].original_data_len = cfg->accts[ cfg->outer[i].acct_idx ].dlen;
     arm[ 1UL + i ].vm_key_addr       = FD_VM_MEM_MAP_INPUT_REGION_START + block + 8UL;
     arm[ 1UL + i ].vm_owner_addr     = FD_VM_MEM_MAP_INPUT_REGION_START + block + 40UL;

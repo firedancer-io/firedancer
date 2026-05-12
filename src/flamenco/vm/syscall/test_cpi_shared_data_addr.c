@@ -70,19 +70,19 @@ build_callee_text( ulong * buf ) {
   return ic * 8UL;
 }
 
-/* Set up a data account entry */
+/* Set up a data account acc */
 
 static void
-init_data_entry( fd_accdb_entry_t * ent,
-                 uchar const *      pubkey,
-                 uchar *            data_buf,
-                 ulong              data_sz ) {
-  memset( ent, 0, sizeof(fd_accdb_entry_t) );
-  memcpy( ent->pubkey, pubkey, 32 );
-  memcpy( ent->owner, callee_program_pubkey.key, 32 );
-  ent->lamports = LAMPORTS;
-  ent->data_len = INIT_DLEN;
-  ent->data     = data_buf;
+init_data_entry( fd_acc_t *    acc,
+                 uchar const * pubkey,
+                 uchar *       data_buf,
+                 ulong         data_sz ) {
+  memset( acc, 0, sizeof(fd_acc_t) );
+  memcpy( acc->pubkey, pubkey, 32 );
+  memcpy( acc->owner, callee_program_pubkey.key, 32 );
+  acc->lamports = LAMPORTS;
+  acc->data_len = INIT_DLEN;
+  acc->data     = data_buf;
   memset( data_buf, 0, data_sz );
 }
 
@@ -123,8 +123,8 @@ test_env_setup( fd_svm_mini_t * mini ) {
   memset( prog_data, 0, elf_sz );
   memcpy( prog_data, elf_buf, elf_sz );
   memcpy( &txn_out->accounts.keys[0], &callee_program_pubkey, sizeof(fd_pubkey_t) );
-  fd_accdb_entry_t * prog_ent = &txn_out->accounts.account[0];
-  memset( prog_ent, 0, sizeof(fd_accdb_entry_t) );
+  fd_acc_t * prog_ent = &txn_out->accounts.account[0];
+  memset( prog_ent, 0, sizeof(fd_acc_t) );
   memcpy( prog_ent->pubkey, callee_program_pubkey.key, 32 );
   memcpy( prog_ent->owner, fd_solana_bpf_loader_program_id.key, 32 );
   prog_ent->executable = 1;
@@ -169,9 +169,9 @@ test_env_setup( fd_svm_mini_t * mini ) {
   /* VM acc_region_metas */
   static fd_vm_acc_region_meta_t arm[3];
   memset( arm, 0, sizeof(arm) );
-  arm[0].entry = &txn_out->accounts.account[0];
-  arm[1].entry = &txn_out->accounts.account[1];  arm[1].original_data_len = INIT_DLEN;
-  arm[2].entry = &txn_out->accounts.account[2];  arm[2].original_data_len = INIT_DLEN;
+  arm[0].acc = &txn_out->accounts.account[0];
+  arm[1].acc = &txn_out->accounts.account[1];  arm[1].original_data_len = INIT_DLEN;
+  arm[2].acc = &txn_out->accounts.account[2];  arm[2].original_data_len = INIT_DLEN;
 
   /* Initialize VM */
   static uchar rodata[100];

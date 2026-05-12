@@ -6,7 +6,7 @@
 
 static fd_prog_info_t *
 fd_prog_info_v3( fd_prog_info_t *         out,
-                 fd_accdb_entry_t const * ro ) {
+                 fd_acc_t const * ro ) {
   if( FD_UNLIKELY( ro->data_len<PROGRAMDATA_METADATA_SIZE ) ) {
     FD_LOG_WARNING(( "program data account is too small" ));
     return NULL;
@@ -30,11 +30,11 @@ fd_prog_info_v3( fd_prog_info_t *         out,
 }
 
 static fd_prog_info_t *
-fd_prog_info_v1( fd_prog_info_t *         out,
-                 fd_accdb_entry_t const * entry ) {
+fd_prog_info_v1( fd_prog_info_t * out,
+                 fd_acc_t const * acc ) {
   *out = (fd_prog_info_t) {
     .elf_off = 0UL,
-    .elf_sz  = entry->data_len,
+    .elf_sz  = acc->data_len,
     .deploy_slot = 0UL
   };
   return out;
@@ -42,16 +42,16 @@ fd_prog_info_v1( fd_prog_info_t *         out,
 
 /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.5/svm/src/program_loader.rs#L29 */
 fd_prog_info_t *
-fd_prog_info( fd_prog_info_t *         out,
-              fd_accdb_entry_t const * entry ){
-  fd_pubkey_t const * program_owner = (fd_pubkey_t const*)entry->owner;
+fd_prog_info( fd_prog_info_t * out,
+              fd_acc_t const * acc ){
+  fd_pubkey_t const * program_owner = (fd_pubkey_t const*)acc->owner;
   if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_upgradeable_program_id ) ) {
-    return fd_prog_info_v3( out, entry );
+    return fd_prog_info_v3( out, acc );
   } else if( fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_program_id ) ||
              fd_pubkey_eq( program_owner, &fd_solana_bpf_loader_deprecated_program_id ) ) {
-    return fd_prog_info_v1( out, entry );
+    return fd_prog_info_v1( out, acc );
   } else {
-    FD_BASE58_ENCODE_32_BYTES( entry->pubkey, addr_b58  );
+    FD_BASE58_ENCODE_32_BYTES( acc->pubkey, addr_b58  );
     FD_BASE58_ENCODE_32_BYTES( program_owner->key, owner_b58 );
     FD_LOG_WARNING(( "unsupported program data account (address=%s program_owner=%s)", addr_b58, owner_b58 ));
     return NULL;

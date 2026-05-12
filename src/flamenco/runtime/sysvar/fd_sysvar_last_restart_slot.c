@@ -26,11 +26,11 @@ ulong
 fd_sysvar_last_restart_slot_read( fd_accdb_t *       accdb,
                                   fd_accdb_fork_id_t fork_id,
                                   ulong              sentinel ) {
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, fd_sysvar_last_restart_slot_id.uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) return sentinel;
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, fd_sysvar_last_restart_slot_id.uc );
+  if( FD_UNLIKELY( !acc.lamports ) ) return sentinel;
 
-  ulong result = FD_LOAD( ulong, entry.data );
-  fd_accdb_unread_one( accdb, &entry );
+  ulong result = FD_LOAD( ulong, acc.data );
+  fd_accdb_unread_one( accdb, &acc );
   return result;
 }
 

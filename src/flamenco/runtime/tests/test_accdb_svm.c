@@ -68,12 +68,12 @@ test_write_create( fd_svm_mini_t * mini,
   lthash = bank->f.lthash;
 
   /* Verify owner, data, and exec_bit */
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, acct_b.uc );
-  FD_TEST( entry.executable==1 );
-  FD_TEST( !memcmp( entry.owner, owner1.key, 32UL ) );
-  FD_TEST( entry.data_len>=sizeof(data1) );
-  FD_TEST( !memcmp( entry.data, data1, sizeof(data1) ) );
-  fd_accdb_unread_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, acct_b.uc );
+  FD_TEST( acc.executable==1 );
+  FD_TEST( !memcmp( acc.owner, owner1.key, 32UL ) );
+  FD_TEST( acc.data_len>=sizeof(data1) );
+  FD_TEST( !memcmp( acc.data, data1, sizeof(data1) ) );
+  fd_accdb_unread_one( accdb, &acc );
 
   FD_LOG_NOTICE(( "test_write_create passed" ));
 }
@@ -103,12 +103,12 @@ test_write_overwrite( fd_svm_mini_t * mini,
   lthash = bank->f.lthash;
 
   /* Verify owner changed */
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, acct_c.uc );
-  FD_TEST( !memcmp( entry.owner, owner2.key, 32UL ) );
-  FD_TEST( entry.executable==0 );
-  FD_TEST( entry.data_len==sizeof(data2) );
-  FD_TEST( !memcmp( entry.data, data2, sizeof(data2) ) );
-  fd_accdb_unread_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, acct_c.uc );
+  FD_TEST( !memcmp( acc.owner, owner2.key, 32UL ) );
+  FD_TEST( acc.executable==0 );
+  FD_TEST( acc.data_len==sizeof(data2) );
+  FD_TEST( !memcmp( acc.data, data2, sizeof(data2) ) );
+  fd_accdb_unread_one( accdb, &acc );
 
   /* Overwrite again with lamports_min > current => should mint */
   uchar data3[2] = { 0xFF, 0x00 };
@@ -163,7 +163,7 @@ test_open_close_rw( fd_svm_mini_t * mini,
 
   /* Open for rw, modify lamports, close */
   fd_accdb_svm_update_t update[1];
-  fd_accdb_entry_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &acct_a, 0 );
+  fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &acct_a, 0 );
   FD_TEST( rw.lamports==3000UL );
   FD_TEST( update->lamports_before==3000UL );
 
@@ -234,14 +234,14 @@ test_fork_isolation( fd_svm_mini_t * mini,
                       0UL, 0 );
 
   /* Fork A should still have original owner (system program / zero) */
-  fd_accdb_entry_t entry_a = fd_accdb_read_one( accdb, fork_id_a, acct_a.uc );
-  FD_TEST( memcmp( entry_a.owner, owner2.key, 32UL )!=0 );
-  fd_accdb_unread_one( accdb, &entry_a );
+  fd_acc_t acc_a = fd_accdb_read_one( accdb, fork_id_a, acct_a.uc );
+  FD_TEST( memcmp( acc_a.owner, owner2.key, 32UL )!=0 );
+  fd_accdb_unread_one( accdb, &acc_a );
 
   /* Fork B should have new owner */
-  fd_accdb_entry_t entry_b = fd_accdb_read_one( accdb, fork_id_b, acct_a.uc );
-  FD_TEST( !memcmp( entry_b.owner, owner2.key, 32UL ) );
-  fd_accdb_unread_one( accdb, &entry_b );
+  fd_acc_t acc_b = fd_accdb_read_one( accdb, fork_id_b, acct_a.uc );
+  FD_TEST( !memcmp( acc_b.owner, owner2.key, 32UL ) );
+  fd_accdb_unread_one( accdb, &acc_b );
 
   (void)seed_fork_id;
 

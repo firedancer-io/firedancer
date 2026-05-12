@@ -31,18 +31,18 @@ create_account_raw( fd_accdb_t *        accdb,
                     uint                dlen,
                     uchar *             data,
                     fd_pubkey_t const * owner ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key );
-  if( data && dlen ) fd_memcpy( entry.data, data, dlen );
-  entry.data_len   = dlen;
-  entry.lamports   = lamports;
-  entry.executable = 0;
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->key );
+  if( data && dlen ) fd_memcpy( acc.data, data, dlen );
+  acc.data_len   = dlen;
+  acc.lamports   = lamports;
+  acc.executable = 0;
   if( owner ) {
-    memcpy( entry.owner, owner->key, 32UL );
+    memcpy( acc.owner, owner->key, 32UL );
   } else {
-    memset( entry.owner, 0UL, 32UL );
+    memset( acc.owner, 0UL, 32UL );
   }
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 }
 
 static void
@@ -85,7 +85,7 @@ create_loader_v3_buffer( test_env_t *        env,
   FD_TEST( !fd_bpf_state_encode( &state, data, BUFFER_METADATA_SIZE, &out_sz ) );
   FD_TEST( out_sz == BUFFER_METADATA_SIZE );
 
-  fd_accdb_entry_t rw = fd_accdb_write_one( env->mini->runtime->accdb, env->fork_id, pubkey->key );
+  fd_acc_t rw = fd_accdb_write_one( env->mini->runtime->accdb, env->fork_id, pubkey->key );
   fd_memset( rw.data, 0, dlen );
   FD_STORE( ulong, rw.data, 0UL );
   fd_memcpy( rw.data + 8, authority->uc, 32 );

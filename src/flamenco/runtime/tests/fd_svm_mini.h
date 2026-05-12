@@ -257,8 +257,8 @@ fd_svm_mini_fork_id( fd_svm_mini_t * mini,
    into the rooted state. */
 
 void
-fd_svm_mini_put_account_rooted( fd_svm_mini_t *          mini,
-                                fd_accdb_entry_t const * ro );
+fd_svm_mini_put_account_rooted( fd_svm_mini_t *  mini,
+                                fd_acc_t const * ro );
 
 /* fd_svm_mini_add_lamports_rooted increases the lamport balance of a
    rooted accounts. */

@@ -129,13 +129,13 @@ init_stake_history_sysvar( test_env_t * env ) {
 
   /* Seed the stake history so that the warmup calculation treats the
      initial 1 SOL delegation as fully effective from the start. */
-  fd_stake_history_entry_t const entry = {
+  fd_stake_history_entry_t const acc = {
     .epoch        = 0UL,
     .effective    = 1000000000UL,
     .activating   = 0UL,
     .deactivating = 0UL,
   };
-  fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &entry );
+  fd_sysvar_stake_history_update( env->bank, env->accdb, NULL, &acc );
 }
 
 static void
@@ -179,26 +179,26 @@ add_vote_account( test_env_t *        env,
 
   FD_TEST( !fd_vote_state_versioned_serialize( versioned, vote_state_data, sizeof(vote_state_data) ) );
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, vote_account->key );
-  fd_memcpy( entry.data, vote_state_data, sizeof(vote_state_data) );
-  entry.data_len   = sizeof(vote_state_data);
-  entry.lamports   = 1000000000UL;
-  entry.executable = 0;
-  fd_memcpy( entry.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( env->accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( env->accdb, env->fork_id, vote_account->key );
+  fd_memcpy( acc.data, vote_state_data, sizeof(vote_state_data) );
+  acc.data_len   = sizeof(vote_state_data);
+  acc.lamports   = 1000000000UL;
+  acc.executable = 0;
+  fd_memcpy( acc.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( env->accdb, &acc );
 }
 
 static void
 add_delegated_stake_account( test_env_t *        env,
                              fd_pubkey_t const * stake_account,
                              fd_pubkey_t const * vote_account ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, stake_account->key );
-  entry.lamports   = 2000000000UL;
-  entry.executable = 0;
-  fd_memcpy( entry.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
-  entry.data_len   = FD_STAKE_STATE_SZ;
-  FD_STORE( fd_stake_state_t, entry.data, ((fd_stake_state_t) {
+  fd_acc_t acc = fd_accdb_write_one( env->accdb, env->fork_id, stake_account->key );
+  acc.lamports   = 2000000000UL;
+  acc.executable = 0;
+  fd_memcpy( acc.owner, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) );
+  acc.data_len   = FD_STAKE_STATE_SZ;
+  FD_STORE( fd_stake_state_t, acc.data, ((fd_stake_state_t) {
     .stake_type = FD_STAKE_STATE_STAKE,
     .stake = {
       .meta = {
@@ -216,8 +216,8 @@ add_delegated_stake_account( test_env_t *        env,
       }
     }
   }) );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( env->accdb, &entry );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( env->accdb, &acc );
 }
 
 static void
@@ -229,14 +229,14 @@ add_feature_account( test_env_t *            env,
     .activation_slot = activation_slot
   };
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( env->accdb, env->fork_id, id->id.key );
-  fd_memcpy( entry.data, &feature, sizeof(feature) );
-  entry.data_len   = sizeof(feature);
-  entry.lamports   = 1UL;
-  entry.executable = 0;
-  fd_memcpy( entry.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( env->accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( env->accdb, env->fork_id, id->id.key );
+  fd_memcpy( acc.data, &feature, sizeof(feature) );
+  acc.data_len   = sizeof(feature);
+  acc.lamports   = 1UL;
+  acc.executable = 0;
+  fd_memcpy( acc.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( env->accdb, &acc );
 }
 
 static fd_feature_id_t const *

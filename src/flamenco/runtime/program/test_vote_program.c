@@ -29,15 +29,15 @@ create_account_raw( fd_accdb_t *        accdb,
                     uint                dlen,
                     uchar *             data,
                     fd_pubkey_t const * owner ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key );
-  if( data && dlen ) memcpy( entry.data, data, dlen );
-  entry.data_len   = dlen;
-  entry.lamports   = lamports;
-  entry.executable = 0;
-  if( owner ) memcpy( entry.owner, owner->key, 32UL );
-  else        memset( entry.owner, 0,          32UL );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->key );
+  if( data && dlen ) memcpy( acc.data, data, dlen );
+  acc.data_len   = dlen;
+  acc.lamports   = lamports;
+  acc.executable = 0;
+  if( owner ) memcpy( acc.owner, owner->key, 32UL );
+  else        memset( acc.owner, 0,          32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 }
 
 static void
@@ -200,7 +200,7 @@ test_account_initialize( fd_svm_mini_t * mini ) {
   FD_TEST( txn_succeeded( env ) );
 
   /* Assert that the vote account is now populated */
-  fd_accdb_entry_t const * vote_acc = &env->txn_out->accounts.account[1];
+  fd_acc_t const * vote_acc = &env->txn_out->accounts.account[1];
   FD_TEST( vote_acc->data_len>0 );
   FD_TEST( !fd_mem_iszero( vote_acc->data, vote_acc->data_len ) );
 

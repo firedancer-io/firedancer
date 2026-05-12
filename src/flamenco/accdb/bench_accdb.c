@@ -123,15 +123,15 @@ bench_write_one( fd_accdb_t *       accdb,
                  uchar const *      owner ) {
   uchar const * pks[1] = { pubkey };
   int wr[1] = { 1 };
-  fd_accdb_entry_t ent[1];
-  memset( ent, 0, sizeof(ent) );
-  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, ent );
-  ent[0].lamports = lamports;
-  ent[0].data_len = data_len;
-  memcpy( ent[0].owner, owner, 32UL );
-  if( data_len && data ) memcpy( ent[0].data, data, data_len );
-  ent[0].commit = 1;
-  fd_accdb_release( accdb, 1UL, ent );
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  acc[0].lamports = lamports;
+  acc[0].data_len = data_len;
+  memcpy( acc[0].owner, owner, 32UL );
+  if( data_len && data ) memcpy( acc[0].data, data, data_len );
+  acc[0].commit = 1;
+  fd_accdb_release( accdb, 1UL, acc );
 }
 
 /* Helper: read a single account via acquire/release.  Returns 1 if
@@ -146,18 +146,18 @@ bench_read_one( fd_accdb_t *       accdb,
                 uchar *            out_owner ) {
   uchar const * pks[1] = { pubkey };
   int wr[1] = { 0 };
-  fd_accdb_entry_t ent[1];
-  memset( ent, 0, sizeof(ent) );
-  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, ent );
-  int found = ent[0].lamports!=0UL;
+  fd_acc_t acc[1];
+  memset( acc, 0, sizeof(acc) );
+  fd_accdb_acquire( accdb, fork_id, 1UL, pks, wr, acc );
+  int found = acc[0].lamports!=0UL;
   if( found ) {
-    if( out_lamports ) *out_lamports = ent[0].lamports;
-    if( out_data_len ) *out_data_len = ent[0].data_len;
-    if( out_owner )    memcpy( out_owner, ent[0].owner, 32UL );
-    if( out_data && ent[0].data && ent[0].data_len )
-      memcpy( out_data, ent[0].data, ent[0].data_len );
+    if( out_lamports ) *out_lamports = acc[0].lamports;
+    if( out_data_len ) *out_data_len = acc[0].data_len;
+    if( out_owner )    memcpy( out_owner, acc[0].owner, 32UL );
+    if( out_data && acc[0].data && acc[0].data_len )
+      memcpy( out_data, acc[0].data, acc[0].data_len );
   }
-  fd_accdb_release( accdb, 1UL, ent );
+  fd_accdb_release( accdb, 1UL, acc );
   return found;
 }
 

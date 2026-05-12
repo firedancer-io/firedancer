@@ -78,16 +78,16 @@ fd_solfuzz_pb_load_account( fd_runtime_t *                    runtime,
     return 0;
   }
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key );
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->key );
   if( state->data && size ) {
-    fd_memcpy( entry.data, state->data->bytes, size );
+    fd_memcpy( acc.data, state->data->bytes, size );
   }
-  entry.data_len   = size;
-  entry.lamports   = state->lamports;
-  entry.executable = state->executable;
-  fd_memcpy( entry.owner, state->owner, 32UL );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  acc.data_len   = size;
+  acc.lamports   = state->lamports;
+  acc.executable = state->executable;
+  fd_memcpy( acc.owner, state->owner, 32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 
   return 1;
 }
@@ -135,13 +135,13 @@ fd_solfuzz_pb_create_feature_accounts( fd_accdb_t *                       accdb,
     /* Genesis activation slot */
     fd_feature_t feature = { .is_active = 1, .activation_slot = 0UL };
 
-    fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, id->id.key );
-    fd_memcpy( entry.data, &feature, sizeof(feature) );
-    entry.data_len   = sizeof(feature);
-    entry.lamports   = 100000000UL;
-    entry.executable = 0;
-    fd_memcpy( entry.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
-    entry.commit = 1;
-    fd_accdb_unwrite_one( accdb, &entry );
+    fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, id->id.key );
+    fd_memcpy( acc.data, &feature, sizeof(feature) );
+    acc.data_len   = sizeof(feature);
+    acc.lamports   = 100000000UL;
+    acc.executable = 0;
+    fd_memcpy( acc.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
+    acc.commit = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
   }
 }

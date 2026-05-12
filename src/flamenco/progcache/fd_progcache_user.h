@@ -188,7 +188,7 @@ fd_progcache_pull( fd_progcache_t           * cache,
                    fd_progcache_xid_t const * xid,
                    fd_pubkey_t        const * prog_addr,
                    fd_prog_load_env_t const * env,
-                   fd_accdb_entry_t   const * progdata_ro );
+                   fd_acc_t           const * progdata_ro );
 
 /* fd_progcache_rec_close releases a cache record handle returned by
    fd_progcache_{pull,peek}. */
