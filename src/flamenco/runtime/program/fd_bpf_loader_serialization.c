@@ -424,11 +424,9 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
   if( direct_account_pointers_in_program_input ) {
     ulong cur_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START + curr_region_vaddr +
       (ulong)(serialized_params - curr_serialized_params_start);
-    ulong pad = FD_ULONG_ALIGN_UP( cur_vaddr, FD_BPF_ALIGN_OF_U128 ) - cur_vaddr;
-    if( pad ) {
-      fd_memset( serialized_params, 0, pad );
-      serialized_params += pad;
-    }
+    ulong padding = FD_ULONG_ALIGN_UP( cur_vaddr, FD_BPF_ALIGN_OF_U128 ) - cur_vaddr;
+    fd_memset( serialized_params, 0, padding );
+    serialized_params += padding;
     for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
       FD_STORE( ulong, serialized_params, acc_region_metas[i].vm_addr );
       serialized_params += sizeof(ulong);
