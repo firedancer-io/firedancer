@@ -20,13 +20,13 @@ fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read( fd_accdb_t *                accdb,
                               fd_accdb_fork_id_t          fork_id,
                               fd_sysvar_epoch_rewards_t * out ) {
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, fd_sysvar_epoch_rewards_id.uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) return NULL;
-  if( FD_UNLIKELY( entry.data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) return NULL;
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, fd_sysvar_epoch_rewards_id.uc );
+  if( FD_UNLIKELY( !acc.lamports ) ) return NULL;
+  if( FD_UNLIKELY( acc.data_len!=FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ ) ) return NULL;
 
-  fd_memcpy( out, entry.data, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
+  fd_memcpy( out, acc.data, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
 
-  fd_accdb_unread_one( accdb, &entry );
+  fd_accdb_unread_one( accdb, &acc );
   if( FD_UNLIKELY( validate( out ) ) ) return NULL;
   return out;
 }

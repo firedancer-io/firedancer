@@ -270,13 +270,13 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     fd_guarded_borrowed_account_t callee_acct = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, instruction_accounts[i].index_in_caller, &callee_acct );
 
-    fd_pubkey_t const *      account_key = (fd_pubkey_t*)callee_acct.entry->pubkey;
+    fd_pubkey_t const *      account_key = (fd_pubkey_t*)callee_acct.acc->pubkey;
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
     if( fd_borrowed_account_is_executable( &callee_acct ) ) {
       // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
-      FD_VM_CU_UPDATE( vm, callee_acct.entry->data_len / FD_VM_CPI_BYTES_PER_UNIT );
+      FD_VM_CU_UPDATE( vm, callee_acct.acc->data_len / FD_VM_CPI_BYTES_PER_UNIT );
       continue;
     }
 
@@ -524,18 +524,18 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
   /* Update the caller account lamports with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1191 */
-  *(caller_account->lamports) = borrowed_callee_acc->entry->lamports;
+  *(caller_account->lamports) = borrowed_callee_acc->acc->lamports;
 
   /* Update the caller account owner with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1192 */
-  fd_pubkey_t const * updated_owner = (fd_pubkey_t const *)borrowed_callee_acc->entry->owner;
+  fd_pubkey_t const * updated_owner = (fd_pubkey_t const *)borrowed_callee_acc->acc->owner;
   if( updated_owner ) *caller_account->owner = *updated_owner;
   else                fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
 
   /* Update the caller account data with the value from the callee
      https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1194-L1195 */
   ulong prev_len = *caller_account->ref_to_len_in_vm;
-  ulong post_len = borrowed_callee_acc->entry->data_len;
+  ulong post_len = borrowed_callee_acc->acc->data_len;
 
   /* Calculate the address space reserved for the account. With syscall_parameter_address_restrictions
      and deprecated loader, the reserved space equals original length (no realloc space).
@@ -625,7 +625,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
     }
 
-    fd_memcpy( caller_account->serialized_data, borrowed_callee_acc->entry->data, post_len );
+    fd_memcpy( caller_account->serialized_data, borrowed_callee_acc->acc->data, post_len );
   }
 
 

@@ -122,19 +122,19 @@ initialize_accdb( fd_accdb_t *         accdb,
     fd_genesis_account_t account[1];
     fd_genesis_account( genesis, genesis_blob, account, i );
 
-    fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, account->pubkey.key );
-    fd_memcpy( entry.owner, account->owner.uc, 32UL );
-    entry.lamports = account->lamports;
-    entry.executable = !!account->executable;
-    entry.data_len = account->data_len;
-    fd_memcpy( entry.data, account->data, account->data_len );
+    fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, account->pubkey.key );
+    fd_memcpy( acc.owner, account->owner.uc, 32UL );
+    acc.lamports = account->lamports;
+    acc.executable = !!account->executable;
+    acc.data_len = account->data_len;
+    fd_memcpy( acc.data, account->data, account->data_len );
 
     fd_lthash_value_t new_hash[1];
-    fd_hashes_account_lthash_simple( account->pubkey.uc, entry.owner, entry.lamports, entry.executable, account->data, account->data_len, new_hash );
+    fd_hashes_account_lthash_simple( account->pubkey.uc, acc.owner, acc.lamports, acc.executable, account->data, account->data_len, new_hash );
     fd_lthash_add( lthash, new_hash );
 
-    entry.commit = 1;
-    fd_accdb_unwrite_one( accdb, &entry );
+    acc.commit = 1;
+    fd_accdb_unwrite_one( accdb, &acc );
   }
 }
 

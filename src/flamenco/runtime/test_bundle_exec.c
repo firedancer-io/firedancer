@@ -38,15 +38,15 @@ create_test_account( fd_accdb_t *        accdb,
                      uint                dlen,
                      uchar *             data,
                      fd_pubkey_t const * owner ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, fork_id, pubkey->key );
-  if( data && dlen ) memcpy( entry.data, data, dlen );
-  entry.data_len   = dlen;
-  entry.lamports   = lamports;
-  entry.executable = 0;
-  if( owner ) memcpy( entry.owner, owner->key, 32UL );
-  else        memset( entry.owner, 0,          32UL );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( accdb, fork_id, pubkey->key );
+  if( data && dlen ) memcpy( acc.data, data, dlen );
+  acc.data_len   = dlen;
+  acc.lamports   = lamports;
+  acc.executable = 0;
+  if( owner ) memcpy( acc.owner, owner->key, 32UL );
+  else        memset( acc.owner, 0,          32UL );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 }
 
 static fd_stake_delegation_t const *
@@ -713,14 +713,14 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[1].err.is_committable );
 
   /* Locate the loaded programdata in runtime->accounts.executable[]
-     (now an array of fd_accdb_entry_t, no fd_accdb_ro_t indirection). */
+     (now an array of fd_acc_t, no fd_accdb_ro_t indirection). */
   int found_programdata = 0;
   for( ulong i = 0; i < env->runtime->accounts.executable_cnt; i++ ) {
-    fd_accdb_entry_t const * ent = &env->runtime->accounts.executable[i];
-    if( memcmp( ent->pubkey, programdata_key.uc, 32UL ) ) continue;
+    fd_acc_t const * acc = &env->runtime->accounts.executable[i];
+    if( memcmp( acc->pubkey, programdata_key.uc, 32UL ) ) continue;
 
     fd_bpf_state_t pd_state[1];
-    FD_TEST( fd_bpf_loader_program_get_state( ent, pd_state ) == FD_EXECUTOR_INSTR_SUCCESS );
+    FD_TEST( fd_bpf_loader_program_get_state( acc, pd_state ) == FD_EXECUTOR_INSTR_SUCCESS );
     FD_TEST( pd_state->discriminant == FD_BPF_STATE_PROGRAM_DATA );
     FD_TEST( pd_state->inner.program_data.slot == 10UL );
     found_programdata = 1;

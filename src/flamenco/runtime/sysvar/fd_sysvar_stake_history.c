@@ -21,7 +21,7 @@ fd_sysvar_stake_history_update( fd_bank_t *                      bank,
                                 fd_capture_ctx_t *               capture_ctx,
                                 fd_stake_history_entry_t const * entry ) {
   fd_accdb_svm_update_t update[1];
-  fd_accdb_entry_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_stake_history_id, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_acc_t rw = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_stake_history_id, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
 
   if( FD_UNLIKELY( !rw.lamports ) ) {
     /* Initialize account if it did not exist */

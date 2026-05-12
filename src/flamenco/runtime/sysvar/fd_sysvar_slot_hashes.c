@@ -16,20 +16,20 @@ fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
                               fd_accdb_t *       accdb,
                               fd_capture_ctx_t * capture_ctx ) {
   fd_accdb_svm_update_t update[1];
-  fd_accdb_entry_t entry = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_hashes_id, 0 );
-  if( FD_UNLIKELY( !entry.lamports ) ) {
+  fd_acc_t acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_hashes_id, 0 );
+  if( FD_UNLIKELY( !acc.lamports ) ) {
     /* Agave initializes a new empty slot_hashes if it doesn't exist */
     fd_sysvar_slot_hashes_init( bank, accdb, capture_ctx );
-    entry = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_hashes_id, 0 );
-    if( FD_UNLIKELY( !entry.lamports ) ) {
+    acc = fd_accdb_svm_open_rw( bank, accdb, update, &fd_sysvar_slot_hashes_id, 0 );
+    if( FD_UNLIKELY( !acc.lamports ) ) {
       FD_LOG_ERR(( "state is missing slot hashes sysvar" ));
     }
   }
-  if( FD_UNLIKELY( 0!=memcmp( entry.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( 0!=memcmp( acc.owner, &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
     FD_LOG_ERR(( "slot hashes sysvar not owned by sysvar owner" ));
   }
-  uchar * data    = entry.data;
-  ulong   data_sz = entry.data_len;
+  uchar * data    = acc.data;
+  ulong   data_sz = acc.data_len;
   if( FD_UNLIKELY( data_sz < FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ) ) {
     FD_LOG_HEXDUMP_ERR(( "invalid slot hashes sysvar", data, data_sz ));
   }
@@ -58,7 +58,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *        bank,
     FD_STORE( ulong, data, keep + 1UL );
   }
 
-  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &entry, update );
+  fd_accdb_svm_close_rw( bank, accdb, capture_ctx, &acc, update );
 }
 
 int

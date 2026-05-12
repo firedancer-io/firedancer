@@ -210,15 +210,15 @@ main( int     argc,
 
       uchar const * pks[1] = { pubkey };
       int wr[1] = { 1 };
-      fd_accdb_entry_t ent[1];
-      memset( ent, 0, sizeof(ent) );
-      fd_accdb_acquire( accdb, fork, 1UL, pks, wr, ent );
-      ent[0].lamports = i + 1UL;
-      ent[0].data_len = sz;
-      memcpy( ent[0].owner, dummy_owner, 32UL );
-      memset( ent[0].data, (uchar)(i & 0xFFUL), sz );
-      ent[0].commit = 1;
-      fd_accdb_release( accdb, 1UL, ent );
+      fd_acc_t acc[1];
+      memset( acc, 0, sizeof(acc) );
+      fd_accdb_acquire( accdb, fork, 1UL, pks, wr, acc );
+      acc[0].lamports = i + 1UL;
+      acc[0].data_len = sz;
+      memcpy( acc[0].owner, dummy_owner, 32UL );
+      memset( acc[0].data, (uchar)(i & 0xFFUL), sz );
+      acc[0].commit = 1;
+      fd_accdb_release( accdb, 1UL, acc );
     }
   }
 
@@ -229,10 +229,10 @@ main( int     argc,
       make_pubkey( pubkey, i );
       uchar const * pks[1] = { pubkey };
       int wr[1] = { 0 };
-      fd_accdb_entry_t ent[1];
-      memset( ent, 0, sizeof(ent) );
-      fd_accdb_acquire( accdb, fork, 1UL, pks, wr, ent );
-      fd_accdb_release( accdb, 1UL, ent );
+      fd_acc_t acc[1];
+      memset( acc, 0, sizeof(acc) );
+      fd_accdb_acquire( accdb, fork, 1UL, pks, wr, acc );
+      fd_accdb_release( accdb, 1UL, acc );
     }
   }
 
@@ -251,10 +251,10 @@ main( int     argc,
         make_pubkey( pk, idx );
         uchar const * pks[1] = { pk };
         int wr[1] = { 0 };
-        fd_accdb_entry_t ent[1];
-        memset( ent, 0, sizeof(ent) );
-        fd_accdb_acquire( accdb, fork, 1UL, pks, wr, ent );
-        fd_accdb_release( accdb, 1UL, ent );
+        fd_acc_t acc[1];
+        memset( acc, 0, sizeof(acc) );
+        fd_accdb_acquire( accdb, fork, 1UL, pks, wr, acc );
+        fd_accdb_release( accdb, 1UL, acc );
         baseline_ops++;
       }
     }
@@ -283,7 +283,7 @@ main( int     argc,
   uchar   pubkeys_buf[ BENCH_MAX_ACCTS_PER_TXN ][ 32 ];
   uchar const * pubkey_ptrs[ BENCH_MAX_ACCTS_PER_TXN ];
   int     writable[ BENCH_MAX_ACCTS_PER_TXN ];
-  fd_accdb_entry_t entries[ BENCH_MAX_ACCTS_PER_TXN ];
+  fd_acc_t accs[ BENCH_MAX_ACCTS_PER_TXN ];
 
   /* Per-archetype counters for reporting */
   ulong arch_txn_cnt[ TXN_ARCHETYPE_CNT ];
@@ -319,27 +319,27 @@ main( int     argc,
         pubkey_ptrs[ i ] = pubkeys_buf[ i ];
         writable[ i ] = ( i < (ulong)arch->rw_cnt ) ? 1 : 0;
       }
-      memset( entries, 0, total_cnt * sizeof(fd_accdb_entry_t) );
+      memset( accs, 0, total_cnt * sizeof(fd_acc_t) );
 
       /* 3. Acquire */
       long t0 = fd_log_wallclock();
       fd_accdb_acquire( accdb, fork, total_cnt,
-                        pubkey_ptrs, writable, entries );
+                        pubkey_ptrs, writable, accs );
 
       /* 4. Decide commit or revert */
       int do_commit = ( (fd_rng_uint( rng ) % 10000U) >= arch->fail_ppm );
 
-      /* 5. For writable entries, set commit flag and touch data */
+      /* 5. For writable accs, set commit flag and touch data */
       for( ulong i=0UL; i<(ulong)arch->rw_cnt; i++ ) {
-        entries[ i ].commit = do_commit;
-        if( do_commit && entries[ i ].data ) {
+        accs[ i ].commit = do_commit;
+        if( do_commit && accs[ i ].data ) {
           /* Touch a byte to simulate mutation */
-          entries[ i ].data[ 0 ] ^= 0x01;
+          accs[ i ].data[ 0 ] ^= 0x01;
         }
       }
 
       /* 6. Release */
-      fd_accdb_release( accdb, total_cnt, entries );
+      fd_accdb_release( accdb, total_cnt, accs );
       long t1 = fd_log_wallclock();
 
       arch_txn_cnt[ arch_idx ]++;

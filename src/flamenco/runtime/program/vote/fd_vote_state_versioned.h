@@ -19,7 +19,7 @@ FD_PROTOTYPES_BEGIN
    decoding fails.
    https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1074 */
 int
-fd_vsv_get_state( fd_accdb_entry_t const *    entry,
+fd_vsv_get_state( fd_acc_t const *            acc,
                   fd_vote_state_versioned_t * versioned );
 
 /* This is essentially a call to get_state, additionally erroring out
@@ -27,7 +27,7 @@ fd_vsv_get_state( fd_accdb_entry_t const *    entry,
    V0.23.5) variant.
    https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/vote_state_versions.rs#L140-L187 */
 int
-fd_vsv_deserialize( fd_accdb_entry_t const *    entry,
+fd_vsv_deserialize( fd_acc_t const *            acc,
                     fd_vote_state_versioned_t * versioned );
 
 /* Returns a const pointer to the authorized withdrawer for the

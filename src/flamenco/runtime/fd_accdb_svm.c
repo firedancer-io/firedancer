@@ -5,7 +5,7 @@
 
 static void
 log_account_change( fd_bank_t const *  bank,
-                    fd_accdb_entry_t * ro,
+                    fd_acc_t * ro,
                     fd_capture_ctx_t * capture_ctx ) {
   if( FD_UNLIKELY( capture_ctx &&
                    capture_ctx->capture_solcap &&
@@ -23,54 +23,54 @@ log_account_change( fd_bank_t const *  bank,
   }
 }
 
-fd_accdb_entry_t
+fd_acc_t
 fd_accdb_svm_open_rw( fd_bank_t *             bank,
                       fd_accdb_t *            accdb,
                       fd_accdb_svm_update_t * update,
                       fd_pubkey_t const *     pubkey,
                       int                     create ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
-  if( FD_UNLIKELY( !entry.lamports && !create ) ) {
-    fd_accdb_unwrite_one( accdb, &entry );
-    return entry;
+  fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
+  if( FD_UNLIKELY( !acc.lamports && !create ) ) {
+    fd_accdb_unwrite_one( accdb, &acc );
+    return acc;
   }
 
-  update->lamports_before = entry.lamports;
+  update->lamports_before = acc.lamports;
 
   fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( entry.pubkey, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, hash );
+  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
 
   fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
   fd_lthash_sub( bank_lthash, hash );
   fd_bank_lthash_end_locking_modify( bank );
 
-  return entry;
+  return acc;
 }
 
 void
 fd_accdb_svm_close_rw( fd_bank_t *             bank,
                        fd_accdb_t *            accdb,
                        fd_capture_ctx_t *      capture_ctx,
-                       fd_accdb_entry_t *      entry,
+                       fd_acc_t *      acc,
                        fd_accdb_svm_update_t * update ) {
-  if( FD_UNLIKELY( entry->lamports>update->lamports_before ) ) {
-    ulong delta = entry->lamports-update->lamports_before;
+  if( FD_UNLIKELY( acc->lamports>update->lamports_before ) ) {
+    ulong delta = acc->lamports-update->lamports_before;
     FD_TEST( !__builtin_uaddl_overflow( bank->f.capitalization, delta, &bank->f.capitalization ) );
-  } else if( FD_UNLIKELY( entry->lamports<update->lamports_before ) ) {
-    ulong delta = update->lamports_before-entry->lamports;
+  } else if( FD_UNLIKELY( acc->lamports<update->lamports_before ) ) {
+    ulong delta = update->lamports_before-acc->lamports;
     FD_TEST( !__builtin_usubl_overflow( bank->f.capitalization, delta, &bank->f.capitalization ) );
   }
 
   fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( entry->pubkey, entry->owner, entry->lamports, entry->executable, entry->data, entry->data_len, hash );
+  fd_hashes_account_lthash_simple( acc->pubkey, acc->owner, acc->lamports, acc->executable, acc->data, acc->data_len, hash );
 
   fd_lthash_value_t * bank_lthash = fd_bank_lthash_locking_modify( bank );
   fd_lthash_add( bank_lthash, hash );
   fd_bank_lthash_end_locking_modify( bank );
 
-  log_account_change( bank, entry, capture_ctx );
-  entry->commit = 1;
-  fd_accdb_unwrite_one( accdb, entry );
+  log_account_change( bank, acc, capture_ctx );
+  acc->commit = 1;
+  fd_accdb_unwrite_one( accdb, acc );
 }
 
 void
@@ -81,17 +81,17 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
                      ulong               lamports_add ) {
   if( FD_UNLIKELY( !lamports_add ) ) return;
 
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
+  fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
 
   fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( entry.pubkey, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, hash );
-  FD_TEST( !__builtin_uaddl_overflow( entry.lamports, lamports_add, &entry.lamports ) );
+  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
+  FD_TEST( !__builtin_uaddl_overflow( acc.lamports, lamports_add, &acc.lamports ) );
   FD_TEST( !__builtin_uaddl_overflow( bank->f.capitalization, lamports_add, &bank->f.capitalization ) );
 
   fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, hash, pubkey->uc, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, bank, capture_ctx );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 }
 
 void
@@ -104,30 +104,30 @@ fd_accdb_svm_write( fd_bank_t *         bank,
                     ulong               sz,
                     ulong               lamports_min,
                     int                 exec_bit ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
+  fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
 
   fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( entry.pubkey, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, hash );
+  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
 
-  if( FD_UNLIKELY( entry.lamports<lamports_min ) ) {
-    ulong delta = lamports_min - entry.lamports;
-    entry.lamports = lamports_min;
+  if( FD_UNLIKELY( acc.lamports<lamports_min ) ) {
+    ulong delta = lamports_min - acc.lamports;
+    acc.lamports = lamports_min;
     FD_TEST( !__builtin_uaddl_overflow( bank->f.capitalization, delta, &bank->f.capitalization ) );
   }
 
-  fd_memcpy( entry.owner, owner, 32UL );
-  entry.executable = !!exec_bit;
+  fd_memcpy( acc.owner, owner, 32UL );
+  acc.executable = !!exec_bit;
 
-  fd_memcpy( entry.data, data, sz );
-  if( FD_UNLIKELY( entry.data_len<sz ) ) {
-    entry.data_len = sz;
-    fd_memset( entry.data+entry.data_len, 0, sz-entry.data_len );
+  fd_memcpy( acc.data, data, sz );
+  if( FD_UNLIKELY( acc.data_len<sz ) ) {
+    acc.data_len = sz;
+    fd_memset( acc.data+acc.data_len, 0, sz-acc.data_len );
   }
 
   fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, hash, pubkey->uc, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, bank, capture_ctx );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
 }
 
 ulong
@@ -135,23 +135,23 @@ fd_accdb_svm_remove( fd_bank_t *         bank,
                      fd_accdb_t *        accdb,
                      fd_capture_ctx_t *  capture_ctx,
                      fd_pubkey_t const * pubkey ) {
-  fd_accdb_entry_t entry = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) {
-    fd_accdb_unwrite_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, pubkey->uc );
+  if( FD_UNLIKELY( !acc.lamports ) ) {
+    fd_accdb_unwrite_one( accdb, &acc );
     return 0UL;
   }
 
-  ulong burned = entry.lamports;
+  ulong burned = acc.lamports;
 
   fd_lthash_value_t hash[1];
-  fd_hashes_account_lthash_simple( entry.pubkey, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, hash );
+  fd_hashes_account_lthash_simple( acc.pubkey, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, hash );
 
   bank->f.capitalization -= burned;
-  entry.lamports = 0UL;
+  acc.lamports = 0UL;
 
   fd_lthash_value_t post[1];
-  fd_hashes_update_simple( post, hash, pubkey->uc, entry.owner, entry.lamports, entry.executable, entry.data, entry.data_len, bank, capture_ctx );
-  entry.commit = 1;
-  fd_accdb_unwrite_one( accdb, &entry );
+  fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
+  acc.commit = 1;
+  fd_accdb_unwrite_one( accdb, &acc );
   return burned;
 }

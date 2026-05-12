@@ -8,7 +8,7 @@
 FD_PROTOTYPES_BEGIN
 
 fd_stake_state_t const *
-fd_stakes_get_state( fd_accdb_entry_t const * entry );
+fd_stakes_get_state( fd_acc_t const * acc );
 
 fd_stake_history_entry_t
 stake_activating_and_deactivating( fd_delegation_t const *    self,
@@ -72,9 +72,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
    the stake account. */
 
 void
-fd_stakes_update_stake_delegation( fd_pubkey_t const *      pubkey,
-                                   fd_accdb_entry_t const * entry,
-                                   fd_bank_t *              bank );
+fd_stakes_update_stake_delegation( fd_pubkey_t const * pubkey,
+                                   fd_acc_t const *    acc,
+                                   fd_bank_t *         bank );
 
 FD_PROTOTYPES_END
 

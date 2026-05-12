@@ -58,7 +58,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_bank_t const *                  ba
   }
 }
 
-/* Stores an entry in the stake delegations cache for the given vote
+/* Stores an acc in the stake delegations cache for the given vote
    account.  Deserializes and uses the present account state to derive
    delegation information. */
 static void
@@ -66,18 +66,18 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_t *             accdb,
                                             fd_accdb_fork_id_t       fork_id,
                                             fd_stake_delegations_t * stake_delegations,
                                             fd_pubkey_t *            pubkey ) {
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, pubkey->key );
-  if( FD_UNLIKELY( !entry.lamports ) ) {
-    fd_accdb_unread_one( accdb, &entry );
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, pubkey->key );
+  if( FD_UNLIKELY( !acc.lamports ) ) {
+    fd_accdb_unread_one( accdb, &acc );
     return;
   }
 
   fd_stake_state_t const * stake_state = NULL;
-  if( memcmp( entry.owner, fd_solana_stake_program_id.key, 32UL )!=0 ||
-      !( stake_state = fd_stake_state_view( entry.data, entry.data_len ) ) ||
+  if( memcmp( acc.owner, fd_solana_stake_program_id.key, 32UL )!=0 ||
+      !( stake_state = fd_stake_state_view( acc.data, acc.data_len ) ) ||
       stake_state->stake_type!=FD_STAKE_STATE_STAKE ||
       stake_state->stake.stake.delegation.stake==0UL ) {
-    fd_accdb_unread_one( accdb, &entry );
+    fd_accdb_unread_one( accdb, &acc );
     return;
   }
 
@@ -90,7 +90,7 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_t *             accdb,
       stake_state->stake.stake.delegation.deactivation_epoch,
       stake_state->stake.stake.credits_observed,
       FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
-  fd_accdb_unread_one( accdb, &entry );
+  fd_accdb_unread_one( accdb, &acc );
 }
 
 static void

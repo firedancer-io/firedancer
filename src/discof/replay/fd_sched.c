@@ -2124,7 +2124,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   /* Try to expand ALUTs. */
   int serializing = 0;
   if( alt_cnt>0UL ) {
-    fd_accdb_entry_t ro = fd_accdb_read_one( alut_ctx->accdb, alut_ctx->fork_id, fd_sysvar_slot_hashes_id.uc );
+    fd_acc_t ro = fd_accdb_read_one( alut_ctx->accdb, alut_ctx->fork_id, fd_sysvar_slot_hashes_id.uc );
     if( FD_LIKELY( ro.lamports ) ) {
       fd_slot_hashes_t slot_hashes_view[1];
       if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view, ro.data, ro.data_len ) ) ) {

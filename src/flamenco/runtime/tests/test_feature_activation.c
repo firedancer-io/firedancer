@@ -32,13 +32,13 @@ create_feature_account( fd_svm_mini_t *     mini,
                         fd_pubkey_t const * pubkey,
                         void const *        data,
                         uint                dlen ) {
-  fd_accdb_entry_t entry = {0};
-  fd_memcpy( entry.pubkey, pubkey->uc, 32UL );
-  fd_memcpy( entry.owner, fd_solana_feature_program_id.uc, 32UL );
-  entry.lamports = 1UL;
-  entry.data_len = dlen;
-  entry.data     = (uchar *)data;
-  fd_svm_mini_put_account_rooted( mini, &entry );
+  fd_acc_t acc = {0};
+  fd_memcpy( acc.pubkey, pubkey->uc, 32UL );
+  fd_memcpy( acc.owner, fd_solana_feature_program_id.uc, 32UL );
+  acc.lamports = 1UL;
+  acc.data_len = dlen;
+  acc.data     = (uchar *)data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
 }
 
 /* Create a feature account with wrong owner in rooted state. */
@@ -48,13 +48,13 @@ create_feature_account_wrong_owner( fd_svm_mini_t *     mini,
                                     fd_pubkey_t const * pubkey,
                                     void const *        data,
                                     uint                dlen ) {
-  fd_accdb_entry_t entry = {0};
-  fd_memcpy( entry.pubkey, pubkey->uc, 32UL );
-  fd_memcpy( entry.owner, fd_solana_system_program_id.uc, 32UL );
-  entry.lamports = 1UL;
-  entry.data_len = dlen;
-  entry.data     = (uchar *)data;
-  fd_svm_mini_put_account_rooted( mini, &entry );
+  fd_acc_t acc = {0};
+  fd_memcpy( acc.pubkey, pubkey->uc, 32UL );
+  fd_memcpy( acc.owner, fd_solana_system_program_id.uc, 32UL );
+  acc.lamports = 1UL;
+  acc.data_len = dlen;
+  acc.data     = (uchar *)data;
+  fd_svm_mini_put_account_rooted( mini, &acc );
 }
 
 /* Read feature activation slot from the bank's features set. */

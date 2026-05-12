@@ -227,14 +227,14 @@ main( int     argc,
   {
     uchar const * pks[1] = { addr_a.uc };
     int wr[1] = { 1 };
-    fd_accdb_entry_t ent[1]; memset( ent, 0, sizeof(ent) );
-    fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, pks, wr, ent );
-    ent[0].lamports = 1000000UL;
-    ent[0].data_len = sizeof(data_a);
-    memcpy( ent[0].owner, owner_a, 32UL );
-    memcpy( ent[0].data, data_a, sizeof(data_a) );
-    ent[0].commit = 1;
-    fd_accdb_release( writer_accdb, 1UL, ent );
+    fd_acc_t acc[1]; memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, pks, wr, acc );
+    acc[0].lamports = 1000000UL;
+    acc[0].data_len = sizeof(data_a);
+    memcpy( acc[0].owner, owner_a, 32UL );
+    memcpy( acc[0].data, data_a, sizeof(data_a) );
+    acc[0].commit = 1;
+    fd_accdb_release( writer_accdb, 1UL, acc );
   }
 
   /* Account B: 2 bytes of data, 500000 lamports */
@@ -246,14 +246,14 @@ main( int     argc,
   {
     uchar const * pks[1] = { addr_b.uc };
     int wr[1] = { 1 };
-    fd_accdb_entry_t ent[1]; memset( ent, 0, sizeof(ent) );
-    fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, pks, wr, ent );
-    ent[0].lamports = 500000UL;
-    ent[0].data_len = sizeof(data_b);
-    memcpy( ent[0].owner, owner_b, 32UL );
-    memcpy( ent[0].data, data_b, sizeof(data_b) );
-    ent[0].commit = 1;
-    fd_accdb_release( writer_accdb, 1UL, ent );
+    fd_acc_t acc[1]; memset( acc, 0, sizeof(acc) );
+    fd_accdb_acquire( writer_accdb, test_fork_id, 1UL, pks, wr, acc );
+    acc[0].lamports = 500000UL;
+    acc[0].data_len = sizeof(data_b);
+    memcpy( acc[0].owner, owner_b, 32UL );
+    memcpy( acc[0].data, data_b, sizeof(data_b) );
+    acc[0].commit = 1;
+    fd_accdb_release( writer_accdb, 1UL, acc );
   }
 
   FD_BASE58_ENCODE_32_BYTES( addr_a.uc, addr_a_b58 );

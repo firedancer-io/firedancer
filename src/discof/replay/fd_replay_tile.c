@@ -852,7 +852,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     fd_acct_addr_t tip_receiver[1];
     fd_bundle_crank_get_addresses( ctx->bundle.gen, bank->f.epoch, tip_payment_config, tip_receiver );
 
-    fd_accdb_entry_t tip_config_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_payment_config->b );
+    fd_acc_t tip_config_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_payment_config->b );
     if( FD_UNLIKELY( !tip_config_acc.lamports ) ) {
       FD_BASE58_ENCODE_32_BYTES( tip_payment_config->b, tip_config_acc_b58 );
       FD_LOG_WARNING(( "tip payment config account %s does not exist", tip_config_acc_b58 ));
@@ -866,7 +866,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
     /* It is possible that the tip receiver account does not exist yet
        if it is the first time in an epoch. */
-    fd_accdb_entry_t tip_receiver_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_receiver->b );
+    fd_acc_t tip_receiver_acc = fd_accdb_read_one( ctx->accdb, bank->accdb_fork_id, tip_receiver->b );
     if( FD_LIKELY( tip_receiver_acc.lamports ) ) {
       fd_memcpy( tip_receiver_owner.uc, tip_receiver_acc.owner, 32UL );
       fd_accdb_unread_one( ctx->accdb, &tip_receiver_acc );

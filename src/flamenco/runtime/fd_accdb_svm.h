@@ -15,7 +15,7 @@ typedef struct fd_accdb_svm_update fd_accdb_svm_update_t;
 
 /* fd_accdb_svm_open_rw starts a system account update. */
 
-fd_accdb_entry_t
+fd_acc_t
 fd_accdb_svm_open_rw( fd_bank_t *             bank,
                       fd_accdb_t *            accdb,
                       fd_accdb_svm_update_t * update,
@@ -29,7 +29,7 @@ void
 fd_accdb_svm_close_rw( fd_bank_t *             bank,
                        fd_accdb_t *            accdb,
                        fd_capture_ctx_t *      capture_ctx,
-                       fd_accdb_entry_t *      rw,
+                       fd_acc_t *              rw,
                        fd_accdb_svm_update_t * update );
 
 /* fd_accdb_svm_credit credits an account with lamports.  Updates the

@@ -71,19 +71,19 @@ static fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_accdb_t *            accdb,
                       fd_accdb_fork_id_t      fork_id,
                       fd_sol_sysvar_clock_t * clock ) {
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, fork_id, fd_sysvar_clock_id.uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) return NULL;
-  if( FD_UNLIKELY( entry.data_len<sizeof(fd_sol_sysvar_clock_t) ) ) {
+  fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, fd_sysvar_clock_id.uc );
+  if( FD_UNLIKELY( !acc.lamports ) ) return NULL;
+  if( FD_UNLIKELY( acc.data_len<sizeof(fd_sol_sysvar_clock_t) ) ) {
     /* This check is needed as a quirk of the fuzzer. If a sysvar
        account exists in the accounts database, but doesn't have any
        lamports, this means that the account does not exist.  This
        wouldn't happen in a real execution environment. */
-    fd_accdb_unread_one( accdb, &entry );
+    fd_accdb_unread_one( accdb, &acc );
     return NULL;
   }
 
-  fd_memcpy( clock, entry.data, sizeof(fd_sol_sysvar_clock_t) );
-  fd_accdb_unread_one( accdb, &entry );
+  fd_memcpy( clock, acc.data, sizeof(fd_sol_sysvar_clock_t) );
+  fd_accdb_unread_one( accdb, &acc );
   return clock;
 }
 
@@ -143,16 +143,16 @@ accum_vote_stakes_no_vat( fd_bank_t *               bank,
     uchar is_valid = 1;
     int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL, &is_valid );
     if( FD_UNLIKELY( !found ) ) {
-      fd_accdb_entry_t entry = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
-      if( FD_UNLIKELY( !entry.lamports ) ) continue;
-      if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( entry.owner, entry.data, entry.data_len ) ) ) {
-        fd_accdb_unread_one( accdb, &entry );
+      fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
+      if( FD_UNLIKELY( !acc.lamports ) ) continue;
+      if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
+        fd_accdb_unread_one( accdb, &acc );
         continue;
       }
 
       fd_vote_block_timestamp_t last_vote;
-      FD_TEST( !fd_vote_account_last_timestamp( entry.data, entry.data_len, &last_vote ) );
-      fd_accdb_unread_one( accdb, &entry );
+      FD_TEST( !fd_vote_account_last_timestamp( acc.data, acc.data_len, &last_vote ) );
+      fd_accdb_unread_one( accdb, &acc );
       last_vote_slot      = last_vote.slot;
       last_vote_timestamp = last_vote.timestamp;
     }
@@ -181,9 +181,9 @@ accum_vote_stakes_no_vat( fd_bank_t *               bank,
     ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
     long  estimate = fd_long_sat_add( last_vote_timestamp, (long)(offset / NS_IN_S) );
 
-    /* For each timestamp, accumulate the stake from E-2.  If the entry
+    /* For each timestamp, accumulate the stake from E-2.  If the acc
         for the timestamp doesn't exist yet, insert it.  Otherwise,
-        update the existing entry.
+        update the existing acc.
         https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,

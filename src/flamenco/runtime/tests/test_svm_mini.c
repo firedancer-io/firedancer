@@ -106,22 +106,22 @@ main( int     argc,
   FD_TEST( bank->f.capitalization==cap0+1000UL );
 
   /* put_account_rooted: overwrite (remove + re-insert) */
-  fd_accdb_entry_t tmp_entry = {0};
-  memcpy( tmp_entry.pubkey, test_pubkey.uc, 32UL );
-  tmp_entry.lamports = 500UL;
-  fd_svm_mini_put_account_rooted( mini, &tmp_entry );
+  fd_acc_t tmp_acc = {0};
+  memcpy( tmp_acc.pubkey, test_pubkey.uc, 32UL );
+  tmp_acc.lamports = 500UL;
+  fd_svm_mini_put_account_rooted( mini, &tmp_acc );
   FD_TEST( fd_accdb_lamports( mini->runtime->accdb, root_fk, test_pubkey.uc )==500UL );
   FD_TEST( bank->f.capitalization==cap0+500UL );
 
   /* put_account_rooted: decrease lamports (capitalization must decrease) */
-  tmp_entry.lamports = 200UL;
-  fd_svm_mini_put_account_rooted( mini, &tmp_entry );
+  tmp_acc.lamports = 200UL;
+  fd_svm_mini_put_account_rooted( mini, &tmp_acc );
   FD_TEST( fd_accdb_lamports( mini->runtime->accdb, root_fk, test_pubkey.uc )==200UL );
   FD_TEST( bank->f.capitalization==cap0+200UL );
 
   /* put_account_rooted: increase lamports back */
-  tmp_entry.lamports = 500UL;
-  fd_svm_mini_put_account_rooted( mini, &tmp_entry );
+  tmp_acc.lamports = 500UL;
+  fd_svm_mini_put_account_rooted( mini, &tmp_acc );
   FD_TEST( bank->f.capitalization==cap0+500UL );
 
   /* add_lamports_rooted: existing account */

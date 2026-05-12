@@ -130,8 +130,8 @@ fd_sysvar_cache_restore_fuzz( fd_bank_t *  bank,
                               fd_accdb_t * accdb );
 
 void
-fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t *      cache,
-                                  fd_accdb_entry_t const * entry );
+fd_sysvar_cache_restore_from_ref( fd_sysvar_cache_t * cache,
+                                  fd_acc_t const *    acc );
 
 /* Generic accessors for serialized sysvar account data. */
 

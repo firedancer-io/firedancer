@@ -104,10 +104,10 @@ struct fd_runtime {
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
-    ulong            executable_cnt;                     /* Number of BPF upgradeable loader accounts. */
-    fd_accdb_entry_t executable[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+    ulong    executable_cnt;                     /* Number of BPF upgradeable loader accounts. */
+    fd_acc_t executable[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
 
-    ulong              refcnt[ MAX_TX_ACCOUNT_LOCKS ];     /* Reference count for each account */
+    ulong    refcnt[ MAX_TX_ACCOUNT_LOCKS ];     /* Reference count for each account */
   } accounts;
 
   struct {
@@ -264,7 +264,7 @@ struct fd_txn_out {
     int is_setup;
     ulong cnt;
     fd_pubkey_t keys[ MAX_TX_ACCOUNT_LOCKS ];
-    fd_accdb_entry_t account[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t account[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* Flags to demarcate if an account is queued up to update the vote
        or stakes caches in the commit stage of a transaction. */

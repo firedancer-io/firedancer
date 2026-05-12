@@ -880,7 +880,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
     fd_guarded_borrowed_account_t program = {0};
     rc = fd_exec_instr_ctx_try_borrow_last_program_account( instr_ctx, &program );
     if( FD_UNLIKELY( rc ) ) return rc;
-    fd_accdb_entry_t * program_ro = program.entry;
+    fd_acc_t * program_ro = program.entry;
 
     /* Work around differences in program caching behavior between
        Fireadncer and Agave here.

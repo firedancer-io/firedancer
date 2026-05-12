@@ -56,7 +56,7 @@ struct fd_accdb_entry {
   } _write;
 };
 
-typedef struct fd_accdb_entry fd_accdb_entry_t;
+typedef struct fd_accdb_entry fd_acc_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -231,14 +231,14 @@ fd_accdb_purge( fd_accdb_t *       accdb,
    caller can use for staging changes to the data, and this allows
    account resizing, or cancelling of any data written (for example if a
    transaction fails) without needing to restore it.  If an account is
-   acquired for write, the caller must set the commit bit on the entry
+   acquired for write, the caller must set the commit bit on the acc
    to non-zero to have the changes written back to the database on
    release, or leave it at zero to discard the changes.  The commit bit
    must be set even if only the metadata has changed.
 
    IMPORTANT: The caller must guarantee that for any given (pubkey,
    fork) pair, there is no concurrent acquire that holds a writable
-   entry while another acquire for the same account on the same fork is
+   acc while another acquire for the same account on the same fork is
    outstanding (whether readable or writable).  Specifically:
 
      - Multiple concurrent read-only acquires of the same account on the
@@ -277,9 +277,9 @@ fd_accdb_purge( fd_accdb_t *       accdb,
    modifications.  All acc pool fields are effectively immutable from
    the perspective of any concurrent cross-fork reader.
 
-   out_entries is an array of pubkeys_cnt cache entries to be filled in
+   out_accs is an array of pubkeys_cnt cache accs to be filled in
    with the acquired accounts.  The cache will fill the owner, lamports,
-   data_len, and data fields of each entry if the acquire is successful,
+   data_len, and data fields of each acc if the acquire is successful,
    and the account exists.  If the account does not exist, the lamports
    field will be set to zero and other fields are undefined. */
 
@@ -289,7 +289,7 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
                   ulong                 pubkeys_cnt,
                   uchar const * const * pubkeys,
                   int *                 writable,
-                  fd_accdb_entry_t *    out_entries );
+                  fd_acc_t *            out_accs );
 
 void
 fd_accdb_acquire_a( fd_accdb_t *          accdb,
@@ -297,7 +297,7 @@ fd_accdb_acquire_a( fd_accdb_t *          accdb,
                     ulong                 pubkeys_cnt,
                     uchar const * const * pubkeys,
                     int *                 writable,
-                    fd_accdb_entry_t *    out_entries );
+                    fd_acc_t *            out_accs );
 
 void
 fd_accdb_acquire_b( fd_accdb_t *          accdb,
@@ -306,16 +306,16 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     ulong                 pubkeys_cnt,
                     uchar const * const * pubkeys,
                     int *                 writable,
-                    fd_accdb_entry_t *    out_entries );
+                    fd_acc_t *            out_accs );
 
 /* fd_accdb_release releases previously acquired accounts back to the
    cache, and if any of the released writable accounts have their commit
    bit set, the cache will write the changes back to the database.  The
-   caller must guarantee that the entries being released were previously
-   acquired and not yet released, and that the pubkeys in the entries
-   match the pubkeys of the acquired accounts.  The entries need not be
+   caller must guarantee that the accs being released were previously
+   acquired and not yet released, and that the pubkeys in the accs
+   match the pubkeys of the acquired accounts.  The accs need not be
    a specific set that was acquired together, although this is
-   recommended.  The fork that each entry refers to must still exist
+   recommended.  The fork that each acc refers to must still exist
    (not yet purged or advanced past) at the time of release.  This
    includes forks that would be implicitly purged by a concurrent
    advance_root on a sibling — the caller must ensure advance_root
@@ -324,27 +324,27 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
    undefined behavior. */
 
 void
-fd_accdb_release( fd_accdb_t *       accdb,
-                  ulong              entries_cnt,
-                  fd_accdb_entry_t * entries );
+fd_accdb_release( fd_accdb_t * accdb,
+                  ulong        accs_cnt,
+                  fd_acc_t *   accs );
 
-fd_accdb_entry_t
+fd_acc_t
 fd_accdb_read_one( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey );
 
-fd_accdb_entry_t
+fd_acc_t
 fd_accdb_write_one( fd_accdb_t *       accdb,
                     fd_accdb_fork_id_t fork_id,
                     uchar const *      pubkey );
 
 void
-fd_accdb_unwrite_one( fd_accdb_t *       accdb,
-                      fd_accdb_entry_t * entry );
+fd_accdb_unwrite_one( fd_accdb_t * accdb,
+                      fd_acc_t *   acc );
 
 void
-fd_accdb_unread_one( fd_accdb_t *       accdb,
-                     fd_accdb_entry_t * entry );
+fd_accdb_unread_one( fd_accdb_t * accdb,
+                     fd_acc_t *   acc );
 
 int
 fd_accdb_exists( fd_accdb_t *       accdb,
@@ -385,9 +385,9 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
 
 /* fd_accdb_snapshot_write_one inserts or replaces an account during
    snapshot loading.  Returns -1 if the write was ignored (an existing
-   entry has a higher slot), 1 if a new entry was inserted, 2 if an
-   existing entry was replaced.  When 2 is returned, *out_replaced_lamports
-   is set to the lamports of the replaced entry.  Otherwise it is set to
+   acc has a higher slot), 1 if a new acc was inserted, 2 if an
+   existing acc was replaced.  When 2 is returned, *out_replaced_lamports
+   is set to the lamports of the replaced acc.  Otherwise it is set to
    0.  out_replaced_lamports must be non-NULL. */
 
 int
@@ -404,10 +404,10 @@ fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
    useful work.  Each pubkey[i] points to a 32-byte public key.
    *out_replaced_lamports is set to the sum of the lamports of all
    accounts replaced by this batch (i.e. the previous lamports value of
-   each account whose entry was overwritten).  *out_ignored_lamports is
+   each account whose acc was overwritten).  *out_ignored_lamports is
    set to the sum of the lamports of all accounts ignored by this batch
    (i.e. the lamports of each input account whose write was dropped
-   because an entry with a higher slot already exists).  Returns 0 on
+   because an acc with a higher slot already exists).  Returns 0 on
    success. */
 
 int
@@ -476,7 +476,7 @@ fd_accdb_metrics( fd_accdb_t * accdb );
 /* fd_accdb_cache_class_occupancy snapshots the current per-size-class
    cache occupancy and capacity into the caller-provided arrays, each
    of which must have FD_ACCDB_CACHE_CLASS_CNT entries.  used[c] is the
-   number of slots in class c that currently hold a cache entry (i.e.
+   number of slots in class c that currently hold a cache acc (i.e.
    slots that have been allocated lazily and are not sitting in the
    free list).  max[c] is the total slot capacity of class c.  Reads
    are done with relaxed (volatile) loads and may be momentarily

@@ -78,31 +78,31 @@ fd_feature_restore( fd_bank_t *             bank,
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;
 
-  fd_accdb_entry_t entry = fd_accdb_read_one( accdb, bank->accdb_fork_id, addr->uc );
-  if( FD_UNLIKELY( !entry.lamports ) ) return;
+  fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, addr->uc );
+  if( FD_UNLIKELY( !acc.lamports ) ) return;
 
   /* Skip accounts that are not owned by the feature program
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L42-L44 */
-  if( FD_UNLIKELY( memcmp( entry.owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
-    fd_accdb_unread_one( accdb, &entry );
+  if( FD_UNLIKELY( memcmp( acc.owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
+    fd_accdb_unread_one( accdb, &acc );
     return;
   }
 
   /* Account data size must be >= FD_FEATURE_SIZEOF (9 bytes)
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L45-L47 */
-  if( FD_UNLIKELY( entry.data_len<sizeof(fd_feature_t) ) ) {
-    fd_accdb_unread_one( accdb, &entry );
+  if( FD_UNLIKELY( acc.data_len<sizeof(fd_feature_t) ) ) {
+    fd_accdb_unread_one( accdb, &acc );
     return;
   }
 
   /* Deserialize the feature account data
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L48-L50 */
   fd_feature_t feature[1];
-  if( FD_UNLIKELY( !fd_feature_decode( feature, entry.data, entry.data_len ) ) ) {
-    fd_accdb_unread_one( accdb, &entry );
+  if( FD_UNLIKELY( !fd_feature_decode( feature, acc.data, acc.data_len ) ) ) {
+    fd_accdb_unread_one( accdb, &acc );
     return;
   }
-  fd_accdb_unread_one( accdb, &entry );
+  fd_accdb_unread_one( accdb, &acc );
 
   FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
   if( feature->is_active ) {
