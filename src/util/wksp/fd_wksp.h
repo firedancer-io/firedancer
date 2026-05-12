@@ -1099,13 +1099,6 @@ fd_wksp_printf( int          fd,
                 char const * path,
                 int          verbose );
 
-/* fd_wksp_mprotect marks all the memory in a workspace as read-only
-   (flag==1) or read-write (flag==0). Accessing read-only memory produces
-   a seg fault. */
-
-void
-fd_wksp_mprotect( fd_wksp_t * wksp, int flag );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_wksp_fd_wksp_h */
