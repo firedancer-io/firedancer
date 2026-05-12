@@ -39,6 +39,8 @@ typedef struct fixture_region fixture_region_t;
 
 struct fixture_acc_meta {
   ulong original_data_len;
+  ulong vm_addr;
+  int   vm_addr_present;
   ulong vm_key_addr;
   ulong vm_lamports_addr;
   ulong vm_owner_addr;
@@ -141,6 +143,10 @@ check_acc_meta( fd_vm_acc_region_meta_t const * got,
                 ulong                           idx ) {
   if( got->original_data_len!=expected->original_data_len ) {
     FD_LOG_WARNING(( "acc_meta[%lu] original_data_len: got %lu, expected %lu", idx, got->original_data_len, expected->original_data_len ));
+    return 0;
+  }
+  if( expected->vm_addr_present && got->vm_addr!=expected->vm_addr ) {
+    FD_LOG_WARNING(( "acc_meta[%lu] vm_addr: got %lu, expected %lu", idx, got->vm_addr, expected->vm_addr ));
     return 0;
   }
   if( got->vm_key_addr!=expected->vm_key_addr ) {
@@ -328,6 +334,14 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
       out->acc_metas[i].vm_lamports_addr   = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_lamports_addr"   )->valuedouble;
       out->acc_metas[i].vm_owner_addr      = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_owner_addr"      )->valuedouble;
       out->acc_metas[i].vm_data_addr       = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_data_addr"       )->valuedouble;
+      cJSON * vm_addr_item                 = cJSON_GetObjectItemCaseSensitive( m, "vm_addr" );
+      if( vm_addr_item ) {
+        out->acc_metas[i].vm_addr         = (ulong)vm_addr_item->valuedouble;
+        out->acc_metas[i].vm_addr_present = 1;
+      } else {
+        out->acc_metas[i].vm_addr         = 0UL;
+        out->acc_metas[i].vm_addr_present = 0;
+      }
     }
 
     out->instr_data_offset = (ulong)cJSON_GetObjectItemCaseSensitive( output, "instruction_data_offset" )->valuedouble;
