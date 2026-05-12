@@ -25,16 +25,18 @@ FD_PROTOTYPES_BEGIN
 /* fd_rnonce_ss_{compute,verify} compute and verify, respectively, the
    nonce for the specifed repair request issued or received at time_ns.
    slot and shred_idx specify the slot and shred index of the
-   requested/received shred.  normal_repair must be non-zero if the
-   request is a "normal" repair request, i.e., one for a specific shred
-   index.  If normal_repair is zero, shred_idx is ignored, and slot is
-   adjusted (see below). ss is a pointer to the shared secret value.
-   ss_compute returns the value of the nonce.  ss_verify takes the
-   supposed value of the nonce in the nonce parameter.  ss_verify
+   requested/received shred.  slot_complete must be non-zero if the
+   received shred is the last in the slot.  normal_repair must be
+   non-zero if the request is a "normal" repair request, i.e., one for a
+   specific shred index.  If normal_repair is zero, shred_idx is
+   ignored, slot is adjusted (see below), and slot_complete must be
+   non-zero in the verify function. ss is a pointer to the shared secret
+   value.  ss_compute returns the value of the nonce.  ss_verify takes
+   the supposed value of the nonce in the nonce parameter.  ss_verify
    returns 1 if the nonce is correct and 0 otherwise.
 
    These satisfy:
-   1==ss_verify( ss_v, ss_compute( ss_c, 1, slot_c, shred_idx_c, rq_time ), 1, slot_v, shred_idx_v, rs_time )
+   1==ss_verify( ss_v, ss_compute( ss_c, 1, slot_c, shred_idx_c, rq_time ), slot_v, shred_idx_v, slot_complete, rs_time )
    when
       ss_v        == ss_c,
       slot_v      == slot_c,
@@ -44,10 +46,11 @@ FD_PROTOTYPES_BEGIN
    with high probability, approx (1 - 2^25).
 
    And
-   1==ss_verify( ss_v, ss_compute( ss_c, 0, slot_c, shred_idx_c, rq_time ), 0, slot_v, shred_idx_v, rs_time )
+   1==ss_verify( ss_v, ss_compute( ss_c, 0, slot_c, shred_idx_c, rq_time ), slot_v, shred_idx_v, slot_complete, rs_time )
    when
-      ss_v        == ss_c,
-      -1 <= floor(slot_v/128) - floor(slot_c/128) <= 0,  which is looser than slot_c - 128 <= slot_v <= slot_c
+      ss_v          == ss_c,
+      slot_complete != 0,
+      -1 <= floor(slot_v/128) - floor(slot_c/128) <= 0,  which is looser than slot_c - 128 <= slot_v <= slot_c, AND
       rq_time <= rs_time < rq_time + 1.02 seconds.
    When any of these of these conditions is false, it should return 0
    with high probability, approx (1 - 2^25).
@@ -78,9 +81,18 @@ fd_rnonce_ss_verify( fd_rnonce_ss_t const * ss,
                      uint                   nonce,
                      ulong                  slot,
                      uint                   shred_idx,
+                     int                    slot_complete,
                      long                   time_ns ) {
   fd_rnonce_ss_t temp[1] = { *ss };
   int normal_repair      = !!(nonce>>31);
+
+  /* If it's not "normal" repair, then the shred must have slot
+     complete.  Technically this is not required by the repair protocol,
+     so we may occasionally reject an honest response here when the
+     responder doesn't have the last shred in the slot, but this is good
+     defense in depth.  If none of the repair peers have the last shred
+     in the slot, then it's unlikely the cluster has confirmed it. */
+  if( FD_UNLIKELY( (!normal_repair) & (!slot_complete) ) ) return 0;
 
   temp->private.time      = (uint)(time_ns>>32);
   temp->private.slot      = fd_ulong_if( normal_repair, slot,      slot/128UL );
