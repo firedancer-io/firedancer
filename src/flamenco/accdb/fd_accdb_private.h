@@ -157,7 +157,7 @@ struct fd_accdb_cache_key {
 
 typedef struct fd_accdb_cache_key fd_accdb_cache_key_t;
 
-struct fd_accdb_acc {
+struct fd_accdb_accmeta {
   fd_accdb_cache_key_t key;
 
   struct {
@@ -181,22 +181,22 @@ struct fd_accdb_acc {
   ulong  offset_fork;
 };
 
-typedef struct fd_accdb_acc fd_accdb_acc_t;
+typedef struct fd_accdb_accmeta fd_accdb_accmeta_t;
 
 #define FD_ACCDB_OFF_BITS  48UL
 #define FD_ACCDB_OFF_MASK  ((1UL<<FD_ACCDB_OFF_BITS)-1UL)       /* 0x0000_FFFF_FFFF_FFFF */
 #define FD_ACCDB_OFF_INVAL FD_ACCDB_OFF_MASK                    /* sentinel: offset bits all-ones */
 
-/* The `size` field in fd_accdb_disk_meta_t and fd_accdb_acc_t packs the
-   account's executable flag into bit 31.  The lower 30 bits hold the
-   data length in bytes (max ~1 GB, well above FD_RUNTIME_ACC_SZ_MAX
+/* The `size` field in fd_accdb_disk_meta_t and fd_accdb_accmeta_t packs
+   the account's executable flag into bit 31.  The lower 30 bits hold
+   the data length in bytes (max ~1 GB, well above FD_RUNTIME_ACC_SZ_MAX
    of 10 MiB).  Bit 30 is used only in the in-memory index as a
    cache_valid flag: when set, cache_idx holds a valid (class, idx)
-   pair; when clear, cache_idx must not be dereferenced (it may hold
-   a snapshot slot number or garbage).  FD_ACCDB_SIZE_PACK never sets
-   bit 30, so the on-disk representation is unchanged and
-   compaction's copy_file_range preserves the bit layout without
-   rewriting record headers. */
+   pair; when clear, cache_idx must not be dereferenced (it may hold a
+   snapshot slot number or garbage).  FD_ACCDB_SIZE_PACK never sets bit
+   30, so the on-disk representation is unchanged and compaction's
+   copy_file_range preserves the bit layout without rewriting record
+   headers. */
 
 #define FD_ACCDB_SIZE_EXEC_BIT        (1U<<31)
 #define FD_ACCDB_SIZE_CACHE_VALID_BIT (1U<<30)
@@ -209,12 +209,12 @@ typedef struct fd_accdb_acc fd_accdb_acc_t;
 #define FD_ACCDB_SIZE_CACHE_CLAIM(p)  (!!((p) & FD_ACCDB_SIZE_CACHE_CLAIM_BIT))
 
 static inline ulong
-fd_accdb_acc_offset( fd_accdb_acc_t const * acc ) {
+fd_accdb_acc_offset( fd_accdb_accmeta_t const * acc ) {
   return acc->offset_fork & FD_ACCDB_OFF_MASK;
 }
 
 static inline ushort
-fd_accdb_acc_fork_id( fd_accdb_acc_t const * acc ) {
+fd_accdb_acc_fork_id( fd_accdb_accmeta_t const * acc ) {
   return (ushort)( acc->offset_fork >> FD_ACCDB_OFF_BITS );
 }
 
@@ -231,8 +231,8 @@ fd_accdb_acc_pack_offset_fork( ulong  offset,
    exchanges serialize correctly. */
 
 static inline ulong
-fd_accdb_acc_xchg_offset( fd_accdb_acc_t * acc,
-                           ulong            new_offset ) {
+fd_accdb_acc_xchg_offset( fd_accdb_accmeta_t * acc,
+                           ulong               new_offset ) {
   for(;;) {
     ulong old_packed = FD_VOLATILE_CONST( acc->offset_fork );
     ulong new_packed = ( old_packed & ~FD_ACCDB_OFF_MASK ) | ( new_offset & FD_ACCDB_OFF_MASK );
@@ -252,7 +252,7 @@ fd_accdb_acc_xchg_offset( fd_accdb_acc_t * acc,
 #define FD_ACCDB_ACC_CIDX_IDX(ci)   ((ulong)((uint)(ci) & 0x1FFFFFFFU))
 
 #define POOL_NAME       acc_pool
-#define POOL_ELE_T      fd_accdb_acc_t
+#define POOL_ELE_T      fd_accdb_accmeta_t
 #define POOL_NEXT       pool.next
 #define POOL_IDX_T      uint
 #define POOL_IDX_WIDTH  32

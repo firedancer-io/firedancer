@@ -827,7 +827,7 @@ test_mainnet_footprint( void ) {
   ulong sz_descends       = max_live_slots*descends_fp;
   ulong sz_chain          = chain_cnt*sizeof(uint);
   ulong sz_acc_pool_meta  = acc_pool_footprint();
-  ulong sz_acc_pool       = max_accounts*sizeof(fd_accdb_acc_t);
+  ulong sz_acc_pool       = max_accounts*sizeof(fd_accdb_accmeta_t);
   ulong sz_txn_pool_meta  = txn_pool_footprint();
   ulong sz_txn_pool       = txn_max*sizeof(fd_accdb_txn_t);
   ulong sz_part_pool      = partition_pool_footprint( partition_cnt );

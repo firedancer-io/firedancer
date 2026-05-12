@@ -304,13 +304,13 @@ accounts_hist( accounts_hist_t * hist,
   ulong txn_max                     = max_live_slots * max_account_writes_per_slot;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-                              FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
-                              FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                                   );
-                              FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
-                              FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
-  uint *           acc_map  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
-                              FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),               acc_pool_footprint()                                    );
-  fd_accdb_acc_t * acc_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_acc_t),        max_accounts*sizeof(fd_accdb_acc_t)                     );
+                                  FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,           sizeof(fd_accdb_shmem_t)                                );
+                                  FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),              fork_pool_footprint()                                   );
+                                  FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_fork_shmem_t), max_live_slots*sizeof(fd_accdb_fork_shmem_t)            );
+                                  FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),           max_live_slots*descends_set_footprint( max_live_slots ) );
+  uint *               acc_map  = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                  chain_cnt*sizeof(uint)                                  );
+                                  FD_SCRATCH_ALLOC_APPEND( l, acc_pool_align(),               acc_pool_footprint()                                    );
+  fd_accdb_accmeta_t * acc_pool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_accdb_accmeta_t),    max_accounts*sizeof(fd_accdb_accmeta_t)                     );
   (void)txn_max; (void)partition_cnt;
 
   /* Walk every hash chain.  Each non-UINT_MAX head index yields a
@@ -319,10 +319,10 @@ accounts_hist( accounts_hist_t * hist,
   for( ulong chain_i=0UL; chain_i<chain_cnt; chain_i++ ) {
     uint acc_idx = acc_map[ chain_i ];
     while( acc_idx!=UINT_MAX ) {
-      fd_accdb_acc_t const * acc = &acc_pool[ acc_idx ];
-      ulong data_sz = (ulong)FD_ACCDB_SIZE_DATA( acc->executable_size );
+      fd_accdb_accmeta_t const * accmeta = &acc_pool[ acc_idx ];
+      ulong data_sz = (ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
       accounts_hist_update( hist, sizeof(fd_accdb_disk_meta_t) + data_sz );
-      acc_idx = acc->map.next;
+      acc_idx = accmeta->map.next;
     }
   }
 }
