@@ -992,29 +992,41 @@ fd_banks_new_bank( fd_banks_t * banks,
 
 /* Mark everything in the fork tree starting at the given bank dead. */
 
-static void
+static ulong
 fd_banks_subtree_mark_dead( fd_banks_t * banks,
                             fd_bank_t *  bank_pool,
-                            fd_bank_t *  bank ) {
+                            fd_bank_t *  bank,
+                            ulong *      opt_idxs ) {
   if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
 
+  ulong idxs_cnt = 0UL;
   bank->state = FD_BANK_STATE_DEAD;
   fd_banks_dead_push_head( fd_banks_get_dead_banks_deque( banks ), (fd_bank_idx_seq_t){ .idx = bank->idx, .seq = bank->bank_seq } );
+  if( opt_idxs ) opt_idxs[ idxs_cnt ] = bank->idx;
+  idxs_cnt++;
 
   /* Recursively mark all children as dead. */
   ulong child_idx = bank->child_idx;
   while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
     fd_bank_t * child = fd_banks_pool_ele( bank_pool, child_idx );
-    fd_banks_subtree_mark_dead( banks, bank_pool, child );
+    ulong * opt_child_idxs = opt_idxs ? opt_idxs+idxs_cnt : NULL;
+    idxs_cnt += fd_banks_subtree_mark_dead( banks, bank_pool, child, opt_child_idxs );
     child_idx = child->sibling_idx;
   }
+
+  return idxs_cnt;
 }
 
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
-                         ulong        bank_idx ) {
-  fd_bank_t * bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank_idx );
-  fd_banks_subtree_mark_dead( banks, fd_banks_get_bank_pool( banks ), bank );
+                         ulong        bank_idx,
+                         ulong *      opt_idxs,
+                         ulong *      opt_idxs_cnt ) {
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( banks );
+  fd_bank_t * bank      = fd_banks_pool_ele( bank_pool, bank_idx );
+
+  ulong idxs_cnt = fd_banks_subtree_mark_dead( banks, bank_pool, bank, opt_idxs );
+  if( opt_idxs_cnt ) *opt_idxs_cnt = idxs_cnt;
 }
 
 int

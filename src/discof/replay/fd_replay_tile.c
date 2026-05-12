@@ -1352,15 +1352,19 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
                 ulong               bank_idx ) {
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
   FD_TEST( bank );
-  fd_banks_mark_bank_dead( ctx->banks, bank_idx );
+  ulong dead_idxs[ FD_BANKS_MAX_BANKS ];
+  ulong dead_idxs_cnt = 0UL;
+  fd_banks_mark_bank_dead( ctx->banks, bank_idx, dead_idxs, &dead_idxs_cnt );
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ bank_idx ];
   if( block_id_ele->block_id_seen ) publish_slot_dead( ctx, stem, block_id_ele->slot, &block_id_ele->latest_mr );
 
-  fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
-  if( FD_UNLIKELY( !fec ) ) return;
-  fec->bank_dead = 1;
-
+  for( ulong i=0UL; i<dead_idxs_cnt; i++ ) {
+    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ dead_idxs[ i ] ];
+    fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &block_id_ele->latest_mr );
+    if( FD_UNLIKELY( !fec ) ) continue;
+    fec->bank_dead = 1;
+  }
 }
 
 /* Returns 1 if charge_busy. */
