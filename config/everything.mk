@@ -291,25 +291,15 @@ echo -e \
 "# extras   $(EXTRAS)" > $(OBJDIR)/info && \
 git status --porcelain=2 --branch >> $(OBJDIR)/info
 
-$(OBJDIR)/obj/%.d : src/%.c $(OBJDIR)/info
-	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
-
-$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
+DEPFLAGS=-MD -MP -MF $(basename $@).d -MT "$(basename $@).o" -MT "$(basename $@).S" -MT "$(basename $@).i" -MT "$(basename $@).d"
 
 $(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(OBJDIR)/obj/%.o : src/%.cxx $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
@@ -317,23 +307,23 @@ $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(OBJDIR)/obj/%.S : src/%.c $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
-$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
+$(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
 $(OBJDIR)/obj/%.S : src/%.cxx $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
+$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) $(DEPFLAGS) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
 $(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
-$(CC) $(CPPFLAGS) $(CFLAGS) -E $< -o $@
+$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -E $< -o $@
 
 $(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -E $< -o $@
+$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(DEPFLAGS) -E $< -o $@
 
 $(OBJDIR)/obj/%.check : src/%.c
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
@@ -384,8 +374,10 @@ show-deps:
 check: $(DEPFILES:.d=.check)
 
 ifeq ($(filter $(MAKECMDGOALS),$(AUX_RULES) $(DRY_RULES)),)
-# Generate dependency files
-include $(DEPFILES)
+# Include dependency files emitted as a side effect of C/C++ object builds.
+# The leading dash avoids the old up-front dependency generation pass on clean
+# trees, which kept make busy before it could start compiling objects.
+-include $(DEPFILES)
 endif
 
 # Define the asm target.  Must be after the make fragments include so that
