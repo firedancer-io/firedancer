@@ -103,10 +103,52 @@ main( int     argc,
   FD_TEST( test_duplicate( 0, 1, 0, 1, 1 ) == 1 );
   FD_TEST( test_duplicate( 0, 0, 1, 1, 1 ) == 1 );
 
+  /* Test heap frame size bounds check.  RequestHeapFrame is instruction
+     type 1, followed by a little-endian uint for the requested heap
+     size. */
+  {
+    fd_compute_budget_program_state_t state;
+    uchar instr[5];
+    instr[0] = 1; /* RequestHeapFrame */
+
+#   define TEST_HEAP_FRAME(heap_sz, expected) \
+    do { \
+      fd_compute_budget_program_init( &state ); \
+      FD_STORE( uint, instr+1, (uint)(heap_sz) ); \
+      FD_TEST( fd_compute_budget_program_parse( instr, 5UL, &state ) == (expected) ); \
+    } while(0)
+
+    /* Below minimum (32 KiB) */
+    TEST_HEAP_FRAME(            0U, 0 ); /* zero               */
+    TEST_HEAP_FRAME(        1024UL, 0 ); /* 1 KiB              */
+    TEST_HEAP_FRAME( 31UL * 1024UL, 0 ); /* 31 KiB, just under */
+
+    /* At minimum */
+    TEST_HEAP_FRAME( 32UL * 1024UL, 1 ); /* 32 KiB, exact min  */
+
+    /* Valid interior values */
+    TEST_HEAP_FRAME(  33UL * 1024UL, 1 ); /* 33 KiB             */
+    TEST_HEAP_FRAME( 128UL * 1024UL, 1 ); /* 128 KiB            */
+    TEST_HEAP_FRAME( 255UL * 1024UL, 1 ); /* 255 KiB            */
+
+    /* Not a multiple of 1 KiB (rejected) */
+    TEST_HEAP_FRAME( 32UL * 1024UL + 1UL,   0 ); /* 32 KiB + 1 byte  */
+    TEST_HEAP_FRAME( 32UL * 1024UL + 512UL, 0 ); /* 32.5 KiB         */
+    TEST_HEAP_FRAME( 64UL * 1024UL + 500UL, 0 ); /* 64 KiB + 500     */
+
+    /* At maximum */
+    TEST_HEAP_FRAME( 256UL * 1024UL, 1 ); /* 256 KiB, exact max */
+
+    /* Above maximum (256 KiB) */
+    TEST_HEAP_FRAME( 257UL * 1024UL, 0 ); /* 257 KiB, just over */
+    TEST_HEAP_FRAME( 512UL * 1024UL, 0 ); /* 512 KiB            */
+
+#   undef TEST_HEAP_FRAME
+  }
+
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
-

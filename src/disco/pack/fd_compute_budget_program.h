@@ -23,7 +23,7 @@
 #define FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE            ((ushort)0x02) /* ... SetComputeUnitPrice ... */
 #define FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP           ((ushort)0x04) /* ... RequestHeapFrame ... */
 #define FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_LOADED_DATA_SZ ((ushort)0x08) /* ... LoadedAccountDataSize ... */
-                                                                            /* ... so far? */
+                                                                         /* ... so far? */
 
 
 /* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
@@ -35,8 +35,11 @@ static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
   0xbc,0x8c,0xe5,0xbb,0xc5,0xf7,0x12,0x6b,0x2c,0x43,0x9b,0x3a,0x40,0x00,0x00,0x00
 };
 
-/* Any requests for larger heap frames must be a multiple of 1k or the
+/* Heap frames must be between 32 KiB and 256 KiB inclusive, and any
+   requests for larger heap frames must be a multiple of 1 KiB or the
    transaction is malformed. */
+#define FD_COMPUTE_BUDGET_MIN_HEAP_FRAME_BYTES           (  32UL*1024UL)
+#define FD_COMPUTE_BUDGET_MAX_HEAP_FRAME_BYTES           ( 256UL*1024UL)
 #define FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY         (       1024UL)
 /* SetComputeUnitPrice specifies the price in "micro-lamports," which is
    10^(-6) lamports, so 10^(-15) SOL. */
@@ -107,7 +110,8 @@ fd_compute_budget_program_parse( uchar const * instr_data,
       if( FD_UNLIKELY( data_sz<5 ) ) return 0;
       if( FD_UNLIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP)!=0 ) ) return 0;
       state->heap_size = FD_LOAD( uint, instr_data+1 );
-      if( (state->heap_size%FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY) ) return 0;
+      if( FD_UNLIKELY( state->heap_size%FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY ) ) return 0;
+      if( FD_UNLIKELY( state->heap_size<FD_COMPUTE_BUDGET_MIN_HEAP_FRAME_BYTES || state->heap_size>FD_COMPUTE_BUDGET_MAX_HEAP_FRAME_BYTES ) ) return 0;
       state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP;
       state->compute_budget_instr_cnt++;
       return 1;
