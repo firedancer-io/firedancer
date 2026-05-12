@@ -121,6 +121,9 @@
 /* snapla -> snapls */
 #define FD_SNAPSHOT_HASH_MSG_RESULT_ADD       (17UL) /* Hash result sent from snapla to snapls */
 
+/* snapld -> snapct (via snapld_dc) */
+#define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (18UL) /* snapld finished reading/downloading all data */
+
 
 /* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */
@@ -217,6 +220,7 @@ fd_ssctrl_msg_ctrl_str( ulong sig ) {
     case FD_SNAPSHOT_HASH_MSG_SUB_HDR:          return "hash_sub_hdr";
     case FD_SNAPSHOT_HASH_MSG_SUB_DATA:         return "hash_sub_data";
     case FD_SNAPSHOT_HASH_MSG_RESULT_ADD:       return "hash_result_add";
+    case FD_SNAPSHOT_MSG_LOAD_COMPLETE:         return "load_complete";
     default:                                    return "unknown";
   }
 }

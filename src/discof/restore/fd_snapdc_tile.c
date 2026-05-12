@@ -100,6 +100,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                      ulong               chunk,
                      ulong               sz ) {
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) return;
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
 
   /* All control messages cause us to want to reset the decompression stream */
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );

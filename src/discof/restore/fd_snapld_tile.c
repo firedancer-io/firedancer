@@ -35,7 +35,6 @@ typedef struct fd_snapld_tile {
   } config;
 
   int   state;
-  ulong pending_ctrl_sig;
   int   load_full;
   int   load_file;
   int   sent_meta;
@@ -52,8 +51,6 @@ typedef struct fd_snapld_tile {
   int local_full_fd;
   int local_incr_fd;
   int sockfd;
-
-  int is_https;
 
   fd_sshttp_t * sshttp;
 
@@ -193,7 +190,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->config.min_download_speed_mibs = tile->snapld.min_download_speed_mibs;
 
   ctx->state            = FD_SNAPSHOT_STATE_IDLE;
-  ctx->pending_ctrl_sig = 0UL;
 
   ctx->download_speed_mibs = 0.0;
   ctx->bytes_in_batch      = 0UL;
@@ -278,19 +274,6 @@ after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( ctx->pending_ctrl_sig ) ) {
-    FD_TEST( !ctx->load_file && ctx->is_https );
-    if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
-      fd_stem_publish( stem, 0UL, ctx->pending_ctrl_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
-      ctx->pending_ctrl_sig = 0UL;
-      return;
-    } else if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
-      /* Do not forward a deferred control message in ERROR state. */
-      ctx->pending_ctrl_sig = 0UL;
-      return;
-    } else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING );
-  }
-
   if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
     fd_log_sleep( (long)1e6 );
     return;
@@ -304,6 +287,7 @@ after_credit( fd_snapld_tile_t *  ctx,
       if( result==0L ) {
         FD_LOG_NOTICE(( "finished reading %s snapshot from local file", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
       } else if( FD_UNLIKELY( errno!=EAGAIN && errno!=EINTR ) ) {
         FD_LOG_WARNING(( "read() failed on %s snapshot file (%i-%s)", ctx->load_full ? "full" : "incremental", errno, fd_io_strerror( errno ) ));
         transition_malformed( ctx, stem );
@@ -390,6 +374,7 @@ after_credit( fd_snapld_tile_t *  ctx,
         }
         FD_LOG_NOTICE(( "finished downloading %s snapshot", ctx->load_full ? "full" : "incremental" ));
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
+        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_LOAD_COMPLETE, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       case FD_SSHTTP_ADVANCE_ERROR:
         FD_LOG_WARNING(( "HTTP advance error during %s snapshot download, entering error state",
@@ -414,8 +399,6 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
-  FD_TEST( !ctx->pending_ctrl_sig );
-
   if( ctx->state==FD_SNAPSHOT_STATE_ERROR && sig!=FD_SNAPSHOT_MSG_CTRL_FAIL ) {
     /* Control messages move along the snapshot load pipeline.  Since
        error conditions can be triggered by any tile in the pipeline,
@@ -437,7 +420,6 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->load_full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
       ctx->load_file = msg_in->file;
       ctx->sent_meta = 0;
-      ctx->is_https  = msg_in->is_https;
 
       ctx->window_deadline = LONG_MAX;
       ctx->bytes_in_window = 0UL;
@@ -462,18 +444,7 @@ returnable_frag( fd_snapld_tile_t *  ctx,
     }
 
     case FD_SNAPSHOT_MSG_CTRL_FINI: {
-      if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ) ) {
-        /* snapld should be in the finishing state when reading from a
-           file or downloading from http.  It is only allowed to still
-           be in progress for shutting down an https connection. Save
-           the sig here and send the message when snapld is in the
-           finishing state. */
-        FD_TEST( ctx->is_https );
-        ctx->pending_ctrl_sig = sig;
-        forward_msg = 0;
-        break;
-      }
-      else FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_FINISHING );
       break;
     }
 

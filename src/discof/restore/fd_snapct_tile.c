@@ -81,6 +81,7 @@ struct fd_snapct_tile {
 
   int           state;
   int           malformed;
+  int           load_complete;
   long          deadline_nanos;
   int           flush_ack;
   int           flush_load;
@@ -474,6 +475,7 @@ init_load( fd_snapct_tile_t *  ctx,
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
   ctx->flush_ack = 0;
   ctx->flush_load = 0;
+  ctx->load_complete = 0;
 
   /* If we are downloading the snapshot, we will get the snapshot size
      in bytes from a metadata message sent from snapld. */
@@ -1076,8 +1078,8 @@ after_credit( fd_snapct_tile_t *  ctx,
                          ctx->local_in.full_snapshot_slot, ctx->local_in.full_snapshot_path ));
         break;
       }
-      FD_TEST( ctx->metrics.full.bytes_total!=0UL );
-      if( FD_UNLIKELY( ctx->metrics.full.bytes_read == ctx->metrics.full.bytes_total ) ) {
+      if( FD_UNLIKELY( ctx->load_complete ) ) {
+        ctx->load_complete = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI;
         ctx->flush_ack = 0;
@@ -1097,8 +1099,8 @@ after_credit( fd_snapct_tile_t *  ctx,
                          ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         break;
       }
-      FD_TEST( ctx->metrics.incremental.bytes_total!=0UL );
-      if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_read == ctx->metrics.incremental.bytes_total ) ) {
+      if( FD_UNLIKELY( ctx->load_complete ) ) {
+        ctx->load_complete = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI;
         ctx->flush_ack = 0;
@@ -1122,9 +1124,9 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
         break;
       }
-      if( FD_UNLIKELY( ctx->metrics.full.bytes_total!=0UL && ctx->metrics.full.bytes_read==ctx->metrics.full.bytes_total ) ) {
-        ulong sig = FD_SNAPSHOT_MSG_CTRL_FINI;
-        fd_stem_publish( stem, ctx->out_ld.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+      if( FD_UNLIKELY( ctx->load_complete ) ) {
+        ctx->load_complete = 0;
+        fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI;
         ctx->flush_ack = 0;
       }
@@ -1147,7 +1149,8 @@ after_credit( fd_snapct_tile_t *  ctx,
         fd_sspeer_selector_remove_by_addr( ctx->selector, ctx->peer.addr );
         break;
       }
-      if ( FD_UNLIKELY( ctx->metrics.incremental.bytes_total!=0UL && ctx->metrics.incremental.bytes_read==ctx->metrics.incremental.bytes_total ) ) {
+      if( FD_UNLIKELY( ctx->load_complete ) ) {
+        ctx->load_complete = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FINI, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI;
         ctx->flush_ack = 0;
@@ -1357,6 +1360,36 @@ snapld_frag( fd_snapct_tile_t *  ctx,
       }
       ctx->flush_load = 1;
     } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( ctx->state ) ));
+    return;
+  }
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) {
+    int full = 0;
+    switch( ctx->state ) {
+      case FD_SNAPCT_STATE_READING_FULL_FILE:
+      case FD_SNAPCT_STATE_READING_FULL_HTTP:        full = 1; break;
+      case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
+      case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP: full = 0; break;
+      case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
+      case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
+      case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
+      case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
+        return; /* Ignore during reset. */
+      default:
+        FD_LOG_ERR(( "invalid load_complete in state %s", fd_snapct_state_str( ctx->state ) ));
+        return;
+    }
+    if( FD_UNLIKELY( ctx->malformed ) ) return;
+    /* Validate that all expected bytes were received. */
+    ulong bytes_read  = full ? ctx->metrics.full.bytes_read  : ctx->metrics.incremental.bytes_read;
+    ulong bytes_total = full ? ctx->metrics.full.bytes_total : ctx->metrics.incremental.bytes_total;
+    if( FD_UNLIKELY( !bytes_total || bytes_read!=bytes_total ) ) {
+      ctx->malformed = 1;
+      FD_LOG_WARNING(( "load_complete but bytes_read %lu != bytes_total %lu for %s snapshot",
+                       bytes_read, bytes_total, full ? "full" : "incremental" ));
+      fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+      return;
+    }
+    ctx->load_complete = 1;
     return;
   }
   if( FD_UNLIKELY( sig!=FD_SNAPSHOT_MSG_DATA ) ) return;
@@ -1758,6 +1791,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->state          = FD_SNAPCT_STATE_INIT;
   ctx->malformed      = 0;
+  ctx->load_complete  = 0;
   ctx->deadline_nanos = fd_log_wallclock() + FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT;
   ctx->flush_ack      = 0;
   ctx->flush_load     = 0;
