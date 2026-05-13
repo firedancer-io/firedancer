@@ -37,8 +37,12 @@ DEVMODE=0
 MSAN=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
-EXTRA_CFLAGS="-g3 -fno-omit-frame-pointer"
+EXTRA_CFLAGS="-g3"
 EXTRA_CXXFLAGS=""
+if [[ "$(uname -m)" == x86_64 ]]; then
+  EXTRA_CFLAGS+=" -fno-omit-frame-pointer -fcf-protection=return"
+  EXTRA_CXXFLAGS+=" -fno-omit-frame-pointer -fcf-protection=return"
+fi
 EXTRA_LDFLAGS=""
 
 help () {
@@ -400,6 +404,8 @@ install_libcxx () {
     -DCMAKE_INSTALL_PREFIX:PATH="$PREFIX" \
     -DCMAKE_INSTALL_LIBDIR="lib" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS="-fcf-protection=return" \
+    -DCMAKE_CXX_FLAGS="-fcf-protection=return" \
     -DLLVM_DIR=".." \
     -DLLVM_ENABLE_RUNTIMES="libcxx;libcxxabi" \
     -DLLVM_USE_SANITIZER=Memory \
@@ -437,7 +443,11 @@ install_s2n () {
 
   echo "[+] Installing s2n-bignum to $PREFIX"
   if [[ "$(uname -m)" == x86_64 ]]; then
-    make -C x86
+    if [[ "$(uname -s)" == Linux ]]; then
+      make -C x86 PREPROCESS="$CC -E -fcf-protection=return -I../include -DWINDOWS_ABI=0 \$(SYMBOL_HIDING) -xassembler-with-cpp -"
+    else
+      make -C x86
+    fi
     cp x86/libs2nbignum.a "$PREFIX/lib"
   elif [[ "$(uname -m)" == aarch64 ]]; then
     make -C arm
@@ -452,7 +462,7 @@ install_blst () {
   cd "$PREFIX/git/blst"
 
   echo "[+] Building blst"
-  ./build.sh
+  CFLAGS="-O2 -fno-builtin -fPIC -Wall -Wextra -Werror $EXTRA_CFLAGS" ./build.sh
   echo "[+] Successfully built blst"
 
   echo "[+] Installing blst to $PREFIX"
@@ -533,7 +543,7 @@ install_openssl () {
     CONFIG_OPTS+=( enable-msan no-asm )
   fi
 
-  ./config "${CONFIG_OPTS[@]}"
+  CFLAGS="$EXTRA_CFLAGS" CXXFLAGS="$EXTRA_CXXFLAGS" ./config "${CONFIG_OPTS[@]}"
   echo "[+] Configured OpenSSL"
 
   echo "[+] Building OpenSSL"
