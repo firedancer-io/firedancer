@@ -71,6 +71,8 @@ send_udp_packet( fd_quic_t *   quic,
     .verihl      = FD_IP4_VERIHL(4,5),
     .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
     .net_tot_len = (ushort)( sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)+size ),
+    .saddr       = FD_QUIC_TEST_CLIENT_IP4,
+    .daddr       = FD_QUIC_TEST_SERVER_IP4,
   };
   fd_udp_hdr_t udp = {
     .net_sport = 8000,
@@ -145,14 +147,14 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* Create dummy connection */
   ulong             our_conn_id  = ULONG_MAX;
   fd_quic_conn_id_t peer_conn_id = { .sz=8 };
-  uint              dst_ip_addr  = 0U;
+  uint              dst_ip_addr  = FD_QUIC_TEST_CLIENT_IP4;
   ushort            dst_udp_port = (ushort)0;
 
   fd_quic_conn_t * conn =
     fd_quic_conn_create( quic,
                          our_conn_id, &peer_conn_id,
                          dst_ip_addr,  (ushort)dst_udp_port,
-                         0U, 0U,
+                         FD_QUIC_TEST_SERVER_IP4, 0U,
                          1  /* we are the server */ );
   assert( conn );
   fd_quic_svc_timers_schedule( state->svc_timers, conn, g_clock );

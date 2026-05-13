@@ -75,7 +75,7 @@ test_initial_token_odd_sz( fd_quic_t * server_quic,
   ulong conn_created_count = server_quic->metrics.conn_created_cnt;
 
   /* Create a new connection with 46-byte token */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
   FD_TEST( client_conn );
 
   /* Override the token in the connection state to be our 46-byte token */
@@ -107,7 +107,7 @@ test_retry_integration( fd_quic_t * server_quic,
                         fd_quic_t * client_quic ) {
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */

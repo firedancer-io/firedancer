@@ -128,6 +128,42 @@ test_quic_ping_frame( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->ack_gen->is_elicited == 1 );
 }
 
+static __attribute__((noinline)) void
+test_quic_sticky_peer_ip4( fd_quic_sandbox_t * sandbox,
+                           fd_rng_t *          rng,
+                           int                 role ) {
+  fd_quic_sandbox_init( sandbox, role );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  FD_TEST( conn->server==(role==FD_QUIC_ROLE_SERVER) );
+  FD_TEST( conn->peer[0].ip_addr==FD_QUIC_SANDBOX_PEER_IP4 );
+
+  uchar pkt_buf[ FD_QUIC_SHORTEST_PKT ];
+  memset( pkt_buf, 0, sizeof(pkt_buf) );
+  pkt_buf[0] = 0x40; /* short header */
+  FD_STORE( ulong, pkt_buf+1, conn->our_conn_id );
+
+  fd_quic_pkt_t pkt = {
+    .ip4 = {{
+      .saddr = FD_IP4_ADDR( 30, 0, 0, 99 ),
+      .daddr = FD_QUIC_SANDBOX_SELF_IP4,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+    }},
+  };
+
+  ulong before_wrong_src_ip = sandbox->quic->metrics.pkt_wrong_src_cnt;
+  ulong before_no_conn     = sandbox->quic->metrics.pkt_no_conn_cnt[ fd_quic_enc_level_appdata_id ];
+  ulong before_ack         = sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ];
+  ulong rc                 = fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, sizeof(pkt_buf) );
+
+  FD_TEST( rc==FD_QUIC_PARSE_FAIL );
+  FD_TEST( sandbox->quic->metrics.pkt_wrong_src_cnt==before_wrong_src_ip+1UL );
+  FD_TEST( sandbox->quic->metrics.pkt_no_conn_cnt[ fd_quic_enc_level_appdata_id ]==before_no_conn );
+  FD_TEST( sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ]==before_ack );
+}
+
 /* Test an ALPN failure when acting as a server */
 
 static __attribute__((noinline)) void
@@ -473,6 +509,8 @@ test_quic_small_pkt_ping( fd_quic_sandbox_t * sandbox,
   FD_LOG_HEXDUMP_DEBUG(( "pkt_key", &conn->keys[3][1].pkt_key, FD_AES_128_KEY_SZ ));
   FD_LOG_HEXDUMP_DEBUG(( "iv", &conn->keys[3][1].iv, FD_AES_GCM_IV_SZ ));
   FD_LOG_HEXDUMP_DEBUG(( "hp_key", &conn->keys[3][1].hp_key, FD_AES_128_KEY_SZ ));
+  fd_ip4_hdr_t * ip4 = fd_type_pun( data );
+  ip4->saddr = conn->peer[0].ip_addr;
 
   /* internal connection_map setup to process packet */
   do {
@@ -963,6 +1001,8 @@ main( int     argc,
   test_quic_stream_limit_enforcement     ( sandbox, rng );
   test_quic_stream_concurrency           ( sandbox, rng );
   test_quic_ping_frame                   ( sandbox, rng );
+  test_quic_sticky_peer_ip4              ( sandbox, rng, FD_QUIC_ROLE_SERVER );
+  test_quic_sticky_peer_ip4              ( sandbox, rng, FD_QUIC_ROLE_CLIENT );
   test_quic_server_alpn_fail             ( sandbox, rng );
   test_quic_crypto_rx_watermark_monotonic( sandbox, rng );
   test_quic_pktnum_skip                  ( sandbox, rng );
