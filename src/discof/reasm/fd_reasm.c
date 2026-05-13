@@ -292,6 +292,47 @@ eqvoc( fd_reasm_t     * reasm,
   }
 }
 
+static int
+validate( fd_reasm_fec_t const * parent,
+          fd_reasm_fec_t const * child ) {
+
+  if( FD_UNLIKELY( parent->slot!=child->slot ) ) {
+    /* If the connecting FECs cross the slot boundary:
+       - the parent must be complete
+       - the child fec_set_idx must be 0
+       - the child's parent slot must match parent's slot
+       - the parent off is a sane value */
+    if( FD_UNLIKELY( !parent->slot_complete ||
+                     child->fec_set_idx!=0U ||
+                     child->parent_off==0U ||
+                     child->parent_off>child->slot ||
+                     child->slot-child->parent_off!=parent->slot ) ) return -1;
+  } else {
+    /* If the connecting FECs don't cross the slot boundary:
+       - the child fec_set_idx must be greater than the parent's by 32
+       - child and parent FEC must have the same parent_off
+       - the parent must not be slot complete */
+    if( FD_UNLIKELY( child->fec_set_idx!=parent->fec_set_idx+FD_FEC_SHRED_CNT ||
+                     child->parent_off!=parent->parent_off ||
+                     parent->slot_complete ) ) return -1;
+  }
+  return 0;
+}
+
+static void
+reject_insert( fd_reasm_t *     reasm,
+               fd_reasm_fec_t * fec,
+               fd_store_t *     opt_store ) {
+  if( FD_UNLIKELY( fec->slot_complete ) ) {
+    xid_t * bid = xid_query( reasm->xid, (fec->slot << 32) | UINT_MAX, NULL );
+    FD_TEST( bid );
+    bid->cnt--;
+    if( FD_LIKELY( !bid->cnt ) ) xid_remove( reasm->xid, bid );
+  }
+  if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &fec->key );
+  pool_ele_release( reasm_pool( reasm ), fec );
+}
+
 static void
 link( fd_reasm_t     * reasm,
       fd_reasm_fec_t * parent,
@@ -336,6 +377,31 @@ clear_slot_metadata( fd_reasm_t     * reasm,
   if( FD_LIKELY( !xid->cnt ) ) xid_remove( reasm->xid, xid );
 
   return fec;
+}
+
+static void
+remove_orphan_subtree( fd_reasm_t     * reasm,
+                       fd_reasm_fec_t * root,
+                       fd_store_t     * opt_store ) {
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+
+  fd_reasm_fec_t * child = fd_reasm_child( reasm, root );
+  while( FD_LIKELY( child ) ) {
+    fd_reasm_fec_t * next = fd_reasm_sibling( reasm, child );
+    remove_orphan_subtree( reasm, child, opt_store );
+    child = next;
+  }
+
+  if( FD_UNLIKELY( subtrees_ele_query( reasm->subtrees, &root->key, NULL, pool )==root ) ) {
+    subtrees_ele_remove( reasm->subtrees, &root->key, NULL, pool );
+    subtreel_ele_remove( reasm->subtreel,  root,            pool );
+  } else {
+    FD_TEST( orphaned_ele_remove( reasm->orphaned, &root->key, NULL, pool )==root );
+  }
+
+  clear_slot_metadata( reasm, root );
+  if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &root->key );
+  pool_ele_release( pool, root );
 }
 
 void
@@ -777,21 +843,42 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      so we need to check that. */
 
   fd_reasm_fec_t * parent = NULL;
-  if(        FD_LIKELY ( parent = ancestry_ele_query ( ancestry, &fec->cmr, NULL, pool ) ) ) { /* parent is connected non-leaf */
-    frontier_ele_insert( frontier, fec,    pool );
-    out_ele_push_tail  ( out,      fec,    pool );
-    fec->in_out        = 1;
-  } else if( FD_LIKELY ( parent = frontier_ele_remove( frontier, &fec->cmr, NULL, pool ) ) ) { /* parent is connected leaf     */
-    ancestry_ele_insert( ancestry, parent, pool );
-    frontier_ele_insert( frontier, fec,    pool );
-    out_ele_push_tail  ( out,      fec,    pool );
-    fec->in_out        = 1;
-  } else if( FD_LIKELY ( parent = orphaned_ele_query ( orphaned, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned non-root */
-    orphaned_ele_insert( orphaned, fec,    pool );
-  } else if( FD_LIKELY ( parent = subtrees_ele_query ( subtrees, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned root     */
-    orphaned_ele_insert( orphaned, fec,    pool );
-  } else {                                                                                     /* parent not found            */
-    subtrees_ele_insert   ( subtrees, fec, pool );
+  if( FD_LIKELY( parent = ancestry_ele_query( ancestry, &fec->cmr, NULL, pool ) ) ) { /* parent is connected non-leaf */
+    if( FD_LIKELY( validate( parent, fec )==0 ) ) {
+      frontier_ele_insert( frontier, fec, pool );
+      out_ele_push_tail( out, fec, pool );
+      fec->in_out = 1;
+    } else {
+      reject_insert( reasm, fec, opt_store );
+      return NULL;
+    }
+  } else if( FD_LIKELY( parent = frontier_ele_query( frontier, &fec->cmr, NULL, pool ) ) ) { /* parent is connected leaf */
+    if( FD_LIKELY( validate( parent, fec )==0 ) ) {
+      FD_TEST( frontier_ele_remove( frontier, &fec->cmr, NULL, pool )==parent );
+      ancestry_ele_insert( ancestry, parent, pool );
+      frontier_ele_insert( frontier, fec, pool );
+      out_ele_push_tail( out, fec, pool );
+      fec->in_out = 1;
+    } else {
+      reject_insert( reasm, fec, opt_store );
+      return NULL;
+    }
+  } else if( FD_LIKELY( parent = orphaned_ele_query( orphaned, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned non-root */
+    if( FD_LIKELY( validate( parent, fec )==0 ) ) {
+      orphaned_ele_insert( orphaned, fec, pool );
+    } else {
+      reject_insert( reasm, fec, opt_store );
+      return NULL;
+    }
+  } else if( FD_LIKELY( parent = subtrees_ele_query( subtrees, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned root */
+    if( FD_LIKELY( validate( parent, fec )==0 ) ) {
+      orphaned_ele_insert( orphaned, fec, pool );
+    } else {
+      reject_insert( reasm, fec, opt_store );
+      return NULL;
+    }
+  } else { /* parent not found */
+    subtrees_ele_insert( subtrees, fec, pool );
     subtreel_ele_push_tail( subtreel, fec, pool );
   }
 
@@ -813,15 +900,18 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   }
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
     fd_reasm_fec_t * orphan_root = pool_ele( pool, bfs_pop_head( bfs ) );
-    FD_TEST( orphan_root ); // `overwrite_invalid_cmr` relies on orphan_root being non-null
     overwrite_invalid_cmr( reasm, orphan_root ); /* case 2: received child before parent */
-    if( FD_LIKELY( 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
-      link( reasm, fec, orphan_root );
-      subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
-      subtreel_ele_remove( subtreel,  orphan_root,            pool );
-      orphaned_ele_insert( orphaned,  orphan_root,            pool );
-      min_descendant = fd_ulong_min( min_descendant, orphan_root->slot );
+    /* Skip orphan_root if CMR doesn't chain to the new FEC's MR */
+    if( FD_UNLIKELY( memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) continue;
+    if( FD_UNLIKELY( validate( fec, orphan_root )!=0 ) ) {
+      remove_orphan_subtree( reasm, orphan_root, opt_store );
+      continue;
     }
+    link( reasm, fec, orphan_root );
+    subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
+    subtreel_ele_remove( subtreel, orphan_root, pool );
+    orphaned_ele_insert( orphaned, orphan_root, pool );
+    min_descendant = fd_ulong_min( min_descendant, orphan_root->slot );
   }
 
   /* Third, we advance the frontier outward beginning from fec as we may

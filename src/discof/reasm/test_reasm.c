@@ -41,7 +41,7 @@ test_insert( fd_wksp_t * wksp ) {
   fd_hash_t mr3_64[1] = {{{ 7 }}};
 
   fd_reasm_fec_t * ev[1];
-  fd_reasm_insert( reasm, mr0_64, NULL, 0, 0, 0, 0, 0, 0, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr0_64, NULL, 0, 0, 0, 0, 0, 1, 0, NULL, ev );
   fd_reasm_fec_t * f0_64 = fd_reasm_query( reasm, mr0_64 );
   FD_TEST( f0_64 );
   FD_TEST( frontier_ele_query( frontier, &f0_64->key, NULL, pool ) == f0_64 );
@@ -375,19 +375,19 @@ test_eqvoc_transitive( fd_wksp_t * wksp ) {
   fd_hash_t mr5[1] = {{{ 5 }}};
 
   fd_reasm_fec_t * ev[1];
-  fd_reasm_insert( reasm, mr1,  NULL,  /* slot */ 1, /* fec_set_idx */ 0,  1, 32, 0, 0, 0, NULL, ev );
-  fd_reasm_insert( reasm, mr2a, mr1,   /* slot */ 2, /* fec_set_idx */ 32, 1, 32, 0, 0, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr1,  NULL,  /* slot */ 1, /* fec_set_idx */ 0,  1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr2a, mr1,   /* slot */ 2, /* fec_set_idx */ 0,  1, 32, 0, 0, 0, NULL, ev );
   fd_reasm_insert( reasm, mr3,  mr2aa, /* slot */ 3, /* fec_set_idx */ 0,  1, 32, 0, 0, 0, NULL, ev );
-  fd_reasm_insert( reasm, mr4,  mr2aa, /* slot */ 4, /* fec_set_idx */ 0,  1, 32, 0, 0, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr4,  mr2aa, /* slot */ 4, /* fec_set_idx */ 0,  2, 32, 0, 1, 0, NULL, ev );
 
   /* Introduce 2b (which equivocates with 2a). */
 
-  fd_reasm_insert( reasm, mr2b, mr1, /* slot */ 2, /* fec_set_idx */ 32, 1, 32, 0, 0, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr2b, mr1, /* slot */ 2, /* fec_set_idx */ 0, 1, 32, 0, 0, 0, NULL, ev );
 
   /* Introduce 2aa, which un-orphans 3 and 4.  This should transitively
      mark 2aa, 3 and 4 all as equivocating because 2a equivocates. */
 
-  fd_reasm_insert( reasm, mr2aa, mr2a, /* slot */ 2, /* fec_set_idx */ 64, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr2aa, mr2a, /* slot */ 2, /* fec_set_idx */ 32, 1, 32, 0, 1, 0, NULL, ev );
 
   FD_TEST( !fd_reasm_query( reasm, mr1 )->eqvoc );
   FD_TEST( fd_reasm_query( reasm, mr2a )->eqvoc );
@@ -430,7 +430,6 @@ test_fec_after_eos(fd_wksp_t *wksp) {
   fd_hash_t mr2[1] = {{{2}}};  fd_hash_t mr9[1] = {{{9}}};
   fd_hash_t mr3[1] = {{{3}}};
   fd_hash_t mr4[1] = {{{4}}};
-  fd_hash_t mr5[1] = {{{5}}};
   fd_hash_t mr6[1] = {{{6}}};
   fd_reasm_fec_t * ev[1];
   /*                               slot fecidx p_off data_cnt data_cmpl slot_cmpl is_leader */
@@ -439,13 +438,9 @@ test_fec_after_eos(fd_wksp_t *wksp) {
   fd_reasm_insert(reasm, mr2, mr1,  1,   32,   1,    32,      0,        0,        0, NULL, ev );
   fd_reasm_insert(reasm, mr3, mr2,  1,   64,   1,    32,      0,        1,        0, NULL, ev );
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr1) );
-  /* show evidence of equivocation */
-  fd_reasm_insert(reasm, mr4, mr3,  1,   96,   1,    32,      0,        0,        0, NULL, ev );
-  FD_TEST( fd_reasm_pop(reasm) == NULL );
-  fd_reasm_insert(reasm, mr5, mr4,  1,   128,  1,    32,      0,        1,        0, NULL, ev );
-  FD_TEST( fd_reasm_pop(reasm) == NULL );
-
-  fd_reasm_confirm(reasm, mr3);
+  /* FECs after a slot-complete parent in the same slot are rejected. */
+  FD_TEST( !fd_reasm_insert(reasm, mr4, mr3,  1,   96,   1,    32,      0,        0,        0, NULL, ev ) );
+  FD_TEST( !fd_reasm_query(reasm, mr4) );
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr2) );
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr3) );
   FD_TEST( fd_reasm_pop(reasm) == NULL );
@@ -457,12 +452,14 @@ test_fec_after_eos(fd_wksp_t *wksp) {
   fd_reasm_insert( reasm, mr9, mr8,  2,   96,    1,   32,      0,        0,        0, NULL, ev ); /* currently an orphan */
   fd_reasm_insert( reasm, mr8, mr7,  2,   64,    1,   32,      0,        1,        0, NULL, ev ); /* middle slot complete */
 
-  FD_TEST( fd_reasm_query(reasm, mr8)->eqvoc );
-  FD_TEST( fd_reasm_query(reasm, mr9)->eqvoc );
+  FD_TEST( fd_reasm_query(reasm, mr8) );
+  FD_TEST( !fd_reasm_query(reasm, mr8)->eqvoc );
+  FD_TEST( !fd_reasm_query(reasm, mr9) );
 
   /* now connect slot 2 from frontier to orphan*/
   fd_reasm_insert( reasm, mr7, mr6,  2,   32,    1,   32,      0,        0,        0, NULL, ev );
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr7) );
+  FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr8) );
   FD_TEST( fd_reasm_pop(reasm) == NULL );
 }
 
@@ -519,8 +516,8 @@ test_evict( fd_wksp_t * wksp ) {
   FD_TEST( fd_reasm_insert( reasm, mr2,  mr1,  3,   0,       1,     32,      0, 1,        0, NULL, evicted ) );
   /* fork 4 and 5 off 3 */
   FD_TEST( fd_reasm_insert( reasm, mr3,  mr2,  4,   0,       1,     32,      0, 0,        0, NULL, evicted ) );
-  FD_TEST( fd_reasm_insert( reasm, mr4,  mr2,  5,   0,       1,   	32,      0, 0,        0, NULL, evicted ) );
-  FD_TEST( fd_reasm_insert( reasm, mr5,  mr4,  5,   32,      1,     32,      0, 1,        0, NULL, evicted ) );
+  FD_TEST( fd_reasm_insert( reasm, mr4,  mr2,  5,   0,       2,     32,      0, 0,        0, NULL, evicted ) );
+  FD_TEST( fd_reasm_insert( reasm, mr5,  mr4,  5,   32,      2,     32,      0, 1,        0, NULL, evicted ) );
   fd_reasm_fec_t * replay5 = fd_reasm_query( reasm, mr4 );
   replay5->bank_idx = 1;
   replay5 = fd_reasm_query( reasm, mr5 );
@@ -550,7 +547,7 @@ test_evict( fd_wksp_t * wksp ) {
   FD_TEST( (*evicted)->slot == 6 && (*evicted)->fec_set_idx == 0 );
   fd_reasm_pool_release( reasm, *evicted );
 
-  FD_TEST( fd_reasm_insert( reasm, mr10, mr9,  10,    0,       1,     32,     0, 0,        0, NULL, evicted ) );
+  FD_TEST( fd_reasm_insert( reasm, mr10, mr9,  10,    0,       2,     32,     0, 0,        0, NULL, evicted ) );
 
   FD_TEST( fd_reasm_query( reasm, mr5 ) ); /* Evicts slot 4, because slot 5 is complete  */
   FD_TEST( !fd_reasm_query( reasm, mr3 ) );
@@ -612,6 +609,137 @@ verify_out_order( fd_reasm_t * reasm, fd_hash_t const * expected, ulong n ) {
     i++;
   }
   FD_TEST( i == n );
+}
+
+void
+test_validate_cross_slot_parent_must_be_complete_parent_first( fd_wksp_t * wksp ) {
+  ulong fec_max = 32;
+
+  {
+    void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+    fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+    FD_TEST( reasm );
+
+    fd_reasm_fec_t * pool = reasm_pool( reasm );
+    fd_reasm_fec_t * ev[1];
+
+    fd_hash_t root[1]   = {{{ 100, 0 }}};
+    fd_hash_t parent[1] = {{{ 100, 1 }}};
+    fd_hash_t child[1]  = {{{ 100, 2 }}};
+
+    fd_reasm_insert( reasm, root,   NULL,   0, 0, 0,  0, 0, 1, 0, NULL, ev );
+    fd_reasm_insert( reasm, parent, root,   1, 0, 1, 32, 0, 0, 0, NULL, ev );
+    FD_TEST( !fd_reasm_insert( reasm, child, parent, 2, 0, 1, 32, 0, 0, 0, NULL, ev ) );
+
+    fd_reasm_fec_t * parent_fec = fd_reasm_query( reasm, parent );
+    FD_TEST( parent_fec );
+    FD_TEST( fd_reasm_child ( reasm, parent_fec )==NULL );
+    FD_TEST( !fd_reasm_query( reasm, child ) );
+    FD_TEST( !subtrees_ele_query( reasm->subtrees, child, NULL, pool ) );
+    verify_out_invariants( reasm );
+
+    FD_TEST( fd_reasm_pop( reasm )==parent_fec );
+    FD_TEST( !fd_reasm_pop( reasm ) );
+
+    fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  }
+
+  {
+    void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+    fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+    FD_TEST( reasm );
+
+    fd_reasm_fec_t * ev[1];
+
+    fd_hash_t root[1]   = {{{ 101, 0 }}};
+    fd_hash_t parent[1] = {{{ 101, 1 }}};
+    fd_hash_t child[1]  = {{{ 101, 2 }}};
+
+    fd_reasm_insert( reasm, root,   NULL,   0, 0, 0,  0, 0, 1, 0, NULL, ev );
+    fd_reasm_insert( reasm, parent, root,   1, 0, 1, 32, 0, 1, 0, NULL, ev );
+    fd_reasm_insert( reasm, child,  parent, 2, 0, 1, 32, 0, 0, 0, NULL, ev );
+
+    fd_reasm_fec_t * parent_fec = fd_reasm_query( reasm, parent );
+    fd_reasm_fec_t * child_fec  = fd_reasm_query( reasm, child  );
+    FD_TEST( parent_fec );
+    FD_TEST( child_fec  );
+    FD_TEST( fd_reasm_child ( reasm, parent_fec )==child_fec  );
+    FD_TEST( fd_reasm_parent( reasm, child_fec  )==parent_fec );
+    FD_TEST( !child_fec->eqvoc );
+    verify_out_invariants( reasm );
+
+    FD_TEST( fd_reasm_pop( reasm )==parent_fec );
+    FD_TEST( fd_reasm_pop( reasm )==child_fec  );
+    FD_TEST( !fd_reasm_pop( reasm ) );
+
+    fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  }
+}
+
+void
+test_validate_cross_slot_parent_must_be_complete_child_first( fd_wksp_t * wksp ) {
+  ulong fec_max = 32;
+
+  {
+    void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+    fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+    FD_TEST( reasm );
+
+    fd_reasm_fec_t * pool = reasm_pool( reasm );
+    fd_reasm_fec_t * ev[1];
+
+    fd_hash_t root[1]   = {{{ 102, 0 }}};
+    fd_hash_t parent[1] = {{{ 102, 1 }}};
+    fd_hash_t child[1]  = {{{ 102, 2 }}};
+
+    fd_reasm_insert( reasm, root,  NULL,   0, 0, 0,  0, 0, 1, 0, NULL, ev );
+    fd_reasm_insert( reasm, child, parent, 2, 0, 1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_insert( reasm, parent, root,  1, 0, 1, 32, 0, 0, 0, NULL, ev );
+
+    fd_reasm_fec_t * parent_fec = fd_reasm_query( reasm, parent );
+    fd_reasm_fec_t * child_fec  = fd_reasm_query( reasm, child  );
+    FD_TEST( parent_fec );
+    FD_TEST( !child_fec );
+    FD_TEST( fd_reasm_child ( reasm, parent_fec )==NULL );
+    FD_TEST( !subtrees_ele_query( reasm->subtrees, child, NULL, pool ) );
+    verify_out_invariants( reasm );
+
+    FD_TEST( fd_reasm_pop( reasm )==parent_fec );
+    FD_TEST( !fd_reasm_pop( reasm ) );
+
+    fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  }
+
+  {
+    void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+    fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+    FD_TEST( reasm );
+
+    fd_reasm_fec_t * ev[1];
+
+    fd_hash_t root[1]   = {{{ 103, 0 }}};
+    fd_hash_t parent[1] = {{{ 103, 1 }}};
+    fd_hash_t child[1]  = {{{ 103, 2 }}};
+
+    fd_reasm_insert( reasm, root,  NULL,   0, 0, 0,  0, 0, 1, 0, NULL, ev );
+    fd_reasm_insert( reasm, child, parent, 2, 0, 1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_insert( reasm, parent, root,  1, 0, 1, 32, 0, 1, 0, NULL, ev );
+
+    fd_reasm_fec_t * parent_fec = fd_reasm_query( reasm, parent );
+    fd_reasm_fec_t * child_fec  = fd_reasm_query( reasm, child  );
+    FD_TEST( parent_fec );
+    FD_TEST( child_fec  );
+    FD_TEST( fd_reasm_child ( reasm, parent_fec )==child_fec  );
+    FD_TEST( fd_reasm_parent( reasm, child_fec  )==parent_fec );
+    FD_TEST( !child_fec->eqvoc );
+    verify_out_invariants( reasm );
+
+    FD_TEST( fd_reasm_pop( reasm )==parent_fec );
+    FD_TEST( fd_reasm_pop( reasm )==child_fec  );
+    FD_TEST( !fd_reasm_pop( reasm ) );
+
+    fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  }
 }
 
 void
@@ -999,6 +1127,8 @@ main( int argc, char ** argv ) {
   test_eqvoc_transitive( wksp );
   test_eqvoc_xidbid( wksp );
   test_evict( wksp );
+  test_validate_cross_slot_parent_must_be_complete_parent_first( wksp );
+  test_validate_cross_slot_parent_must_be_complete_child_first( wksp );
   test_confirm_out_ordering( wksp );
   test_remove_bank_eviction( wksp );
   test_insert_rejects_when_full_and_nothing_is_evictable( wksp );
