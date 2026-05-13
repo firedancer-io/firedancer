@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "fd_shredb.h"
 
 #include <errno.h>
@@ -100,6 +101,8 @@ fd_shredb_new( void       * shmem,
     close( fd );
     return NULL;
   }
+
+  madvise( mapped, mapped_sz, MADV_HUGEPAGE );
 
   store->max_shreds  = max_shreds;
   store->write_head  = 0UL;
