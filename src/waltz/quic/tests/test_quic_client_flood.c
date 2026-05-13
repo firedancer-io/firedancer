@@ -8,7 +8,7 @@
 
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
-#include "../../../tango/tempo/fd_tempo.h"
+#include "../../../disco/fd_clock_tile.h"
 #include "../../../waltz/quic/fd_quic_private.h"
 #include "../../../util/fd_util.h"
 #include "../../../util/net/fd_eth.h"
@@ -16,8 +16,7 @@
 
 static _Bool g_unreliable;
 
-static fd_clock_t clock[1];
-static fd_clock_shmem_t clock_shmem[1];
+static fd_clock_tile_t clock[1];
 
 int
 my_stream_rx_cb( fd_quic_conn_t * conn,
@@ -84,11 +83,11 @@ run_quic_client(
     FD_LOG_NOTICE(( "Starting QUIC client" ));
 
     /* make a connection from client to the server */
-    client_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0, fd_clock_now( clock ) );
+    client_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0, fd_clock_tile_now( clock ) );
 
     /* do general processing */
     while( !client_complete ) {
-      fd_quic_service( quic, fd_clock_now( clock ) );
+      fd_quic_service( quic, fd_clock_tile_now( clock ) );
       fd_quic_udpsock_service( udpsock );
     }
 
@@ -156,7 +155,7 @@ run_quic_client(
 
   ulong stream_cnt = 0;
   ulong tot_sz     = 0;
-  long  t0         = fd_clock_now( clock );
+  long  t0         = fd_clock_tile_now( clock );
   ulong msg_sz     = MSG_SZ_MIN;
 
   /* Continually send data while we have a valid connection */
@@ -165,7 +164,7 @@ run_quic_client(
       break;
     }
 
-    fd_quic_service( quic, fd_clock_now( clock ) );
+    fd_quic_service( quic, fd_clock_tile_now( clock ) );
     fd_quic_udpsock_service( udpsock );
 
     /* obtain a free stream */
@@ -183,7 +182,7 @@ run_quic_client(
       msg_sz = fd_ulong_if( msg_sz>MSG_SZ_MAX, MSG_SZ_MIN, msg_sz );
     }
 
-    long t1 = fd_clock_now( clock );
+    long t1 = fd_clock_tile_now( clock );
     if( t1 >= t0 ) {
       printf( "streams=%lu sz=%g\n", stream_cnt, (double)tot_sz );
       stream_cnt = 0;
@@ -237,7 +236,7 @@ main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  fd_clock_default_init( clock, clock_shmem );
+  fd_clock_tile_init( clock );
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
@@ -300,8 +299,8 @@ main( int argc, char ** argv ) {
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( quic ) ) );
   fd_quic_udpsock_destroy( udpsock );
   fd_wksp_delete_anonymous( wksp );
-  fd_clock_leave( clock );
-  fd_clock_delete( clock_shmem );
+  fd_clock_leave( clock->clock );
+  fd_clock_delete( clock->shmem );
   fd_rng_delete( fd_rng_leave( rng ) );
 
   FD_LOG_NOTICE(( "pass" ));

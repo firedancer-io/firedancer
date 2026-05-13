@@ -109,7 +109,7 @@ before_credit( fd_quic_ctx_t *     ctx,
   ctx->stem = stem;
 
   /* Publishes to mcache via callbacks */
-  long now = fd_clock_now( ctx->clock );
+  long now = fd_clock_tile_now( ctx->clock );
   ctx->now = now;
   *charge_busy = fd_quic_service( ctx->quic, now );
 }
@@ -445,12 +445,12 @@ quic_tls_keylog( void *       _ctx,
 
 static void
 during_housekeeping( fd_quic_ctx_t * ctx ) {
-  if( FD_UNLIKELY( ctx->recal_next <= ctx->now ) ) {
-    ctx->recal_next = fd_clock_default_recal( ctx->clock );
+  long now = ctx->now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( now >= fd_clock_tile_recal_next( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
   }
 
   if( FD_UNLIKELY( ctx->keylog_stream.wbuf ) ) {
-    long now = ctx->now = fd_clock_now( ctx->clock );
     if( FD_UNLIKELY( now > ctx->keylog_next_flush ) ) {
       int err = fd_io_buffered_ostream_flush( &ctx->keylog_stream );
       if( FD_UNLIKELY( err ) ) {
@@ -542,10 +542,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
   }
 
-  fd_clock_t * clock = ctx->clock;
-  fd_clock_default_init( clock, ctx->clock_mem );
-  ctx->recal_next = fd_clock_recal_next( clock );
-  ctx->now        = fd_clock_now( clock );
+  fd_clock_tile_t * clock = ctx->clock;
+  fd_clock_tile_init( clock );
+  ctx->now = fd_clock_tile_now( clock );
 
   if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
     FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));

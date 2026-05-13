@@ -309,9 +309,9 @@
 
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/stem/fd_stem.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../util/fd_util_base.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../util/clock/fd_clock.h"
 
 /* FD_POH_ALIGN is the alignment needed for a memory region to hold a
    fd_poh_t.  It is a positive integer power of 2. */
@@ -440,12 +440,7 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
 
   fd_sha256_t * sha256;
 
-  fd_clock_t clock[ 1 ];
-  long       recal_next;
-
-  fd_clock_epoch_t clock_epoch[ 1 ];
-
-  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
+  fd_clock_tile_t clock[ 1 ];
 
   fd_poh_out_t shred_out[ 1 ];
   fd_poh_out_t replay_out[ 1 ];

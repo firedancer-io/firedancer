@@ -3,9 +3,8 @@
 #include "../../shared/fd_config.h" /* config_t */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
-#include "../../../disco/metrics/fd_metrics.h"
+#include "../../../disco/fd_clock_tile.h"
 #include "../../../discof/gossip/fd_gossip_tile.h"
-#include "../../../util/clock/fd_clock.h"
 
 #include "../../firedancer/commands/monitor_gossip/gossip_diag.h"
 
@@ -238,16 +237,14 @@ gossip_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( fd_gossip_diag_init( diag_ctx, &config->topo, config ) ) )
     FD_LOG_ERR(( "Failed to initialize gossip diagnostics" ));
 
-  fd_clock_t   clock_lmem[1];
-  void       * clock_mem = aligned_alloc( FD_CLOCK_ALIGN, FD_CLOCK_FOOTPRINT );
-  FD_TEST( clock_mem );
-  fd_clock_default_init( clock_lmem, clock_mem );
+  fd_clock_tile_t clock[1];
+  fd_clock_tile_init( clock );
 
-  long start_time       = fd_clock_now( clock_lmem );
+  long start_time       = fd_clock_tile_now( clock );
   long next_report_time = start_time + 1000000000L;
 
   for(;;) {
-    long current_time = fd_clock_now( clock_lmem );
+    long current_time = fd_clock_tile_now( clock );
 
     if( FD_LIKELY( current_time < next_report_time ) ) {
       continue;
@@ -266,6 +263,7 @@ gossip_cmd_fn( args_t *   args,
               elapsed_secs, diag_ctx->last_total_crds, diag_ctx->last_total_contact_infos );
       break;
     }
+    fd_clock_tile_recal( clock );
   }
 }
 

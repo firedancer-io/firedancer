@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 
 #include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../disco/fd_clock_tile.h"
 #include "../../../../disco/topo/fd_topo.h"
 #include "../../../../waltz/quic/fd_quic.h"
 #include "../../../../waltz/quic/tests/fd_quic_test_helpers.h"
@@ -17,7 +18,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
 #include <time.h>
 
 /* max number of buffers batched for receive */
@@ -49,9 +49,8 @@ typedef struct {
   uint             service_ratio_idx;
   fd_aio_t         tx_aio;
 
-  long         now;        /* current time in ns    */
-  fd_clock_t   clock[1];   /* memory for fd_clock_t */
-  long         recal_next; /* next recalibration time (ns) */
+  long            now;  /* current time in ns */
+  fd_clock_tile_t clock[1];
 
   /* vector receive members */
   struct mmsghdr rx_msgs[IO_VEC_CNT];
@@ -64,8 +63,6 @@ typedef struct {
   ulong tx_idx;
 
   fd_wksp_t * mem;
-
-  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 } fd_benchs_ctx_t;
 
 static void
@@ -213,7 +210,7 @@ before_frag( fd_benchs_ctx_t * ctx,
   (void)in_idx;
   (void)sig;
 
-  ctx->now = fd_clock_now( ctx->clock );
+  ctx->now = fd_clock_tile_now( ctx->clock );
 
   return (int)( (seq%ctx->round_robin_cnt)!=ctx->round_robin_id );
 }
@@ -437,10 +434,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  fd_clock_t * clock = ctx->clock;
-  fd_clock_default_init( clock, ctx->clock_mem );
-  ctx->recal_next = fd_clock_recal_next( clock );
-  ctx->now        = fd_clock_now( clock );
+  fd_clock_tile_t * clock = ctx->clock;
+  fd_clock_tile_init( clock );
+  ctx->now = fd_clock_tile_now( clock );
 }
 
 static void
@@ -520,8 +516,8 @@ quic_tx_aio_send( void *                    _ctx,
 
 static void
 during_housekeeping( fd_benchs_ctx_t * ctx ) {
-  if( FD_UNLIKELY( ctx->recal_next <= ctx->now ) ) {
-    ctx->recal_next = fd_clock_default_recal( ctx->clock );
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
   }
 }
 
