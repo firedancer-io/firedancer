@@ -334,6 +334,26 @@ push_vote( fd_tower_t * tower,
   return root;
 }
 
+/* is_recent mirrors Tower::is_recent(). Returns 1 if slot is
+   a candidate for voting, 0 if it is too old to consider.
+
+   - Non-empty tower: slot must be strictly after the last voted slot.
+   - Empty tower + root set (e.g. snapshot boot): slot must be strictly
+     after root. This prevents voting on the snapshot slot itself.
+   - Empty tower + no root: always recent.
+
+   https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/core/src/consensus.rs#L825-L836 */
+
+static int
+is_recent( fd_tower_t * tower,
+           ulong        slot ) {
+  if( FD_LIKELY( !fd_tower_vote_empty( tower->votes ) ) )
+    return slot > fd_tower_vote_peek_tail_const( tower->votes )->slot;
+  if( FD_LIKELY( tower->root!=ULONG_MAX ) )
+    return slot > tower->root;
+  return 1;
+}
+
 /* lockout_check checks if we are locked out from voting for slot.
    Returns 1 if we can vote for slot without violating lockout, 0
    otherwise.
@@ -401,8 +421,7 @@ static int
 lockout_check( fd_tower_t * tower,
                ulong        slot ) {
 
-  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes )                         ) ) return 1; /* always not locked out if we haven't voted. */
-  if( FD_UNLIKELY( slot <= fd_tower_vote_peek_tail_const( tower->votes )->slot ) ) return 0; /* always locked out from voting for slot <= last vote slot */
+  if( FD_UNLIKELY( !is_recent( tower, slot ) ) ) return 0; /* locked out: slot is not recent */
 
   /* Simulate a vote to pop off all the votes that would be expired by
      voting for slot.  Then check if the newly top-of-tower vote is on
@@ -694,6 +713,20 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
 
   if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
+
+    /* is_recent: on snapshot boot, tower->root is set to the snapshot slot
+       before any votes are recorded. Refuse to vote for slot <= root. */
+    if( FD_UNLIKELY( !is_recent( tower, best_blk->slot ) ) ) {
+      FD_LOG_DEBUG(( "[%s] case 0: not recent (slot %lu <= root %lu). reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, best_blk->slot, tower->root, best_blk->slot, best_blk_id ));
+      *reset_slot     = best_blk->slot;
+      *reset_block_id = best_blk->id;
+      *vote_slot      = ULONG_MAX;
+      *vote_block_id  = (fd_hash_t){0};
+      *root_slot      = ULONG_MAX;
+      *root_block_id  = (fd_hash_t){0};
+      return flags;
+    }
+
     FD_LOG_DEBUG(( "[%s] case 0: empty tower. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, best_blk->slot, best_blk_id, best_blk->slot, best_blk_id ));
     fd_tower_blk_t * fork = fd_tower_blocks_query( tower, best_blk->slot );
     fork->voted           = 1;
