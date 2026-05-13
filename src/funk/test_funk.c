@@ -8,10 +8,71 @@ FD_STATIC_ASSERT( FD_FUNK_ALIGN    >=alignof(fd_funk_t), unit-test );
 
 FD_STATIC_ASSERT( FD_FUNK_MAGIC    ==0xf17eda2ce7fc2c02UL,  unit-test );
 
+static int
+test_funk_val_shrink_compacts_expected( ulong sz,
+                                        ulong val_max ) {
+  if( sz>=val_max ) return 0;
+
+  int below_80_pct = (5UL*sz)<(4UL*val_max);
+  int frees_big    = (val_max-sz)>FD_FUNK_VAL_SHRINK_FREE_THRESHOLD;
+  return below_80_pct | frees_big;
+}
+
+static void
+test_funk_val_shrink_compacts_case( ulong sz,
+                                    ulong val_max,
+                                    int   expected ) {
+  FD_TEST( sz<=FD_FUNK_REC_VAL_MAX );
+  FD_TEST( val_max<=FD_FUNK_REC_VAL_MAX );
+  FD_TEST( fd_funk_val_shrink_compacts( sz, val_max )==expected );
+}
+
+static void
+test_funk_val_shrink_compacts( void ) {
+  for( ulong val_max=0UL; val_max<=4096UL; val_max++ ) {
+    for( ulong sz=0UL; sz<=4096UL; sz++ ) {
+      test_funk_val_shrink_compacts_case( sz, val_max, test_funk_val_shrink_compacts_expected( sz, val_max ) );
+    }
+  }
+
+  ulong const T = FD_FUNK_VAL_SHRINK_FREE_THRESHOLD;
+  struct {
+    ulong sz;
+    ulong val_max;
+    int   expected;
+  } cases[] = {
+    { 0UL,                       0UL,                       0 },
+    { 1UL,                       1UL,                       0 },
+    { 2UL,                       1UL,                       0 },
+    { 0UL,                       1UL,                       1 },
+
+    { 79UL,                      100UL,                     1 },
+    { 80UL,                      100UL,                     0 },
+    { 81UL,                      100UL,                     0 },
+    { 80UL,                      101UL,                     1 },
+    { 81UL,                      101UL,                     0 },
+
+    { (8UL*T)-T,                 8UL*T,                     0 },
+    { (8UL*T)-T-1UL,             8UL*T,                     1 },
+    { (8UL*T)-T+1UL,             8UL*T,                     0 },
+
+    { FD_FUNK_REC_VAL_MAX-1UL,   FD_FUNK_REC_VAL_MAX,       0 },
+    { FD_FUNK_REC_VAL_MAX/2UL,   FD_FUNK_REC_VAL_MAX,       1 },
+    { 0UL,                       FD_FUNK_REC_VAL_MAX,       1 },
+    { FD_FUNK_REC_VAL_MAX,       FD_FUNK_REC_VAL_MAX,       0 }
+  };
+
+  for( ulong i=0UL; i<sizeof(cases)/sizeof(cases[0]); i++ ) {
+    test_funk_val_shrink_compacts_case( cases[i].sz, cases[i].val_max, cases[i].expected );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
+
+  test_funk_val_shrink_compacts();
 
   char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL,            NULL );
   char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );

@@ -30,13 +30,7 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
     return NULL;
 
-  } else if( FD_LIKELY( sz > val_max ) ) {
-
-    /* User requested to increase the value size.  We presume they are
-       asking for a specific size (as opposed to bumping up the size ala
-       append) so we don't build in extra padding to amortize the cost
-       of future truncates.  Note that new_val_sz is at least 1 at this
-       point but val_sz / val_gaddr could be zero / zero. */
+  } else if( FD_LIKELY( (sz > val_max) | fd_funk_val_shrink_compacts( sz, val_max ) ) ) {
 
     ulong   val_gaddr = rec->val_gaddr;
     uchar * val       = val_max ? fd_wksp_laddr_fast( wksp, val_gaddr ) : NULL; /* TODO: branchless */
@@ -50,8 +44,9 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,
       return NULL;
     }
 
-    if( val_sz ) fd_memcpy( new_val, val, val_sz ); /* Copy the existing value */
-    fd_memset( new_val + val_sz, 0, new_val_max - val_sz ); /* Clear out trailing padding to be on the safe side */
+    ulong copy_sz = fd_ulong_min( val_sz, sz );
+    if( copy_sz ) fd_memcpy( new_val, val, copy_sz ); /* Copy the existing value */
+    fd_memset( new_val + copy_sz, 0, new_val_max - copy_sz ); /* Clear out trailing padding to be on the safe side */
 
     rec->val_gaddr = fd_wksp_gaddr_fast( wksp, new_val );
     rec->val_sz    = (uint)( sz & FD_FUNK_REC_VAL_MAX );
