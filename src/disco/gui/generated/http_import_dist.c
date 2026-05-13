@@ -31,12 +31,12 @@ FD_IMPORT_BINARY( file_stable8_gzip, "src/disco/gui/dist_stable_cmp/assets/frank
 FD_IMPORT_BINARY( file_stable9, "src/disco/gui/dist_stable/assets/frankendancer_logo-CHyfJ772.svg" );
 FD_IMPORT_BINARY( file_stable9_zstd, "src/disco/gui/dist_stable_cmp/assets/frankendancer_logo-CHyfJ772.svg.zst" );
 FD_IMPORT_BINARY( file_stable9_gzip, "src/disco/gui/dist_stable_cmp/assets/frankendancer_logo-CHyfJ772.svg.gz" );
-FD_IMPORT_BINARY( file_stable10, "src/disco/gui/dist_stable/assets/index-CLAbNSSP.css" );
-FD_IMPORT_BINARY( file_stable10_zstd, "src/disco/gui/dist_stable_cmp/assets/index-CLAbNSSP.css.zst" );
-FD_IMPORT_BINARY( file_stable10_gzip, "src/disco/gui/dist_stable_cmp/assets/index-CLAbNSSP.css.gz" );
-FD_IMPORT_BINARY( file_stable11, "src/disco/gui/dist_stable/assets/index-D-UbyvJK.js" );
-FD_IMPORT_BINARY( file_stable11_zstd, "src/disco/gui/dist_stable_cmp/assets/index-D-UbyvJK.js.zst" );
-FD_IMPORT_BINARY( file_stable11_gzip, "src/disco/gui/dist_stable_cmp/assets/index-D-UbyvJK.js.gz" );
+FD_IMPORT_BINARY( file_stable10, "src/disco/gui/dist_stable/assets/index-Bc4vgIIC.js" );
+FD_IMPORT_BINARY( file_stable10_zstd, "src/disco/gui/dist_stable_cmp/assets/index-Bc4vgIIC.js.zst" );
+FD_IMPORT_BINARY( file_stable10_gzip, "src/disco/gui/dist_stable_cmp/assets/index-Bc4vgIIC.js.gz" );
+FD_IMPORT_BINARY( file_stable11, "src/disco/gui/dist_stable/assets/index-Zy2alAC6.css" );
+FD_IMPORT_BINARY( file_stable11_zstd, "src/disco/gui/dist_stable_cmp/assets/index-Zy2alAC6.css.zst" );
+FD_IMPORT_BINARY( file_stable11_gzip, "src/disco/gui/dist_stable_cmp/assets/index-Zy2alAC6.css.gz" );
 FD_IMPORT_BINARY( file_stable12, "src/disco/gui/dist_stable/assets/inter-tight-latin-400-normal-BLrFJfvD.woff" );
 FD_IMPORT_BINARY( file_stable12_zstd, "src/disco/gui/dist_stable_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.zst" );
 FD_IMPORT_BINARY( file_stable12_gzip, "src/disco/gui/dist_stable_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.gz" );
@@ -271,7 +271,7 @@ fd_http_static_file_t STATIC_FILES_STABLE[] = {
 		.gzip_data_len = &file_stable9_gzip_sz,
 	},
 	{
-		.name = "/assets/index-CLAbNSSP.css",
+		.name = "/assets/index-Bc4vgIIC.js",
 		.data = file_stable10,
 		.data_len = &file_stable10_sz,
 		.zstd_data = file_stable10_zstd,
@@ -280,7 +280,7 @@ fd_http_static_file_t STATIC_FILES_STABLE[] = {
 		.gzip_data_len = &file_stable10_gzip_sz,
 	},
 	{
-		.name = "/assets/index-D-UbyvJK.js",
+		.name = "/assets/index-Zy2alAC6.css",
 		.data = file_stable11,
 		.data_len = &file_stable11_sz,
 		.zstd_data = file_stable11_zstd,
