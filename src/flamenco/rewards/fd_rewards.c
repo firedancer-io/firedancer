@@ -992,6 +992,13 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     uchar exists_t_2 = 0;
     fd_vote_stakes_query( vote_stakes, vs_fork_idx, (fd_pubkey_t *)epoch_credits->pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2, &exists_t_1, &exists_t_2 );
 
+    /* Under VAT, exclude stake=0 vote accounts from the reward
+       distribution set.  Mirrors Agave's clone_and_filter_for_vat
+       for the recalculate path. */
+    if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) && stake_t_1==0UL ) ) {
+      continue;
+    }
+
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
     vote_ele->vote_rewards = 0UL;
