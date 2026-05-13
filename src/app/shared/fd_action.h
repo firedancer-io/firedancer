@@ -80,6 +80,12 @@ union fdctl_args {
   } dump;
 
   struct {
+    char         topo[ 64 ];
+    char const * output_dir;
+    int          help;
+  } dump_blocks;
+
+  struct {
     char name[ 13UL ];
   } flame;
 
