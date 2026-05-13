@@ -3,8 +3,7 @@
 #include "generated/monitor_gossip_seccomp.h"
 
 #include "../../../shared/commands/monitor/monitor.h" /* reconstruct_topo */
-#include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../util/clock/fd_clock.h"
+#include "../../../../disco/fd_clock_tile.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -128,19 +127,17 @@ monitor_gossip_cmd_fn( args_t *   args,
 
   printf( "Found %lu gossvf tiles\n", diag_ctx->gossvf.tile_count );
 
-  fd_clock_t   clock_lmem[1];
-  void       * clock_mem = aligned_alloc( FD_CLOCK_ALIGN, FD_CLOCK_FOOTPRINT );
-  FD_TEST( clock_mem );
-  fd_clock_default_init( clock_lmem, clock_mem );
+  fd_clock_tile_t clock[1];
+  fd_clock_tile_init( clock );
 
-  long next_report_time = fd_clock_now( clock_lmem ) + 1000000000L;
-
+  long next_report_time = fd_clock_tile_now( clock ) + 1000000000L;
   for(;;) {
-    long current_time = fd_clock_now( clock_lmem );
+    long current_time = fd_clock_tile_now( clock );
     if( FD_LIKELY( current_time < next_report_time ) ) continue;
     next_report_time += 1000000000L;
 
     fd_gossip_diag_render( diag_ctx, args->monitor_gossip.compact_mode );
+    fd_clock_tile_recal( clock );
   }
 }
 

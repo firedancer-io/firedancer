@@ -1,6 +1,7 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 #include "../../../disco/metrics/fd_metrics.h"
+#include "../../../disco/fd_clock_tile.h"
 #include "../../../util/clock/fd_clock.h"
 #include "../../../util/net/fd_pcap.h"
 
@@ -29,10 +30,7 @@ struct dump_ctx {
 
   long                     warmup_until;
 
-  fd_clock_t               clock[ 1 ];
-  fd_clock_shmem_t         clock_mem[ 1 ];
-  fd_clock_epoch_t         clock_epoch[ 1 ];
-  long                     clock_recal_next;
+  fd_clock_tile_t          clock[ 1 ];
 };
 typedef struct dump_ctx dump_ctx_t;
 
@@ -187,11 +185,11 @@ after_frag( dump_ctx_t *        ctx,
   FD_TEST( (ulong)pcap_sz == ctx->pending_sz );
 
   long tickcount = fd_tickcount();
-  long now       = fd_clock_epoch_y( ctx->clock_epoch, tickcount );
+  long now       = fd_clock_epoch_y( ctx->clock->shmem->epoch, tickcount );
   if( FD_LIKELY( now>ctx->warmup_until ) ) {
     if( FD_LIKELY( tspub!=0UL ) ) {
       long   tspub_decomp    = fd_frag_meta_ts_decomp( tspub, tickcount );
-      long   tspub_wallclock = fd_clock_epoch_y( ctx->clock_epoch, tspub_decomp );
+      long   tspub_wallclock = fd_clock_epoch_y( ctx->clock->shmem->epoch, tspub_decomp );
       uint * pcap_tss        = fd_io_buffered_ostream_peek( &ctx->ostream );
       pcap_tss[ 0 ] = (uint)(((ulong)tspub_wallclock) / (ulong)1e9);
       pcap_tss[ 1 ] = (uint)(((ulong)tspub_wallclock) % (ulong)1e9); /* Actually nsec */
@@ -229,10 +227,9 @@ log_metrics( dump_ctx_t * ctx ) {
 
 static void
 during_housekeeping( dump_ctx_t * ctx ) {
-  long now = fd_clock_epoch_y( ctx->clock_epoch, fd_tickcount() );
-  if( FD_UNLIKELY( now > ctx->clock_recal_next ) ) {
-    ctx->clock_recal_next = fd_clock_default_recal( ctx->clock );
-    fd_clock_epoch_refresh( ctx->clock_epoch, ctx->clock_mem );
+  long now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( now >= fd_clock_tile_recal_next( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
   }
   if( FD_UNLIKELY( now > ctx->next_stat_log ) ) {
     ctx->next_stat_log = now + (long)1e9;
@@ -324,10 +321,8 @@ dump_cmd_fn( args_t      * args,
        joining links, so at startup we get a full ~depth set of callbacks
        for old frags.  This code assumes that we are caught up and only
        processing new frags by the time the warmup timer expires. */
-    fd_clock_default_init( ctx.clock, ctx.clock_mem );
-    ctx.clock_recal_next = fd_clock_default_recal( ctx.clock );
-    fd_clock_epoch_init( ctx.clock_epoch, ctx.clock_mem );
-    ctx.warmup_until = fd_clock_epoch_y( ctx.clock_epoch, fd_tickcount() ) + (long)1e9;
+    fd_clock_tile_init( ctx.clock );
+    ctx.warmup_until = fd_clock_tile_now( ctx.clock ) + (long)1e9;
     ctx.next_stat_log = ctx.warmup_until + (long)1e9;
 
     stem_run1( ctx.link_cnt, /* in_cnt */
@@ -353,9 +348,6 @@ dump_cmd_fn( args_t      * args,
       FD_LOG_NOTICE(( "dumped %lu frags, %lu bytes in total from %s:%lu. Link hash: 0x%x",
                       frags, bytes, link->topo->name, link->topo->kind_id, link->link_hash ));
     }
-
-    fd_clock_leave( ctx.clock );
-    fd_clock_delete( ctx.clock_mem );
 
     fd_metrics_delete( fd_metrics_leave( ctx.metrics_base ) );
     ctx.metrics_base = NULL;
