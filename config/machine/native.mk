@@ -46,11 +46,6 @@ BUILDDIR?=native/$(notdir $(CC))
 CPPFLAGS+=-march=native -mtune=native
 RUSTFLAGS+=-C target-cpu=native
 
-include config/extra/with-brutality.mk
-include config/extra/with-optimization.mk
-include config/extra/with-debug.mk
-include config/extra/with-security.mk
-
 $(call map-define,FD_HAS_SHANI, __SHA__)
 $(call map-define,FD_HAS_INT128, __SIZEOF_INT128__)
 FD_HAS_DOUBLE:=1
@@ -63,6 +58,11 @@ $(call map-define,FD_HAS_AVX, __AVX2__)
 $(call map-define,FD_HAS_GFNI, __GFNI__)
 $(call map-define,FD_IS_X86_64, __x86_64__)
 $(call map-define,FD_HAS_AESNI, __AES__)
+
+include config/extra/with-brutality.mk
+include config/extra/with-optimization.mk
+include config/extra/with-debug.mk
+include config/extra/with-security.mk
 
 # Older version of GCC (<10) don't fully support AVX512, so we disable
 # it in those cases. Older versions of Clang (<8) don't support it
