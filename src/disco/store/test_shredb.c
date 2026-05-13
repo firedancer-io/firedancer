@@ -41,11 +41,13 @@ setup_store( void ** out_mem, ulong max_size_gib ) {
   FD_TEST( mem );
   fd_memset( mem, 0, footprint );
 
-  void * shmem = fd_shredb_new( mem, max_size_gib, TEST_FILE, TEST_SEED );
+  void * shmem = fd_shredb_new( mem, max_size_gib, TEST_SEED );
   FD_TEST( shmem );
 
   fd_shredb_t * store = fd_shredb_join( shmem );
   FD_TEST( store );
+
+  FD_TEST( !fd_shredb_file_open( store, TEST_FILE ) );
 
   *out_mem = mem;
   return store;

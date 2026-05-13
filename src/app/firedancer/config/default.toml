@@ -868,6 +868,12 @@ telemetry = true
     # requests.
     sign_tile_count = 2
 
+    # How many rserve tiles to run. These tiles serve repair requests
+    # to other validators.  All tiles read from the network and serve
+    # from a shared shred database.  Tile 0 additionally ingests shreds
+    # from the shred tiles.
+    rserve_tile_count = 1
+
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
 # pages are 1 GiB.  This is done to prevent TLB misses which can have a
