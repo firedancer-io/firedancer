@@ -185,7 +185,7 @@ FD_PROTOTYPES_BEGIN
   as dead.  This does not actually free the underlying resources that
   the dead bank has allocated and instead just queues them up for
   pruning:
-  fd_banks_mark_bank_dead( banks, dead_bank_idx );
+  fd_banks_mark_bank_dead( banks, dead_bank_idx, NULL, NULL );
 
   To actually prune away any dead banks, the caller should call:
   fd_banks_prune_one_dead_bank( banks, cancel_info )
@@ -698,15 +698,21 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
                                ulong *      advanceable_bank_idx_out );
 
 /* fd_banks_mark_bank_dead marks the current bank (and all of its
-   descendants) as dead.  The caller is still responsible for handling
-   the behavior of the dead bank correctly.  The function should not be
-   called on a bank that is already dead nor on any ancestor of an
-   already dead bank.  After a bank is marked dead, the caller should
-   never increment the reference count on the bank. */
+   descendants) as dead.  If opt_idxs is non-NULL, it is populated with
+   each bank index marked dead.  The caller is responsible for ensuring
+   the buffer is large enough to hold the whole subtree.  If
+   opt_idxs_cnt is non-NULL, it is set to the number of banks marked
+   dead.  The caller is still responsible for handling the behavior of
+   the dead bank correctly.  The function should not be called on a bank
+   that is already dead nor on any ancestor of an already dead bank.
+   After a bank is marked dead, the caller should never increment the
+   reference count on the bank. */
 
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
-                         ulong        bank_idx );
+                         ulong        bank_idx,
+                         ulong *      opt_idxs,
+                         ulong *      opt_idxs_cnt );
 
 /* fd_banks_prune_one_dead_bank will try to prune one bank that was
    marked as dead.  It will not prune a dead bank that has a non-zero
