@@ -1307,8 +1307,11 @@ metric introduced.
     <counter name="EqvocErrChunkIdx" summary="chunk_index >= FD_EQVOC_CHUNK_CNT" />
     <counter name="EqvocErrChunkLen" summary="chunk_len does not match expected length for chunk_index" />
 
-    <counter name="EqvocErrIgnoredFrom" summary="Unrecognized from address" />
-    <counter name="EqvocErrIgnoredSlot" summary="Slot older than root or unable to derive leader schedule" />
+    <counter name="EqvocErrChunkFrom" summary="Unrecognized from address" />
+    <counter name="EqvocErrChunkSlot" summary="Slot older than root or unable to derive leader schedule" />
+
+    <counter name="EqvocErrShredSlot" summary="Slot older than root" />
+    <counter name="EqvocErrShredIdx" summary="Shred index >= FD_SHRED_BLK_MAX" />
 
     <counter name="EqvocProofConstructed" summary="Number of duplicate proofs we constructed from shreds" />
     <counter name="EqvocProofVerified"    summary="Number of duplicate proofs we verified from gossip" />

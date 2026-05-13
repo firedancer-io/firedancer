@@ -435,6 +435,8 @@ struct fd_tower_blk {
   ulong     prev;               /* map prev */
   ulong     parent_slot;        /* parent slot */
   ulong     epoch;              /* epoch of this slot */
+  fd_hash_t bank_hash;          /* our bank hash for this slot */
+  fd_hash_t block_hash;         /* last microblock header hash for this slot */
   int       replayed;           /* whether we've replayed this slot yet */
   fd_hash_t replayed_block_id;  /* the block_id we _last_ replayed for this slot */
   int       voted;              /* whether we voted for this slot yet */
@@ -549,8 +551,10 @@ struct fd_tower_out {
   ulong     reset_slot;     /* slot to reset PoH to */
   fd_hash_t reset_block_id; /* block ID to reset PoH to */
   ulong     vote_slot;      /* slot to vote for (ULONG_MAX if no vote) */
-  fd_hash_t vote_block_id;  /* block ID to vote for */
-  ulong     root_slot;      /* new tower root slot (ULONG_MAX if no new root) */
+  fd_hash_t vote_block_id;   /* block ID to vote for */
+  fd_hash_t vote_bank_hash;  /* bank hash to vote for */
+  fd_hash_t vote_block_hash; /* block hash (recent blockhash) to vote for */
+  ulong     root_slot;       /* new tower root slot (ULONG_MAX if no new root) */
   fd_hash_t root_block_id;  /* new tower root block ID */
 };
 typedef struct fd_tower_out fd_tower_out_t;
@@ -582,6 +586,8 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_hash_t *  reset_block_id,
                          ulong *      vote_slot,
                          fd_hash_t *  vote_block_id,
+                         fd_hash_t *  vote_bank_hash,
+                         fd_hash_t *  vote_block_hash,
                          ulong *      root_slot,
                          fd_hash_t *  root_block_id );
 

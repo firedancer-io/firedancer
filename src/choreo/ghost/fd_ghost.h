@@ -280,6 +280,10 @@ fd_ghost_insert( fd_ghost_t      * ghost,
    about the LMD rule).  Returns FD_GHOST_SUCCESS on success, or a
    negative FD_GHOST_ERR_* code if the vote was not counted.
 
+   Note that the vote is not counted if it's not newer than the voter's
+   previous slot.  This is done intentionally: equivocating votes will
+   be ignored.
+
    TODO the implementation can be made more efficient by incrementally
    updating and short-circuiting ancestor traversals.  Currently this is
    bounded to O(h), where h is the height of ghost ie. O(block_max) in
