@@ -620,7 +620,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   ulong       authority_idx = ULONG_MAX;
   fd_pubkey_t authority[1];
   int         found_authority = deser_auth_vtr( ctx, slot_completed->epoch, found, authority, &authority_idx );
-  if( FD_LIKELY( found_authority && out->vote_slot!=ULONG_MAX ) ) {
+  if( FD_LIKELY( found_authority && !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
     msg->has_vote_txn = 1;
     fd_txn_p_t          txn[1];
     fd_tower_to_vote_txn( ctx->tower, &slot_completed->bank_hash, &slot_completed->block_id, &slot_completed->block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
