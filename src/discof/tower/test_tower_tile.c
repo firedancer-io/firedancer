@@ -418,10 +418,10 @@ mock_replay( fd_tower_tile_t * ctx,
 
 static void
 mock_confirmed( fd_tower_tile_t * ctx,
-              ulong             slot,
-              fd_hash_t const * block_id ) {
+               ulong             slot,
+               fd_hash_t const * block_id ) {
   /* Create a votes_blk entry for (slot, block_id) if it doesn't
-     already exist, then set stake high enough for DUPLICATE (52%). */
+     already exist, then set stake high enough for DUPLICATE (>52%). */
 
   if( !fd_votes_query( ctx->votes, slot, block_id ) ) {
     int err = fd_votes_count_vote( ctx->votes, &ctx->vote_accs[0], slot, block_id );
@@ -429,7 +429,7 @@ mock_confirmed( fd_tower_tile_t * ctx,
   }
   fd_votes_blk_t * vblk = fd_votes_query( ctx->votes, slot, block_id );
   FD_TEST( vblk );
-  vblk->stake = 52;
+  vblk->stake = 53;
   publish_slot_confirmed( ctx, slot, block_id, 100 );
 }
 

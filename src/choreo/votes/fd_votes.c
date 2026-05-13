@@ -428,32 +428,25 @@ fd_votes_update_voters( fd_votes_t *        votes,
     votes->vtr_pool[iter].next = 1; /* mark for removal */
   }
 
-  /* Build a set of kept old bit positions.  Walk voters,
-     keep/add matching voters, and update stakes.  Existing voters
-     keep their old bit positions (no compaction). */
+  /* First pass: unmark kept voters from being released.  Build a set
+     of kept old bit positions.  Existing voters keep their old bit
+     positions (no compaction). */
 
   slot_vtrs_null( votes->vtr_set );
 
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_pubkey_t const * vote_acc = &vote_accs[i];
     vtr_t * vtr = vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool );
-    if( FD_UNLIKELY( !vtr ) ) {
-      vtr           = vtr_pool_ele_acquire( votes->vtr_pool );
-      vtr->vote_acc = *vote_acc;
-      vtr->bit      = ULONG_MAX;
-      vtr->stake    = 0;
-      vtr_map_ele_insert( votes->vtr_map, vtr, votes->vtr_pool );
-    } else {
+    if( FD_LIKELY( vtr ) ) {
       vtr_dlist_ele_remove( votes->vtr_dlist, vtr, votes->vtr_pool );
       slot_vtrs_insert( votes->vtr_set, vtr->bit );
+      vtr->next  = 0; /* unmark for removal */
+      vtr->stake = stakes[i];
+      vtr_dlist_ele_push_tail( votes->vtr_dlist, vtr, votes->vtr_pool );
     }
-    vtr->next = 0; /* unmark for removal */
-    vtr_dlist_ele_push_tail( votes->vtr_dlist, vtr, votes->vtr_pool );
-
-    vtr->stake = stakes[i];
   }
 
-  /* Pop unwanted voters from the head until we hit a kept voter. */
+  /* Pop and release marked voters until the first unmarked voter. */
 
   while( FD_LIKELY( !vtr_dlist_is_empty( votes->vtr_dlist, votes->vtr_pool ) ) ) {
     vtr_t * vtr = vtr_dlist_ele_pop_head( votes->vtr_dlist, votes->vtr_pool );
@@ -475,18 +468,22 @@ fd_votes_update_voters( fd_votes_t *        votes,
     slot_vtrs_intersect( votes_slot->vtrs, votes_slot->vtrs, votes->vtr_set );
   }
 
-  /* Assign bit positions to new voters from freed positions. */
+  /* Second pass: acquire and insert new voters, assigning bit positions
+     from freed positions. */
 
   ulong free_bit = 0;
-  for( vtr_dlist_iter_t iter = vtr_dlist_iter_fwd_init( votes->vtr_dlist, votes->vtr_pool );
-       !vtr_dlist_iter_done( iter, votes->vtr_dlist, votes->vtr_pool );
-       iter = vtr_dlist_iter_fwd_next( iter, votes->vtr_dlist, votes->vtr_pool ) ) {
-    vtr_t * vtr = &votes->vtr_pool[iter];
-    if( FD_UNLIKELY( vtr->bit==ULONG_MAX ) ) {
-      while( slot_vtrs_test( votes->vtr_set, free_bit ) ) free_bit++;
-      vtr->bit = free_bit;
-      slot_vtrs_insert( votes->vtr_set, free_bit );
-      free_bit++;
-    }
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t const * vote_acc = &vote_accs[i];
+    if( FD_LIKELY( vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool ) ) ) continue;
+    vtr_t * vtr   = vtr_pool_ele_acquire( votes->vtr_pool );
+    vtr->vote_acc = *vote_acc;
+    vtr->stake    = stakes[i];
+    vtr->next     = 0;
+    while( slot_vtrs_test( votes->vtr_set, free_bit ) ) free_bit++;
+    vtr->bit = free_bit;
+    slot_vtrs_insert( votes->vtr_set, free_bit );
+    free_bit++;
+    vtr_map_ele_insert( votes->vtr_map, vtr, votes->vtr_pool );
+    vtr_dlist_ele_push_tail( votes->vtr_dlist, vtr, votes->vtr_pool );
   }
 }

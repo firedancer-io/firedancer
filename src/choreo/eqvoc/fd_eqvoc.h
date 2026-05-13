@@ -44,8 +44,13 @@
 
 /* chunk was ignored */
 
-#define FD_EQVOC_ERR_IGNORED_FROM (-10) /* unrecognized from address */
-#define FD_EQVOC_ERR_IGNORED_SLOT (-11) /* slot older than root or unable to derive leader schedule */
+#define FD_EQVOC_ERR_CHUNK_FROM (-10) /* unrecognized from address */
+#define FD_EQVOC_ERR_CHUNK_SLOT (-11) /* slot older than root or unable to derive leader schedule */
+
+/* shred was ignored */
+
+#define FD_EQVOC_ERR_SHRED_SLOT (-12) /* slot older than root */
+#define FD_EQVOC_ERR_SHRED_IDX  (-13) /* shred index >= FD_SHRED_BLK_MAX */
 
 /* FD_EQVOC_CHUNK_CNT: the count of chunks is hardcoded because Agave
    discards any chunks where count != 3 (even though technically the
@@ -158,7 +163,7 @@ fd_eqvoc_delete( void * sheqvoc );
    equivocation was detected, FD_EQVOC_SUCCESS_{...} (positive) if the
    shred conflicts with a previously inserted shred (chunks_out will be
    populated with a DuplicateShred proof that can be sent over gossip),
-   or FD_EQVOC_ERR_IGNORED_SLOT if shred->slot < root. */
+   or FD_EQVOC_ERR_SHRED_SLOT if shred->slot < root. */
 
 int
 fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
@@ -178,8 +183,8 @@ fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
    count, index, length, shred deserialization, shred version, merkle
    root, signature, etc.).
 
-   Returns FD_EQVOC_ERR_IGNORED_SLOT if leader_schedule is NULL or
-   chunk->slot < root.  Returns FD_EQVOC_ERR_IGNORED_FROM if from is not
+   Returns FD_EQVOC_ERR_CHUNK_SLOT if leader_schedule is NULL or
+   chunk->slot < root.  Returns FD_EQVOC_ERR_CHUNK_FROM if from is not
    in the voter set.  Each voter is limited to dup_max in-progress
    proofs; if exceeded, the LRU-proof is evicted.  Once all chunks for a
    proof arrive, the proof is reassembled, verified, and released

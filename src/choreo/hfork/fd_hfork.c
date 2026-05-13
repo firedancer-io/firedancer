@@ -25,11 +25,11 @@
             is popped and its stake contribution is subtracted from
             the corresponding bhm.
 
-   vte_map  (capacity max): maps vte_key_t (addr, block_id) -> vte_t
+   vte_map  (capacity max): maps vte_key_t (vote_acc, block_id) -> vte_t
             for O(1) check of whether a voter has already voted for a
             given block_id.  If they have, the vote is ignored.
 
-   vtr_map  (capacity vtr_max): maps addr -> vtr_t, tracking each
+   vtr_map  (capacity vtr_max): maps vote_acc -> vtr_t, tracking each
             known voter.  vtr entries are explicitly managed by
             fd_hfork_update_voters when the epoch stake set changes.
             Each vtr has a pre-allocated vte_dlist that tracks the
@@ -38,17 +38,17 @@
             vtr_map                        blk_map
      map[0] +--------------------+  map[0] +--------------------+
             | (vtr_t) {          |         | (blk_t) {          |
-            |   .addr  = X,      |         |   .block_id  = A,  |
+            |   .vote_acc = X,   |         |   .block_id  = A,  |
             |   ...              |         |   ...              |
             |   .vte_dlist = ... |         |   .bhm_dlist = ... |
             | }                  |         | }                  |
      map[1] +--------------------+  map[1] +--------------------+
             | (vtr_t) {          |         | (blk_t) {          |
-            |   .addr  = Y,      |         |   .block_id = B    |
+            |   .vote_acc = Y,   |         |   .block_id = B    |
             |   ...              |         |   ...              |
             |   .vte_dlist = +   |         |   .bhm_dlist = +   |
             | }              |   |         | }              |   |
-            +----------------|---+         +----------------|---+                |
+            +----------------|---+         +----------------|---+
                              |                              |
                              |                              |
                              |                              |
@@ -64,7 +64,7 @@
                              vte_dlist
                              +------------------------+------------------------+------------------------+
                              | (vte_t) {              | (vte_t) {              | (vte_t) {              |
-                             |   .key.addr = Y,       |   .key.addr = Y,       |   .key.addr = Y,       |
+                             |   .key.vote_acc  = Y,  |   .key.vote_acc = Y,   |   .key.vote_acc = Y,   |
                              |   .key.block_id  = A,  |   .key.block_id  = C,  |   .key.block_id  = B,  |
                              |   .bank_hash     = A0, |   .bank_hash     = C0, |   .bank_hash     = B0, |
                              |   ...                  |   ...                  |   ...                  |
@@ -83,8 +83,8 @@ typedef struct {
 } bhm_key_t;
 
 struct bhm {
-  bhm_key_t key;      /* bhm_map key */
-  ulong next;     /* pool next */
+  bhm_key_t key;  /* bhm_map key */
+  ulong     next; /* pool next */
   struct {
     ulong prev;
     ulong next;
@@ -92,7 +92,7 @@ struct bhm {
   struct {
     ulong prev;
     ulong next;
-  } dlist;        /* bhm_dlist (owned by blk_t) */
+  } dlist;
   ulong slot;
   ulong stake;
   ulong vtr_cnt;
@@ -124,6 +124,10 @@ struct blk {
   fd_hash_t block_id;      /* blk_map key */
   ulong     prev;          /* blk_map prev */
   ulong     next;          /* pool next / blk_map next */
+  struct {
+    ulong prev;
+    ulong next;
+  } dlist;
   fd_hash_t our_bank_hash; /* our bank hash for this block id */
   int       replayed;      /* whether we've replayed this block  */
   int       dead;          /* whether we marked this block as dead */
@@ -148,13 +152,19 @@ typedef struct blk blk_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
+#define DLIST_NAME  blk_dlist
+#define DLIST_ELE_T blk_t
+#define DLIST_PREV  dlist.prev
+#define DLIST_NEXT  dlist.next
+#include "../../util/tmpl/fd_dlist.c"
+
 typedef struct {
-  fd_pubkey_t addr;
+  fd_pubkey_t vote_acc;
   fd_hash_t   block_id;
 } vte_key_t;
 
 struct vte {
-  vte_key_t key; /* vte_map key: (addr, block_id) */
+  vte_key_t key; /* vte_map key: (vote_acc, block_id) */
   ulong     next;
   struct {
     ulong prev;
@@ -179,9 +189,9 @@ typedef struct vte vte_t;
 #define MAP_KEY_T                          vte_key_t
 #define MAP_PREV                           vte_map.prev
 #define MAP_NEXT                           vte_map.next
-#define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->addr.key,(k1)->addr.key,32UL) & \
+#define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->vote_acc.key,(k1)->vote_acc.key,32UL) & \
                                             !memcmp((k0)->block_id.key,(k1)->block_id.key,32UL))
-#define MAP_KEY_HASH(key,seed)             ((ulong)((key)->addr.ul[1]^(key)->block_id.ul[1]^(seed)))
+#define MAP_KEY_HASH(key,seed)             ((ulong)((key)->vote_acc.ul[1]^(key)->block_id.ul[1]^(seed)))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
@@ -192,7 +202,7 @@ typedef struct vte vte_t;
 #include "../../util/tmpl/fd_dlist.c"
 
 struct vtr {
-  fd_pubkey_t addr;
+  fd_pubkey_t vote_acc;
   ulong       next; /* pool next; reused as kept flag during update_voters */
   struct {
     ulong prev;
@@ -214,7 +224,7 @@ typedef struct vtr vtr_t;
 #define MAP_NAME                           vtr_map
 #define MAP_ELE_T                          vtr_t
 #define MAP_KEY_T                          fd_pubkey_t
-#define MAP_KEY                            addr
+#define MAP_KEY                            vote_acc
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
 #define MAP_KEY_EQ(k0,k1)                  (!memcmp((k0)->key,(k1)->key,sizeof(fd_pubkey_t)))
@@ -236,6 +246,7 @@ struct __attribute__((aligned(128UL))) fd_hfork {
   bhm_map_t *   bhm_map;
   blk_t *       blk_pool;
   blk_map_t *   blk_map;
+  blk_dlist_t * blk_dlist;
   vte_t *       vte_pool;
   vte_map_t *   vte_map;
   vtr_t *       vtr_pool;
@@ -299,6 +310,7 @@ fd_hfork_footprint( ulong per_vtr_max,
   l = FD_LAYOUT_APPEND( l, bhm_map_align(),     bhm_map_footprint( bhm_map_chain_cnt_est( max ) )         );
   l = FD_LAYOUT_APPEND( l, blk_pool_align(),    blk_pool_footprint( max )                                 );
   l = FD_LAYOUT_APPEND( l, blk_map_align(),     blk_map_footprint( blk_map_chain_cnt_est( max ) )         );
+  l = FD_LAYOUT_APPEND( l, blk_dlist_align(),   blk_dlist_footprint()                                     );
   l = FD_LAYOUT_APPEND( l, vte_pool_align(),    vte_pool_footprint( max )                                 );
   l = FD_LAYOUT_APPEND( l, vte_map_align(),     vte_map_footprint( vte_map_chain_cnt_est( max ) )         );
   l = FD_LAYOUT_APPEND( l, vtr_pool_align(),    vtr_pool_footprint( vtr_max )                                 );
@@ -345,6 +357,7 @@ fd_hfork_new( void * shmem,
   void *       bhm_map   = FD_SCRATCH_ALLOC_APPEND( l, bhm_map_align(),   bhm_map_footprint( bhm_map_chain_cnt_est( max ) )       );
   void *       blk_pool  = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),  blk_pool_footprint( max )                               );
   void *       blk_map   = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),   blk_map_footprint( blk_map_chain_cnt_est( max ) )       );
+  void *       blk_dlist = FD_SCRATCH_ALLOC_APPEND( l, blk_dlist_align(), blk_dlist_footprint()                                   );
   void *       vte_pool  = FD_SCRATCH_ALLOC_APPEND( l, vte_pool_align(),  vte_pool_footprint( max )                               );
   void *       vte_map   = FD_SCRATCH_ALLOC_APPEND( l, vte_map_align(),   vte_map_footprint( vte_map_chain_cnt_est( max ) )       );
   void *       vtr_pool  = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),  vtr_pool_footprint( vtr_max )                               );
@@ -358,6 +371,7 @@ fd_hfork_new( void * shmem,
   hfork->bhm_map     = bhm_map_new( bhm_map, bhm_map_chain_cnt_est( max ), seed );
   hfork->blk_pool    = blk_pool_new( blk_pool, max );
   hfork->blk_map     = blk_map_new( blk_map, blk_map_chain_cnt_est( max ), seed );
+  hfork->blk_dlist   = blk_dlist_new( blk_dlist );
   hfork->vte_pool    = vte_pool_new( vte_pool, max );
   hfork->vte_map     = vte_map_new( vte_map, vte_map_chain_cnt_est( max ), seed );
   hfork->vtr_pool    = vtr_pool_new( vtr_pool, vtr_max );
@@ -399,6 +413,7 @@ fd_hfork_join( void * shhfork ) {
   hfork->bhm_map   = bhm_map_join( hfork->bhm_map );
   hfork->blk_pool  = blk_pool_join( hfork->blk_pool );
   hfork->blk_map   = blk_map_join( hfork->blk_map );
+  hfork->blk_dlist = blk_dlist_join( hfork->blk_dlist );
   hfork->vte_pool  = vte_pool_join( hfork->vte_pool );
   hfork->vte_map   = vte_map_join( hfork->vte_map );
   hfork->vtr_pool  = vtr_pool_join( hfork->vtr_pool );
@@ -444,6 +459,12 @@ fd_hfork_delete( void * hfork ) {
 static blk_t *
 blk_insert( fd_hfork_t      * hfork,
              fd_hash_t const * block_id ) {
+  if( FD_UNLIKELY( !blk_pool_free( hfork->blk_pool ) ) ) {
+    if( FD_UNLIKELY( blk_dlist_is_empty( hfork->blk_dlist, hfork->blk_pool ) ) ) return NULL;
+    blk_t * evicted = blk_dlist_ele_pop_head( hfork->blk_dlist, hfork->blk_pool );
+    blk_map_ele_remove_fast( hfork->blk_map, evicted, hfork->blk_pool );
+    blk_pool_ele_release( hfork->blk_pool, evicted );
+  }
   blk_t * blk        = blk_pool_ele_acquire( hfork->blk_pool );
   blk->block_id      = *block_id;
   /* blk->our_bank_hash */
@@ -452,6 +473,7 @@ blk_insert( fd_hfork_t      * hfork,
   blk->flag          = 0; /* set by check: -1 mismatch, 0 unchecked, 1 match */
   blk->bhm_cnt       = 0;
   blk_map_ele_insert( hfork->blk_map, blk, hfork->blk_pool );
+  blk_dlist_ele_push_tail( hfork->blk_dlist, blk, hfork->blk_pool );
   return blk;
 }
 
@@ -472,7 +494,7 @@ fd_hfork_count_vote( fd_hfork_t *        hfork,
   /* If voter already voted for this block_id, ignore. */
 
   bhm_key_t bhm_key = { .block_id = *block_id, .bank_hash = *bank_hash };
-  vte_key_t vte_key = { .addr = *vote_acc, .block_id = *block_id };
+  vte_key_t vte_key = { .vote_acc = *vote_acc, .block_id = *block_id };
   if( FD_UNLIKELY( vte_map_ele_query_const( hfork->vte_map, &vte_key, NULL, hfork->vte_pool ) ) ) return FD_HFORK_ERR_ALREADY_VOTED;
 
   /* Only process newer votes (by vote slot) from a given voter. */
@@ -509,6 +531,7 @@ fd_hfork_count_vote( fd_hfork_t *        hfork,
     bhm->stake   = 0UL;
     bhm->vtr_cnt = 0UL;
     bhm_map_ele_insert( hfork->bhm_map, bhm, hfork->bhm_pool );
+    if( FD_UNLIKELY( !blk->bhm_cnt ) ) blk_dlist_ele_remove( hfork->blk_dlist, blk, hfork->blk_pool );
     blk->bhm_cnt++;
     bhm_dlist_ele_push_tail( blk->bhm_dlist, bhm, hfork->bhm_pool );
   }
@@ -540,7 +563,8 @@ fd_hfork_record_our_bank_hash( fd_hfork_t *      hfork,
                                ulong             total_stake ) {
 
   blk_t * blk = blk_map_ele_query( hfork->blk_map, block_id, NULL, hfork->blk_pool );
-  if( FD_LIKELY( !blk      ) ) blk = blk_insert( hfork, block_id );
+  if( FD_LIKELY( !blk ) ) blk = blk_insert( hfork, block_id );
+  if( FD_UNLIKELY( !blk ) ) return 0;
   if( FD_LIKELY( bank_hash ) ) blk->our_bank_hash = *bank_hash;
   blk->replayed = 1;
   blk->dead     = !bank_hash;
@@ -567,25 +591,19 @@ fd_hfork_update_voters( fd_hfork_t *        hfork,
     hfork->vtr_pool[iter].next = 1; /* mark for removal */
   }
 
-  /* Move all voters in the new voters set to the back of the
-     dlist.  We mark them by setting their `next` field to null. */
+  /* First pass: unmark kept voters from being released. */
 
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_pubkey_t const * vote_acc = &vote_accs[i];
     vtr_t *             vtr      = vtr_map_ele_query( hfork->vtr_map, vote_acc, NULL, hfork->vtr_pool );
-    if( FD_UNLIKELY( !vtr ) ) {
-      vtr          = vtr_pool_ele_acquire( hfork->vtr_pool );
-      vtr->addr    = *vote_acc;
-      vtr->vte_cnt = 0;
-      vtr_map_ele_insert( hfork->vtr_map, vtr, hfork->vtr_pool );
-    } else {
+    if( FD_LIKELY( vtr ) ) {
       vtr_dlist_ele_remove( hfork->vtr_dlist, vtr, hfork->vtr_pool );
+      vtr->next = 0; /* unmark for removal */
+      vtr_dlist_ele_push_tail( hfork->vtr_dlist, vtr, hfork->vtr_pool );
     }
-    vtr->next = 0; /* unmark for removal */
-    vtr_dlist_ele_push_tail( hfork->vtr_dlist, vtr, hfork->vtr_pool );
   }
 
-  /* Pop unwanted voters from the head until we hit a kept voter. */
+  /* Pop and release marked voters until the first unmarked voter. */
 
   while( FD_LIKELY( !vtr_dlist_is_empty( hfork->vtr_dlist, hfork->vtr_pool ) ) ) {
     vtr_t * vtr = vtr_dlist_ele_pop_head( hfork->vtr_dlist, hfork->vtr_pool );
@@ -609,5 +627,18 @@ fd_hfork_update_voters( fd_hfork_t *        hfork,
     }
     vtr_map_ele_remove_fast( hfork->vtr_map, vtr, hfork->vtr_pool );
     vtr_pool_ele_release( hfork->vtr_pool, vtr );
+  }
+
+  /* Second pass: acquire and insert new voters. */
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t const * vote_acc = &vote_accs[i];
+    if( FD_LIKELY( vtr_map_ele_query( hfork->vtr_map, vote_acc, NULL, hfork->vtr_pool ) ) ) continue;
+    vtr_t * vtr  = vtr_pool_ele_acquire( hfork->vtr_pool );
+    vtr->vote_acc = *vote_acc;
+    vtr->vte_cnt = 0;
+    vtr->next    = 0;
+    vtr_map_ele_insert( hfork->vtr_map, vtr, hfork->vtr_pool );
+    vtr_dlist_ele_push_tail( hfork->vtr_dlist, vtr, hfork->vtr_pool );
   }
 }
