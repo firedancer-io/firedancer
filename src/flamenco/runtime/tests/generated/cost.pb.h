@@ -26,8 +26,8 @@ typedef struct fd_exec_test_cost_context {
     bool has_features;
     fd_exec_test_feature_set_t features;
     fd_exec_test_txn_cost_mode_t mode;
-    uint64_t actual_programs_execution_cost;
-    uint64_t actual_loaded_accounts_data_size_bytes;
+    uint32_t actual_programs_execution_cost;
+    uint32_t actual_loaded_accounts_data_size_bytes;
 } fd_exec_test_cost_context_t;
 
 typedef struct fd_exec_test_cost_result {
@@ -96,8 +96,8 @@ extern "C" {
 X(a, STATIC,   OPTIONAL, MESSAGE,  tx,                1) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  features,          2) \
 X(a, STATIC,   SINGULAR, UENUM,    mode,              3) \
-X(a, STATIC,   SINGULAR, UINT64,   actual_programs_execution_cost,   4) \
-X(a, STATIC,   SINGULAR, UINT64,   actual_loaded_accounts_data_size_bytes,   5)
+X(a, STATIC,   SINGULAR, UINT32,   actual_programs_execution_cost,   4) \
+X(a, STATIC,   SINGULAR, UINT32,   actual_loaded_accounts_data_size_bytes,   5)
 #define FD_EXEC_TEST_COST_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_COST_CONTEXT_DEFAULT NULL
 #define fd_exec_test_cost_context_t_tx_MSGTYPE fd_exec_test_sanitized_transaction_t
@@ -136,8 +136,8 @@ extern const pb_msgdesc_t fd_exec_test_cost_fixture_t_msg;
 
 /* Maximum encoded size of messages (where known) */
 #if defined(fd_exec_test_SanitizedTransaction_size) && defined(fd_exec_test_FeatureSet_size)
-#define FD_EXEC_TEST_COST_CONTEXT_SIZE           (36 + fd_exec_test_SanitizedTransaction_size + fd_exec_test_FeatureSet_size)
-#define FD_EXEC_TEST_COST_FIXTURE_SIZE           (257 + fd_exec_test_SanitizedTransaction_size + fd_exec_test_FeatureSet_size)
+#define FD_EXEC_TEST_COST_CONTEXT_SIZE           (26 + fd_exec_test_SanitizedTransaction_size + fd_exec_test_FeatureSet_size)
+#define FD_EXEC_TEST_COST_FIXTURE_SIZE           (247 + fd_exec_test_SanitizedTransaction_size + fd_exec_test_FeatureSet_size)
 #define ORG_SOLANA_SEALEVEL_V1_COST_PB_H_MAX_SIZE FD_EXEC_TEST_COST_FIXTURE_SIZE
 #endif
 #define FD_EXEC_TEST_COST_RESULT_SIZE            79

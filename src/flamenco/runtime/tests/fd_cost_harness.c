@@ -39,7 +39,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t *               runner,
   if( FD_UNLIKELY( err ) ) return 0;
 
   if( input->mode==FD_EXEC_TEST_TXN_COST_MODE_ACTUAL ) {
-    ulong actual_cost = input->actual_programs_execution_cost;
+    ulong actual_cost = (ulong)input->actual_programs_execution_cost;
     ulong limit = txn_out.details.compute_budget.compute_unit_limit;
     txn_out.details.compute_budget.compute_meter = fd_ulong_sat_sub( limit, fd_ulong_min( actual_cost, limit ) );
     txn_out.details.loaded_accounts_data_size = (ulong)input->actual_loaded_accounts_data_size_bytes;
@@ -61,7 +61,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t *               runner,
      raw actual value here for parity. */
   if( input->mode==FD_EXEC_TEST_TXN_COST_MODE_ACTUAL &&
       txn_out.details.txn_cost.type==FD_TXN_COST_TYPE_TRANSACTION ) {
-    txn_out.details.txn_cost.transaction.programs_execution_cost = (uint)input->actual_programs_execution_cost;
+    txn_out.details.txn_cost.transaction.programs_execution_cost = input->actual_programs_execution_cost;
   }
 
   *output = (fd_exec_test_cost_result_t)FD_EXEC_TEST_COST_RESULT_INIT_ZERO;
