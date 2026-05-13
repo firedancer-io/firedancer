@@ -460,8 +460,9 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
   }
 
   cur->in.rserve = 0UL;
-  ulong rserve_tile_idx = fd_topo_find_tile( topo, "rserve", 0UL );
-  if( FD_LIKELY( rserve_tile_idx!=ULONG_MAX ) ) {
+  for( ulong k=0UL; ; k++ ) {
+    ulong rserve_tile_idx = fd_topo_find_tile( topo, "rserve", k );
+    if( FD_UNLIKELY( rserve_tile_idx==ULONG_MAX ) ) break;
     fd_topo_tile_t const * rserve = &topo->tiles[ rserve_tile_idx ];
 
     for( ulong i=0UL; i<rserve->in_cnt; i++ ) {

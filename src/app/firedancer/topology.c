@@ -323,6 +323,7 @@ fd_topo_initialize( config_t * config ) {
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
   ulong lta_tile_cnt    = config->firedancer.layout.snapshot_hash_tile_count;
+  ulong rserve_tile_cnt = config->firedancer.layout.rserve_tile_count;
 
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
@@ -474,9 +475,9 @@ fd_topo_initialize( config_t * config ) {
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",      "net_quic",      config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
   if( FD_LIKELY( rserve_enabled ) ) {
-    /**/               fd_topob_link( topo, "rserve_net",    "net_rserve",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
-    /**/               fd_topob_link( topo, "rserve_sign",   "rserve_sign",   128UL,                                    68UL,                          1UL );
-    /**/               fd_topob_link( topo, "sign_rserve",   "sign_rserve",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
+    FOR(rserve_tile_cnt) fd_topob_link( topo, "rserve_net",    "net_rserve",    config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
+    FOR(rserve_tile_cnt) fd_topob_link( topo, "rserve_sign",   "rserve_sign",   128UL,                                    68UL,                          1UL );
+    FOR(rserve_tile_cnt) fd_topob_link( topo, "sign_rserve",   "sign_rserve",   128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
   }
 
   if( FD_LIKELY( snapshots_enabled ) ) {
@@ -606,7 +607,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
   /**/                 fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
   if( rserve_enabled) {
-    /**/               fd_topob_tile( topo, "rserve",  "rserve",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
+    FOR(rserve_tile_cnt) fd_topob_tile( topo, "rserve",  "rserve",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
   }
   /**/                 fd_topob_tile( topo, "replay",  "replay",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1,                 0 );
   FOR(execrp_tile_cnt) fd_topob_tile( topo, "execrp",  "execrp",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0,                 0 );
@@ -669,9 +670,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "gossip", 0UL,           "metric_in", "tower_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_gossvf", 0UL                                                );
   if( rserve_enabled ) {
-    FOR(net_tile_cnt) fd_topob_tile_in(     topo, "rserve",  0UL,          "metric_in", "net_rserve",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-    /**/              fd_topob_tile_out(    topo, "rserve",  0UL,                       "rserve_net",    0UL                                                );
-    /**/              fd_topos_tile_in_net( topo,                          "metric_in", "rserve_net",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+    FOR(rserve_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
+      fd_topob_tile_in(     topo, "rserve",  i,             "metric_in", "net_rserve",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+    FOR(rserve_tile_cnt) fd_topob_tile_out(    topo, "rserve",  i,                        "rserve_net",    i                                                 );
+    FOR(rserve_tile_cnt) fd_topos_tile_in_net( topo,                          "metric_in", "rserve_net",    i,           FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   }
   if( snapshots_enabled ) {
                        fd_topob_tile_in (   topo, "gossip",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -727,7 +729,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "repair_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( rserve_enabled ) {
-    FOR(shred_tile_cnt)fd_topob_tile_in(    topo, "rserve",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    FOR(shred_tile_cnt) fd_topob_tile_in(   topo, "rserve",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",    0UL                                                );
@@ -897,10 +899,12 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "repair",  0UL,          "metric_in", "sign_repair",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* This link is polled because the signing requests are asynchronous */
 
   if( rserve_enabled ) {
-    /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "rserve_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-    /**/                 fd_topob_tile_out(   topo, "rserve",  0UL,                       "rserve_sign",  0UL                                                  );
-    /**/                 fd_topob_tile_in (   topo, "rserve",  0UL,          "metric_in", "sign_rserve",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-    /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_rserve",  0UL                                                  );
+    FOR(rserve_tile_cnt) {
+      fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "rserve_sign",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+      fd_topob_tile_out(   topo, "rserve",  i,                         "rserve_sign",  i                                                    );
+      fd_topob_tile_in (   topo, "rserve",  i,            "metric_in", "sign_rserve",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+      fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_rserve",  i                                                    );
+    }
   }
 
   /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "txsend_sign",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -1152,7 +1156,15 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", store_fec_max, (uint)shred_tile_cnt, store_fec_data_max );
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  if( rserve_enabled ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rserve", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( rserve_enabled ) {
+    FOR(rserve_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rserve", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+    fd_topo_obj_t * shredb_obj = fd_topob_obj( topo, "shredb", "rserve" );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, config->tiles.rserve.shred_storage_limit_gib, "obj.%lu.max_size_gib", shredb_obj->id ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, 42UL, "obj.%lu.seed", shredb_obj->id ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, shredb_obj->id, "shredb" ) );
+    FOR(rserve_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rserve", i ) ], shredb_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache", config->firedancer.runtime.max_live_slots, FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT );

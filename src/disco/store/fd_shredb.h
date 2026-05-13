@@ -108,20 +108,44 @@ fd_shredb_align( void ) {
 FD_FN_CONST ulong
 fd_shredb_footprint( ulong max_size_gib );
 
+/* Initialize an fd_shredb in the memory region shmem.  Creates the
+   in-memory hash maps but does NOT open any backing file.  Call
+   fd_shredb_file_open on the joined handle to attach the on-disk ring
+   buffer before inserting or querying. */
 void *
-fd_shredb_new( void       * shmem,
-               ulong        max_size_gib,
-               char const * file_path,
-               ulong        seed );
+fd_shredb_new( void  * shmem,
+               ulong   max_size_gib,
+               ulong   seed );
 
 fd_shredb_t *
 fd_shredb_join( void * shstore );
+
+/* Like fd_shredb_join, but writes process-local pointers into the
+   caller-provided `local` struct instead of the shared memory region.
+   Use this when tiles run in separate processes (execve) to avoid
+   cross-process pointer corruption.  The caller keeps `local` on its
+   stack or in tile-private scratch. */
+fd_shredb_t *
+fd_shredb_join_local( void        * shstore,
+                      fd_shredb_t * local );
 
 void *
 fd_shredb_leave( fd_shredb_t const * store );
 
 void *
 fd_shredb_delete( void * shstore );
+
+/* Open the backing file and mmap the ring buffer.  Creates and
+   truncates the file.  Called by the writer tile (kind_id==0). */
+int
+fd_shredb_file_open( fd_shredb_t * store,
+                     char const  * file_path );
+
+/* Open the backing file read-only for query access.  Does not
+   truncate.  Called by reader tiles (kind_id>0). */
+int
+fd_shredb_file_join( fd_shredb_t * store,
+                     char const  * file_path );
 
 /* Insert a complete shred into the store.  shred_sz is the result of
    fd_shred_sz( shred ).  Derives (slot, shred_idx) from the header. */

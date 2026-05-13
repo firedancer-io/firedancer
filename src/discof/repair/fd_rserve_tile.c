@@ -13,6 +13,7 @@
 #include "../../disco/shred/fd_shred_tile.h"
 #include "../../disco/store/fd_shredb.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../util/net/fd_net_headers.h"
 
@@ -72,6 +73,10 @@ typedef struct ctx {
   ulong         seed;
   fd_rserve_t * rserve;
   fd_shredb_t * shredb;
+  fd_shredb_t   shredb_local[1];
+
+  ulong         round_robin_cnt;
+  ulong         round_robin_id;
 
   /* Used for verifying incoming requests, and signing outgoing responses. */
   fd_sha512_t sha512[1];
@@ -118,7 +123,6 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),    sizeof(ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_shredb_align(), fd_shredb_footprint( tile->rserve.shred_storage_limit_gib ) );
   l = FD_LAYOUT_APPEND( l, fd_rserve_align(), fd_rserve_footprint( tile->rserve.ping_cache_entries) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -413,6 +417,7 @@ returnable_frag( ctx_t             * ctx,
   case IN_KIND_NET: {
     if( FD_UNLIKELY( ctx->halt_signing ) ) return 1;
     if( fd_disco_netmux_sig_proto( sig )!=DST_PROTO_RSERVE ) return 0;
+    if( (seq % ctx->round_robin_cnt) != ctx->round_robin_id ) return 0;
 
     uchar const * buffer = fd_net_rx_translate_frag( &in_ctx->net_rx, chunk, ctl, sz );
     uchar * payload; ulong payload_sz;
@@ -493,9 +498,11 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( RSERVE, FAILED_INVALID_SHRED_INDEX,         ctx->metrics->fail_invalid_shred_idx );
   FD_MCNT_SET( RSERVE, FAILED_PING_CACHE_LOOKUP,           ctx->metrics->fail_ping_cache_lookup );
 
-  FD_MGAUGE_SET( RSERVE, SHREDS_CURRENT,                   ctx->metrics->shreds_current );
-  FD_MGAUGE_SET( RSERVE, DISK_CURRENT_BYTES,               ctx->metrics->shreds_current*sizeof(fd_shredb_entry_t) );
-  FD_MGAUGE_SET( RSERVE, DISK_ALLOCATED_BYTES,             ctx->shredb->file_shreds*sizeof(fd_shredb_entry_t) );
+  if( ctx->round_robin_id==0UL ) {
+    FD_MGAUGE_SET( RSERVE, SHREDS_CURRENT,                   ctx->metrics->shreds_current );
+    FD_MGAUGE_SET( RSERVE, DISK_CURRENT_BYTES,               ctx->metrics->shreds_current*sizeof(fd_shredb_entry_t) );
+    FD_MGAUGE_SET( RSERVE, DISK_ALLOCATED_BYTES,             ctx->shredb->file_shreds*sizeof(fd_shredb_entry_t) );
+  }
 
   FD_MCNT_SET( RSERVE, PING_CACHE_ENTRIES,                 ctx->metrics->ping_cache_entries );
   FD_MCNT_SET( RSERVE, PING_CACHE_EVICTIONS,               ctx->metrics->ping_cache_evictions );
@@ -506,16 +513,24 @@ privileged_init( fd_topo_t *      topo,
                 fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  ulong size_limit = tile->rserve.shred_storage_limit_gib;
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),    sizeof(ctx_t)                     );
-  ctx->shredb = FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_align(), fd_shredb_footprint( size_limit ) );
+  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ulong) ) );
 
-  FD_LOG_NOTICE(( "creating shredb (size_limit=%luGiB)", size_limit ));
-  ctx->shredb = fd_shredb_join( fd_shredb_new( ctx->shredb, size_limit, tile->rserve.shredb_path, ctx->seed ) );
-  if( FD_UNLIKELY( !ctx->shredb ) ) FD_LOG_ERR(( "failed to initialize shredb" ));
+  ulong shredb_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "shredb" );
+  FD_TEST( shredb_obj_id!=ULONG_MAX );
+  ctx->shredb = fd_shredb_join_local( fd_topo_obj_laddr( topo, shredb_obj_id ), ctx->shredb_local );
+  if( FD_UNLIKELY( !ctx->shredb ) ) FD_LOG_ERR(( "failed to join shredb" ));
+
+  if( tile->kind_id==0UL ) {
+    FD_LOG_NOTICE(( "opening shredb file (size_limit=%luGiB)", tile->rserve.shred_storage_limit_gib ));
+    if( FD_UNLIKELY( fd_shredb_file_open( ctx->shredb, tile->rserve.shredb_path ) ) )
+      FD_LOG_ERR(( "failed to open shredb file" ));
+  } else {
+    if( FD_UNLIKELY( fd_shredb_file_join( ctx->shredb, tile->rserve.shredb_path ) ) )
+      FD_LOG_ERR(( "failed to join shredb file for reading" ));
+  }
 
   uchar const * identity_public_key = fd_keyload_load( tile->repair.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_public_key.uc, identity_public_key, sizeof(fd_pubkey_t) );
@@ -530,12 +545,14 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),    sizeof(ctx_t) );
-                FD_SCRATCH_ALLOC_APPEND( l, fd_shredb_align(), fd_shredb_footprint( tile->rserve.shred_storage_limit_gib ) );
   ctx->rserve = FD_SCRATCH_ALLOC_APPEND( l, fd_rserve_align(), fd_rserve_footprint( ping_cache_entries ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() )==(ulong)scratch + scratch_footprint( tile ) );
 
   (void)ctx->shredb; /* Initialized in privileged_init */
   ctx->rserve    = fd_rserve_join   ( fd_rserve_new( ctx->rserve, ping_cache_entries, ctx->seed ) );
+
+  ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
+  ctx->round_robin_id  = tile->kind_id;
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
