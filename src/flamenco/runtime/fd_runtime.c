@@ -303,11 +303,8 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
   ulong fee_burn   = execution_fees / 2;
   ulong fee_reward = fd_ulong_sat_add( priority_fees, execution_fees - fee_burn );
 
-  /* Remove fee balance from bank (decreasing capitalization) */
-  if( FD_UNLIKELY( total_fees > bank->f.capitalization ) ) {
-    FD_LOG_EMERG(( "fee settlement would underflow capitalization (slot=%lu total_fees=%lu cap=%lu)",
-                   slot, total_fees, bank->f.capitalization ));
-  }
+  /* Remove fee balance from bank (decreasing capitalization).
+     Allow underflow (wrap) to match Agave's silent fetch_sub behavior. */
   bank->f.capitalization -= total_fees;
   bank->f.execution_fees  = 0;
   bank->f.priority_fees   = 0;
