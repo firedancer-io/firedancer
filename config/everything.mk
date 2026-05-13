@@ -21,6 +21,16 @@ AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report di
 # Dry rules that should set up dependency targets, but not generate them
 DRY_RULES:=check show-deps proof
 
+# If LD_RANDOMIZE is requested, add the --shuffle-sections link flag
+ifeq ($(LD_RANDOMIZE),1)
+FD_LINKER_HELP:=$(shell $(LD) $(LDFLAGS) -Wl,--help 2>/dev/null)
+ifneq ($(findstring --shuffle-sections=<section-glob>=<seed>,$(FD_LINKER_HELP)),)
+LDFLAGS+=-Wl,--shuffle-sections='*=0'
+else ifneq ($(findstring --shuffle-sections[=SEED],$(FD_LINKER_HELP)),)
+LDFLAGS+=-Wl,--shuffle-sections
+endif
+endif
+
 all: info bin include lib unit-test fuzz-test
 
 help:
@@ -38,6 +48,7 @@ help:
 	# CXXFLAGS        = $(CXXFLAGS)
 	# LD              = $(LD)
 	# LDFLAGS         = $(LDFLAGS)
+	# LDFLAGS_EXE     = $(LDFLAGS_EXE)
 	# AR              = $(AR)
 	# ARFLAGS         = $(ARFLAGS)
 	# RANLIB          = $(RANLIB)

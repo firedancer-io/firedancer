@@ -12,3 +12,6 @@ LDFLAGS+=-fstack-protector-strong
 ifeq ($(FD_DISABLE_OPTIMIZATION),)
 CPPFLAGS+=-D_FORTIFY_SOURCE=$(FORTIFY_SOURCE)
 endif
+
+# Use --shuffle-sections if available to randomize binary content
+LD_RANDOMIZE:=1
