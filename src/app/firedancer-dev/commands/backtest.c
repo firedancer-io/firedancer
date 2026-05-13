@@ -51,6 +51,8 @@ backtest_topo( config_t * config ) {
   config->development.sandbox  = 0;
   config->development.no_clone = 1;
 
+  config->firedancer.layout.resolv_tile_count = 0;
+
   ulong execrp_tile_cnt = config->firedancer.layout.execrp_tile_count;
 
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
