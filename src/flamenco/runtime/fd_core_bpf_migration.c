@@ -52,6 +52,7 @@ tmp_account_read( fd_tmp_account_t *        acc,
   acc->executable = db_acc.executable;
   fd_memcpy( acc->data, db_acc.data, db_acc.data_len );
   acc->data_sz = db_acc.data_len;
+  acc->pubkey = *addr;
 
   fd_accdb_unread_one( accdb, &db_acc );
   return acc;
