@@ -2,10 +2,11 @@
 #include "../firedancer/topology.h"
 #include "../firedancer/config.h"
 #include "../shared_dev/boot/fd_dev_boot.h"
+#include "../../util/sandbox/fd_shstk.h"
 
 int
-main( int     argc,
-      char ** argv ) {
+main1( int     argc,
+       char ** argv ) {
   fd_config_file_t _default = fd_config_file_default();
   fd_config_file_t testnet = fd_config_file_testnet();
   fd_config_file_t devnet = fd_config_file_devnet();
@@ -24,4 +25,10 @@ main( int     argc,
   };
 
   return fd_dev_main( argc, argv, 1, configs, fd_topo_initialize );
+}
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_shstk_enter( main1, argc, argv );
 }

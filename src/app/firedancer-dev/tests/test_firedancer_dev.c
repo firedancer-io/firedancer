@@ -10,6 +10,7 @@
 #include "../../shared_dev/boot/fd_dev_boot.h"
 #include "../../shared_dev/commands/wksp.h"
 #include "../../shared_dev/commands/dev.h"
+#include "../../../util/sandbox/fd_shstk.h"
 
 #include <errno.h>
 #include <unistd.h>
@@ -227,7 +228,13 @@ test_firedancer_dev( config_t * config ) {
 }
 
 int
+main1( int     argc,
+       char ** argv ) {
+  return firedancer_dev_test_run( argc, argv, test_firedancer_dev );
+}
+
+int
 main( int     argc,
       char ** argv ) {
-  return firedancer_dev_test_run( argc, argv, test_firedancer_dev );
+  fd_shstk_enter( main1, argc, argv );
 }
