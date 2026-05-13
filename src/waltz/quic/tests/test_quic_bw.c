@@ -172,7 +172,7 @@ main( int     argc,
   fd_quic_get_state( client_quic )->now = fd_quic_get_state( server_quic )->now = fd_clock_tile_now( clock );
 
   /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, fd_clock_tile_now( clock ) );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, fd_clock_tile_now( clock ) );
 
   FD_TEST( conn_final_cnt==0 );
 
