@@ -21,4 +21,5 @@ include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk
 endif
 
+FD_HAS_X86:=1
 FD_ARCH_SUPPORTS_SANDBOX:=1
