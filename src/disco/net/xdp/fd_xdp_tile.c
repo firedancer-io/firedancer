@@ -1462,7 +1462,7 @@ unprivileged_init( fd_topo_t const *      topo,
       ctx->txsend_out->depth  = fd_mcache_depth( ctx->txsend_out->mcache );
       ctx->txsend_out->seq    = fd_mcache_seq_query( ctx->txsend_out->sync );
     } else if( strcmp( out_link->name, "net_rserve" ) == 0 ) {
-      fd_topo_link_t * rserve_out = out_link;
+      fd_topo_link_t const * rserve_out = out_link;
       ctx->rserve_out->mcache = rserve_out->mcache;
       ctx->rserve_out->sync   = fd_mcache_seq_laddr( ctx->rserve_out->mcache );
       ctx->rserve_out->depth  = fd_mcache_depth( ctx->rserve_out->mcache );

@@ -146,6 +146,34 @@ diff_link( config_t const * config,
 }
 
 static long
+diff_link_for_tile( config_t const * config,
+                    ulong            for_tile_idx,
+                    char const *     link_name,
+                    ulong const *    prev_link,
+                    ulong const *    cur_link,
+                    ulong            idx ) {
+  long result = 0L;
+
+  ulong overall_polled_idx = 0UL;
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
+    for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( !tile->in_link_poll[ j ] ) ) continue;
+
+      if( i==for_tile_idx ) {
+        fd_topo_link_t const * link = &config->topo.links[ tile->in_link_id[ j ] ];
+        if( FD_LIKELY( !strcmp( link->name, link_name ) ) ) {
+          result += (long)cur_link[ overall_polled_idx*8UL+idx ]-(long)prev_link[ overall_polled_idx*8UL+idx ];
+        }
+      }
+
+      overall_polled_idx++;
+    }
+  }
+  return result;
+}
+
+static long
 diff_tile( config_t const * config,
            char const *     tile_name,
            ulong const *    prev_tile,
@@ -542,12 +570,15 @@ write_rserve( config_t const * config,
   ulong num_total_samples = fd_ulong_max( num_valid_samples, 1UL );
   char * total_str = COUNTF( 100.0*(double)(valid_sum+invalid_sum)/(double)num_total_samples );
 
+  char * rx_str = fmt_bytes( fd_alloca_check( 1UL, 64UL ), 64UL,
+      diff_link_for_tile( config, rserve_tile_idx, "net_rserve", prev_link, cur_link, MIDX( COUNTER, LINK, CONSUMED_SIZE_BYTES ) ) );
+
   PRINT( "🔧 " BOLD GREEN "RSERVE......" RESET UNBOLD
          " " BOLD "RX" UNBOLD " %s"
          " " BOLD "TX" UNBOLD " %s"
          " " BOLD "STORED SHREDS" UNBOLD " %s /s"
          " " BOLD "RPS" UNBOLD " %s (%s valid, %s invalid) /s" CLEARLN "\n",
-      DIFF_LINK_BYTES( "net_rserve", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
+      rx_str,
       DIFF_LINK_BYTES( "rserve_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
       shreds_stored,
       total_str, valid_str, invalid_str );

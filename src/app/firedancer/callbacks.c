@@ -2,6 +2,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/store/fd_store.h"
+#include "../../disco/store/fd_shredb.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
@@ -282,6 +283,31 @@ fd_topo_obj_callbacks_t fd_obj_cb_rnonce_ss = {
   .footprint = rnonce_ss_footprint,
   .align     = rnonce_ss_align,
   .new       = rnonce_ss_new,
+};
+
+static ulong
+shredb_footprint( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  return fd_shredb_footprint( VAL("max_size_gib") );
+}
+
+static ulong
+shredb_align( fd_topo_t const *     topo FD_FN_UNUSED,
+              fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_shredb_align();
+}
+
+static void
+shredb_new( fd_topo_t const *     topo,
+            fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_shredb_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_size_gib"), VAL("seed") ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_shredb = {
+  .name      = "shredb",
+  .footprint = shredb_footprint,
+  .align     = shredb_align,
+  .new       = shredb_new,
 };
 
 #undef VAL
