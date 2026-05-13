@@ -13,4 +13,5 @@ $(call run-unit-test,test_grpc_client)
 $(call make-fuzz-test,fuzz_grpc_codec,fuzz_grpc_codec,fd_waltz fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_grpc_h2_gen_req_hdr,fuzz_grpc_h2_gen_req_hdr,fd_waltz fd_ballet fd_util)
 $(call make-fuzz-test,fuzz_grpc_client,fuzz_grpc_client,fd_waltz fd_ballet fd_util,$(OPENSSL_LIBS))
+$(call make-fuzz-test,fuzz_grpc_actor,fuzz_grpc_actor,fd_waltz fd_ballet fd_util,$(OPENSSL_LIBS))
 endif
