@@ -1,0 +1,2 @@
+query: MadviseBitwise.ql
+postprocess: InlineExpectationsTestQuery.ql
