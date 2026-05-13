@@ -107,6 +107,7 @@ wwb_bcast_hex( uchar b0, uchar b1, uchar b2,  uchar b3,  uchar b4,  uchar b5,  u
 
 /* Arithmetic operations */
 
+#define wwb_add(a,b)  _mm512_add_epi8( (a), (b) )  /* [ a0+b0, a1+b1, ... a63+b63 ] */
 #define wwb_subs(a,b) _mm512_subs_epu8( (a), (b) ) /* [ a0-b0, a1-b1, ... a63-b63 ] */
 
 
@@ -115,6 +116,7 @@ wwb_bcast_hex( uchar b0, uchar b1, uchar b2,  uchar b3,  uchar b4,  uchar b5,  u
 
 #define wwb_eq(x,y) ((ulong)_mm512_cmpeq_epi8_mask(  (x), (y) )) /* mask( x0==y0, x1==y1, ... ) */
 #define wwb_ne(x,y) ((ulong)_mm512_cmpneq_epi8_mask( (x), (y) )) /* mask( x0!=y0, x1!=y1, ... ) */
+#define wwb_gt(x,y) ((ulong)_mm512_cmpgt_epu8_mask( (x), (y) ))  /* mask( x0>y0,  x1>y1,  ... ) */
 
 /* Memory operations */
 
