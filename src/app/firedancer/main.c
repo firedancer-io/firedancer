@@ -2,6 +2,7 @@
 #include "config.h"
 #include "../shared/boot/fd_boot.h"
 #include "../shared/commands/configure/configure.h"
+#include "../../util/sandbox/fd_shstk.h"
 
 char const * FD_APP_NAME    = "Firedancer";
 char const * FD_BINARY_NAME = "firedancer";
@@ -168,8 +169,8 @@ action_t * ACTIONS[] = {
 };
 
 int
-main( int     argc,
-      char ** argv ) {
+main1( int     argc,
+       char ** argv ) {
   fd_config_file_t _default = fd_config_file_default();
   fd_config_file_t testnet = fd_config_file_testnet();
   fd_config_file_t devnet = fd_config_file_devnet();
@@ -184,6 +185,12 @@ main( int     argc,
   };
 
   return fd_main( argc, argv, 1, configs, fd_topo_initialize );
+}
+
+int
+main( int     argc,
+      char ** argv ) {
+  fd_shstk_enter( main1, argc, argv );
 }
 
 /* Kind of a hack for now, we sometimes want to view bench generation
