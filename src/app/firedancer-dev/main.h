@@ -145,9 +145,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_tower,
   &fd_tile_shredcap,
   &fd_tile_backtest,
-# if FD_HAS_ROCKSDB
   &fd_tile_forktest,
-# endif
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
