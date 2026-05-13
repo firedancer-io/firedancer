@@ -612,9 +612,10 @@ verify_out_order( fd_reasm_t * reasm, fd_hash_t const * expected, ulong n ) {
 }
 
 void
-test_validate_cross_slot_parent_must_be_complete_parent_first( fd_wksp_t * wksp ) {
+test_validate_cross_slot( fd_wksp_t * wksp ) {
   ulong fec_max = 32;
 
+  /* Parent first: reject links that fail each validate() predicate. */
   {
     void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
     fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
@@ -625,25 +626,66 @@ test_validate_cross_slot_parent_must_be_complete_parent_first( fd_wksp_t * wksp 
 
     fd_hash_t root[1]   = {{{ 100, 0 }}};
     fd_hash_t parent[1] = {{{ 100, 1 }}};
-    fd_hash_t child[1]  = {{{ 100, 2 }}};
+    fd_hash_t complete_parent[1]          = {{{ 100, 2  }}};
+    fd_hash_t same_parent[1]              = {{{ 100, 3  }}};
+    fd_hash_t complete_same_parent[1]     = {{{ 100, 4  }}};
+    fd_hash_t child[1]                    = {{{ 100, 5  }}};
+    fd_hash_t child_bad_fec_idx[1]        = {{{ 100, 6  }}};
+    fd_hash_t child_bad_parent_off_zero[1]= {{{ 100, 7  }}};
+    fd_hash_t child_bad_parent_off_big[1] = {{{ 100, 8  }}};
+    fd_hash_t child_bad_parent_slot[1]    = {{{ 100, 9  }}};
+    fd_hash_t same_bad_fec_idx[1]         = {{{ 100, 10 }}};
+    fd_hash_t same_bad_parent_off[1]      = {{{ 100, 11 }}};
+    fd_hash_t same_after_complete[1]      = {{{ 100, 12 }}};
 
-    fd_reasm_insert( reasm, root,   NULL,   0, 0, 0,  0, 0, 1, 0, NULL, ev );
-    fd_reasm_insert( reasm, parent, root,   1, 0, 1, 32, 0, 0, 0, NULL, ev );
-    FD_TEST( !fd_reasm_insert( reasm, child, parent, 2, 0, 1, 32, 0, 0, 0, NULL, ev ) );
+    fd_reasm_insert( reasm, root,                 NULL, 0,  0,  0,  0, 0, 1, 0, NULL, ev );
+    fd_reasm_insert( reasm, parent,               root, 1,  0,  1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_insert( reasm, complete_parent,      root, 10, 0, 10, 32, 0, 1, 0, NULL, ev );
+    fd_reasm_insert( reasm, same_parent,          root, 20, 0, 20, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_insert( reasm, complete_same_parent, root, 30, 0, 30, 32, 0, 1, 0, NULL, ev );
+
+    FD_TEST( !fd_reasm_insert( reasm, child,                     parent,               2,  0,  1, 32, 0, 0, 0, NULL, ev ) ); /* incomplete cross-slot parent */
+    FD_TEST( !fd_reasm_insert( reasm, child_bad_fec_idx,         complete_parent,      11, 32, 1, 32, 0, 0, 0, NULL, ev ) ); /* first FEC in child slot must be FEC 0 */
+    FD_TEST( !fd_reasm_insert( reasm, child_bad_parent_off_zero, complete_parent,      11, 0,  0, 32, 0, 0, 0, NULL, ev ) ); /* parent_off must be nonzero */
+    FD_TEST( !fd_reasm_insert( reasm, child_bad_parent_off_big,  complete_parent,      11, 0, 12, 32, 0, 0, 0, NULL, ev ) ); /* parent_off must not exceed slot */
+    FD_TEST( !fd_reasm_insert( reasm, child_bad_parent_slot,     complete_parent,      12, 0,  1, 32, 0, 0, 0, NULL, ev ) ); /* parent_off must point to linked parent slot */
+    FD_TEST( !fd_reasm_insert( reasm, same_bad_fec_idx,          same_parent,          20, 64, 20, 32, 0, 0, 0, NULL, ev ) ); /* same-slot child must be adjacent */
+    FD_TEST( !fd_reasm_insert( reasm, same_bad_parent_off,       same_parent,          20, 32, 19, 32, 0, 0, 0, NULL, ev ) ); /* same-slot parent_off must match */
+    FD_TEST( !fd_reasm_insert( reasm, same_after_complete,       complete_same_parent, 30, 32, 30, 32, 0, 0, 0, NULL, ev ) ); /* same-slot parent must not be complete */
 
     fd_reasm_fec_t * parent_fec = fd_reasm_query( reasm, parent );
+    fd_reasm_fec_t * complete_parent_fec      = fd_reasm_query( reasm, complete_parent      );
+    fd_reasm_fec_t * same_parent_fec          = fd_reasm_query( reasm, same_parent          );
+    fd_reasm_fec_t * complete_same_parent_fec = fd_reasm_query( reasm, complete_same_parent );
     FD_TEST( parent_fec );
+    FD_TEST( complete_parent_fec      );
+    FD_TEST( same_parent_fec          );
+    FD_TEST( complete_same_parent_fec );
     FD_TEST( fd_reasm_child ( reasm, parent_fec )==NULL );
+    FD_TEST( fd_reasm_child ( reasm, complete_parent_fec      )==NULL );
+    FD_TEST( fd_reasm_child ( reasm, same_parent_fec          )==NULL );
+    FD_TEST( fd_reasm_child ( reasm, complete_same_parent_fec )==NULL );
     FD_TEST( !fd_reasm_query( reasm, child ) );
+    FD_TEST( !fd_reasm_query( reasm, child_bad_fec_idx         ) );
+    FD_TEST( !fd_reasm_query( reasm, child_bad_parent_off_zero ) );
+    FD_TEST( !fd_reasm_query( reasm, child_bad_parent_off_big  ) );
+    FD_TEST( !fd_reasm_query( reasm, child_bad_parent_slot     ) );
+    FD_TEST( !fd_reasm_query( reasm, same_bad_fec_idx          ) );
+    FD_TEST( !fd_reasm_query( reasm, same_bad_parent_off       ) );
+    FD_TEST( !fd_reasm_query( reasm, same_after_complete       ) );
     FD_TEST( !subtrees_ele_query( reasm->subtrees, child, NULL, pool ) );
     verify_out_invariants( reasm );
 
     FD_TEST( fd_reasm_pop( reasm )==parent_fec );
+    FD_TEST( fd_reasm_pop( reasm )==complete_parent_fec );
+    FD_TEST( fd_reasm_pop( reasm )==same_parent_fec );
+    FD_TEST( fd_reasm_pop( reasm )==complete_same_parent_fec );
     FD_TEST( !fd_reasm_pop( reasm ) );
 
     fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
   }
 
+  /* Parent first: accept valid cross-slot and same-slot links. */
   {
     void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
     fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
@@ -654,32 +696,36 @@ test_validate_cross_slot_parent_must_be_complete_parent_first( fd_wksp_t * wksp 
     fd_hash_t root[1]   = {{{ 101, 0 }}};
     fd_hash_t parent[1] = {{{ 101, 1 }}};
     fd_hash_t child[1]  = {{{ 101, 2 }}};
+    fd_hash_t grandchild[1] = {{{ 101, 3 }}};
 
     fd_reasm_insert( reasm, root,   NULL,   0, 0, 0,  0, 0, 1, 0, NULL, ev );
     fd_reasm_insert( reasm, parent, root,   1, 0, 1, 32, 0, 1, 0, NULL, ev );
     fd_reasm_insert( reasm, child,  parent, 2, 0, 1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_insert( reasm, grandchild, child, 2, 32, 1, 32, 0, 0, 0, NULL, ev );
 
     fd_reasm_fec_t * parent_fec = fd_reasm_query( reasm, parent );
     fd_reasm_fec_t * child_fec  = fd_reasm_query( reasm, child  );
+    fd_reasm_fec_t * grandchild_fec = fd_reasm_query( reasm, grandchild );
     FD_TEST( parent_fec );
     FD_TEST( child_fec  );
+    FD_TEST( grandchild_fec );
     FD_TEST( fd_reasm_child ( reasm, parent_fec )==child_fec  );
     FD_TEST( fd_reasm_parent( reasm, child_fec  )==parent_fec );
+    FD_TEST( fd_reasm_child ( reasm, child_fec )==grandchild_fec );
+    FD_TEST( fd_reasm_parent( reasm, grandchild_fec )==child_fec );
     FD_TEST( !child_fec->eqvoc );
+    FD_TEST( !grandchild_fec->eqvoc );
     verify_out_invariants( reasm );
 
-    FD_TEST( fd_reasm_pop( reasm )==parent_fec );
-    FD_TEST( fd_reasm_pop( reasm )==child_fec  );
+    FD_TEST( fd_reasm_pop( reasm )==parent_fec     );
+    FD_TEST( fd_reasm_pop( reasm )==child_fec      );
+    FD_TEST( fd_reasm_pop( reasm )==grandchild_fec );
     FD_TEST( !fd_reasm_pop( reasm ) );
 
     fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
   }
-}
 
-void
-test_validate_cross_slot_parent_must_be_complete_child_first( fd_wksp_t * wksp ) {
-  ulong fec_max = 32;
-
+  /* Child first: remove invalid orphaned subtree when parent arrives. */
   {
     void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
     fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
@@ -691,17 +737,22 @@ test_validate_cross_slot_parent_must_be_complete_child_first( fd_wksp_t * wksp )
     fd_hash_t root[1]   = {{{ 102, 0 }}};
     fd_hash_t parent[1] = {{{ 102, 1 }}};
     fd_hash_t child[1]  = {{{ 102, 2 }}};
+    fd_hash_t grandchild[1] = {{{ 102, 3 }}};
 
     fd_reasm_insert( reasm, root,  NULL,   0, 0, 0,  0, 0, 1, 0, NULL, ev );
     fd_reasm_insert( reasm, child, parent, 2, 0, 1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_insert( reasm, grandchild, child, 2, 32, 1, 32, 0, 0, 0, NULL, ev );
     fd_reasm_insert( reasm, parent, root,  1, 0, 1, 32, 0, 0, 0, NULL, ev );
 
     fd_reasm_fec_t * parent_fec = fd_reasm_query( reasm, parent );
     fd_reasm_fec_t * child_fec  = fd_reasm_query( reasm, child  );
+    fd_reasm_fec_t * grandchild_fec = fd_reasm_query( reasm, grandchild );
     FD_TEST( parent_fec );
     FD_TEST( !child_fec );
+    FD_TEST( !grandchild_fec );
     FD_TEST( fd_reasm_child ( reasm, parent_fec )==NULL );
     FD_TEST( !subtrees_ele_query( reasm->subtrees, child, NULL, pool ) );
+    FD_TEST( !orphaned_ele_query( reasm->orphaned, grandchild, NULL, pool ) );
     verify_out_invariants( reasm );
 
     FD_TEST( fd_reasm_pop( reasm )==parent_fec );
@@ -710,6 +761,7 @@ test_validate_cross_slot_parent_must_be_complete_child_first( fd_wksp_t * wksp )
     fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
   }
 
+  /* Child first: link valid orphaned subtree when parent arrives. */
   {
     void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
     fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
@@ -720,22 +772,30 @@ test_validate_cross_slot_parent_must_be_complete_child_first( fd_wksp_t * wksp )
     fd_hash_t root[1]   = {{{ 103, 0 }}};
     fd_hash_t parent[1] = {{{ 103, 1 }}};
     fd_hash_t child[1]  = {{{ 103, 2 }}};
+    fd_hash_t grandchild[1] = {{{ 103, 3 }}};
 
     fd_reasm_insert( reasm, root,  NULL,   0, 0, 0,  0, 0, 1, 0, NULL, ev );
     fd_reasm_insert( reasm, child, parent, 2, 0, 1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_insert( reasm, grandchild, child, 2, 32, 1, 32, 0, 0, 0, NULL, ev );
     fd_reasm_insert( reasm, parent, root,  1, 0, 1, 32, 0, 1, 0, NULL, ev );
 
     fd_reasm_fec_t * parent_fec = fd_reasm_query( reasm, parent );
     fd_reasm_fec_t * child_fec  = fd_reasm_query( reasm, child  );
+    fd_reasm_fec_t * grandchild_fec = fd_reasm_query( reasm, grandchild );
     FD_TEST( parent_fec );
     FD_TEST( child_fec  );
+    FD_TEST( grandchild_fec );
     FD_TEST( fd_reasm_child ( reasm, parent_fec )==child_fec  );
     FD_TEST( fd_reasm_parent( reasm, child_fec  )==parent_fec );
+    FD_TEST( fd_reasm_child ( reasm, child_fec )==grandchild_fec );
+    FD_TEST( fd_reasm_parent( reasm, grandchild_fec )==child_fec );
     FD_TEST( !child_fec->eqvoc );
+    FD_TEST( !grandchild_fec->eqvoc );
     verify_out_invariants( reasm );
 
-    FD_TEST( fd_reasm_pop( reasm )==parent_fec );
-    FD_TEST( fd_reasm_pop( reasm )==child_fec  );
+    FD_TEST( fd_reasm_pop( reasm )==parent_fec     );
+    FD_TEST( fd_reasm_pop( reasm )==child_fec      );
+    FD_TEST( fd_reasm_pop( reasm )==grandchild_fec );
     FD_TEST( !fd_reasm_pop( reasm ) );
 
     fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
@@ -1127,8 +1187,7 @@ main( int argc, char ** argv ) {
   test_eqvoc_transitive( wksp );
   test_eqvoc_xidbid( wksp );
   test_evict( wksp );
-  test_validate_cross_slot_parent_must_be_complete_parent_first( wksp );
-  test_validate_cross_slot_parent_must_be_complete_child_first( wksp );
+  test_validate_cross_slot( wksp );
   test_confirm_out_ordering( wksp );
   test_remove_bank_eviction( wksp );
   test_insert_rejects_when_full_and_nothing_is_evictable( wksp );
