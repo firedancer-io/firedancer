@@ -890,8 +890,6 @@ fd_topo_initialize( config_t * config ) {
     }
     fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
-    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
     /* No default fd_topob_tile_in connection to stake_out */
   }
 

@@ -548,8 +548,6 @@ struct fd_topo_tile {
       int requests_fd;
       int fecs_fd;
       int peers_fd;
-      int bank_hashes_fd;
-      int slices_fd;
     } shredcap;
 
 #define FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX      (32UL)
