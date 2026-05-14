@@ -240,7 +240,7 @@ typedef struct {
   uchar *              netdev_buf;        /* local copy of device table */
   ulong                netdev_buf_sz;
   fd_netdev_tbl_join_t netdev_tbl;        /* join to local copy of device table */
-  int                  has_gre_interface; /* enable GRE support? */
+  uint                 gre_tunnel_ip;     /* 0 means GRE disabled */
 
   struct {
     ulong rx_pkt_cnt;
@@ -384,18 +384,19 @@ net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
 }
 
-/* Iterates the netdev table and returns 1 if a GRE interface exists, 0 otherwise.
-   Only called in privileged_init and during_housekeeping */
+/* net_gre_tunnel_ip returns the IP address of the GRE tunnel peer if an
+   untagged GRE tunnel exists, returns 0 otherwise. */
 
-static int
-net_check_gre_interface_exists( fd_net_ctx_t * ctx ) {
+static uint
+net_gre_tunnel_ip( fd_net_ctx_t * ctx ) {
   fd_netdev_t * dev_tbl = ctx->netdev_tbl.dev_tbl;
   ushort        dev_cnt = ctx->netdev_tbl.hdr->dev_cnt;
 
   for( ushort if_idx = 0; if_idx<dev_cnt; if_idx++ ) {
-    if( dev_tbl[if_idx].dev_type==ARPHRD_IPGRE ) return 1;
+    fd_netdev_t const * dev = dev_tbl+if_idx;
+    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) return dev->gre_dst_ip;
   }
-  return 0;
+  return 0U;
 }
 
 
@@ -489,7 +490,7 @@ static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_tickcount();
   net_load_netdev_tbl( ctx );
-  ctx->has_gre_interface = net_check_gre_interface_exists( ctx );
+  ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
@@ -904,8 +905,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
   int is_packet_gre = 0;
   /* Discard the GRE overhead (outer iphdr and gre hdr) */
   if( iphdr->protocol == FD_IP4_HDR_PROTOCOL_GRE ) {
-    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) {
-      ctx->metrics.rx_gre_ignored_cnt++; // drop. No gre interface in netdev table
+    if( FD_UNLIKELY( !ctx->gre_tunnel_ip ) ) {
+      ctx->metrics.rx_gre_ignored_cnt++;
       return;
     }
     ulong gre_ipver = FD_IP4_GET_VERSION( *iphdr );
@@ -913,6 +914,11 @@ net_rx_packet( fd_net_ctx_t * ctx,
     if( FD_UNLIKELY( gre_ipver!=0x4 || gre_iplen<20 ) ) {
       FD_DTRACE_PROBE( net_tile_err_rx_noip );
       ctx->metrics.rx_gre_inv_pkt_cnt++; /* drop IPv6 packets */
+      return;
+    }
+
+    if( FD_UNLIKELY( iphdr->saddr!=ctx->gre_tunnel_ip ) ) {
+      ctx->metrics.rx_src_addr_invalid_cnt++;
       return;
     }
 
