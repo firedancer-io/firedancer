@@ -256,19 +256,15 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
-  int stack_pop_err = fd_instr_stack_pop( ctx->runtime, ctx->txn_out, ctx->instr );
-  if( FD_UNLIKELY( stack_pop_err ) ) {
-      FD_LOG_WARNING(( "instr stack pop err" ));
-      goto error;
-  }
-  if( syscall_err ) {
+  int instr_end_err = fd_execute_instr_end( vm->instr_ctx, ctx->instr, syscall_err );
+  if( instr_end_err ) {
     fd_log_collector_program_failure( vm->instr_ctx );
   }
 
   /* Capture the effects */
   int exec_err = vm->instr_ctx->txn_out->err.exec_err;
   effects->error = 0;
-  if( syscall_err ) {
+  if( instr_end_err ) {
     if( exec_err==0 ) {
       FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
       effects->error = -1;
@@ -293,7 +289,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
       }
     }
   }
-  effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
+  effects->r0 = instr_end_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
 
   if( vm->heap_max ) {
