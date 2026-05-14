@@ -226,6 +226,24 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+/* SIMD-0500 finalize gate: when the feature is active and the ELF
+   embedded in `programdata` parses as SBPFv0/v1/v2, reject;
+   otherwise accept (including the short-programdata case, which
+   mirrors the let-chain short-circuit in agave).  See the call site
+   in `process_loader_upgradeable_instruction` for the SetAuthority
+   handler.
+   https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/bpf_loader/src/lib.rs#L580-L591 */
+int
+fd_bpf_loader_finalize_v3_check( int           feature_active,
+                                 uchar const * programdata,
+                                 ulong         programdata_len ) {
+  ulong const off = PROGRAMDATA_METADATA_SIZE + 48UL; /* ELF64 e_flags */
+  if( !feature_active                         ) return FD_EXECUTOR_INSTR_SUCCESS;
+  if( programdata_len < off + sizeof(uint)    ) return FD_EXECUTOR_INSTR_SUCCESS;
+  if( FD_LOAD( uint, programdata+off )<FD_SBPF_V3 ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L195-L218 */
 static int
 write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
@@ -1729,6 +1747,16 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           if( FD_UNLIKELY( !!err ) ) return err;
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        }
+
+        /* SIMD-0500: forbid finalize (SetAuthority None) on programs
+           that are not at least SBPF v3. */
+        if( !new_authority ) {
+          int rc = fd_bpf_loader_finalize_v3_check(
+              FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ),
+              fd_borrowed_account_get_data    ( &account ),
+              fd_borrowed_account_get_data_len( &account ) );
+          if( FD_UNLIKELY( rc!=FD_EXECUTOR_INSTR_SUCCESS ) ) return rc;
         }
 
         /* copy in the authority public key into the upgrade authority address.

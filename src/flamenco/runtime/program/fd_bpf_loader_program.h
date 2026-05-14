@@ -472,6 +472,15 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    ulong                 programdata_size,
                    int                   disable_sbpf_v0_v1_v2_deployment );
 
+/* SIMD-0500 finalize gate.  Returns
+   FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA when `feature_active` is
+   non-zero and the ELF embedded in `programdata` parses as
+   SBPFv0/v1/v2; FD_EXECUTOR_INSTR_SUCCESS otherwise. */
+int
+fd_bpf_loader_finalize_v3_check( int           feature_active,
+                                 uchar const * programdata,
+                                 ulong         programdata_len );
+
 int
 fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
                 fd_progcache_rec_t const * program,

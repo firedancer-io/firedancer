@@ -170,7 +170,8 @@ test_deploy_v3_succeeds( fd_wksp_t * wksp ) {
 
 /* SIMD-0500: with the gate active, deploying a v0 ELF must fail
    because the loader's accepted version range is restricted to
-   [V3, max] for deployment. */
+   [V3, max] for deployment.  Mirrors the agave PR-12410 test
+   "Case: Deploy SBPFv0". */
 static void
 test_deploy_v0_rejected_when_gated( fd_wksp_t * wksp ) {
   deploy_env_t env[1];
@@ -181,6 +182,52 @@ test_deploy_v0_rejected_when_gated( fd_wksp_t * wksp ) {
   FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
 
   deploy_env_destroy( env );
+}
+
+/* SIMD-0500 finalize gate: full Cartesian product of {v0, v3} ELF
+   payload x {feature off, feature on}.  v0 with the feature on is
+   the only case that should reject (matches agave PR-12410 "Case:
+   Finalize a SBPFv0 program"); the other three are no-ops. */
+
+static ulong
+build_programdata_with_sbpf_version( uchar buf[ PROGRAMDATA_METADATA_SIZE + 64UL ],
+                                     uint  sbpf_version ) {
+  fd_memset( buf, 0, PROGRAMDATA_METADATA_SIZE + 64UL );
+  /* e_flags lives at offset 48 of the ELF64 header. */
+  FD_STORE( uint, buf + PROGRAMDATA_METADATA_SIZE + 48UL, sbpf_version );
+  return PROGRAMDATA_METADATA_SIZE + 64UL;
+}
+
+static void
+test_finalize_v0_feature_off( void ) {
+  uchar buf[ PROGRAMDATA_METADATA_SIZE + 64UL ];
+  ulong sz  = build_programdata_with_sbpf_version( buf, FD_SBPF_V0 );
+  int   err = fd_bpf_loader_finalize_v3_check( 0, buf, sz );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+}
+
+static void
+test_finalize_v0_feature_on( void ) {
+  uchar buf[ PROGRAMDATA_METADATA_SIZE + 64UL ];
+  ulong sz  = build_programdata_with_sbpf_version( buf, FD_SBPF_V0 );
+  int   err = fd_bpf_loader_finalize_v3_check( 1, buf, sz );
+  FD_TEST( err==FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA );
+}
+
+static void
+test_finalize_v3_feature_off( void ) {
+  uchar buf[ PROGRAMDATA_METADATA_SIZE + 64UL ];
+  ulong sz  = build_programdata_with_sbpf_version( buf, FD_SBPF_V3 );
+  int   err = fd_bpf_loader_finalize_v3_check( 0, buf, sz );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
+}
+
+static void
+test_finalize_v3_feature_on( void ) {
+  uchar buf[ PROGRAMDATA_METADATA_SIZE + 64UL ];
+  ulong sz  = build_programdata_with_sbpf_version( buf, FD_SBPF_V3 );
+  int   err = fd_bpf_loader_finalize_v3_check( 1, buf, sz );
+  FD_TEST( err==FD_EXECUTOR_INSTR_SUCCESS );
 }
 
 int
@@ -204,6 +251,11 @@ main( int     argc,
   test_deploy_v0_succeeds( wksp );
   test_deploy_v3_succeeds( wksp );
   test_deploy_v0_rejected_when_gated( wksp );
+
+  test_finalize_v0_feature_off( );
+  test_finalize_v0_feature_on ( );
+  test_finalize_v3_feature_off( );
+  test_finalize_v3_feature_on ( );
 
   fd_wksp_delete_anonymous( wksp );
 
