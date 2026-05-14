@@ -6,7 +6,6 @@
 #include "../../../waltz/neigh/fd_neigh4_map.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../waltz/ip/fd_fib4.h"
-#include "../../../util/tmpl/fd_map.h"
 #include "../../../tango/dcache/fd_dcache.h"
 #include "../../../tango/mcache/fd_mcache.h"
 
@@ -479,7 +478,7 @@ main( int     argc,
   setup_routing_table( ctx, fib4_local_mem, fib4_main_mem );
 
   /* Ensure initial (fake) device table is valid */
-  FD_TEST( net_check_gre_interface_exists( ctx )==0 );
+  FD_TEST( net_gre_tunnel_ip( ctx )==0U );
   uint is_gre_inf = 0U;
   FD_TEST( net_tx_route( ctx, FD_IP4_ADDR( 1,1,1,1 ), &is_gre_inf )==0 );
 
@@ -497,7 +496,8 @@ main( int     argc,
   fd_netdev_tbl_new( ctx->netdev_buf, NETDEV_MAX, BOND_MASTER_MAX );
   FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) );
   setup_netdev_table( ctx );
-  ctx->has_gre_interface = 1;
+  ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
+  FD_TEST( ctx->gre_tunnel_ip==gre0_outer_dst_ip );
 
   /* ctx->in */
   ctx->in[ 0 ].mem    = fd_wksp_containing( app_tx_dcache_mem );
@@ -756,6 +756,8 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth0_src_mac_addr, 6 );
 
         xsk->if_idx = ctx->if_virt = IF_IDX_ETH0;
+        rx_pkt_gre.outer_ip4.saddr = gre0_outer_dst_ip;
+        rx_pkt_gre.outer_ip4.daddr = gre0_outer_src_ip;
         before_credit_input       = &rx_pkt_gre;
         before_credit_input_sz    = sizeof(rx_pkt_gre);
         before_credit_expected    = &rx_pkt;
@@ -796,6 +798,8 @@ main( int     argc,
         fd_memcpy( eth_mac_addrs_before_frag_gre + 6, eth1_src_mac_addr, 6 );
 
         xsk->if_idx = ctx->if_virt = IF_IDX_ETH1;
+        rx_pkt_gre.outer_ip4.saddr = ctx->gre_tunnel_ip;
+        rx_pkt_gre.outer_ip4.daddr = gre1_outer_src_ip;
 
         before_credit_input       = &rx_pkt_gre;
         before_credit_input_sz    = sizeof(rx_pkt_gre);
@@ -927,6 +931,38 @@ main( int     argc,
     tx_chunk = fd_dcache_compact_next( tx_chunk, during_frag_expected_sz, tx_chunk0, tx_wmark );
   }
 
+  FD_TEST( ctx->metrics.rx_cnt_accept==6UL );
+  FD_TEST( ctx->metrics.rx_gre_pass==4UL );
+  FD_TEST( ctx->metrics.rx_bytes_total>0UL );
+  FD_TEST( ctx->metrics.tx_submit_cnt==6UL );
+  FD_TEST( ctx->metrics.tx_route_pass_direct==2UL );
+  FD_TEST( ctx->metrics.tx_route_pass_gre==4UL );
+  FD_TEST( ctx->metrics.tx_bytes_total>0UL );
+
+  /* GRE packets from invalid source dropped before decapsulation */
+  ulong gre_invalid_src_before = ctx->metrics.rx_gre_invalid_src;
+  ulong src_invalid_before     = ctx->metrics.rx_cnt_invalid_gre;
+  ulong seq_before             = ctx->shred_out->seq;
+
+  FD_TEST( xdp_fr_ring_prod!=xdp_fr_ring_cons );
+  ulong const rx_frame_off = fr_frame_ring[ xdp_fr_ring_cons & (ring_fr_depth-1) ];
+  xdp_fr_ring_cons++;
+
+  rx_pkt_gre.outer_ip4.saddr = gre0_outer_src_ip_fake;
+  rx_pkt_gre.outer_ip4.daddr = gre0_outer_src_ip;
+  uchar * rx_ring_pkt = (uchar *)ctx->umem + rx_frame_off;
+  fd_memcpy( rx_ring_pkt, &rx_pkt_gre, sizeof(rx_pkt_gre) );
+
+  xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].addr = rx_frame_off;
+  xsk->ring_rx.packet_ring[ xdp_rx_ring_prod ].len  = (uint)sizeof(rx_pkt_gre);
+  xdp_rx_ring_prod++;
+
+  int charge_busy = 1;
+  before_credit( ctx, stem, &charge_busy );
+  FD_TEST( ctx->metrics.rx_gre_invalid_src==gre_invalid_src_before+1UL );
+  FD_TEST( ctx->metrics.rx_cnt_invalid_gre==src_invalid_before+1UL     );
+  FD_TEST( ctx->shred_out->seq==seq_before );
+
   /* Test invalid network headers */
 
   typedef struct __attribute__((packed)) {
@@ -960,7 +996,7 @@ main( int     argc,
 
   for( uint test_case=NET_LEN_TOO_SHORT; test_case<INVALIDS_CNT; test_case++ ) {
 
-    ulong undersz_before = ctx->metrics.rx_undersz_cnt;
+    ulong undersz_before = ctx->metrics.rx_cnt_invalid_other;
     ulong seq_before     = ctx->shred_out->seq;
 
     /* Pop frame off FILL ring */
@@ -982,7 +1018,7 @@ main( int     argc,
     before_credit( ctx, stem, &charge_busy );
 
     /* Verify packet was dropped */
-    FD_TEST( ctx->metrics.rx_undersz_cnt == undersz_before + 1 );
+    FD_TEST( ctx->metrics.rx_cnt_invalid_other == undersz_before + 1 );
     FD_TEST( ctx->shred_out->seq == seq_before );  /* No mcache advancement */
   }
 

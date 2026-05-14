@@ -384,11 +384,10 @@ fd_gossip_diag_render( fd_gossip_diag_ctx_t * ctx,
 
   for( ulong i=0UL; i<ctx->net_tile_cnt; i++ ) {
     if( FD_LIKELY( ctx->is_xdp ) ) {
-      printf( " Net %lu RX bw %s, TX bw %s .. %s %s\n", i,
+      printf( " Net %lu RX bw %s, TX bw %s .. %s\n", i,
               fmt_bytes( buf1, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BYTES_TOTAL ) ] - ctx->prev_net_rx_bytes[ i ] ),
               fmt_bytes( buf2, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  TX_BYTES_TOTAL ) ] - ctx->prev_net_tx_bytes[ i ] ),
-              fmt_count( buf3, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  RX_FILL_BLOCKED_CNT ) ] ),
-              fmt_count( buf4, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BACKPRESSURE_CNT ) ] ) );
+              fmt_count( buf3, ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  RX_CNT_XDP_TOO_SLOW ) ] ) );
       ctx->prev_net_rx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  RX_BYTES_TOTAL ) ];
       ctx->prev_net_tx_bytes[ i ] = ctx->net_metrics[ i ][ MIDX( COUNTER, NET,  TX_BYTES_TOTAL ) ];
     } else {

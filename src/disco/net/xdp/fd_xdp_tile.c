@@ -240,36 +240,38 @@ typedef struct {
   uchar *              netdev_buf;        /* local copy of device table */
   ulong                netdev_buf_sz;
   fd_netdev_tbl_join_t netdev_tbl;        /* join to local copy of device table */
-  int                  has_gre_interface; /* enable GRE support? */
+  uint                 gre_tunnel_ip;     /* 0 means GRE disabled */
 
   struct {
-    ulong rx_pkt_cnt;
+    ulong rx_cnt_accept;
+    ulong rx_cnt_xdp_too_slow;
+    ulong rx_cnt_invalid_src;
+    ulong rx_cnt_invalid_gre;
+    ulong rx_cnt_too_small;
+    ulong rx_cnt_invalid_other;
+    ulong rx_gre_pass;
+    ulong rx_gre_invalid_src;
+    ulong rx_gre_invalid_other;
+    ulong rx_gre_tunnel_offline;
     ulong rx_bytes_total;
-    ulong rx_src_addr_invalid_cnt;
-    ulong rx_undersz_cnt;
-    ulong rx_fill_blocked_cnt;
-    ulong rx_backp_cnt;
     long  rx_busy_cnt;
     long  rx_idle_cnt;
 
+    ulong tx_route_pass_direct;
+    ulong tx_route_pass_gre;
+    ulong tx_route_failed_routing;
+    ulong tx_route_failed_neighbor;
+    ulong tx_route_no_interface;
+    ulong tx_route_invalid_packet;
     ulong tx_submit_cnt;
     ulong tx_complete_cnt;
+    ulong tx_xdp_too_slow_cnt;
     ulong tx_bytes_total;
-    ulong tx_route_fail_cnt;
-    ulong tx_no_xdp_cnt;
-    ulong tx_neigh_fail_cnt;
-    ulong tx_full_fail_cnt;
     long  tx_busy_cnt;
     long  tx_idle_cnt;
 
     ulong xsk_tx_wakeup_cnt;
     ulong xsk_rx_wakeup_cnt;
-
-    ulong rx_gre_cnt;
-    ulong rx_gre_ignored_cnt;
-    ulong rx_gre_inv_pkt_cnt;
-    ulong tx_gre_cnt;
-    ulong tx_gre_route_fail_cnt;
   } metrics;
 } fd_net_ctx_t;
 
@@ -289,32 +291,37 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_net_ctx_t * ctx ) {
-  FD_MCNT_SET(   NET, RX_PKT_CNT,          ctx->metrics.rx_pkt_cnt          );
-  FD_MCNT_SET(   NET, RX_BYTES_TOTAL,      ctx->metrics.rx_bytes_total      );
-  FD_MCNT_SET(   NET, RX_UNDERSZ_CNT,      ctx->metrics.rx_undersz_cnt      );
-  FD_MCNT_SET(   NET, RX_FILL_BLOCKED_CNT, ctx->metrics.rx_fill_blocked_cnt );
-  FD_MCNT_SET(   NET, RX_BACKPRESSURE_CNT, ctx->metrics.rx_backp_cnt        );
+  FD_MCNT_SET( NET, RX_CNT_ACCEPT,             ctx->metrics.rx_cnt_accept         );
+  FD_MCNT_SET( NET, RX_CNT_XDP_TOO_SLOW,       ctx->metrics.rx_cnt_xdp_too_slow   );
+  FD_MCNT_SET( NET, RX_CNT_INVALID_SRC,        ctx->metrics.rx_cnt_invalid_src    );
+  FD_MCNT_SET( NET, RX_CNT_INVALID_GRE,        ctx->metrics.rx_cnt_invalid_gre    );
+  FD_MCNT_SET( NET, RX_CNT_TOO_SMALL,          ctx->metrics.rx_cnt_too_small      );
+  FD_MCNT_SET( NET, RX_GRE_CNT_PASS,           ctx->metrics.rx_gre_pass           );
+  FD_MCNT_SET( NET, RX_GRE_CNT_INVALID_SRC,    ctx->metrics.rx_gre_invalid_src    );
+  FD_MCNT_SET( NET, RX_GRE_CNT_INVALID_OTHER,  ctx->metrics.rx_gre_invalid_other  );
+  FD_MCNT_SET( NET, RX_GRE_CNT_TUNNEL_OFFLINE, ctx->metrics.rx_gre_tunnel_offline );
+  FD_MCNT_SET( NET, RX_BYTES_TOTAL,            ctx->metrics.rx_bytes_total        );
+
   FD_MGAUGE_SET( NET, RX_BUSY_CNT, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
   FD_MGAUGE_SET( NET, RX_IDLE_CNT, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
+
+  FD_MCNT_SET( NET, TX_ROUTE_OUTCOME_PASS_DIRECT,     ctx->metrics.tx_route_pass_direct     );
+  FD_MCNT_SET( NET, TX_ROUTE_OUTCOME_PASS_GRE,        ctx->metrics.tx_route_pass_gre        );
+  FD_MCNT_SET( NET, TX_ROUTE_OUTCOME_FAILED_ROUTING,  ctx->metrics.tx_route_failed_routing  );
+  FD_MCNT_SET( NET, TX_ROUTE_OUTCOME_FAILED_NEIGHBOR, ctx->metrics.tx_route_failed_neighbor );
+  FD_MCNT_SET( NET, TX_ROUTE_OUTCOME_NO_INTERFACE,    ctx->metrics.tx_route_no_interface    );
+  FD_MCNT_SET( NET, TX_ROUTE_OUTCOME_INVALID_PACKET,  ctx->metrics.tx_route_invalid_packet  );
+
+  FD_MCNT_SET( NET, TX_SUBMIT_CNT,        ctx->metrics.tx_submit_cnt       );
+  FD_MCNT_SET( NET, TX_COMPLETE_CNT,      ctx->metrics.tx_complete_cnt     );
+  FD_MCNT_SET( NET, TX_XDP_TOO_SLOW_CNT,  ctx->metrics.tx_xdp_too_slow_cnt );
+  FD_MCNT_SET( NET, TX_BYTES_TOTAL,       ctx->metrics.tx_bytes_total      );
+
   FD_MGAUGE_SET( NET, TX_BUSY_CNT, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
   FD_MGAUGE_SET( NET, TX_IDLE_CNT, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
 
-  FD_MCNT_SET( NET, TX_SUBMIT_CNT,        ctx->metrics.tx_submit_cnt     );
-  FD_MCNT_SET( NET, TX_COMPLETE_CNT,      ctx->metrics.tx_complete_cnt   );
-  FD_MCNT_SET( NET, TX_BYTES_TOTAL,       ctx->metrics.tx_bytes_total    );
-  FD_MCNT_SET( NET, TX_ROUTE_FAIL_CNT,    ctx->metrics.tx_route_fail_cnt );
-  FD_MCNT_SET( NET, TX_NEIGHBOR_FAIL_CNT, ctx->metrics.tx_neigh_fail_cnt );
-  FD_MCNT_SET( NET, TX_FULL_FAIL_CNT,     ctx->metrics.tx_full_fail_cnt  );
-
   FD_MCNT_SET( NET, XSK_TX_WAKEUP_CNT,    ctx->metrics.xsk_tx_wakeup_cnt    );
   FD_MCNT_SET( NET, XSK_RX_WAKEUP_CNT,    ctx->metrics.xsk_rx_wakeup_cnt    );
-
-  FD_MCNT_SET( NET, RX_GRE_CNT,            ctx->metrics.rx_gre_cnt            );
-  FD_MCNT_SET( NET, RX_GRE_INVALID_CNT,    ctx->metrics.rx_gre_inv_pkt_cnt    );
-  FD_MCNT_SET( NET, RX_GRE_IGNORED_CNT,    ctx->metrics.rx_gre_ignored_cnt    );
-  FD_MCNT_SET( NET, TX_GRE_CNT,            ctx->metrics.tx_gre_cnt            );
-  FD_MCNT_SET( NET, TX_GRE_ROUTE_FAIL_CNT, ctx->metrics.tx_gre_route_fail_cnt );
-  FD_MCNT_SET( NET, RX_SRC_ADDR_INVALID_CNT, ctx->metrics.rx_src_addr_invalid_cnt );
 }
 
 struct xdp_statistics_v0 {
@@ -384,18 +391,19 @@ net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
 }
 
-/* Iterates the netdev table and returns 1 if a GRE interface exists, 0 otherwise.
-   Only called in privileged_init and during_housekeeping */
+/* net_gre_tunnel_ip returns the IP address of the GRE tunnel peer if an
+   untagged GRE tunnel exists, returns 0 otherwise. */
 
-static int
-net_check_gre_interface_exists( fd_net_ctx_t * ctx ) {
+static uint
+net_gre_tunnel_ip( fd_net_ctx_t * ctx ) {
   fd_netdev_t * dev_tbl = ctx->netdev_tbl.dev_tbl;
   ushort        dev_cnt = ctx->netdev_tbl.hdr->dev_cnt;
 
   for( ushort if_idx = 0; if_idx<dev_cnt; if_idx++ ) {
-    if( dev_tbl[if_idx].dev_type==ARPHRD_IPGRE ) return 1;
+    fd_netdev_t const * dev = dev_tbl+if_idx;
+    if( dev->dev_type==ARPHRD_IPGRE && dev->gre_dst_ip ) return dev->gre_dst_ip;
   }
-  return 0;
+  return 0U;
 }
 
 
@@ -489,7 +497,7 @@ static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_tickcount();
   net_load_netdev_tbl( ctx );
-  ctx->has_gre_interface = net_check_gre_interface_exists( ctx );
+  ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
 
   ctx->metrics.rx_busy_cnt = 0UL;
   ctx->metrics.rx_idle_cnt = 0UL;
@@ -553,13 +561,13 @@ net_tx_route( fd_net_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
-    ctx->metrics.tx_route_fail_cnt++;
+    ctx->metrics.tx_route_failed_routing++;
     return 0;
   }
 
   fd_netdev_t * netdev = fd_netdev_tbl_query( &ctx->netdev_tbl, if_idx );
   if( !netdev ) {
-    ctx->metrics.tx_route_fail_cnt++;
+    ctx->metrics.tx_route_failed_routing++;
     return 0;
   }
 
@@ -587,7 +595,7 @@ net_tx_route( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( netdev->dev_type!=ARPHRD_ETHER ) ) return 0; // drop
 
   if( FD_UNLIKELY( if_idx!=ctx->if_virt ) ) {
-    ctx->metrics.tx_no_xdp_cnt++;
+    ctx->metrics.tx_route_no_interface++;
     return 0;
   }
   ctx->tx_op.xsk_idx = XSK_IDX_MAIN;
@@ -601,11 +609,11 @@ net_tx_route( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
     /* Neighbor not found */
     fd_netlink_neigh4_solicit( ctx->neigh4_solicit, neigh_ip, if_idx, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->metrics.tx_neigh_fail_cnt++;
+    ctx->metrics.tx_route_failed_neighbor++;
     return 0;
   }
   if( FD_UNLIKELY( neigh->state != FD_NEIGH4_STATE_ACTIVE ) ) {
-    ctx->metrics.tx_neigh_fail_cnt++;
+    ctx->metrics.tx_route_failed_neighbor++;
     return 0;
   }
   ip4_src = fd_uint_if( !ip4_src, ctx->default_address, ip4_src );
@@ -654,24 +662,24 @@ before_frag( fd_net_ctx_t * ctx,
     return 1; /* metrics incremented by net_tx_route */
   }
 
-  uint xsk_idx     = ctx->tx_op.xsk_idx;
+  uint xsk_idx = ctx->tx_op.xsk_idx;
 
   if( is_gre_inf ) {
     uint inner_src_ip = ctx->tx_op.src_ip;
     if( FD_UNLIKELY( !inner_src_ip ) ) {
-      ctx->metrics.tx_gre_route_fail_cnt++;
+      ctx->metrics.tx_route_failed_routing++;
       return 1;
     }
     /* Find the MAC addrs for the eth hdr, and src ip for outer ip4 hdr if not found in netdev tbl */
     ctx->tx_op.src_ip  = 0;
     is_gre_inf         = 0;
     if( FD_UNLIKELY( !net_tx_route( ctx, ctx->tx_op.gre_outer_dst_ip, &is_gre_inf ) ) ) {
-      ctx->metrics.tx_gre_route_fail_cnt++;
+      ctx->metrics.tx_route_failed_routing++;
       return 1;
     }
     if( is_gre_inf ) {
       /* Only one layer of tunnelling supported */
-      ctx->metrics.tx_gre_route_fail_cnt++;
+      ctx->metrics.tx_route_failed_routing++;
       return 1;
     }
     if( !ctx->tx_op.gre_outer_src_ip ) {
@@ -684,7 +692,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( xsk_idx>=ctx->xsk_cnt ) ) {
     /* Packet does not route to an XDP interface */
-    ctx->metrics.tx_no_xdp_cnt++;
+    ctx->metrics.tx_route_no_interface++;
     return 1;
   }
 
@@ -699,7 +707,7 @@ before_frag( fd_net_ctx_t * ctx,
   fd_xsk_t *           xsk  = &ctx->xsk[ xsk_idx ];
   fd_net_free_ring_t * free = &ctx->free_tx;
   if( FD_UNLIKELY( !net_tx_ready( &xsk->ring_tx, free ) ) ) {
-    ctx->metrics.tx_full_fail_cnt++;
+    ctx->metrics.tx_xdp_too_slow_cnt++;
     return 1;
   }
 
@@ -780,7 +788,7 @@ after_frag( fd_net_ctx_t *      ctx,
 
     /* For GRE packets, the ethertype will always be FD_ETH_HDR_TYPE_IP. outer source ip can't be 0 */
     if( FD_UNLIKELY( ctx->tx_op.gre_outer_src_ip==0 ) ) {
-      ctx->metrics.tx_gre_route_fail_cnt++;
+      ctx->metrics.tx_route_failed_routing++;
       return;
     }
 
@@ -832,9 +840,8 @@ after_frag( fd_net_ctx_t *      ctx,
     FD_LOG_CRIT(( "in link %lu attempted to send packet with invalid ethertype %04x",
                   in_idx, fd_ushort_bswap( ethertype ) ));
   }
-
   if( ver!=0x4 ) {
-    ctx->metrics.tx_route_fail_cnt++; // Not an IPv4 packet. drop
+    ctx->metrics.tx_route_invalid_packet++;
     return;
   }
 
@@ -844,7 +851,7 @@ after_frag( fd_net_ctx_t *      ctx,
                      (sizeof(fd_eth_hdr_t)+ihl)>sz ) ) {
       /* Outgoing IPv4 packet with unknown src IP or invalid IHL */
       /* FIXME should select first IPv4 address of device table here */
-      ctx->metrics.tx_route_fail_cnt++;
+      ctx->metrics.tx_route_invalid_packet++;
       return;
     }
     /* Recompute checksum after changing header */
@@ -876,7 +883,8 @@ after_frag( fd_net_ctx_t *      ctx,
   tx_ring->cached_prod = tx_seq+1U;
   ctx->metrics.tx_submit_cnt++;
   ctx->metrics.tx_bytes_total += sz;
-  if( ctx->tx_op.use_gre ) ctx->metrics.tx_gre_cnt++;
+  if( ctx->tx_op.use_gre ) ctx->metrics.tx_route_pass_gre++;
+  else                     ctx->metrics.tx_route_pass_direct++;
   fd_net_flusher_inc( ctx->tx_flusher+xsk_idx, fd_tickcount() );
 }
 
@@ -891,7 +899,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t) ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-    ctx->metrics.rx_undersz_cnt++;
+    ctx->metrics.rx_cnt_too_small++;
     return;
   }
 
@@ -901,25 +909,33 @@ net_rx_packet( fd_net_ctx_t * ctx,
 
   if( FD_UNLIKELY( ((fd_eth_hdr_t *)packet)->net_type!=fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) ) ) return;
 
-  int is_packet_gre = 0;
   /* Discard the GRE overhead (outer iphdr and gre hdr) */
   if( iphdr->protocol == FD_IP4_HDR_PROTOCOL_GRE ) {
-    if( FD_UNLIKELY( ctx->has_gre_interface==0 ) ) {
-      ctx->metrics.rx_gre_ignored_cnt++; // drop. No gre interface in netdev table
+    if( FD_UNLIKELY( !ctx->gre_tunnel_ip ) ) {
+      ctx->metrics.rx_cnt_invalid_gre++;
+      ctx->metrics.rx_gre_tunnel_offline++;
       return;
     }
     ulong gre_ipver = FD_IP4_GET_VERSION( *iphdr );
     ulong gre_iplen = FD_IP4_GET_LEN( *iphdr );
     if( FD_UNLIKELY( gre_ipver!=0x4 || gre_iplen<20 ) ) {
       FD_DTRACE_PROBE( net_tile_err_rx_noip );
-      ctx->metrics.rx_gre_inv_pkt_cnt++; /* drop IPv6 packets */
+      ctx->metrics.rx_cnt_invalid_gre++;
+      ctx->metrics.rx_gre_invalid_other++;
       return;
     }
+    if( FD_UNLIKELY( iphdr->saddr!=ctx->gre_tunnel_ip ) ) {
+      ctx->metrics.rx_cnt_invalid_gre++;
+      ctx->metrics.rx_gre_invalid_src++;
+      return;
+    }
+
+    ctx->metrics.rx_gre_pass++;
 
     ulong overhead = gre_iplen + sizeof(fd_gre_hdr_t);
     if( FD_UNLIKELY( (uchar *)iphdr+overhead+sizeof(fd_ip4_hdr_t)>packet_end ) ) {
       FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-      ctx->metrics.rx_undersz_cnt++;  // inner ip4 header invalid
+      ctx->metrics.rx_cnt_invalid_other++;
       return;
     }
 
@@ -930,7 +946,6 @@ net_rx_packet( fd_net_ctx_t * ctx,
     sz                 -= overhead;
     packet             = new_packet;
     umem_off           = (ulong)( packet - (uchar *)ctx->umem );
-    is_packet_gre      = 1;
   }
 
   /* Translate packet to UMEM frame index */
@@ -943,14 +958,14 @@ net_rx_packet( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( ipver!=0x4 || iplen<20 ||
                    iphdr->protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_noip );
-    ctx->metrics.rx_undersz_cnt++; /* drop IPv6 packets */
+    ctx->metrics.rx_cnt_invalid_other++;
     return;
   }
 
   uchar const * udp = (uchar *)iphdr + iplen;
   if( FD_UNLIKELY( udp+sizeof(fd_udp_hdr_t) > packet_end ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-    ctx->metrics.rx_undersz_cnt++;
+    ctx->metrics.rx_cnt_invalid_other++;
     return;
   }
 
@@ -958,7 +973,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong        const   udp_sz  = fd_ushort_bswap( udp_hdr->net_len );
   if( FD_UNLIKELY( (udp_sz<sizeof(fd_udp_hdr_t)) | (udp+udp_sz>packet_end) ) ) {
     FD_DTRACE_PROBE( net_tile_err_rx_undersz );
-    ctx->metrics.rx_undersz_cnt++;
+    ctx->metrics.rx_cnt_invalid_other++;
     return;
   }
 
@@ -968,7 +983,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ushort udp_dstport  =  fd_ushort_bswap( udp_hdr->net_dport );
 
   if( FD_UNLIKELY( fd_ip4_addr_is_mcast( ip_srcaddr ) ) ) {
-    ctx->metrics.rx_src_addr_invalid_cnt++;
+    ctx->metrics.rx_cnt_invalid_src++;
     return;
   }
 
@@ -1028,8 +1043,7 @@ net_rx_packet( fd_net_ctx_t * ctx,
   /* Wind up for the next iteration */
   out->seq               = fd_seq_inc( out->seq, 1UL );
 
-  if( is_packet_gre ) ctx->metrics.rx_gre_cnt++;
-  ctx->metrics.rx_pkt_cnt++;
+  ctx->metrics.rx_cnt_accept++;
   ctx->metrics.rx_bytes_total += sz;
 }
 
@@ -1092,7 +1106,7 @@ net_rx_event( fd_net_ctx_t * ctx,
 
   fd_xdp_ring_t * fill_ring  = &xsk->ring_fr;
   if( FD_UNLIKELY( fd_xdp_ring_full( fill_ring ) ) ) {
-    ctx->metrics.rx_fill_blocked_cnt++;
+    ctx->metrics.rx_cnt_xdp_too_slow++;
     return; /* blocked */
   }
 
