@@ -188,21 +188,31 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">net_&#8203;rx_&#8203;pkt_&#8203;cnt</span> | counter | Packet receive count |
+| <span class="metrics-name">net_&#8203;rx_&#8203;cnt</span><br/>{rx_&#8203;outcome="<span class="metrics-enum">accept</span>"} | counter | Packet RX count (forwarded to app tile) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;cnt</span><br/>{rx_&#8203;outcome="<span class="metrics-enum">xdp_&#8203;too_&#8203;slow</span>"} | counter | Packet RX count (dropped because XDP fill ring was full) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;cnt</span><br/>{rx_&#8203;outcome="<span class="metrics-enum">invalid_&#8203;src</span>"} | counter | Packet RX count (rejected due to invalid source IP address) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;cnt</span><br/>{rx_&#8203;outcome="<span class="metrics-enum">invalid_&#8203;gre</span>"} | counter | Packet RX count (GRE packet rejected) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;cnt</span><br/>{rx_&#8203;outcome="<span class="metrics-enum">too_&#8203;small</span>"} | counter | Packet RX count (dropped because it's too small to be useful) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;cnt</span><br/>{rx_&#8203;outcome="<span class="metrics-enum">invalid_&#8203;other</span>"} | counter | Packet RX count (rejected due to invalid header) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;cnt</span><br/>{rx_&#8203;gre_&#8203;outcome="<span class="metrics-enum">pass</span>"} | counter | GRE tunnel RX count (accepted packet from tunnel) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;cnt</span><br/>{rx_&#8203;gre_&#8203;outcome="<span class="metrics-enum">invalid_&#8203;src</span>"} | counter | GRE tunnel RX count (rejected because source IP does not match tunnel) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;cnt</span><br/>{rx_&#8203;gre_&#8203;outcome="<span class="metrics-enum">invalid_&#8203;other</span>"} | counter | GRE tunnel RX count (rejected due to invalid header) |
+| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;cnt</span><br/>{rx_&#8203;gre_&#8203;outcome="<span class="metrics-enum">tunnel_&#8203;offline</span>"} | counter | GRE tunnel RX count (rejected because no GRE tunnel is configured) |
 | <span class="metrics-name">net_&#8203;rx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes received (including Ethernet header) |
-| <span class="metrics-name">net_&#8203;rx_&#8203;undersz_&#8203;cnt</span> | counter | Number of incoming packets dropped due to being too small |
-| <span class="metrics-name">net_&#8203;rx_&#8203;fill_&#8203;blocked_&#8203;cnt</span> | counter | Number of incoming packets dropped due to fill ring being full |
-| <span class="metrics-name">net_&#8203;rx_&#8203;backpressure_&#8203;cnt</span> | counter | Number of incoming packets dropped due to backpressure |
-| <span class="metrics-name">net_&#8203;rx_&#8203;busy_&#8203;cnt</span> | gauge | Number of receive buffers currently busy |
-| <span class="metrics-name">net_&#8203;rx_&#8203;idle_&#8203;cnt</span> | gauge | Number of receive buffers currently idle |
-| <span class="metrics-name">net_&#8203;tx_&#8203;submit_&#8203;cnt</span> | counter | Number of packet transmit jobs submitted |
-| <span class="metrics-name">net_&#8203;tx_&#8203;complete_&#8203;cnt</span> | counter | Number of packet transmit jobs marked as completed by the kernel |
+| <span class="metrics-name">net_&#8203;rx_&#8203;busy_&#8203;cnt</span> | gauge | Number of RX buffers currently busy |
+| <span class="metrics-name">net_&#8203;rx_&#8203;idle_&#8203;cnt</span> | gauge | Number of RX buffers currently idle |
+| <span class="metrics-name">net_&#8203;tx_&#8203;route_&#8203;outcome</span><br/>{tx_&#8203;route_&#8203;outcome="<span class="metrics-enum">pass_&#8203;direct</span>"} | counter | TX routing decision (sent to network directly) |
+| <span class="metrics-name">net_&#8203;tx_&#8203;route_&#8203;outcome</span><br/>{tx_&#8203;route_&#8203;outcome="<span class="metrics-enum">pass_&#8203;gre</span>"} | counter | TX routing decision (sent via GRE tunnel) |
+| <span class="metrics-name">net_&#8203;tx_&#8203;route_&#8203;outcome</span><br/>{tx_&#8203;route_&#8203;outcome="<span class="metrics-enum">failed_&#8203;routing</span>"} | counter | TX routing decision (dropped because it failed to route) |
+| <span class="metrics-name">net_&#8203;tx_&#8203;route_&#8203;outcome</span><br/>{tx_&#8203;route_&#8203;outcome="<span class="metrics-enum">failed_&#8203;neighbor</span>"} | counter | TX routing decision (dropped because ARP/neighbor lookup failed for next hop) |
+| <span class="metrics-name">net_&#8203;tx_&#8203;route_&#8203;outcome</span><br/>{tx_&#8203;route_&#8203;outcome="<span class="metrics-enum">no_&#8203;interface</span>"} | counter | TX routing decision (dropped because it routed to an interface without XDP) |
+| <span class="metrics-name">net_&#8203;tx_&#8203;route_&#8203;outcome</span><br/>{tx_&#8203;route_&#8203;outcome="<span class="metrics-enum">invalid_&#8203;packet</span>"} | counter | TX routing decision (dropped because app tried to send an invalid packet) |
+| <span class="metrics-name">net_&#8203;tx_&#8203;submit_&#8203;cnt</span> | counter | Number of packet TX jobs submitted |
+| <span class="metrics-name">net_&#8203;tx_&#8203;complete_&#8203;cnt</span> | counter | Number of packet TX jobs marked as completed by the kernel |
+| <span class="metrics-name">net_&#8203;tx_&#8203;xdp_&#8203;too_&#8203;slow_&#8203;cnt</span> | counter | Number of packet TX jobs dropped due to XDP TX ring full or missing completions |
 | <span class="metrics-name">net_&#8203;tx_&#8203;bytes_&#8203;total</span> | counter | Total number of bytes transmitted (including Ethernet header) |
-| <span class="metrics-name">net_&#8203;tx_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of packet transmit jobs dropped due to route failure |
-| <span class="metrics-name">net_&#8203;tx_&#8203;neighbor_&#8203;fail_&#8203;cnt</span> | counter | Number of packet transmit jobs dropped due to unresolved neighbor |
-| <span class="metrics-name">net_&#8203;tx_&#8203;full_&#8203;fail_&#8203;cnt</span> | counter | Number of packet transmit jobs dropped due to XDP TX ring full or missing completions |
-| <span class="metrics-name">net_&#8203;tx_&#8203;busy_&#8203;cnt</span> | gauge | Number of transmit buffers currently busy |
-| <span class="metrics-name">net_&#8203;tx_&#8203;idle_&#8203;cnt</span> | gauge | Number of transmit buffers currently idle |
+| <span class="metrics-name">net_&#8203;tx_&#8203;busy_&#8203;cnt</span> | gauge | Number of TX buffers currently busy |
+| <span class="metrics-name">net_&#8203;tx_&#8203;idle_&#8203;cnt</span> | gauge | Number of TX buffers currently idle |
 | <span class="metrics-name">net_&#8203;xsk_&#8203;tx_&#8203;wakeup_&#8203;cnt</span> | counter | Number of XSK sendto syscalls dispatched |
 | <span class="metrics-name">net_&#8203;xsk_&#8203;rx_&#8203;wakeup_&#8203;cnt</span> | counter | Number of XSK recvmsg syscalls dispatched |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other</span> | counter | Dropped for other reasons (xdp_statistics_v0.rx_dropped) |
@@ -211,12 +221,6 @@
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;ring_&#8203;full</span> | counter | Dropped due to rx ring being full (xdp_statistics_v1.rx_ring_full) |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;fill_&#8203;ring_&#8203;empty_&#8203;descs</span> | counter | Failed to retrieve item from fill ring (xdp_statistics_v1.rx_fill_ring_empty_descs) |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty_&#8203;descs</span> | counter | Failed to retrieve item from tx ring (xdp_statistics_v1.tx_ring_empty_descs) |
-| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;cnt</span> | counter | Number of valid GRE packets received |
-| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;invalid_&#8203;cnt</span> | counter | Number of invalid GRE packets received |
-| <span class="metrics-name">net_&#8203;rx_&#8203;gre_&#8203;ignored_&#8203;cnt</span> | counter | Number of received but ignored GRE packets |
-| <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;cnt</span> | counter | Number of GRE packet transmit jobs submitted |
-| <span class="metrics-name">net_&#8203;tx_&#8203;gre_&#8203;route_&#8203;fail_&#8203;cnt</span> | counter | Number of GRE packets transmit jobs dropped due to route failure |
-| <span class="metrics-name">net_&#8203;rx_&#8203;src_&#8203;addr_&#8203;invalid_&#8203;cnt</span> | counter | Number of incoming packets dropped due to invalid source IP address |
 
 </div>
 

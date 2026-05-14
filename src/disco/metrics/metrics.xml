@@ -59,23 +59,49 @@ metric introduced.
     <counter name="CpuDurationNanos" enum="CpuRegime" summary="CPU time spent in each CPU regime" />
 </common>
 
-<tile name="net">
-    <counter name="RxPktCnt" summary="Packet receive count" />
-    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)" />
-    <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small" />
-    <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full" />
-    <counter name="RxBackpressureCnt" summary="Number of incoming packets dropped due to backpressure" />
-    <gauge name="RxBusyCnt" summary="Number of receive buffers currently busy" />
-    <gauge name="RxIdleCnt" summary="Number of receive buffers currently idle" />
+<enum name="RxOutcome">
+    <int value="0" name="Accept" label="forwarded to app tile" />
+    <int value="1" name="XdpTooSlow" label="dropped because XDP fill ring was full" />
+    <int value="2" name="InvalidSrc" label="rejected due to invalid source IP address" />
+    <int value="3" name="InvalidGre" label="GRE packet rejected" />
+    <int value="4" name="TooSmall" label="dropped because it's too small to be useful" />
+    <int value="5" name="InvalidOther" label="rejected due to invalid header" />
+</enum>
 
-    <counter name="TxSubmitCnt" summary="Number of packet transmit jobs submitted" />
-    <counter name="TxCompleteCnt" summary="Number of packet transmit jobs marked as completed by the kernel" />
+<enum name="RxGreOutcome">
+    <int value="0" name="Pass" label="accepted packet from tunnel" />
+    <int value="1" name="InvalidSrc" label="rejected because source IP does not match tunnel" />
+    <int value="2" name="InvalidOther" label="rejected due to invalid header" />
+    <int value="3" name="TunnelOffline" label="rejected because no GRE tunnel is configured" />
+</enum>
+
+<enum name="TxRouteOutcome">
+    <int value="0" name="PassDirect" label="sent to network directly" />
+    <int value="1" name="PassGre" label="sent via GRE tunnel" />
+    <int value="2" name="FailedRouting" label="dropped because it failed to route" />
+    <int value="3" name="FailedNeighbor" label="dropped because ARP/neighbor lookup failed for next hop" />
+    <int value="4" name="NoInterface" label="dropped because it routed to an interface without XDP" />
+    <int value="5" name="InvalidPacket" label="dropped because app tried to send an invalid packet" />
+</enum>
+
+<tile name="net">
+    <!-- Receive counters across all packets -->
+    <counter name="RxCnt" enum="RxOutcome" summary="Packet RX count" />
+    <!-- Receive counters  -->
+    <counter name="RxGreCnt" enum="RxGreOutcome" summary="GRE tunnel RX count" />
+    <counter name="RxBytesTotal" summary="Total number of bytes received (including Ethernet header)" />
+    <gauge name="RxBusyCnt" summary="Number of RX buffers currently busy" />
+    <gauge name="RxIdleCnt" summary="Number of RX buffers currently idle" />
+
+    <!-- Transmit decision counters -->
+    <counter name="TxRouteOutcome" enum="TxRouteOutcome" summary="TX routing decision" />
+    <!-- Transmit I/O counters -->
+    <counter name="TxSubmitCnt" summary="Number of packet TX jobs submitted" />
+    <counter name="TxCompleteCnt" summary="Number of packet TX jobs marked as completed by the kernel" />
+    <counter name="TxXdpTooSlowCnt" summary="Number of packet TX jobs dropped due to XDP TX ring full or missing completions" />
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)" />
-    <counter name="TxRouteFailCnt" summary="Number of packet transmit jobs dropped due to route failure" />
-    <counter name="TxNeighborFailCnt" summary="Number of packet transmit jobs dropped due to unresolved neighbor" />
-    <counter name="TxFullFailCnt" summary="Number of packet transmit jobs dropped due to XDP TX ring full or missing completions" />
-    <gauge name="TxBusyCnt" summary="Number of transmit buffers currently busy" />
-    <gauge name="TxIdleCnt" summary="Number of transmit buffers currently idle" />
+    <gauge name="TxBusyCnt" summary="Number of TX buffers currently busy" />
+    <gauge name="TxIdleCnt" summary="Number of TX buffers currently idle" />
 
     <counter name="XskTxWakeupCnt" summary="Number of XSK sendto syscalls dispatched" />
     <counter name="XskRxWakeupCnt" summary="Number of XSK recvmsg syscalls dispatched" />
@@ -87,14 +113,6 @@ metric introduced.
     <counter name="XdpRxRingFull" summary="Dropped due to rx ring being full (xdp_statistics_v1.rx_ring_full)" />
     <counter name="XdpRxFillRingEmptyDescs" summary="Failed to retrieve item from fill ring (xdp_statistics_v1.rx_fill_ring_empty_descs)" />
     <counter name="XdpTxRingEmptyDescs" summary="Failed to retrieve item from tx ring (xdp_statistics_v1.tx_ring_empty_descs)" />
-
-    <!-- GRE metrics -->
-    <counter name="RxGreCnt" summary="Number of valid GRE packets received" />
-    <counter name="RxGreInvalidCnt" summary="Number of invalid GRE packets received" />
-    <counter name="RxGreIgnoredCnt" summary="Number of received but ignored GRE packets" />
-    <counter name="TxGreCnt" summary="Number of GRE packet transmit jobs submitted" />
-    <counter name="TxGreRouteFailCnt" summary="Number of GRE packets transmit jobs dropped due to route failure" />
-    <counter name="RxSrcAddrInvalidCnt" summary="Number of incoming packets dropped due to invalid source IP address" />
 </tile>
 
 <enum name="SockErr">
