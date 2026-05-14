@@ -256,7 +256,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   /* Actually invoke the syscall */
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
-  int instr_end_err = fd_execute_instr_end( vm->instr_ctx, (fd_instr_info_t *)ctx->instr, syscall_err );
+  int instr_end_err = fd_execute_instr_end( vm->instr_ctx, ctx->instr, syscall_err );
   if( instr_end_err ) {
     fd_log_collector_program_failure( vm->instr_ctx );
   }
