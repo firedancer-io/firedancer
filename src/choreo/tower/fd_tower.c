@@ -401,8 +401,13 @@ static int
 lockout_check( fd_tower_t * tower,
                ulong        slot ) {
 
-  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes )                         ) ) return 1; /* always not locked out if we haven't voted. */
-  if( FD_UNLIKELY( slot <= fd_tower_vote_peek_tail_const( tower->votes )->slot ) ) return 0; /* always locked out from voting for slot <= last vote slot */
+  /* Mirrors Agave's Tower::is_recent(): reject slot if it is not strictly
+     newer than our last vote (non-empty tower) or our root (empty tower,
+     e.g. snapshot boot).
+     https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/core/src/consensus.rs#L825-L836 */
+  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) ) )
+    return tower->root==ULONG_MAX || slot>tower->root;
+  if( FD_UNLIKELY( slot<=fd_tower_vote_peek_tail_const( tower->votes )->slot ) ) return 0;
 
   /* Simulate a vote to pop off all the votes that would be expired by
      voting for slot.  Then check if the newly top-of-tower vote is on
@@ -689,14 +694,28 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   fd_ghost_blk_t const * reset_blk = NULL;
   fd_ghost_blk_t const * vote_blk  = NULL;
 
-  /* Case 0: if we haven't voted yet then we can always vote and reset
-     to ghost_best.
+  /* Case 0: if we haven't voted yet then there are two cases to consider. */
 
-     https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L933-L935 */
+  /* Case 0a: On snapshot boot, tower->root is set to the snapshot slot before any
+     votes are recorded. In this case, lockout_check returns  0 for slot <= root,
+     preventing a vote on the snapshot slot itself. */
+  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) && !lockout_check( tower, best_blk->slot ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
+    FD_LOG_DEBUG(( "[%s] case 0a: not recent (slot %lu <= root %lu). reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, best_blk->slot, tower->root, best_blk->slot, best_blk_id ));
+    *reset_slot     = best_blk->slot;
+    *reset_block_id = best_blk->id;
+    *vote_slot      = ULONG_MAX;
+    *vote_block_id  = (fd_hash_t){0};
+    *root_slot      = ULONG_MAX;
+    *root_block_id  = (fd_hash_t){0};
+    return flags;
+  }
 
+  /* Case 0b: if we haven't voted yet then we can always vote and reset
+     to ghost_best. */
   if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
-    FD_LOG_DEBUG(( "[%s] case 0: empty tower. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, best_blk->slot, best_blk_id, best_blk->slot, best_blk_id ));
+    FD_LOG_DEBUG(( "[%s] case 0b: empty tower. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, best_blk->slot, best_blk_id, best_blk->slot, best_blk_id ));
     fd_tower_blk_t * fork = fd_tower_blocks_query( tower, best_blk->slot );
     fork->voted           = 1;
     fork->voted_block_id  = best_blk->id;
