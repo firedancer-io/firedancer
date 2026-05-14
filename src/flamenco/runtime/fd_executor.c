@@ -1093,9 +1093,9 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
    where we always pop the instruction stack no matter what the error code is.
    https://github.com/anza-xyz/agave/blob/v2.2.12/program-runtime/src/invoke_context.rs#L480 */
 int
-fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
-                      fd_instr_info_t *     instr,
-                      int                   instr_exec_result ) {
+fd_execute_instr_end( fd_exec_instr_ctx_t *   instr_ctx,
+                      fd_instr_info_t const * instr,
+                      int                     instr_exec_result ) {
   int stack_pop_err = fd_instr_stack_pop( instr_ctx->runtime, instr_ctx->txn_out, instr );
 
   /* Only report the stack pop error on success */

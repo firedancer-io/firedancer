@@ -133,9 +133,9 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
                     fd_instr_info_t const * instr );
 
 int
-fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
-                      fd_instr_info_t *     instr,
-                      int                   instr_exec_result );
+fd_execute_instr_end( fd_exec_instr_ctx_t *   instr_ctx,
+                      fd_instr_info_t const * instr,
+                      int                     instr_exec_result );
 
 FD_PROTOTYPES_END
 
