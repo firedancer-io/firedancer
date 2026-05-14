@@ -147,8 +147,8 @@ struct fd_epoch_credits {
 typedef struct fd_epoch_credits fd_epoch_credits_t;
 
 struct fd_stashed_commission {
-  uchar pubkey[32];
-  uchar commission;
+  uchar  pubkey[32];
+  ushort commission;
 };
 typedef struct fd_stashed_commission fd_stashed_commission_t;
 
