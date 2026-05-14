@@ -283,7 +283,7 @@ fd_accdb_shmem_new( void * shmem,
     _cache_regions[ c ] = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_CACHE_META_SZ, cache_class_max[c]*fd_accdb_cache_slot_sz[c]                 );
   }
 
-  for( ulong i=0UL; i<chain_cnt; i++ ) ((uint *)_acc_map)[ i ] = UINT_MAX;
+  fd_memset( _acc_map, 0xFF, chain_cnt*sizeof(uint) );
 
   FD_TEST( acc_pool_new( _acc_pool_shmem ) );
   acc_pool_t _acc_pool_join[1];
