@@ -1092,7 +1092,7 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
 /* This function mimics Agave's `.and(self.pop())` functionality,
    where we always pop the instruction stack no matter what the error code is.
    https://github.com/anza-xyz/agave/blob/v2.2.12/program-runtime/src/invoke_context.rs#L480 */
-static inline int
+int
 fd_execute_instr_end( fd_exec_instr_ctx_t * instr_ctx,
                       fd_instr_info_t *     instr,
                       int                   instr_exec_result ) {
