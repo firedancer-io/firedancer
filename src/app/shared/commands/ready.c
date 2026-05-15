@@ -34,6 +34,7 @@ ready_cmd_fn( args_t *   args,
 
       if( FD_LIKELY( status==1UL ) ) break;
       else if( FD_UNLIKELY( tile->allow_shutdown && status==2UL ) ) break;
+      else if( FD_UNLIKELY( tile->allow_crash && status==3UL ) ) break;
       else if( FD_UNLIKELY( status ) )
         FD_LOG_ERR(( "status for tile %s:%lu is in bad state %lu", tile->name, tile->kind_id, status ));
 

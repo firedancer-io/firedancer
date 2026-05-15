@@ -31,7 +31,7 @@
 | <span class="metrics-name">tile_&#8203;context_&#8203;switch_&#8203;voluntary_&#8203;count</span> | counter | The number of voluntary context switches |
 | <span class="metrics-name">tile_&#8203;page_&#8203;fault_&#8203;major_&#8203;count</span> | counter | The number of major page faults |
 | <span class="metrics-name">tile_&#8203;page_&#8203;fault_&#8203;minor_&#8203;count</span> | counter | The number of minor page faults |
-| <span class="metrics-name">tile_&#8203;status</span> | gauge | The current status of the tile. 0 is booting, 1 is running. 2 is shutdown |
+| <span class="metrics-name">tile_&#8203;status</span> | gauge | The current status of the tile. 0 is booting, 1 is running. 2 is shutdown. 3 is crashed. |
 | <span class="metrics-name">tile_&#8203;heartbeat</span> | gauge | The last UNIX timestamp in nanoseconds that the tile heartbeated |
 | <span class="metrics-name">tile_&#8203;in_&#8203;backpressure</span> | gauge | Whether the tile is currently backpressured or not, either 1 or 0 |
 | <span class="metrics-name">tile_&#8203;backpressure_&#8203;count</span> | counter | Number of times the tile has had to wait for one of more consumers to catch up to resume publishing |

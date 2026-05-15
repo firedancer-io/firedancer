@@ -195,8 +195,6 @@
 #define STEM_LAZY (0L)
 #endif
 
-#define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
-
 static inline void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
   fd_fseq_update( in->fseq, in->seq );

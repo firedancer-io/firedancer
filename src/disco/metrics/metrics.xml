@@ -51,7 +51,7 @@ metric introduced.
     <counter name="ContextSwitchVoluntaryCount" summary="The number of voluntary context switches" />
     <counter name="PageFaultMajorCount" summary="The number of major page faults" />
     <counter name="PageFaultMinorCount" summary="The number of minor page faults" />
-    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running. 2 is shutdown" />
+    <gauge name="Status" summary="The current status of the tile. 0 is booting, 1 is running. 2 is shutdown. 3 is crashed." />
     <gauge name="Heartbeat" summary="The last UNIX timestamp in nanoseconds that the tile heartbeated" />
     <gauge name="InBackpressure" summary="Whether the tile is currently backpressured or not, either 1 or 0" />
     <counter name="BackpressureCount" summary="Number of times the tile has had to wait for one of more consumers to catch up to resume publishing" />

@@ -11,8 +11,9 @@
 
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
-#include "../../../platform/fd_net_util.h"
 #include "../../../../disco/net/fd_net_tile.h"
+#include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../disco/stem/fd_stem.h"
 
 #include "../configure/configure.h"
 
@@ -310,6 +311,25 @@ main_pid_namespace( void * _args ) {
     FD_TEST( 8UL==read( fds[ i ].fd, &actual_pids[ i ], 8UL ) );
   }
 
+  /* Remap fseq and metrics workspaces for tiles with allow_crash=1 so
+     we can demote reliable links to unreliable and update tile status
+     metrics when a crashable tile dies.  These workspaces were left
+     unmapped in initialize_workspaces to avoid leaking mappings
+     into child processes, but need to be rejoined before seccomp
+     filters take effect. */
+  for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
+    int need_join = 0;
+    for( ulong j=0UL; j<config->topo.tile_cnt; j++ ) {
+      fd_topo_tile_t const * tile = &config->topo.tiles[ j ];
+      if( FD_LIKELY( !tile->allow_crash ) ) continue;
+      need_join |= i==config->topo.objs[ tile->metrics_obj_id ].wksp_id;
+      for( ulong k=0UL; k<tile->in_cnt; k++ ) need_join |= tile->in_link_poll[ k ] && tile->in_link_reliable[ k ] && i==config->topo.objs[ tile->in_link_fseq_obj_id[ k ] ].wksp_id;
+    }
+    if( FD_UNLIKELY( need_join ) ) {
+      fd_topo_join_workspace( (fd_topo_t *)&config->topo, &((fd_topo_t *)&config->topo)->workspaces[ i ], FD_SHMEM_JOIN_MODE_READ_WRITE, 0 );
+    }
+  }
+
   if( FD_UNLIKELY( -1==setpriority( PRIO_PROCESS, 0, save_priority ) ) ) FD_LOG_ERR(( "setpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( fd_cpuset_setaffinity( 0, floating_cpu_set ) ) )
     FD_LOG_ERR(( "fd_cpuset_setaffinity failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -418,18 +438,56 @@ main_pid_namespace( void * _args ) {
 
       char * tile_name = child_names[ i ];
       ulong  tile_idx = child_idxs[ i ];
-      ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
+
+      /* Non-topology child (e.g. agave) has no tile entry */
+      if( FD_UNLIKELY( tile_idx==ULONG_MAX ) ) {
+        if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+          FD_LOG_ERR_NOEXIT(( "child %s crashed with signal %d (%s)", tile_name, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+          fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+        } else {
+          int exit_code = WEXITSTATUS( wstatus );
+          FD_LOG_ERR_NOEXIT(( "child %s exited unexpectedly with code %d", tile_name, exit_code ));
+          fd_sys_util_exit_group( exit_code ? exit_code : 1 );
+        }
+      }
+
+      fd_topo_tile_t const * tile = &config->topo.tiles[ tile_idx ];
 
       if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-        FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-        fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+        if( FD_UNLIKELY( tile->allow_crash ) ) {
+          FD_LOG_WARNING(( "expendable tile %s:%lu crashed with signal %d (%s)", tile_name, tile->kind_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+
+          /* We need to make all reliable links unreliable to prevent
+             the application from stalling. */
+          for( ulong j=0UL; j<tile->in_cnt; j++ ) {
+            if( FD_UNLIKELY( !tile->in_link_poll[ j ] || !tile->in_link_reliable[ j ] ) ) continue;
+
+            ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( &config->topo, tile->in_link_fseq_obj_id[ j ] ) );
+            if( FD_UNLIKELY( !fseq ) ) {
+              FD_LOG_ERR_NOEXIT(( "failed to join fseq" ));
+              fd_sys_util_exit_group( 1 );
+            }
+            fd_fseq_update( fseq, STEM_SHUTDOWN_SEQ );
+            fd_fseq_leave( fseq );
+
+            fd_topo_link_t const * in_link = &config->topo.links[ tile->in_link_id[ j ] ];
+            FD_LOG_NOTICE(( "demoted reliable in-link %s(%lu)->%s to unreliable", in_link->name, in_link->kind_id, tile->name ));
+          }
+
+          /* Update tile status metric */
+          ulong * metrics = fd_metrics_join( fd_topo_obj_laddr( &config->topo, tile->metrics_obj_id ) );
+          fd_metrics_tile( metrics )[ FD_METRICS_GAUGE_TILE_STATUS_OFF ] = 3UL;
+          fd_metrics_leave( metrics );
+        } else {
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu crashed with signal %d (%s)", tile_name, tile->kind_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
+          fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+        }
       } else {
         int exit_code = WEXITSTATUS( wstatus );
-        if( FD_LIKELY( !exit_code && tile_idx!=ULONG_MAX && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
-          found = 1;
-          FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
+        if( FD_LIKELY( !exit_code && tile->allow_shutdown ) ) {
+          FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile->kind_id, exit_code ));
         } else {
-          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
+          FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited unexpectedly with code %d", tile_name, tile->kind_id, exit_code ));
           fd_sys_util_exit_group( exit_code ? exit_code : 1 );
         }
       }

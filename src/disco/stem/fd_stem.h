@@ -5,6 +5,8 @@
 
 #define FD_STEM_SCRATCH_ALIGN (128UL)
 
+#define STEM_SHUTDOWN_SEQ (ULONG_MAX-1UL)
+
 struct fd_stem_context {
    fd_frag_meta_t ** mcaches;
    ulong *           seqs;
