@@ -170,8 +170,14 @@ hash_transactions( void *       mem,
       fd_bmtree_commit_append( bmtree, node, 1UL );
     }
   }
-  uchar * root = fd_bmtree_commit_fini( bmtree );
-  fd_memcpy( mixin, root, 32UL );
+  if( FD_LIKELY( fd_bmtree_commit_leaf_cnt( bmtree ) ) ) {
+    uchar * root = fd_bmtree_commit_fini( bmtree );
+    fd_memcpy( mixin, root, 32UL );
+  } else {
+    fd_memset( mixin, 0, 32UL );
+    /* Poison so we can detect if this is ever accessed upstream, even though it should never be. */
+    fd_msan_poison( mixin, 32UL );
+  }
 }
 
 static inline void
