@@ -29,20 +29,6 @@ write: (or (eq (arg 0) 1)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# watch: wait until we need to print again
-#
-# The watcher calls fd_log_wait_until() to wait until the diagnostic
-# output screen should be refreshed, and that function can call
-# nanosleep depending on the amount of time left to wait.
-nanosleep
-
-# watch: wait until we need to print again
-#
-# The watcher calls fd_log_wait_until() to wait until the diagnostic
-# output screen should be refreshed, and that function can call
-# sched_yield depending on the amount of time left to wait.
-sched_yield
-
 # watch: exit the process
 #
 # If the watcher is signalled with SIGINT or SIGTERM it will exit
@@ -64,3 +50,12 @@ exit_group
 # used by the monitor.
 read: (or (eq (arg 0) drain_output_fd)
           (eq (arg 0) 0))
+
+# watch: wait for log message from a firedancer child process
+#
+# The watcher supports a development mode where it can be run as the
+# supervisor process of Firedancer.  In this mode, poll() is used to
+# wait for the child processes to generate a new log line.
+#
+# This is not needed in production environments.
+ppoll
