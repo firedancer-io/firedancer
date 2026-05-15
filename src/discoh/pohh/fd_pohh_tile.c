@@ -323,18 +323,8 @@
 #include <string.h>
 
 /* The maximum number of microblocks that pack is allowed to pack into a
-   single slot.  This is not consensus critical, and pack could, if we
-   let it, produce as many microblocks as it wants, and the slot would
-   still be valid.
-
-   We have this here instead so that PoH can estimate slot completion,
-   and keep the hashcnt up to date as pack progresses through packing
-   the slot.  If this upper bound was not enforced, PoH could tick to
-   the last hash of the slot and have no hashes left to mixin incoming
-   microblocks from pack, so this upper bound is a coordination
-   mechanism so that PoH can progress hashcnts while the slot is active,
-   and know that pack will not need those hashcnts later to do mixins. */
-#define MAX_MICROBLOCKS_PER_SLOT (131072UL)
+   single slot. */
+#define MAX_MICROBLOCKS_PER_SLOT FD_MAX_TXN_PER_SLOT_CU
 
 /* When we are hashing in the background in case a prior leader skips
    their slot, we need to store the result of each tick hash so we can
@@ -477,9 +467,13 @@ struct fd_pohh_tile {
      mixin whatever future microblocks pack might produce for it.
 
      This value tracks that.  At any time, max_microblocks_per_slot
-     - microblocks_lower_bound is an upper bound on the maximum number
-     of microblocks that might still be received in this slot. */
-  ulong microblocks_lower_bound;
+     - microblocks_mixed_in is an upper bound on the maximum number
+     of microblocks that might still be received in this slot.
+
+     Only microblocks with at least one successfully executed
+     transaction count toward this limit.  Empty microblocks (failed
+     bundles, unincludable non-bundles) are not counted. */
+  ulong microblocks_mixed_in;
 
   uchar __attribute__((aligned(32UL))) reset_hash[ 32 ];
   uchar __attribute__((aligned(32UL))) hash[ 32 ];
@@ -1157,7 +1151,7 @@ fd_ext_poh_begin_leader( void const * bank,
   }
 
   ctx->current_leader_bank     = bank;
-  ctx->microblocks_lower_bound = 0UL;
+  ctx->microblocks_mixed_in    = 0UL;
   ctx->cus_used                = 0UL;
 
   ctx->limits.slot_max_cost                = cus_block_limit;
@@ -1357,7 +1351,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
      than being constrained.  If we are leader after the reset, this
      is OK because we won't tick until we get a bank, and the lower
      bound will be reset with the value from the bank. */
-  ctx->microblocks_lower_bound = ctx->max_microblocks_per_slot;
+  ctx->microblocks_mixed_in = ctx->max_microblocks_per_slot;
 
   if( FD_UNLIKELY( leader_before_reset ) ) {
     /* No longer have a leader bank if we are reset. Replay stage will
@@ -1572,7 +1566,7 @@ after_credit( fd_pohh_tile_t *    ctx,
   /* If we are the leader, always leave enough capacity in the slot so
      that we can mixin any potential microblocks still coming from the
      pack tile for this slot. */
-  ulong max_remaining_microblocks = ctx->max_microblocks_per_slot - ctx->microblocks_lower_bound;
+  ulong max_remaining_microblocks = ctx->max_microblocks_per_slot - ctx->microblocks_mixed_in;
 
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
@@ -1918,22 +1912,18 @@ during_frag( fd_pohh_tile_t * ctx,
   int is_frag_for_prior_leader_slot = slot<ctx->highwater_leader_slot;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
-    /* We now know the real amount of microblocks published, so set an
-       exact bound for once we receive them. */
     ctx->skip_frag = 1;
     if( FD_UNLIKELY( is_frag_for_prior_leader_slot ) ) return;
-    fd_done_packing_t const * done_packing = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
-    FD_TEST( ctx->microblocks_lower_bound<=ctx->max_microblocks_per_slot );
-    FD_TEST( done_packing->microblocks_in_slot<=ctx->max_microblocks_per_slot-1UL );
-    FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
+    FD_TEST( ctx->microblocks_mixed_in<=ctx->max_microblocks_per_slot );
+    FD_LOG_INFO(( "done_packing(slot=%lu,microblocks_mixed_in=%lu)",
                   ctx->slot,
-                  ctx->microblocks_lower_bound,
-                  done_packing->microblocks_in_slot ));
+                  ctx->microblocks_mixed_in ));
 
-    ctx->microblocks_lower_bound += 1UL /* done_packing as a phantom "microblock"*/
-                                  + (ctx->max_microblocks_per_slot-1UL) /* the canonical microblock limit */
-                                  - done_packing->microblocks_in_slot /* the actual microblock count */;
+    /* pack_idx ordering guarantees all microblocks have been processed
+       before done_packing arrives.  Fill the counter to max so no more
+       microblocks can be mixed in. */
+    ctx->microblocks_mixed_in = ctx->max_microblocks_per_slot;
     return;
   } else {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>USHORT_MAX ) )
@@ -2051,7 +2041,7 @@ after_frag( fd_pohh_tile_t *    ctx,
     return;
   }
 
-  if( FD_UNLIKELY( !ctx->microblocks_lower_bound ) ) {
+  if( FD_UNLIKELY( !ctx->microblocks_mixed_in ) ) {
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
     fd_histf_sample( ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
   }
@@ -2064,18 +2054,12 @@ after_frag( fd_pohh_tile_t *    ctx,
   }
 
   FD_TEST( ctx->current_leader_bank );
-  FD_TEST( ctx->microblocks_lower_bound<ctx->max_microblocks_per_slot );
-  ctx->microblocks_lower_bound += 1UL;
 
   ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
   fd_txn_p_t * txns = (fd_txn_p_t *)(ctx->_txns);
   ulong executed_txn_cnt = 0UL;
   ulong cus_used         = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    /* It's important that we check if a transaction is included in the
-       block with FD_TXN_P_FLAGS_EXECUTE_SUCCESS since
-       actual_consumed_cus may have a nonzero value for excluded
-       transactions used for monitoring purposes */
     if( FD_LIKELY( txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
       executed_txn_cnt++;
       cus_used += txns[ i ].execle_cu.actual_consumed_cus;
@@ -2085,8 +2069,15 @@ after_frag( fd_pohh_tile_t *    ctx,
   /* We don't publish transactions that fail to execute.  If all the
      transactions failed to execute, the microblock would be empty,
      causing agave to think it's a tick and complain.  Instead, we just
-     skip the microblock and don't hash or update the hashcnt. */
+     skip the microblock and don't hash or update the hashcnt.
+
+     Empty microblocks (failed bundles, unincludable non-bundles) don't
+     count toward the microblock limit.  Pack rebates their microblock
+     slots so it can schedule replacements. */
   if( FD_UNLIKELY( !executed_txn_cnt ) ) return;
+
+  FD_TEST( ctx->microblocks_mixed_in<ctx->max_microblocks_per_slot );
+  ctx->microblocks_mixed_in += 1UL;
 
   uchar data[ 64 ];
   fd_memcpy( data, ctx->hash, 32UL );
@@ -2330,7 +2321,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   ctx->expect_pack_idx         = 0U;
-  ctx->microblocks_lower_bound = 0UL;
+  ctx->microblocks_mixed_in    = 0UL;
 
   ctx->max_active_descendant = 0UL;
 

@@ -136,7 +136,7 @@ typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 #define FD_PACK_END_SLOT_REASON_LEADER_SWITCH (3)
 
 struct fd_done_packing {
-  ulong microblocks_in_slot;
+  uint max_pack_idx;
 
   fd_pack_limits_usage_t limits_usage[ 1 ];
   fd_pack_limits_t limits[ 1 ];
