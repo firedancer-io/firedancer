@@ -63,9 +63,8 @@ fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
                                fd_funk_txn_xid_t const * xid,
                                fd_capture_ctx_t *        capture_ctx );
 
-/* fd_sysvar_epoch_schedule_read reads the current value of the rent
-   sysvar from funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
+/* fd_sysvar_epoch_schedule_read reads the current value of the epoch
+   schedule sysvar.  Returns NULL on failure. */
 
 fd_epoch_schedule_t *
 fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,

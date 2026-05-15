@@ -6,9 +6,8 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_sysvar_epoch_rewards_read reads the current value of the rent
-   sysvar from funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
+/* fd_sysvar_epoch_rewards_read reads the current value of the epoch
+   rewards sysvar.  Returns NULL on failure. */
 
 fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read( fd_accdb_user_t *           accdb,
