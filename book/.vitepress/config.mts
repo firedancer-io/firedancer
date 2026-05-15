@@ -40,6 +40,7 @@ export default defineConfig({
             { text: 'Getting Started', link: 'getting-started' },
             { text: 'Configuring', link: 'configuring' },
             { text: 'Initializing', link: 'initializing' },
+            { text: 'Glossary', link: 'glossary' },
           ]
         },
         {
