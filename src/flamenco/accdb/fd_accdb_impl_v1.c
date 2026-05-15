@@ -12,8 +12,12 @@ fd_accdb_search_chain( fd_funk_t const *          funk,
                        fd_accdb_lineage_t const * lineage,
                        ulong                      chain_idx,
                        fd_funk_rec_key_t const *  key,
-                       fd_funk_rec_t **           out_rec ) {
-  *out_rec = NULL;
+                       fd_funk_rec_t **           out_rec,
+                       fd_funk_txn_xid_t *        out_rec_xid,
+                       ulong *                    out_lamports ) {
+  *out_rec      = NULL;
+  *out_rec_xid  = (fd_funk_txn_xid_t){0};
+  *out_lamports = 0UL;
 
   fd_funk_rec_map_shmem_t const *               shmap     = funk->rec_map->map;
   fd_funk_rec_map_shmem_private_chain_t const * chain_tbl = fd_funk_rec_map_shmem_private_chain_const( shmap, 0UL );
@@ -68,6 +72,9 @@ fd_accdb_search_chain( fd_funk_t const *          funk,
 next:
     ele_idx = ele_next;
   }
+  fd_funk_txn_xid_t xid       = { .ul={ ULONG_MAX,ULONG_MAX } };
+  ulong             val_gaddr = 0UL;
+  if( best ) val_gaddr = best->val_gaddr;
   fd_racesan_hook( "accdb_search_chain:seqlock_check" );
   if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
     return FD_MAP_ERR_AGAIN;
@@ -75,9 +82,27 @@ next:
   if( FD_UNLIKELY( !best && ele_idx!=FD_FUNK_REC_IDX_NULL ) ) {
     FD_LOG_CRIT(( "fd_accdb_search_chain detected malformed chain (%lu): found more nodes than chain header indicated (%lu)", chain_idx, cnt ));
   }
-  *out_rec = best;
+
+  ulong lamports = 0UL;
+  if( best && val_gaddr ) {
+    fd_account_meta_t const * meta = fd_wksp_laddr_fast( funk->wksp, val_gaddr );
+    lamports = meta->lamports;
+    xid      = *best->pair.xid;
+  }
+  fd_racesan_hook( "accdb_search_chain:seqlock_check2" );
+  if( FD_UNLIKELY( atomic_load_explicit( ver_cnt_p, memory_order_acquire )!=ver_cnt ) ) {
+    return FD_MAP_ERR_AGAIN;
+  }
+  *out_rec      = best;
+  *out_rec_xid  = xid;
+  *out_lamports = lamports;
   return FD_MAP_SUCCESS;
 }
+
+/* fd_accdb_peek_funk returns a read-only reference to an account.
+   Zero lamports are treated special:  If the account reached zero
+   lamports prior to this xid, NULL is returned.  Otherwise, the
+   tombstone for that account is returned. */
 
 fd_accdb_ro_t *
 fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
@@ -97,13 +122,16 @@ fd_accdb_peek_funk( fd_accdb_user_v1_t *      accdb,
 
   /* Traverse chain for candidate */
   fd_funk_rec_t * rec = NULL;
+  fd_funk_txn_xid_t rec_xid;
+  ulong rec_lamports = 0UL;
   for(;;) {
-    int err = fd_accdb_search_chain( accdb->funk, accdb->lineage, chain_idx, key, &rec );
+    int err = fd_accdb_search_chain( accdb->funk, accdb->lineage, chain_idx, key, &rec, &rec_xid, &rec_lamports );
     if( FD_LIKELY( err==FD_MAP_SUCCESS ) ) break;
     FD_SPIN_PAUSE();
     /* FIXME backoff */
   }
   if( !rec ) return NULL;
+  if( !fd_funk_txn_xid_eq( &rec_xid, xid ) && !rec_lamports ) return NULL;
 
   memcpy( ro->ref->address, address, 32UL );
   ro->ref->accdb_type = FD_ACCDB_TYPE_V1;
@@ -139,7 +167,8 @@ fd_accdb_user_v1_open_ro_multi( fd_accdb_user_t *         accdb,
   ulong addr_laddr = (ulong)address;
   for( ulong i=0UL; i<cnt; i++ ) {
     void const *    addr_i = (void const *)( (ulong)addr_laddr + i*32UL );
-    if( !fd_accdb_peek_funk( v1, &ro[i], xid, addr_i ) ) {
+    if( !fd_accdb_peek_funk( v1, &ro[i], xid, addr_i ) ||
+        !ro[i].meta->lamports ) {
       fd_accdb_ro_init_empty( &ro[i], addr_i );
     } else {
       v1->base.ro_active++;
