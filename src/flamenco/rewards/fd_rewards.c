@@ -868,12 +868,13 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
 
 /* Process reward distribution for the block if it is inside reward interval.
 
-   https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L42 */
+   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L45-L136 */
 void
 fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
                                          fd_accdb_user_t *         accdb,
                                          fd_funk_txn_xid_t const * xid,
                                          fd_capture_ctx_t *        capture_ctx ) {
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L46-L48 */
   if( FD_LIKELY( bank->stake_rewards_fork_id==UCHAR_MAX ) ) return;
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
@@ -882,6 +883,17 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
   ulong distribution_starting_block_height = fd_stake_rewards_starting_block_height( stake_rewards, bank->stake_rewards_fork_id );
   ulong distribution_end_exclusive         = fd_stake_rewards_exclusive_ending_block_height( stake_rewards, bank->stake_rewards_fork_id );
 
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L55-L58 */
+  if( FD_UNLIKELY( block_height<distribution_starting_block_height ) ) {
+    return;
+  }
+
+  /* The logic in Agave for EpochRewardPhase::Calculation has no direct
+     equivalent in Firedancer, because reward calculation is done
+     eagerly at the epoch boundary, whereas for Agave it's done at the
+     first distribution block.
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L60-L90 */
+
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong                       epoch          = bank->f.epoch;
 
@@ -889,16 +901,17 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
     FD_LOG_CRIT(( "Should not be distributing rewards" ));
   }
 
-  if( FD_UNLIKELY( block_height>=distribution_starting_block_height && block_height<distribution_end_exclusive ) ) {
-
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L110-L114 */
+  if( FD_LIKELY( block_height>=distribution_starting_block_height && block_height<distribution_end_exclusive ) ) {
     ulong partition_idx = block_height-distribution_starting_block_height;
     distribute_epoch_rewards_in_partition( stake_rewards, partition_idx, bank, accdb, xid, capture_ctx );
+  }
 
-    /* If we have finished distributing rewards, set the status to inactive */
-    if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
-      fd_sysvar_epoch_rewards_set_inactive( bank, accdb, xid, capture_ctx );
-      bank->stake_rewards_fork_id = UCHAR_MAX;
-    }
+  /* If we have finished distributing rewards, set the status to inactive
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L116-L135 */
+  if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
+    fd_sysvar_epoch_rewards_set_inactive( bank, accdb, xid, capture_ctx );
+    bank->stake_rewards_fork_id = UCHAR_MAX;
   }
 }
 
