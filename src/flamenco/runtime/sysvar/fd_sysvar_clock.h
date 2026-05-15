@@ -61,9 +61,8 @@ fd_sysvar_clock_write( fd_bank_t *                   bank,
   fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
 }
 
-/* fd_sysvar_clock_read reads the current value of the rent sysvar from
-   funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
+/* fd_sysvar_clock_read reads the current value of the clock sysvar.
+   Returns NULL on failure. */
 
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
