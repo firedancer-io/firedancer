@@ -66,6 +66,7 @@ export default defineConfig({
           items: [
             { text: 'Net Tile', link: 'internals/net_tile' },
             { text: 'Netlink', link: 'internals/netlink' },
+            { text: 'Fork Management', link: 'internals/fork_management' },
           ]
         }
       ] },
