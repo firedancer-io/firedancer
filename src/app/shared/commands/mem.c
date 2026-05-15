@@ -101,7 +101,7 @@ mem_cmd_fn( args_t *   args,
     }
 
     /* Extra normal pages (private keys, XSK rings, log locks, etc.) */
-    ulong extra_normal = fd_topo_normal_page_cnt( topo );
+    ulong extra_normal = fd_topo_extra_normal_page_cnt( topo );
     if( extra_normal ) {
       entries[ cnt ].footprint = extra_normal * FD_SHMEM_NORMAL_PAGE_SZ;
       fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( entries[ cnt ].wksp ), "", 0 ) );

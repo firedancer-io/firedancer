@@ -11,7 +11,6 @@
 
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
-#include "../../../platform/fd_net_util.h"
 #include "../../../../disco/net/fd_net_tile.h"
 
 #include "../configure/configure.h"
@@ -42,7 +41,9 @@ run_cmd_perm( args_t *         args,
               config_t const * config ) {
   (void)args;
 
-  ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
+  ulong mlock_limit;
+  if( config->development.no_clone ) mlock_limit = fd_topo_mlock( &config->topo );
+  else                               mlock_limit = fd_topo_mlock_max_tile( &config->topo );
 
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
   fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
@@ -489,17 +490,14 @@ workspace_path( config_t const *       config,
 
 static void
 warn_unknown_files( config_t const * config,
-                    ulong            mount_type ) {
+                    ulong            page_sz ) {
   char const * mount_path;
-  switch( mount_type ) {
-    case 0UL:
-      mount_path = config->hugetlbfs.huge_page_mount_path;
-      break;
-    case 1UL:
-      mount_path = config->hugetlbfs.gigantic_page_mount_path;
-      break;
-    default:
-      FD_LOG_ERR(( "invalid mount type %lu", mount_type ));
+  switch( page_sz ) {
+  case FD_SHMEM_HUGE_PAGE_SZ:     mount_path = config->hugetlbfs.huge_page_mount_path;     break;
+  case FD_SHMEM_GIGANTIC_PAGE_SZ: mount_path = config->hugetlbfs.gigantic_page_mount_path; break;
+  case FD_SHMEM_NORMAL_PAGE_SZ:   mount_path = config->hugetlbfs.normal_page_mount_path;   break;
+  default:
+    FD_LOG_ERR(( "invalid page_sz %lu", page_sz ));
   }
 
   /* Check if there are any files in mount_path */
@@ -532,12 +530,13 @@ warn_unknown_files( config_t const * config,
       }
     }
 
-    if( mount_type==0UL ) {
+    ulong stack_sz = fd_ulong_min( config->topo.max_page_size, FD_SHMEM_HUGE_PAGE_SZ );
+    if( page_sz==stack_sz ) {
       for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-        fd_topo_tile_t const * tile = &config->topo.tiles [ i ];
+        fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
 
         char expected_path[ PATH_MAX ];
-        FD_TEST( fd_cstr_printf_check( expected_path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+        FD_TEST( fd_cstr_printf_check( expected_path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", mount_path, config->name, tile->name, tile->kind_id ) );
 
         if( !strcmp( entry_path, expected_path ) ) {
           known_file = 1;
@@ -600,7 +599,7 @@ initialize_workspaces( config_t * config ) {
     if( FD_UNLIKELY( -1==fd_topo_create_workspace( &config->topo, wksp, update_existing ) ) ) {
       FD_TEST( errno==ENOMEM );
 
-      warn_unknown_files( config, wksp->page_sz!=FD_SHMEM_HUGE_PAGE_SZ );
+      warn_unknown_files( config, wksp->page_sz );
 
       char path[ PATH_MAX ];
       workspace_path( config, wksp, path );
@@ -638,11 +637,20 @@ initialize_stacks( config_t const * config ) {
   if( FD_LIKELY( uid!=config->uid && -1==seteuid( config->uid ) ) )
     FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  ulong stack_page_sz = fd_ulong_min( config->topo.max_page_size, FD_SHMEM_HUGE_PAGE_SZ );
+  char const * stack_mount;
+  switch( stack_page_sz ) {
+  case FD_SHMEM_HUGE_PAGE_SZ:   stack_mount = config->hugetlbfs.huge_page_mount_path;   break;
+  case FD_SHMEM_NORMAL_PAGE_SZ: stack_mount = config->hugetlbfs.normal_page_mount_path; break;
+  default:
+    FD_LOG_ERR(( "invalid stack_page_sz %lu", stack_page_sz ));
+  }
+
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
 
     char path[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
+    FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", stack_mount, config->name, tile->name, tile->kind_id ) );
 
     struct stat st;
     int result = stat( path, &st );
@@ -667,20 +675,20 @@ initialize_stacks( config_t const * config ) {
     char name[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", config->name, tile->name, tile->kind_id ) );
 
-    ulong sub_page_cnt[ 1 ] = { 6 };
+    ulong sub_page_cnt[ 1 ] = { (12UL<<20) / stack_page_sz };
     ulong sub_cpu_idx [ 1 ] = { stack_cpu_idx };
     int err;
     if( FD_UNLIKELY( update_existing ) ) {
-      err = fd_shmem_update_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+      err = fd_shmem_update_multi( name, stack_page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
     } else {
-      err = fd_shmem_create_multi( name, FD_SHMEM_HUGE_PAGE_SZ, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
+      err = fd_shmem_create_multi( name, stack_page_sz, 1, sub_page_cnt, sub_cpu_idx, S_IRUSR | S_IWUSR ); /* logs details */
     }
     if( FD_UNLIKELY( err && errno==ENOMEM ) ) {
-      warn_unknown_files( config, 0UL );
+      warn_unknown_files( config, stack_page_sz );
 
       char path[ PATH_MAX ];
-      FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
-      FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create huge page stack for tile `%s` at `%s`. "
+      FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", stack_mount, config->name, tile->name, tile->kind_id ) );
+      FD_LOG_ERR(( "ENOMEM-Out of memory when trying to create stack for tile `%s` at `%s`. "
                    "Firedancer reserves enough memory for all of its stacks during the `hugetlbfs` configure "
                    "step, so it is likely you have unknown files left over in this directory which are "
                    "consuming memory, or another program on the system is using pages from the same mount.",

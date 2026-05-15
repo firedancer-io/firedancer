@@ -46,8 +46,51 @@ static char const * PAGE_NAMES[ 2 ] = {
   "gigantic"
 };
 
+static ulong
+normal_tmpfs_sz( config_t const * config ) {
+  ulong total_sz = 0UL;
+  for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
+    if( FD_LIKELY( config->topo.workspaces[ i ].page_sz==FD_SHMEM_NORMAL_PAGE_SZ ) )
+      total_sz += config->topo.workspaces[ i ].page_cnt * FD_SHMEM_NORMAL_PAGE_SZ;
+  }
+  total_sz += config->topo.tile_cnt * (12UL<<20); /* stacks */
+  return total_sz;
+}
+
+static void
+init_normal( config_t const * config ) {
+  char const * normal_path = config->hugetlbfs.normal_page_mount_path;
+
+  FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", config->hugetlbfs.mount_path ));
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->hugetlbfs.mount_path, config->uid, config->gid, 1 ) ) )
+    FD_LOG_ERR(( "could not create mount directory `%s` (%i-%s)", config->hugetlbfs.mount_path, errno, fd_io_strerror( errno ) ));
+
+  FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", normal_path ));
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( normal_path, config->uid, config->gid, 1 ) ) )
+    FD_LOG_ERR(( "could not create tmpfs mount directory `%s` (%i-%s)", normal_path, errno, fd_io_strerror( errno ) ));
+
+  ulong total_sz = normal_tmpfs_sz( config );
+
+  char options[ 256 ];
+  FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "size=%lu", total_sz ) );
+  FD_LOG_NOTICE(( "RUN: `mount -t tmpfs tmpfs %s -o %s`", normal_path, options ));
+  if( FD_UNLIKELY( mount( "tmpfs", normal_path, "tmpfs", 0, options ) ) )
+    FD_LOG_ERR(( "mount of tmpfs at `%s` failed (%i-%s)", normal_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( chown( normal_path, config->uid, config->gid ) ) )
+    FD_LOG_ERR(( "chown of tmpfs at `%s` failed (%i-%s)", normal_path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( chmod( normal_path, S_IRUSR | S_IWUSR | S_IXUSR ) ) )
+    FD_LOG_ERR(( "chmod of tmpfs at `%s` failed (%i-%s)", normal_path, errno, fd_io_strerror( errno ) ));
+}
+
 static void
 init( config_t const * config ) {
+
+  ulong max_page_sz = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  if( FD_UNLIKELY( max_page_sz==FD_SHMEM_NORMAL_PAGE_SZ ) ) {
+    init_normal( config );
+    return;
+  }
+
   char const * mount_path[ 2 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,
@@ -56,7 +99,7 @@ init( config_t const * config ) {
   ulong numa_node_cnt = fd_shmem_numa_cnt();
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
     ulong required_pages[ 2 ] = {
-      fd_topo_huge_page_cnt( &config->topo, i, 0 ),
+      fd_topo_huge_page_cnt( &config->topo, i ),
       fd_topo_gigantic_page_cnt( &config->topo, i ),
     };
 
@@ -153,7 +196,7 @@ init( config_t const * config ) {
 
   ulong min_size[ 2 ] = {0};
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+    min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i );
     min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
   }
 
@@ -288,8 +331,98 @@ fini( config_t const * config,
 }
 
 static configure_result_t
+check_normal( config_t const * config ) {
+  char const * normal_path = config->hugetlbfs.normal_page_mount_path;
+
+  struct stat st;
+  if( FD_UNLIKELY( stat( normal_path, &st ) ) ) {
+    if( FD_LIKELY( errno==ENOENT ) )
+      NOT_CONFIGURED( "mount `%s` does not exist", normal_path );
+    PARTIALLY_CONFIGURED( "failed to stat `%s` (%i-%s)", normal_path, errno, fd_io_strerror( errno ) );
+  }
+
+  CHECK( check_dir( config->hugetlbfs.mount_path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+  CHECK( check_dir( normal_path, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+
+  FILE * fp = fopen( "/proc/self/mounts", "r" );
+  if( FD_UNLIKELY( !fp ) ) FD_LOG_ERR(( "failed to open `/proc/self/mounts`" ));
+
+  char line[ 4096 ];
+  int found = 0;
+  while( FD_LIKELY( fgets( line, 4096UL, fp ) ) ) {
+    if( FD_UNLIKELY( strlen( line )==4095UL ) ) FD_LOG_ERR(( "line too long in `/proc/self/mounts`" ));
+    if( FD_UNLIKELY( strstr( line, normal_path ) ) ) {
+      found = 1;
+
+      char * saveptr;
+      char * device = strtok_r( line, " ", &saveptr );
+      if( FD_UNLIKELY( !device ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
+      if( FD_UNLIKELY( strcmp( device, "tmpfs" ) ) ) {
+        if( FD_UNLIKELY( fclose( fp ) ) )
+          FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+        PARTIALLY_CONFIGURED( "mount `%s` is on unrecognized device, expected `tmpfs`", normal_path );
+      }
+
+      char * path1 = strtok_r( NULL, " ", &saveptr );
+      if( FD_UNLIKELY( !path1 ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
+      if( FD_UNLIKELY( strcmp( path1, normal_path ) ) ) {
+        if( FD_UNLIKELY( fclose( fp ) ) )
+          FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+        PARTIALLY_CONFIGURED( "mount `%s` is on unrecognized path, expected `%s`", path1, normal_path );
+      }
+
+      char * type = strtok_r( NULL, " ", &saveptr );
+      if( FD_UNLIKELY( !type ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
+      if( FD_UNLIKELY( strcmp( type, "tmpfs" ) ) ) {
+        if( FD_UNLIKELY( fclose( fp ) ) )
+          FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+        PARTIALLY_CONFIGURED( "mount `%s` has unrecognized type, expected `tmpfs`", normal_path );
+      }
+
+      char * options = strtok_r( NULL, " ", &saveptr );
+      if( FD_UNLIKELY( !options ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`" ));
+
+      /* Find size= in the comma-separated options.  The kernel
+         displays tmpfs size in kilobytes (e.g. size=1024k). */
+      ulong mounted_sz = 0UL;
+      char * saveptr2;
+      for( char * opt=strtok_r( options, ",", &saveptr2 ); opt; opt=strtok_r( NULL, ",", &saveptr2 ) ) {
+        if( !strncmp( opt, "size=", 5UL ) ) {
+          char * endptr;
+          mounted_sz = strtoul( opt+5, &endptr, 10 );
+          if( *endptr=='k' || *endptr=='K' ) mounted_sz *= 1024UL;
+          break;
+        }
+      }
+
+      ulong required_sz = normal_tmpfs_sz( config );
+      if( FD_UNLIKELY( mounted_sz<required_sz ) ) {
+        if( FD_UNLIKELY( fclose( fp ) ) )
+          FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+        PARTIALLY_CONFIGURED( "tmpfs at `%s` has size %lu but need at least %lu", normal_path, mounted_sz, required_sz );
+      }
+
+      break;
+    }
+  }
+
+  if( FD_UNLIKELY( ferror( fp ) ) )
+    FD_LOG_ERR(( "error reading `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( fclose( fp ) ) )
+    FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( !found ) )
+    PARTIALLY_CONFIGURED( "mount `%s` not found in `/proc/self/mounts`", normal_path );
+
+  CONFIGURE_OK();
+}
+
+static configure_result_t
 check( config_t const * config,
        int              check_type FD_PARAM_UNUSED ) {
+  ulong max_page_sz = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  if( FD_UNLIKELY( max_page_sz==FD_SHMEM_NORMAL_PAGE_SZ ) ) return check_normal( config );
+
   char const * mount_path[ 2 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,
@@ -303,7 +436,7 @@ check( config_t const * config,
   ulong numa_node_cnt = fd_shmem_numa_cnt();
   ulong required_min_size[ 2 ] = {0};
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    required_min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+    required_min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i );
     required_min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
   }
 

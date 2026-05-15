@@ -218,14 +218,18 @@ fd_topo_tile_stack_join( char const * app_name,
   FD_TEST( fd_cstr_printf_check( name, PATH_MAX, NULL, "%s_stack_%s%lu", app_name, tile_name, tile_kind_id ) );
 
   int dump = strcmp( tile_name, "sign" ) ? 1 : 0; /* avoid core dumps of sign tile stacks */
-  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, dump, NULL, NULL, NULL );
+  fd_shmem_join_info_t info;
+  uchar * stack = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, dump, NULL, NULL, &info );
   if( FD_UNLIKELY( !stack ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
 
+  ulong page_sz        = info.page_sz;
+  ulong guard_page_cnt = FD_SHMEM_HUGE_PAGE_SZ / page_sz;
+
   /* Make space for guard lo and guard hi */
-  if( FD_UNLIKELY( fd_shmem_release( stack, FD_SHMEM_HUGE_PAGE_SZ, 1UL ) ) )
+  if( FD_UNLIKELY( fd_shmem_release( stack, page_sz, guard_page_cnt ) ) )
     FD_LOG_ERR(( "fd_shmem_release (%d-%s)", errno, fd_io_strerror( errno ) ));
   stack += FD_SHMEM_HUGE_PAGE_SZ;
-  if( FD_UNLIKELY( fd_shmem_release( stack + FD_TILE_PRIVATE_STACK_SZ, FD_SHMEM_HUGE_PAGE_SZ, 1UL ) ) )
+  if( FD_UNLIKELY( fd_shmem_release( stack + FD_TILE_PRIVATE_STACK_SZ, page_sz, guard_page_cnt ) ) )
     FD_LOG_ERR(( "fd_shmem_release (%d-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Create the guard regions in the extra space */
