@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_disco_gui_fd_gui_config_parse_h
 #define HEADER_fd_src_disco_gui_fd_gui_config_parse_h
 
-#include "../../ballet/json/cJSON.h"
+#include "../../ballet/json/yyjson.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/master/account-decoder/src/validator_info.rs */
@@ -11,6 +11,7 @@
 #define FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_ICON_URI_SZ         (  80UL)
 #define FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_KEYBASE_USERNAME_SZ (  80UL)
 #define FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_MAX_SZ              ( 576UL) /* does not include size of ConfigKeys */
+#define FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_JSON_SCRATCH_SZ     (8192UL)
 #define FD_GUI_CONFIG_PARSE_MAX_VALID_ACCT_SZ                  (FD_GUI_CONFIG_PARSE_CONFIG_KEYS_MAX_SZ+FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_MAX_SZ)
 
 /* The size of a ConfigKeys of length 2, which is the expected length of ValidatorInfo */
@@ -35,11 +36,14 @@ FD_PROTOTYPES_BEGIN
 int
 fd_gui_config_parse_validator_info_check( uchar const * data,
                                           ulong         sz,
-                                          cJSON **      out_json,
-                                          fd_pubkey_t * out_pubkey );
+                                          yyjson_doc ** out_json,
+                                          fd_pubkey_t * out_pubkey,
+                                          void *        scratch,
+                                          ulong         scratch_max );
 
 void
-fd_gui_config_parse_validator_info( cJSON * json, fd_gui_config_parse_info_t * node_info );
+fd_gui_config_parse_validator_info( yyjson_doc * json,
+                                    fd_gui_config_parse_info_t * node_info );
 
 FD_PROTOTYPES_END
 

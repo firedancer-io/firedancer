@@ -4,8 +4,7 @@
 #include "../fd_bank.h"
 #include "../../fd_flamenco_base.h"
 #include "../../accdb/fd_accdb_ref.h"
-#include "../../../ballet/json/cJSON.h"
-#include "../../../ballet/json/cJSON_alloc.h"
+#include "../../../ballet/json/yyjson.h"
 #include "../../../ballet/base64/fd_base64.h"
 #include <stdio.h>
 
@@ -201,48 +200,67 @@ read_file( fd_alloc_t * alloc, char const * path, ulong * out_sz ) {
   return buf;
 }
 
+static inline char const *
+json_str( yyjson_val const * obj, char const * key ) {
+  return yyjson_get_str( yyjson_obj_get( obj, key ) );
+}
+
+static inline ulong
+json_ulong( yyjson_val const * obj, char const * key ) {
+  return yyjson_get_uint( yyjson_obj_get( obj, key ) );
+}
+
+static inline int
+json_int( yyjson_val const * obj, char const * key ) {
+  return yyjson_get_int( yyjson_obj_get( obj, key ) );
+}
+
+static inline uchar
+json_bool( yyjson_val const * obj, char const * key ) {
+  return yyjson_is_true( yyjson_obj_get( obj, key ) ) ? 1U : 0U;
+}
+
 static int
-parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
-  cJSON * root = cJSON_Parse( json_str );
+parse_fixture( fd_alloc_t * alloc, yyjson_val const * root, fixture_t * fix ) {
   if( FD_UNLIKELY( !root ) ) return -1;
 
   fixture_input_t *  in  = &fix->input;
   fixture_output_t * out = &fix->output;
 
-  cJSON * name = cJSON_GetObjectItemCaseSensitive( root, "name" );
-  if( FD_UNLIKELY( !name || !cJSON_IsString( name ) ) ) { cJSON_Delete( root ); return -1; }
-  ulong name_len = strlen( name->valuestring );
+  yyjson_val const * name = yyjson_obj_get( root, "name" );
+  if( FD_UNLIKELY( !yyjson_is_str( name ) ) ) return -1;
+  ulong name_len = yyjson_get_len( name );
   in->name = fd_alloc_malloc( alloc, 1UL, name_len + 1UL );
-  fd_memcpy( in->name, name->valuestring, name_len + 1UL );
+  fd_memcpy( in->name, yyjson_get_str( name ), name_len + 1UL );
 
-  cJSON * input = cJSON_GetObjectItemCaseSensitive( root, "input" );
-  if( FD_UNLIKELY( !input ) ) { cJSON_Delete( root ); return -1; }
+  yyjson_val const * input = yyjson_obj_get( root, "input" );
+  if( FD_UNLIKELY( !input ) ) return -1;
 
-  cJSON * accounts = cJSON_GetObjectItemCaseSensitive( input, "accounts" );
-  if( FD_UNLIKELY( !accounts || !cJSON_IsArray( accounts ) ) ) { cJSON_Delete( root ); return -1; }
+  yyjson_val const * accounts = yyjson_obj_get( input, "accounts" );
+  if( FD_UNLIKELY( !yyjson_is_arr( accounts ) ) ) return -1;
 
-  in->num_accounts = (ulong)cJSON_GetArraySize( accounts );
+  in->num_accounts = yyjson_arr_size( accounts );
   in->accounts = fd_alloc_malloc( alloc, alignof(fixture_account_t), sizeof(fixture_account_t) * in->num_accounts );
 
   for( ulong i=0; i<in->num_accounts; i++ ) {
-    cJSON * acc = cJSON_GetArrayItem( accounts, (int)i );
+    yyjson_val const * acc = yyjson_arr_get( accounts, i );
     fixture_account_t * a = &in->accounts[i];
 
-    if( decode_base64( cJSON_GetObjectItemCaseSensitive( acc, "pubkey" )->valuestring, a->pubkey.key, 32 )!=32 ||
-        decode_base64( cJSON_GetObjectItemCaseSensitive( acc, "owner"  )->valuestring, a->owner.key,  32 )!=32 ) {
-      cJSON_Delete( root ); return -1;
+    if( decode_base64( json_str( acc, "pubkey" ), a->pubkey.key, 32 )!=32 ||
+        decode_base64( json_str( acc, "owner"  ), a->owner.key,  32 )!=32 ) {
+      return -1;
     }
 
-    a->lamports   = (ulong)cJSON_GetObjectItemCaseSensitive( acc, "lamports"   )->valuedouble;
-    a->rent_epoch = (ulong)cJSON_GetObjectItemCaseSensitive( acc, "rent_epoch" )->valuedouble;
-    a->executable = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( acc, "executable" ) ) ? 1U : 0U;
+    a->lamports   = json_ulong( acc, "lamports"   );
+    a->rent_epoch = json_ulong( acc, "rent_epoch" );
+    a->executable = json_bool ( acc, "executable" );
 
-    char const * data_str = cJSON_GetObjectItemCaseSensitive( acc, "data" )->valuestring;
+    char const * data_str = json_str( acc, "data" );
     if( data_str && strlen( data_str ) ) {
       ulong max_len = strlen( data_str );
       a->data = fd_alloc_malloc( alloc, 1UL, max_len );
       long len = decode_base64( data_str, a->data, max_len );
-      if( FD_UNLIKELY( len<0 ) ) { cJSON_Delete( root ); return -1; }
+      if( FD_UNLIKELY( len<0 ) ) return -1;
       a->data_len = (ulong)len;
     } else {
       a->data = NULL;
@@ -250,72 +268,70 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
     }
   }
 
-  cJSON * instr_accs = cJSON_GetObjectItemCaseSensitive( input, "instruction_accounts" );
-  in->num_instr_accounts = (ulong)cJSON_GetArraySize( instr_accs );
+  yyjson_val const * instr_accs = yyjson_obj_get( input, "instruction_accounts" );
+  in->num_instr_accounts = yyjson_arr_size( instr_accs );
   in->instr_accounts = fd_alloc_malloc( alloc, alignof(fixture_instr_account_t),
                                         sizeof(fixture_instr_account_t) * in->num_instr_accounts );
 
   for( ulong i=0; i<in->num_instr_accounts; i++ ) {
-    cJSON * ia = cJSON_GetArrayItem( instr_accs, (int)i );
-    in->instr_accounts[i].index_in_transaction = (ushort)cJSON_GetObjectItemCaseSensitive( ia, "index_in_transaction" )->valueint;
-    in->instr_accounts[i].is_signer   = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( ia, "is_signer"   ) ) ? 1U : 0U;
-    in->instr_accounts[i].is_writable = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( ia, "is_writable" ) ) ? 1U : 0U;
+    yyjson_val const * ia = yyjson_arr_get( instr_accs, i );
+    in->instr_accounts[i].index_in_transaction = (ushort)json_int ( ia, "index_in_transaction" );
+    in->instr_accounts[i].is_signer            =         json_bool( ia, "is_signer"            );
+    in->instr_accounts[i].is_writable          =         json_bool( ia, "is_writable"          );
   }
 
-  char const * idata_str = cJSON_GetObjectItemCaseSensitive( input, "instruction_data" )->valuestring;
+  char const * idata_str = json_str( input, "instruction_data" );
   if( idata_str && strlen( idata_str ) ) {
     ulong max_len = strlen( idata_str );
     in->instr_data = fd_alloc_malloc( alloc, 1UL, max_len );
     long len = decode_base64( idata_str, in->instr_data, max_len );
-    if( FD_UNLIKELY( len<0 ) ) { cJSON_Delete( root ); return -1; }
+    if( FD_UNLIKELY( len<0 ) ) return -1;
     in->instr_data_len = (ulong)len;
   } else {
     in->instr_data = NULL;
     in->instr_data_len = 0UL;
   }
 
-  if( decode_base64( cJSON_GetObjectItemCaseSensitive( input, "program_id" )->valuestring, in->program_id.key, 32 )!=32 ) {
-    cJSON_Delete( root ); return -1;
-  }
+  if( decode_base64( json_str( input, "program_id" ), in->program_id.key, 32 )!=32 ) return -1;
 
-  in->virtual_address_space_adj                = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "virtual_address_space_adjustments"        ) ) ? 1U : 0U;
-  in->direct_mapping                           = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"              ) ) ? 1U : 0U;
-  in->direct_account_pointers_in_program_input = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "direct_account_pointers_in_program_input" ) ) ? 1U : 0U;
-  in->is_deprecated                            = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                     ) ) ? 1U : 0U;
+  in->virtual_address_space_adj                = json_bool( input, "virtual_address_space_adjustments"        );
+  in->direct_mapping                           = json_bool( input, "account_data_direct_mapping"              );
+  in->direct_account_pointers_in_program_input = json_bool( input, "direct_account_pointers_in_program_input" );
+  in->is_deprecated                            = json_bool( input, "is_deprecated_loader"                     );
 
-  cJSON * output = cJSON_GetObjectItemCaseSensitive( root, "output" );
-  out->result = cJSON_GetObjectItemCaseSensitive( output, "result" )->valueint;
+  yyjson_val const * output = yyjson_obj_get( root, "output" );
+  out->result = json_int( output, "result" );
 
   if( out->result==0 ) {
-    char const * buf_str = cJSON_GetObjectItemCaseSensitive( output, "buffer" )->valuestring;
+    char const * buf_str = json_str( output, "buffer" );
     if( buf_str && strlen( buf_str ) ) {
       ulong max_len = strlen( buf_str );
       out->buffer = fd_alloc_malloc( alloc, 1UL, max_len );
       long len = decode_base64( buf_str, out->buffer, max_len );
-      if( FD_UNLIKELY( len<0 ) ) { cJSON_Delete( root ); return -1; }
+      if( FD_UNLIKELY( len<0 ) ) return -1;
       out->buffer_len = (ulong)len;
     } else {
       out->buffer = NULL;
       out->buffer_len = 0UL;
     }
 
-    cJSON * regions = cJSON_GetObjectItemCaseSensitive( output, "regions" );
-    out->num_regions = (ulong)cJSON_GetArraySize( regions );
+    yyjson_val const * regions = yyjson_obj_get( output, "regions" );
+    out->num_regions = yyjson_arr_size( regions );
     out->regions = fd_alloc_malloc( alloc, alignof(fixture_region_t), sizeof(fixture_region_t) * out->num_regions );
 
     for( ulong i=0; i<out->num_regions; i++ ) {
-      cJSON * r = cJSON_GetArrayItem( regions, (int)i );
+      yyjson_val const * r = yyjson_arr_get( regions, i );
       fixture_region_t * reg = &out->regions[i];
 
-      reg->vm_addr     = (ulong)cJSON_GetObjectItemCaseSensitive( r, "vm_addr" )->valuedouble;
-      reg->is_writable = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( r, "is_writable" ) ) ? 1U : 0U;
+      reg->vm_addr     = json_ulong( r, "vm_addr"     );
+      reg->is_writable = json_bool ( r, "is_writable" );
 
-      char const * data_str = cJSON_GetObjectItemCaseSensitive( r, "data" )->valuestring;
+      char const * data_str = json_str( r, "data" );
       if( data_str && strlen( data_str ) ) {
         ulong max_len = strlen( data_str );
         reg->data = fd_alloc_malloc( alloc, 1UL, max_len );
         long len = decode_base64( data_str, reg->data, max_len );
-        if( FD_UNLIKELY( len<0 ) ) { cJSON_Delete( root ); return -1; }
+        if( FD_UNLIKELY( len<0 ) ) return -1;
         reg->data_len = (ulong)len;
       } else {
         reg->data = NULL;
@@ -323,20 +339,20 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
       }
     }
 
-    cJSON * acc_metas = cJSON_GetObjectItemCaseSensitive( output, "accounts_metadata" );
-    out->num_acc_metas = (ulong)cJSON_GetArraySize( acc_metas );
+    yyjson_val const * acc_metas = yyjson_obj_get( output, "accounts_metadata" );
+    out->num_acc_metas = yyjson_arr_size( acc_metas );
     out->acc_metas = fd_alloc_malloc( alloc, alignof(fixture_acc_meta_t), sizeof(fixture_acc_meta_t) * out->num_acc_metas );
 
     for( ulong i=0; i<out->num_acc_metas; i++ ) {
-      cJSON * m = cJSON_GetArrayItem( acc_metas, (int)i );
-      out->acc_metas[i].original_data_len  = (ulong)cJSON_GetObjectItemCaseSensitive( m, "original_data_len"  )->valuedouble;
-      out->acc_metas[i].vm_key_addr        = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_key_addr"        )->valuedouble;
-      out->acc_metas[i].vm_lamports_addr   = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_lamports_addr"   )->valuedouble;
-      out->acc_metas[i].vm_owner_addr      = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_owner_addr"      )->valuedouble;
-      out->acc_metas[i].vm_data_addr       = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_data_addr"       )->valuedouble;
-      cJSON * vm_addr_item                 = cJSON_GetObjectItemCaseSensitive( m, "vm_addr" );
+      yyjson_val const * m = yyjson_arr_get( acc_metas, i );
+      out->acc_metas[i].original_data_len  = json_ulong( m, "original_data_len"  );
+      out->acc_metas[i].vm_key_addr        = json_ulong( m, "vm_key_addr"        );
+      out->acc_metas[i].vm_lamports_addr   = json_ulong( m, "vm_lamports_addr"   );
+      out->acc_metas[i].vm_owner_addr      = json_ulong( m, "vm_owner_addr"      );
+      out->acc_metas[i].vm_data_addr       = json_ulong( m, "vm_data_addr"       );
+      yyjson_val const * vm_addr_item      = yyjson_obj_get( m, "vm_addr" );
       if( vm_addr_item ) {
-        out->acc_metas[i].vm_addr         = (ulong)vm_addr_item->valuedouble;
+        out->acc_metas[i].vm_addr         = yyjson_get_uint( vm_addr_item );
         out->acc_metas[i].vm_addr_present = 1;
       } else {
         out->acc_metas[i].vm_addr         = 0UL;
@@ -344,7 +360,7 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
       }
     }
 
-    out->instr_data_offset = (ulong)cJSON_GetObjectItemCaseSensitive( output, "instruction_data_offset" )->valuedouble;
+    out->instr_data_offset = json_ulong( output, "instruction_data_offset" );
   } else {
     out->buffer        = NULL;
     out->buffer_len    = 0UL;
@@ -354,7 +370,6 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
     out->num_acc_metas = 0UL;
   }
 
-  cJSON_Delete( root );
   return 0;
 }
 
@@ -592,32 +607,28 @@ main( int argc, char ** argv ) {
   char const * fixtures_path = "src/flamenco/runtime/program/test_bpf_loader_serialization_fixtures.json";
   FD_LOG_NOTICE(( "Loading fixtures from: %s", fixtures_path ));
 
-  cJSON_alloc_install( alloc );
-
   ulong   sz   = 0;
   uchar * data = read_file( alloc, fixtures_path, &sz );
   if( FD_UNLIKELY( !data ) ) {
     FD_LOG_ERR(( "Failed to read fixtures file: %s", fixtures_path ));
   }
 
-  cJSON * root = cJSON_Parse( (char const *)data );
-  if( FD_UNLIKELY( !root || !cJSON_IsArray( root ) ) ) {
+  yyjson_doc * json = yyjson_read( (char *)data, sz, YYJSON_READ_NOFLAG );
+  yyjson_val const * root = yyjson_doc_get_root( json );
+  if( FD_UNLIKELY( !yyjson_is_arr( root ) ) ) {
     FD_LOG_ERR(( "Failed to parse fixtures file as JSON array" ));
   }
 
-  int fixture_cnt = cJSON_GetArraySize( root );
-  FD_LOG_NOTICE(( "Found %d fixtures", fixture_cnt ));
+  ulong fixture_cnt = yyjson_arr_size( root );
+  FD_LOG_NOTICE(( "Found %lu fixtures", fixture_cnt ));
 
-  for( int i=0; i<fixture_cnt; i++ ) {
-    cJSON * item = cJSON_GetArrayItem( root, i );
-    char * json_str = cJSON_PrintUnformatted( item );
-
+  for( ulong i=0; i<fixture_cnt; i++ ) {
+    yyjson_val const * item = yyjson_arr_get( root, i );
     fixture_t fix[1];
     fd_memset( fix, 0, sizeof(fixture_t) );
-    if( FD_UNLIKELY( parse_fixture( alloc, json_str, fix ) ) ) {
-      FD_LOG_ERR(( "Failed to parse fixture %d", i ));
+    if( FD_UNLIKELY( parse_fixture( alloc, item, fix ) ) ) {
+      FD_LOG_ERR(( "Failed to parse fixture %lu", i ));
     }
-    cJSON_free( json_str );
 
     FD_LOG_NOTICE(( "Testing: %s", fix->input.name ));
     int result = run_fixture( alloc, wksp, fix );
@@ -629,7 +640,7 @@ main( int argc, char ** argv ) {
     }
   }
 
-  cJSON_Delete( root );
+  yyjson_doc_free( json );
   fd_alloc_free( alloc, data );
 
   fd_alloc_delete( fd_alloc_leave( alloc ) );

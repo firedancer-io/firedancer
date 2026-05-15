@@ -1,7 +1,6 @@
 #include "../../rpc_client/fd_rpc_client.h"
 #include "../../rpc_client/fd_rpc_client_private.h"
 #include "../../../../disco/topo/fd_topo.h"
-#include "../../../../ballet/json/cJSON_alloc.h"
 #include "../../../../util/net/fd_ip4.h"
 
 #define FD_BENCHO_STATE_INIT  0UL
@@ -37,13 +36,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_bencho_ctx_t ), sizeof( fd_bencho_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),           fd_alloc_footprint()      );
   return FD_LAYOUT_FINI( l, scratch_align() );
-}
-
-FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
 }
 
 static int
@@ -118,8 +111,6 @@ after_credit( fd_bencho_ctx_t *   ctx,
   *charge_busy = did_work_rpc | did_work_service_block_hash;
 }
 
-extern FD_TL fd_alloc_t * g_cjson_alloc_ctx;
-
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -127,11 +118,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bencho_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bencho_ctx_t ), sizeof( fd_bencho_ctx_t ) );
-  void * _alloc         = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),           fd_alloc_footprint() );
-
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
-  FD_TEST( alloc );
-  cJSON_alloc_install( alloc );
 
   ctx->mem        = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
@@ -162,7 +148,6 @@ fd_topo_run_tile_t fd_tile_bencho = {
   .name              = "bencho",
   .scratch_align     = scratch_align,
   .scratch_footprint = scratch_footprint,
-  .loose_footprint   = loose_footprint,
   .unprivileged_init = unprivileged_init,
   .run               = stem_run,
 };

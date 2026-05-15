@@ -22,7 +22,6 @@
 #include "../../disco/topo/fd_topob.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "../../ballet/json/cJSON_alloc.h"
 #include "../../util/sanitize/fd_fuzz.h"
 
 #define FD_TILE_TEST
@@ -134,11 +133,6 @@ LLVMFuzzerInitialize( int  *   argc,
 
   FD_TEST( (funk_obj_id  = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ))!=ULONG_MAX );
   FD_TEST( (locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ))!=ULONG_MAX );
-
-  void * shalloc = fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), 2UL );
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( shalloc, 1UL ), 1UL );
-  FD_TEST( alloc );
-  cJSON_alloc_install( alloc );
 
   return 0;
 }

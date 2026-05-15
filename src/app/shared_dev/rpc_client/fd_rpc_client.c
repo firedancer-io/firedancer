@@ -3,7 +3,7 @@
 
 #include "../../../waltz/http/picohttpparser.h"
 #include "../../../waltz/http/fd_http.h"
-#include "../../../ballet/json/cJSON.h"
+#include "../../../ballet/json/yyjson.h"
 #include "../../../ballet/base58/fd_base58.h"
 
 #include <errno.h>
@@ -15,6 +15,7 @@
 #include <netinet/ip.h>
 
 #define MAX_REQUEST_LEN (1024UL)
+#define JSON_SCRATCH_SZ (16UL*1024UL)
 
 void *
 fd_rpc_client_new( void * mem,
@@ -225,52 +226,48 @@ parse_response( char *                     response,
   if( FD_UNLIKELY( content_length+(ulong)http_len > MAX_REQUEST_LEN ) ) return FD_RPC_CLIENT_ERR_TOO_LARGE;
   if( FD_LIKELY( content_length+(ulong)http_len>response_len ) ) return FD_RPC_CLIENT_PENDING;
 
-  const char * parse_end;
-  cJSON * json = cJSON_ParseWithLengthOpts( response + http_len, content_length, &parse_end, 0 );
+  uchar json_scratch[ JSON_SCRATCH_SZ ];
+  yyjson_alc alloc[1];
+  if( FD_UNLIKELY( !yyjson_alc_pool_init( alloc, json_scratch, sizeof(json_scratch) ) ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
+  yyjson_doc * json = yyjson_read_opts( response + http_len, content_length, YYJSON_READ_NOFLAG, alloc, NULL );
   if( FD_UNLIKELY( !json ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
+  yyjson_val const * root = yyjson_doc_get_root( json );
 
   switch( result->method ) {
     case FD_RPC_CLIENT_METHOD_TRANSACTION_COUNT: {
-      const cJSON * node = cJSON_GetObjectItemCaseSensitive( json, "result" );
-      if( FD_UNLIKELY( !cJSON_IsNumber( node ) || node->valueulong==ULONG_MAX ) ) {
-        cJSON_Delete( json );
+      yyjson_val const * node = yyjson_obj_get( root, "result" );
+      if( FD_UNLIKELY( !yyjson_is_num( node ) || yyjson_get_uint( node )==ULONG_MAX ) ) {
         return FD_RPC_CLIENT_ERR_MALFORMED;
       }
 
-      result->result.transaction_count.transaction_count = node->valueulong;
-      cJSON_Delete( json );
+      result->result.transaction_count.transaction_count = yyjson_get_uint( node );
       return FD_RPC_CLIENT_SUCCESS;
     }
     case FD_RPC_CLIENT_METHOD_LATEST_BLOCK_HASH: {
-      const cJSON * node = cJSON_GetObjectItemCaseSensitive( json, "result" );
-      if( FD_UNLIKELY( !cJSON_IsObject( node ) ) ) {
-        cJSON_Delete( json );
+      yyjson_val const * node = yyjson_obj_get( root, "result" );
+      if( FD_UNLIKELY( !yyjson_is_obj( node ) ) ) {
         return FD_RPC_CLIENT_ERR_MALFORMED;
       }
 
-      node = cJSON_GetObjectItemCaseSensitive( node, "value" );
-      if( FD_UNLIKELY( !cJSON_IsObject( node ) ) ) {
-        cJSON_Delete( json );
+      node = yyjson_obj_get( node, "value" );
+      if( FD_UNLIKELY( !yyjson_is_obj( node ) ) ) {
         return FD_RPC_CLIENT_ERR_MALFORMED;
       }
 
-      node = cJSON_GetObjectItemCaseSensitive( node, "blockhash" );
-      if( FD_UNLIKELY( !cJSON_IsString( node ) ) ) {
-        cJSON_Delete( json );
+      node = yyjson_obj_get( node, "blockhash" );
+      if( FD_UNLIKELY( !yyjson_is_str( node ) ) ) {
+        return FD_RPC_CLIENT_ERR_MALFORMED;
+      }
+      char const * blockhash = yyjson_get_str( node );
+
+      if( FD_UNLIKELY( strnlen( blockhash, 45UL )>44UL ) ) {
         return FD_RPC_CLIENT_ERR_MALFORMED;
       }
 
-      if( FD_UNLIKELY( strnlen( node->valuestring, 45UL )>44UL ) ) {
-        cJSON_Delete( json );
+      if( FD_UNLIKELY( !fd_base58_decode_32( blockhash, result->result.latest_block_hash.block_hash ) ) ) {
         return FD_RPC_CLIENT_ERR_MALFORMED;
       }
 
-      if( FD_UNLIKELY( !fd_base58_decode_32( node->valuestring, result->result.latest_block_hash.block_hash ) ) ) {
-        cJSON_Delete( json );
-        return FD_RPC_CLIENT_ERR_MALFORMED;
-      }
-
-      cJSON_Delete( json );
       return FD_RPC_CLIENT_SUCCESS;
     }
     default:

@@ -5,8 +5,10 @@
 int
 fd_gui_config_parse_validator_info_check( uchar const * data,
                                           ulong         sz,
-                                          cJSON **      out_json,
-                                          fd_pubkey_t * out_pubkey ) {
+                                          yyjson_doc ** out_json,
+                                          fd_pubkey_t * out_pubkey,
+                                          void *        scratch,
+                                          ulong         scratch_max ) {
   /*
     pub struct ConfigKeys {
         #[cfg_attr(feature = "serde", serde(with = "short_vec"))]
@@ -32,8 +34,9 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
       "iconUrl": "<icon url>"
     }
 
-    Since accounts are at most 10MB, we should be safely within cJSON's
-    allocator limits.
+    Since validator info JSON strings are bounded by
+    FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_MAX_SZ, we can parse with a small
+    caller-provided yyjson bump allocator.
 */
   ulong i = 0UL;
 
@@ -67,7 +70,10 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
   CHECK_LEFT( sizeof(ulong) ); ulong json_str_sz = FD_LOAD( ulong, data+i ); i += sizeof(ulong);
 
   CHECK_LEFT( json_str_sz );
-  cJSON * json = cJSON_ParseWithLengthOpts( (char *)(data+i), json_str_sz, NULL, 0 );
+  yyjson_alc alloc[1];
+  CHECK( yyjson_alc_pool_init( alloc, scratch, scratch_max ) );
+
+  yyjson_doc * json = yyjson_read_opts( (char *)(data+i), json_str_sz, YYJSON_READ_NOFLAG, alloc, NULL );
   if( FD_UNLIKELY( !json ) ) return 0;
 
 #undef CHECK
@@ -78,43 +84,35 @@ fd_gui_config_parse_validator_info_check( uchar const * data,
   return 1;
 }
 
+static void
+fd_gui_config_parse_validator_info_str( yyjson_val const * obj,
+                                        char const *       key,
+                                        char *             out,
+                                        ulong              out_max ) {
+  yyjson_val const * val = yyjson_obj_get( obj, key );
+  char const * str = yyjson_get_str( val );
+  ulong str_len = yyjson_get_len( val );
+
+  int missing = !str
+             || str_len>out_max
+             || memchr( str, '\0', str_len )
+             || !fd_utf8_verify( str, str_len );
+  if( FD_UNLIKELY( missing ) ) {
+    out[ 0 ] = '\0';
+    return;
+  }
+
+  if( FD_LIKELY( str_len ) ) fd_memcpy( out, str, str_len );
+  out[ str_len ] = '\0';
+}
+
 void
-fd_gui_config_parse_validator_info( cJSON * json, fd_gui_config_parse_info_t * node_info ) {
-  const cJSON * name = cJSON_GetObjectItemCaseSensitive( json, "name" );
-  /* cJSON guarantees name->valuestring is NULL terminated */
-  int missing_name = !cJSON_IsString( name )
-                  || strlen(name->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ
-                  || !fd_cstr_printf_check( node_info->name, strlen(name->valuestring)+1UL, NULL, "%s", name->valuestring )
-                  || !fd_utf8_verify( node_info->name, strlen(node_info->name) );
-  if( FD_UNLIKELY( missing_name ) ) node_info->name[ 0 ] = '\0';
+fd_gui_config_parse_validator_info( yyjson_doc * json, fd_gui_config_parse_info_t * node_info ) {
+  yyjson_val const * root = yyjson_doc_get_root( json );
 
-  const cJSON * website = cJSON_GetObjectItemCaseSensitive( json, "website" );
-  int missing_website = !cJSON_IsString( website )
-                     || strlen(website->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_WEBSITE_SZ
-                     || !fd_cstr_printf_check( node_info->website, strlen(website->valuestring)+1UL, NULL, "%s", website->valuestring )
-                     || !fd_utf8_verify( node_info->website, strlen(node_info->website) );
-  if( FD_UNLIKELY( missing_website ) ) node_info->website[ 0 ] = '\0';
-
-  const cJSON * details = cJSON_GetObjectItemCaseSensitive( json, "details" );
-  int missing_details = !cJSON_IsString( details )
-                     || strlen(details->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_DETAILS_SZ
-                     || !fd_cstr_printf_check( node_info->details, strlen(details->valuestring)+1UL, NULL, "%s", details->valuestring )
-                     || !fd_utf8_verify( node_info->details, strlen(node_info->details) );
-  if( FD_UNLIKELY( missing_details ) ) node_info->details[ 0 ] = '\0';
-
-  const cJSON * icon_uri = cJSON_GetObjectItemCaseSensitive( json, "iconUrl" );
-  int missing_icon_uri = !cJSON_IsString( icon_uri )
-                      || strlen(icon_uri->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_ICON_URI_SZ
-                      || !fd_cstr_printf_check( node_info->icon_uri, strlen(icon_uri->valuestring)+1UL, NULL, "%s", icon_uri->valuestring )
-                      || !fd_utf8_verify( node_info->icon_uri, strlen(node_info->icon_uri) );
-  if( FD_UNLIKELY( missing_icon_uri ) ) node_info->icon_uri[ 0 ] = '\0';
-
-  const cJSON * keybase_username = cJSON_GetObjectItemCaseSensitive( json, "keybaseUsername" );
-  int missing_keybase_username = !cJSON_IsString( keybase_username )
-                      || strlen(keybase_username->valuestring)>FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_KEYBASE_USERNAME_SZ
-                      || !fd_cstr_printf_check( node_info->keybase_username, strlen(keybase_username->valuestring)+1UL, NULL, "%s", keybase_username->valuestring )
-                      || !fd_utf8_verify( node_info->keybase_username, strlen(node_info->keybase_username) );
-  if( FD_UNLIKELY( missing_keybase_username ) ) node_info->keybase_username[ 0 ] = '\0';
-
-  cJSON_Delete( json );
+  fd_gui_config_parse_validator_info_str( root, "name",            node_info->name,             FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ             );
+  fd_gui_config_parse_validator_info_str( root, "website",         node_info->website,          FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_WEBSITE_SZ          );
+  fd_gui_config_parse_validator_info_str( root, "details",         node_info->details,          FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_DETAILS_SZ          );
+  fd_gui_config_parse_validator_info_str( root, "iconUrl",         node_info->icon_uri,         FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_ICON_URI_SZ         );
+  fd_gui_config_parse_validator_info_str( root, "keybaseUsername", node_info->keybase_username, FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_KEYBASE_USERNAME_SZ );
 }
