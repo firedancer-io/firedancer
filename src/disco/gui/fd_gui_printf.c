@@ -1411,9 +1411,9 @@ fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t *  peers ) {
     jsonp_open_object( peers->http, "value" );
       jsonp_open_array( peers->http, "add" );
         /* We can iter through the bandwidth tracking table since it will always be populated */
-        for( fd_gui_peers_bandwidth_tracking_fwd_iter_t iter = fd_gui_peers_bandwidth_tracking_fwd_iter_init( peers->bw_tracking, &FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY, peers->contact_info_table ), j = 0UL;
+        for( fd_gui_peers_bandwidth_tracking_fwd_iter_t iter = fd_gui_peers_bandwidth_tracking_fwd_iter_init( peers->bw_tracking, &FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY, peers->contact_info_table );
              !fd_gui_peers_bandwidth_tracking_fwd_iter_done( iter );
-             iter = fd_gui_peers_bandwidth_tracking_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
+             iter = fd_gui_peers_bandwidth_tracking_fwd_iter_next( iter, peers->contact_info_table ) ) {
           ulong contact_info_table_idx = fd_gui_peers_bandwidth_tracking_fwd_iter_idx( iter );
           peers_printf_node( peers, contact_info_table_idx );
         }
