@@ -256,19 +256,20 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
                     ulong *                stake_out_opt,
                     ulong *                last_vote_slot_out_opt,
                     long *                 last_vote_timestamp_out_opt,
-                    uchar *                commission_out_opt ) {
+                    uchar *                commission_out_opt,
+                    uchar *                is_valid_out_opt ) {
   vote_ele_t * pool = get_pool( top_votes );
   map_t *      map  = get_map( top_votes );
 
   vote_ele_t const * ele = map_ele_query_const( map, pubkey, NULL, pool );
   if( FD_UNLIKELY( !ele ) ) return 0;
-  if( FD_UNLIKELY( !ele->is_valid ) ) return 0;
 
   if( node_account_out_opt )        *node_account_out_opt        = ele->node_account;
   if( stake_out_opt )               *stake_out_opt               = ele->stake;
   if( last_vote_slot_out_opt )      *last_vote_slot_out_opt      = ele->last_vote_slot;
   if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   if( commission_out_opt )          *commission_out_opt          = ele->commission;
+  if( is_valid_out_opt )            *is_valid_out_opt            = ele->is_valid;
   return 1;
 }
 

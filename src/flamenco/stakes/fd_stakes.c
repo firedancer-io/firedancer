@@ -515,7 +515,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     int   exists_t_3 = 0;
     uchar commission_t_3 = 0;
     if( FD_LIKELY( vat_in_t_3 ) ) {
-      exists_t_3 = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3 );
+      exists_t_3 = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3, NULL );
     } else {
       exists_t_3 = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &pubkey, NULL, NULL, &commission_t_3 );
     }
@@ -523,7 +523,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     int   exists_t_2     = 0;
     uchar commission_t_2 = 0;
     if( FD_LIKELY( vat_in_t_2 ) ) {
-      exists_t_2 = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2 );
+      exists_t_2 = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
     } else {
       exists_t_2 = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &pubkey, NULL, NULL, &commission_t_2 );
     }
