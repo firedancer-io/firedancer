@@ -661,7 +661,6 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERSZ              ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_CRYPTO_FAILED       ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NO_CONN             ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_WRONG_SRC           ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NET_HEADER_INVALID  ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_QUIC_HEADER_INVALID ) ];
     cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_ABANDONED          ) ];

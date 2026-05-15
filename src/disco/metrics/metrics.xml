@@ -233,7 +233,6 @@ metric introduced.
     <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)" />
 
     <counter name="PktNoConn" enum="QuicPktHandle" summary="Number of packets with an unknown connection ID" />
-    <counter name="PktWrongSrc" summary="Number of packets dropped due to a wrong source IP" />
     <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata" />
     <counter name="InitialTokenLen" enum="QuicInitialTokenLen" summary="Number of Initial packets grouped by token length" />
 
@@ -320,7 +319,6 @@ metric introduced.
     <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Total count of packets with crypto failures" />
     <counter name="PktNoKey" enum="QuicEncLevel" summary="Total count of packets with no key" />
     <counter name="PktNoConn" enum="QuicPktHandle" summary="Total count of packets with no connection" />
-    <counter name="PktWrongSrc" summary="Total count of packets with wrong source IPs" />
     <counter name="PktTxAllocFail" summary="Total count of packet TX allocation failures" />
     <counter name="PktNetHeaderInvalid" summary="Total count of packets with invalid network headers" />
     <counter name="PktQuicHeaderInvalid" summary="Total count of packets with invalid QUIC headers" />
