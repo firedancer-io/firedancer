@@ -225,7 +225,8 @@ fd_poh_begin_leader( fd_poh_t * poh,
                      ulong      hashcnt_per_tick,
                      ulong      ticks_per_slot,
                      ulong      tick_duration_ns,
-                     ulong      max_microblocks_in_slot ) {
+                     ulong      max_microblocks_in_slot,
+                     long       slot_start_ns ) {
   FD_TEST( poh->state==STATE_FOLLOWER || poh->state==STATE_WAITING_FOR_BANK );
   FD_TEST( slot==poh->next_leader_slot );
 
@@ -243,6 +244,7 @@ fd_poh_begin_leader( fd_poh_t * poh,
   else                                          poh->state = STATE_LEADER;
 
   poh->microblocks_lower_bound = 0UL;
+  poh->leader_slot_start_ns    = slot_start_ns;
 
   FD_LOG_INFO(( "begin_leader(slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, poh->last_slot, poh->last_hashcnt ));
 }
@@ -388,21 +390,32 @@ fd_poh_advance( fd_poh_t *          poh,
 
   /* If we are the leader, always leave enough capacity in the slot so
      that we can mixin any potential microblocks still coming from the
-     pack tile for this slot. */
-  ulong max_remaining_microblocks = poh->max_microblocks_per_slot - poh->microblocks_lower_bound;
+     pack tile for this slot.
 
-  /* With hashcnt_per_tick hashes per tick, we actually get
-     hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
-     span that we need to reserve, we also need to reserve the hashcnt
-     for the tick, hence the +
-     max_remaining_microblocks/(hashcnt_per_tick-1) rounded up.
+     When not leading (FOLLOWER or WAITING_FOR_SLOT), no microblocks
+     will be mixed in, so there is nothing to reserve so
+     restricted_hashcnt does not need to be reduced from hashcnt_per_slot. */
+  ulong max_remaining_microblocks;
+  ulong restricted_hashcnt;
+  if( FD_LIKELY( poh->state==STATE_LEADER ) ) {
+    max_remaining_microblocks = poh->max_microblocks_per_slot - poh->microblocks_lower_bound;
 
-     However, if hashcnt_per_tick is 1 because we're in low power mode,
-     this should probably just be max_remaining_microblocks. */
-  ulong max_remaining_ticks_or_microblocks = max_remaining_microblocks;
-  if( FD_LIKELY( !low_power_mode ) ) max_remaining_ticks_or_microblocks += (max_remaining_microblocks+poh->hashcnt_per_tick-2UL)/(poh->hashcnt_per_tick-1UL);
+    /* With hashcnt_per_tick hashes per tick, we actually get
+       hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
+       span that we need to reserve, we also need to reserve the hashcnt
+       for the tick, hence the +
+       max_remaining_microblocks/(hashcnt_per_tick-1) rounded up.
 
-  ulong restricted_hashcnt = fd_ulong_if( poh->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, poh->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
+       However, if hashcnt_per_tick is 1 because we're in low power mode,
+       this should probably just be max_remaining_microblocks. */
+    ulong max_remaining_ticks_or_microblocks = max_remaining_microblocks;
+    if( FD_LIKELY( !low_power_mode ) ) max_remaining_ticks_or_microblocks += (max_remaining_microblocks+poh->hashcnt_per_tick-2UL)/(poh->hashcnt_per_tick-1UL);
+
+    restricted_hashcnt = fd_ulong_if( poh->hashcnt_per_slot>=max_remaining_ticks_or_microblocks, poh->hashcnt_per_slot-max_remaining_ticks_or_microblocks, 0UL );
+  } else {
+    max_remaining_microblocks = 0UL;
+    restricted_hashcnt        = poh->hashcnt_per_slot;
+  }
 
   ulong min_hashcnt = poh->hashcnt;
 
