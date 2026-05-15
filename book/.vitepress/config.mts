@@ -54,6 +54,7 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: 'Monitoring', link: 'monitoring' },
+            { text: 'Networking', link: 'networking' },
             { text: 'Troubleshooting', link: 'troubleshooting' },
             { text: 'Frequently Asked Questions', link: 'faq' },
           ]
