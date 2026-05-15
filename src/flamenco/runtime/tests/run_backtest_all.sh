@@ -133,3 +133,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account_rekey -y 1 -m 1000 -e 329
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m -y 1 -m 10000 -e 603
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct_account_pointers_in_program_input -y 1 -m 10000 -e 386
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l disable_sbpf_v0_v1_v2_deployment -y 1 -m 10000 -e 617
