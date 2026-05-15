@@ -389,6 +389,7 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
      removed as they will not be needed again.  This includes child
      forks of the pruned siblings as well. */
   remove_children( tc, parent_fork, fork );
+  parent_fork->shmem->child_id = fork_id;
 
   /* Now, the earliest known rooted fork can likely be removed since its
      blockhashes cannot be referenced anymore (they are older than 151
@@ -427,6 +428,7 @@ blockhash_on_fork( fd_txncache_t *      tc,
 static void
 purge_stale_on_blockcache( fd_txncache_t * tc,
                            blockcache_t *  blockcache ) {
+  FD_TEST( blockcache->shmem->frozen>=0 );
   memset( tc->scratch_heads, 0xFF, tc->shmem->txn_per_slot_max*sizeof(tc->scratch_heads[ 0 ]) );
   memset( tc->scratch_pages, 0xFF, tc->shmem->txnpages_per_blockhash_max*sizeof(tc->scratch_pages[ 0 ]) );
   ushort scratch_pages_cnt = 0;
