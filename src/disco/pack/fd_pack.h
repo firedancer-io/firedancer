@@ -58,6 +58,9 @@
  */
 #define FD_PACK_MAX_TXN_PER_BUNDLE      5UL
 
+#define FD_PACK_ACCT_BLOCKLIST_LG_MAX   4
+#define FD_PACK_ACCT_BLOCKLIST_MAX      (1UL<<FD_PACK_ACCT_BLOCKLIST_LG_MAX)
+
 /* The percentage of the transaction fees that are burned */
 #define FD_PACK_TXN_FEE_BURN_PCT        50UL
 
@@ -231,17 +234,25 @@ fd_pack_footprint( ulong                    pack_depth,
    local address space with the required alignment and footprint.
    pack_depth, bundle_meta_sz, bank_tile_cnt, and limits are as above.
    rng is a local join to a random number generator used to perturb
-   estimates.
+   estimates.  acct_blocklist is a list of accounts that cannot be read
+   or written to.  acct_blocklist is accessed acct_blocklist[i] for i in
+   [0, acct_blocklist_cnt).  acct_blocklist==NULL is okay if
+   acct_blocklist_cnt==0.  acct_blocklist_cnt must be no more than
+   FD_PACK_ACCT_BLOCKLIST_MAX.  acct_blocklist must not contain
+   duplicates.
 
    Returns `mem` (which will be properly formatted as a pack object) on
    success and NULL on failure.  Logs details on failure.  The caller
    will not be joined to the pack object when this function returns. */
-void * fd_pack_new( void                   * mem,
-                    ulong                    pack_depth,
-                    ulong                    bundle_meta_sz,
-                    ulong                    bank_tile_cnt,
-                    fd_pack_limits_t const * limits,
-                    fd_rng_t               * rng );
+void *
+fd_pack_new( void                   * mem,
+             ulong                    pack_depth,
+             ulong                    bundle_meta_sz,
+             ulong                    bank_tile_cnt,
+             fd_pack_limits_t const * limits,
+             fd_acct_addr_t const *   acct_blocklist,
+             ulong                    acct_blocklist_cnt,
+             fd_rng_t               * rng );
 
 /* fd_pack_join joins the caller to the pack object.  Every successful
    join should have a matching leave.  Returns mem. */
@@ -383,9 +394,13 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
       transaction, but the nonce authority did not sign the transaction.
     * BUNDLE_BLACKLIST: bundles are enabled and the transaction uses an
       account in the bundle blacklist.
+    * ACCT_BLOCKLIST: the transaction included an account address in the
+      account blacklist.
     * NONCE_CONFLICT: bundle with two transactions that attempt to lock
       the exact same durable nonce (nonce account, authority, and block
       hash).
+    * INSTR_ACCT_CNT: the transaction includes an instruction that
+      references too many accounts.
 
     NOTE: The corresponding enum in metrics.xml must be kept in sync
     with any changes to these return values. */
@@ -408,14 +423,15 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
 #define FD_PACK_INSERT_REJECT_WRITES_SYSVAR         (-11)
 #define FD_PACK_INSERT_REJECT_INVALID_NONCE         (-12)
 #define FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST      (-13)
-#define FD_PACK_INSERT_REJECT_NONCE_CONFLICT        (-14)
-#define FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT        (-15)
+#define FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST        (-14)
+#define FD_PACK_INSERT_REJECT_NONCE_CONFLICT        (-15)
+#define FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT        (-16)
 
 /* The FD_PACK_INSERT_{ACCEPT, REJECT}_* values defined above are in the
    range [-FD_PACK_INSERT_RETVAL_OFF,
    -FD_PACK_INSERT_RETVAL_OFF+FD_PACK_INSERT_RETVAL_CNT ) */
-#define FD_PACK_INSERT_RETVAL_OFF 15
-#define FD_PACK_INSERT_RETVAL_CNT 22
+#define FD_PACK_INSERT_RETVAL_OFF 16
+#define FD_PACK_INSERT_RETVAL_CNT 23
 
 FD_STATIC_ASSERT( FD_PACK_INSERT_REJECT_INSTR_ACCT_CNT>=-FD_PACK_INSERT_RETVAL_OFF, pack_retval );
 FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RETVAL_CNT-FD_PACK_INSERT_RETVAL_OFF, pack_retval );

@@ -17,6 +17,10 @@ typedef struct {
   fd_ed25519_sig_t sig;
 } wrapped_sig_t;
 
+typedef struct {
+  fd_acct_addr_t key;
+} wrapped_acct_t;
+
 /* fd_pack_ord_txn_t: An fd_txn_p_t with information required to order
    it by priority. */
 struct fd_pack_private_ord_txn {
@@ -364,6 +368,27 @@ static const fd_acct_addr_t null_addr = { 0 };
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 
+#define MAP_NAME              acct_blocklist
+#define MAP_T                 wrapped_acct_t
+#define MAP_LG_SLOT_CNT       FD_PACK_ACCT_BLOCKLIST_LG_MAX
+#define MAP_KEY_T             fd_acct_addr_t
+#define MAP_KEY_NULL          null_addr
+#if FD_HAS_AVX
+# define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
+#else
+# define MAP_KEY_INVAL(k)     MAP_KEY_EQUAL(k, null_addr)
+#endif
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp((k0).b,(k1).b, FD_TXN_ACCT_ADDR_SZ))
+/* It would be nice if this were seeded, but since fd_map doesn't have
+   any auxiliary data, there's not a clear place to store the seed.
+   It's okay though, because the insert process is trusted, since it
+   comes from operator config. */
+#define MAP_KEY_HASH(key)     ((uint)fd_ulong_hash( fd_ulong_load_8( (key).b ) ))
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_MEMOIZE           0
+#define MAX_QUERY_OPT         2 /* rare hits */
+#include "../../util/tmpl/fd_map.c"
+
 /* Since transactions can also expire, we also maintain a parallel
    priority queue.  This means elements are simultaneously part of the
    treap (ordered by priority) and the expiration queue (ordered by
@@ -563,6 +588,11 @@ struct fd_pack_private {
   ulong                  written_list_cnt;
   ulong                  written_list_max;
 
+  /* At initialization time, the caller can configure a blocklist of
+     accounts.  Any transaction that includes one of these accounts will
+     be rejected.  This is an fd_map, and it's effectively const. */
+  wrapped_acct_t        acct_blocklist[ FD_PACK_ACCT_BLOCKLIST_MAX ];
+
   /* Noncemap is a map_chain that maps from tuples (nonce account,
      recent blockhash value, nonce authority) to a transaction.  This
      map stores exactly the transactions in pool that have the nonce
@@ -706,6 +736,8 @@ fd_pack_new( void                   * mem,
              ulong                    bundle_meta_sz,
              ulong                    bank_tile_cnt,
              fd_pack_limits_t const * limits,
+             fd_acct_addr_t const *   acct_blocklist,
+             ulong                    acct_blocklist_cnt,
              fd_rng_t               * rng           ) {
 
   int enable_bundles = !!bundle_meta_sz;
@@ -764,6 +796,15 @@ fd_pack_new( void                   * mem,
   pack->outstanding_microblock_mask = 0UL;
   pack->cumulative_rebated_cus      = 0UL;
 
+  acct_blocklist_new( pack->acct_blocklist );
+  int ins_failed = acct_blocklist_cnt>FD_PACK_ACCT_BLOCKLIST_MAX;
+  for( ulong i=0UL; (!ins_failed) & (i<acct_blocklist_cnt); i++ )
+    ins_failed |= (NULL==acct_blocklist_insert( pack->acct_blocklist, acct_blocklist[i] ));
+  if( FD_UNLIKELY( ins_failed ) ) {
+    FD_LOG_WARNING(( "constructing the account blocklist failed.  Ensure the list contains no more than %lu "
+                     "entries and no duplicates", FD_PACK_ACCT_BLOCKLIST_MAX ));
+    return NULL;
+  }
 
   trp_pool_new(  _pool,        pack_depth+extra_depth );
 
@@ -1168,11 +1209,14 @@ validate_transaction( fd_pack_t               * pack,
   }
 
   int bundle_blacklist = 0;
-  if( FD_UNLIKELY( check_bundle_blacklist ) ) {
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
-        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-      bundle_blacklist |= (3==fd_pack_tip_prog_check_blacklist( ACCT_ITER_TO_PTR( iter ) ));
-    }
+  int acct_blocklist   = 0;
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
+      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+    bundle_blacklist |= (3==fd_pack_tip_prog_check_blacklist( ACCT_ITER_TO_PTR( iter ) ));
+    /* querying for the inval key is a violation of the fd_map
+       constract, even though it's actually fine... */
+    acct_blocklist   |= (!acct_blocklist_key_inval( *ACCT_ITER_TO_PTR( iter ) )) &&
+                        !!acct_blocklist_query( pack->acct_blocklist, *ACCT_ITER_TO_PTR( iter ), NULL );
   }
 
   fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
@@ -1192,7 +1236,9 @@ validate_transaction( fd_pack_t               * pack,
   /*           ... that try to write to a sysvar */
   if( FD_UNLIKELY( writes_to_sysvar                                        ) ) return FD_PACK_INSERT_REJECT_WRITES_SYSVAR;
   /*           ... that use an account that violates bundle rules */
-  if( FD_UNLIKELY( bundle_blacklist & 1                                    ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
+  if( FD_UNLIKELY( bundle_blacklist & !!check_bundle_blacklist             ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
+  /*           ... that use a blocklisted account */
+  if( FD_UNLIKELY( acct_blocklist                                          ) ) return FD_PACK_INSERT_REJECT_ACCT_BLOCKLIST;
   /*           ... that have an instruction with too many accounts */
   /*               TODO: move this check into the transaction parser
                    when limit_instruction_accounts is activated
