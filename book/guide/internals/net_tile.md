@@ -1,7 +1,5 @@
 # Net Tile
 
-Net tiles provide fast networking to a Firedancer system.
-
 At a high level, a net tile acts as a translation layer between the
 Internet (IPv4) and the Firedancer messaging subsystem ("tango").
 
