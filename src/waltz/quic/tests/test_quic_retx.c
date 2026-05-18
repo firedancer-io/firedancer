@@ -434,7 +434,7 @@ main( int     argc,
   FD_TEST( fd_quic_init( client_quic ) );
   fd_quic_sync_clocks( server_quic, client_quic, now );
 
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
@@ -456,4 +456,3 @@ main( int     argc,
   test_loss_skip_threshold( client_conn, server_quic );
   test_stream_retx_multi_packet( client_conn, server_quic );
 }
-

@@ -264,10 +264,10 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         (fd_pubkey_t *)elem->vote,
         (fd_pubkey_t *)elem->identity,
         elem->stake,
-        (uchar)elem->commission,
+        elem->commission,
         bank->f.epoch );
 
-    fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
+    fd_top_votes_insert( top_votes_t_1, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
 
     fd_epoch_credits_t * ec = &fd_bank_epoch_credits( bank )[epoch_credits_len];
     fd_memcpy( ec->pubkey, elem->vote, 32UL );
@@ -288,13 +288,13 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     for( ulong i=0UL; i<manifest->epoch_stakes[t_2_idx].vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[t_2_idx].vote_stakes[i];
 
-      fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, (uchar)elem->commission );
+      fd_top_votes_insert( top_votes_t_2, (fd_pubkey_t *)elem->vote, (fd_pubkey_t *)elem->identity, elem->stake, elem->commission );
       fd_vote_stakes_root_update_meta(
           vote_stakes,
           (fd_pubkey_t *)elem->vote,
           (fd_pubkey_t *)elem->identity,
           elem->stake,
-          (uchar)elem->commission,
+          elem->commission,
           bank->f.epoch );
     }
   }
@@ -307,7 +307,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
       fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
       fd_memcpy( snapshot_commission[i].pubkey, elem->vote, 32UL );
-      snapshot_commission[i].commission = (uchar)elem->commission;
+      snapshot_commission[i].commission = elem->commission;
     }
   } else {
     *fd_bank_snapshot_commission_t_3_len( bank ) = 0UL;

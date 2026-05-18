@@ -51,10 +51,11 @@ struct fd_snapshot_manifest_vote_account {
   ulong last_slot;
   long  last_timestamp;
 
-  /* The percent of inflation rewards earned by the validator and
-     deposited into the validator's vote account, from 0 to 100%.
-     The remaning percentage of inflation rewards is distributed to
-     all delegated stake accounts by stake weight. */
+  /* The commission rate (in basis points) of inflation rewards earned
+     by the validator and deposited into the validator's vote account,
+     from 0 to 10000 (representing 0% to 100%). The remaining percentage
+     of inflation rewards is distributed to all delegated stake accounts
+     by stake weight. */
   ushort commission;
 
   /* The epoch credits array tracks the history of how many credits the

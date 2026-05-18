@@ -11,6 +11,8 @@
 #define FD_FUNK_REC_VAL_MAX ((1UL<<28)-1UL)
 #define FD_FUNK_VAL_ALIGN   (8UL)
 
+#define FD_FUNK_VAL_SHRINK_FREE_THRESHOLD (512UL<<10) /* 512 KiB */
+
 FD_PROTOTYPES_BEGIN
 
 /* Accessors */
@@ -55,17 +57,20 @@ fd_funk_val_const( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's
   return fd_wksp_laddr_fast( wksp, val_gaddr );
 }
 
+FD_FN_CONST static inline int
+fd_funk_val_shrink_compacts( ulong sz,
+                             ulong val_max ) {
+  return (sz<val_max) &&
+         ( ( (5UL*sz)<(4UL*val_max) ) |
+           ( (val_max-sz)>FD_FUNK_VAL_SHRINK_FREE_THRESHOLD ) );
+}
+
 /* fd_funk_val_truncate resizes a record to be new_val_sz bytes in
-   size.
+   size.  Invalidates val_gaddr.
 
-   This function is optimized for the user knowing the actual long term
-   record size when they call this.
-
-   Regardless of the current and new value sizes, this will
-   always attempt to resize the record in order to minimize the amount
-   of excess allocation used by the record.  So this function should be
-   assumed to kill any existing pointers into this record's value
-   storage.
+   If the requested size is larger than the current allocation, this
+   reallocates the record.  If the requested size is smaller than the
+   current allocation, reallocates if fd_funk_val_shrink_compacts()==1.
 
    Returns a pointer to the value memory on success and NULL on
    failure.  If opt_err is non-NULL, on return, *opt_err will hold

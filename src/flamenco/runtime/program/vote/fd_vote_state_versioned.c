@@ -351,6 +351,36 @@ fd_vsv_set_commission( fd_vote_state_versioned_t * self,
 }
 
 void
+fd_vsv_set_inflation_rewards_commission_bps( fd_vote_state_versioned_t * self,
+                                             ushort                      commission_bps ) {
+  switch( self->kind ) {
+    case fd_vote_state_versioned_enum_v4:
+      self->v4.inflation_rewards_commission_bps = commission_bps;
+      break;
+    case fd_vote_state_versioned_enum_v3:
+      /* No-op for v3 */
+      break;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
+  }
+}
+
+void
+fd_vsv_set_block_revenue_commission_bps( fd_vote_state_versioned_t * self,
+                                         ushort                      commission_bps ) {
+  switch( self->kind ) {
+    case fd_vote_state_versioned_enum_v4:
+      self->v4.block_revenue_commission_bps = commission_bps;
+      break;
+    case fd_vote_state_versioned_enum_v3:
+      /* No-op for v3 */
+      break;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
+  }
+}
+
+void
 fd_vsv_set_root_slot( fd_vote_state_versioned_t * self, ulong * root_slot ) {
   switch( self->kind ) {
     case fd_vote_state_versioned_enum_v3:

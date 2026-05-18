@@ -284,8 +284,8 @@ test_switch_simple( fd_wksp_t * wksp ) {
   FD_TEST( tower );
   FD_TEST( tower );
   FD_TEST( ghost );
+  tower->root = 1;
 
-  push_vote( tower, 1 );
   push_vote( tower, 2 );
 
   /* lets make a fork with
@@ -381,6 +381,8 @@ test_switch_threshold( fd_wksp_t * wksp ) {
   mock( ghost, fd_tower_blocks_insert( tower, 110, 44 ), 16, &(fd_hash_t){.ul = {110}}, &(fd_hash_t){.ul = {44}} );
 
   mock( ghost, fd_tower_blocks_insert( tower, 112, 43 ), 17, &(fd_hash_t){.ul = {112}}, &(fd_hash_t){.ul = {43}} );
+
+  tower->root = 0;
 
   /* our last vote is 47 */
   push_vote( tower, 1 );
@@ -493,6 +495,8 @@ test_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
 
   mock( ghost, fd_tower_blocks_insert( tower, 113, 44 ), 14, &(fd_hash_t){.ul = {113}}, &(fd_hash_t){.ul = {44}} );
 
+  tower->root = 0;
+
   // 43 -> 49 is our tower
   push_vote( tower, 43 );
   push_vote( tower, 44 );
@@ -581,6 +585,7 @@ test_switch_eqvoc( fd_wksp_t * wksp ) {
   mock( ghost, fd_tower_blocks_insert( tower, 7, 2 ), 7, &(fd_hash_t){.ul = {7}}, &(fd_hash_t){.ul = {2}} );
 
   // 1 -> 5 is our tower
+  tower->root = 0;
   push_vote( tower, 1 );
   push_vote( tower, 2 );
   push_vote( tower, 3 );
@@ -611,6 +616,92 @@ test_switch_eqvoc( fd_wksp_t * wksp ) {
   fd_tower_lockos_insert( tower, 6, &acct.vote_acc, acct.votes );
   fd_tower_stakes_insert( tower, 6, &acct.vote_acc, acct.stake, ULONG_MAX );
   FD_TEST( switch_check( tower, ghost, total_stake, 7 ) == 1 );
+}
+
+void
+test_switch_closed_vote_account( fd_wksp_t * wksp ) {
+
+  /* Regression test: a vote account that is closed on the switch fork
+     but still active on a candidate fork should not crash switch_check.
+
+     Fork tree:
+
+              100 (root)
+               |
+              101
+            /  |  \
+         102  108   105
+          |    |      |
+         103  109   106  <-- switch_slot (vote account ABC closed here)
+          |
+         104  <-- our last vote
+
+     Fork A (right):  105 -> 106.  Vote account ABC is closed on this fork.
+     Fork B (left):   102 -> 103 -> 104.  Our last vote.
+     Fork C (middle): 108 -> 109.  Vote account ABC is active and voted
+                      for slot 108 with lockout covering our vote slot.
+
+     The lockout map for candidate_slot=109 contains ABC (from fork C),
+     but stk_vtr_map has no entry for (ABC, switch_slot=106) because ABC
+     was closed on fork A.  switch_check should handle this gracefully
+     instead of hitting LOG_CRIT. */
+
+  (void)scratch;
+  ulong blk_max     = 64;
+  ulong voter_max   = 16;
+  ulong total_stake = 100;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint( blk_max, voter_max ), 1UL );
+  void * ghost_mem = fd_wksp_alloc_laddr( wksp, fd_ghost_align(), fd_ghost_footprint( blk_max, voter_max ), 1UL );
+
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem, blk_max, voter_max, 0UL ) );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( ghost_mem, blk_max, voter_max, 0UL ) );
+  FD_TEST( tower );
+  FD_TEST( ghost );
+
+  mock( ghost, fd_tower_blocks_insert( tower, 100, ULONG_MAX ), 0, &(fd_hash_t){.ul = {100}}, NULL );
+  mock( ghost, fd_tower_blocks_insert( tower, 101, 100 ), 1,       &(fd_hash_t){.ul = {101}}, &(fd_hash_t){.ul = {100}} );
+
+  /* Fork B (our vote fork) */
+  mock( ghost, fd_tower_blocks_insert( tower, 102, 101 ), 2,       &(fd_hash_t){.ul = {102}}, &(fd_hash_t){.ul = {101}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 103, 102 ), 3,       &(fd_hash_t){.ul = {103}}, &(fd_hash_t){.ul = {102}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 104, 103 ), 4,       &(fd_hash_t){.ul = {104}}, &(fd_hash_t){.ul = {103}} );
+
+  /* Fork A (switch target -- ABC closed here) */
+  mock( ghost, fd_tower_blocks_insert( tower, 105, 101 ), 5,       &(fd_hash_t){.ul = {105}}, &(fd_hash_t){.ul = {101}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 106, 105 ), 6,       &(fd_hash_t){.ul = {106}}, &(fd_hash_t){.ul = {105}} );
+
+  /* Fork C (ABC active here) */
+  mock( ghost, fd_tower_blocks_insert( tower, 108, 101 ), 7,       &(fd_hash_t){.ul = {108}}, &(fd_hash_t){.ul = {101}} );
+  mock( ghost, fd_tower_blocks_insert( tower, 109, 108 ), 8,       &(fd_hash_t){.ul = {109}}, &(fd_hash_t){.ul = {108}} );
+
+  /* Our tower: voted for 100 (root) and 104.  vote_slot=104. */
+  push_vote( tower, 100 );
+  push_vote( tower, 104 );
+
+  fd_tower_vtr_t acct;
+  uchar __attribute__((aligned(FD_TOWER_VOTE_ALIGN))) mock_tower_mem[ FD_TOWER_VOTE_FOOTPRINT ];
+  fd_tower_vote_t * mock_tower = fd_tower_vote_join( fd_tower_vote_new( mock_tower_mem ) );
+
+  /* ABC voted for slot 108 with conf=6, so lockout end = 108 + 64 = 172.
+     This lockout covers our vote_slot=104, so ABC is locked out from
+     voting for our vote slot (interval_slot=108 is not a descendant of
+     vote_slot=104, and 108 > root_slot=100). */
+  mock_vote_acc( &(fd_hash_t){.ul = {0xABC}}, 50, 108, 6, &acct, mock_tower );
+
+  /* Insert lockout and stake for candidate_slot=109 (fork C, ABC active).
+     Do NOT insert stake for ABC on switch_slot=106 — ABC's vote account
+     was closed on fork A, so it was skipped during query_vote_accs for
+     slot 106. */
+  fd_tower_lockos_insert( tower, 109, &acct.vote_acc, acct.votes );
+  fd_tower_stakes_insert( tower, 109, &acct.vote_acc, acct.stake, ULONG_MAX );
+
+  /* candidate_slot=109 (a leaf on fork C). switch_check then
+     queries stk_vtr_map for (ABC, switch_slot=106) which does not exist
+     because ABC was closed on fork A.  Used to hit LOG_CRIT. */
+  FD_TEST( switch_check( tower, ghost, total_stake, 106 ) == 0 );
+
+  FD_LOG_NOTICE(( "test_switch_closed_vote_account passed" ));
 }
 
 void
@@ -649,6 +740,7 @@ test_case_1c_switch_pass( fd_wksp_t * wksp ) {
   mock( ghost, fd_tower_blocks_insert( tower, 4, 0 ), 4,         &(fd_hash_t){.ul = {4}}, &(fd_hash_t){.ul = {0}} );
   mock( ghost, fd_tower_blocks_insert( tower, 5, 4 ), 5,         &(fd_hash_t){.ul = {5}}, &(fd_hash_t){.ul = {4}} );
 
+  tower->root = 0;
   /* Mark slot 1 as a duplicate (invalid).  This makes prev_vote's fork
      have an invalid ancestor, triggering Case 1. */
 
@@ -666,7 +758,6 @@ test_case_1c_switch_pass( fd_wksp_t * wksp ) {
      Must set voted and voted_block_id on the fork blocks so
      fd_tower_vote_and_reset can look up prev_vote_blk in ghost. */
 
-  push_vote( tower, 0 );
   push_vote( tower, 3 );
 
   fd_tower_blk_t * blk0 = fd_tower_blocks_query( tower, 0 );
@@ -674,10 +765,6 @@ test_case_1c_switch_pass( fd_wksp_t * wksp ) {
 
   fd_tower_blk_t * blk3 = fd_tower_blocks_query( tower, 3 );
   blk3->voted = 1; blk3->voted_block_id = (fd_hash_t){.ul = {3}};
-
-  /* Need an artificial root so switch_check can find root_slot. */
-
-  fd_tower_vote_push_head( tower->votes, (fd_tower_vote_t){.slot = 0, .conf = 32} );
 
   /* Set up switch proof: a voter locked out on slot 5's fork covering
      our last vote.  This provides enough switch stake. */
@@ -1128,6 +1215,8 @@ main( int argc, char ** argv ) {
 
 
   test_switch_eqvoc( wksp );
+
+  test_switch_closed_vote_account( wksp );
 
   test_case_1c_switch_pass( wksp );
   test_case_1c_switch_fail( wksp );

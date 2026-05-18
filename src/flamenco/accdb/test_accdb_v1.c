@@ -203,7 +203,11 @@ test_truncate_inplace( fd_accdb_admin_t * admin,
   ulong data_sz_0 = 56UL;
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_0, FD_ACCDB_FLAG_CREATE ) );
   FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  fd_pubkey_t owner = { .ul={ 1UL, 2UL, 3UL, 4UL } };
   fd_accdb_ref_lamports_set( rw, 32UL );
+  fd_accdb_ref_owner_set( rw, &owner );
+  fd_accdb_ref_exec_bit_set( rw, 1U );
+  fd_accdb_ref_slot_set( rw, 123UL );
   fd_accdb_ref_data_set( accdb, rw, "hello", 5UL );
   fd_funk_rec_t * rec = (void *)rw->ref->user_data;
   FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t)+5UL );
@@ -218,6 +222,34 @@ test_truncate_inplace( fd_accdb_admin_t * admin,
   FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t) );
   FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+data_sz_1 );
   FD_TEST( rw->meta->dlen == 0UL );
+  ulong val_max_big = rec->val_max;
+  fd_accdb_close_rw( accdb, rw );
+
+  ulong data_sz_keep = val_max_big - sizeof(fd_account_meta_t) - 1UL;
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_keep, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max   == val_max_big );
+  FD_TEST( rw->meta->dlen == 0UL );
+  fd_account_meta_t meta_keep = *rw->meta;
+  uchar val_keep[ sizeof(fd_account_meta_t) ];
+  fd_memcpy( val_keep, rw->meta, sizeof(fd_account_meta_t) );
+  fd_accdb_close_rw( accdb, rw );
+
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, 0UL, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz  == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max >= sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max <  val_max_big );
+  FD_TEST( rw->meta->dlen == 0UL );
+  FD_TEST( !memcmp( rw->meta, val_keep, sizeof(fd_account_meta_t) ) );
+  FD_TEST( rw->meta->lamports   == meta_keep.lamports   );
+  FD_TEST( rw->meta->slot       == meta_keep.slot       );
+  FD_TEST( rw->meta->dlen       == meta_keep.dlen       );
+  FD_TEST( rw->meta->executable == meta_keep.executable );
+  FD_TEST( !memcmp( rw->meta->owner, meta_keep.owner, sizeof(meta_keep.owner) ) );
   fd_accdb_close_rw( accdb, rw );
 
   fd_accdb_advance_root( admin, &xid );

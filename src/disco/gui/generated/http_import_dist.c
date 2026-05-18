@@ -31,12 +31,12 @@ FD_IMPORT_BINARY( file_stable8_gzip, "src/disco/gui/dist_stable_cmp/assets/frank
 FD_IMPORT_BINARY( file_stable9, "src/disco/gui/dist_stable/assets/frankendancer_logo-CHyfJ772.svg" );
 FD_IMPORT_BINARY( file_stable9_zstd, "src/disco/gui/dist_stable_cmp/assets/frankendancer_logo-CHyfJ772.svg.zst" );
 FD_IMPORT_BINARY( file_stable9_gzip, "src/disco/gui/dist_stable_cmp/assets/frankendancer_logo-CHyfJ772.svg.gz" );
-FD_IMPORT_BINARY( file_stable10, "src/disco/gui/dist_stable/assets/index-D6Kf0tOJ.css" );
-FD_IMPORT_BINARY( file_stable10_zstd, "src/disco/gui/dist_stable_cmp/assets/index-D6Kf0tOJ.css.zst" );
-FD_IMPORT_BINARY( file_stable10_gzip, "src/disco/gui/dist_stable_cmp/assets/index-D6Kf0tOJ.css.gz" );
-FD_IMPORT_BINARY( file_stable11, "src/disco/gui/dist_stable/assets/index-DuhCK9Nw.js" );
-FD_IMPORT_BINARY( file_stable11_zstd, "src/disco/gui/dist_stable_cmp/assets/index-DuhCK9Nw.js.zst" );
-FD_IMPORT_BINARY( file_stable11_gzip, "src/disco/gui/dist_stable_cmp/assets/index-DuhCK9Nw.js.gz" );
+FD_IMPORT_BINARY( file_stable10, "src/disco/gui/dist_stable/assets/index-Bc4vgIIC.js" );
+FD_IMPORT_BINARY( file_stable10_zstd, "src/disco/gui/dist_stable_cmp/assets/index-Bc4vgIIC.js.zst" );
+FD_IMPORT_BINARY( file_stable10_gzip, "src/disco/gui/dist_stable_cmp/assets/index-Bc4vgIIC.js.gz" );
+FD_IMPORT_BINARY( file_stable11, "src/disco/gui/dist_stable/assets/index-Zy2alAC6.css" );
+FD_IMPORT_BINARY( file_stable11_zstd, "src/disco/gui/dist_stable_cmp/assets/index-Zy2alAC6.css.zst" );
+FD_IMPORT_BINARY( file_stable11_gzip, "src/disco/gui/dist_stable_cmp/assets/index-Zy2alAC6.css.gz" );
 FD_IMPORT_BINARY( file_stable12, "src/disco/gui/dist_stable/assets/inter-tight-latin-400-normal-BLrFJfvD.woff" );
 FD_IMPORT_BINARY( file_stable12_zstd, "src/disco/gui/dist_stable_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.zst" );
 FD_IMPORT_BINARY( file_stable12_gzip, "src/disco/gui/dist_stable_cmp/assets/inter-tight-latin-400-normal-BLrFJfvD.woff.gz" );
@@ -52,9 +52,9 @@ FD_IMPORT_BINARY( file_stable15_gzip, "src/disco/gui/dist_stable_cmp/assets/robo
 FD_IMPORT_BINARY( file_stable16, "src/disco/gui/dist_stable/assets/roboto-mono-latin-400-normal-GekRknry.woff2" );
 FD_IMPORT_BINARY( file_stable16_zstd, "src/disco/gui/dist_stable_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.zst" );
 FD_IMPORT_BINARY( file_stable16_gzip, "src/disco/gui/dist_stable_cmp/assets/roboto-mono-latin-400-normal-GekRknry.woff2.gz" );
-FD_IMPORT_BINARY( file_stable17, "src/disco/gui/dist_stable/assets/wsWorker-DZnBQRUh.js" );
-FD_IMPORT_BINARY( file_stable17_zstd, "src/disco/gui/dist_stable_cmp/assets/wsWorker-DZnBQRUh.js.zst" );
-FD_IMPORT_BINARY( file_stable17_gzip, "src/disco/gui/dist_stable_cmp/assets/wsWorker-DZnBQRUh.js.gz" );
+FD_IMPORT_BINARY( file_stable17, "src/disco/gui/dist_stable/assets/wsWorker-DkDhILDF.js" );
+FD_IMPORT_BINARY( file_stable17_zstd, "src/disco/gui/dist_stable_cmp/assets/wsWorker-DkDhILDF.js.zst" );
+FD_IMPORT_BINARY( file_stable17_gzip, "src/disco/gui/dist_stable_cmp/assets/wsWorker-DkDhILDF.js.gz" );
 FD_IMPORT_BINARY( file_stable18, "src/disco/gui/dist_stable/index.html" );
 FD_IMPORT_BINARY( file_stable18_zstd, "src/disco/gui/dist_stable_cmp/index.html.zst" );
 FD_IMPORT_BINARY( file_stable18_gzip, "src/disco/gui/dist_stable_cmp/index.html.gz" );
@@ -271,7 +271,7 @@ fd_http_static_file_t STATIC_FILES_STABLE[] = {
 		.gzip_data_len = &file_stable9_gzip_sz,
 	},
 	{
-		.name = "/assets/index-D6Kf0tOJ.css",
+		.name = "/assets/index-Bc4vgIIC.js",
 		.data = file_stable10,
 		.data_len = &file_stable10_sz,
 		.zstd_data = file_stable10_zstd,
@@ -280,7 +280,7 @@ fd_http_static_file_t STATIC_FILES_STABLE[] = {
 		.gzip_data_len = &file_stable10_gzip_sz,
 	},
 	{
-		.name = "/assets/index-DuhCK9Nw.js",
+		.name = "/assets/index-Zy2alAC6.css",
 		.data = file_stable11,
 		.data_len = &file_stable11_sz,
 		.zstd_data = file_stable11_zstd,
@@ -334,7 +334,7 @@ fd_http_static_file_t STATIC_FILES_STABLE[] = {
 		.gzip_data_len = &file_stable16_gzip_sz,
 	},
 	{
-		.name = "/assets/wsWorker-DZnBQRUh.js",
+		.name = "/assets/wsWorker-DkDhILDF.js",
 		.data = file_stable17,
 		.data_len = &file_stable17_sz,
 		.zstd_data = file_stable17_zstd,

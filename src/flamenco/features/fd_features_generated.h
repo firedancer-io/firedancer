@@ -8,10 +8,10 @@
 #endif
 
 /* FEATURE_ID_CNT is the number of features in ids */
-#define FD_FEATURE_ID_CNT (272UL)
+#define FD_FEATURE_ID_CNT (274UL)
 
 /* Feature set ID calculated from all feature names */
-#define FD_FEATURE_SET_ID (2597715874U)
+#define FD_FEATURE_SET_ID (1429815730U)
 
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
@@ -281,12 +281,14 @@ union fd_features {
     /* 0xf55c421c9eccc012 */ ulong remove_simple_vote_from_cost_model;
     /* 0x7428565ab3b6d152 */ ulong limit_instruction_accounts;
     /* 0xd2ff523ae3f23607 */ ulong validator_admission_ticket;
-    /* 0x6735cf1d3c656109 */ ulong discard_unexpected_data_complete_shreds;
+    /* 0x21407894183f6809 */ ulong discard_unexpected_data_complete_shreds;
     /* 0x632b9b7c9e9a3257 */ ulong create_account_allow_prefund;
     /* 0xa4c86f030ee0440c */ ulong replace_spl_token_with_p_token;
     /* 0xf5434d796d0f975a */ ulong delay_commission_updates;
     /* 0x7f5bea39613bbc0d */ ulong validate_chained_block_id;
     /* 0xfde26f7b21c28506 */ ulong upgrade_bpf_stake_program_to_v5;
     /* 0x154206ed5990d30c */ ulong enable_sha512_syscall;
+    /* 0xb0399cb49a7f7396 */ ulong disable_sbpf_v0_v1_v2_deployment;
+    /* 0xd388d8dbc65e2dcb */ ulong commission_rate_in_basis_points;
   };
 };

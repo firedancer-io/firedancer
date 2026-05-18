@@ -5,8 +5,6 @@
 #include "../fd_system_ids.h"
 #include "../fd_runtime_stack.h"
 #include "../../stakes/fd_stake_types.h"
-#include "../program/vote/fd_vote_state_versioned.h"
-#include "../program/vote/fd_vote_codec.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
@@ -33,31 +31,6 @@ typedef struct {
 /* Fixed leader schedule hash seed (consistent with solfuzz-agave) */
 #define LEADER_SCHEDULE_HASH_SEED 0xDEADFACEUL
 
-/* Registers a single vote account into the current votes cache.  The
-   entry is derived from the current present account state.  This
-   function also registers a vote timestamp for the vote account. */
-static void
-fd_solfuzz_block_register_vote_account( fd_top_votes_t *          top_votes,
-                                        fd_accdb_user_t *         accdb,
-                                        fd_funk_txn_xid_t const * xid,
-                                        fd_pubkey_t *             pubkey ) {
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, pubkey ) ) ) return;
-
-  if( !fd_pubkey_eq( fd_accdb_ref_owner( ro ), &fd_solana_vote_program_id ) ||
-      fd_accdb_ref_lamports( ro )==0UL ||
-      !fd_vsv_is_correct_size_owner_and_init( ro->meta ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return;
-  }
-
-  fd_vote_block_timestamp_t vote_block_timestamp;
-  FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( ro->meta ), ro->meta->dlen, &vote_block_timestamp ) );
-  fd_top_votes_update( top_votes, pubkey, vote_block_timestamp.slot, vote_block_timestamp.timestamp );
-
-  fd_accdb_close_ro( accdb, ro );
-}
-
 static void
 fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   top_votes,
                                            fd_vote_stakes_t *                 vote_stakes,
@@ -70,7 +43,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
     fd_pubkey_t vote_pubkey = FD_LOAD( fd_pubkey_t, &vote_accounts[i].address );
     fd_pubkey_t node_pubkey = FD_LOAD( fd_pubkey_t, &vote_accounts[i].node_pubkey );
     ulong       stake       = vote_accounts[i].stake;
-    uchar       commission  = (uchar)vote_accounts[i].commission;
+    ushort      commission  = (ushort)vote_accounts[i].commission_bps;
 
     if( is_t_1 ) {
       fd_vote_stakes_root_insert_key( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
@@ -117,6 +90,8 @@ fd_solfuzz_block_register_stake_delegation( fd_accdb_user_t *         accdb,
 static void
 fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
+
+  runner->bank->stake_rewards_fork_id = UCHAR_MAX;
 
   fd_accdb_v1_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache->join );
@@ -260,18 +235,14 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], i );
 
-    /* Update vote accounts cache for epoch T */
+    /* Update the stake delegations cache for epoch T */
     fd_pubkey_t pubkey;
     memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-    fd_solfuzz_block_register_vote_account(
-        top_votes_t_2,
-        accdb,
-        xid,
-        &pubkey );
-
-    /* Update the stake delegations cache for epoch T */
     fd_solfuzz_block_register_stake_delegation( accdb, xid, stake_delegations, &pubkey );
   }
+
+  /* Refresh top votes after loading accdb. */
+  fd_top_votes_refresh( top_votes_t_2, accdb, xid );
 
   /* Current epoch gets updated in process_new_epoch, so use the epoch
      from the parent slot */

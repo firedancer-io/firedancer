@@ -2,6 +2,7 @@
 #include "fd_poh_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../discof/fd_startup.h"
 #include <time.h>
 #include "generated/fd_poh_tile_seccomp.h"
@@ -65,10 +66,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 during_housekeeping( fd_poh_tile_t * ctx ) {
-  long now = fd_clock_epoch_y( ctx->poh->clock_epoch, fd_tickcount() );
-  if( FD_UNLIKELY( now >= ctx->poh->recal_next ) ) {
-    ctx->poh->recal_next = fd_clock_default_recal( ctx->poh->clock );
-    fd_clock_epoch_refresh( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->poh->clock ) ) ) {
+    fd_clock_tile_recal( ctx->poh->clock );
   }
 }
 
@@ -276,9 +275,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out ) );
 
-  fd_clock_default_init( ctx->poh->clock, ctx->poh->clock_mem );
-  ctx->poh->recal_next = fd_clock_recal_next( ctx->poh->clock );
-  fd_clock_epoch_init( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
+  fd_clock_tile_init( ctx->poh->clock );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

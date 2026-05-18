@@ -132,6 +132,11 @@ fd_instr_stack_pop( fd_runtime_t *          runtime,
                     fd_txn_out_t *          txn_out,
                     fd_instr_info_t const * instr );
 
+int
+fd_execute_instr_end( fd_exec_instr_ctx_t *   instr_ctx,
+                      fd_instr_info_t const * instr,
+                      int                     instr_exec_result );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_h */

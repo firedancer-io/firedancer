@@ -88,7 +88,7 @@ test_quic_hs( fd_quic_t * server_quic,
   fd_quic_state_validate( client_quic );
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */
@@ -196,7 +196,7 @@ test_quic_hs( fd_quic_t * server_quic,
 
   /* fill buffer, no eviction or failure */
   for( int i=0; i<10; ++i ) {
-    FD_TEST( fd_quic_connect( client_quic, 0U, 0, 0U, 0, now ) );
+    FD_TEST( fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now ) );
     FD_TEST( client_quic->metrics.hs_evicted_cnt == prev_evicted );
   }
   FD_TEST( !fd_quic_tls_hs_pool_free( client_state->hs_pool ) );
@@ -205,14 +205,14 @@ test_quic_hs( fd_quic_t * server_quic,
   now++;
   /* new connection should fail because within TTL of 5 */
   ulong prev_fail = client_quic->metrics.hs_err_alloc_fail_cnt;
-  FD_TEST( !fd_quic_connect( client_quic, 0U, 0, 0U, 0, now ) );
+  FD_TEST( !fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now ) );
   FD_TEST( client_quic->metrics.hs_err_alloc_fail_cnt == prev_fail+1 );
   validate_quic_hs_tls_cache( client_quic );
 
   FD_LOG_NOTICE(( "Testing TLS cache - evicts if over ttl " ));
   now+=10;
   FD_TEST( !fd_quic_tls_hs_pool_free( client_state->hs_pool ) );
-  FD_TEST( fd_quic_connect( client_quic, 0U, 0, 0U, 0, now ) );
+  FD_TEST( fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now ) );
   validate_quic_hs_tls_cache( client_quic );
   FD_TEST( client_quic->metrics.hs_evicted_cnt == prev_evicted+1 );
 
@@ -244,7 +244,7 @@ test_quic_hs_with_server_appdata( fd_quic_t * server_quic,
                                   client_quic->metrics.pkt_retransmissions_cnt[3] };
 
   /* Client initiates connection */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, test_now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, test_now );
   FD_TEST( client_conn );
   fd_quic_service( client_quic, test_now );
 
@@ -321,7 +321,7 @@ test_quic_hs_with_client_appdata( fd_quic_t * server_quic,
                                   client_quic->metrics.pkt_retransmissions_cnt[3] };
 
   /* Client initiates connection */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, test_now );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, test_now );
   FD_TEST( client_conn );
   fd_quic_service( client_quic, test_now );
 

@@ -37,9 +37,8 @@ ulong
 fd_rent_exempt_minimum_balance( fd_rent_t const * rent,
                                 ulong             data_len );
 
-/* fd_sysvar_rent_read reads the current value of the rent sysvar from
-   funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
+/* fd_sysvar_rent_read reads the current value of the rent sysvar.
+   Returns NULL on failure. */
 
 fd_rent_t const *
 fd_sysvar_rent_read( fd_accdb_user_t *         accdb,

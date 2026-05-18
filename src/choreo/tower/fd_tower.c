@@ -401,8 +401,13 @@ static int
 lockout_check( fd_tower_t * tower,
                ulong        slot ) {
 
-  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes )                         ) ) return 1; /* always not locked out if we haven't voted. */
-  if( FD_UNLIKELY( slot <= fd_tower_vote_peek_tail_const( tower->votes )->slot ) ) return 0; /* always locked out from voting for slot <= last vote slot */
+  /* Mirrors Agave's Tower::is_recent(): reject slot if it is not strictly
+     newer than our last vote (non-empty tower) or our root (empty tower,
+     e.g. snapshot boot).
+     https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/core/src/consensus.rs#L825-L836 */
+  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) ) )
+    return tower->root==ULONG_MAX || slot>tower->root;
+  if( FD_UNLIKELY( slot<=fd_tower_vote_peek_tail_const( tower->votes )->slot ) ) return 0;
 
   /* Simulate a vote to pop off all the votes that would be expired by
      voting for slot.  Then check if the newly top-of-tower vote is on
@@ -470,7 +475,7 @@ switch_check( fd_tower_t * tower,
 
   ulong switch_stake = 0;
   ulong vote_slot    = fd_tower_vote_peek_tail_const( tower->votes )->slot;
-  ulong root_slot    = fd_tower_vote_peek_head_const( tower->votes )->slot;
+  ulong root_slot    = tower->root;
 
   ulong            null = fd_ghost_blk_idx_null( ghost );
   fd_ghost_blk_t * head = fd_ghost_blk_map_remove( ghost, fd_ghost_root( ghost ) );
@@ -550,10 +555,12 @@ switch_check( fd_tower_t * tower,
           if( FD_UNLIKELY( !fd_tower_blocks_is_slot_descendant( tower, interval_slot, vote_slot ) && interval_slot > root_slot ) ) {
             fd_tower_stakes_vtr_xid_t     key         = { .addr = *vote_acc, .slot = switch_slot };
             fd_tower_stakes_vtr_t const * voter_stake = fd_tower_stakes_vtr_map_ele_query_const( tower->stk_vtr_map, &key, NULL, tower->stk_vtr_pool );
-            if( FD_UNLIKELY( !voter_stake ) ) {
-              FD_BASE58_ENCODE_32_BYTES( vote_acc->key, vote_acc_b58 );
-              FD_LOG_CRIT(( "missing voter stake for vote account %s on slot %lu. Is this an error?", vote_acc_b58, switch_slot ));
-            }
+
+            /* Vote account could have been closed on the switch fork,
+               and therefore not in the tower stakes map.  In this case
+               just count the vote stake as 0 and skip this voter.
+               matches Agave.  */
+            if( FD_UNLIKELY( !voter_stake ) ) continue;
             ulong voter_idx = fd_tower_stakes_vtr_pool_idx( tower->stk_vtr_pool, voter_stake );
             if( FD_UNLIKELY( fd_used_acc_scratch_test( tower->stk_used_acc, voter_idx ) ) ) continue; /* exclude already counted voters */
             fd_used_acc_scratch_insert( tower->stk_used_acc, voter_idx );
@@ -687,14 +694,28 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   fd_ghost_blk_t const * reset_blk = NULL;
   fd_ghost_blk_t const * vote_blk  = NULL;
 
-  /* Case 0: if we haven't voted yet then we can always vote and reset
-     to ghost_best.
+  /* Case 0: if we haven't voted yet then there are two cases to consider. */
 
-     https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/consensus.rs#L933-L935 */
+  /* Case 0a: On snapshot boot, tower->root is set to the snapshot slot before any
+     votes are recorded. In this case, lockout_check returns  0 for slot <= root,
+     preventing a vote on the snapshot slot itself. */
+  if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) && !lockout_check( tower, best_blk->slot ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
+    FD_LOG_DEBUG(( "[%s] case 0a: not recent (slot %lu <= root %lu). reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, best_blk->slot, tower->root, best_blk->slot, best_blk_id ));
+    *reset_slot     = best_blk->slot;
+    *reset_block_id = best_blk->id;
+    *vote_slot      = ULONG_MAX;
+    *vote_block_id  = (fd_hash_t){0};
+    *root_slot      = ULONG_MAX;
+    *root_block_id  = (fd_hash_t){0};
+    return flags;
+  }
 
+  /* Case 0b: if we haven't voted yet then we can always vote and reset
+     to ghost_best. */
   if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
-    FD_LOG_DEBUG(( "[%s] case 0: empty tower. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, best_blk->slot, best_blk_id, best_blk->slot, best_blk_id ));
+    FD_LOG_DEBUG(( "[%s] case 0b: empty tower. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, best_blk->slot, best_blk_id, best_blk->slot, best_blk_id ));
     fd_tower_blk_t * fork = fd_tower_blocks_query( tower, best_blk->slot );
     fork->voted           = 1;
     fork->voted_block_id  = best_blk->id;

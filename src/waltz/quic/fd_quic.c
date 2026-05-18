@@ -2193,8 +2193,22 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 }
 
 
+static inline int
+fd_quic_src_ip_allowed( fd_quic_conn_t const * conn,
+                        uint                   src_ip ) {
+  if( !conn ) return 1;
+  if( FD_LIKELY( conn->peer[0].ip_addr==src_ip ) ) return 1;
+
+  FD_DEBUG( FD_LOG_DEBUG(( "Rejected packet with non-sticky peer IPv4 address; conn=%u expected=" FD_IP4_ADDR_FMT " got=" FD_IP4_ADDR_FMT,
+                           conn->conn_idx,
+                           FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ),
+                           FD_IP4_ADDR_FMT_ARGS( src_ip ) )); )
+  return 0;
+}
+
 /* process v1 quic packets
    returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error */
+
 ulong
 fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 fd_quic_pkt_t * pkt,
@@ -2248,6 +2262,11 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* initialize packet number to unused value */
     pkt->pkt_number = FD_QUIC_PKT_NUM_UNUSED;
 
+    if( FD_UNLIKELY( !fd_quic_src_ip_allowed( conn, pkt->ip4->saddr ) ) ) {
+      quic->metrics.pkt_wrong_src_cnt++;
+      return FD_QUIC_PARSE_FAIL;
+    }
+
     switch( long_packet_type ) {
       case FD_QUIC_PKT_TYPE_INITIAL:
         rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dcid, &scid, cur_ptr, cur_sz );
@@ -2285,6 +2304,12 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* find connection id */
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
+
+    if( FD_UNLIKELY( !fd_quic_src_ip_allowed( conn, pkt->ip4->saddr ) ) ) {
+      quic->metrics.pkt_wrong_src_cnt++;
+      return FD_QUIC_PARSE_FAIL;
+    }
+
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
 
     fd_quic_svc_timers_schedule( state->svc_timers, conn, state->now );
@@ -4184,6 +4209,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      ushort                    self_udp_port,
                      int                       server ) {
   if( FD_UNLIKELY( !our_conn_id ) ) return NULL;
+  if( FD_UNLIKELY( !peer_ip_addr ) ) return NULL;
 
   fd_quic_config_t * config = &quic->config;
   fd_quic_state_t *  state  = fd_quic_get_state( quic );

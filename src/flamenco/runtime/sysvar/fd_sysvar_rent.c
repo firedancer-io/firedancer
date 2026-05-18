@@ -38,16 +38,7 @@ fd_sysvar_rent_read( fd_accdb_user_t *         accdb,
     return NULL;
   }
 
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  memcpy( rent, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) );
+  memcpy( rent, fd_accdb_ref_data_const( ro ), FD_SYSVAR_RENT_BINCODE_SZ );
   fd_accdb_close_ro( accdb, ro );
   return rent;
 }

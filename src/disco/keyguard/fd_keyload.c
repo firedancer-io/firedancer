@@ -136,7 +136,10 @@ fd_keyload_alloc_protected_pages( ulong page_cnt,
   /* Prevent the key page from showing up in core dumps. It shouldn't be
      possible to fork this process typically, but we also prevent any
      forked child from having this page. */
-  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK | MADV_DONTDUMP ) ) )
+  /* `madvise` supports only a single `advice` per call, so we cannot combine via bitwise or. */
+  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_WIPEONFORK ) ) )
+    FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( madvise( middle_pages, page_cnt*PAGE_SZ, MADV_DONTDUMP ) ) )
     FD_LOG_ERR(( "madvise failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return middle_pages;
