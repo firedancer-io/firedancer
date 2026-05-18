@@ -2749,9 +2749,16 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
     for(;;) {
       uint gen0 = FD_VOLATILE_CONST( line->key.generation );
       uint rc0  = FD_VOLATILE_CONST( line->refcnt );
+      uint ai0  = FD_VOLATILE_CONST( line->acc_idx );
       if( FD_UNLIKELY( rc0==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
       if( FD_UNLIKELY( gen0!=snap_gen ) ) goto miss;
       if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
+      /* acc_idx==UINT_MAX is the "loading" sentinel set by cold_load_acc
+         before the preadv2 fills the line.  CACHE_VALID can be observed
+         set while the bytes are still stale, so fall to the disk path
+         (which spins on offset_fork and reads from the file) rather
+         than copying garbage. */
+      if( FD_UNLIKELY( ai0==UINT_MAX ) ) goto miss;
 
       FD_COMPILER_MFENCE();
       memcpy( out_owner, line->owner, 32UL );
@@ -2760,9 +2767,11 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
 
       uint gen1 = FD_VOLATILE_CONST( line->key.generation );
       uint rc1  = FD_VOLATILE_CONST( line->refcnt );
+      uint ai1  = FD_VOLATILE_CONST( line->acc_idx );
       if( FD_UNLIKELY( rc1==FD_ACCDB_EVICT_SENTINEL ) ) goto miss;
       if( FD_UNLIKELY( gen1!=snap_gen ) ) goto miss;
       if( FD_UNLIKELY( memcmp( line->key.pubkey, pubkey, 32UL ) ) ) goto miss;
+      if( FD_UNLIKELY( ai1==UINT_MAX ) ) goto miss;
 
       *out_lamports   = snap_lamports;
       *out_executable = executable;
