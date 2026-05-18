@@ -989,6 +989,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
      feature. */
 
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_vote_rewards_map_reset( vote_ele_map );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             vs_fork_idx = bank->vote_stakes_fork_id;
@@ -1006,23 +1007,22 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
   for( ulong i=0UL; i<epoch_credits_len; i++ ) {
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
-    fd_pubkey_t const * pubkey = (fd_pubkey_t const *)epoch_credits->pubkey;
+    fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
 
-    /* Get the t-1 information */
+    /* Get the t-1 stake account information.  This is guranteed to be
+       valid since the epoch credits are populated from the t-1 stakes
+       in the snapshot manfiest. */
     uchar commission_t_1 = 0;
-    if( vat_active ) {
-      FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
-    } else {
-      FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
-    }
+    if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
+    else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
 
+    /* Now get the t-2 information (if it exists).  This is not
+       guaranteed to be valid since it's possible for a vote account to
+       have been created in the last epoch. */
     int   exists_t_2     = 0;
     uchar commission_t_2 = 0;
-    if( vat_in_t_2 ) {
-      exists_t_2 = !!fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
-    } else {
-      exists_t_2 = !!fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
-    }
+    if( vat_in_t_2 ) exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+    else             exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
@@ -1035,6 +1035,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
   }
 
+  /* Copy in historical commission information if it exists. */
   if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
     ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
     fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
