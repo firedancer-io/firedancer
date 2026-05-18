@@ -10,7 +10,7 @@
 
    See solana_accounts_db::blockhash_queue::BlockhashQueue. */
 
-#define FD_BLOCKHASHES_MAX 301
+#define FD_BLOCKHASHES_MAX (301UL)
 
 /* See solana_accounts_db::blockhash_queue::HashInfo. */
 

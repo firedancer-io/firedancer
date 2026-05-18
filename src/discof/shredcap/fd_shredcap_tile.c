@@ -221,7 +221,7 @@ verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
   /* ensure all required epochs are present in epoch stakes */
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
     int found = 0;
-    for( ulong j=0UL; j<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
+    for( ulong j=0UL; j<FD_EPOCH_STAKES_LEN; j++ ) {
       if( manifest->epoch_stakes[j].epoch==i ) {
         found = 1;
         break;
@@ -287,7 +287,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
   ulong epoch_stakes_base = epoch > 0UL ? epoch - 1UL : 0UL;
   ulong leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( schedule, manifest->slot );
   ulong cur_idx = epoch - epoch_stakes_base;
-  FD_TEST( cur_idx < FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+  FD_TEST( cur_idx < FD_EPOCH_STAKES_LEN );
 
   /* current epoch */
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
@@ -300,7 +300,7 @@ publish_stake_weights_manifest( fd_capture_tile_ctx_t * ctx,
   /* next epoch */
   if( leader_schedule_epoch >= epoch + 1UL ) {
     ulong next_idx = epoch + 1UL - epoch_stakes_base;
-    FD_TEST( next_idx < FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+    FD_TEST( next_idx < FD_EPOCH_STAKES_LEN );
 
     stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
     stake_weights_sz = generate_epoch_info_msg_manifest( epoch + 1, schedule, &manifest->epoch_stakes[next_idx], stake_weights_msg );
@@ -445,7 +445,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
       /* Spad memory is not zeroed.  Initialize epoch_stakes sentinels so
          that verify_epoch_stakes can reliably detect unpopulated entries
          even if the parser does not write all slots. */
-      for( ulong i=0UL; i<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+      for( ulong i=0UL; i<FD_EPOCH_STAKES_LEN; i++ ) {
         manifest->epoch_stakes[i].epoch = ULONG_MAX;
       }
 

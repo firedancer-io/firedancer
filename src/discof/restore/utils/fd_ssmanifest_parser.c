@@ -1414,8 +1414,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
   /* Lengths must be valid */
   switch( parser->state ) {
     case STATE_BLOCKHASH_QUEUE_AGES_LENGTH: {
-      if( FD_UNLIKELY( !manifest->blockhashes_len || manifest->blockhashes_len>sizeof(manifest->blockhashes)/sizeof(manifest->blockhashes[0]) ) ) {
-        FD_LOG_WARNING(( "invalid blockhash_queue_ages length %lu", manifest->blockhashes_len ));
+      if( FD_UNLIKELY( !manifest->blockhashes_len || manifest->blockhashes_len>FD_BLOCKHASHES_MAX ) ) {
+        FD_LOG_WARNING(( "invalid blockhash_queue_ages length %lu (max %lu)", manifest->blockhashes_len, FD_BLOCKHASHES_MAX ));
         return -1;
       }
       break;
@@ -1433,22 +1433,22 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       break;
     }
     case STATE_HARD_FORKS_LENGTH: {
-      if( FD_UNLIKELY( manifest->hard_fork_cnt>sizeof(manifest->hard_forks)/sizeof(manifest->hard_forks[0]) ) ) {
-        FD_LOG_WARNING(( "invalid hard_forks length %lu", manifest->hard_fork_cnt ));
+      if( FD_UNLIKELY( manifest->hard_fork_cnt>FD_HARD_FORKS_MAX ) ) {
+        FD_LOG_WARNING(( "invalid hard_forks length %lu (max %lu)", manifest->hard_fork_cnt, FD_HARD_FORKS_MAX ));
         return -1;
       }
       break;
     }
     case STATE_STAKES_VOTE_ACCOUNTS_LENGTH: {
-      if( FD_UNLIKELY( manifest->vote_accounts_len>sizeof(manifest->vote_accounts)/sizeof(manifest->vote_accounts[0]) ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts_len %lu", manifest->vote_accounts_len ));
+      if( FD_UNLIKELY( manifest->vote_accounts_len>FD_VOTE_ACCOUNTS_MAX ) ) {
+        FD_LOG_WARNING(( "invalid vote_accounts_len %lu (max %lu)", manifest->vote_accounts_len, FD_VOTE_ACCOUNTS_MAX ));
         return -1;
       }
       break;
     }
     case STATE_STAKES_STAKE_DELEGATIONS_LENGTH: {
-      if( FD_UNLIKELY( manifest->stake_delegations_len>sizeof(manifest->stake_delegations)/sizeof(manifest->stake_delegations[0]) ) ) {
-        FD_LOG_WARNING(( "invalid stakes_stake_delegations length %lu", manifest->stake_delegations_len ));
+      if( FD_UNLIKELY( manifest->stake_delegations_len>FD_STAKE_DELEGATIONS_MAX ) ) {
+        FD_LOG_WARNING(( "invalid stakes_stake_delegations length %lu (max %lu)", manifest->stake_delegations_len, FD_STAKE_DELEGATIONS_MAX ));
         return -1;
       }
       break;
@@ -1464,8 +1464,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_EPOCH_CREDITS_LENGTH:
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH: {
-      if( FD_UNLIKELY( manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len>64UL ) ) {
-        FD_LOG_WARNING(( "invalid vote_accounts value data current epoch credits length %lu", manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len ));
+      if( FD_UNLIKELY( manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len>FD_EPOCH_CREDITS_MAX ) ) {
+        FD_LOG_WARNING(( "invalid vote_accounts value data current epoch credits length %lu (max %lu)", manifest->vote_accounts[ parser->idx1 ].epoch_credits_history_len, FD_EPOCH_CREDITS_MAX ));
         return -1;
       }
       break;
@@ -1531,9 +1531,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_EPOCH_STAKES_VOTE_ACCOUNTS_LENGTH:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_LENGTH: {
       ulong stakes_len = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes_len : parser->length2;
-      ulong stakes_cap = sizeof(manifest->epoch_stakes[ 0UL ].vote_stakes)/sizeof(manifest->epoch_stakes[ 0UL ].vote_stakes[ 0UL ]);
-      if( FD_UNLIKELY( stakes_len>stakes_cap ) ) {
-        FD_LOG_WARNING(( "invalid versioned epoch stakes vote accounts length %lu", stakes_len ));
+      if( FD_UNLIKELY( stakes_len>FD_EPOCH_VOTE_STAKES_MAX ) ) {
+        FD_LOG_WARNING(( "invalid versioned epoch stakes vote accounts length %lu (max %lu)", stakes_len, FD_EPOCH_VOTE_STAKES_MAX ));
         return -1;
       }
       break;
@@ -1570,8 +1569,8 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_EPOCH_CREDITS_LENGTH:
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_EPOCH_CREDITS_LENGTH: {
       ulong length = parser->epoch_idx!=ULONG_MAX ? manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].epoch_credits_history_len : parser->length4;
-      if( FD_UNLIKELY( length>64UL ) ) {
-        FD_LOG_WARNING(( "invalid version_epoch_stakes.vote_accounts value data current epoch credits length %lu", length ));
+      if( FD_UNLIKELY( length>FD_EPOCH_CREDITS_MAX ) ) {
+        FD_LOG_WARNING(( "invalid version_epoch_stakes.vote_accounts value data current epoch credits length %lu (max %lu)", length, FD_EPOCH_CREDITS_MAX ));
         return -1;
       }
       break;
@@ -1734,7 +1733,7 @@ state_process( fd_ssmanifest_parser_t * parser,
        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.1/runtime/src/serde_snapshot.rs#L174 */
     parser->epoch                    = fd_slot_to_epoch( &epoch_schedule, manifest->slot, NULL );
     parser->leader_schedule_epoch    = fd_slot_to_leader_schedule_epoch( &epoch_schedule, manifest->slot );
-    ulong const epoch_stakes_ele_cnt = sizeof(parser->manifest->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t);
+    ulong const epoch_stakes_ele_cnt = FD_EPOCH_STAKES_LEN;
 
     ulong const epoch_stakes_base = parser->epoch>0UL ? parser->epoch-1UL : 0UL;
     if( FD_UNLIKELY( parser->leader_schedule_epoch-epoch_stakes_base>=epoch_stakes_ele_cnt ) ) {
@@ -2016,7 +2015,7 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   parser->dst_cur  = 0UL;
   parser->manifest = manifest;
 
-  for( ulong i=0UL; i<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; i++ ) {
+  for( ulong i=0UL; i<FD_EPOCH_STAKES_LEN; i++ ) {
     manifest->epoch_stakes[i].epoch           = ULONG_MAX;  /* sentinel: not populated */
     manifest->epoch_stakes[i].total_stake     = 0UL;
     manifest->epoch_stakes[i].vote_stakes_len = 0UL;
