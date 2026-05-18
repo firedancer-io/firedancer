@@ -44,7 +44,7 @@ typedef struct fd_top_votes fd_top_votes_t;
    structure when the max number of vote accounts is
    FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT (2000). */
 
-#define FD_TOP_VOTES_MAX_FOOTPRINT (210432UL)
+#define FD_TOP_VOTES_MAX_FOOTPRINT (194432UL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -94,7 +94,7 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * pubkey,
                      fd_pubkey_t const * node_account,
                      ulong               stake,
-                     ushort              commission );
+                     uchar               commission );
 
 /* fd_top_votes_update updates the last vote timestamp and slot for a
    given vote account in the top votes set.  If the vote account is not
@@ -129,7 +129,7 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
                     ulong *                stake_out_opt,
                     ulong *                last_vote_slot_out_opt,
                     long *                 last_vote_timestamp_out_opt,
-                    ushort *               commission_out_opt );
+                    uchar *                commission_out_opt );
 
 /* fd_top_votes_refresh refreshes the top votes set given an accdb
    user and a transaction xid.  The top votes are populated with a
@@ -181,7 +181,7 @@ fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        fd_pubkey_t *          pubkey_out,
                        fd_pubkey_t *          node_account_out_opt,
                        ulong *                stake_out_opt,
-                       ushort *               commission_out_opt,
+                       uchar *                commission_out_opt,
                        ulong *                last_vote_slot_out_opt,
                        long *                 last_vote_timestamp_out_opt );
 

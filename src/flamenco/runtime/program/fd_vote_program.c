@@ -993,52 +993,6 @@ update_commission( fd_exec_instr_ctx_t *         ctx,
   return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state_versioned );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/mod.rs#L871-L906 */
-static int
-update_commission_bps( fd_exec_instr_ctx_t *                    ctx,
-                       fd_borrowed_account_t *                  vote_account,
-                       int                                      target_version,
-                       fd_update_commission_bps_args_t const *  args,
-                       fd_pubkey_t const *                      signers[static FD_TXN_SIG_MAX],
-                       ulong                                    signers_cnt,
-                       int                                      block_revenue_sharing ) {
-  fd_vote_state_versioned_t * vote_state_versioned = &ctx->runtime->vote_program.update_commission_bps.vote_state;
-
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/mod.rs#L882-L884 */
-  if( FD_UNLIKELY( args->kind.discriminant==fd_commission_kind_enum_block_revenue && !block_revenue_sharing ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/mod.rs#L886-L889 */
-  int rc = get_vote_state_handler_checked( vote_account, target_version, false, vote_state_versioned );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/mod.rs#L894 */
-  rc = fd_vote_verify_authorized_signer(
-    fd_vsv_get_authorized_withdrawer( vote_state_versioned ),
-    signers,
-    signers_cnt
-  );
-  if( FD_UNLIKELY( rc ) ) return rc;
-
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/mod.rs#L896-L903 */
-  switch( args->kind.discriminant ) {
-    case fd_commission_kind_enum_inflation_rewards: {
-      fd_vsv_set_inflation_rewards_commission_bps( vote_state_versioned, args->commission_bps );
-      break;
-    }
-    case fd_commission_kind_enum_block_revenue: {
-      fd_vsv_set_block_revenue_commission_bps( vote_state_versioned, args->commission_bps );
-      break;
-    }
-    default: {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-    }
-  }
-
-  return fd_vsv_set_vote_account_state( ctx, vote_account, vote_state_versioned );
-}
-
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L848C8-L903 */
 static int
 withdraw( fd_exec_instr_ctx_t *         ctx,
@@ -1675,7 +1629,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   int vote_state_v4                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, vote_state_v4 );
   int bls_pubkey_management_in_vote_account = FD_FEATURE_ACTIVE_BANK( ctx->bank, bls_pubkey_management_in_vote_account );
   int delay_commission_updates              = FD_FEATURE_ACTIVE_BANK( ctx->bank, delay_commission_updates );
-  int commission_rate_in_basis_points       = FD_FEATURE_ACTIVE_BANK( ctx->bank, commission_rate_in_basis_points );
+  int commission_rate_in_basis_points       = 0;
   int custom_commission_collector           = 0;
   int block_revenue_sharing                 = 0;
   int vote_account_initialize_v2            = 0;
@@ -2295,6 +2249,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * Processor:
    * https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L325-L347
    *
+   * Notes:
+   * - Unimplemented
    */
   case fd_vote_instruction_enum_update_commission_bps: {
     if( FD_UNLIKELY( !commission_rate_in_basis_points
@@ -2303,9 +2259,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
-    rc = update_commission_bps( ctx, &me, target_version, &instruction->update_commission_bps, signers, signers_cnt, block_revenue_sharing );
-
-    break;
+    /* TODO: fill in when implementing commission_rate_in_basis_points */
+    FD_LOG_CRIT(( "unimplemented: update_commission_bps" ));
   }
 
   /* UpdateCommissionCollector

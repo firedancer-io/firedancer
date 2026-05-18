@@ -647,18 +647,13 @@ fd_vote_account_node_pubkey( uchar const *  data,
                              ulong          data_sz,
                              fd_pubkey_t *  out );
 
-/* Returns the commission in basis points.  If commission_rate_in_bps is
-   set, returns the v4 commission rate as a raw basis points value.
-   Otherwise, returns the v4 commission rate in basis points, rounded
-   down to the nearest whole percentage.  For v1_14_11/v3, returns the
-   raw commission byte * 100.
-
+/* Reads the commission value.  For v1_14_11/v3 returns the raw
+   commission byte; for v4 returns inflation_rewards_commission_bps/100.
    Returns 0 on success, 1 on error. */
 int
-fd_vote_account_commission_bps( uchar const * data,
-                                ulong         data_sz,
-                                int           commission_rate_in_bps,
-                                ushort *      out );
+fd_vote_account_commission( uchar const * data,
+                            ulong         data_sz,
+                            uchar *       out );
 
 /* Reads the last_timestamp directly from raw bincode-encoded vote
    account data.  Returns 0 on success, 1 on error. */

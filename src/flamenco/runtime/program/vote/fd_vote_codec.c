@@ -427,10 +427,9 @@ fd_vote_account_node_pubkey( uchar const *  data,
 }
 
 int
-fd_vote_account_commission_bps( uchar const * data,
-                                ulong         data_sz,
-                                int           commission_rate_in_basis_points,
-                                ushort *      out ) {
+fd_vote_account_commission( uchar const * data,
+                            ulong         data_sz,
+                            uchar *       out ) {
   uchar const * ptr       = data;
   ulong         remaining = data_sz;
 
@@ -441,17 +440,11 @@ fd_vote_account_commission_bps( uchar const * data,
     case fd_vote_state_versioned_enum_v1_14_11: /* fallthrough */
     case fd_vote_state_versioned_enum_v3:
       CHECK( data_sz>WIRE_OFF_V1V3_COMMISSION );
-      *out = data[ WIRE_OFF_V1V3_COMMISSION ] * 100U;
+      *out = data[ WIRE_OFF_V1V3_COMMISSION ];
       return 0;
     case fd_vote_state_versioned_enum_v4:
       CHECK( data_sz>=WIRE_OFF_V4_COMMISSION_BPS+2UL );
-      *out = FD_LOAD( ushort, data+WIRE_OFF_V4_COMMISSION_BPS );
-
-      /* Round down to the nearest whole percentage if SIMD-0291 is not
-         yet active. */
-      if( !commission_rate_in_basis_points ) {
-        *out = (*out / 100U) * 100U;
-      }
+      *out = (uchar)( FD_LOAD( ushort, data+WIRE_OFF_V4_COMMISSION_BPS )/100 );
       return 0;
     default:
       return 1;

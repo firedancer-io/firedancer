@@ -150,10 +150,6 @@ struct fd_runtime {
 
     struct {
       fd_vote_state_versioned_t vote_state;
-    } update_commission_bps;
-
-    struct {
-      fd_vote_state_versioned_t vote_state;
     } withdraw;
 
     struct {
