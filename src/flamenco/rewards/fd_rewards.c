@@ -1009,7 +1009,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
     fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
 
-    /* Get the t-1 stake account information.  This is guranteed to be
+    /* Get the t-1 stake account information.  This is guaranteed to be
        valid since the epoch credits are populated from the t-1 stakes
        in the snapshot manfiest. */
     ushort commission_t_1 = 0;

@@ -402,6 +402,8 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   ulong stake = 0UL;
   if( FD_FEATURE_ACTIVE_BANK( vm->instr_ctx->bank, validator_admission_ticket ) ) {
+    /* It's okay to ignore if an account is invalid since these stakes
+       are calculated from an older snapshot of vote account stakes. */
     fd_top_votes_t const * top_votes = fd_bank_top_votes_t_1_query( vm->instr_ctx->bank );
     fd_top_votes_query( top_votes, vote_address, NULL, &stake, NULL, NULL, NULL, NULL );
   } else {

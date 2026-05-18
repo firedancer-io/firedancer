@@ -163,7 +163,7 @@ typedef struct map_iter fd_top_votes_iter_t;
    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
         !fd_top_votes_iter_done( top_votes, iter );
         fd_top_votes_iter_next( top_votes, iter ) ) {
-     int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, &last_vote_slot, &last_vote_timestamp );
+     fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, &last_vote_slot, &last_vote_timestamp, &is_valid );
    } */
 
 fd_top_votes_iter_t *

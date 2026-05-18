@@ -235,6 +235,10 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
                           ushort                   fork_idx,
                           fd_vote_stake_weight_t * weights,
                           int                      vat_enabled ) {
+
+  /* We don't care if an account is invalid, we just want to get the
+     stake weights: they are calculated from an older snapshot of
+     vote account stakes. */
   ulong weights_cnt = 0;
   if( vat_enabled ) {
     uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];

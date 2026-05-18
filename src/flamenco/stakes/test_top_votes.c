@@ -179,7 +179,6 @@ main( int argc, char * argv[] ) {
   fd_top_votes_insert( top_votes, &vote_H, &node_H, 11UL, 1 );
   assert_vote_present( top_votes, &vote_H, &node_H, 11UL );
 
-  /* Iterator should skip invalid entries. */
   fd_top_votes_invalidate( top_votes, &vote_H );
   assert_vote_invalid( top_votes, &vote_H );
   FD_TEST( fd_top_votes_query( top_votes, &vote_C, NULL, NULL, NULL, NULL, NULL, NULL ) );
