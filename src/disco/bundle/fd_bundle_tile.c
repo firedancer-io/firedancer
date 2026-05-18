@@ -321,15 +321,11 @@ privileged_init( fd_topo_t *      topo,
   void *             grpc_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),    fd_grpc_client_footprint( tile->bundle.buf_sz ) );
   void *             alloc_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                            );
   void *             deque_mem   = FD_SCRATCH_ALLOC_APPEND( l, pending_txn_align(),        pending_txn_footprint( pending_max )            );
-  ulong              scratch_end = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   (void)alloc_mem; /* potentially unused */
 
-  if( FD_UNLIKELY( (ulong)ctx != (ulong)scratch ) ) {
-    FD_LOG_CRIT(( "Invalid bundle tile scratch alignment" )); /* unreachable */
-  }
-  if( FD_UNLIKELY( scratch_end - (ulong)scratch > scratch_footprint( tile ) ) ) {
-    FD_LOG_CRIT(( "Bundle tile scratch overflow" )); /* unreachable */
-  }
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   memset( ctx, 0, sizeof(fd_bundle_tile_t) );
   ctx->grpc_client_mem = grpc_mem;
