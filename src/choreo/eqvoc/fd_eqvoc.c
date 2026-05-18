@@ -883,8 +883,9 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   err = verify_proof( eqvoc, shred_version, leader_schedule, shred1, shred2 );
   if( FD_UNLIKELY( err > FD_EQVOC_SUCCESS ) ) {
     construct_proof( shred1, shred2, chunks_out );
-    dup_t * dup = dup_insert( eqvoc, chunk->slot );
+    dup_t * dup = dup_insert( eqvoc, shred1->slot );
     dup->err    = err;
+    /* TODO off-chain reporting of misbehaving validators sending chunk->slot != shred->slot */
   }
 
 cleanup:;
