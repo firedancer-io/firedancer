@@ -378,11 +378,14 @@
 #define STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS                                             (365)
 #define STATE_LTHASH_OPTION                                                                              (366)
 #define STATE_LTHASH                                                                                     (367)
-#define STATE_DONE                                                                                       (368)
+#define STATE_BLOCK_ID_OPTION                                                                            (368)
+#define STATE_BLOCK_ID                                                                                   (369)
+#define STATE_DONE                                                                                       (370)
 
 struct fd_ssmanifest_parser_private {
   int     state;
   ulong   off;
+  ulong   manifest_sz;
   uchar * dst;
   ulong   dst_cur;
   ulong   dst_sz;
@@ -790,6 +793,8 @@ state_size( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS:                                                return 64UL*length2;
     case STATE_LTHASH_OPTION:                                                                                 return 1UL         ;
     case STATE_LTHASH:                                                                                        return 2048UL      ;
+    case STATE_BLOCK_ID_OPTION:                                                                               return 1UL         ;
+    case STATE_BLOCK_ID:                                                                                      return 32UL        ;
     case STATE_DONE:                                                                                          return 0UL         ;
     default: FD_LOG_ERR(( "unknown state %d", parser->state ));
   }
@@ -1170,6 +1175,8 @@ state_dst( fd_ssmanifest_parser_t * parser ) {
     case STATE_VERSIONED_EPOCH_STAKES_EPOCH_AUTHORIZED_VOTERS:                                                return NULL;
     case STATE_LTHASH_OPTION:                                                                                 return &parser->option;
     case STATE_LTHASH:                                                                                        return manifest->accounts_lthash;
+    case STATE_BLOCK_ID_OPTION:                                                                               return &parser->option;
+    case STATE_BLOCK_ID:                                                                                      return manifest->block_id;
     case STATE_DONE:                                                                                          return NULL;
     default: FD_LOG_ERR(( "unknown state %d", parser->state ));
   }
@@ -1404,6 +1411,13 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
     case STATE_LTHASH_OPTION: {
       if( FD_UNLIKELY( parser->option>1 ) ) {
         FD_LOG_WARNING(( "invalid accounts_lthash option %d", parser->option ));
+        return -1;
+      }
+      break;
+    }
+    case STATE_BLOCK_ID_OPTION: {
+      if( FD_UNLIKELY( parser->option>1 ) ) {
+        FD_LOG_WARNING(( "invalid block_id option %d", parser->option ));
         return -1;
       }
       break;
@@ -1895,6 +1909,7 @@ state_process( fd_ssmanifest_parser_t * parser,
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_LTHASH_OPTION:             manifest->has_accounts_lthash    = !!parser->option; parser->state += 2-!!parser->option; return 0;
+    case STATE_BLOCK_ID_OPTION:           manifest->has_block_id           = !!parser->option; parser->state += 2-!!parser->option; return 0;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_BLS_PUBKEY_COMPRESSED_OPTION: if( parser->epoch_idx!=ULONG_MAX ) manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].has_identity_bls = !!parser->option; parser->state += 2-!!parser->option; return 0;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
     case STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_ROOT_SLOT_OPTION: parser->state += 2-!!parser->option; return 0;
@@ -2008,13 +2023,15 @@ fd_ssmanifest_parser_join( void * shmem ) {
 void
 fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
                            fd_snapshot_manifest_t * manifest ) {
-  parser->state    = STATE_BLOCKHASH_QUEUE_LAST_HASH_INDEX;
-  parser->off      = 0UL;
-  parser->dst      = state_dst( parser );
-  parser->dst_sz   = state_size( parser );
-  parser->dst_cur  = 0UL;
-  parser->manifest = manifest;
+  parser->state       = STATE_BLOCKHASH_QUEUE_LAST_HASH_INDEX;
+  parser->off         = 0UL;
+  parser->manifest_sz = 0UL;       /* set on every consume() */
+  parser->dst         = state_dst( parser );
+  parser->dst_sz      = state_size( parser );
+  parser->dst_cur     = 0UL;
+  parser->manifest    = manifest;
 
+  manifest->has_block_id = 0;
   for( ulong i=0UL; i<FD_EPOCH_STAKES_LEN; i++ ) {
     manifest->epoch_stakes[i].epoch           = ULONG_MAX;  /* sentinel: not populated */
     manifest->epoch_stakes[i].total_stake     = 0UL;
@@ -2025,15 +2042,26 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
                          FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );
 }
 
+static inline int
+state_is_optional_extras_field( fd_ssmanifest_parser_t * parser ) {
+  switch( parser->state ) {
+    case STATE_BLOCK_ID_OPTION: return 1;
+    default:                    return 0;
+  }
+}
+
 int
 fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               uchar const *            buf,
                               ulong                    bufsz,
+                              ulong                    manifest_sz,
                               acc_vec_map_t *          acc_vec_map,
                               acc_vec_t *              acc_vec_pool ) {
 #if SSMANIFEST_DEBUG
   int state = parser->state;
 #endif
+
+  parser->manifest_sz = manifest_sz;
 
   while( bufsz ) {
 #if SSMANIFEST_DEBUG
@@ -2073,6 +2101,8 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
       parser->dst_cur = 0UL;
     }
 
+    if( FD_UNLIKELY( parser->off==parser->manifest_sz &&
+                     state_is_optional_extras_field( parser ) ) ) parser->state = STATE_DONE;
     if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
     if( FD_UNLIKELY( !bufsz ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
   }

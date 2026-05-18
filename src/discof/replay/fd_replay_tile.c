@@ -1182,10 +1182,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
     }
 
-    /* FIXME: This is a hack because the block id of the snapshot slot
-       is not provided in the snapshot.  A possible solution is to get
-       the block id of the snapshot slot from repair. */
-    fd_hash_t manifest_block_id = ctx->initial_block_id;
+    /* FIXME: This is a hack when the block id of the snapshot slot
+       is not provided in the snapshot (Agave versions <4.1). A
+       possible solution is to get the block id of the snapshot slot
+       from repair. */
+    fd_hash_t manifest_block_id = ctx->has_manifest_block_id ? ctx->manifest_block_id : ctx->initial_block_id;
 
     fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_SEQ } };
     fd_features_restore( bank, ctx->accdb, &xid );
@@ -1263,6 +1264,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       }
       ctx->has_expected_genesis_timestamp = 1;
       ctx->expected_genesis_timestamp     = manifest->creation_time_seconds;
+      ctx->has_manifest_block_id          = manifest->has_block_id;
+      if( manifest->has_block_id ) memcpy( ctx->manifest_block_id.uc, manifest->block_id, 32UL );
       break;
     }
     default: {

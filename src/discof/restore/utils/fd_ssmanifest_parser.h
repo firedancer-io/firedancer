@@ -32,6 +32,7 @@ int
 fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               uchar const *            buf,
                               ulong                    bufsz,
+                              ulong                    manifest_sz,
                               acc_vec_map_t *          acc_vec_map,
                               acc_vec_t *              acc_vec_pool );
 
