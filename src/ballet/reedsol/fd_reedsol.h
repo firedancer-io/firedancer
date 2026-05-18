@@ -32,7 +32,7 @@
 
 
 #define FD_REEDSOL_ALIGN     (128UL)
-#define FD_REEDSOL_FOOTPRINT (2304UL) /* 18*ALIGN */
+#define FD_REEDSOL_FOOTPRINT (1280UL) /* 10*ALIGN */
 
 /* FD_REEDSOL_SUCCESS, FD_REEDSOL_ERR_* are error code return values used
    by the recover operation, which is the only part that can fail for
@@ -45,8 +45,6 @@
 #define FD_REEDSOL_ERR_PARTIAL (-2)
 
 struct __attribute__((aligned(FD_REEDSOL_ALIGN))) fd_reedsol_private {
-  uchar scratch[ 1024 ];  // Used for the ultra high performance implementation
-
   ulong shred_sz;         // shred_sz: the size of each shred in bytes (all shreds must be the same size)
   ulong data_shred_cnt;   // {data,parity}_shred_cnt: the number of data or parity shreds
   ulong parity_shred_cnt; // (respectively) have been added to the in-process operation
