@@ -306,7 +306,10 @@ validate( fd_reasm_fec_t const * parent,
                      child->fec_set_idx!=0U ||
                      child->parent_off==0U ||
                      child->parent_off>child->slot ||
-                     child->slot-child->parent_off!=parent->slot ) ) return -1;
+                     child->slot-child->parent_off!=parent->slot ) ) {
+      FD_LOG_DEBUG(( "fec validation failed: parent->slot!=child->slot (slot=%lu,parent_idx=%u,child_idx=%u)", child->slot, parent->fec_set_idx, child->fec_set_idx ));
+      return -1;
+    }
   } else {
     /* If the connecting FECs don't cross the slot boundary:
        - the child fec_set_idx must be greater than the parent's by 32
@@ -314,7 +317,10 @@ validate( fd_reasm_fec_t const * parent,
        - the parent must not be slot complete */
     if( FD_UNLIKELY( child->fec_set_idx!=parent->fec_set_idx+FD_FEC_SHRED_CNT ||
                      child->parent_off!=parent->parent_off ||
-                     parent->slot_complete ) ) return -1;
+                     parent->slot_complete ) ) {
+      FD_LOG_DEBUG(( "fec validation failed: parent->slot==child->slot (slot=%lu,parent_idx=%u,child_idx=%u)", child->slot, parent->fec_set_idx, child->fec_set_idx ));
+      return -1;
+    }
   }
   return 0;
 }
@@ -836,6 +842,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     }
     xid_update( reasm, slot, UINT_MAX, pool_idx( pool, fec ) );
   }
+
   overwrite_invalid_cmr( reasm, fec ); /* handle receiving parent before child */
 
   /* First, we search for the parent of this new FEC and link if found.
