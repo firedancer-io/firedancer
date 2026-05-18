@@ -32,7 +32,7 @@ struct index_ele {
   uint        prev_multi;
   uint        next_multi;
   ushort      refcnt;
-  uchar       commission_t_2;
+  ushort      commission_t_2;
   uchar       exists_t_2;
 };
 typedef struct index_ele index_ele_t;

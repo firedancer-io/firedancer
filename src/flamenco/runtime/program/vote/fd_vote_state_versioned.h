@@ -119,6 +119,16 @@ void
 fd_vsv_set_commission( fd_vote_state_versioned_t * self,
                         uchar                      commission );
 
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/handler.rs#L781-L786 */
+void
+fd_vsv_set_inflation_rewards_commission_bps( fd_vote_state_versioned_t * self,
+                                             ushort                      commission_bps );
+
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/programs/vote/src/vote_state/handler.rs#L788-L793 */
+void
+fd_vsv_set_block_revenue_commission_bps( fd_vote_state_versioned_t * self,
+                                         ushort                      commission_bps );
+
 /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L386-L388 */
 void
 fd_vsv_set_root_slot( fd_vote_state_versioned_t * self, ulong * root_slot );

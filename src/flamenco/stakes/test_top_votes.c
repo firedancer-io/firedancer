@@ -8,7 +8,7 @@ assert_vote_present( fd_top_votes_t *    top_votes,
                      ulong               expected_stake ) {
   fd_pubkey_t node_out = {0};
   ulong       stake_out = 0UL;
-  uchar       commission_out = 0;
+  ushort      commission_out = 0;
   FD_TEST( fd_top_votes_query( top_votes, vote_pubkey, &node_out, &stake_out, NULL, NULL, &commission_out ) );
   FD_TEST( !memcmp( &node_out, expected_node, sizeof(fd_pubkey_t) ) );
   FD_TEST( stake_out==expected_stake );
@@ -74,7 +74,7 @@ main( int argc, char * argv[] ) {
   uchar * mem = fd_wksp_alloc_laddr( wksp, fd_top_votes_align(), footprint, wksp_tag );
   FD_TEST( mem );
 
-  FD_TEST( fd_top_votes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) <= FD_TOP_VOTES_MAX_FOOTPRINT );
+  FD_TEST( fd_top_votes_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS_VAT ) == FD_TOP_VOTES_MAX_FOOTPRINT );
 
   FD_TEST( !fd_top_votes_new( NULL, vote_accounts_max, 0UL ) );
   fd_top_votes_t * top_votes = fd_top_votes_join( fd_top_votes_new( mem, vote_accounts_max, 1234UL ) );
