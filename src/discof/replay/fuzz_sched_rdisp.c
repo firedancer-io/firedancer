@@ -1364,7 +1364,9 @@ run_lane_policy_case( uchar const * data,
   FD_TEST( fd_sched_is_drained( sched ) );
 
   state = fd_sched_get_state_cstr( sched );
-  FD_TEST( strstr( state, "active_idx ULONG_MAX, staged_bitset 1," ) );
+  char expected[ 64 ];
+  FD_TEST( fd_cstr_printf_check( expected, sizeof(expected), NULL, "active_idx %lu, staged_bitset 1,", ULONG_MAX ) );
+  FD_TEST( strstr( state, expected ) );
 
   fd_sched_delete( fd_sched_leave( sched ) );
   free( mem );
