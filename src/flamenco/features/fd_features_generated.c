@@ -1863,6 +1863,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "disable_sbpf_v0_v1_v2_deployment",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, commission_rate_in_basis_points)>>3,
+    .id                        = {"\xcb\x2d\x5e\xc6\xdb\xd8\x88\xd3\xda\xf5\x45\x1b\x70\x19\x53\x07\xdd\x79\xf6\xd3\x71\x9c\x8b\xe1\x53\x8d\x09\xaf\x98\x5e\x6e\x14"},
+                                 /* Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj */
+    .name                      = "commission_rate_in_basis_points",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -1875,7 +1881,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_NAME      fd_feature_id_lookup
 #define MAP_PERFECT_LG_TBL_SZ 12
 #define MAP_PERFECT_T         fd_feature_id_lookup_entry_t
-#define MAP_PERFECT_HASH_C    15700U
+#define MAP_PERFECT_HASH_C    54088U
 #define MAP_PERFECT_KEY_T     ulong
 #define MAP_PERFECT_ZERO_KEY  0UL
 
@@ -2152,6 +2158,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_270 0xfde26f7b21c28506UL, .val = &ids[270]
 #define MAP_PERFECT_271 0x154206ed5990d30cUL, .val = &ids[271]
 #define MAP_PERFECT_272 0xb0399cb49a7f7396UL, .val = &ids[272]
+#define MAP_PERFECT_273 0xd388d8dbc65e2dcbUL, .val = &ids[273]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2435,4 +2442,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id            
 FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5                         )>>3==270UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sha512_syscall                                   )>>3==271UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, disable_sbpf_v0_v1_v2_deployment                        )>>3==272UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, commission_rate_in_basis_points                         )>>3==273UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

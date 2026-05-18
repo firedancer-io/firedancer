@@ -49,7 +49,7 @@ typedef struct fd_exec_test_prev_vote_account {
     pb_byte_t address[32];
     pb_byte_t node_pubkey[32];
     uint64_t stake;
-    uint32_t commission;
+    uint32_t commission_bps;
     /* Epoch credits are only needed for recalculating partitioned
 epoch rewards during the distribution phase. */
     pb_size_t epoch_credits_count;
@@ -210,7 +210,7 @@ extern "C" {
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_ADDRESS_TAG 1
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_NODE_PUBKEY_TAG 2
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_STAKE_TAG 3
-#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_COMMISSION_TAG 4
+#define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_COMMISSION_BPS_TAG 4
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_EPOCH_CREDITS_TAG 5
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_VERSION_TAG 6
 #define FD_EXEC_TEST_BLOCK_BANK_BLOCKHASH_QUEUE_TAG 1
@@ -275,7 +275,7 @@ X(a, STATIC,   SINGULAR, UINT64,   prev_credits,      3)
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, address,           1) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, node_pubkey,       2) \
 X(a, STATIC,   SINGULAR, UINT64,   stake,             3) \
-X(a, STATIC,   SINGULAR, UINT32,   commission,        4) \
+X(a, STATIC,   SINGULAR, UINT32,   commission_bps,    4) \
 X(a, POINTER,  REPEATED, MESSAGE,  epoch_credits,     5) \
 X(a, STATIC,   SINGULAR, UENUM,    version,           6)
 #define FD_EXEC_TEST_PREV_VOTE_ACCOUNT_CALLBACK NULL

@@ -43,7 +43,7 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
     fd_pubkey_t vote_pubkey = FD_LOAD( fd_pubkey_t, &vote_accounts[i].address );
     fd_pubkey_t node_pubkey = FD_LOAD( fd_pubkey_t, &vote_accounts[i].node_pubkey );
     ulong       stake       = vote_accounts[i].stake;
-    uchar       commission  = (uchar)vote_accounts[i].commission;
+    ushort      commission  = (ushort)vote_accounts[i].commission_bps;
 
     if( is_t_1 ) {
       fd_vote_stakes_root_insert_key( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
