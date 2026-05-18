@@ -6,17 +6,29 @@
 
 FD_PROTOTYPES_BEGIN
 
-void
-blockhashes_recover( fd_blockhashes_t *                       blockhashes,
-                     fd_snapshot_manifest_blockhash_t const * ages,
-                     ulong                                    age_cnt,
-                     ulong                                    seed );
+/* fd_ssload_manifest_validate checks the snapshot manifest for
+   structural issues that the parser does not catch.  In particular,
+   it validates blockhash queue ordering (gaps, duplicates, wraparound)
+   and epoch credits narrowing safety (epoch fits ushort, credit deltas
+   fit uint).  max_vote_accounts and max_stake_accounts are runtime
+   capacity limits for the bank buffers.  Returns 0 on success,
+   -1 on corrupt manifest.  This function only reads the manifest and
+   has no side effects. */
+int
+fd_ssload_manifest_validate( fd_snapshot_manifest_t const * manifest,
+                             ulong                          max_vote_accounts,
+                             ulong                          max_stake_accounts );
 
-void
+/* Returns 0 on success, -1 on corrupt manifest.  On failure, bank and
+   associated structures are left partially mutated.  Caller must treat
+   failure as unrecoverable (e.g. abort or discard the bank).
+   blockhash_seed seeds the internal blockhash hash map. */
+int
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_banks_t *             banks,
                    fd_bank_t *              bank,
-                   int                      is_incremental );
+                   int                      is_incremental,
+                   ulong                    blockhash_seed );
 
 FD_PROTOTYPES_END
 
