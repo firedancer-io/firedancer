@@ -2042,6 +2042,9 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
                          FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );
 }
 
+/* Agave can serialize some optional "extra fields" at the
+   end of the snapshot. The snapshot is valid whether or not
+   these are present. */
 static inline int
 state_is_optional_extras_field( fd_ssmanifest_parser_t * parser ) {
   switch( parser->state ) {
@@ -2101,7 +2104,7 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
       parser->dst_cur = 0UL;
     }
 
-    if( FD_UNLIKELY( parser->off==parser->manifest_sz &&
+    if( FD_UNLIKELY( parser->manifest_sz && parser->off==parser->manifest_sz &&
                      state_is_optional_extras_field( parser ) ) ) parser->state = STATE_DONE;
     if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
     if( FD_UNLIKELY( !bufsz ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
@@ -2111,6 +2114,8 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
     FD_LOG_WARNING(( "excess data in buffer" ));
     return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
   }
+
+  if( FD_UNLIKELY( parser->state!=STATE_DONE ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
 
   return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
 }

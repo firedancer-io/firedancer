@@ -2515,6 +2515,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->has_expected_genesis_timestamp = 0;
   ctx->cluster_type = FD_CLUSTER_UNKNOWN;
   ctx->hard_fork_cnt = ULONG_MAX;
+  ctx->has_manifest_block_id = 0;
 
   if( FD_UNLIKELY( tile->replay.bundle.enabled ) ) {
     ctx->bundle.enabled = 1;
