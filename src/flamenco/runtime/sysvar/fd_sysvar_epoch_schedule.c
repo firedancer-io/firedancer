@@ -27,6 +27,12 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 
   if( warmup ) {
     ulong ceil_log2_epoch   = (ulong)fd_ulong_find_msb( epoch_len-1UL ) + 1UL;
+
+    if( FD_UNLIKELY( ceil_log2_epoch>=64UL ) ) {
+      FD_LOG_WARNING(( "epoch_len too large (ceil_log2_epoch %lu)", ceil_log2_epoch ));
+      return NULL;
+    }
+
     ulong ceil_log2_len_min = (ulong)fd_ulong_find_msb( FD_EPOCH_LEN_MIN );
 
     schedule->first_normal_epoch = fd_ulong_sat_sub( ceil_log2_epoch, ceil_log2_len_min );
