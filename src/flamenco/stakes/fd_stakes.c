@@ -433,7 +433,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
 
     fd_pubkey_t node_account_t_1 = {0};
     ulong       stake_t_1        = stake_accum->stake;
-    ushort      commission_t_1   = 0;
+    uchar       commission_t_1   = 0;
 
     fd_accdb_ro_t vote_ro[1];
     /* Agave's VAT filter also checks lamports against the VoteStateV4
@@ -453,12 +453,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
       continue;
     }
 
-    FD_TEST( !fd_vote_account_commission_bps(
-      fd_accdb_ref_data_const( vote_ro ),
-      fd_accdb_ref_data_sz( vote_ro ),
-      FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ),
-      &commission_t_1
-    ) );
+    FD_TEST( !fd_vote_account_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1 ) );
     FD_TEST( !fd_vote_account_node_pubkey( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &node_account_t_1 ) );
 
     fd_top_votes_insert( top_votes_t_1, &stake_accum->pubkey, &node_account_t_1, stake_t_1, commission_t_1 );
@@ -471,7 +466,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
        !fd_top_votes_iter_done( top_votes_t_2, iter );
        fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
     fd_pubkey_t pubkey;
-    ushort      commission_t_2;
+    uchar       commission_t_2;
     fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL );
 
     fd_accdb_ro_t vote_ro[1];
@@ -514,19 +509,19 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
        fd_top_votes_iter_next( top_votes_t_1, iter ) ) {
     fd_pubkey_t pubkey;
     ulong       stake;
-    ushort      commission_t_1 = 0;
+    uchar       commission_t_1 = 0;
     fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, NULL, &stake, &commission_t_1, NULL, NULL );
 
-    int    exists_t_3 = 0;
-    ushort commission_t_3 = 0;
+    int   exists_t_3 = 0;
+    uchar commission_t_3 = 0;
     if( FD_LIKELY( vat_in_t_3 ) ) {
       exists_t_3 = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3 );
     } else {
       exists_t_3 = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &pubkey, NULL, NULL, &commission_t_3 );
     }
 
-    int    exists_t_2     = 0;
-    ushort commission_t_2 = 0;
+    int   exists_t_2     = 0;
+    uchar commission_t_2 = 0;
     if( FD_LIKELY( vat_in_t_2 ) ) {
       exists_t_2 = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2 );
     } else {
@@ -693,7 +688,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
        !fd_top_votes_iter_done( top_votes_t_2, iter );
        fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
     fd_pubkey_t pubkey;
-    ushort      commission_t_2;
+    uchar       commission_t_2;
     fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL );
 
     fd_accdb_ro_t vote_ro[1];
@@ -733,12 +728,12 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
 
     fd_pubkey_t node_account_t_2 = {0};
     ulong       stake_t_2        = 0UL;
-    ushort      commission_t_2   = 0;
+    uchar       commission_t_2   = 0;
     int         exists_t_2       = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_2, &node_account_t_2, &commission_t_2 );
 
     fd_pubkey_t node_account_t_1 = {0};
     ulong       stake_t_1        = 0UL;
-    ushort      commission_t_1   = 0;
+    uchar       commission_t_1   = 0;
 
     fd_accdb_ro_t vote_ro[1];
     int exists_t_1 = 1;
@@ -749,20 +744,15 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       fd_accdb_close_ro( accdb, vote_ro );
     } else {
 
+      FD_TEST( !fd_vote_account_commission( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &commission_t_1 ) );
       FD_TEST( !fd_vote_account_node_pubkey( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), &node_account_t_1 ) );
-      FD_TEST( !fd_vote_account_commission_bps(
-        fd_accdb_ref_data_const( vote_ro ),
-        fd_accdb_ref_data_sz( vote_ro ),
-        FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ),
-        &commission_t_1
-      ) );
 
       stake_t_1 = stake_accum->stake;
       bank->f.total_epoch_stake += stake_t_1;
 
       fd_pubkey_t node_account_t_3 = {0};
       ulong       stake_t_3        = 0UL;
-      ushort      commission_t_3   = 0;
+      uchar       commission_t_3   = 0;
       int         exists_t_3       = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_3, &node_account_t_3, &commission_t_3 );
 
       fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];

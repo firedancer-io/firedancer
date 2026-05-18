@@ -4,7 +4,7 @@ set -euo pipefail
 PROJECT_ROOT=../../../..
 
 # Set protosol version
-PROTO_VERSION="v7.3.0"
+PROTO_VERSION="v7.2.0"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/ballet/nanopb/nanopb_tag.txt)

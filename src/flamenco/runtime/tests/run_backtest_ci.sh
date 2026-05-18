@@ -38,5 +38,3 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.0.0-alpha.0 -y 1 -m 10000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -y 1 -m 20000 -e 540
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry -y 1 -m 10000 -e 135
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_boundary -y 1 -m 10000 -e 950
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot -y 1 -m 10000 -e 950

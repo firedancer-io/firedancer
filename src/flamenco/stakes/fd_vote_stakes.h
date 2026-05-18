@@ -170,7 +170,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account_t_1,
                                 ulong               stake_t_1,
-                                ushort              commission_t_1,
+                                uchar               commission_t_1,
                                 ulong               epoch );
 
 void
@@ -178,7 +178,7 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * pubkey,
                                  fd_pubkey_t const * node_account_t_2,
                                  ulong               stake_t_2,
-                                 ushort              commission_t_2,
+                                 uchar               commission_t_2,
                                  ulong               epoch );
 
 /* fd_vote_stakes_insert inserts a new vote account stake into a given
@@ -194,8 +194,8 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        fd_pubkey_t const * node_account_t_2,
                        ulong               stake_t_1,
                        ulong               stake_t_2,
-                       ushort              commission_t_1,
-                       ushort              commission_t_2,
+                       uchar               commission_t_1,
+                       uchar               commission_t_2,
                        uchar               exists_t_1,
                        uchar               exists_t_2,
                        ulong               epoch );
@@ -238,8 +238,8 @@ fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
                       ulong *             stake_t_2_out_opt,
                       fd_pubkey_t *       node_account_t_1_out_opt,
                       fd_pubkey_t *       node_account_t_2_out_opt,
-                      ushort *            commission_t_1_out_opt,
-                      ushort *            commission_t_2_out_opt,
+                      uchar *             commission_t_1_out_opt,
+                      uchar *             commission_t_2_out_opt,
                       uchar *             exists_t_1_out_opt,
                       uchar *             exists_t_2_out_opt );
 
@@ -255,7 +255,7 @@ fd_vote_stakes_query_t_1( fd_vote_stakes_t *  vote_stakes,
                           fd_pubkey_t const * pubkey,
                           ulong *             stake_out,
                           fd_pubkey_t *       node_account_out,
-                          ushort *            commission_out );
+                          uchar *             commission_out );
 
 int
 fd_vote_stakes_query_t_2( fd_vote_stakes_t *  vote_stakes,
@@ -263,7 +263,7 @@ fd_vote_stakes_query_t_2( fd_vote_stakes_t *  vote_stakes,
                           fd_pubkey_t const * pubkey,
                           ulong *             stake_out,
                           fd_pubkey_t *       node_account_out,
-                          ushort *            commission_out );
+                          uchar *             commission_out );
 
 /* fd_vote_stakes_ele_cnt returns the number of entries for a given
    fork. */
@@ -343,8 +343,8 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
                               ulong *                 stake_t_2_out_opt,
                               fd_pubkey_t *           node_account_t_1_out_opt,
                               fd_pubkey_t *           node_account_t_2_out_opt,
-                              ushort *                commission_t_1_out_opt,
-                              ushort *                commission_t_2_out_opt );
+                              uchar *                 commission_t_1_out_opt,
+                              uchar *                 commission_t_2_out_opt );
 
 void
 fd_vote_stakes_fork_iter_fini( fd_vote_stakes_t * vote_stakes );
