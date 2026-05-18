@@ -136,9 +136,6 @@
 #define FD_FOREST_USE_HANDHOLDING 1
 #endif
 
-#define FD_FOREST_VER_UNINIT (0UL)
-#define FD_FOREST_VER_INVAL  (ULONG_MAX)
-
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
 #define SET_NAME fd_forest_blk_idxs
@@ -167,11 +164,12 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* data shred idxs */
+  fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* received data shred idxs */
   struct {
     fd_hash_t mr;
     fd_hash_t cmr;
-  } merkle_roots[ FD_FEC_BLK_MAX ]; /* */
+  } merkle_roots[ FD_FEC_BLK_MAX ]; /* received merkle roots. mr is initialized to null hash, written to when a shred is
+                                       received. invalidated to invalid_mr on multiple versions of the merkle root are detected. */
 
   fd_hash_t confirmed_bid;  /* confirmed block id - can't be wrapped in the above struct because we can create sentinel blocks
                                on confirmation, and don't know the index of the last fec set until we repair the slot.
@@ -184,9 +182,6 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
 
   uchar chain_confirmed; /* 1 if all the FECs the slot have been confirmed via fec_chain_verify, 0 otherwise.  Note confirmed_bid
                             can be populated before this is set to 1. */
-
-  uchar consumed;        /* 1 if the slot has been consumed (i.e., all shreds received, and parents are complete), 0 otherwise */
-  /* only consumed slots may be fec_chain_verified */
 
   int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the
                                  ticks received, this will be a lower bound estimate on the highest tick we have seen.
@@ -363,7 +358,6 @@ typedef struct fd_forest_iter fd_forest_iter_t;
 struct __attribute__((aligned(128UL))) fd_forest {
   ulong root;           /* pool idx of the root */
   ulong wksp_gaddr;     /* wksp gaddr of fd_forest in the backing wksp, non-zero gaddr */
-  ulong ver_gaddr;      /* wksp gaddr of version fseq, incremented on write ops */
   ulong pool_gaddr;     /* wksp gaddr of fd_pool */
   ulong ancestry_gaddr; /* wksp_gaddr of fd_forest_ancestry */
   ulong frontier_gaddr; /* leaves that needs repair */
@@ -425,10 +419,8 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),       sizeof(fd_forest_t)                     ),
-      fd_fseq_align(),            fd_fseq_footprint()                     ),
       fd_forest_pool_align(),     fd_forest_pool_footprint    ( ele_max ) ),
       fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) ),
       fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) ),
@@ -491,12 +483,6 @@ fd_forest_delete( void * forest );
 fd_forest_t *
 fd_forest_init( fd_forest_t * forest, ulong root );
 
-/* fd_forest_fini finishes an forest.  Assumes forest is
-   a valid local join and no one else is joined. */
-
-fd_forest_t *
-fd_forest_fini( fd_forest_t * forest );
-
 /* Accessors */
 
 /* fd_forest_wksp returns the local join to the wksp backing the
@@ -507,25 +493,6 @@ fd_forest_fini( fd_forest_t * forest );
 FD_FN_PURE static inline fd_wksp_t *
 fd_forest_wksp( fd_forest_t const * forest ) {
   return (fd_wksp_t *)( ( (ulong)forest ) - forest->wksp_gaddr );
-}
-
-/* fd_forest_{ver, ver_const} returns the local join to the version
-   number fseq.  The lifetime of the returned pointer is at least as
-   long as the lifetime of the local join.  Assumes forest is a
-   current local join.  If value is ULONG_MAX, ghost is uninitialized or
-   invalid.  Query pre- & post-read:
-
-   odd:  if either pre or post is odd, discard read.
-   even: if pre == post, read is consistent. */
-
-FD_FN_PURE static inline ulong *
-fd_forest_ver( fd_forest_t * forest ) {
-  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->ver_gaddr );
-}
-
-FD_FN_PURE static inline ulong const *
-fd_forest_ver_const( fd_forest_t const * forest ) {
-  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->ver_gaddr );
 }
 
 /* fd_forest_{pool, pool_const} returns a pointer in the caller's address
