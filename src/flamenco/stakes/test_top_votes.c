@@ -113,7 +113,7 @@ main( int argc, char * argv[] ) {
        fd_top_votes_iter_next( top_votes, iter ) ) {
     fd_pubkey_t iter_pubkey;
     ulong       iter_stake;
-    fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, &iter_stake, NULL, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, &iter_stake, NULL, NULL, NULL, NULL );
     iter_stake_sum += iter_stake;
     iter_cnt++;
     FD_TEST( fd_top_votes_query( top_votes, &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL ) );
@@ -189,7 +189,8 @@ main( int argc, char * argv[] ) {
        !fd_top_votes_iter_done( top_votes, iter );
        fd_top_votes_iter_next( top_votes, iter ) ) {
     fd_pubkey_t iter_pubkey;
-    int is_valid = fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, NULL, NULL, NULL, NULL );
+    uchar       is_valid;
+    fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, NULL, NULL, NULL, NULL, &is_valid );
     if( !is_valid ) continue;
     FD_TEST( memcmp( &iter_pubkey, &vote_H, sizeof(fd_pubkey_t) ) );
     valid_iter_cnt++;

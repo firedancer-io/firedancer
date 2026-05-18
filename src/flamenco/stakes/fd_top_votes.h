@@ -178,7 +178,7 @@ void
 fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
                         fd_top_votes_iter_t *  iter );
 
-int
+void
 fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        fd_top_votes_iter_t *  iter,
                        fd_pubkey_t *          pubkey_out,
@@ -186,7 +186,8 @@ fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        ulong *                stake_out_opt,
                        uchar *                commission_out_opt,
                        ulong *                last_vote_slot_out_opt,
-                       long *                 last_vote_timestamp_out_opt );
+                       long *                 last_vote_timestamp_out_opt,
+                       uchar *                is_valid_out_opt );
 
 FD_PROTOTYPES_END
 

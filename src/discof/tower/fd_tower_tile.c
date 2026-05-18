@@ -926,7 +926,8 @@ query_vote_accs( fd_tower_tile_t *            ctx,
     } else {
       fd_pubkey_t vote_acc;
       ulong       stake;
-      int         is_valid = fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL );
+      uchar       is_valid;
+      fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_acc, NULL, &stake, NULL, NULL, NULL, &is_valid );
       fd_top_votes_iter_next( top_votes_t_2, iter );
       total_stake += stake;
       if( FD_UNLIKELY( !is_valid ) ) continue;

@@ -282,7 +282,7 @@ fd_top_votes_refresh( fd_top_votes_t *          top_votes,
         !fd_top_votes_iter_done( top_votes, iter );
         fd_top_votes_iter_next( top_votes, iter ) ) {
     fd_pubkey_t pubkey;
-    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
 
     int is_valid = 1;
     fd_accdb_ro_t acc[1];
@@ -329,7 +329,7 @@ fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
   *map_iter = map_iter_next( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
 }
 
-int
+void
 fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        fd_top_votes_iter_t *  iter,
                        fd_pubkey_t *          pubkey_out,
@@ -337,7 +337,8 @@ fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        ulong *                stake_out_opt,
                        uchar *                commission_out_opt,
                        ulong *                last_vote_slot_out_opt,
-                       long *                 last_vote_timestamp_out_opt ) {
+                       long *                 last_vote_timestamp_out_opt,
+                       uchar *                is_valid_out_opt ) {
   map_iter_t * map_iter = (map_iter_t *)iter;
   vote_ele_t * ele      = map_iter_ele( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
   *pubkey_out = ele->pubkey;
@@ -347,6 +348,5 @@ fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
   if( last_vote_slot_out_opt )      *last_vote_slot_out_opt      = ele->last_vote_slot;
   if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   if( commission_out_opt )          *commission_out_opt          = ele->commission;
-
-  return ele->is_valid;
+  if( is_valid_out_opt )            *is_valid_out_opt            = ele->is_valid;
 }
