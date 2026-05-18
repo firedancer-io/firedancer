@@ -4,6 +4,7 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -207,6 +208,135 @@ test_content_length_overflow_close( void ) {
   fd_http_server_delete( fd_http_server_leave( http ) );
 }
 
+static void
+test_close_reason( char const * req,
+                   int          expected_reason,
+                   fd_http_server_params_t params ) {
+  overflow_close_state_t state = {0};
+  fd_http_server_callbacks_t callbacks = {
+    .request    = request_noop,
+    .close      = close_capture,
+    .ws_open    = NULL,
+    .ws_close   = NULL,
+    .ws_message = NULL,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, &state ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort server_port = ntohs( server_addr.sin_port );
+
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( server_port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  send_all( client_fd, req, strlen( req ) );
+
+  for( ulong i=0UL; i<200UL && !state.close_cnt; i++ ) {
+    fd_http_server_poll( http, 1 );
+  }
+
+  FD_TEST( state.close_cnt==1UL );
+  FD_TEST( state.last_reason==expected_reason );
+
+  close( client_fd );
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+static fd_http_server_params_t
+default_test_params( void ) {
+  fd_http_server_params_t params = {
+    .max_connection_cnt    = 1UL,
+    .max_ws_connection_cnt = 1UL,
+    .max_request_len       = 1024UL,
+    .max_ws_recv_frame_len = 1024UL,
+    .max_ws_send_frame_cnt = 1UL,
+    .outgoing_buffer_sz    = 1024UL,
+  };
+  return params;
+}
+
+void
+test_transfer_encoding_close( void ) {
+  FD_LOG_NOTICE(( "Testing Transfer-Encoding rejection" ));
+  test_close_reason(
+      "POST / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Transfer-Encoding: chunked\r\n"
+      "Content-Length: 1\r\n"
+      "\r\n"
+      "x",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_UNSUPPORTED_TRANSFER_ENCODING,
+      default_test_params() );
+}
+
+void
+test_duplicate_content_length_different_close( void ) {
+  FD_LOG_NOTICE(( "Testing duplicate Content-Length with different values" ));
+  test_close_reason(
+      "POST / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Content-Length: 1\r\n"
+      "Content-Length: 2\r\n"
+      "\r\n"
+      "xx",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST,
+      default_test_params() );
+}
+
+void
+test_ws_bad_key_close( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket bad Sec-WebSocket-Key" ));
+  /* Key is 24 chars but has invalid base64 (padding in wrong
+     place), so fd_base64_decode returns != 16. */
+  test_close_reason(
+      "GET / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Upgrade: websocket\r\n"
+      "Connection: Upgrade\r\n"
+      "Sec-WebSocket-Key: ====aGVsbG8gd29ybGQ=\r\n"
+      "Sec-WebSocket-Version: 13\r\n"
+      "\r\n",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY,
+      default_test_params() );
+}
+
+void
+test_ws_early_data_close( void ) {
+  FD_LOG_NOTICE(( "Testing WebSocket early data after headers" ));
+  /* Valid WebSocket upgrade but with trailing data after the
+     headers — the client must not send WebSocket frames before
+     receiving the 101 response (RFC 6455 s4.2.2). */
+  test_close_reason(
+      "GET / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Upgrade: websocket\r\n"
+      "Connection: Upgrade\r\n"
+      "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+      "Sec-WebSocket-Version: 13\r\n"
+      "\r\n"
+      "extradata",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST,
+      default_test_params() );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -214,6 +344,10 @@ main( int     argc,
 
   test_oring();
   test_content_length_overflow_close();
+  test_transfer_encoding_close();
+  test_duplicate_content_length_different_close();
+  test_ws_bad_key_close();
+  test_ws_early_data_close();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

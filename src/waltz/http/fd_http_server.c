@@ -87,6 +87,7 @@ fd_http_server_connection_close_reason_str( int reason ) {
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_EXPECTED_TEXT_OPCODE:       return "WS_EXPECTED_TEXT_OPCODE-Expected text opcode in websocket frame";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CONTROL_FRAME_TOO_LARGE:    return "WS_CONTROL_FRAME_TOO_LARGE-Websocket control frame was too large";
     case FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE:             return "FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CHANGED_OPCODE-Websocket frame type changed unexpectedly";
+    case FD_HTTP_SERVER_CONNECTION_CLOSE_UNSUPPORTED_TRANSFER_ENCODING: return "UNSUPPORTED_TRANSFER_ENCODING-Transfer-Encoding is not supported";
     default: break;
   }
 
@@ -496,18 +497,33 @@ read_conn_http( fd_http_server_t * http,
     return;
   }
 
+  /* RFC 7230 s3.3.3 */
+  for( ulong i=0UL; i<num_headers; i++ ) {
+    if( FD_UNLIKELY( headers[ i ].name_len==17UL && !strncasecmp( headers[ i ].name, "Transfer-Encoding", 17UL ) ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_UNSUPPORTED_TRANSFER_ENCODING );
+      return;
+    }
+  }
+
   ulong content_len = 0UL;
   if( FD_UNLIKELY( method_enum==FD_HTTP_SERVER_METHOD_POST || method_enum==FD_HTTP_SERVER_METHOD_PUT ) ) {
     int found = 0;
     for( ulong i=0UL; i<num_headers; i++ ) {
       if( FD_LIKELY( headers[ i ].name_len==14UL && !strncasecmp( headers[ i ].name, "Content-Length", 14UL ) ) ) {
-        int parse_err = fd_http_parse_content_len( headers[ i ].value, (ulong)headers[ i ].value_len, &content_len );
+        ulong this_content_len = 0UL;
+        int parse_err = fd_http_parse_content_len( headers[ i ].value, (ulong)headers[ i ].value_len, &this_content_len );
         if( FD_UNLIKELY( parse_err ) ) {
           close_conn( http, conn_idx, fd_int_if( parse_err==FD_HTTP_PARSE_CONTENT_LEN_OVERFLOW, FD_HTTP_SERVER_CONNECTION_CLOSE_LARGE_REQUEST, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST ) );
           return;
         }
+        if( FD_UNLIKELY( found && this_content_len!=content_len ) ) {
+          /* RFC 7230 s3.3.3 rule 4: reject if duplicate Content-Length
+             values differ */
+          close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+          return;
+        }
+        content_len = this_content_len;
         found = 1;
-        break;
       }
     }
 
@@ -588,6 +604,14 @@ read_conn_http( fd_http_server_t * http,
           close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY );
           return;
         }
+        /* RFC 6455 s4.2.1: Sec-WebSocket-Key must base64-decode to
+           exactly 16 bytes.  fd_base64_decode also validates the
+           alphabet and padding rules. */
+        uchar decoded_key[ 16 ];
+        if( FD_UNLIKELY( 16L!=fd_base64_decode( decoded_key, sec_websocket_key, 24UL ) ) ) {
+          close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_BAD_KEY );
+          return;
+        }
         break;
       }
     }
@@ -615,6 +639,13 @@ read_conn_http( fd_http_server_t * http,
     }
 
     conn->sec_websocket_key = sec_websocket_key;
+
+    /* RFC 6455 s4.2.2: the client must not send WebSocket frames until
+       after it receives the 101 response. */
+    if( FD_UNLIKELY( conn->request_bytes_read>conn->request_bytes_len ) ) {
+      close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST );
+      return;
+    }
   }
 
   conn->state    = FD_HTTP_SERVER_CONNECTION_STATE_WRITING_HEADER;
@@ -955,6 +986,11 @@ write_conn_http( fd_http_server_t * http,
           http->pollfds[ conn_idx ].fd = -1;
 
           struct fd_http_server_connection * conn = &http->conns[ conn_idx ];
+
+          int   ws_compress    = conn->response.compress_websocket;
+          ulong req_bytes_read = conn->request_bytes_read;
+          ulong req_bytes_len  = conn->request_bytes_len;
+
           if( FD_LIKELY( !conn->response.static_body ) ) conn_treap_ele_remove( http->conn_treap, conn, http->conns );
           conn_pool_ele_release( http->conns, conn );
 
@@ -980,19 +1016,14 @@ write_conn_http( fd_http_server_t * http,
           http->ws_conns[ ws_conn_id ].recv_bytes_parsed        = 0UL;
           http->ws_conns[ ws_conn_id ].recv_bytes_read          = 0UL;
           http->ws_conns[ ws_conn_id ].send_frame_bytes_written = 0UL;
-          http->ws_conns[ ws_conn_id ].compress_websocket       = conn->response.compress_websocket;
+          http->ws_conns[ ws_conn_id ].compress_websocket       = ws_compress;
 
           http->metrics.connection_cnt--;
           http->metrics.ws_connection_cnt++;
 
-          FD_TEST( conn->request_bytes_read>=conn->request_bytes_len );
-          if( FD_UNLIKELY( conn->request_bytes_read-conn->request_bytes_len>0UL ) ) {
-            /* Client might have already started sending data prior to
-               response, so make sure to move it to the recv buffer. */
-            FD_TEST( conn->request_bytes_read-conn->request_bytes_len<=http->max_ws_recv_frame_len );
-            fd_memcpy( http->ws_conns[ ws_conn_id ].recv_bytes, conn->request_bytes+conn->request_bytes_len, conn->request_bytes_read-conn->request_bytes_len );
-            http->ws_conns[ ws_conn_id ].recv_bytes_read = conn->request_bytes_read-conn->request_bytes_len;
-          }
+          /* Trailing data after the HTTP request was already rejected
+             in read_conn_http, so req_bytes_read==req_bytes_len. */
+          FD_TEST( req_bytes_read==req_bytes_len );
 
 #if FD_HTTP_SERVER_DEBUG
           FD_LOG_WARNING(( "Upgraded connection %lu (fd=%d) to websocket connection %lu", conn_idx, fd, ws_conn_id ));
