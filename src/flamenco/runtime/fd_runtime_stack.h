@@ -32,7 +32,7 @@ struct fd_vote_rewards {
   fd_pubkey_t pubkey;
   ulong       vote_rewards;
   uint        next;
-  uchar       commission;
+  ushort      commission;
 };
 typedef struct fd_vote_rewards fd_vote_rewards_t;
 
