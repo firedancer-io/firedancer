@@ -2025,7 +2025,7 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
                            fd_snapshot_manifest_t * manifest ) {
   parser->state       = STATE_BLOCKHASH_QUEUE_LAST_HASH_INDEX;
   parser->off         = 0UL;
-  parser->manifest_sz = 0UL;       /* set on every consume() */
+  parser->manifest_sz = 0UL;
   parser->dst         = state_dst( parser );
   parser->dst_sz      = state_size( parser );
   parser->dst_cur     = 0UL;
