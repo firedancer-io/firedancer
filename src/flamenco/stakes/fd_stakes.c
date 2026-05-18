@@ -235,6 +235,10 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
                           ushort                   fork_idx,
                           fd_vote_stake_weight_t * weights,
                           int                      vat_enabled ) {
+
+  /* We don't care if an account is invalid, we just want to get the
+     stake weights: they are calculated from an older snapshot of
+     vote account stakes. */
   ulong weights_cnt = 0;
   if( vat_enabled ) {
     uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
@@ -244,7 +248,7 @@ fd_stake_weights_by_node( fd_top_votes_t const *   top_votes_t_2,
       fd_pubkey_t pubkey;
       ulong       stake_t_2;
       fd_pubkey_t node_account_t_2;
-      fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, &node_account_t_2, &stake_t_2, NULL, NULL, NULL );
+      fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, &node_account_t_2, &stake_t_2, NULL, NULL, NULL, NULL );
 
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_2, sizeof(fd_pubkey_t) );
@@ -296,7 +300,7 @@ fd_stake_weights_by_node_next( fd_top_votes_t const *   top_votes_t_1,
       fd_pubkey_t pubkey;
       ulong       stake_t_1;
       fd_pubkey_t node_account_t_1;
-      fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, &node_account_t_1, &stake_t_1, NULL, NULL, NULL );
+      fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, &node_account_t_1, &stake_t_1, NULL, NULL, NULL, NULL );
 
       fd_memcpy( weights[ weights_cnt ].vote_key.uc, &pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( weights[ weights_cnt ].id_key.uc, &node_account_t_1, sizeof(fd_pubkey_t) );
@@ -472,7 +476,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
        fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
     fd_pubkey_t pubkey;
     ushort      commission_t_2;
-    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL, NULL );
 
     fd_accdb_ro_t vote_ro[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &pubkey ) ) ) {
@@ -515,12 +519,12 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     fd_pubkey_t pubkey;
     ulong       stake;
     ushort      commission_t_1 = 0;
-    fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, NULL, &stake, &commission_t_1, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes_t_1, iter, &pubkey, NULL, &stake, &commission_t_1, NULL, NULL, NULL );
 
     int    exists_t_3 = 0;
     ushort commission_t_3 = 0;
     if( FD_LIKELY( vat_in_t_3 ) ) {
-      exists_t_3 = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3 );
+      exists_t_3 = fd_top_votes_query( top_votes_t_3, &pubkey, NULL, NULL, NULL, NULL, &commission_t_3, NULL );
     } else {
       exists_t_3 = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &pubkey, NULL, NULL, &commission_t_3 );
     }
@@ -528,7 +532,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     int    exists_t_2     = 0;
     ushort commission_t_2 = 0;
     if( FD_LIKELY( vat_in_t_2 ) ) {
-      exists_t_2 = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2 );
+      exists_t_2 = fd_top_votes_query( top_votes_t_2, &pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
     } else {
       exists_t_2 = fd_vote_stakes_query_t_1( vote_stakes, parent_idx, &pubkey, NULL, NULL, &commission_t_2 );
     }
@@ -545,6 +549,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     fd_accdb_ro_t vote_ro[1];
     FD_TEST( fd_accdb_open_ro( accdb, vote_ro, xid, &pubkey ) );
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
+    fd_memcpy( epoch_credits->pubkey, &pubkey, sizeof(fd_pubkey_t) );
     get_vote_credits( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), epoch_credits );
     fd_accdb_close_ro( accdb, vote_ro );
 
@@ -694,7 +699,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
        fd_top_votes_iter_next( top_votes_t_2, iter ) ) {
     fd_pubkey_t pubkey;
     ushort      commission_t_2;
-    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes_t_2, iter, &pubkey, NULL, NULL, &commission_t_2, NULL, NULL, NULL );
 
     fd_accdb_ro_t vote_ro[1];
     if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, vote_ro, xid, &pubkey ) ) ) {
@@ -766,6 +771,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       int         exists_t_3       = fd_vote_stakes_query_t_2( vote_stakes, parent_idx, &stake_accum->pubkey, &stake_t_3, &node_account_t_3, &commission_t_3 );
 
       fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
+      fd_memcpy( epoch_credits->pubkey, &stake_accum->pubkey, sizeof(fd_pubkey_t) );
       get_vote_credits( fd_accdb_ref_data_const( vote_ro ), fd_accdb_ref_data_sz( vote_ro ), epoch_credits );
       fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[ vote_reward_cnt ];
       vote_ele->pubkey             = stake_accum->pubkey;

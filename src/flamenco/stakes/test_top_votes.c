@@ -9,7 +9,9 @@ assert_vote_present( fd_top_votes_t *    top_votes,
   fd_pubkey_t node_out = {0};
   ulong       stake_out = 0UL;
   ushort      commission_out = 0;
-  FD_TEST( fd_top_votes_query( top_votes, vote_pubkey, &node_out, &stake_out, NULL, NULL, &commission_out ) );
+  uchar       is_valid = 0;
+  FD_TEST( fd_top_votes_query( top_votes, vote_pubkey, &node_out, &stake_out, NULL, NULL, &commission_out, &is_valid ) );
+  FD_TEST( is_valid );
   FD_TEST( !memcmp( &node_out, expected_node, sizeof(fd_pubkey_t) ) );
   FD_TEST( stake_out==expected_stake );
 }
@@ -17,7 +19,15 @@ assert_vote_present( fd_top_votes_t *    top_votes,
 static void
 assert_vote_absent( fd_top_votes_t *    top_votes,
                     fd_pubkey_t const * vote_pubkey ) {
-  FD_TEST( !fd_top_votes_query( top_votes, vote_pubkey, NULL, NULL, NULL, NULL, NULL ) );
+  FD_TEST( !fd_top_votes_query( top_votes, vote_pubkey, NULL, NULL, NULL, NULL, NULL, NULL ) );
+}
+
+static void
+assert_vote_invalid( fd_top_votes_t *    top_votes,
+                     fd_pubkey_t const * vote_pubkey ) {
+  uchar is_valid = 1;
+  FD_TEST( fd_top_votes_query( top_votes, vote_pubkey, NULL, NULL, NULL, NULL, NULL, &is_valid ) );
+  FD_TEST( !is_valid );
 }
 
 int
@@ -92,7 +102,7 @@ main( int argc, char * argv[] ) {
   assert_vote_present( top_votes, &vote_C, &node_C, 30UL );
   assert_vote_present( top_votes, &vote_D, &node_D, 40UL );
   assert_vote_absent( top_votes, &vote_E );
-  FD_TEST( fd_top_votes_query( top_votes, &vote_A, NULL, NULL, NULL, NULL, NULL ) );
+  FD_TEST( fd_top_votes_query( top_votes, &vote_A, NULL, NULL, NULL, NULL, NULL, NULL ) );
 
   /* Iterator returns all valid top vote entries. */
   ulong iter_stake_sum = 0UL;
@@ -103,10 +113,10 @@ main( int argc, char * argv[] ) {
        fd_top_votes_iter_next( top_votes, iter ) ) {
     fd_pubkey_t iter_pubkey;
     ulong       iter_stake;
-    fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, &iter_stake, NULL, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, &iter_stake, NULL, NULL, NULL, NULL );
     iter_stake_sum += iter_stake;
     iter_cnt++;
-    FD_TEST( fd_top_votes_query( top_votes, &iter_pubkey, NULL, NULL, NULL, NULL, NULL ) );
+    FD_TEST( fd_top_votes_query( top_votes, &iter_pubkey, NULL, NULL, NULL, NULL, NULL, NULL ) );
   }
   FD_TEST( iter_cnt==4UL );
   FD_TEST( iter_stake_sum==(10UL+20UL+30UL+40UL) );
@@ -169,17 +179,17 @@ main( int argc, char * argv[] ) {
   fd_top_votes_insert( top_votes, &vote_H, &node_H, 11UL, 1 );
   assert_vote_present( top_votes, &vote_H, &node_H, 11UL );
 
-  /* Iterator should skip invalid entries. */
   fd_top_votes_invalidate( top_votes, &vote_H );
-  FD_TEST( !fd_top_votes_query( top_votes, &vote_H, NULL, NULL, NULL, NULL, NULL ) );
-  FD_TEST( fd_top_votes_query( top_votes, &vote_C, NULL, NULL, NULL, NULL, NULL ) );
-  FD_TEST( fd_top_votes_query( top_votes, &vote_D, NULL, NULL, NULL, NULL, NULL ) );
+  assert_vote_invalid( top_votes, &vote_H );
+  FD_TEST( fd_top_votes_query( top_votes, &vote_C, NULL, NULL, NULL, NULL, NULL, NULL ) );
+  FD_TEST( fd_top_votes_query( top_votes, &vote_D, NULL, NULL, NULL, NULL, NULL, NULL ) );
   ulong valid_iter_cnt = 0UL;
   for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, top_votes_iter_mem );
        !fd_top_votes_iter_done( top_votes, iter );
        fd_top_votes_iter_next( top_votes, iter ) ) {
     fd_pubkey_t iter_pubkey;
-    int is_valid = fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, NULL, NULL, NULL, NULL );
+    uchar       is_valid;
+    fd_top_votes_iter_ele( top_votes, iter, &iter_pubkey, NULL, NULL, NULL, NULL, NULL, &is_valid );
     if( !is_valid ) continue;
     FD_TEST( memcmp( &iter_pubkey, &vote_H, sizeof(fd_pubkey_t) ) );
     valid_iter_cnt++;

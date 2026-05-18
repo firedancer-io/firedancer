@@ -130,7 +130,8 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
 
     ulong last_vote_slot;
     long  last_vote_timestamp;
-    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL );
+    uchar is_valid = 1;
+    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL, &is_valid );
     if( FD_UNLIKELY( !found ) ) {
       fd_accdb_ro_t ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
@@ -146,6 +147,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
       last_vote_slot      = last_vote.slot;
       last_vote_timestamp = last_vote.timestamp;
     }
+    if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
     ulong slot_delta;
@@ -214,7 +216,8 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
     ulong       stake_t_2;
     ulong       last_vote_slot;
     long        last_vote_timestamp;
-    int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp );
+    uchar       is_valid;
+    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp, &is_valid );
     if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
@@ -222,7 +225,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
     int err = fd_ulong_checked_sub( current_slot, last_vote_slot, &slot_delta );
     if( FD_UNLIKELY( err ) ) {
       /* Don't count vote accounts with a last vote slot that is greater
-          than the current slot. */
+         than the current slot. */
       continue;
     }
 

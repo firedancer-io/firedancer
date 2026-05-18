@@ -5,7 +5,6 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
-#include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/fd_system_ids.h"
 #include "../capture/fd_capture_ctx.h"
@@ -990,20 +989,40 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
      feature. */
 
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_vote_rewards_map_reset( vote_ele_map );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             vs_fork_idx = bank->vote_stakes_fork_id;
 
+  int vat_active = FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket );
+  int vat_in_t_2 = 0;
+  if( FD_UNLIKELY( vat_active ) ) {
+    ulong vat_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+    vat_in_t_2 = bank->f.epoch>=vat_epoch+1UL;
+  }
+
+  fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( bank );
+  fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
+
   ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
   for( ulong i=0UL; i<epoch_credits_len; i++ ) {
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
-    ulong  stake_t_1;
-    ushort commission_t_1;
-    ulong  stake_t_2;
-    ushort commission_t_2;
-    uchar  exists_t_1 = 0;
-    uchar  exists_t_2 = 0;
-    fd_vote_stakes_query( vote_stakes, vs_fork_idx, (fd_pubkey_t *)epoch_credits->pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2, &exists_t_1, &exists_t_2 );
+    fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
+
+    /* Get the t-1 stake account information.  This is guaranteed to be
+       valid since the epoch credits are populated from the t-1 stakes
+       in the snapshot manfiest. */
+    ushort commission_t_1 = 0;
+    if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
+    else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
+
+    /* Now get the t-2 information (if it exists).  This is not
+       guaranteed to be valid since it's possible for a vote account to
+       have been created in the last epoch. */
+    int    exists_t_2     = 0;
+    ushort commission_t_2 = 0;
+    if( vat_in_t_2 ) exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+    else             exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
@@ -1016,6 +1035,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
   }
 
+  /* Copy in historical commission information if it exists. */
   if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
     ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
     fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );

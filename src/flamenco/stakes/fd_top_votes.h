@@ -109,8 +109,9 @@ fd_top_votes_update( fd_top_votes_t *    top_votes,
 
 /* fd_top_votes_invalidate invalidates a vote account in the top votes
    set.  This would be done in the case a vote account is withdrawn or
-   becomes invalid.  An account that is invalid, will not be returned by
-   fd_top_votes_query. */
+   becomes invalid.  An invalid account remains queryable for historical
+   stake/commission lookups, but is returned with is_valid_out_opt set
+   to zero. */
 
 void
 fd_top_votes_invalidate( fd_top_votes_t *    top_votes,
@@ -119,8 +120,9 @@ fd_top_votes_invalidate( fd_top_votes_t *    top_votes,
 /* fd_top_votes_query queries a fd_top_votes_t structure given a
    vote account and returns 1 if the vote account is in the top voters
    set and 0 otherwise.  If the vote account is in the top voters set,
-   the node account, stake, last vote slot, and last vote timestamp are
-   all optionally returned via parameter pointers. */
+   the node account, stake, last vote slot, last vote timestamp,
+   commission, and current validity are all optionally returned via
+   parameter pointers. */
 
 int
 fd_top_votes_query( fd_top_votes_t const * top_votes,
@@ -129,7 +131,8 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
                     ulong *                stake_out_opt,
                     ulong *                last_vote_slot_out_opt,
                     long *                 last_vote_timestamp_out_opt,
-                    ushort *               commission_out_opt );
+                    ushort *               commission_out_opt,
+                    uchar *                is_valid_out_opt );
 
 /* fd_top_votes_refresh refreshes the top votes set given an accdb
    user and a transaction xid.  The top votes are populated with a
@@ -160,7 +163,7 @@ typedef struct map_iter fd_top_votes_iter_t;
    for( fd_top_votes_iter_t * iter = fd_top_votes_iter_init( top_votes, iter_mem );
         !fd_top_votes_iter_done( top_votes, iter );
         fd_top_votes_iter_next( top_votes, iter ) ) {
-     int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, &last_vote_slot, &last_vote_timestamp );
+     fd_top_votes_iter_ele( top_votes, iter, &pubkey, &node_account, &stake, &commission, &last_vote_slot, &last_vote_timestamp, &is_valid );
    } */
 
 fd_top_votes_iter_t *
@@ -175,7 +178,7 @@ void
 fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
                         fd_top_votes_iter_t *  iter );
 
-int
+void
 fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        fd_top_votes_iter_t *  iter,
                        fd_pubkey_t *          pubkey_out,
@@ -183,7 +186,8 @@ fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        ulong *                stake_out_opt,
                        ushort *               commission_out_opt,
                        ulong *                last_vote_slot_out_opt,
-                       long *                 last_vote_timestamp_out_opt );
+                       long *                 last_vote_timestamp_out_opt,
+                       uchar *                is_valid_out_opt );
 
 FD_PROTOTYPES_END
 
