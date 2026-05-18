@@ -1,5 +1,6 @@
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_ssload.h"
 #include "utils/fd_ssmsg.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -560,6 +561,13 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     transition_malformed( ctx, ctx->stem );
     return;
   }
+
+  if( FD_UNLIKELY( fd_ssload_manifest_validate( manifest, FD_RUNTIME_MAX_VOTE_ACCOUNTS, FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ) ) {
+    FD_LOG_WARNING(( "snapshot manifest validation failed" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
   fd_epoch_schedule_t epoch_schedule = (fd_epoch_schedule_t){
     .slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch,
     .leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset,
