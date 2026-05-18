@@ -573,6 +573,23 @@ drain_deferred_frees( fd_accdb_t * accdb ) {
      acc_pool_release_chain. */
   uint *               buf      = accdb->deferred_acc_buf;
   fd_accdb_accmeta_t * acc_pool = accdb->acc_pool;
+
+  /* Late-publish sweep: a concurrent acquire evictor may have published
+     a new offset into one of these accmetas after acc_unlink's
+     xchg-to-INVAL but before exiting its epoch.  Now that the epoch has
+     drained, any such publish is complete and visible.  Free the
+     orphaned disk bytes here, before the accmeta is released to the
+     pool and its fields recycled. */
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_accdb_accmeta_t * accmeta = &acc_pool[ buf[ i ] ];
+    ulong off = fd_accdb_acc_offset( accmeta );
+    if( FD_UNLIKELY( off!=FD_ACCDB_OFF_INVAL ) ) {
+      ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t);
+      fd_accdb_shmem_bytes_freed( accdb->shmem, off, entry_sz );
+      FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
+    }
+  }
+
   for( ulong i=0UL; i+1UL<n; i++ ) {
     acc_pool[ buf[ i ] ].pool.next = acc_pool_private_cidx( (ulong)buf[ i+1UL ] );
   }
@@ -620,9 +637,27 @@ acc_unlink( fd_accdb_t * accdb,
             uint         acc_idx ) {
   fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
 
-  if( FD_LIKELY( fd_accdb_acc_offset(accmeta)!=FD_ACCDB_OFF_INVAL ) ) {
-    fd_accdb_shmem_bytes_freed( accdb->shmem, fd_accdb_acc_offset(accmeta), (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t) );
-    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t) );
+  /* Atomically capture and clear the offset.  Two races to defuse:
+
+     (1) A concurrent fd_accdb_acquire_inner that is CLOCK-evicting the
+         cache line currently holding this acc's data may have already
+         xchg'd the offset to INVAL in step 5-6 and freed the old disk
+         bytes.  Without atomicity we would re-read the old offset and
+         free those same bytes a second time.  The xchg here serializes:
+         whoever wins sees the real offset and frees; the loser sees
+         INVAL and skips.
+
+     (2) That same evictor may also be mid-flight to publish a NEW
+         offset in step 9 (after step 5-6's free but before step 9's
+         store).  That late publish lands on an accmeta that is about
+         to be chain-unlinked and deferred-released.  drain_deferred_
+         frees sweeps the deferred buffer after epoch drain to catch
+         the late publish and free the orphaned bytes. */
+  ulong entry_sz = (ulong)FD_ACCDB_SIZE_DATA(accmeta->executable_size)+sizeof(fd_accdb_disk_meta_t);
+  ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
+  if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
+    fd_accdb_shmem_bytes_freed( accdb->shmem, old_offset, entry_sz );
+    FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
   }
   FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->accounts_total, 1UL );
   accdb->metrics->accounts_deleted++;
@@ -1814,8 +1849,14 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
         fd_accdb_accmeta_t * evicted = &accdb->acc_pool[ evicted_dest_acc[ i ][ j ] ];
         ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( evicted->executable_size );
-        if( FD_LIKELY( fd_accdb_acc_offset(evicted)!=FD_ACCDB_OFF_INVAL ) ) {
-          fd_accdb_shmem_bytes_freed( accdb->shmem, fd_accdb_acc_offset(evicted), entry_sz );
+        /* xchg-to-INVAL atomically captures the old offset and prevents
+           a concurrent acc_unlink from also reading and freeing it (the
+           xchg there will see INVAL and skip).  Step 9 republishes the
+           new offset; the spinner at line ~2082 tolerates the transient
+           INVAL.  Same pattern as the overwrite path at line ~2388. */
+        ulong old_off = fd_accdb_acc_xchg_offset( evicted, FD_ACCDB_OFF_INVAL );
+        if( FD_LIKELY( old_off!=FD_ACCDB_OFF_INVAL ) ) {
+          fd_accdb_shmem_bytes_freed( accdb->shmem, old_off, entry_sz );
           FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
         }
         pending_accs [ pending_cnt ] = evicted;
@@ -1829,8 +1870,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       if( FD_UNLIKELY( accmetas[ i ] && !exists_in_cache[ i ] && evicted_orig_acc[ i ]!=UINT_MAX ) ) {
         fd_accdb_accmeta_t * evicted = &accdb->acc_pool[ evicted_orig_acc[ i ] ];
         ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( evicted->executable_size );
-        if( FD_LIKELY( fd_accdb_acc_offset(evicted)!=FD_ACCDB_OFF_INVAL ) ) {
-          fd_accdb_shmem_bytes_freed( accdb->shmem, fd_accdb_acc_offset(evicted), entry_sz );
+        ulong old_off = fd_accdb_acc_xchg_offset( evicted, FD_ACCDB_OFF_INVAL );
+        if( FD_LIKELY( old_off!=FD_ACCDB_OFF_INVAL ) ) {
+          fd_accdb_shmem_bytes_freed( accdb->shmem, old_off, entry_sz );
           FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
         }
         pending_accs [ pending_cnt ] = evicted;
@@ -1846,8 +1888,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
       fd_accdb_accmeta_t * evicted = &accdb->acc_pool[ evicted_orig_acc[ i ] ];
       ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( evicted->executable_size );
-      if( FD_LIKELY( fd_accdb_acc_offset(evicted)!=FD_ACCDB_OFF_INVAL ) ) {
-        fd_accdb_shmem_bytes_freed( accdb->shmem, fd_accdb_acc_offset(evicted), entry_sz );
+      ulong old_off = fd_accdb_acc_xchg_offset( evicted, FD_ACCDB_OFF_INVAL );
+      if( FD_LIKELY( old_off!=FD_ACCDB_OFF_INVAL ) ) {
+        fd_accdb_shmem_bytes_freed( accdb->shmem, old_off, entry_sz );
         FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->shmetrics->disk_used_bytes, entry_sz );
       }
       pending_accs [ pending_cnt ] = evicted;
