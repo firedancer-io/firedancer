@@ -105,7 +105,7 @@ struct fd_commission_split {
 typedef struct fd_commission_split fd_commission_split_t;
 
 void
-fd_vote_commission_split( uchar                   commission,
+fd_vote_commission_split( ushort                  commission,
                           ulong                   on,
                           fd_commission_split_t * result );
 

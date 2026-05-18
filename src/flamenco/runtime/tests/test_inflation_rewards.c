@@ -168,39 +168,69 @@ test_commission_split( void ) {
   FD_TEST( r->staker_portion == 1000UL );
   FD_TEST( r->is_split       ==    0U  );
 
-  fd_vote_commission_split( 100, 1000UL, r );
+  fd_vote_commission_split( 10000, 1000UL, r );
   FD_TEST( r->voter_portion  == 1000UL );
   FD_TEST( r->staker_portion ==    0UL );
   FD_TEST( r->is_split       ==    0U  );
 
-  fd_vote_commission_split( 200, 1000UL, r );
+  fd_vote_commission_split( 20000, 1000UL, r );
   FD_TEST( r->voter_portion  == 1000UL );
   FD_TEST( r->staker_portion ==    0UL );
   FD_TEST( r->is_split       ==    0U  );
 
-  fd_vote_commission_split( 50, 1000UL, r );
+  fd_vote_commission_split( 5000, 1000UL, r );
   FD_TEST( r->voter_portion  ==  500UL );
   FD_TEST( r->staker_portion ==  500UL );
   FD_TEST( r->is_split       ==    1U  );
 
-  fd_vote_commission_split( 10, 1000UL, r );
+  fd_vote_commission_split( 1000, 1000UL, r );
   FD_TEST( r->voter_portion  ==  100UL );
   FD_TEST( r->staker_portion ==  900UL );
   FD_TEST( r->is_split       ==    1U  );
 
-  fd_vote_commission_split( 1, 10UL, r );
+  fd_vote_commission_split( 100, 10UL, r );
   FD_TEST( r->voter_portion  ==  0UL );
   FD_TEST( r->staker_portion ==  9UL );
   FD_TEST( r->is_split       ==  1U  );
 
-  fd_vote_commission_split( 33, 100UL, r );
+  fd_vote_commission_split( 3300, 100UL, r );
   FD_TEST( r->voter_portion  == 33UL );
   FD_TEST( r->staker_portion == 67UL );
   FD_TEST( r->is_split       ==  1U  );
 
-  fd_vote_commission_split( 50, 0UL, r );
+  fd_vote_commission_split( 5000, 0UL, r );
   FD_TEST( r->voter_portion  == 0UL );
   FD_TEST( r->staker_portion == 0UL );
+
+  fd_vote_commission_split( 1, 10000UL, r );
+  FD_TEST( r->voter_portion  ==    1UL );
+  FD_TEST( r->staker_portion == 9999UL );
+  FD_TEST( r->is_split       ==    1U  );
+
+  fd_vote_commission_split( 99, 10000UL, r );
+  FD_TEST( r->voter_portion  ==   99UL );
+  FD_TEST( r->staker_portion == 9901UL );
+  FD_TEST( r->is_split       ==    1U  );
+
+  fd_vote_commission_split( 150, 10000UL, r );
+  FD_TEST( r->voter_portion  ==  150UL );
+  FD_TEST( r->staker_portion == 9850UL );
+  FD_TEST( r->is_split       ==    1U  );
+
+  fd_vote_commission_split( 3333, 10000UL, r );
+  FD_TEST( r->voter_portion  == 3333UL );
+  FD_TEST( r->staker_portion == 6667UL );
+  FD_TEST( r->is_split       ==    1U  );
+
+  fd_vote_commission_split( 7777, 1000UL, r );
+  FD_TEST( r->voter_portion  == 777UL );
+  FD_TEST( r->staker_portion == 222UL );
+  FD_TEST( r->is_split       ==   1U  );
+
+  fd_vote_commission_split( 9999, 10000UL, r );
+  FD_TEST( r->voter_portion  == 9999UL );
+  FD_TEST( r->staker_portion ==    1UL );
+  FD_TEST( r->is_split       ==    1U  );
 
   FD_LOG_NOTICE(( "test_commission_split: PASSED" ));
 }
