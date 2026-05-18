@@ -27,6 +27,8 @@ static uchar owner3[ 32UL ] = { 3, 0 };
    per-class minimum reserved slots (class 7 is 10 MiB each). */
 #define TEST_CACHE_FOOTPRINT (16UL<<30UL)
 
+static fd_accdb_shmem_t * test_shmem_mem;
+
 static fd_accdb_t *
 test_setup( int * out_fd,
             ulong max_accounts,
@@ -48,6 +50,7 @@ test_setup( int * out_fd,
                           max_account_writes_per_slot, partition_cnt,
                           partition_sz, cache_fp, 640UL, 42UL, 1UL ) );
   FD_TEST( shmem );
+  test_shmem_mem = shmem_mem;
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
   FD_TEST( accdb_fp );
@@ -56,6 +59,14 @@ test_setup( int * out_fd,
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
+}
+
+static void
+test_teardown( fd_accdb_t * accdb,
+               int          fd ) {
+  free( test_shmem_mem );
+  free( accdb );
+  close( fd );
 }
 
 /* Process any pending advance_root / purge command submitted to the
@@ -145,7 +156,7 @@ test_background_preevict_ignores_uninitialized_tail( void ) {
   FD_TEST( cache_used[ 0UL ]==1UL );
   FD_TEST( fd_accdb_metrics( accdb )->accounts_preevicted==0UL );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 void
@@ -170,7 +181,7 @@ test_basic( void ) {
   FD_TEST( data_len==0UL );
   FD_TEST( !memcmp( owner, owner2, 32UL ) );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 void
@@ -206,7 +217,7 @@ test_missing_readonly_account_initializes_entry( void ) {
   FD_TEST( acc[ 0 ]._original_cache_idx==ULONG_MAX );
 
   fd_accdb_release( accdb, 1UL, acc );
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 void
@@ -243,7 +254,7 @@ test_fork_basic( void ) {
   FD_TEST(  accdb_read( accdb, f4, pubkey1, &lamports, &d, &data_len, owner ) );
   FD_TEST( !accdb_read( accdb, f5, pubkey1, &lamports, &d, &data_len, owner ) );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 void
@@ -278,7 +289,7 @@ test_root_forks( void ) {
   FD_TEST( accdb_read( accdb, f2, pubkey1, &lamports, &d, &data_len, owner ) );
   FD_TEST( lamports==1UL );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 static uchar big_data[ 10UL*(1UL<<20) ];
@@ -313,7 +324,7 @@ test_compact( void ) {
   FD_TEST( metrics->accounts_relocated_bytes == 0UL );
   FD_TEST( metrics->partitions_freed         == 0UL );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Test that writing the same account multiple times on the same fork
@@ -359,7 +370,7 @@ test_overwrite_same_fork( void ) {
   fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
   FD_TEST( metrics->accounts_total == 1UL );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Test that multiple distinct accounts can coexist and be read back
@@ -396,7 +407,7 @@ test_multiple_accounts( void ) {
   fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
   FD_TEST( metrics->accounts_total == 3UL );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Test advancing the root through a chain of slots: root->A->B->C,
@@ -436,7 +447,7 @@ test_sequential_rooting( void ) {
   FD_TEST( lamports==4UL );
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Test purge: create a fork, write to it, purge it, and verify the
@@ -475,7 +486,7 @@ test_purge( void ) {
   fd_accdb_shmem_metrics_t const * metrics = fd_accdb_shmetrics( accdb );
   FD_TEST( metrics->accounts_total == 1UL );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Test that child forks inherit writes from their parent (ancestor
@@ -512,7 +523,7 @@ test_child_inherits_parent( void ) {
   FD_TEST( lamports==10UL );
   FD_TEST( !memcmp( owner, owner2, 32UL ) );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Build a deep linear chain (root -> s0 -> s1 -> ... -> s9), write
@@ -573,7 +584,7 @@ test_deep_chain_rooting( void ) {
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==6UL );
 
 # undef DEPTH
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Create a wide fan-out: one parent with 16 sibling children, each
@@ -611,7 +622,7 @@ test_wide_fanout_isolation( void ) {
   FD_TEST( fd_accdb_shmetrics( accdb )->accounts_total==SIBLINGS );
 
 # undef SIBLINGS
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Purge a fork that has children and grandchildren.  Verify the
@@ -655,7 +666,7 @@ test_purge_deep_subtree( void ) {
   FD_TEST( lamports==9UL );
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Write an account on the root fork, then overwrite it on a child
@@ -692,7 +703,7 @@ test_root_tombstones_old_version( void ) {
   FD_TEST( lamports==20UL );
   FD_TEST( !memcmp( owner, owner3, 32UL ) );
 
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 /* Populate many distinct accounts on a single fork to exercise the
@@ -751,7 +762,7 @@ test_many_accounts_hash_chains( void ) {
   }
 
 # undef N_ACCTS
-  close( fd );
+  test_teardown( accdb, fd );
 }
 
 void
