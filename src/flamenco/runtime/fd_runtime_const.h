@@ -240,9 +240,15 @@ FD_PROTOTYPES_BEGIN
 #define BPF_LOADER_SERIALIZATION_FOOTPRINT (671764016UL)
 FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
 
-#define FD_EPOCH_CREDITS_MAX (64UL)
-
 #define FD_HARD_FORKS_MAX (64UL)
+
+/* Snapshot manifest array bounds.  They are used to size arrays and
+   validate parsed lengths throughout the entire architecture. */
+
+#define FD_VOTE_ACCOUNTS_MAX     (40200UL)
+#define FD_STAKE_DELEGATIONS_MAX (3000000UL)
+#define FD_EPOCH_STAKES_LEN      (3UL)
+#define FD_EPOCH_VOTE_STAKES_MAX (40200UL)
 
 static const FD_FN_UNUSED fd_account_meta_t FD_ACCOUNT_META_DEFAULT = {0};
 

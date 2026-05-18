@@ -5,6 +5,13 @@
 #include "fd_ssmsg.h"
 
 FD_STATIC_ASSERT( FD_HARD_FORKS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->hard_forks)/sizeof(fd_hard_fork_t), hard_forks_max );
+FD_STATIC_ASSERT( FD_BLOCKHASHES_MAX==sizeof(((fd_snapshot_manifest_t *)0)->blockhashes)/sizeof(fd_snapshot_manifest_blockhash_t), blockhashes_max );
+FD_STATIC_ASSERT( FD_VOTE_ACCOUNTS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->vote_accounts)/sizeof(fd_snapshot_manifest_vote_account_t), vote_accounts_max );
+FD_STATIC_ASSERT( FD_STAKE_DELEGATIONS_MAX==sizeof(((fd_snapshot_manifest_t *)0)->stake_delegations)/sizeof(fd_snapshot_manifest_stake_delegation_t), stake_delegations_max );
+FD_STATIC_ASSERT( FD_EPOCH_STAKES_LEN==sizeof(((fd_snapshot_manifest_t *)0)->epoch_stakes)/sizeof(fd_snapshot_manifest_epoch_stakes_t), epoch_stakes_len );
+FD_STATIC_ASSERT( FD_EPOCH_VOTE_STAKES_MAX==sizeof(((fd_snapshot_manifest_epoch_stakes_t *)0)->vote_stakes)/sizeof(fd_snapshot_manifest_vote_stakes_t), epoch_vote_stakes_max );
+FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==sizeof(((fd_snapshot_manifest_vote_account_t *)0)->epoch_credits)/sizeof(epoch_credits_t), vote_account_epoch_credits_max );
+FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==sizeof(((fd_snapshot_manifest_vote_stakes_t *)0)->epoch_credits)/sizeof(epoch_credits_t), vote_stakes_epoch_credits_max );
 
 void
 blockhashes_recover( fd_blockhashes_t *                       blockhashes,
@@ -246,7 +253,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   FD_TEST( leader_schedule_epoch >= epoch_stakes_base );
   ulong t_1_idx = leader_schedule_epoch - epoch_stakes_base;
-  FD_TEST( t_1_idx < FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN );
+  FD_TEST( t_1_idx < FD_EPOCH_STAKES_LEN );
 
   int   has_t_2 = (t_1_idx > 0UL);
   ulong t_2_idx = has_t_2 ? t_1_idx - 1UL : 0UL;

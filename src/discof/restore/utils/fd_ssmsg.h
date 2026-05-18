@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_restore_utils_fd_ssmsg_h
 
 #include "../../../flamenco/runtime/fd_runtime_const.h"
+#include "../../../flamenco/runtime/fd_blockhashes.h"
 
 #define FD_SSMSG_MANIFEST_FULL        (0) /* A snapshot manifest message from the full snapshot */
 #define FD_SSMSG_MANIFEST_INCREMENTAL (1) /* A snapshot manifest message from the incremental snapshot */
@@ -142,8 +143,6 @@ struct fd_snapshot_manifest_vote_stakes {
 
 typedef struct fd_snapshot_manifest_vote_stakes fd_snapshot_manifest_vote_stakes_t;
 
-#define FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN 3UL
-
 struct fd_snapshot_manifest_epoch_stakes {
    /* The epoch for which these vote accounts and stakes are valid for */
   ulong                              epoch;
@@ -153,7 +152,7 @@ struct fd_snapshot_manifest_epoch_stakes {
   /* The vote accounts and their stakes for a given epoch.
      FIXME: Snapshot manifest has to support a much larger bound. */
   ulong                              vote_stakes_len;
-  fd_snapshot_manifest_vote_stakes_t vote_stakes[ 40200UL ];
+  fd_snapshot_manifest_vote_stakes_t vote_stakes[ FD_EPOCH_VOTE_STAKES_MAX ];
 };
 
 typedef struct fd_snapshot_manifest_epoch_stakes fd_snapshot_manifest_epoch_stakes_t;
@@ -371,7 +370,7 @@ struct fd_snapshot_manifest {
   uchar epoch_account_hash[ 32UL ];
 
   ulong blockhashes_len;
-  fd_snapshot_manifest_blockhash_t blockhashes[ 301UL ];
+  fd_snapshot_manifest_blockhash_t blockhashes[ FD_BLOCKHASHES_MAX ];
 
   /* The fork_id in the status cache for the root slot. */
   ushort txncache_fork_id;
@@ -456,11 +455,11 @@ struct fd_snapshot_manifest {
      uptime, which is measured by vote account vote credits.
      FIXME: Make this unbounded or support a much larger bound. */
   ulong                               vote_accounts_len;
-  fd_snapshot_manifest_vote_account_t vote_accounts[ 40200UL ];
+  fd_snapshot_manifest_vote_account_t vote_accounts[ FD_VOTE_ACCOUNTS_MAX ];
 
   /* FIXME: Make this unbounded or support a much larger bound. */
   ulong stake_delegations_len;
-  fd_snapshot_manifest_stake_delegation_t stake_delegations[ 3000000UL ];
+  fd_snapshot_manifest_stake_delegation_t stake_delegations[ FD_STAKE_DELEGATIONS_MAX ];
 
   /* Epoch stakes represent the exact amount staked to each vote
      account at the beginning of a previous epoch.  They are primarily
@@ -490,7 +489,7 @@ struct fd_snapshot_manifest {
        epoch_stakes[0] = epoch E-1
        epoch_stakes[1] = epoch E
        epoch_stakes[2] = epoch E+1 */
-  fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ 3UL ];
+  fd_snapshot_manifest_epoch_stakes_t epoch_stakes[ FD_EPOCH_STAKES_LEN ];
 };
 
 typedef struct fd_snapshot_manifest fd_snapshot_manifest_t;

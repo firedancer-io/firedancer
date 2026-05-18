@@ -195,7 +195,7 @@ verify_epoch_stakes( fd_snapshot_manifest_t const * manifest ) {
   /* ensure all required epochs are present in epoch stakes */
   for( ulong i=min_required_epoch; i<=max_required_epoch; i++ ) {
     int found = 0;
-    for( ulong j=0UL; j<FD_SNAPSHOT_MANIFEST_EPOCH_STAKES_LEN; j++ ) {
+    for( ulong j=0UL; j<FD_EPOCH_STAKES_LEN; j++ ) {
       if( manifest->epoch_stakes[j].epoch==i ) {
         found = 1;
         break;
@@ -293,7 +293,7 @@ transition_malformed( fd_snapin_tile_t *  ctx,
 
 static int
 populate_txncache( fd_snapin_tile_t *                     ctx,
-                   fd_snapshot_manifest_blockhash_t const blockhashes[ static 301UL ],
+                   fd_snapshot_manifest_blockhash_t const blockhashes[ static FD_BLOCKHASHES_MAX ],
                    ulong                                  blockhashes_len ) {
   /* Our txncache internally contains the fork structure for the chain,
      which we need to recreate here.  Because snapshots are only served
@@ -374,8 +374,8 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     offset for each slot, and stick it into the appropriate bank in
     our chain. */
 
-  if( FD_UNLIKELY( blockhashes_len>301UL ) ) {
-    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue length %lu exceeds maximum 301", blockhashes_len ));
+  if( FD_UNLIKELY( blockhashes_len>FD_BLOCKHASHES_MAX ) ) {
+    FD_LOG_WARNING(( "corrupt snapshot: blockhash queue length %lu exceeds maximum %lu", blockhashes_len, FD_BLOCKHASHES_MAX ));
     return 1;
   }
   if( FD_UNLIKELY( !blockhashes_len ) ) {
@@ -400,7 +400,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     uchar blockhash[ 32UL ];
     fd_txncache_fork_id_t fork_id;
     ulong txnhash_offset;
-  } banks[ 301UL ] = {0};
+  } banks[ FD_BLOCKHASHES_MAX ] = {0};
 
   for( ulong i=0UL; i<blockhashes_len; i++ ) {
     fd_snapshot_manifest_blockhash_t const * elem = &blockhashes[ i ];
