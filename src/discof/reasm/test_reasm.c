@@ -803,6 +803,57 @@ test_validate_cross_slot( fd_wksp_t * wksp ) {
 }
 
 void
+test_remove_deep_orphan_subtree( fd_wksp_t * wksp ) {
+# define DEEP_ORPHAN_CHAIN_LEN (4096UL)
+
+  ulong        fec_max = DEEP_ORPHAN_CHAIN_LEN + 3UL;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  fd_reasm_fec_t * ev[1];
+
+  fd_hash_t root[1]   = {{{ 104, 0 }}};
+  fd_hash_t parent[1] = {{{ 104, 1 }}};
+  fd_hash_t chain[ DEEP_ORPHAN_CHAIN_LEN ];
+  fd_memset( chain, 0, sizeof(chain) );
+  for( ulong i=0UL; i<DEEP_ORPHAN_CHAIN_LEN; i++ ) {
+    chain[ i ].uc[ 0 ] = 104U;
+    chain[ i ].uc[ 1 ] = (uchar)i;
+    chain[ i ].uc[ 2 ] = (uchar)( i >> 8 );
+    chain[ i ].uc[ 3 ] = 1U;
+  }
+
+  FD_TEST( fd_reasm_insert( reasm, root,      NULL,   0UL, 0U, 0, 32, 0, 1, 0, NULL, ev ) );
+  FD_TEST( fd_reasm_insert( reasm, &chain[0], parent, 2UL, 0U, 1, 32, 0, 0, 0, NULL, ev ) );
+  for( ulong i=1UL; i<DEEP_ORPHAN_CHAIN_LEN; i++ ) {
+    FD_TEST( fd_reasm_insert( reasm, &chain[i], &chain[i-1UL], 2UL, (uint)(i*32UL), 1, 32, 0, 0, 0, NULL, ev ) );
+  }
+
+  FD_TEST( subtrees_ele_query( reasm->subtrees, &chain[0],                         NULL, pool ) );
+  FD_TEST( orphaned_ele_query( reasm->orphaned, &chain[DEEP_ORPHAN_CHAIN_LEN-1UL], NULL, pool ) );
+
+  fd_reasm_fec_t * parent_fec = fd_reasm_insert( reasm, parent, root, 1UL, 0U, 1, 32, 0, 0, 0, NULL, ev );
+  FD_TEST( parent_fec );
+
+  for( ulong i=0UL; i<DEEP_ORPHAN_CHAIN_LEN; i++ ) FD_TEST( !fd_reasm_query( reasm, &chain[i] ) );
+  FD_TEST( !subtrees_ele_query( reasm->subtrees, &chain[0],                         NULL, pool ) );
+  FD_TEST( !orphaned_ele_query( reasm->orphaned, &chain[DEEP_ORPHAN_CHAIN_LEN-1UL], NULL, pool ) );
+  FD_TEST( fd_reasm_free( reasm )==fec_max-2UL );
+  verify_out_invariants( reasm );
+
+  FD_TEST( fd_reasm_pop( reasm )==parent_fec );
+  FD_TEST( !fd_reasm_pop( reasm ) );
+
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+
+  FD_LOG_NOTICE(( "test_remove_deep_orphan_subtree passed" ));
+
+# undef DEEP_ORPHAN_CHAIN_LEN
+}
+
+void
 test_confirm_out_ordering( fd_wksp_t * wksp ) {
   ulong        fec_max = 32;
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
@@ -1172,10 +1223,13 @@ int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong  page_cnt  = 1;
-  char * _page_sz  = "gigantic";
-  ulong  numa_idx  = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"        );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL               );
+  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0 ) );
+  ulong        page_sz  = fd_cstr_to_shmem_page_sz( _page_sz );
+  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
+
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
   test_insert( wksp );
@@ -1188,6 +1242,7 @@ main( int argc, char ** argv ) {
   test_eqvoc_xidbid( wksp );
   test_evict( wksp );
   test_validate_cross_slot( wksp );
+  test_remove_deep_orphan_subtree( wksp );
   test_confirm_out_ordering( wksp );
   test_remove_bank_eviction( wksp );
   test_insert_rejects_when_full_and_nothing_is_evictable( wksp );

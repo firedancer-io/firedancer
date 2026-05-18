@@ -390,24 +390,31 @@ remove_orphan_subtree( fd_reasm_t     * reasm,
                        fd_reasm_fec_t * root,
                        fd_store_t     * opt_store ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
+  ulong *          bfs  = reasm->bfs;
 
-  fd_reasm_fec_t * child = fd_reasm_child( reasm, root );
-  while( FD_LIKELY( child ) ) {
-    fd_reasm_fec_t * next = fd_reasm_sibling( reasm, child );
-    remove_orphan_subtree( reasm, child, opt_store );
-    child = next;
+  FD_TEST( bfs_empty( bfs ) );
+  bfs_push_tail( bfs, pool_idx( pool, root ) );
+  while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
+    fd_reasm_fec_t * ele = pool_ele( pool, bfs_pop_head( bfs ) );
+
+    fd_reasm_fec_t * child = fd_reasm_child( reasm, ele );
+    while( FD_LIKELY( child ) ) {
+      bfs_push_tail( bfs, pool_idx( pool, child ) );
+      child = fd_reasm_sibling( reasm, child );
+    }
+
+    if( FD_UNLIKELY( subtrees_ele_query( reasm->subtrees, &ele->key, NULL, pool )==ele ) ) {
+      subtrees_ele_remove( reasm->subtrees, &ele->key, NULL, pool );
+      subtreel_ele_remove( reasm->subtreel,  ele,            pool );
+    } else {
+      FD_TEST( orphaned_ele_remove( reasm->orphaned, &ele->key, NULL, pool )==ele );
+    }
+
+    clear_slot_metadata( reasm, ele );
+    if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &ele->key );
+    pool_ele_release( pool, ele );
   }
-
-  if( FD_UNLIKELY( subtrees_ele_query( reasm->subtrees, &root->key, NULL, pool )==root ) ) {
-    subtrees_ele_remove( reasm->subtrees, &root->key, NULL, pool );
-    subtreel_ele_remove( reasm->subtreel,  root,            pool );
-  } else {
-    FD_TEST( orphaned_ele_remove( reasm->orphaned, &root->key, NULL, pool )==root );
-  }
-
-  clear_slot_metadata( reasm, root );
-  if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &root->key );
-  pool_ele_release( pool, root );
+  FD_TEST( bfs_empty( bfs ) );
 }
 
 void
@@ -900,13 +907,10 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   ulong min_descendant = ULONG_MAX; /* needed for eqvoc checks below */
   FD_TEST( bfs_empty( bfs ) );
-  for( subtreel_iter_t iter = subtreel_iter_fwd_init(       subtreel, pool );
-                             !subtreel_iter_done    ( iter, subtreel, pool );
-                       iter = subtreel_iter_fwd_next( iter, subtreel, pool ) ) {
-    bfs_push_tail( bfs, subtreel_iter_idx( iter, subtreel, pool ) );
-  }
-  while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
-    fd_reasm_fec_t * orphan_root = pool_ele( pool, bfs_pop_head( bfs ) );
+  for( ulong orphan_root_idx = subtreel_is_empty( subtreel, pool ) ? null : subtreel_idx_peek_head( subtreel, pool );
+             orphan_root_idx != null; ) { /* link orphan subtrees to the new FEC */
+    fd_reasm_fec_t * orphan_root = pool_ele( pool, orphan_root_idx );
+    orphan_root_idx = orphan_root->subtreel.next; /* current root may be removed below */
     overwrite_invalid_cmr( reasm, orphan_root ); /* case 2: received child before parent */
     /* Skip orphan_root if CMR doesn't chain to the new FEC's MR */
     if( FD_UNLIKELY( !fd_hash_eq1( orphan_root->cmr, fec->key ) ) ) continue;
