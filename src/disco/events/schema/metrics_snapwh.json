@@ -1,0 +1,10 @@
+{
+    "name": "metrics_snapwh",
+    "id": 1035,
+    "description": "Metrics snapshot for the snapwh tile",
+    "fields": {
+        "meta":  { "type": "ref:MetricMeta" },
+        "tile":  { "type": "ref:MetricTile" },
+        "state": { "type": "UInt64", "description": "State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" }
+    }
+}

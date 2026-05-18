@@ -1,0 +1,14 @@
+{
+    "name": "metrics_snapwm",
+    "id": 1040,
+    "description": "Metrics snapshot for the snapwm tile",
+    "fields": {
+        "meta":              { "type": "ref:MetricMeta" },
+        "tile":              { "type": "ref:MetricTile" },
+        "state":             { "type": "UInt64", "description": "State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" },
+        "accounts_loaded":   { "type": "UInt64", "description": "Number of accounts seen during snapshot loading. Includes duplicates. Resets if snapshot load restarts" },
+        "accounts_replaced": { "type": "UInt64", "description": "Number of previously inserted accounts replaced by a later duplicate. Resets if snapshot load restarts" },
+        "accounts_ignored":  { "type": "UInt64", "description": "Number of stale duplicate accounts dropped because a previously inserted account was newer. Resets if snapshot load restarts" },
+        "accounts_active":   { "type": "UInt64", "description": "Current number of accounts in index. Resets if snapshot load restarts" }
+    }
+}

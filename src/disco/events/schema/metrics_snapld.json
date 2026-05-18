@@ -1,0 +1,11 @@
+{
+    "name": "metrics_snapld",
+    "id": 1024,
+    "description": "Metrics snapshot for the snapld tile",
+    "fields": {
+        "meta":             { "type": "ref:MetricMeta" },
+        "tile":             { "type": "ref:MetricTile" },
+        "state":            { "type": "UInt64", "description": "State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" },
+        "ssl_alloc_errors": { "type": "UInt64", "description": "Number of SSL allocation errors encountered. " }
+    }
+}

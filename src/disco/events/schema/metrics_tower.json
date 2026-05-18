@@ -1,0 +1,28 @@
+{
+    "name": "metrics_tower",
+    "id": 1038,
+    "description": "Metrics snapshot for the tower tile",
+    "fields": {
+        "meta":                 { "type": "ref:MetricMeta" },
+        "tile":                 { "type": "ref:MetricTile" },
+        "vote_txn_invalid":     { "type": "UInt64", "description": "Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)" },
+        "vote_txn_ignored":     { "type": "UInt64", "description": "Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)" },
+        "vote_txn_mismatch":    { "type": "UInt64", "description": "Number of times a vote txn mismatched our own block id" },
+        "ancestor_rollback":    { "type": "UInt64", "description": "Rollback to an ancestor of our prev vote (can't vote)" },
+        "sibling_confirmed":    { "type": "UInt64", "description": "Duplicate sibling got confirmed (can't vote)" },
+        "same_fork":            { "type": "UInt64", "description": "Same fork as prev vote (can vote)" },
+        "switch_pass":          { "type": "UInt64", "description": "Prev vote was on a different fork, but we are allowed to switch (can vote)" },
+        "switch_fail":          { "type": "UInt64", "description": "Prev vote was on a different fork, and we are not allowed to switch (can't vote)" },
+        "lockout_fail":         { "type": "UInt64", "description": "Locked out (can't vote)" },
+        "threshold_fail":       { "type": "UInt64", "description": "Did not pass threshold check (can't vote)" },
+        "propagated_fail":      { "type": "UInt64", "description": "Prev leader block did not propagate (can't vote)" },
+        "root_slot":            { "type": "UInt64", "description": "Current Tower root slot" },
+        "vote_slot":            { "type": "UInt64", "description": "Current Tower vote slot" },
+        "reset_slot":           { "type": "UInt64", "description": "Current Tower reset slot" },
+        "slot_ignored":         { "type": "UInt64", "description": "Number of times we ignored a slot likely due to minority fork publish" },
+        "hard_forks_seen":      { "type": "UInt64", "description": "Number of hard forks we've seen (block ids with multiple candidate bank hashes)" },
+        "hard_forks_pruned":    { "type": "UInt64", "description": "Number of hard forks (candidate bank hashes) we've pruned" },
+        "hard_forks_active":    { "type": "UInt64", "description": "Currently active hard forks" },
+        "hard_forks_max_width": { "type": "UInt64", "description": "Max number of candidate bank hashes for a given block id" }
+    }
+}

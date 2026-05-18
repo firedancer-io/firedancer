@@ -1,0 +1,11 @@
+{
+    "name": "metrics_snapwr",
+    "id": 1033,
+    "description": "Metrics snapshot for the snapwr tile",
+    "fields": {
+        "meta":                { "type": "ref:MetricMeta" },
+        "tile":                { "type": "ref:MetricTile" },
+        "state":               { "type": "UInt64", "description": "State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN" },
+        "vinyl_bytes_written": { "type": "UInt64", "description": "Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted" }
+    }
+}
