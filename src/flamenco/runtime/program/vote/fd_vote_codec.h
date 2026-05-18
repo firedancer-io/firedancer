@@ -22,6 +22,7 @@
 /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v5.1.1/vote-interface/src/state/mod.rs#L43 */
 #define MAX_EPOCH_CREDITS_HISTORY          (64UL)
 #define MAX_EPOCH_CREDITS_HISTORY_CAPACITY (MAX_EPOCH_CREDITS_HISTORY+1UL)
+FD_STATIC_ASSERT( FD_EPOCH_CREDITS_MAX==MAX_EPOCH_CREDITS_HISTORY, limits );
 
 /* This is an implicit bound derived from the vote program logic.  When
    authorized voters are updated inside the vote program, any authorized
@@ -258,16 +259,10 @@ FD_STATIC_ASSERT( sizeof(fd_vote_init_t)==97UL, vote_init_layout );
 #define DEQUE_NAME deq_ulong
 #define DEQUE_T ulong
 #include "../../../../util/tmpl/fd_deque_dynamic.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
 
 #define DEQUE_NAME deq_fd_vote_lockout_t
 #define DEQUE_T fd_vote_lockout_t
 #include "../../../../util/tmpl/fd_deque_dynamic.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
 
 /**********************************************************************/
 /* Deque templates -- vote account state                              */
@@ -277,16 +272,10 @@ FD_STATIC_ASSERT( sizeof(fd_vote_init_t)==97UL, vote_init_layout );
 #define DEQUE_T fd_vote_epoch_credits_t
 #define DEQUE_MAX MAX_EPOCH_CREDITS_HISTORY_CAPACITY
 #include "../../../../util/tmpl/fd_deque.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
 
 #define DEQUE_NAME deq_fd_landed_vote_t
 #define DEQUE_T fd_landed_vote_t
 #include "../../../../util/tmpl/fd_deque_dynamic.c"
-#undef DEQUE_NAME
-#undef DEQUE_T
-#undef DEQUE_MAX
 
 /**********************************************************************/
 /* Treap / pool for authorized voters                                 */
@@ -675,7 +664,8 @@ fd_vote_account_is_v4_with_bls_pubkey( uchar const * data,
 
 /* Seeks through variable-length fields and returns a zero-copy pointer
    to the epoch_credits entries inside the raw buffer.  *cnt is set to
-   the number of entries.  Returns NULL on error. */
+   the number of entries.  *cnt is in [0,MAX_EPOCH_CREDITS_HISTORY].
+   Returns NULL on error. */
 fd_vote_epoch_credits_t const *
 fd_vote_account_epoch_credits( uchar const * data,
                                ulong         data_sz,
