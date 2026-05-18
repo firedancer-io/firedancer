@@ -902,7 +902,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     fd_reasm_fec_t * orphan_root = pool_ele( pool, bfs_pop_head( bfs ) );
     overwrite_invalid_cmr( reasm, orphan_root ); /* case 2: received child before parent */
     /* Skip orphan_root if CMR doesn't chain to the new FEC's MR */
-    if( FD_UNLIKELY( memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) continue;
+    if( FD_UNLIKELY( !fd_hash_eq1( orphan_root->cmr, fec->key ) ) ) continue;
     if( FD_UNLIKELY( validate( fec, orphan_root )!=0 ) ) {
       remove_orphan_subtree( reasm, orphan_root, opt_store );
       continue;
