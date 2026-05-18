@@ -3,6 +3,7 @@
 #include "../fd_bank.h"
 #include "../fd_system_ids.h"
 #include "../../accdb/fd_accdb_sync.h"
+#include "fd_sysvar_base.h"
 
 void
 fd_sysvar_last_restart_slot_write(
@@ -38,11 +39,7 @@ fd_sysvar_last_restart_slot_read( fd_accdb_user_t *         accdb,
     return sentinel;
   }
 
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )!=FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ ) ) {
     fd_accdb_close_ro( accdb, ro );
     return sentinel;
   }

@@ -1781,24 +1781,14 @@ state_process( fd_ssmanifest_parser_t * parser,
     }
   }
 
-  /* Vote state v4 commission is stored in bps, and needs to be
-     converted to a percentage for commission calculations. */
-  if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
-    parser->manifest->vote_accounts[ parser->idx1 ].commission /= 100;
-  }
-  if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
-    parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission /= 100;
-  }
-  if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX && parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V4_INFLATION_REWARDS_COMMISSION_BPS ) ) {
-    parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission /= 100;
-  }
-
-  /* Older vote states only populate bottom 8 bytes of the commission
-     field, upper bytes should be cleared */
+  /* Older vote states only populate bottom 8 bits of the commission
+     field, upper bytes should be cleared, then multiplied by 100 to
+     convert to basis points. */
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION
                 || parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION
                 || parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION) ) {
     parser->manifest->vote_accounts[ parser->idx1 ].commission &= 0xFF;
+    parser->manifest->vote_accounts[ parser->idx1 ].commission *= 100;
   }
   if( FD_UNLIKELY( parser->epoch_idx!=ULONG_MAX &&
       (  parser->state==STATE_VERSIONED_EPOCH_STAKES_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V3_COMMISSION
@@ -1808,6 +1798,7 @@ state_process( fd_ssmanifest_parser_t * parser,
       || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V11411_COMMISSION
       || parser->state==STATE_EPOCH_STAKES_VOTE_ACCOUNTS_VALUE_DATA_V0235_COMMISSION ) ) ) {
     parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission &= 0xFF;
+    parser->manifest->epoch_stakes[ parser->epoch_idx ].vote_stakes[ parser->idx2 ].commission *= 100;
   }
 
   if( FD_UNLIKELY( parser->state==STATE_STAKES_VOTE_ACCOUNTS_VALUE_DATA_LENGTH ) ) parser->account_data_start = parser->off;

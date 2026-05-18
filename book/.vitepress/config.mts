@@ -40,6 +40,7 @@ export default defineConfig({
             { text: 'Getting Started', link: 'getting-started' },
             { text: 'Configuring', link: 'configuring' },
             { text: 'Initializing', link: 'initializing' },
+            { text: 'Glossary', link: 'glossary' },
           ]
         },
         {
@@ -54,6 +55,7 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: 'Monitoring', link: 'monitoring' },
+            { text: 'Networking', link: 'networking' },
             { text: 'Troubleshooting', link: 'troubleshooting' },
             { text: 'Frequently Asked Questions', link: 'faq' },
           ]
@@ -64,6 +66,7 @@ export default defineConfig({
           items: [
             { text: 'Net Tile', link: 'internals/net_tile' },
             { text: 'Netlink', link: 'internals/netlink' },
+            { text: 'Fork Management', link: 'internals/fork_management' },
           ]
         }
       ] },

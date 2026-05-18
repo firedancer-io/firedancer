@@ -168,46 +168,46 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
   result->force_credits_update_with_skipped_reward = 0;
 }
 
-/// returns commission split as (voter_portion, staker_portion, was_split) tuple
-///
-/// if commission calculation is 100% one way or other, indicate with false for was_split
+/* Returns commission split as
+   (voter_portion, staker_portion, was_split) tuple.  If commission
+   calculation is 10000 (100%) one way or other, indicate with false for
+   was_split.
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L543
+   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L237-L272 */
 void
-fd_vote_commission_split( uchar                   commission,
+fd_vote_commission_split( ushort                  commission,
                           ulong                   on,
                           fd_commission_split_t * result ) {
-  uint commission_split = fd_uint_min( (uint)commission, 100 );
-  result->is_split      = (commission_split != 0 && commission_split != 100);
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
-  if( commission_split==0U ) {
-    result->voter_portion  = 0;
-    result->staker_portion = on;
-    return;
-  }
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L546
-  if( commission_split==100U ) {
-    result->voter_portion  = on;
-    result->staker_portion = 0;
-    return;
-  }
-  /* Note: order of operations may matter for int division. That's why I didn't make the
-   * optimization of getting out the common calculations */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L244-L245 */
+  #define MAX_BPS (10000)
 
-  // ... This is copied from the solana comments...
-  //
-  // Calculate mine and theirs independently and symmetrically instead
-  // of using the remainder of the other to treat them strictly
-  // equally. This is also to cancel the rewarding if either of the
-  // parties should receive only fractional lamports, resulting in not
-  // being rewarded at all. Thus, note that we intentionally discard
-  // any residual fractional lamports.
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L246-L271 */
+  ushort commission_split = fd_ushort_min( commission, MAX_BPS );
+  switch( commission_split ) {
+    case 0: {
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L246 */
+      result->voter_portion  = 0UL;
+      result->staker_portion = on;
+      result->is_split       = 0;
+      break;
+    }
+    case MAX_BPS: {
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L247 */
+      result->voter_portion  = on;
+      result->staker_portion = 0UL;
+      result->is_split       = 0;
+      break;
+    }
+    default: {
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L256-L259 */
+      result->voter_portion  = (ulong)((uint128)on * (uint128)commission_split / (uint128)MAX_BPS);
+      result->staker_portion = (ulong)((uint128)on * (uint128)(MAX_BPS-commission_split) / (uint128)MAX_BPS);
+      result->is_split       = 1;
+      break;
+    }
+  }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L548
-  result->voter_portion =
-      (ulong)((uint128)on * (uint128)commission_split / (uint128)100);
-  result->staker_portion =
-      (ulong)((uint128)on * (uint128)( 100 - commission_split ) / (uint128)100);
+  #undef MAX_BPS
 }
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
@@ -1012,15 +1012,15 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     /* Get the t-1 stake account information.  This is guranteed to be
        valid since the epoch credits are populated from the t-1 stakes
        in the snapshot manfiest. */
-    uchar commission_t_1 = 0;
+    ushort commission_t_1 = 0;
     if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
     else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
 
     /* Now get the t-2 information (if it exists).  This is not
        guaranteed to be valid since it's possible for a vote account to
        have been created in the last epoch. */
-    int   exists_t_2     = 0;
-    uchar commission_t_2 = 0;
+    int    exists_t_2     = 0;
+    ushort commission_t_2 = 0;
     if( vat_in_t_2 ) exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
     else             exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
 

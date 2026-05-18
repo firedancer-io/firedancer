@@ -1029,7 +1029,11 @@ net_rx_packet( fd_net_ctx_t * ctx,
 
   /* Overwrite the mline with the new frame */
   ulong tspub            = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+# if FD_HAS_AVX
+  fd_mcache_publish_avx( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
+# else
   fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, ctl, 0, tspub );
+# endif
 
   /* Wind up for the next iteration */
   out->seq               = fd_seq_inc( out->seq, 1UL );

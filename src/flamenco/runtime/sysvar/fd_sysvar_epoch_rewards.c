@@ -32,15 +32,6 @@ fd_sysvar_epoch_rewards_read( fd_accdb_user_t *           accdb,
     return NULL;
   }
 
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
   memcpy( out, fd_accdb_ref_data_const( ro ), FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
 
   if( FD_UNLIKELY( validate( out ) ) ) {
