@@ -159,11 +159,9 @@ during_housekeeping( fd_gossip_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting" ));
     FD_CRIT( ctx->is_halting_signing, "state machine corruption" );
-    /* the identity key is swapped after the sign tile has been swapped
-       because the below function directly sends a sign request. */
-    fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, ctx->last_wallclock );
-    ctx->is_halting_signing = 0;
-    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    /* Defer the actual set_identity call to after_credit, because it
+       may incur a stem frag publish. */
+    ctx->is_pending_set_identity = 1;
   }
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
@@ -246,6 +244,19 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   ctx->stem = stem;
 
+  if( FD_UNLIKELY( ctx->is_pending_set_identity ) ) {
+    /* the identity key is swapped after the sign tile has been swapped
+       because the below function directly sends a sign request. */
+    FD_BASE58_ENCODE_32_BYTES( ctx->keyswitch->bytes, _new_id_b58 );
+    FD_LOG_WARNING(( "set_identity: switching to %s", _new_id_b58 ));
+    fd_gossip_set_identity( ctx->gossip, ctx->keyswitch->bytes, ctx->last_wallclock );
+    ctx->is_halting_signing        = 0;
+    ctx->is_pending_set_identity   = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    *charge_busy = 1;
+    return;
+  }
+
   if( FD_UNLIKELY( !ctx->my_contact_info->shred_version ) ) return;
 
   if( FD_UNLIKELY( ctx->wfs_state==FD_GOSSIP_WFS_STATE_PUBLISH ) ) {
@@ -255,6 +266,10 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
     *charge_busy = 1;
     return;
   }
+
+  /* Prevent attempts to sign with our old identity while switching to
+     the new one. */
+  if( FD_UNLIKELY( ctx->is_halting_signing ) ) return;
 
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
   fd_gossip_advance( ctx->gossip, now, stem, charge_busy );
@@ -526,6 +541,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_topo_link_t * sign_in  = &topo->links[ tile->in_link_id [ sign_in_tile_idx  ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ ctx->sign_out->idx ] ];
 
+  ctx->is_pending_set_identity = 0;
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
   ctx->is_halting_signing = 0;

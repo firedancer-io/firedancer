@@ -125,6 +125,16 @@ fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
                         uchar const *       peer_pubkey,
                         fd_ip4_port_t       peer_address );
 
+/* fd_ping_tracker_remove removes a peer from the ping tracker by
+   pubkey.  If the peer was active (VALID or VALID_REFRESHING), the
+   change_fn callback is fired with INACTIVE change type.  If the peer
+   is not in the tracker, this is a no-op. */
+
+void
+fd_ping_tracker_remove( fd_ping_tracker_t * ping_tracker,
+                        uchar const *       peer_pubkey,
+                        long                now );
+
 /* fd_ping_tracker_pop_request informs the caller if a ping request
    needs to be sent to a peer.  If a ping request needs to be sent, the
    peer pubkey is returned in out_peer_pubkey.  The caller should send a

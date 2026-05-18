@@ -380,12 +380,17 @@ fd_gossip_set_identity( fd_gossip_t * gossip,
      invariant that our own identity is never sampleable. */
   if( FD_UNLIKELY( new_ci_idx!=ULONG_MAX ) ) fd_active_set_remove_peer( gossip->active_set, new_ci_idx );
 
+  /* Also remove the new identity from the ping tracker (we don't
+     track ourselves). */
+  fd_ping_tracker_remove( gossip->ping_tracker, identity_pubkey, now );
+
   fd_memcpy( gossip->identity_pubkey, identity_pubkey, 32UL );
   gossip->identity_stake = get_stake( gossip, identity_pubkey );
   fd_gossip_wsample_set_identity( gossip->wsample, new_ci_idx );
   fd_gossip_wsample_self_stake( gossip->wsample, gossip->identity_stake );
   fd_active_set_set_identity( gossip->active_set, gossip->identity_pubkey, gossip->identity_stake );
   fd_prune_finder_set_identity( gossip->prune_finder, gossip->identity_pubkey, gossip->identity_stake );
+
   refresh_contact_info( gossip, now );
 }
 
@@ -1155,6 +1160,9 @@ fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
                               uchar const * peer_pubkey,
                               fd_ip4_port_t peer_address,
                               long          now ) {
+  /* Don't track ourselves. */
+  if( FD_UNLIKELY( !memcmp( peer_pubkey, gossip->identity_pubkey, 32UL ) ) ) return;
+
   ulong origin_stake = get_stake( gossip, peer_pubkey );
   fd_ping_tracker_track( gossip->ping_tracker, peer_pubkey, origin_stake, peer_address, now );
 }

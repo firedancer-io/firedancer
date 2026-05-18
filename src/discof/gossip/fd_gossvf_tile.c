@@ -772,6 +772,9 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
     if( FD_UNLIKELY( message->pull_request->contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
+    /* Best-effort: identity_pubkey may momentarily be stale during a
+       keyswitch, but letting a loopback pull request through is
+       harmless (we just waste some CPU answering our own request). */
     if( FD_UNLIKELY( !memcmp( message->pull_request->contact_info->origin, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
     if( FD_UNLIKELY( message->pull_request->crds_filter->mask_bits>=64U ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_MASK_BITS_IDX;
 
@@ -782,6 +785,10 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PRUNE ) ) {
+    /* Best-effort: identity_pubkey may momentarily be stale during a
+       keyswitch, so we may drop a prune correctly addressed to our new
+       key.  This just delays pruning until the peer re-prunes or we
+       detect the redundancy via the prune finder. */
     if( FD_UNLIKELY( !!memcmp( message->prune->destination, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_DESTINATION_IDX;
     /* Agave uses a window of 500ms here, rather than 1s, but it's too
        narrow in production and causes us to throw away a lot of prunes
@@ -814,6 +821,10 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
       fd_gossip_value_t const * value = &message->pull_response->values[ i ];
 
+      /* Best-effort: identity_pubkey may momentarily be stale during a
+         keyswitch, but the only effect is that our own values fall back
+         to the normal staleness window instead of being unconditionally
+         accepted. */
       uchar is_me = !memcmp( value->origin, ctx->identity_pubkey, 32UL );
       long accept_after_nanos;
       if( FD_UNLIKELY( is_me ) ) {
