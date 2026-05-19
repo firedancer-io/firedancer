@@ -183,6 +183,12 @@ fd_gui_new( void *                shmem,
   memset( gui->summary.tile_stats_reference, 0, sizeof(gui->summary.tile_stats_reference) );
   memset( gui->summary.tile_stats_current, 0, sizeof(gui->summary.tile_stats_current) );
 
+  gui->summary.progcache_history_idx = 0UL;
+  memset( gui->summary.progcache_hits_history,    0, sizeof(gui->summary.progcache_hits_history) );
+  memset( gui->summary.progcache_lookups_history, 0, sizeof(gui->summary.progcache_lookups_history) );
+  gui->summary.progcache_hits_1min    = 0UL;
+  gui->summary.progcache_lookups_1min = 0UL;
+
   memset( gui->summary.tile_timers_snap,            0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   memset( gui->summary.tile_timers_snap + tile_cnt, 0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   gui->summary.tile_timers_snap_idx    = 2UL;
@@ -1011,6 +1017,44 @@ fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long 
   recv_event->event     = FD_GUI_SLOT_SHRED_REPAIR_REQUEST;
 }
 
+static void
+fd_gui_progcache_sample( fd_gui_t * gui ) {
+  fd_topo_t const * topo = gui->topo;
+
+  ulong hits    = 0UL;
+  ulong lookups = 0UL;
+
+  for( ulong i=0UL; i<gui->summary.execrp_tile_cnt; i++ ) {
+    fd_topo_tile_t const * execrp = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
+    volatile ulong const * metrics = fd_metrics_tile( execrp->metrics );
+
+    lookups += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_LOOKUPS ) ];
+    hits    += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_HITS    ) ];
+  }
+
+  /* The execrp tile writes lookups before hits in metrics_write, so
+     reading lookups first then hits here means we may observe the
+     new hits before the new lookups, giving hits > lookups
+     momentarily.  Clamp to maintain the invariant hits <= lookups. */
+
+  hits = fd_ulong_min( hits, lookups );
+
+  ulong ring_idx       = gui->summary.progcache_history_idx % FD_GUI_PROGCACHE_HISTORY_CNT;
+  ulong oldest_hits    = gui->summary.progcache_hits_history   [ ring_idx ];
+  ulong oldest_lookups = gui->summary.progcache_lookups_history[ ring_idx ];
+
+  gui->summary.progcache_hits_history   [ ring_idx ] = hits;
+  gui->summary.progcache_lookups_history[ ring_idx ] = lookups;
+  gui->summary.progcache_history_idx = gui->summary.progcache_history_idx + 1UL;
+
+  ulong hits_1min    = hits    - oldest_hits;
+  ulong lookups_1min = lookups - oldest_lookups;
+  hits_1min = fd_ulong_min( hits_1min, lookups_1min );
+
+  gui->summary.progcache_hits_1min    = hits_1min;
+  gui->summary.progcache_lookups_1min = lookups_1min;
+}
+
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
   if( FD_LIKELY( now>gui->next_sample_400millis ) ) {
@@ -1037,6 +1081,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_http_server_ws_broadcast( gui->http );
 
     if( FD_LIKELY( gui->summary.is_full_client ) ) {
+      fd_gui_progcache_sample( gui );
       fd_gui_printf_live_program_cache( gui );
       fd_http_server_ws_broadcast( gui->http );
     }

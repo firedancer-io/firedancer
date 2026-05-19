@@ -1099,8 +1099,6 @@ void
 fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
   fd_topo_t const * topo = gui->topo;
 
-  ulong hits            = 0UL;
-  ulong lookups         = 0UL;
   ulong insertions      = 0UL;
   ulong insertion_bytes = 0UL;
   ulong evictions       = 0UL;
@@ -1112,8 +1110,6 @@ fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
     fd_topo_tile_t const * execrp = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
     volatile ulong const * metrics = fd_metrics_tile( execrp->metrics );
 
-    hits            += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_HITS           ) ];
-    lookups         += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_LOOKUPS        ) ];
     insertions      += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILLS          ) ];
     insertion_bytes += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILL_BYTES     ) ];
     evictions       += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTIONS      ) ];
@@ -1133,8 +1129,8 @@ fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
 
   jsonp_open_envelope( gui->http, "summary", "live_program_cache" );
     jsonp_open_object( gui->http, "value" );
-      jsonp_ulong( gui->http, "hits",            hits            );
-      jsonp_ulong( gui->http, "lookups",         lookups         );
+      jsonp_ulong( gui->http, "hits",            gui->summary.progcache_hits_1min    );
+      jsonp_ulong( gui->http, "lookups",         gui->summary.progcache_lookups_1min );
       jsonp_ulong( gui->http, "insertions",      insertions      );
       jsonp_ulong( gui->http, "insertion_bytes", insertion_bytes );
       jsonp_ulong( gui->http, "evictions",       evictions       );
