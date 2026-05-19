@@ -223,7 +223,7 @@ fd_ed25519_verify( uchar const   msg[], /* msg_sz */
      However this also hides a field inv to compress Rcmp.
      In our implementation we compare the points (see the comment
      above on "Check public key and point r" for details). */
-  if( FD_LIKELY( fd_ed25519_point_eq_z1( Rcmp, R ) ) ) {
+  if( FD_LIKELY( fd_ed25519_point_affine_eq( Rcmp, R ) ) ) {
     return FD_ED25519_SUCCESS;
   }
   return FD_ED25519_ERR_MSG;
@@ -299,7 +299,7 @@ int fd_ed25519_verify_batch_single_msg( uchar const   msg[], /* msg_sz */
 
     fd_ed25519_point_neg( &Aprime[j], &Aprime[j] );
     fd_ed25519_double_scalar_mul_base( res, &k[32*j], &Aprime[j], S );
-    if( FD_UNLIKELY( !fd_ed25519_point_eq_z1( res, &R[j] ) ) ) {
+    if( FD_UNLIKELY( !fd_ed25519_point_affine_eq( res, &R[j] ) ) ) {
       return FD_ED25519_ERR_MSG;
     }
 
