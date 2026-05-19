@@ -32,7 +32,8 @@ typedef struct {
 #define LEADER_SCHEDULE_HASH_SEED 0xDEADFACEUL
 
 static void
-fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   top_votes,
+fd_solfuzz_block_update_prev_epoch_stakes( fd_bank_t const *                  bank,
+                                           fd_top_votes_t *                   top_votes,
                                            fd_vote_stakes_t *                 vote_stakes,
                                            fd_exec_test_prev_vote_account_t * vote_accounts,
                                            pb_size_t                          vote_accounts_cnt,
@@ -43,7 +44,13 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
     fd_pubkey_t vote_pubkey = FD_LOAD( fd_pubkey_t, &vote_accounts[i].address );
     fd_pubkey_t node_pubkey = FD_LOAD( fd_pubkey_t, &vote_accounts[i].node_pubkey );
     ulong       stake       = vote_accounts[i].stake;
-    ushort      commission  = (ushort)vote_accounts[i].commission_bps;
+
+    ushort commission;
+    if( FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ) && vote_accounts[i].version == FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4 ) {
+      commission = (ushort)vote_accounts[i].commission_bps;
+    } else {
+      commission = (ushort)( ( vote_accounts[i].commission_bps / 100U ) * 100U );
+    }
 
     if( is_t_1 ) {
       fd_vote_stakes_root_insert_key( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
@@ -229,8 +236,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( block_bank->vote_accounts_t_1_count<=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
   FD_TEST( block_bank->vote_accounts_t_2_count<=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
 
-  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_1, vote_stakes, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count, 1 );
-  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_2, vote_stakes, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count, 0 );
+  fd_solfuzz_block_update_prev_epoch_stakes( bank, top_votes_t_1, vote_stakes, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count, 1 );
+  fd_solfuzz_block_update_prev_epoch_stakes( bank, top_votes_t_2, vote_stakes, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count, 0 );
 
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], i );
