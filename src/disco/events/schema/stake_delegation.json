@@ -3,8 +3,8 @@
     "id": 5,
     "description": "A stake-cache delegation update emitted during transaction commit",
     "fields": {
-        "pubkey":             { "type": "String",  "description": "Stake account pubkey (32 bytes)" },
-        "voter_pubkey":       { "type": "String",  "description": "Vote account this stake delegates to (zeros if removed) (32 bytes)" },
+        "pubkey":             { "type": "Bytes",  "description": "Stake account pubkey (32 bytes)" },
+        "voter_pubkey":       { "type": "Bytes",  "description": "Vote account this stake delegates to (zeros if removed) (32 bytes)" },
         "stake":              { "type": "UInt64", "description": "Delegated stake amount in lamports" },
         "activation_epoch":   { "type": "UInt64", "description": "Epoch when this delegation activated" },
         "deactivation_epoch": { "type": "UInt64", "description": "Epoch when this delegation deactivates (ULONG_MAX if still active)" },

@@ -3,7 +3,7 @@
     "id": 6,
     "description": "A top-votes cache update emitted during transaction commit",
     "fields": {
-        "pubkey":              { "type": "String",  "description": "Vote account pubkey (32 bytes)" },
+        "pubkey":              { "type": "Bytes",  "description": "Vote account pubkey (32 bytes)" },
         "last_vote_slot":      { "type": "UInt64", "description": "Last vote slot observed in the vote account" },
         "last_vote_timestamp": { "type": "UInt64", "description": "Last vote timestamp observed (unix seconds, signed but stored unsigned)" },
         "slot":                { "type": "UInt64", "description": "Bank slot in which this update occurred" },

@@ -3,10 +3,10 @@
     "id": 4,
     "description": "A bank hash computed at the end of a slot's execution",
     "fields": {
-        "bank_hash":                 { "type": "String",  "description": "Bank hash of this slot (32 bytes)" },
-        "prev_bank_hash":            { "type": "String",  "description": "Bank hash of the parent slot (32 bytes)" },
-        "accounts_lt_hash_checksum": { "type": "String",  "description": "Accounts lt-hash checksum, blake3 of the accounts lthash (32 bytes)" },
-        "poh_hash":                  { "type": "String",  "description": "Proof-of-history hash at the end of the slot (32 bytes)" },
+        "bank_hash":                 { "type": "Bytes",  "description": "Bank hash of this slot (32 bytes)" },
+        "prev_bank_hash":            { "type": "Bytes",  "description": "Bank hash of the parent slot (32 bytes)" },
+        "accounts_lt_hash_checksum": { "type": "Bytes",  "description": "Accounts lt-hash checksum, blake3 of the accounts lthash (32 bytes)" },
+        "poh_hash":                  { "type": "Bytes",  "description": "Proof-of-history hash at the end of the slot (32 bytes)" },
         "slot":                      { "type": "UInt64", "description": "Slot this bank hash is for" },
         "signature_cnt":             { "type": "UInt64", "description": "Total number of signatures processed in the slot" }
     }

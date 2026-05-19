@@ -45,11 +45,11 @@
             "description": "The commission percentage for the bundle this transaction belongs to, if any"
         },
         "bundle_commission_pubkey": {
-            "type": "String",
+            "type": "Bytes",
             "description": "The public key of the commission recipient for the bundle this transaction belongs to, if any"
         },
         "payload": {
-            "type": "String",
+            "type": "Bytes",
             "description": "The raw transaction payload bytes"
         }
     }

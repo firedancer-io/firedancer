@@ -3,10 +3,10 @@
     "id": 7,
     "description": "A vote-program instruction observed during transaction execution.  Captures the on-the-wire vote contents (tower, bank hash being voted for, voter) at processing time, regardless of whether the transaction ultimately succeeds.",
     "fields": {
-        "vote_account":  { "type": "String",  "description": "Vote account (instruction account[0]) (32 bytes)" },
-        "voter":         { "type": "String",  "description": "First signer of the transaction, typically the authorized voter (32 bytes)" },
-        "bank_hash":     { "type": "String",  "description": "Bank hash being voted for (32 bytes)" },
-        "block_id":      { "type": "String",  "description": "Block id being voted for (zeros if not present, e.g. legacy variants) (32 bytes)" },
+        "vote_account":  { "type": "Bytes",  "description": "Vote account (instruction account[0]) (32 bytes)" },
+        "voter":         { "type": "Bytes",  "description": "First signer of the transaction, typically the authorized voter (32 bytes)" },
+        "bank_hash":     { "type": "Bytes",  "description": "Bank hash being voted for (32 bytes)" },
+        "block_id":      { "type": "Bytes",  "description": "Block id being voted for (zeros if not present, e.g. legacy variants) (32 bytes)" },
         "slot":          { "type": "UInt64", "description": "Bank slot in which this instruction is being processed" },
         "root_slot":     { "type": "UInt64", "description": "Root slot in the vote (0 if has_root=false)" },
         "vote_timestamp": { "type": "UInt64", "description": "Vote timestamp in unix seconds (0 if has_timestamp=false)" },
@@ -22,6 +22,6 @@
                 "confirmation_count": { "type": "UInt32", "description": "Confirmation count (higher = closer to root)" }
             }
         },
-        "signature":     { "type": "String",  "description": "First signature of the transaction containing this vote ix (64 bytes)" }
+        "signature":     { "type": "Bytes",  "description": "First signature of the transaction containing this vote ix (64 bytes)" }
     }
 }
