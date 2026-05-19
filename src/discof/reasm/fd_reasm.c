@@ -251,22 +251,28 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
     the orphan to the new FEC via slot metadata, since the chained
     merkle root metadata on that orphan root might be wrong. */
 
-static void
-overwrite_invalid_cmr( fd_reasm_t     * reasm,
-                       fd_reasm_fec_t * child ) {
+static int
+overwrite_invalid_cmr( fd_reasm_t *      reasm,
+                       ulong             slot,
+                       ushort            parent_off,
+                       uint              fec_set_idx,
+                       fd_hash_t const * cmr,
+                       fd_hash_t *       out_cmr ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
-  if( FD_UNLIKELY( child->fec_set_idx==0 && !fd_reasm_query( reasm, &child->cmr ) ) ) {
-    xid_t * parent_bid = xid_query( reasm->xid, (child->slot - child->parent_off) << 32 | UINT_MAX, NULL );
+  if( FD_UNLIKELY( fec_set_idx==0 && !fd_reasm_query( reasm, cmr ) ) ) {
+    xid_t * parent_bid = xid_query( reasm->xid, (slot - parent_off) << 32 | UINT_MAX, NULL );
     if( FD_LIKELY( parent_bid ) ) {
       fd_reasm_fec_t * parent = pool_ele( pool, parent_bid->idx );
       if( FD_LIKELY( parent ) ) {
-        FD_BASE58_ENCODE_32_BYTES( child->cmr.key,  cmr_b58        );
+        FD_BASE58_ENCODE_32_BYTES( cmr->key,        cmr_b58        );
         FD_BASE58_ENCODE_32_BYTES( parent->key.key, parent_key_b58 );
-        FD_LOG_INFO(( "overwriting invalid cmr for FEC slot: %lu fec_set_idx: %u from %s (CMR) to %s (parent's block id)", child->slot, child->fec_set_idx, cmr_b58, parent_key_b58 ));
-        child->cmr = parent->key; /* use the parent's merkle root */
+        FD_LOG_INFO(( "overwriting invalid cmr for FEC slot: %lu fec_set_idx: %u from %s (CMR) to %s (parent's block id)", slot, fec_set_idx, cmr_b58, parent_key_b58 ));
+        *out_cmr = parent->key; /* use the parent's merkle root */
+        return 1;
       }
     }
   }
+  return 0;
 }
 
 /* Mark the entire subtree beginning from root as equivocating.  This is
@@ -290,6 +296,41 @@ eqvoc( fd_reasm_t     * reasm,
       child = fd_reasm_sibling( reasm, child );
     }
   }
+}
+
+static int
+validate( fd_reasm_fec_t const * parent,
+          uint                   child_fec_set_idx,
+          uint                   child_fec_parent_off,
+          ulong                  child_slot ) {
+
+  if( FD_UNLIKELY( parent->slot!=child_slot ) ) {
+    /* If the connecting FECs cross the slot boundary:
+       - the parent must be complete
+       - the child fec_set_idx must be 0
+       - the child's parent slot must match parent's slot
+       - the parent off is a sane value */
+    if( FD_UNLIKELY( !parent->slot_complete ||
+                     child_fec_set_idx!=0U ||
+                     child_fec_parent_off==0U ||
+                     child_fec_parent_off>child_slot ||
+                     child_slot-child_fec_parent_off!=parent->slot ) ) {
+      FD_LOG_DEBUG(( "fec validation failed: parent->slot!=child->slot (slot=%lu,parent_idx=%u,child_idx=%u)", child_slot, parent->fec_set_idx, child_fec_set_idx ));
+      return -1;
+    }
+  } else {
+    /* If the connecting FECs don't cross the slot boundary:
+       - the child fec_set_idx must be greater than the parent's by 32
+       - child and parent FEC must have the same parent_off
+       - the parent must not be slot complete */
+    if( FD_UNLIKELY( child_fec_set_idx!=parent->fec_set_idx+FD_FEC_SHRED_CNT ||
+                     child_fec_parent_off!=parent->parent_off ||
+                     parent->slot_complete ) ) {
+      FD_LOG_DEBUG(( "fec validation failed: parent->slot==child->slot (slot=%lu,parent_idx=%u,child_idx=%u)", child_slot, parent->fec_set_idx, child_fec_set_idx ));
+      return -1;
+    }
+  }
+  return 0;
 }
 
 static void
@@ -336,6 +377,38 @@ clear_slot_metadata( fd_reasm_t     * reasm,
   if( FD_LIKELY( !xid->cnt ) ) xid_remove( reasm->xid, xid );
 
   return fec;
+}
+
+static void
+remove_orphan_subtree( fd_reasm_t     * reasm,
+                       fd_reasm_fec_t * root,
+                       fd_store_t     * opt_store ) {
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  ulong *          bfs  = reasm->bfs;
+
+  FD_TEST( bfs_empty( bfs ) );
+  bfs_push_tail( bfs, pool_idx( pool, root ) );
+  while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
+    fd_reasm_fec_t * ele = pool_ele( pool, bfs_pop_head( bfs ) );
+
+    fd_reasm_fec_t * child = fd_reasm_child( reasm, ele );
+    while( FD_LIKELY( child ) ) {
+      bfs_push_tail( bfs, pool_idx( pool, child ) );
+      child = fd_reasm_sibling( reasm, child );
+    }
+
+    if( FD_UNLIKELY( subtrees_ele_query( reasm->subtrees, &ele->key, NULL, pool )==ele ) ) {
+      subtrees_ele_remove( reasm->subtrees, &ele->key, NULL, pool );
+      subtreel_ele_remove( reasm->subtreel,  ele,            pool );
+    } else {
+      FD_TEST( orphaned_ele_remove( reasm->orphaned, &ele->key, NULL, pool )==ele );
+    }
+
+    clear_slot_metadata( reasm, ele );
+    if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &ele->key );
+    pool_ele_release( pool, ele );
+  }
+  FD_TEST( bfs_empty( bfs ) );
 }
 
 void
@@ -642,6 +715,54 @@ evict( fd_reasm_t      * reasm,
 }
 
 fd_reasm_fec_t *
+fd_reasm_init( fd_reasm_t *      reasm,
+               fd_hash_t const * initial_block_id,
+               ulong             slot ) {
+
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  ulong            null = pool_idx_null( pool );
+
+  FD_TEST( pool_free( pool ) );
+  fd_reasm_fec_t * fec = pool_ele_acquire( pool );
+  fec->key             = *initial_block_id;
+  fec->next            = null;
+  fec->parent          = null;
+  fec->child           = null;
+  fec->sibling         = null;
+  fec->slot            = slot;
+  fec->parent_off      = 0;
+  fec->fec_set_idx     = 0U;
+  fec->data_cnt        = 0U;
+  fec->data_complete   = 0;
+  fec->slot_complete   = 1;
+  fec->is_leader       = 0;
+  fec->eqvoc           = 0;
+  fec->confirmed       = 0;
+  fec->popped          = 0;
+  fec->bank_dead       = 0;
+  fec->bank_idx        = null;
+  fec->parent_bank_idx = null;
+  fec->bank_seq        = null;
+  fec->parent_bank_seq = null;
+  fec->out.next        = null;
+  fec->out.prev        = null;
+  fec->in_out          = 0;
+  fec->subtreel.next   = null;
+  fec->subtreel.prev   = null;
+
+
+  FD_TEST( reasm->root==pool_idx_null( pool ) );
+  fec->confirmed      = 1;
+  fec->popped         = 1;
+  /*                 */ xid_update( reasm, slot, UINT_MAX, pool_idx( pool, fec ) );
+  /*                 */ xid_update( reasm, slot, 0U,       pool_idx( pool, fec ) );
+  reasm->root         = pool_idx( pool, fec );
+  reasm->slot0        = slot;
+  frontier_ele_insert( reasm->frontier, fec, pool );
+  return fec;
+}
+
+fd_reasm_fec_t *
 fd_reasm_insert( fd_reasm_t *      reasm,
                  fd_hash_t const * merkle_root,
                  fd_hash_t const * chained_merkle_root,
@@ -655,6 +776,12 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  fd_store_t      * opt_store,
                  fd_reasm_fec_t ** evicted ) {
 
+  #define ANCESTRY_LINK  0UL
+  #define FRONTIER_LINK  1UL
+  #define ORPHANED_LINK  2UL
+  #define SUBTREES_LINK  3UL
+  #define NOT_FOUND_LINK 4UL
+
 # if LOGGING
   FD_BASE58_ENCODE_32_BYTES( merkle_root->key,         merkle_root_b58         );
   FD_BASE58_ENCODE_32_BYTES( chained_merkle_root->key, chained_merkle_root_b58 );
@@ -665,6 +792,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 # if FD_REASM_USE_HANDHOLDING
   FD_TEST( !fd_reasm_query( reasm, merkle_root ) );
 # endif
+
+  FD_TEST( chained_merkle_root );
 
   ulong        null     = pool_idx_null( pool );
   ancestry_t * ancestry = reasm->ancestry;
@@ -715,6 +844,32 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     *evicted = evicted_fec;
   }
 
+  /* If the new FEC set is a child of a FEC that already exists,
+     validate the new FEC set against the parent.  If it fails
+     validation, remove the FEC from store. */
+
+  fd_hash_t new_cmr[1];
+  if( overwrite_invalid_cmr( reasm, slot, parent_off, fec_set_idx, chained_merkle_root, new_cmr ) ) chained_merkle_root = new_cmr;
+
+  fd_reasm_fec_t * parent = NULL;
+  ulong link_type;
+  if( FD_LIKELY( parent = ancestry_ele_query( ancestry, chained_merkle_root, NULL, pool ) ) ) { /* parent is connected non-leaf */
+    link_type = ANCESTRY_LINK;
+  } else if( FD_LIKELY( parent = frontier_ele_query( frontier, chained_merkle_root, NULL, pool ) ) ) { /* parent is connected leaf */
+    link_type = FRONTIER_LINK;
+  } else if( FD_LIKELY( parent = orphaned_ele_query( orphaned, chained_merkle_root, NULL, pool ) ) ) { /* parent is orphaned non-root */
+    link_type = ORPHANED_LINK;
+  } else if( FD_LIKELY( parent = subtrees_ele_query( subtrees, chained_merkle_root, NULL, pool ) ) ) { /* parent is orphaned root */
+    link_type = SUBTREES_LINK;
+  } else { /* parent not found */
+    link_type = NOT_FOUND_LINK;
+  }
+
+  if( FD_UNLIKELY( parent && validate( parent, fec_set_idx, parent_off, slot )!=0 ) ) {
+    if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, merkle_root );
+    return NULL;
+  }
+
   FD_TEST( pool_free( pool ) );
   fd_reasm_fec_t * fec = pool_ele_acquire( pool );
   fec->key             = *merkle_root;
@@ -745,18 +900,6 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->subtreel.next = null;
   fec->subtreel.prev = null;
 
-  if( FD_UNLIKELY( !chained_merkle_root ) ) { /* initialize the reasm with the root */
-    FD_TEST( reasm->root==pool_idx_null( pool ) );
-    fec->confirmed      = 1;
-    fec->popped         = 1;
-    /*                 */ xid_update( reasm, slot, UINT_MAX,    pool_idx( pool, fec ) );
-    /*                 */ xid_update( reasm, slot, fec_set_idx, pool_idx( pool, fec ) );
-    reasm->root         = pool_idx( pool, fec );
-    reasm->slot0        = slot;
-    frontier_ele_insert( reasm->frontier, fec, pool );
-    return fec;
-  }
-
   fec->cmr = *chained_merkle_root;
   FD_TEST( memcmp( &fec->cmr, chained_merkle_root, sizeof(fd_hash_t) ) == 0 );
 
@@ -770,32 +913,38 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     }
     xid_update( reasm, slot, UINT_MAX, pool_idx( pool, fec ) );
   }
-  overwrite_invalid_cmr( reasm, fec ); /* handle receiving parent before child */
 
-  /* First, we search for the parent of this new FEC and link if found.
-     The new FEC set may result in a new leaf or a new orphan tree root
-     so we need to check that. */
+  /* If the FEC's parent already exists link it correctly: the new FEC
+     set may result in a new leaf or a new orphan tree root so we need
+     to check that. */
 
-  fd_reasm_fec_t * parent = NULL;
-  if(        FD_LIKELY ( parent = ancestry_ele_query ( ancestry, &fec->cmr, NULL, pool ) ) ) { /* parent is connected non-leaf */
-    frontier_ele_insert( frontier, fec,    pool );
-    out_ele_push_tail  ( out,      fec,    pool );
-    fec->in_out        = 1;
-  } else if( FD_LIKELY ( parent = frontier_ele_remove( frontier, &fec->cmr, NULL, pool ) ) ) { /* parent is connected leaf     */
-    ancestry_ele_insert( ancestry, parent, pool );
-    frontier_ele_insert( frontier, fec,    pool );
-    out_ele_push_tail  ( out,      fec,    pool );
-    fec->in_out        = 1;
-  } else if( FD_LIKELY ( parent = orphaned_ele_query ( orphaned, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned non-root */
-    orphaned_ele_insert( orphaned, fec,    pool );
-  } else if( FD_LIKELY ( parent = subtrees_ele_query ( subtrees, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned root     */
-    orphaned_ele_insert( orphaned, fec,    pool );
-  } else {                                                                                     /* parent not found            */
-    subtrees_ele_insert   ( subtrees, fec, pool );
-    subtreel_ele_push_tail( subtreel, fec, pool );
+  switch( link_type ) {
+    case ANCESTRY_LINK:
+      frontier_ele_insert( frontier, fec, pool );
+      out_ele_push_tail( out, fec, pool );
+      fec->in_out = 1;
+      link( reasm, parent, fec );
+      break;
+    case FRONTIER_LINK:
+      FD_TEST( frontier_ele_remove( frontier, &fec->cmr, NULL, pool )==parent );
+      ancestry_ele_insert( ancestry, parent, pool );
+      frontier_ele_insert( frontier, fec, pool );
+      out_ele_push_tail( out, fec, pool );
+      fec->in_out = 1;
+      link( reasm, parent, fec );
+      break;
+    case ORPHANED_LINK:
+    case SUBTREES_LINK:
+      orphaned_ele_insert( orphaned, fec, pool );
+      link( reasm, parent, fec );
+      break;
+    case NOT_FOUND_LINK:
+      subtrees_ele_insert( subtrees, fec, pool );
+      subtreel_ele_push_tail( subtreel, fec, pool );
+      break;
+    default:
+      __builtin_unreachable();
   }
-
-  if( FD_LIKELY( parent ) ) link( reasm, parent, fec );
 
   /* Second, we search for children of this new FEC and link them to it.
      By definition any children must be orphaned (a child cannot be part
@@ -806,22 +955,25 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   ulong min_descendant = ULONG_MAX; /* needed for eqvoc checks below */
   FD_TEST( bfs_empty( bfs ) );
-  for( subtreel_iter_t iter = subtreel_iter_fwd_init(       subtreel, pool );
-                             !subtreel_iter_done    ( iter, subtreel, pool );
-                       iter = subtreel_iter_fwd_next( iter, subtreel, pool ) ) {
-    bfs_push_tail( bfs, subtreel_iter_idx( iter, subtreel, pool ) );
-  }
-  while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
-    fd_reasm_fec_t * orphan_root = pool_ele( pool, bfs_pop_head( bfs ) );
-    FD_TEST( orphan_root ); // `overwrite_invalid_cmr` relies on orphan_root being non-null
-    overwrite_invalid_cmr( reasm, orphan_root ); /* case 2: received child before parent */
-    if( FD_LIKELY( 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
-      link( reasm, fec, orphan_root );
-      subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
-      subtreel_ele_remove( subtreel,  orphan_root,            pool );
-      orphaned_ele_insert( orphaned,  orphan_root,            pool );
-      min_descendant = fd_ulong_min( min_descendant, orphan_root->slot );
+  for( ulong orphan_root_idx = subtreel_is_empty( subtreel, pool ) ? null : subtreel_idx_peek_head( subtreel, pool );
+             orphan_root_idx != null; ) { /* link orphan subtrees to the new FEC */
+    fd_reasm_fec_t * orphan_root = pool_ele( pool, orphan_root_idx );
+    orphan_root_idx = orphan_root->subtreel.next; /* current root may be removed below */
+    fd_hash_t new_cmr[1];
+    /* if received child before parent that crosses a slot boundary,
+       overwrite the child's CMR */
+    if( overwrite_invalid_cmr( reasm, orphan_root->slot, orphan_root->parent_off, orphan_root->fec_set_idx, &orphan_root->cmr, new_cmr ) ) orphan_root->cmr = *new_cmr;
+    /* Skip orphan_root if CMR doesn't chain to the new FEC's MR */
+    if( FD_UNLIKELY( !fd_hash_eq1( orphan_root->cmr, fec->key ) ) ) continue;
+    if( FD_UNLIKELY( validate( fec, orphan_root->fec_set_idx, orphan_root->parent_off, orphan_root->slot )!=0 ) ) {
+      remove_orphan_subtree( reasm, orphan_root, opt_store );
+      continue;
     }
+    link( reasm, fec, orphan_root );
+    subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
+    subtreel_ele_remove( subtreel, orphan_root, pool );
+    orphaned_ele_insert( orphaned, orphan_root, pool );
+    min_descendant = fd_ulong_min( min_descendant, orphan_root->slot );
   }
 
   /* Third, we advance the frontier outward beginning from fec as we may
@@ -932,6 +1084,12 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   /* Finally, return the newly inserted FEC. */
   return fec;
+
+  #undef ANCESTRY_LINK
+  #undef FRONTIER_LINK
+  #undef ORPHANED_LINK
+  #undef SUBTREES_LINK
+  #undef NOT_FOUND_LINK
 }
 
 fd_reasm_fec_t *
