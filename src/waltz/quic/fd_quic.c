@@ -936,7 +936,19 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
   fd_quic_frame_ctx_t frame_context[1] = {{ quic, conn, pkt }};
   if( FD_UNLIKELY( !fd_quic_frame_type_allowed( pkt_type, id ) ) ) {
     FD_DTRACE_PROBE_4( quic_err_frame_not_allowed, id, conn->our_conn_id, pkt_type, pkt->pkt_number );
-    fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    /* RFC 9000 Section 5.2.2: servers MUST drop incoming packets for
+       which the RFC does not specify behavior.  Initial-protection
+       keys are derived from the publicly-observable client DCID per
+       RFC 9001 Section 5.2; an on-path attacker who has read both
+       the client's first DCID and the server's SCID can craft a
+       valid Initial packet whose body trips this check.  Aborting
+       the conn here would let such an attacker tear down the legit
+       handshake.  Silently drop instead (same mitigation pattern as
+       commit f089aab7d / PR #9692, which closed the Retry-as-server
+       and 0-RTT variants of this conn-kill class). */
+    if( pkt_type != FD_QUIC_PKT_TYPE_INITIAL ) {
+      fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    }
     return FD_QUIC_PARSE_FAIL;
   }
   quic->metrics.frame_rx_cnt[ fd_quic_frame_metric_id[ id ] ]++;
@@ -953,9 +965,12 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
 
   default:
     /* FIXME this should be unreachable, but gracefully handle this case as defense-in-depth */
-    /* unknown frame types are PROTOCOL_VIOLATION errors */
+    /* unknown frame types are PROTOCOL_VIOLATION errors.  Same Initial-
+       packet hardening as above (see comment on frame_type_allowed). */
     FD_DEBUG( FD_LOG_DEBUG(( "unexpected frame type: %u", id )); )
-    fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    if( pkt_type != FD_QUIC_PKT_TYPE_INITIAL ) {
+      fd_quic_frame_error( frame_context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    }
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -1775,7 +1790,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     }
 
     if( FD_UNLIKELY( rc==0UL || rc>frame_sz ) ) {
-      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+      /* Initial packets are protected only by DCID-derived keys (RFC
+         9001 Section 5.2), so this branch is reachable by an on-path
+         attacker.  Drop silently rather than aborting the conn (same
+         mitigation pattern as PR #9692). */
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2821,7 +2839,14 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
   ulong rcv_hi  = rcv_off + rcv_sz;  /* in [0,2^63-1] */
 
   if( FD_UNLIKELY( rcv_sz > p_sz ) ) {
-    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+    /* Initial-protection keys are public (derived from DCID per RFC
+       9001 Section 5.2), so this check is reachable by an on-path
+       attacker on Initial-context packets.  Silently drop in that
+       case rather than aborting the conn (PR #9692 mitigation
+       pattern). */
+    if( enc_level != fd_quic_enc_level_initial_id ) {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR, __LINE__ );
+    }
     return FD_QUIC_PARSE_FAIL;
   }
 
@@ -2853,7 +2878,10 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
   }
 
   if( rcv_hi > FD_QUIC_TLS_RX_DATA_SZ ) {
-    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BUFFER_EXCEEDED, __LINE__ );
+    /* See comment on rcv_sz > p_sz above re: Initial-packet hardening. */
+    if( enc_level != fd_quic_enc_level_initial_id ) {
+      fd_quic_frame_error( context, FD_QUIC_CONN_REASON_CRYPTO_BUFFER_EXCEEDED, __LINE__ );
+    }
     return FD_QUIC_PARSE_FAIL;
   }
 

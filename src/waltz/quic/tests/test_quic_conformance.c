@@ -9,6 +9,17 @@
 #include "../../tls/fd_tls_proto.h"
 #include "../../../disco/metrics/generated/fd_metrics_enums.h"
 
+/* fd_quic_handle_v1_frame is defined in fd_quic.c without a public
+   header declaration.  Forward-declare it here for the Initial-frame
+   regression test below. */
+ulong
+fd_quic_handle_v1_frame( fd_quic_t *      quic,
+                         fd_quic_conn_t * conn,
+                         fd_quic_pkt_t *  pkt,
+                         uint             pkt_type,
+                         uchar const *    buf,
+                         ulong            buf_sz );
+
 /* RFC 9000 Section 4.1. Data Flow Control
 
    > A receiver MUST close the connection with an error of type
@@ -855,6 +866,70 @@ test_quic_ack_largest_ack_zero( fd_quic_sandbox_t * sandbox,
   FD_TEST( retx_after == retx_before );
 }
 
+/* Regression test for the Initial-frame conn-error hardening
+   (incomplete-fix follow-up to commit f089aab7d / PR #9692).
+
+   Initial-protection keys are derived from the publicly-observable
+   client DCID per RFC 9001 §5.2, so an on-path attacker who has seen
+   both the client's first DCID and the server's SCID can craft a
+   valid AEAD-protected Initial whose body trips a frame-parsing
+   error.  The server MUST NOT transition the legit conn to ABORT in
+   that case (RFC 9000 §5.2.2 explicitly permits silent drop for
+   unexpected behavior).
+
+   This test asserts:
+     - Disallowed frame in Initial             -> conn stays ACTIVE
+     - HANDSHAKE_DONE 0x1e in Initial          -> conn stays ACTIVE
+     - Unknown frame 0x1f in Initial           -> conn stays ACTIVE
+     - Malformed CRYPTO (length > p_sz)        -> conn stays ACTIVE
+   And for the 1-RTT sanity check (still aborts since 1-RTT AEAD uses
+   TLS-derived secrets that an on-path attacker cannot forge):
+     - Same malformed CRYPTO in 1-RTT context  -> conn transitions to
+                                                  ABORT with
+                                                  FRAME_ENCODING_ERROR */
+static void
+test_quic_initial_unauth_drop( fd_quic_sandbox_t * sandbox, fd_rng_t * rng ) {
+
+  struct {
+    char const * name;
+    uchar        buf[ 8 ];
+    ulong        sz;
+  } cases[] = {
+    { "RESET_STREAM in Initial",        { 0x04, 0x00, 0x00, 0x00 }, 4UL },
+    { "HANDSHAKE_DONE in Initial",      { 0x1e },                   1UL },
+    { "Unknown frame 0x1f in Initial",  { 0x1f },                   1UL },
+    { "Malformed CRYPTO (len>p_sz)",    { 0x06, 0x00, 0x40, 0x40 }, 4UL },
+  };
+
+  for( ulong i=0UL; i < sizeof(cases)/sizeof(cases[0]); i++ ) {
+    fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+    fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+    FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
+
+    fd_quic_pkt_t pkt_meta = {
+      .pkt_number = 0UL,
+      .rcv_time   = sandbox->wallclock,
+      .enc_level  = fd_quic_enc_level_initial_id,
+    };
+    ulong rc = fd_quic_handle_v1_frame(
+        sandbox->quic, conn, &pkt_meta,
+        FD_QUIC_PKT_TYPE_INITIAL,
+        cases[i].buf, cases[i].sz );
+
+    FD_TEST( rc == FD_QUIC_PARSE_FAIL );
+    FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ACTIVE );
+    FD_TEST( conn->reason == 0u );
+  }
+
+  /* 1-RTT sanity: same malformed CRYPTO MUST still abort. */
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  uchar bad_crypto[] = { 0x06, 0x00, 0x40, 0x40 };
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, bad_crypto, sizeof(bad_crypto) );
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ABORT );
+  FD_TEST( conn->reason == FD_QUIC_CONN_REASON_FRAME_ENCODING_ERROR );
+}
+
 static void
 test_quic_rtt_sample( void ) {
   fd_quic_t quic = {0};
@@ -1020,6 +1095,7 @@ main( int     argc,
   test_quic_conn_free                    ( sandbox, rng );
   test_quic_pktmeta_pktnum_skip          ( sandbox, rng );
   test_quic_ack_largest_ack_zero         ( sandbox, rng );
+  test_quic_initial_unauth_drop          ( sandbox, rng );
   test_quic_rtt_sample();
   test_quic_ack_unsent_future_pktnum     ( sandbox, rng );
 
