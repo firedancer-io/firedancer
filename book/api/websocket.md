@@ -1339,8 +1339,8 @@ sBPF ELF binaries on every transaction execution.
 **`ProgramCacheMetrics`**
 | Field               | Type     | Description |
 |---------------------|----------|-------------|
-| hits                | `number` | Total number of program cache hits across all execution tiles since startup. Misses can be derived as `lookups - hits` |
-| lookups             | `number` | Total number of program cache lookups across all execution tiles since startup |
+| hits                | `number` | Total number of program cache hits across all execution tiles over the last 1 minute. Misses can be derived as `lookups - hits` |
+| lookups             | `number` | Total number of program cache lookups across all execution tiles over the last 1 minute |
 | insertions          | `number` | Total number of program cache insertions across all execution tiles since startup |
 | insertion_bytes     | `number` | Total number of bytes inserted into the program cache since startup |
 | evictions           | `number` | Total number of program cache evictions across all execution tiles since startup |

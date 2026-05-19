@@ -96,6 +96,8 @@ struct fd_gui_validator_info {
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L)
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
 
+#define FD_GUI_PROGCACHE_HISTORY_CNT               (600UL) /* 60s / 100ms */
+
 #define FD_GUI_TILE_TIMER_SNAP_CNT                   (512UL)
 #define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT      (50UL)  /* 500ms / 10ms */
 #define FD_GUI_SCHEDULER_COUNT_SNAP_CNT              (512UL)
@@ -689,6 +691,12 @@ struct fd_gui {
 
     fd_gui_tile_stats_t tile_stats_reference[ 1 ];
     fd_gui_tile_stats_t tile_stats_current[ 1 ];
+
+    ulong progcache_history_idx;
+    ulong progcache_hits_history   [ FD_GUI_PROGCACHE_HISTORY_CNT ];
+    ulong progcache_lookups_history[ FD_GUI_PROGCACHE_HISTORY_CNT ];
+    ulong progcache_hits_1min;
+    ulong progcache_lookups_1min;
 
     ulong                  tile_timers_snap_idx;
     ulong                  tile_timers_snap_idx_slot_start;
