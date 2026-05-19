@@ -92,8 +92,11 @@ struct fd_execrp_tile {
     ulong sigverify_cnt;
     ulong poh_hash_cnt;
 
-    /* Ticks spent preparing a txn (database reads, account copies) */
-    ulong txn_setup_cum_ticks;
+    /* Ticks spent loading txn accounts */
+    ulong txn_load_cum_ticks;
+
+    /* Ticks spent validating txn invariants (e.g. status cache, fee payer) */
+    ulong txn_check_cum_ticks;
 
     /* Ticks spent executing a txn (includes any VM time) */
     ulong txn_exec_cum_ticks;
@@ -147,14 +150,14 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_MCNT_SET( EXECRP, PROGCACHE_DURATION_TOTAL_SECONDS, pm->cum_pull_ticks );
   FD_MCNT_SET( EXECRP, PROGCACHE_DURATION_LOAD_SECONDS,  pm->cum_load_ticks );
 
-  FD_MCNT_SET( EXECRP, TXN_REGIME_SETUP,  ctx->metrics.txn_setup_cum_ticks   );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_SETUP,  ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
   FD_MCNT_SET( EXECRP, TXN_REGIME_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
   FD_MCNT_SET( EXECRP, TXN_REGIME_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
                      runtime->metrics.cpi_commit_cum_ticks;
-  ulong exec_ticks = runtime->metrics.vm_exec_cum_ticks - cpi_ticks;
+  ulong exec_ticks = fd_ulong_sat_sub( runtime->metrics.vm_exec_cum_ticks, cpi_ticks );
   FD_MCNT_SET( EXECRP, VM_REGIME_SETUP,       runtime->metrics.vm_setup_cum_ticks   );
   FD_MCNT_SET( EXECRP, VM_REGIME_COMMIT,      runtime->metrics.vm_commit_cum_ticks  );
   FD_MCNT_SET( EXECRP, VM_REGIME_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
@@ -228,7 +231,6 @@ returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               tsorig FD_PARAM_UNUSED,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
-
   if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
 
   if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
@@ -250,6 +252,7 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         }
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
@@ -259,6 +262,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         } else {
           fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out );
         }
+
+        long const txn_end_ticks = fd_tickcount();
 
         if( FD_UNLIKELY( ctx->accdb->base.ro_active ||
                          ctx->accdb->base.rw_active ) ) {
@@ -276,22 +281,15 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         publish_txn_finalized_msg( ctx, stem );
 
         /* Update metrics */
-        ulong setup_dt  = (ulong)ctx->txn_out.details.exec_start_timestamp   - (ulong)ctx->txn_out.details.prep_start_timestamp;
-        ulong exec_dt   = (ulong)ctx->txn_out.details.commit_start_timestamp - (ulong)ctx->txn_out.details.exec_start_timestamp;
-        ulong commit_dt = (ulong)fd_tickcount()                              - (ulong)ctx->txn_out.details.commit_start_timestamp;
-        if( FD_UNLIKELY( ctx->txn_out.details.prep_start_timestamp==LONG_MAX ) ) {
-          setup_dt = 0UL;
-        }
-        if( FD_UNLIKELY( ctx->txn_out.details.exec_start_timestamp==LONG_MAX ) ) {
-          setup_dt = 0UL;
-          exec_dt  = 0UL;
-        }
-        if( FD_UNLIKELY( ctx->txn_out.details.commit_start_timestamp==LONG_MAX ) ) {
-          commit_dt = 0UL;
-        }
-        ctx->metrics.txn_setup_cum_ticks  += setup_dt;
-        ctx->metrics.txn_exec_cum_ticks   += exec_dt;
-        ctx->metrics.txn_commit_cum_ticks += commit_dt;
+        ulong load_start_ticks_dt  = fd_ulong_if( ctx->txn_out.details.check_start_ticks==LONG_MAX  || ctx->txn_out.details.load_start_ticks==LONG_MAX,   0UL, (ulong)( ctx->txn_out.details.check_start_ticks  - ctx->txn_out.details.load_start_ticks ) );
+        ulong check_start_ticks_dt = fd_ulong_if( ctx->txn_out.details.exec_start_ticks==LONG_MAX   || ctx->txn_out.details.check_start_ticks==LONG_MAX,  0UL, (ulong)( ctx->txn_out.details.exec_start_ticks   - ctx->txn_out.details.check_start_ticks ) );
+        ulong exec_start_ticks_dt  = fd_ulong_if( ctx->txn_out.details.commit_start_ticks==LONG_MAX || ctx->txn_out.details.exec_start_ticks==LONG_MAX,   0UL, (ulong)( ctx->txn_out.details.commit_start_ticks - ctx->txn_out.details.exec_start_ticks ) );
+        ulong commit_ticks_dt      = fd_ulong_if( txn_end_ticks==LONG_MAX                           || ctx->txn_out.details.commit_start_ticks==LONG_MAX, 0UL, (ulong)( txn_end_ticks                           - ctx->txn_out.details.commit_start_ticks ) );
+
+        ctx->metrics.txn_load_cum_ticks   += load_start_ticks_dt;
+        ctx->metrics.txn_check_cum_ticks  += check_start_ticks_dt;
+        ctx->metrics.txn_exec_cum_ticks   += exec_start_ticks_dt;
+        ctx->metrics.txn_commit_cum_ticks += commit_ticks_dt;
 
         break;
       }
