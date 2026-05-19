@@ -27,7 +27,7 @@
             }
         },
         "payload": {
-            "type": "String",
+            "type": "Bytes",
             "description": "The raw shred payload bytes"
         }
     }

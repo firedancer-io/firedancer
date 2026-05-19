@@ -3,12 +3,12 @@
     "id": 3,
     "description": "An account update produced during transaction execution or bank hashing.  Metadata only — the data bytes are not included.",
     "fields": {
-        "pubkey":     { "type": "String",  "description": "The account public key (32 bytes)" },
+        "pubkey":     { "type": "Bytes",  "description": "The account public key (32 bytes)" },
         "lamports":   { "type": "UInt64", "description": "The account lamport balance after the update" },
-        "owner":      { "type": "String",  "description": "The account owner program public key (32 bytes)" },
+        "owner":      { "type": "Bytes",  "description": "The account owner program public key (32 bytes)" },
         "executable": { "type": "UInt8",  "description": "1 if the account is executable, 0 otherwise" },
         "slot":       { "type": "UInt64", "description": "The slot in which the update occurred" },
-        "signature":  { "type": "String", "description": "Signature of the transaction that caused this update (64 bytes); all-zero if not associated with a transaction (e.g. bank-hash-time updates)" },
+        "signature":  { "type": "Bytes", "description": "Signature of the transaction that caused this update (64 bytes); all-zero if not associated with a transaction (e.g. bank-hash-time updates)" },
         "data_sz":    { "type": "UInt64", "description": "The size of the account data in bytes" }
     }
 }
