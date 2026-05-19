@@ -41,3 +41,18 @@ acknowledgements. This is the recommended transport protocol.
 [TPU-UDP](../../api/tpu-udp.md) is a minimal connection-less ingress
 protocol. Useful for fire-and-forget clients that optimize for tail
 latency.
+
+## Packet capture
+
+TPU-QUIC connections are encrypted.
+
+By default, the quic tile does not log or otherwise export encryption keys.
+
+To decrypt TPU-QUIC flows in a `.pcap` file, an external file created by
+`[tiles.quic.ssl_key_log_file]` is required.
+
+Due to a limitation in the SSLKEYLOGFILE format, QUIC decryptions can only
+be decrypted if the full QUIC handshake was captured.
+
+The Wireshark plugin [solana_dissector](https://github.com/firedancer-io/solana_dissector)
+helps view and extract transactions from captured and decrypted QUIC flows.

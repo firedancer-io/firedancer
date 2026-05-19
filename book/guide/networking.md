@@ -59,6 +59,13 @@ disabling `doublezerod`. This is because the above are all standard
 Linux iproute2 features – no DoubleZero-specific code exists in
 Firedancer.
 
+### Packet capture
+
+`tcpdump` is not able to capture traffic arriving at XDP sockets.
+
+The recommended way to capture Firedancer traffic is using the
+`firedancer dump` subcommand.
+
 ### Internals
 
 Further documentation on network stack internals:

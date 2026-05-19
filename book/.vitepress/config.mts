@@ -64,7 +64,8 @@ export default defineConfig({
           text: 'Protocol',
           collapsed: false,
           items: [
-            { text: 'Transaction Ingress', link: 'protocol/transaction_ingress' }
+            { text: 'Transaction Ingress', link: 'protocol/transaction_ingress' },
+            { text: 'Bundle Client', link: 'protocol/bundle_client' },
           ]
         },
         {
