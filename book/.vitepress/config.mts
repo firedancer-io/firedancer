@@ -64,9 +64,10 @@ export default defineConfig({
           text: 'Internals',
           collapsed: false,
           items: [
+            { text: 'Agave Snapshots', link: 'internals/agave_snapshots' },
+            { text: 'Fork Management', link: 'internals/fork_management' },
             { text: 'Net Tile', link: 'internals/net_tile' },
             { text: 'Netlink', link: 'internals/netlink' },
-            { text: 'Fork Management', link: 'internals/fork_management' },
           ]
         }
       ] },
