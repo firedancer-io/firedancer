@@ -1096,12 +1096,13 @@ fd_topo_initialize( config_t * config ) {
   /* +1 for either snapin (snapshots enabled) or genesi (bootstrap), which
      are mutually exclusive accdb writers. */
   ulong accdb_joiners = 3UL+execle_tile_cnt+execrp_tile_cnt+resolv_tile_cnt+1UL;
+  ulong partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
   fd_topo_obj_t * accdb_obj = setup_topo_accdb( topo, "accdb_data",
       config->firedancer.accounts.max_accounts,
       config->firedancer.runtime.max_live_slots,
       FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT,
       8192UL,
-      1UL<<35UL,
+      partition_sz,
       config->firedancer.accounts.cache_size_gib*(1UL<<30UL),
       config->tiles.bundle.enabled,
       accdb_joiners );
@@ -1321,6 +1322,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapwr" ) ) ) {
+    tile->snapwr.partition_sz = config->development.accdb.partition_size_gib*(1UL<<30UL);
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;

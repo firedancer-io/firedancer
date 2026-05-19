@@ -15,7 +15,6 @@
 #define NAME "snapwr"
 
 #define FD_SNAPWR_WRITE_BUF_SZ  (8UL<<20)   /* 8MiB */
-#define FD_SNAPWR_PARTITION_SZ  (1UL<<35UL) /* 32 GiB */
 
 struct fd_snapwr_out {
   ulong       idx;
@@ -31,6 +30,8 @@ typedef struct fd_snapwr_out fd_snapwr_out_t;
 struct fd_snapwr_tile {
   int full;
   int state;
+
+  ulong partition_sz;
 
   ulong accounts_off;
   ulong flush_off;
@@ -147,10 +148,10 @@ process_account_header( fd_snapwr_tile_t *            ctx,
   /* Ensure header+data does not cross a partition boundary.  If it
      would, pad with zeros so the account starts at the next one. */
   ulong account_sz    = 68UL + (ulong)result->account_header.data_len;
-  ulong cur_boundary  = ctx->accounts_off / FD_SNAPWR_PARTITION_SZ;
-  ulong end_boundary  = (ctx->accounts_off + account_sz - 1UL) / FD_SNAPWR_PARTITION_SZ;
+  ulong cur_boundary  = ctx->accounts_off / ctx->partition_sz;
+  ulong end_boundary  = (ctx->accounts_off + account_sz - 1UL) / ctx->partition_sz;
   if( FD_UNLIKELY( cur_boundary!=end_boundary ) ) {
-    ulong next = (cur_boundary + 1UL) * FD_SNAPWR_PARTITION_SZ;
+    ulong next = (cur_boundary + 1UL) * ctx->partition_sz;
     buffer_skip( ctx, next - ctx->accounts_off );
   }
 
@@ -411,6 +412,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
+  ctx->partition_sz = tile->snapwr.partition_sz;
+  if( FD_UNLIKELY( !ctx->partition_sz ) ) FD_LOG_ERR(( "tile `" NAME "` partition_sz is 0" ));
 
   ctx->accounts_off    = 0UL;
   ctx->flush_off       = 0UL;

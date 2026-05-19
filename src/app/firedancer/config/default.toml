@@ -1861,3 +1861,13 @@ telemetry = true
     [development.forktest]
         # See [layout.affinity]
         affinity = "auto"
+
+    # Tuning for the accounts database.  These options are for advanced
+    # users and should not be changed in production.
+    [development.accdb]
+        # Size of each accdb partition file slice in gibibytes.
+        # Accounts are written sequentially into partitions; a new
+        # partition is opened when the current one fills.  Smaller
+        # partitions allow finer-grained compaction at the cost of more
+        # frequent partition rotations.
+        partition_size_gib = 32
