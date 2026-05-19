@@ -841,6 +841,7 @@ fd_gui_printf_network_metrics( fd_gui_t *                     gui,
     jsonp_ulong( gui->http, NULL, cur->in.gossip  );
     jsonp_ulong( gui->http, NULL, cur->in.tpu     );
     jsonp_ulong( gui->http, NULL, cur->in.repair  );
+    jsonp_ulong( gui->http, NULL, cur->in.rserve  );
     jsonp_ulong( gui->http, NULL, cur->in.metric  );
   jsonp_close_array( gui->http );
   jsonp_open_array( gui->http, "egress" );
@@ -848,6 +849,7 @@ fd_gui_printf_network_metrics( fd_gui_t *                     gui,
     jsonp_ulong( gui->http, NULL, cur->out.gossip  );
     jsonp_ulong( gui->http, NULL, cur->out.tpu     );
     jsonp_ulong( gui->http, NULL, cur->out.repair  );
+    jsonp_ulong( gui->http, NULL, cur->out.rserve  );
     jsonp_ulong( gui->http, NULL, cur->out.metric  );
   jsonp_close_array( gui->http );
 }

@@ -306,8 +306,8 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   int is_ambiguous = match_cnt != 1;
 
- /* We know that gossip, gossip prune, and repair messages are
-    ambiguous, so allow mismatches here. */
+  /* We know that gossip, repair request/response message are
+     ambiguous, so allow them to collide here. */
   int is_gossip_repair =
     0==( payload_mask &
         (~( FD_KEYGUARD_PAYLOAD_GOSSIP |
@@ -395,10 +395,20 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
 
   case FD_KEYGUARD_ROLE_BUNDLE_CRANK:
     if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_TXN ) ) {
-      FD_LOG_WARNING(( "unauthorized payload type for event (mask=%#lx)", payload_mask ));
+      FD_LOG_WARNING(( "unauthorized payload type for crank bundle (mask=%#lx)", payload_mask ));
       return 0;
     }
     return fd_keyguard_authorize_bundle_crank_txn( authority, data, sz, sign_type );
+
+  case FD_KEYGUARD_ROLE_RSERVE: {
+    int rserve_ok = (!!( payload_mask & FD_KEYGUARD_PAYLOAD_PING )) &&
+                    fd_keyguard_authorize_ping( authority, data, sz, sign_type );
+    if( FD_UNLIKELY( !rserve_ok ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for rserve (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    return 1;
+  }
 
   default:
     FD_LOG_WARNING(( "unsupported role=%#x", (uint)role ));

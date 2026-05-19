@@ -273,6 +273,7 @@ struct fd_gui_network_stats {
     ulong gossip;
     ulong tpu;
     ulong repair;
+    ulong rserve;
     ulong metric;
   } in, out;
 };

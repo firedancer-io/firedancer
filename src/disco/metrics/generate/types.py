@@ -30,8 +30,9 @@ class Tile(Enum):
     GOSSVF = 27
     GOSSIP = 28
     REPAIR = 29
-    REPLAY = 30
-    EXECRP = 31
+    RSERVE = 30
+    REPLAY = 31
+    EXECRP = 32
     TOWER = 33
     TXSEND = 34
 

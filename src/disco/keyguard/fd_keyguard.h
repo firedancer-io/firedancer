@@ -23,7 +23,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_BUNDLE       (5)  /* Bundle tile */
 #define FD_KEYGUARD_ROLE_EVENT        (6)  /* Event tile */
 #define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
-#define FD_KEYGUARD_ROLE_CNT          (8)  /* number of known roles */
+#define FD_KEYGUARD_ROLE_RSERVE       (8)  /* Repair server tile */
+#define FD_KEYGUARD_ROLE_CNT          (9)  /* number of known roles */
 
 /* Payload types ******************************************************/
 
