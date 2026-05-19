@@ -10,6 +10,7 @@
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../discof/fd_accdb_topo.h"
+#include "../../discof/fd_funk_pkeys.h"
 #include "../../discof/fd_startup.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -61,6 +62,8 @@ struct fd_execle_tile {
 
   fd_runtime_t runtime[1];
 
+  int funk_pkey; /* memory protection key, -1 if unsupported */
+
   /* For bundle execution, we need to execute each transaction against
      a separate transaction context and a set of accounts, but the exec
      stack can be reused.  We will also use these same memory regions
@@ -73,6 +76,15 @@ struct fd_execle_tile {
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
     ulong txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_CNT ];
+
+    /* Ticks spent preparing a txn (database reads, account copies) */
+    ulong txn_setup_cum_ticks;
+
+    /* Ticks spent executing a txn (includes any VM time) */
+    ulong txn_exec_cum_ticks;
+
+    /* Ticks spent committing a txn (database writes) */
+    ulong txn_commit_cum_ticks;
   } metrics;
 };
 
@@ -99,7 +111,76 @@ metrics_write( fd_execle_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_RESULT, ctx->metrics.txn_result );
   FD_MCNT_ENUM_COPY( EXECLE, TRANSACTION_LANDED, ctx->metrics.txn_landed );
 
+  fd_progcache_metrics_t * pm = ctx->progcache->metrics;
+  FD_MCNT_SET( EXECLE, PROGCACHE_LOOKUPS,                pm->lookup_cnt     );
+  FD_MCNT_SET( EXECLE, PROGCACHE_HITS,                   pm->hit_cnt        );
+  FD_MCNT_SET( EXECLE, PROGCACHE_MISSES,                 pm->miss_cnt       );
+  FD_MCNT_SET( EXECLE, PROGCACHE_OOM_HEAP,               pm->oom_heap_cnt   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_OOM_DESC,               pm->oom_desc_cnt   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_FILLS,                  pm->fill_cnt       );
+  FD_MCNT_SET( EXECLE, PROGCACHE_FILL_BYTES,             pm->fill_tot_sz    );
+  FD_MCNT_SET( EXECLE, PROGCACHE_SPILLS,                 pm->spill_cnt      );
+  FD_MCNT_SET( EXECLE, PROGCACHE_SPILL_BYTES,            pm->spill_tot_sz   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_EVICTIONS,              pm->evict_cnt      );
+  FD_MCNT_SET( EXECLE, PROGCACHE_EVICTION_BYTES,         pm->evict_tot_sz   );
+  FD_MCNT_SET( EXECLE, PROGCACHE_DURATION_TOTAL_SECONDS, pm->cum_pull_ticks );
+  FD_MCNT_SET( EXECLE, PROGCACHE_DURATION_LOAD_SECONDS,  pm->cum_load_ticks );
+
+  FD_MCNT_SET( EXECLE, TXN_REGIME_SETUP,  ctx->metrics.txn_setup_cum_ticks  );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_EXEC,   ctx->metrics.txn_exec_cum_ticks   );
+  FD_MCNT_SET( EXECLE, TXN_REGIME_COMMIT, ctx->metrics.txn_commit_cum_ticks );
+
+  fd_runtime_t const * runtime = ctx->runtime;
+  ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
+                     runtime->metrics.cpi_commit_cum_ticks;
+  ulong exec_ticks = runtime->metrics.vm_exec_cum_ticks - cpi_ticks;
+  FD_MCNT_SET( EXECLE, VM_REGIME_SETUP,       runtime->metrics.vm_setup_cum_ticks   );
+  FD_MCNT_SET( EXECLE, VM_REGIME_COMMIT,      runtime->metrics.vm_commit_cum_ticks  );
+  FD_MCNT_SET( EXECLE, VM_REGIME_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
+  FD_MCNT_SET( EXECLE, VM_REGIME_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
+  FD_MCNT_SET( EXECLE, VM_REGIME_INTERPRETER, exec_ticks                            );
+
+  fd_accdb_user_t * accdb = ctx->accdb;
+  FD_MCNT_SET( EXECLE, ACCDB_CREATED, accdb->base.created_cnt );
+
+  FD_STATIC_ASSERT( sizeof(runtime->metrics.txn_account_save)/sizeof(ulong)==FD_METRICS_ENUM_ACCOUNT_CHANGE_CNT, enum );
+  FD_MCNT_ENUM_COPY( EXECLE, TXN_ACCOUNT_CHANGES, runtime->metrics.txn_account_save );
+
   FD_MCNT_SET( EXECLE, COMPUTE_UNITS_TOTAL, ctx->runtime->metrics.cu_cum );
+}
+
+static inline void
+txn_metrics_update( fd_execle_tile_t * ctx,
+                    fd_txn_out_t *     txn_out ) {
+  ulong setup_dt  = (ulong)txn_out->details.exec_start_timestamp   - (ulong)txn_out->details.prep_start_timestamp;
+  ulong exec_dt   = (ulong)txn_out->details.commit_start_timestamp - (ulong)txn_out->details.exec_start_timestamp;
+  ulong commit_dt = (ulong)fd_tickcount()                          - (ulong)txn_out->details.commit_start_timestamp;
+  if( FD_UNLIKELY( txn_out->details.prep_start_timestamp==LONG_MAX ) ) {
+    setup_dt = 0UL;
+  }
+  if( FD_UNLIKELY( txn_out->details.exec_start_timestamp==LONG_MAX ) ) {
+    setup_dt = 0UL;
+    exec_dt  = 0UL;
+  }
+  if( FD_UNLIKELY( txn_out->details.commit_start_timestamp==LONG_MAX ) ) {
+    commit_dt = 0UL;
+  }
+  ctx->metrics.txn_setup_cum_ticks  += setup_dt;
+  ctx->metrics.txn_exec_cum_ticks   += exec_dt;
+  ctx->metrics.txn_commit_cum_ticks += commit_dt;
+}
+
+static inline void
+check_accdb_leaks( fd_execle_tile_t * ctx,
+                   fd_txn_p_t const * txn,
+                   int                is_committable ) {
+  if( FD_UNLIKELY( ctx->accdb->base.ro_active ||
+                   ctx->accdb->base.rw_active ) ) {
+    FD_LOG_HEXDUMP_NOTICE(( "txn", txn->payload, txn->payload_sz ));
+    FD_BASE58_ENCODE_64_BYTES( fd_txn_get_signatures( TXN( txn ), txn->payload )[0], txn_b58 );
+    FD_LOG_CRIT(( "detected account leaks after executing txn=%s (commit=%d ro_active=%lu rw_active=%lu)",
+                  txn_b58, is_committable, ctx->accdb->base.ro_active, ctx->accdb->base.rw_active ));
+  }
 }
 
 static int
@@ -217,6 +298,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       FD_TEST( !txn_out->err.is_fees_only );
       fd_runtime_cancel_txn( ctx->runtime, txn_out );
+      check_accdb_leaks( ctx, txn, txn_out->err.is_committable );
+      txn_metrics_update( ctx, txn_out );
       /* Use pre-resolved ALT accounts for rebates even for unlanded transactions */
       fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
       if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
@@ -238,6 +321,8 @@ handle_microblock( fd_execle_tile_t *  ctx,
                          fee_only_actual_exec_cus, fee_only_actual_data_cus, requested_exec_plus_acct_data_cus ));
         txn_out->err.is_committable = 0;
         fd_runtime_cancel_txn( ctx->runtime, txn_out );
+        check_accdb_leaks( ctx, txn, txn_out->err.is_committable );
+        txn_metrics_update( ctx, txn_out );
         /* txn->execle_cu already initialized to full rebate at top of loop */
         fd_acct_addr_t const * writable_alt = ctx->_alt_accts[i];
         if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
@@ -271,7 +356,11 @@ handle_microblock( fd_execle_tile_t *  ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
+    fd_funk_pkey_unprotect( ctx->funk_pkey );
     fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
+    fd_funk_pkey_protect( ctx->funk_pkey );
+    check_accdb_leaks( ctx, txn, txn_out->err.is_committable );
+    txn_metrics_update( ctx, txn_out );
 
     if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
       /* If the transaction failed to fit into the block, we need to
@@ -450,7 +539,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
+      fd_funk_pkey_unprotect( ctx->funk_pkey );
       fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
+      fd_funk_pkey_protect( ctx->funk_pkey );
+      txn_metrics_update( ctx, txn_out );
       if( FD_UNLIKELY( !txn_out->err.is_committable ) ) {
         txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_modify( bank );
@@ -501,6 +593,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
       ctx->metrics.txn_landed[ FD_METRICS_ENUM_TRANSACTION_LANDED_V_LANDED_SUCCESS_IDX ]++;
       ctx->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_SUCCESS_IDX        ]++;
     }
+    check_accdb_leaks( ctx, &txns[ txn_cnt-1UL ], 1 );
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
     for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -513,6 +606,8 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
       if( i<=failed_idx ) {
         fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out[ i ] );
+        check_accdb_leaks( ctx, &txns[ i ], ctx->txn_out[ i ].err.is_committable );
+        txn_metrics_update( ctx, &ctx->txn_out[ i ] );
       } else {
         /* Transactions past the failed index were never executed. Reset
            the timestamp fields to LONG_MAX to flush stale values from
@@ -638,6 +733,20 @@ out1( fd_topo_t const *      topo,
   ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
 
   return (fd_execle_out_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
+}
+
+static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  fd_execle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  ctx->funk_pkey = -1;
+
+  ulong funk_obj_id = fd_pod_query_ulong( topo->props, "funk", ULONG_MAX );
+  FD_TEST( funk_obj_id!=ULONG_MAX );
+  fd_wksp_t * funk_wksp = fd_wksp_containing( fd_topo_obj_laddr( topo, funk_obj_id ) );
+  FD_TEST( funk_wksp );
+
+  ctx->funk_pkey = fd_funk_pkey_setup( funk_wksp );
 }
 
 static void
@@ -771,6 +880,7 @@ fd_topo_run_tile_t fd_tile_execle = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };
