@@ -84,7 +84,6 @@ extern fd_topo_run_tile_t fd_tile_event;
 extern fd_topo_run_tile_t fd_tile_diag;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_rpc;
-extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
@@ -130,7 +129,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_diag,
   &fd_tile_gui,
   &fd_tile_rpc,
-  &fd_tile_plugin,
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,

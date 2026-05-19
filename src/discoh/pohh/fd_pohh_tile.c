@@ -317,7 +317,7 @@
 #include "../../disco/shred/fd_shredder.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../disco/plugin/fd_plugin.h"
+#include "../plugin/fd_plugin.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 
 #include <string.h>

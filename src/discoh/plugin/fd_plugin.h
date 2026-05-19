@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_plugin_fd_plugin_h
-#define HEADER_fd_src_disco_plugin_fd_plugin_h
+#ifndef HEADER_fd_src_discoh_plugin_fd_plugin_h
+#define HEADER_fd_src_discoh_plugin_fd_plugin_h
 
 #define FD_PLUGIN_MSG_SLOT_ROOTED                   ( 0UL)
 #define FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED ( 1UL)
@@ -34,4 +34,4 @@ typedef struct {
 #define FD_GOSSIP_LINK_MSG_SIZE    (58U + FD_GOSSIP_UPDATE_MSG_NUM_SOCKETS * 6U)
 #define FD_VALIDATOR_INFO_MSG_SIZE (          608U)
 
-#endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */
+#endif /* HEADER_fd_src_discoh_plugin_fd_plugin_h */
