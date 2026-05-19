@@ -60,14 +60,24 @@ main( int     argc,
 
   long ts = -fd_log_wallclock();
 
-  int result = fd_ssmanifest_parser_consume( parser, buffer, size, NULL, NULL );
+  int result = fd_ssmanifest_parser_consume( parser, buffer, size, size, NULL, NULL );
   if( FD_UNLIKELY( result!=FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", result ));
 
+  /* Verify block_id parsing.  FIXME: Once block_id is required in
+     Agave 4.2, has_block_id must be 1 for all test manifests. */
+  if( manifest->has_block_id ) {
+    FD_LOG_NOTICE(( "manifest has block_id" ));
+    /* A real merkle root should not be all zeros. */
+    uchar zeros[32] = {0};
+    FD_TEST( memcmp( manifest->block_id, zeros, 32UL ) );
+  } else {
+    FD_LOG_NOTICE(( "manifest does not have block_id" ));
+  }
   /* re-entering the parser after DONE must return ERROR. */
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, (uint)fd_log_wallclock(), 0UL ) );
   uchar garbage[16];
   for( ulong i=0UL; i<sizeof(garbage); i++ ) garbage[i] = (uchar)fd_rng_uint( rng );
-  int reentry_result = fd_ssmanifest_parser_consume( parser, garbage, sizeof(garbage), NULL, NULL );
+  int reentry_result = fd_ssmanifest_parser_consume( parser, garbage, sizeof(garbage), sizeof(garbage), NULL, NULL );
   FD_TEST( reentry_result==FD_SSMANIFEST_PARSER_ADVANCE_ERROR );
 
   long elapsed = fd_log_wallclock() + ts;

@@ -68,6 +68,7 @@ struct fd_ssparse_advance_result {
     struct {
       uchar const *   data;
       ulong           data_sz;
+      ulong           file_sz;
       acc_vec_map_t * acc_vec_map;
       acc_vec_t *     acc_vec_pool;
     } manifest;

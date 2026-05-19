@@ -484,6 +484,7 @@ advance_manifest( fd_ssparse_t *                ssparse,
   result->bytes_consumed           = consume;
   result->manifest.data            = data;
   result->manifest.data_sz         = consume;
+  result->manifest.file_sz         = ssparse->tar.file_bytes;
   result->manifest.acc_vec_map     = ssparse->manifest.acc_vec_map;
   result->manifest.acc_vec_pool    = ssparse->manifest.acc_vec_pool;
 

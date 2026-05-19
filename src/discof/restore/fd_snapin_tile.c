@@ -675,6 +675,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
                                                 result->manifest.data,
                                                 result->manifest.data_sz,
+                                                result->manifest.file_sz,
                                                 result->manifest.acc_vec_map,
                                                 result->manifest.acc_vec_pool );
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {

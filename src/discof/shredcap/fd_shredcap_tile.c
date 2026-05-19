@@ -458,7 +458,7 @@ after_credit( fd_capture_tile_ctx_t * ctx,
                 fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
         FD_TEST( parser );
         fd_ssmanifest_parser_init( parser, manifest );
-        int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, NULL, NULL );
+        int parser_err = fd_ssmanifest_parser_consume( parser, buf, buf_sz, buf_sz, NULL, NULL );
         FD_TEST( parser_err==1 );
         // if( FD_UNLIKELY( parser_err ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", parser_err ));
       } FD_SPAD_FRAME_END;
