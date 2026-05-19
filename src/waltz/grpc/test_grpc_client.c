@@ -218,6 +218,31 @@ test_rx_headers( fd_grpc_client_t * client ) {
 }
 
 static void
+test_error_data_end_stream_releases_stream( fd_grpc_client_t * client ) {
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 1234UL );
+  stream->hdrs.h2_status     = 500U;
+  stream->hdrs.is_grpc_proto = 0U;
+  fd_h2_stream_close_tx( &stream->s, client->conn );
+  fd_h2_stream_rx_data( &stream->s, client->conn, FD_H2_FLAG_END_STREAM );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+
+  ulong const rx_start_cnt = g_rx_start_cnt;
+  ulong const rx_end_cnt   = g_rx_end_cnt;
+  uchar const body[] = { 'o', 'o', 'p', 's' };
+  fd_grpc_h2_cb_data( client->conn, &stream->s, body, sizeof(body), FD_H2_FLAG_END_STREAM );
+
+  FD_TEST( g_rx_start_cnt==rx_start_cnt );
+  FD_TEST( g_rx_end_cnt  ==rx_end_cnt+1UL );
+  FD_TEST( g_cb_request_ctx==1234UL );
+  FD_TEST( g_cb_resp_hdrs.h2_status==500U );
+  FD_TEST( client->stream_cnt==0UL );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+}
+
+static void
 test_grpc_stream_error_releases_h2_quota( fd_grpc_client_t * client ) {
   fd_grpc_client_reset( client );
   test_grpc_client_mock_conn( client );
@@ -295,6 +320,7 @@ main( int     argc,
   test_rx_stream_quota( client );
   test_stream_release ( client );
   test_rx_headers     ( client );
+  test_error_data_end_stream_releases_stream( client );
   test_grpc_stream_error_releases_h2_quota( client );
 
   fd_grpc_client_delete( client );

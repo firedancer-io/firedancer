@@ -809,6 +809,10 @@ fd_grpc_h2_cb_data(
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   if( FD_UNLIKELY( ( stream->hdrs.h2_status!=200 ) |
                    ( !stream->hdrs.is_grpc_proto ) ) ) {
+    if( flags & FD_H2_FLAG_END_STREAM ) {
+      client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
+      fd_grpc_client_stream_release( client, stream );
+    }
     return;
   }
 
