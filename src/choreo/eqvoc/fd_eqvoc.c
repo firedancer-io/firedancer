@@ -1,7 +1,8 @@
-#include "../fd_choreo_base.h"
 #include "fd_eqvoc.h"
+#include "../fd_choreo_base.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../../disco/shred/fd_fec_set.h"
+
 /* fd_eqvoc maintains four bounded maps:
 
    dup_map  (capacity dup_max): maps slot -> equivocation result,
@@ -771,7 +772,8 @@ fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
                        fd_shred_t const *          shred,
                        fd_gossip_duplicate_shred_t chunks_out[static FD_EQVOC_CHUNK_CNT] ) {
 
-  if( FD_UNLIKELY( shred->slot < root ) ) return FD_EQVOC_ERR_IGNORED_SLOT;
+  if( FD_UNLIKELY( shred->slot <  root             ) ) return FD_EQVOC_ERR_SHRED_SLOT;
+  if( FD_UNLIKELY( shred->idx  >= FD_SHRED_BLK_MAX ) ) return FD_EQVOC_ERR_SHRED_IDX;
 
   /* Short-circuit if we already know this shred equivocates. */
 
@@ -832,10 +834,10 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
                        fd_gossip_duplicate_shred_t const * chunk,
                        fd_gossip_duplicate_shred_t         chunks_out[static FD_EQVOC_CHUNK_CNT] ) {
 
-  if( FD_UNLIKELY( !leader_schedule || chunk->slot < root ) ) return FD_EQVOC_ERR_IGNORED_SLOT;
+  if( FD_UNLIKELY( !leader_schedule || chunk->slot < root ) ) return FD_EQVOC_ERR_CHUNK_SLOT;
 
   vtr_t * vtr = vtr_map_ele_query( eqvoc->vtr_map, from, NULL, eqvoc->vtr_pool );
-  if( FD_UNLIKELY( !vtr ) ) return FD_EQVOC_ERR_IGNORED_FROM;
+  if( FD_UNLIKELY( !vtr ) ) return FD_EQVOC_ERR_CHUNK_FROM;
 
   if( FD_UNLIKELY( chunk->num_chunks !=FD_EQVOC_CHUNK_CNT ) ) return FD_EQVOC_ERR_CHUNK_CNT;
   if( FD_UNLIKELY( chunk->chunk_index>=FD_EQVOC_CHUNK_CNT ) ) return FD_EQVOC_ERR_CHUNK_IDX;
@@ -852,7 +854,7 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
 
   prf_t * prf = prf_query( eqvoc, vtr, chunk->slot );
   if( FD_UNLIKELY( !prf ) ) prf = prf_insert( eqvoc, chunk->slot, from );
-  if( FD_UNLIKELY( fd_uchar_extract_bit( prf->idxs, chunk->chunk_index ) ) ) return FD_EQVOC_SUCCESS; /* already processed chunk */
+  if( FD_UNLIKELY( fd_uchar_extract_bit( prf->idxs, chunk->chunk_index ) ) ) return FD_EQVOC_SUCCESS;
   fd_memcpy( prf->buf + chunk->chunk_index * FD_EQVOC_CHUNK_SZ, chunk->chunk, chunk->chunk_len );
   prf->buf_sz += chunk->chunk_len;
   prf->idxs = fd_uchar_set_bit( prf->idxs, chunk->chunk_index );
@@ -879,6 +881,8 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   off += shred2_sz;
 
   if( FD_UNLIKELY( off!=prf->buf_sz ) ) goto cleanup;
+
+  if( FD_UNLIKELY( shred1->slot != chunk->slot || shred2->slot != chunk->slot ) ) goto cleanup;
 
   err = verify_proof( eqvoc, shred_version, leader_schedule, shred1, shred2 );
   if( FD_UNLIKELY( err > FD_EQVOC_SUCCESS ) ) {
@@ -912,25 +916,19 @@ fd_eqvoc_update_voters( fd_eqvoc_t *        eqvoc,
     eqvoc->vtr_pool[iter].next = 1; /* mark for removal */
   }
 
-  /* Move all voters in the new voters set to the back of the
-     dlist.  We mark them by setting their `next` field to null. */
+  /* First pass: unmark kept voters from being released. */
 
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_pubkey_t const * id  = &id_keys[i];
     vtr_t *             vtr = vtr_map_ele_query( eqvoc->vtr_map, id, NULL, eqvoc->vtr_pool );
-    if( FD_UNLIKELY( !vtr ) ) {
-      vtr                = vtr_pool_ele_acquire( eqvoc->vtr_pool );
-      vtr->from          = *id;
-      vtr->prf_dlist_cnt = 0;
-      vtr_map_ele_insert( eqvoc->vtr_map, vtr, eqvoc->vtr_pool );
-    } else {
+    if( FD_LIKELY( vtr ) ) {
       vtr_dlist_ele_remove( eqvoc->vtr_dlist, vtr, eqvoc->vtr_pool );
+      vtr->next = 0; /* unmark for removal */
+      vtr_dlist_ele_push_tail( eqvoc->vtr_dlist, vtr, eqvoc->vtr_pool );
     }
-    vtr->next = 0; /* unmark for removal */
-    vtr_dlist_ele_push_tail( eqvoc->vtr_dlist, vtr, eqvoc->vtr_pool );
   }
 
-  /* Pop unwanted voters from the head until we hit a kept voter. */
+  /* Pop and release marked voters until the first unmarked voter. */
 
   while( FD_LIKELY( !vtr_dlist_is_empty( eqvoc->vtr_dlist, eqvoc->vtr_pool ) ) ) {
     vtr_t * vtr = vtr_dlist_ele_pop_head( eqvoc->vtr_dlist, eqvoc->vtr_pool );
@@ -945,5 +943,18 @@ fd_eqvoc_update_voters( fd_eqvoc_t *        eqvoc,
     }
     vtr_map_ele_remove_fast( eqvoc->vtr_map, vtr, eqvoc->vtr_pool );
     vtr_pool_ele_release( eqvoc->vtr_pool, vtr );
+  }
+
+  /* Second pass: acquire and insert new voters. */
+
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t const * id = &id_keys[i];
+    if( FD_LIKELY( vtr_map_ele_query( eqvoc->vtr_map, id, NULL, eqvoc->vtr_pool ) ) ) continue;
+    vtr_t * vtr        = vtr_pool_ele_acquire( eqvoc->vtr_pool );
+    vtr->from          = *id;
+    vtr->prf_dlist_cnt = 0;
+    vtr->next          = 0;
+    vtr_map_ele_insert( eqvoc->vtr_map, vtr, eqvoc->vtr_pool );
+    vtr_dlist_ele_push_tail( eqvoc->vtr_dlist, vtr, eqvoc->vtr_pool );
   }
 }

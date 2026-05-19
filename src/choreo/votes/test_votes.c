@@ -230,6 +230,92 @@ test_votes_spam_many_slots( void ) {
   fd_votes_delete( fd_votes_leave( votes ) );
 }
 
+void
+test_votes_update_voters( void ) {
+  ulong slot_max = 8;
+  ulong vtr_max  = 4;
+
+  FD_TEST( fd_votes_footprint( slot_max, vtr_max ) <= SCRATCH_MAX );
+  fd_votes_t * votes = fd_votes_join( fd_votes_new( scratch, slot_max, vtr_max, 0 ) );
+  FD_TEST( votes );
+
+  fd_pubkey_t a = { .ul = { 1 } };
+  fd_pubkey_t b = { .ul = { 2 } };
+  fd_pubkey_t c = { .ul = { 3 } };
+
+  /* Initial update with {a, b}. */
+
+  fd_pubkey_t tv1[]  = { a, b };
+  ulong       stk1[] = { 10, 51 };
+  fd_votes_update_voters( votes, tv1, stk1, 2UL );
+
+  FD_TEST( vtr_pool_used( votes->vtr_pool )==2 );
+  FD_TEST(  vtr_map_ele_query( votes->vtr_map, &a, NULL, votes->vtr_pool ) );
+  FD_TEST(  vtr_map_ele_query( votes->vtr_map, &b, NULL, votes->vtr_pool ) );
+
+  vtr_t * vtr_a = vtr_map_ele_query( votes->vtr_map, &a, NULL, votes->vtr_pool );
+  vtr_t * vtr_b = vtr_map_ele_query( votes->vtr_map, &b, NULL, votes->vtr_pool );
+  FD_TEST( vtr_a->stake==10 );
+  FD_TEST( vtr_b->stake==51 );
+
+  /* Both voters can vote. */
+
+  fd_votes_publish( votes, 100 );
+
+  fd_hash_t block_id = { .ul = { 200 } };
+  FD_TEST( !fd_votes_count_vote( votes, &a, 101, &block_id ) );
+  FD_TEST( !fd_votes_count_vote( votes, &b, 101, &block_id ) );
+
+  fd_votes_blk_key_t key = { .slot = 101, .block_id = block_id };
+  blk_t * blk = blk_map_ele_query( votes->blk_map, &key, NULL, votes->blk_pool );
+  FD_TEST( blk );
+  FD_TEST( blk->stake==61 );
+
+  /* Reindex with {b, c}: a removed, c added.  b preserved with updated
+     stake.  a's vote bit cleared from existing slot vtrs. */
+
+  fd_pubkey_t tv2[]  = { b, c };
+  ulong       stk2[] = { 99, 30 };
+  fd_votes_update_voters( votes, tv2, stk2, 2UL );
+
+  FD_TEST( vtr_pool_used( votes->vtr_pool )==2 );
+  FD_TEST( !vtr_map_ele_query( votes->vtr_map, &a, NULL, votes->vtr_pool ) );
+  FD_TEST(  vtr_map_ele_query( votes->vtr_map, &b, NULL, votes->vtr_pool ) );
+  FD_TEST(  vtr_map_ele_query( votes->vtr_map, &c, NULL, votes->vtr_pool ) );
+
+  /* b's stake updated. */
+
+  vtr_b = vtr_map_ele_query( votes->vtr_map, &b, NULL, votes->vtr_pool );
+  FD_TEST( vtr_b->stake==99 );
+
+  /* c can vote; a (unknown) cannot. */
+
+  FD_TEST( !fd_votes_count_vote( votes, &c, 102, &block_id ) );
+  FD_TEST( fd_votes_count_vote( votes, &a, 102, &block_id )==FD_VOTES_ERR_UNKNOWN_VTR );
+
+  /* a's old vote bit was cleared from slot 101's vtrs, so c (who may
+     have been assigned a's old bit position) can still vote on slot 101
+     without a false ALREADY_VOTED. */
+
+  FD_TEST( !fd_votes_count_vote( votes, &c, 101, &block_id ) );
+
+  /* Same set is a no-op. */
+
+  fd_pubkey_t tv3[]  = { b, c };
+  ulong       stk3[] = { 99, 30 };
+  fd_votes_update_voters( votes, tv3, stk3, 2UL );
+
+  FD_TEST( vtr_pool_used( votes->vtr_pool )==2 );
+
+  /* Empty set removes all. */
+
+  fd_votes_update_voters( votes, NULL, NULL, 0UL );
+
+  FD_TEST( vtr_pool_used( votes->vtr_pool )==0 );
+
+  fd_votes_delete( fd_votes_leave( votes ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -237,6 +323,7 @@ main( int argc, char ** argv ) {
   test_votes_simple();
   test_votes_spam_block_ids_per_slot();
   test_votes_spam_many_slots();
+  test_votes_update_voters();
 
   fd_halt();
   return 0;

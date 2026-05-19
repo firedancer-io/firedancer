@@ -324,8 +324,11 @@ struct fd_tower_tile {
     ulong eqvoc_err_chunk_idx;
     ulong eqvoc_err_chunk_len;
 
-    ulong eqvoc_err_ignored_from;
-    ulong eqvoc_err_ignored_slot;
+    ulong eqvoc_err_chunk_from;
+    ulong eqvoc_err_chunk_slot;
+
+    ulong eqvoc_err_shred_slot;
+    ulong eqvoc_err_shred_idx;
 
     ulong eqvoc_proof_constructed;
     ulong eqvoc_proof_verified;
@@ -447,8 +450,11 @@ update_metrics_eqvoc( fd_tower_tile_t * ctx,
   case FD_EQVOC_ERR_CHUNK_IDX: ctx->metrics.eqvoc_err_chunk_idx++; break;
   case FD_EQVOC_ERR_CHUNK_LEN: ctx->metrics.eqvoc_err_chunk_len++; break;
 
-  case FD_EQVOC_ERR_IGNORED_FROM: ctx->metrics.eqvoc_err_ignored_from++; break;
-  case FD_EQVOC_ERR_IGNORED_SLOT: ctx->metrics.eqvoc_err_ignored_slot++; break;
+  case FD_EQVOC_ERR_CHUNK_FROM: ctx->metrics.eqvoc_err_chunk_from++; break;
+  case FD_EQVOC_ERR_CHUNK_SLOT: ctx->metrics.eqvoc_err_chunk_slot++; break;
+
+  case FD_EQVOC_ERR_SHRED_SLOT: ctx->metrics.eqvoc_err_shred_slot++; break;
+  case FD_EQVOC_ERR_SHRED_IDX:  ctx->metrics.eqvoc_err_shred_idx++;  break;
 
   default: FD_LOG_ERR(( "unhandled eqvoc err %d", err ));
   }
@@ -517,7 +523,7 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
   for( int i = 0; i < FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT; i++ ) {
     if( FD_LIKELY( fd_uchar_extract_bit( votes_blk->flags, i ) ) ) continue; /* already contiguously confirmed */
     double ratio = (double)votes_blk->stake / (double)total_stake;
-    if( FD_LIKELY( ratio < ratios[i] ) ) break; /* threshold not met */
+    if( FD_LIKELY( ratio <= ratios[i] ) ) break; /* threshold not met */
 
     /* If the ghost_blk is missing, then we know this is a forward
        confirmation (ie. we haven't replayed the block yet). */
@@ -623,7 +629,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   if( FD_LIKELY( found_authority && !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
     msg->has_vote_txn = 1;
     fd_txn_p_t          txn[1];
-    fd_tower_to_vote_txn( ctx->tower, &slot_completed->bank_hash, &slot_completed->block_id, &slot_completed->block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
+    fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, &out->vote_block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
     FD_TEST( !fd_tower_vote_empty( ctx->tower->votes ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
@@ -1055,6 +1061,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     fd_ghost_eqvoc( ctx->ghost, &eqvoc_tower_blk->replayed_block_id );
 
     eqvoc_tower_blk->parent_slot       = slot_completed->parent_slot;
+    eqvoc_tower_blk->bank_hash         = slot_completed->bank_hash;
+    eqvoc_tower_blk->block_hash        = slot_completed->block_hash;
     eqvoc_tower_blk->replayed_block_id = slot_completed->block_id;
   } else {
 
@@ -1064,6 +1072,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     fd_tower_blk_t * tower_blk   = fd_tower_blocks_insert( ctx->tower, slot_completed->slot, slot_completed->parent_slot );
     tower_blk->parent_slot       = slot_completed->parent_slot;
     tower_blk->epoch             = slot_completed->epoch;
+    tower_blk->bank_hash         = slot_completed->bank_hash;
+    tower_blk->block_hash        = slot_completed->block_hash;
     tower_blk->replayed          = 1;
     tower_blk->replayed_block_id = slot_completed->block_id;
     tower_blk->voted             = 0;
@@ -1153,7 +1163,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( ctx->tower, ctx->ghost, ctx->votes,
       &out.reset_slot, &out.reset_block_id,
-      &out.vote_slot,  &out.vote_block_id,
+      &out.vote_slot,  &out.vote_block_id, &out.vote_bank_hash, &out.vote_block_hash,
       &out.root_slot,  &out.root_block_id );
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) {
 
@@ -1241,7 +1251,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   ctx->metrics.root_slot      = ctx->tower->root;
 
   ctx->metrics.ancestor_rollback += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK );
-  ctx->metrics.sibling_confirmed += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
+  ctx->metrics.sibling_confirmed  += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
   ctx->metrics.same_fork         += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SAME_FORK         );
   ctx->metrics.switch_pass       += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_PASS       );
   ctx->metrics.switch_fail       += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_FAIL       );
@@ -1443,8 +1453,11 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_IDX, ctx->metrics.eqvoc_err_chunk_idx );
   FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_LEN, ctx->metrics.eqvoc_err_chunk_len );
 
-  FD_MCNT_SET( TOWER, EQVOC_ERR_IGNORED_FROM, ctx->metrics.eqvoc_err_ignored_from );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_IGNORED_SLOT, ctx->metrics.eqvoc_err_ignored_slot );
+  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_FROM, ctx->metrics.eqvoc_err_chunk_from );
+  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_SLOT, ctx->metrics.eqvoc_err_chunk_slot );
+
+  FD_MCNT_SET( TOWER, EQVOC_ERR_SHRED_SLOT, ctx->metrics.eqvoc_err_shred_slot );
+  FD_MCNT_SET( TOWER, EQVOC_ERR_SHRED_IDX,  ctx->metrics.eqvoc_err_shred_idx  );
 
   FD_MCNT_SET( TOWER, EQVOC_PROOF_CONSTRUCTED, ctx->metrics.eqvoc_proof_constructed );
   FD_MCNT_SET( TOWER, EQVOC_PROOF_VERIFIED,    ctx->metrics.eqvoc_proof_verified    );
