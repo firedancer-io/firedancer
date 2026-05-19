@@ -52,6 +52,7 @@ backtest_topo( config_t * config ) {
   int disable_snap_loader      = !config->gossip.entrypoints_cnt;
   int solcap_enabled           = strlen( config->capture.solcap_capture )>0;
   int snapshot_lthash_disabled = config->development.snapshots.disable_lthash_verification;
+  int events_enabled           = strlen( config->tiles.event.url )>0;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -297,6 +298,73 @@ backtest_topo( config_t * config ) {
     FOR(execrp_tile_cnt) fd_topob_link( topo, "cap_execrp", "solcap", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
     FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "cap_execrp", i );
     FOR(execrp_tile_cnt) fd_topob_tile_in( topo, "solcap", 0UL, "metric_in", "cap_execrp", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
+
+  /**********************************************************************/
+  /* Event tile (optional)                                              */
+  /*                                                                    */
+  /* Streams runtime events (accounts/bank hashes/stake/vote cache      */
+  /* updates) out over gRPC to a remote collector.  Requires a sign     */
+  /* tile for the auth handshake.  Genesis hash and shred_version       */
+  /* default to zeros (the event tile auto-inits them when their input  */
+  /* links are absent — see fd_event_tile.c).                           */
+  /**********************************************************************/
+  if( FD_UNLIKELY( events_enabled ) ) {
+    fd_topob_wksp( topo, "sign"       )->core_dump_level = FD_TOPO_CORE_DUMP_LEVEL_NEVER;
+    fd_topob_wksp( topo, "event"      );
+    fd_topob_wksp( topo, "event_sign" );
+    fd_topob_wksp( topo, "sign_event" );
+
+    fd_topob_link( topo, "event_sign", "event_sign", 128UL, 32UL, 1UL );
+    fd_topob_link( topo, "sign_event", "sign_event", 128UL, 64UL, 1UL );
+
+    fd_topob_tile( topo, "sign",  "sign",  "metric_in", cpu_idx++, 0, 1, 1 );
+    fd_topob_tile( topo, "event", "event", "metric_in", cpu_idx++, 0, 1, 0 );
+
+    fd_topob_tile_in ( topo, "sign",  0UL, "metric_in", "event_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    fd_topob_tile_out( topo, "event", 0UL,              "event_sign", 0UL                                         );
+    fd_topob_tile_out( topo, "sign",  0UL,              "sign_event", 0UL                                         );
+    /* event tile's sign_event input is added LAST below so it doesn't
+       offset the polled-input indexing (sign_event is UNPOLLED). */
+
+    if( FD_UNLIKELY( config->development.event.report_accounts ) ) {
+      fd_topob_link( topo, "event_repl", "event", 65536UL, sizeof(fd_capture_account_event_msg_t), 1UL );
+      fd_topob_tile_out( topo, "replay", 0UL, "event_repl", 0UL );
+      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_execrp", "event", 65536UL, sizeof(fd_capture_account_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_execrp", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_execrp", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_bank_hashes ) ) {
+      fd_topob_link( topo, "event_bank", "event", 1024UL, sizeof(fd_capture_bank_event_msg_t), 1UL );
+      fd_topob_tile_out( topo, "replay", 0UL, "event_bank", 0UL );
+      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_bank", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_stake_cache_updates ) ) {
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_stake", "event", 16384UL, sizeof(fd_capture_stake_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_stake", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_stake", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_vote_cache_updates ) ) {
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_vote", "event", 16384UL, sizeof(fd_capture_vote_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_vote", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_vote", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_cluster_votes ) ) {
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_cvote", "event", 32768UL, sizeof(fd_capture_vote_txn_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_cvote", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_cvote", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    /* sign_event input added LAST so it doesn't offset polled-input
+       indexing.  Stem's during_frag(in_idx=...) uses the polled-input
+       index, not the tile->in_link_id index. */
+    fd_topob_tile_in ( topo, "event", 0UL, "metric_in", "sign_event", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   }
 
   fd_topob_wksp( topo, "store" );

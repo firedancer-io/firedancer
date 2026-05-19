@@ -1810,6 +1810,38 @@ telemetry = true
         # development purposes.
         report_transactions = false
 
+        # Whether to report account updates produced during transaction
+        # execution and bank hashing to the remote server.  Metadata
+        # only (pubkey/lamports/owner/executable/slot/txn_idx/data_sz);
+        # account data bytes are not sent.  Generates a very high
+        # volume of events; debug/development only.
+        report_accounts = false
+
+        # Whether to report bank-hash events (one per completed slot)
+        # to the remote server.  Includes bank hash, parent hash,
+        # accounts lt-hash checksum, poh hash, slot, and signature
+        # count.  Low volume (~2.5/s).
+        report_bank_hashes = false
+
+        # Whether to report stake-delegation cache update events.
+        # Emitted whenever a stake account update changes the cached
+        # delegation set during transaction commit.
+        report_stake_cache_updates = false
+
+        # Whether to report top-votes cache update events.  Emitted
+        # whenever a vote account update changes the cached top-votes
+        # set during transaction commit (or invalidates an entry).
+        report_vote_cache_updates = false
+
+        # Whether to report per-vote-instruction events (one per
+        # cluster vote that lands on this validator).  Emitted at the
+        # start of vote-program tower_sync instruction processing
+        # (regardless of outcome).  Captures the tower (slot+conf
+        # lockouts), bank hash being voted for, block_id, root slot,
+        # timestamp, and the first signer (voter).  Useful for
+        # reconstructing what each cluster validator voted for.
+        report_cluster_votes = false
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev

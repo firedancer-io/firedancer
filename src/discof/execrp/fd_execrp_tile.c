@@ -52,6 +52,10 @@ struct fd_execrp_tile {
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
   fd_capture_link_buf_t cap_execrp_out[1];
+  fd_capture_link_buf_t event_execrp_out[1];
+  fd_capture_link_buf_t event_stake_out[1];
+  fd_capture_link_buf_t event_vote_out[1];
+  fd_capture_link_buf_t event_cvote_out[1];
 
   /* Protobuf dumping context for debugging runtime execution and
      collecting seed corpora. */
@@ -244,9 +248,14 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->txn_in.txn = msg->txn;
 
         /* Set the capture txn index from the message so account updates
-           during commit are recorded with the correct transaction index. */
+           during commit are recorded with the correct transaction index.
+           Also stash the txn's first signature so account events can carry
+           it instead of (or alongside) the index. */
         if( FD_UNLIKELY( ctx->capture_ctx ) ) {
           ctx->capture_ctx->current_txn_idx = msg->capture_txn_idx;
+          fd_memcpy( ctx->capture_ctx->current_txn_signature,
+                     fd_txn_get_signatures( TXN( msg->txn ), msg->txn->payload )[0],
+                     64UL );
         }
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
@@ -453,11 +462,18 @@ unprivileged_init( fd_topo_t *      topo,
   /********************************************************************/
 
   ctx->capture_ctx = NULL;
-  if( FD_UNLIKELY( strlen( tile->execrp.solcap_capture ) ) ) {
+  ulong tile_idx = tile->kind_id;
+  int event_execrp_enabled = fd_topo_find_tile_out_link( topo, tile, "event_execrp", tile_idx )!=ULONG_MAX;
+  int event_stake_enabled  = fd_topo_find_tile_out_link( topo, tile, "event_stake",  tile_idx )!=ULONG_MAX;
+  int event_vote_enabled   = fd_topo_find_tile_out_link( topo, tile, "event_vote",   tile_idx )!=ULONG_MAX;
+  int event_cvote_enabled  = fd_topo_find_tile_out_link( topo, tile, "event_cvote",  tile_idx )!=ULONG_MAX;
+  int solcap_enabled       = strlen( tile->execrp.solcap_capture )!=0UL;
+  if( FD_UNLIKELY( solcap_enabled || event_execrp_enabled || event_stake_enabled || event_vote_enabled || event_cvote_enabled ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
     ctx->capture_ctx->solcap_start_slot = tile->execrp.capture_start_slot;
+  }
 
-    ulong tile_idx = tile->kind_id;
+  if( FD_UNLIKELY( solcap_enabled ) ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_execrp", tile_idx );
     FD_TEST( idx!=ULONG_MAX );
     fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
@@ -486,6 +502,130 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx->capture_solcap  = 1;
     ctx->capture_ctx->capctx_type.buf = cap_execrp_out;
     ctx->capture_ctx->capture_link    = &cap_execrp_out->base;
+  }
+
+  if( FD_UNLIKELY( event_execrp_enabled ) ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_execrp", tile_idx );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+    fd_capture_link_buf_t * event_execrp_out = ctx->event_execrp_out;
+    event_execrp_out->base.vt = &fd_capture_link_buf_vt;
+    event_execrp_out->idx     = idx;
+    event_execrp_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    event_execrp_out->chunk0  = fd_dcache_compact_chunk0( event_execrp_out->mem, link->dcache );
+    event_execrp_out->wmark   = fd_dcache_compact_wmark( event_execrp_out->mem, link->dcache, link->mtu );
+    event_execrp_out->chunk   = event_execrp_out->chunk0;
+    event_execrp_out->mcache  = link->mcache;
+    event_execrp_out->depth   = fd_mcache_depth( link->mcache );
+    event_execrp_out->seq     = 0UL;
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+    FD_TEST( consumer_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    event_execrp_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
+        event_execrp_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( event_execrp_out->fseq );
+        break;
+      }
+    }
+
+    ctx->capture_ctx->capture_account_events = 1;
+    ctx->capture_ctx->event_capture_link     = event_execrp_out;
+  }
+
+  if( FD_UNLIKELY( event_stake_enabled ) ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_stake", tile_idx );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+    fd_capture_link_buf_t * event_stake_out = ctx->event_stake_out;
+    event_stake_out->base.vt = &fd_capture_link_buf_vt;
+    event_stake_out->idx     = idx;
+    event_stake_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    event_stake_out->chunk0  = fd_dcache_compact_chunk0( event_stake_out->mem, link->dcache );
+    event_stake_out->wmark   = fd_dcache_compact_wmark ( event_stake_out->mem, link->dcache, link->mtu );
+    event_stake_out->chunk   = event_stake_out->chunk0;
+    event_stake_out->mcache  = link->mcache;
+    event_stake_out->depth   = fd_mcache_depth( link->mcache );
+    event_stake_out->seq     = 0UL;
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+    FD_TEST( consumer_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    event_stake_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
+        event_stake_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( event_stake_out->fseq );
+        break;
+      }
+    }
+
+    ctx->capture_ctx->capture_stake_events = 1;
+    ctx->capture_ctx->stake_capture_link   = event_stake_out;
+  }
+
+  if( FD_UNLIKELY( event_vote_enabled ) ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_vote", tile_idx );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+    fd_capture_link_buf_t * event_vote_out = ctx->event_vote_out;
+    event_vote_out->base.vt = &fd_capture_link_buf_vt;
+    event_vote_out->idx     = idx;
+    event_vote_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    event_vote_out->chunk0  = fd_dcache_compact_chunk0( event_vote_out->mem, link->dcache );
+    event_vote_out->wmark   = fd_dcache_compact_wmark ( event_vote_out->mem, link->dcache, link->mtu );
+    event_vote_out->chunk   = event_vote_out->chunk0;
+    event_vote_out->mcache  = link->mcache;
+    event_vote_out->depth   = fd_mcache_depth( link->mcache );
+    event_vote_out->seq     = 0UL;
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+    FD_TEST( consumer_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    event_vote_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
+        event_vote_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( event_vote_out->fseq );
+        break;
+      }
+    }
+
+    ctx->capture_ctx->capture_vote_events = 1;
+    ctx->capture_ctx->vote_capture_link   = event_vote_out;
+  }
+
+  if( FD_UNLIKELY( event_cvote_enabled ) ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_cvote", tile_idx );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+    fd_capture_link_buf_t * event_cvote_out = ctx->event_cvote_out;
+    event_cvote_out->base.vt = &fd_capture_link_buf_vt;
+    event_cvote_out->idx     = idx;
+    event_cvote_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    event_cvote_out->chunk0  = fd_dcache_compact_chunk0( event_cvote_out->mem, link->dcache );
+    event_cvote_out->wmark   = fd_dcache_compact_wmark ( event_cvote_out->mem, link->dcache, link->mtu );
+    event_cvote_out->chunk   = event_cvote_out->chunk0;
+    event_cvote_out->mcache  = link->mcache;
+    event_cvote_out->depth   = fd_mcache_depth( link->mcache );
+    event_cvote_out->seq     = 0UL;
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+    FD_TEST( consumer_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    event_cvote_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
+        event_cvote_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( event_cvote_out->fseq );
+        break;
+      }
+    }
+
+    ctx->capture_ctx->capture_vote_txn_events = 1;
+    ctx->capture_ctx->vote_txn_capture_link   = event_cvote_out;
   }
 
   ctx->dump_proto_ctx = NULL;

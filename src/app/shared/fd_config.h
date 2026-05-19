@@ -352,6 +352,11 @@ struct fd_config {
     struct {
       int report_shreds;
       int report_transactions;
+      int report_accounts;
+      int report_bank_hashes;
+      int report_stake_cache_updates;
+      int report_vote_cache_updates;
+      int report_cluster_votes;
     } event;
 
     struct {

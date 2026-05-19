@@ -115,6 +115,185 @@ valid_slot_range(fd_capture_ctx_t * ctx,
   return 1;
 }
 
+/* wait_to_write_event_msg: producer back-pressure for the event link.
+   Unlike solcap (hard-coded threshold of 2 — every write blocked),
+   this lets the producer use most of the deep ring before spinning,
+   so the validator only stalls if the event tile is genuinely stuck. */
+static void
+wait_to_write_event_msg( fd_capture_link_buf_t * buf ) {
+  if( FD_LIKELY( buf->fseq ) ) {
+    long lag_max = (long)buf->depth - 128L; /* reserve 128 slots of margin */
+    if( FD_UNLIKELY( lag_max < 2L ) ) lag_max = 2L;
+    while( FD_UNLIKELY( fd_seq_diff( buf->seq, fd_fseq_query( buf->fseq ) ) > lag_max ) ) {
+      FD_SPIN_PAUSE();
+    }
+  }
+}
+
+void
+fd_capture_link_write_bank_event( fd_capture_ctx_t * ctx,
+                                  ulong              slot,
+                                  fd_hash_t const *  bank_hash,
+                                  fd_hash_t const *  prev_bank_hash,
+                                  fd_hash_t const *  accounts_lt_hash_checksum,
+                                  fd_hash_t const *  poh_hash,
+                                  ulong              signature_cnt ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_bank_events || !ctx->bank_capture_link ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->bank_capture_link;
+  wait_to_write_event_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  fd_capture_bank_event_msg_t msg = {0};
+  fd_memcpy( msg.bank_hash,                 bank_hash,                 32UL );
+  fd_memcpy( msg.prev_bank_hash,            prev_bank_hash,            32UL );
+  fd_memcpy( msg.accounts_lt_hash_checksum, accounts_lt_hash_checksum, 32UL );
+  fd_memcpy( msg.poh_hash,                  poh_hash,                  32UL );
+  msg.slot          = slot;
+  msg.signature_cnt = signature_cnt;
+  fd_memcpy( dst, &msg, sizeof(msg) );
+
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
+void
+fd_capture_link_write_stake_event( fd_capture_ctx_t *  ctx,
+                                   fd_pubkey_t const * pubkey,
+                                   fd_pubkey_t const * voter_pubkey,
+                                   ulong               stake,
+                                   ulong               activation_epoch,
+                                   ulong               deactivation_epoch,
+                                   ulong               credits_observed,
+                                   ulong               slot,
+                                   int                 removed ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_stake_events || !ctx->stake_capture_link ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->stake_capture_link;
+  wait_to_write_event_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  fd_capture_stake_event_msg_t msg = {0};
+  fd_memcpy( msg.pubkey, pubkey, 32UL );
+  if( voter_pubkey ) fd_memcpy( msg.voter_pubkey, voter_pubkey, 32UL );
+  msg.stake              = stake;
+  msg.activation_epoch   = activation_epoch;
+  msg.deactivation_epoch = deactivation_epoch;
+  msg.credits_observed   = credits_observed;
+  msg.slot               = slot;
+  msg.removed            = (uchar)!!removed;
+  fd_memcpy( dst, &msg, sizeof(msg) );
+
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
+void
+fd_capture_link_write_vote_event( fd_capture_ctx_t *  ctx,
+                                  fd_pubkey_t const * pubkey,
+                                  ulong               last_vote_slot,
+                                  long                last_vote_timestamp,
+                                  ulong               slot,
+                                  int                 invalidated ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_vote_events || !ctx->vote_capture_link ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->vote_capture_link;
+  wait_to_write_event_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  fd_capture_vote_event_msg_t msg = {0};
+  fd_memcpy( msg.pubkey, pubkey, 32UL );
+  msg.last_vote_slot      = last_vote_slot;
+  msg.last_vote_timestamp = last_vote_timestamp;
+  msg.slot                = slot;
+  msg.invalidated         = (uchar)!!invalidated;
+  fd_memcpy( dst, &msg, sizeof(msg) );
+
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
+void
+fd_capture_link_write_vote_txn( fd_capture_ctx_t *                  ctx,
+                                fd_pubkey_t const *                 vote_account,
+                                fd_pubkey_t const *                 voter,
+                                fd_hash_t const *                   bank_hash,
+                                fd_hash_t const *                   block_id,
+                                uchar const *                       signature,
+                                ulong                               slot,
+                                ulong                               root_slot,
+                                long                                timestamp,
+                                int                                 has_root,
+                                int                                 has_timestamp,
+                                int                                 has_block_id,
+                                uint                                ix_variant,
+                                fd_capture_vote_lockout_t const *   lockouts,
+                                ulong                               lockouts_cnt ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_vote_txn_events || !ctx->vote_txn_capture_link ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->vote_txn_capture_link;
+  wait_to_write_event_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  fd_capture_vote_txn_event_msg_t msg = {0};
+  if( vote_account ) fd_memcpy( msg.vote_account, vote_account, 32UL );
+  if( voter        ) fd_memcpy( msg.voter,        voter,        32UL );
+  if( bank_hash    ) fd_memcpy( msg.bank_hash,    bank_hash,    32UL );
+  if( block_id     ) fd_memcpy( msg.block_id,     block_id,     32UL );
+  if( signature    ) fd_memcpy( msg.signature,    signature,    64UL );
+  msg.slot          = slot;
+  msg.root_slot     = root_slot;
+  msg.timestamp     = timestamp;
+  msg.has_root      = (uchar)!!has_root;
+  msg.has_timestamp = (uchar)!!has_timestamp;
+  msg.has_block_id  = (uchar)!!has_block_id;
+  msg.ix_variant    = (uchar)ix_variant;
+  ulong cap = lockouts_cnt > FD_CAPTURE_VOTE_TXN_TOWER_MAX ? FD_CAPTURE_VOTE_TXN_TOWER_MAX : lockouts_cnt;
+  msg.lockouts_cnt  = (uchar)cap;
+  if( cap && lockouts ) fd_memcpy( msg.lockouts, lockouts, cap*sizeof(fd_capture_vote_lockout_t) );
+  fd_memcpy( dst, &msg, sizeof(msg) );
+
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
+void
+fd_capture_link_write_account_event( fd_capture_ctx_t *               ctx,
+                                     uchar const *                    signature,
+                                     fd_pubkey_t const *              key,
+                                     fd_solana_account_meta_t const * info,
+                                     ulong                            slot,
+                                     ulong                            data_sz ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_account_events || !ctx->event_capture_link ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->event_capture_link;
+  wait_to_write_event_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  fd_capture_account_event_msg_t msg = {0};
+  fd_memcpy( msg.pubkey,    key,         32UL );
+  fd_memcpy( msg.owner,     info->owner, 32UL );
+  if( signature ) fd_memcpy( msg.signature, signature, 64UL );
+  msg.lamports   = info->lamports;
+  msg.slot       = slot;
+  msg.data_sz    = data_sz;
+  msg.executable = info->executable;
+  fd_memcpy( dst, &msg, sizeof(msg) );
+
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
 void
 fd_capture_link_write_account_update_buf( fd_capture_ctx_t *               ctx,
                                           ulong                            txn_idx,

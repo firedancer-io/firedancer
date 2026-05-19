@@ -14,6 +14,7 @@
 #include "vote/fd_vote_state_v3.h"
 #include "vote/fd_vote_state_v4.h"
 #include "../../../ballet/bls/fd_bls12_381.h"
+#include "../../capture/fd_capture_ctx.h"
 
 #include <limits.h>
 #include <math.h>
@@ -2117,6 +2118,38 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_tower_sync_t * tower_sync = (instruction->discriminant == fd_vote_instruction_enum_tower_sync)
         ? &instruction->tower_sync
         : &instruction->tower_sync_switch.tower_sync;
+
+    /* Capture per-vote-instruction event (regardless of outcome). */
+    if( FD_UNLIKELY( ctx->runtime->log.capture_ctx && ctx->runtime->log.capture_ctx->capture_vote_txn_events ) ) {
+      ulong lockouts_cnt = deq_fd_vote_lockout_t_cnt( tower_sync->lockouts );
+      fd_capture_vote_lockout_t lockouts_buf[ FD_CAPTURE_VOTE_TXN_TOWER_MAX ];
+      ulong cap = lockouts_cnt > FD_CAPTURE_VOTE_TXN_TOWER_MAX ? FD_CAPTURE_VOTE_TXN_TOWER_MAX : lockouts_cnt;
+      for( ulong li=0UL; li<cap; li++ ) {
+        fd_vote_lockout_t * lo = deq_fd_vote_lockout_t_peek_index( tower_sync->lockouts, li );
+        lockouts_buf[ li ].slot               = lo->slot;
+        lockouts_buf[ li ].confirmation_count = lo->confirmation_count;
+        lockouts_buf[ li ].pad[0] = lockouts_buf[ li ].pad[1] = 0;
+        lockouts_buf[ li ].pad[2] = lockouts_buf[ li ].pad[3] = 0;
+      }
+      fd_pubkey_t const * vote_account = &ctx->txn_out->accounts.keys[ ctx->instr->accounts[0].index_in_transaction ];
+      fd_pubkey_t const * voter        = signers_cnt ? signers[0] : NULL;
+      uchar const *       signature    = (uchar const *)ctx->txn_in->txn->payload + TXN( ctx->txn_in->txn )->signature_off;
+      fd_capture_link_write_vote_txn(
+          ctx->runtime->log.capture_ctx,
+          vote_account,
+          voter,
+          &tower_sync->hash,
+          &tower_sync->block_id,
+          signature,
+          ctx->bank->f.slot,
+          tower_sync->has_root ? tower_sync->root : 0UL,
+          tower_sync->has_timestamp ? tower_sync->timestamp : 0L,
+          tower_sync->has_root,
+          tower_sync->has_timestamp,
+          1 /* tower_sync always carries block_id */,
+          (uint)instruction->discriminant,
+          lockouts_buf, cap );
+    }
 
     if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_is_valid( ctx->sysvar_cache ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;

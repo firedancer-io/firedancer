@@ -8,7 +8,8 @@ static void
 log_account_change( fd_capture_ctx_t * capture_ctx,
                     fd_bank_t const *  bank,
                     fd_accdb_ro_t *    ro ) {
-  if( capture_ctx && capture_ctx->capture_solcap &&
+  if( capture_ctx &&
+      ( capture_ctx->capture_solcap || capture_ctx->capture_account_events ) &&
       bank->f.slot>=capture_ctx->solcap_start_slot ) {
     fd_solana_account_meta_t solana_meta[1];
     fd_solana_account_meta_init(
@@ -17,15 +18,27 @@ log_account_change( fd_capture_ctx_t * capture_ctx,
         fd_accdb_ref_owner     ( ro ),
         !!fd_accdb_ref_exec_bit( ro )
     );
-    fd_capture_link_write_account_update(
-        capture_ctx,
-        capture_ctx->current_txn_idx,
-        fd_accdb_ref_address( ro ),
-        solana_meta,
-        bank->f.slot,
-        fd_accdb_ref_data_const( ro ),
-        fd_accdb_ref_data_sz   ( ro )
-    );
+    if( capture_ctx->capture_solcap ) {
+      fd_capture_link_write_account_update(
+          capture_ctx,
+          capture_ctx->current_txn_idx,
+          fd_accdb_ref_address( ro ),
+          solana_meta,
+          bank->f.slot,
+          fd_accdb_ref_data_const( ro ),
+          fd_accdb_ref_data_sz   ( ro )
+      );
+    }
+    if( capture_ctx->capture_account_events ) {
+      fd_capture_link_write_account_event(
+          capture_ctx,
+          capture_ctx->current_txn_signature,
+          fd_accdb_ref_address( ro ),
+          solana_meta,
+          bank->f.slot,
+          fd_accdb_ref_data_sz( ro )
+      );
+    }
   }
 }
 

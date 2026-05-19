@@ -110,6 +110,101 @@ struct fd_capture_link_vt {
 };
 
 
+/* fd_capture_account_event_msg_t is the on-wire frag format used by the
+   event capture link.  Producers (replay/execrp tiles) publish one
+   instance per account update to the event tile, which decodes and
+   forwards it as a gRPC Account event.  Metadata only — account data
+   bytes are not included. */
+
+struct __attribute__((packed)) fd_capture_account_event_msg {
+  uchar pubkey[ 32 ];
+  uchar owner [ 32 ];
+  ulong lamports;
+  ulong slot;
+  uchar signature[ 64 ];   /* signature of the txn that caused the update;
+                              all-zero if not associated with a txn (e.g.
+                              bank-hash-time updates). */
+  ulong data_sz;
+  uchar executable;
+  uchar padding[ 7 ];
+};
+typedef struct fd_capture_account_event_msg fd_capture_account_event_msg_t;
+
+/* fd_capture_bank_event_msg_t is the on-wire frag format used by the
+   bank-hash event capture link.  One per slot, emitted at the end of
+   bank hashing. */
+
+struct __attribute__((packed)) fd_capture_bank_event_msg {
+  uchar bank_hash                [ 32 ];
+  uchar prev_bank_hash           [ 32 ];
+  uchar accounts_lt_hash_checksum[ 32 ];
+  uchar poh_hash                 [ 32 ];
+  ulong slot;
+  ulong signature_cnt;
+};
+typedef struct fd_capture_bank_event_msg fd_capture_bank_event_msg_t;
+
+/* fd_capture_stake_event_msg_t — emitted whenever the runtime updates
+   the stake delegations cache during transaction commit. */
+
+struct __attribute__((packed)) fd_capture_stake_event_msg {
+  uchar pubkey      [ 32 ];
+  uchar voter_pubkey[ 32 ];
+  ulong stake;
+  ulong activation_epoch;
+  ulong deactivation_epoch;
+  ulong credits_observed;
+  ulong slot;
+  uchar removed;
+  uchar padding[ 7 ];
+};
+typedef struct fd_capture_stake_event_msg fd_capture_stake_event_msg_t;
+
+/* fd_capture_vote_event_msg_t — emitted whenever the runtime updates
+   the top-votes cache during transaction commit. */
+
+struct __attribute__((packed)) fd_capture_vote_event_msg {
+  uchar pubkey[ 32 ];
+  ulong last_vote_slot;
+  long  last_vote_timestamp;
+  ulong slot;
+  uchar invalidated;
+  uchar padding[ 7 ];
+};
+typedef struct fd_capture_vote_event_msg fd_capture_vote_event_msg_t;
+
+/* Per-vote-instruction event capture.  Emitted from the vote program
+   at the start of processing each vote instruction (tower_sync etc.)
+   regardless of outcome. */
+
+#define FD_CAPTURE_VOTE_TXN_TOWER_MAX (32UL)
+
+struct __attribute__((packed)) fd_capture_vote_lockout {
+  ulong slot;
+  uint  confirmation_count;
+  uchar pad[ 4 ];
+};
+typedef struct fd_capture_vote_lockout fd_capture_vote_lockout_t;
+
+struct __attribute__((packed)) fd_capture_vote_txn_event_msg {
+  uchar vote_account[ 32 ];
+  uchar voter       [ 32 ];
+  uchar bank_hash   [ 32 ];
+  uchar block_id    [ 32 ];
+  uchar signature   [ 64 ];
+  ulong slot;
+  ulong root_slot;
+  long  timestamp;
+  uchar has_root;
+  uchar has_timestamp;
+  uchar has_block_id;
+  uchar lockouts_cnt;
+  uchar ix_variant;
+  uchar padding[ 3 ];
+  fd_capture_vote_lockout_t lockouts[ FD_CAPTURE_VOTE_TXN_TOWER_MAX ];
+};
+typedef struct fd_capture_vote_txn_event_msg fd_capture_vote_txn_event_msg_t;
+
 /* Context needed to do solcap capture during execution of transactions */
 
 struct fd_capture_ctx {
@@ -127,6 +222,36 @@ struct fd_capture_ctx {
   fd_solcap_writer_t *     capture;
 
   ulong                    current_txn_idx;
+  uchar                    current_txn_signature[ 64 ];   /* per-dispatched-txn,
+                                                             set by execrp; used
+                                                             by account event
+                                                             producers */
+
+  /* Event tile account capture (independent of solcap).  When
+     capture_account_events is set, producers also publish a metadata-
+     only frag to event_capture_link per account update. */
+  int                     capture_account_events;
+  fd_capture_link_buf_t * event_capture_link;
+
+  /* Event tile bank-hash capture (independent of solcap).  When
+     capture_bank_events is set, the runtime publishes one frag per
+     completed slot to bank_capture_link. */
+  int                     capture_bank_events;
+  fd_capture_link_buf_t * bank_capture_link;
+
+  /* Event tile stake-cache and top-votes-cache update capture
+     (independent of solcap).  When set, the runtime publishes one
+     frag per cache update during transaction commit. */
+  int                     capture_stake_events;
+  fd_capture_link_buf_t * stake_capture_link;
+  int                     capture_vote_events;
+  fd_capture_link_buf_t * vote_capture_link;
+
+  /* Event tile per-vote-instruction capture (independent of solcap).
+     When set, the vote program publishes one frag per vote instruction
+     to vote_txn_capture_link. */
+  int                     capture_vote_txn_events;
+  fd_capture_link_buf_t * vote_txn_capture_link;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 
@@ -346,6 +471,79 @@ fd_capture_link_write_stake_account_payout( fd_capture_ctx_t * ctx,
   FD_TEST( ctx && ctx->capture_link );
   ctx->capture_link->vt->write_stake_account_payout( ctx, slot, stake_acc_addr, update_slot, lamports, lamports_delta, credits_observed, credits_observed_delta, delegation_stake, delegation_stake_delta );
 }
+
+/* fd_capture_link_write_account_event publishes a metadata-only
+   account update frag to the event capture link (consumed by the event
+   tile).  No-op if event_capture_link is not configured. */
+
+void
+fd_capture_link_write_account_event( fd_capture_ctx_t *               ctx,
+                                     uchar const *                    signature,
+                                     fd_pubkey_t const *              key,
+                                     fd_solana_account_meta_t const * info,
+                                     ulong                            slot,
+                                     ulong                            data_sz );
+
+/* fd_capture_link_write_bank_event publishes one bank-hash frag to the
+   bank event capture link.  No-op if bank_capture_link is not
+   configured. */
+
+void
+fd_capture_link_write_bank_event( fd_capture_ctx_t * ctx,
+                                  ulong              slot,
+                                  fd_hash_t const *  bank_hash,
+                                  fd_hash_t const *  prev_bank_hash,
+                                  fd_hash_t const *  accounts_lt_hash_checksum,
+                                  fd_hash_t const *  poh_hash,
+                                  ulong              signature_cnt );
+
+/* fd_capture_link_write_stake_event publishes one stake-cache update
+   frag.  Pass removed=1 if the delegation was removed (then the other
+   delegation fields should be zero). */
+
+void
+fd_capture_link_write_stake_event( fd_capture_ctx_t *  ctx,
+                                   fd_pubkey_t const * pubkey,
+                                   fd_pubkey_t const * voter_pubkey,
+                                   ulong               stake,
+                                   ulong               activation_epoch,
+                                   ulong               deactivation_epoch,
+                                   ulong               credits_observed,
+                                   ulong               slot,
+                                   int                 removed );
+
+/* fd_capture_link_write_vote_event publishes one top-votes cache
+   update frag.  Pass invalidated=1 if the vote account was
+   invalidated (then last_vote_slot/timestamp should be zero). */
+
+void
+fd_capture_link_write_vote_event( fd_capture_ctx_t *  ctx,
+                                  fd_pubkey_t const * pubkey,
+                                  ulong               last_vote_slot,
+                                  long                last_vote_timestamp,
+                                  ulong               slot,
+                                  int                 invalidated );
+
+/* fd_capture_link_write_vote_txn publishes one per-vote-instruction
+   frag.  lockouts may be NULL when lockouts_cnt==0.  bank_hash /
+   block_id may be NULL (will be zeroed). */
+
+void
+fd_capture_link_write_vote_txn( fd_capture_ctx_t *                  ctx,
+                                fd_pubkey_t const *                 vote_account,
+                                fd_pubkey_t const *                 voter,
+                                fd_hash_t const *                   bank_hash,
+                                fd_hash_t const *                   block_id,
+                                uchar const *                       signature,
+                                ulong                               slot,
+                                ulong                               root_slot,
+                                long                                timestamp,
+                                int                                 has_root,
+                                int                                 has_timestamp,
+                                int                                 has_block_id,
+                                uint                                ix_variant,
+                                fd_capture_vote_lockout_t const *   lockouts,
+                                ulong                               lockouts_cnt );
 
 /* fd_capture_link_buf_vt is the v-table for buffer mode capture links.
    It routes all write operations to the buffer implementations. */
