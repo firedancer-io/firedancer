@@ -5,8 +5,9 @@
 #include "../../disco/shred/fd_shred_tile.h"
 
 /* Repair tile forwards all FEC completes received by the shred tile.
-   It sends it's own sigs with each message though:
+   It forwards the FEC completes with new sigs:
    - REPAIR_SIG_FEC: FEC set complete
+   - REPAIR_SIG_FEC_LEADER: Leader FEC set complete
    - REPAIR_SIG_FEC_INVALID: FEC set detected as invalid based on duplicate confirmations
 
    Note that invalidity is very strict. i.e., sometimes replay may not
