@@ -52,11 +52,6 @@ fd_txn_add_instr( uchar * txn_meta_ptr,
                   uchar const * instr_buf,
                   ulong instr_buf_sz );
 
-/* Helper method to reset the list of instrs in the metadata and
-   remove all instrs from the txn payload. */
-void
-fd_txn_reset_instrs( uchar * txn_meta_ptr,
-                     uchar out_txn_payload[ static FD_TXN_MTU ] );
 FD_PROTOTYPES_END
 
 #endif

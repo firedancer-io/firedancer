@@ -116,11 +116,6 @@ FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_EXE   ==0, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_READ  ==1, vm_trace );
 FD_STATIC_ASSERT( FD_VM_TRACE_EVENT_TYPE_WRITE ==2, vm_trace );
 
-#if 0 /* FIXME: MOVE TESTING TO VM */
-static fd_vm_log_collector_t lc[1];
-static uchar lc_mirror[ FD_VM_LOG_MAX ];
-#endif
-
 int
 main( int     argc,
       char ** argv ) {
