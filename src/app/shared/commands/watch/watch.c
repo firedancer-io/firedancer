@@ -1314,13 +1314,6 @@ watch_cmd_fn( args_t *   args,
   run( config, args->watch.drain_output_fd );
 }
 
-static void
-watch_cmd_args( int *    pargc FD_PARAM_UNUSED,
-                char *** pargv FD_PARAM_UNUSED,
-                args_t * args ) {
-  args->watch.drain_output_fd = -1; /* only set by development commands that interpose firedancer's log output */
-}
-
 action_t fd_action_watch = {
   .name           = "watch",
   .args           = watch_cmd_args,

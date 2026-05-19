@@ -1009,7 +1009,7 @@ test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
       valid_program_data, valid_program_data_sz,
       1UL
   );
-  FD_TEST( fork_a_acc.meta->dlen!=fork_b_acc.meta->dlen );
+  FD_TEST( fork_a_acc.entry->data_len!=fork_b_acc.entry->data_len );
 
   fd_prog_load_env_t load_env = {
     .features    = env->features,
@@ -1017,7 +1017,7 @@ test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
     .epoch_slot0 = e0
   };
 
-  fd_progcache_xid_t root; fd_funk_txn_xid_set_root( &root );
+  fd_progcache_xid_t root; fd_progcache_txn_xid_set_root( &root );
 
   /* Fork A upgraded the program at e0-1 and invokes after skipped slot e0. */
   fd_progcache_xid_t fork_a_deploy = { .ul = { e0-1UL, 1UL } };
@@ -1026,7 +1026,7 @@ test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
   fd_progcache_xid_t fork_a_invoke = { .ul = { e0+1UL, 2UL } };
   test_env_txn_prepare( env, &fork_a_deploy, &fork_a_invoke );
 
-  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, fork_a_acc.ro, &fork_a_invoke, &key, &load_env );
+  fd_progcache_rec_t const * rec_a = test_pull( env->progcache, fork_a_acc.entry, &fork_a_invoke, &key, &load_env );
   FD_TEST( rec_a );
   FD_TEST( rec_a->data_gaddr );
   FD_TEST( fd_progcache_revision_key_slot( rec_a->revision_key )==e0 );
@@ -1040,7 +1040,7 @@ test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
   fd_progcache_xid_t fork_b_invoke = { .ul = { e0+1UL, 3UL } };
   test_env_txn_prepare( env, NULL, &fork_b_invoke );
 
-  fd_progcache_rec_t const * rec_b = test_pull( env->progcache, fork_b_acc.ro, &fork_b_invoke, &key, &load_env );
+  fd_progcache_rec_t const * rec_b = test_pull( env->progcache, fork_b_acc.entry, &fork_b_invoke, &key, &load_env );
   FD_TEST( rec_b );
   FD_TEST( rec_b!=rec_a );
   FD_TEST( query_rec_exact( env, &fork_a_invoke, &key )==rec_a );

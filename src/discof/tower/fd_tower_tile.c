@@ -923,7 +923,8 @@ query_vote_accs( fd_tower_tile_t *            ctx,
   while( !fd_top_votes_iter_done( top_votes_t_2, iter ) ) {
     ulong batch_n = 0UL;
     while( !fd_top_votes_iter_done( top_votes_t_2, iter ) && batch_n<BATCH ) {
-      int is_valid = fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_accs[ batch_n ], NULL, &stakes[ batch_n ], NULL, NULL, NULL );
+      uchar is_valid;
+      fd_top_votes_iter_ele( top_votes_t_2, iter, &vote_accs[ batch_n ], NULL, &stakes[ batch_n ], NULL, NULL, NULL, &is_valid );
       fd_top_votes_iter_next( top_votes_t_2, iter );
       total_stake += stakes[ batch_n ];
       if( FD_UNLIKELY( !is_valid ) ) continue;
@@ -936,8 +937,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
     fd_accdb_acquire( ctx->accdb, bank->accdb_fork_id, batch_n, pubkeys, writable, accs );
 
     for( ulong j=0UL; j<batch_n; j++ ) {
-      if( FD_UNLIKELY( !accs[ j ].lamports ) ) continue;
-      FD_TEST( fd_vsv_is_correct_size_owner_and_init( accs[ j ].owner, accs[ j ].data, accs[ j ].data_len ) );
+      FD_TEST( accs[ j ].lamports && fd_vsv_is_correct_size_owner_and_init( accs[ j ].owner, accs[ j ].data, accs[ j ].data_len ) );
       count_vote_acc( ctx, slot_completed, ghost_blk, &vote_accs[ j ], stakes[ j ], accs[ j ].data, accs[ j ].data_len );
       prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_accs[ j ], stakes[ j ], prev_voter_idx );
     }
