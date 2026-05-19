@@ -25,6 +25,7 @@
 #define DISCONNECT_REASON_PEER_CLOSED        (5)
 #define DISCONNECT_REASON_INVALID_CURSOR     (6)
 #define DISCONNECT_REASON_AUTH_FAILED        (7)
+#define DISCONNECT_REASON_INVALID_PROTOBUF   (8)
 
 #define FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE  (1UL)
 #define FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH  (2UL)
@@ -281,6 +282,10 @@ disconnect( fd_event_client_t * client,
       FD_LOG_WARNING(( "disconnected: authentication failed" ));
       client->metrics.transport_fail_cnt++;
       break;
+    case DISCONNECT_REASON_INVALID_PROTOBUF:
+      FD_LOG_WARNING(( "disconnected: invalid protobuf message received" ));
+      client->metrics.transport_fail_cnt++;
+      break;
     default:
       FD_LOG_WARNING(( "disconnected: unknown reason %d", reason ));
       client->metrics.transport_fail_cnt++;
@@ -498,14 +503,16 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
   fd_pb_inbuf_t inbuf[1];
   fd_pb_inbuf_init( inbuf, protobuf, protobuf_sz );
 
-  ulong nonce_ack;
-  if( FD_UNLIKELY( protobuf_sz==0UL ) ) {
-    nonce_ack = 0UL;
-  } else {
+  ulong nonce_ack = 0UL;
+  if( FD_LIKELY( protobuf_sz ) ) {
     fd_pb_tlv_t event_id;
-    FD_TEST( fd_pb_read_tlv( inbuf, &event_id ) );
-    FD_TEST( event_id.field_id==1U ); /* event_id */
-    FD_TEST( event_id.wire_type==FD_PB_WIRE_TYPE_VARINT );
+    if( FD_UNLIKELY( !fd_pb_read_tlv( inbuf, &event_id ) ||
+                     event_id.field_id!=1U /* event_id */ ||
+                     event_id.wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) {
+      FD_LOG_WARNING(( "Event gRPC rx msg: invalid Protobuf" ));
+      client->defer_disconnect = DISCONNECT_REASON_INVALID_PROTOBUF;
+      return;
+    }
     nonce_ack = event_id.varint;
   }
 
