@@ -5,6 +5,7 @@
 #include "../../waltz/http/fd_url.h"
 #include "../../waltz/grpc/fd_grpc_client.h"
 #include "../../waltz/grpc/fd_grpc_client_private.h"
+#include "../../waltz/openssl/fd_openssl.h"
 #include "../../ballet/pb/fd_pb_tokenize.h"
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../util/net/fd_ip4.h"
@@ -71,6 +72,12 @@ struct fd_event_client {
   int so_sndbuf;
   int sockfd;
 
+  uint is_ssl : 1;
+#if FD_HAS_OPENSSL
+  SSL_CTX * ssl_ctx;
+  SSL *     ssl;
+#endif
+
   char   server_fqdn[ 256 ]; /* cstr */
   ulong  server_fqdn_len;
   uint   server_ip4_addr;
@@ -104,6 +111,9 @@ fd_event_client_new( void *                 shmem,
                      fd_circq_t *           circq,
                      int                    so_sndbuf,
                      char const *           _url,
+#if FD_HAS_OPENSSL
+                     SSL_CTX *              ssl_ctx,
+#endif
                      uchar const *          identity_pubkey,
                      char const *           client_version,
                      ulong                  instance_id,
@@ -134,12 +144,23 @@ fd_event_client_new( void *                 shmem,
                                           "[tiles.event.url]" ) ) ) {
     FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
   }
-  client->server_tcp_port = 7878;
   if( FD_UNLIKELY( url->host_len > 255 ) ) {
     FD_LOG_CRIT(( "Invalid url->host_len" )); /* unreachable */
   }
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( client->server_fqdn ), url->host, url->host_len ) );
   client->server_fqdn_len = url->host_len;
+  client->is_ssl = !!_is_ssl;
+#if FD_HAS_OPENSSL
+  client->ssl_ctx = ssl_ctx;
+  client->ssl = NULL;
+  if( FD_UNLIKELY( client->is_ssl && !client->ssl_ctx ) ) {
+    FD_LOG_ERR(( "https event endpoint configured without an SSL_CTX" ));
+  }
+#else
+  if( FD_UNLIKELY( client->is_ssl ) ) {
+    FD_LOG_ERR(( "This build does not include OpenSSL. Rebuild with OpenSSL to use https for [tiles.event.url]." ));
+  }
+#endif
 
   fd_memcpy( client->identity_pubkey, identity_pubkey, 32UL );
   strncpy( client->client_version, client_version, sizeof( client->client_version ) );
@@ -248,6 +269,12 @@ disconnect( fd_event_client_t * client,
     client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
     fd_circq_reset_cursor( client->circq );
   }
+#if FD_HAS_OPENSSL
+  if( FD_UNLIKELY( client->ssl ) ) {
+    SSL_free( client->ssl );
+    client->ssl = NULL;
+  }
+#endif
 
   switch( reason ) {
     case DISCONNECT_REASON_IDENTITY_CHANGED:
@@ -307,7 +334,11 @@ reconnect( fd_event_client_t * client,
 
   *charge_busy = 1;
 
-  FD_LOG_INFO(( "connecting to event server http://%.*s:%u", (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port ));
+  FD_LOG_INFO(( "connecting to event server %s://%.*s:%u",
+                client->is_ssl ? "https" : "http",
+                (int)client->server_fqdn_len,
+                client->server_fqdn,
+                client->server_tcp_port ));
 
   /* FIXME IPv6 support */
   fd_addrinfo_t hints = {0};
@@ -341,6 +372,38 @@ reconnect( fd_event_client_t * client,
     disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, errno, 1 );
     return;
   }
+
+#if FD_HAS_OPENSSL
+  if( client->is_ssl ) {
+    SSL * ssl = SSL_new( client->ssl_ctx );
+    if( FD_UNLIKELY( !ssl ) ) {
+      disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
+      return;
+    }
+
+    if( FD_UNLIKELY( !fd_openssl_ssl_set_fd( ssl, client->sockfd ) ) ) {
+      SSL_free( ssl );
+      disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
+      return;
+    }
+
+    SSL_set_connect_state( ssl );
+
+    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, client->server_fqdn ) ) ) {
+      SSL_free( ssl );
+      disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
+      return;
+    }
+
+    if( FD_UNLIKELY( !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
+      SSL_free( ssl );
+      disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
+      return;
+    }
+
+    client->ssl = ssl;
+  }
+#endif
 
   fd_grpc_client_reset( client->grpc_client );
 
@@ -649,7 +712,17 @@ fd_event_client_poll( fd_event_client_t * client,
     }
   }
   if( FD_LIKELY( client->state!=FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) {
-    if( FD_UNLIKELY( -1==fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, charge_busy ) ) ) {
+    int ret;
+    do {
+#if FD_HAS_OPENSSL
+      if( client->is_ssl ) {
+        ret = fd_grpc_client_rxtx_ossl( client->grpc_client, client->ssl, charge_busy );
+        break;
+      }
+#endif
+      ret = fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, charge_busy );
+    } while(0);
+    if( FD_UNLIKELY( -1==ret ) ) {
       disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
       return;
     }

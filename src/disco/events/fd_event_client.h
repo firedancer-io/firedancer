@@ -44,6 +44,9 @@ fd_event_client_new( void *                 shmem,
                      fd_circq_t *           circq,
                      int                    so_sndbuf,
                      char const *           endpoint,
+#if FD_HAS_OPENSSL
+                     SSL_CTX *              ssl_ctx,
+#endif
                      uchar const *          identity_pubkey,
                      char const *           client_version,
                      ulong                  instance_id,
