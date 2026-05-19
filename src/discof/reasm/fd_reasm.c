@@ -439,8 +439,6 @@ fd_reasm_remove( fd_reasm_t     * reasm,
 
   fd_reasm_fec_t * tail = head;
 
-
-
   if( FD_LIKELY( orphaned_ele_query( orphaned, &head->key, NULL, pool ) ||
                  subtrees_ele_query( subtrees, &head->key, NULL, pool ) ) ) {
     FD_TEST( head->child == ULONG_MAX ); /* must be a leaf node */

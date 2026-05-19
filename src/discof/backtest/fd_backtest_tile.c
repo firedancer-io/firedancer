@@ -3,6 +3,7 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
+#include "../../discof/repair/fd_repair_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../util/pod/fd_pod.h"
@@ -242,7 +243,7 @@ after_credit( fd_backt_tile_t *   ctx,
   memcpy( &complete_msg->merkle_root, &mr, sizeof(fd_hash_t) );
   memcpy( &complete_msg->chained_merkle_root, &cmr, sizeof(fd_hash_t) );
 
-  fd_stem_publish( stem, ctx->repair_out->idx, SHRED_SIG_FEC_COMPLETE, ctx->repair_out->chunk, sizeof(fd_fec_complete_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->repair_out->idx, REPAIR_SIG_FEC, ctx->repair_out->chunk, sizeof(fd_fec_complete_t), 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->repair_out->chunk = fd_dcache_compact_next( ctx->repair_out->chunk, sizeof(fd_fec_complete_t), ctx->repair_out->chunk0, ctx->repair_out->wmark );
 
   if( FD_UNLIKELY( ctx->source_exhausted && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
