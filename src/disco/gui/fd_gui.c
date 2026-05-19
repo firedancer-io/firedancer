@@ -45,6 +45,7 @@ fd_gui_new( void *                shmem,
             char const *          wfs_expected_bank_hash_cstr,
             ushort                expected_shred_version,
             fd_topo_t *           topo,
+            void *                accdb_shmem,
             long                  now ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -69,9 +70,11 @@ fd_gui_new( void *                shmem,
   fd_gui_tile_timers_t * tile_timers_snap_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_TILE_TIMER_SNAP_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
   fd_gui_tile_timers_t * leader_tt_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_LEADER_CNT * FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
 
-  gui->http     = http;
-  gui->topo     = topo;
-  gui->tile_cnt = tile_cnt;
+  gui->http        = http;
+  gui->topo        = topo;
+  gui->accdb_shmem = (fd_accdb_shmem_t const *)accdb_shmem;
+  gui->accdb_tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  gui->tile_cnt    = tile_cnt;
 
   gui->summary.tile_timers_snap = tile_timers_snap_mem;
   for( ulong i=0UL; i<FD_GUI_LEADER_CNT; i++ ) gui->leader_slots[ i ]->tile_timers = leader_tt_mem + i * FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT * tile_cnt;
@@ -183,6 +186,41 @@ fd_gui_new( void *                shmem,
   memset( gui->summary.tile_stats_reference, 0, sizeof(gui->summary.tile_stats_reference) );
   memset( gui->summary.tile_stats_current, 0, sizeof(gui->summary.tile_stats_current) );
 
+  memset( gui->summary.accounts_stats_reference, 0, sizeof(gui->summary.accounts_stats_reference) );
+  memset( gui->summary.accounts_stats_current,   0, sizeof(gui->summary.accounts_stats_current  ) );
+  gui->summary.accounts_stats_have_reference = 0;
+  gui->summary.accdb_win_idx   = 0UL;
+  gui->summary.accdb_win_count = 0UL;
+  memset( gui->summary.accdb_win_dt_nanos,           0, sizeof(gui->summary.accdb_win_dt_nanos)           );
+  memset( gui->summary.agg_acquired_win,             0, sizeof(gui->summary.agg_acquired_win)             );
+  memset( gui->summary.agg_acquired_writable_win,    0, sizeof(gui->summary.agg_acquired_writable_win)    );
+  memset( gui->summary.agg_bytes_read_win,           0, sizeof(gui->summary.agg_bytes_read_win)           );
+  memset( gui->summary.agg_bytes_copied_win,         0, sizeof(gui->summary.agg_bytes_copied_win)         );
+  memset( gui->summary.agg_bytes_written_win,        0, sizeof(gui->summary.agg_bytes_written_win)        );
+  memset( gui->summary.agg_bytes_written_accdb_win,  0, sizeof(gui->summary.agg_bytes_written_accdb_win)  );
+  memset( gui->summary.agg_read_ops_win,             0, sizeof(gui->summary.agg_read_ops_win)             );
+  memset( gui->summary.agg_write_ops_win,            0, sizeof(gui->summary.agg_write_ops_win)            );
+  memset( gui->summary.agg_relocated_bytes_win,      0, sizeof(gui->summary.agg_relocated_bytes_win)      );
+  memset( gui->summary.agg_misses_win,               0, sizeof(gui->summary.agg_misses_win)               );
+  memset( gui->summary.class_acq_win,                0, sizeof(gui->summary.class_acq_win)                );
+  memset( gui->summary.class_acq_wr_win,             0, sizeof(gui->summary.class_acq_wr_win)             );
+  memset( gui->summary.class_not_found_win,          0, sizeof(gui->summary.class_not_found_win)          );
+  memset( gui->summary.class_evicted_win,            0, sizeof(gui->summary.class_evicted_win)            );
+  memset( gui->summary.class_preevicted_win,         0, sizeof(gui->summary.class_preevicted_win)         );
+  memset( gui->summary.class_commit_new_win,         0, sizeof(gui->summary.class_commit_new_win)         );
+  memset( gui->summary.class_commit_over_win,        0, sizeof(gui->summary.class_commit_over_win)        );
+
+  gui->summary.partition_cnt = 0UL;
+  memset( gui->summary.partition_read_ops_win,        0, sizeof(gui->summary.partition_read_ops_win)        );
+  memset( gui->summary.partition_bytes_read_win,      0, sizeof(gui->summary.partition_bytes_read_win)      );
+  memset( gui->summary.partition_write_ops_win,       0, sizeof(gui->summary.partition_write_ops_win)       );
+  memset( gui->summary.partition_bytes_written_win,   0, sizeof(gui->summary.partition_bytes_written_win)   );
+  memset( gui->summary.partitions,                    0, sizeof(gui->summary.partitions)                    );
+  memset( gui->summary.partition_prev_read_ops,       0, sizeof(gui->summary.partition_prev_read_ops)       );
+  memset( gui->summary.partition_prev_bytes_read,     0, sizeof(gui->summary.partition_prev_bytes_read)     );
+  memset( gui->summary.partition_prev_write_ops,      0, sizeof(gui->summary.partition_prev_write_ops)      );
+  memset( gui->summary.partition_prev_bytes_written,  0, sizeof(gui->summary.partition_prev_bytes_written)  );
+
   memset( gui->summary.tile_timers_snap,            0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   memset( gui->summary.tile_timers_snap + tile_cnt, 0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   gui->summary.tile_timers_snap_idx    = 2UL;
@@ -283,6 +321,11 @@ fd_gui_ws_open( fd_gui_t * gui,
   if( FD_LIKELY( gui->summary.is_full_client ) ) {
     fd_gui_printf_live_program_cache( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+
+    if( FD_LIKELY( gui->summary.accounts_stats_have_reference ) ) {
+      fd_gui_printf_accounts_stats( gui );
+      FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    }
   }
 
   if( FD_LIKELY( gui->block_engine.has_block_engine ) ) {
@@ -481,6 +524,112 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
     cur->in.metric  = 0UL;
     cur->out.metric = 0UL;
   }
+}
+
+/* Snapshot accdb statistics by reading the accdb tile's metric page
+   (for gauges) and summing counters across all tiles that join accdb
+   (executors, replay, tower, rpc, resolv, plus the accdb tile itself).
+   The result feeds the GUI "Accounts" page. */
+
+static void
+fd_gui_accounts_stats_snap( fd_gui_t *                gui,
+                            fd_gui_accounts_stats_t * cur ) {
+  fd_topo_t const * topo = gui->topo;
+
+  memset( cur, 0, sizeof(*cur) );
+  cur->sample_time_nanos = fd_log_wallclock();
+
+  ulong accdb_tile_idx = fd_topo_find_tile( topo, "accdb", 0UL );
+  if( FD_UNLIKELY( accdb_tile_idx==ULONG_MAX ) ) return;
+
+  /* Gauges + accdb-tile-only counters. */
+  fd_topo_tile_t const * accdb = &topo->tiles[ accdb_tile_idx ];
+  volatile ulong const * am    = fd_metrics_tile( accdb->metrics );
+
+  cur->accounts_total           = am[ MIDX( GAUGE,   ACCDB, ACCOUNTS_TOTAL          ) ];
+  cur->accounts_capacity        = am[ MIDX( GAUGE,   ACCDB, ACCOUNTS_CAPACITY       ) ];
+  cur->disk_allocated_bytes     = am[ MIDX( GAUGE,   ACCDB, DISK_ALLOCATED_BYTES    ) ];
+  cur->disk_current_bytes       = am[ MIDX( GAUGE,   ACCDB, DISK_CURRENT_BYTES      ) ];
+  cur->disk_used_bytes          = am[ MIDX( GAUGE,   ACCDB, DISK_USED_BYTES         ) ];
+  cur->in_compaction            = am[ MIDX( GAUGE,   ACCDB, IN_COMPACTION           ) ];
+  cur->compactions_requested    = am[ MIDX( COUNTER, ACCDB, COMPACTIONS_REQUESTED   ) ];
+  cur->compactions_completed    = am[ MIDX( COUNTER, ACCDB, COMPACTIONS_COMPLETED   ) ];
+  cur->accounts_relocated_bytes = am[ MIDX( COUNTER, ACCDB, ACCOUNTS_RELOCATED_BYTES) ];
+  cur->bytes_written_accdb      = am[ MIDX( COUNTER, ACCDB, ACCDB_BYTES_WRITTEN     ) ];
+
+  /* The accdb tile owns the prewrite and compaction writes; include
+     those in the aggregate bytes_written / write_ops so the IO panel
+     reflects all on-disk write activity, not just consumer-driven
+     commits. */
+  cur->bytes_written += am[ MIDX( COUNTER, ACCDB, ACCDB_BYTES_WRITTEN ) ];
+  cur->write_ops     += am[ MIDX( COUNTER, ACCDB, ACCDB_WRITE_OPS     ) ];
+
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    cur->cache_class_used         [ c ] = am[ MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_USED            ) + c ];
+    cur->cache_class_max          [ c ] = am[ MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_MAX             ) + c ];
+    cur->cache_class_reserved     [ c ] = am[ MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_RESERVED        ) + c ];
+    cur->cache_class_target_used  [ c ] = am[ MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_TARGET_USED     ) + c ];
+    cur->cache_class_low_water_used[c ] = am[ MIDX( GAUGE, ACCDB, ACCDB_CACHE_CLASS_LOW_WATER_USED  ) + c ];
+    cur->preevicted_per_class     [ c ] = am[ MIDX( COUNTER, ACCDB, ACCDB_ACCOUNTS_PREEVICTED       ) + c ];
+  }
+
+  /* Per-tile counters.  The set of accdb-related counters declared by
+     each tile varies (see metrics.xml); for tiles where a counter
+     isn't declared, we simply don't read it. */
+
+  /* Tiles that declare the full per-class acquire/commit/evict surface
+     (READ_WRITE joiners).  Metric offsets are tile-specific but the macro
+     resolves them by tile name at compile time, so unroll per tile. */
+# define ACCUM_RW( TILE_UPPER, TILE_LOWER )                                                          \
+    for( ulong i=0UL; i<fd_topo_tile_name_cnt( topo, TILE_LOWER ); i++ ) {                           \
+      ulong t_idx = fd_topo_find_tile( topo, TILE_LOWER, i );                                        \
+      if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;                                                \
+      volatile ulong const * m = fd_metrics_tile( topo->tiles[ t_idx ].metrics );                    \
+      cur->bytes_read   += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_READ        ) ];                \
+      cur->bytes_copied += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_COPIED      ) ];                \
+      cur->bytes_written+= m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_WRITTEN     ) ];                \
+      cur->read_ops     += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_READ_OPS          ) ];                \
+      cur->write_ops    += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_WRITE_OPS         ) ];                \
+      for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {                                          \
+        ulong _acq = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED          ) + c ];        \
+        ulong _acw = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED_WRITABLE ) + c ];        \
+        cur->acquired                       += _acq;                                                 \
+        cur->acquired_writable              += _acw;                                                 \
+        cur->acquired_per_class            [ c ] += _acq;                                            \
+        cur->acquired_writable_per_class   [ c ] += _acw;                                            \
+        cur->not_found_per_class           [ c ] += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_NOT_FOUND            ) + c ]; \
+        cur->evicted_per_class             [ c ] += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_EVICTED              ) + c ]; \
+        cur->committed_new_per_class       [ c ] += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_COMMITTED_NEW        ) + c ]; \
+        cur->committed_overwrite_per_class [ c ] += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_COMMITTED_OVERWRITE  ) + c ]; \
+      }                                                                                              \
+    }
+
+  ACCUM_RW( EXECLE, "execle" )
+  ACCUM_RW( EXECRP, "execrp" )
+  ACCUM_RW( REPLAY, "replay" )
+  ACCUM_RW( TOWER,  "tower"  )
+# undef ACCUM_RW
+
+  /* RO joiners declare only the read-side subset (no writes/commits/evicts). */
+# define ACCUM_RO( TILE_UPPER, TILE_LOWER )                                                          \
+    for( ulong i=0UL; i<fd_topo_tile_name_cnt( topo, TILE_LOWER ); i++ ) {                           \
+      ulong t_idx = fd_topo_find_tile( topo, TILE_LOWER, i );                                        \
+      if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;                                                \
+      volatile ulong const * m = fd_metrics_tile( topo->tiles[ t_idx ].metrics );                    \
+      cur->bytes_read += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_READ        ) ];                  \
+      cur->bytes_copied+= m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_COPIED     ) ];                  \
+      cur->read_ops   += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_READ_OPS          ) ];                  \
+      for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {                                          \
+        ulong _acq = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED ) + c ];                  \
+        cur->acquired                       += _acq;                                                 \
+        cur->acquired_per_class[ c ]        += _acq;                                                 \
+        cur->not_found_per_class[ c ]       += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_NOT_FOUND ) + c ]; \
+      }                                                                                              \
+    }
+
+  ACCUM_RO( RPC,    "rpc"    )
+  ACCUM_RO( RESOLV, "resolv" )
+# undef ACCUM_RO
 }
 
 /* Snapshot all of the data from metrics to construct a view of the
@@ -1038,6 +1187,12 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     if( FD_LIKELY( gui->summary.is_full_client ) ) {
       fd_gui_printf_live_program_cache( gui );
       fd_http_server_ws_broadcast( gui->http );
+
+      *gui->summary.accounts_stats_reference = *gui->summary.accounts_stats_current;
+      fd_gui_accounts_stats_snap( gui, gui->summary.accounts_stats_current );
+      fd_gui_printf_accounts_stats( gui );
+      fd_http_server_ws_broadcast( gui->http );
+      gui->summary.accounts_stats_have_reference = 1;
     }
 
     if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {

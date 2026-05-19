@@ -19,6 +19,8 @@
 #include "../../util/fd_util_base.h"
 #include "../../util/hist/fd_histf.h"
 #include "../../waltz/http/fd_http_server.h"
+#include "../../flamenco/accdb/fd_accdb_cache.h"
+#include "../../flamenco/accdb/fd_accdb_shmem.h"
 
 /* frankendancer only */
 #define FD_GUI_MAX_PEER_CNT (108000UL)
@@ -279,6 +281,58 @@ struct fd_gui_network_stats {
 
 typedef struct fd_gui_network_stats fd_gui_network_stats_t;
 
+struct fd_gui_accounts_stats {
+  /* Raw counters/gauges read from tile metric pages.  Stored so we can
+     compute deltas (and per-second rates) against a previous snapshot. */
+  long  sample_time_nanos;
+
+  /* Disk (gauges from accdb tile). */
+  ulong accounts_total;
+  ulong accounts_capacity;
+  ulong disk_allocated_bytes;
+  ulong disk_current_bytes;
+  ulong disk_used_bytes;
+
+  /* Compaction (gauges + counters from accdb tile). */
+  ulong in_compaction;
+  ulong compactions_requested;
+  ulong compactions_completed;
+  ulong accounts_relocated_bytes;
+
+  /* Cache occupancy (gauges from accdb tile, per class). */
+  ulong cache_class_used           [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_class_max            [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_class_reserved       [ FD_ACCDB_CACHE_CLASS_CNT ];
+  /* Preeviction thresholds, expressed as used-slot counts directly
+     comparable to cache_class_used / cache_class_max. */
+  ulong cache_class_target_used    [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_class_low_water_used [ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  /* Aggregate counters summed across all accdb consumer tiles. */
+  ulong acquired;                   /* total acquires */
+  ulong acquired_writable;          /* writable subset of acquires (RW tiles only) */
+  ulong acquired_per_class           [ FD_ACCDB_CACHE_CLASS_CNT ]; /* acquires attributed to a class (RW tiles only) */
+  ulong acquired_writable_per_class  [ FD_ACCDB_CACHE_CLASS_CNT ]; /* writable acquires attributed to a class (RW tiles only) */
+  ulong not_found_per_class[ FD_ACCDB_CACHE_CLASS_CNT ]; /* misses, per class */
+  ulong evicted_per_class  [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong preevicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong committed_new_per_class      [ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong committed_overwrite_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+
+  /* IO counters.  bytes_written/read_ops/write_ops are summed across
+     all consumer tiles; bytes_written_accdb is the bytes written by
+     the accdb tile itself (background preevict + compaction), used to
+     compute the prewrite ratio. */
+  ulong bytes_read;
+  ulong bytes_copied;
+  ulong bytes_written;
+  ulong bytes_written_accdb;
+  ulong read_ops;
+  ulong write_ops;
+};
+
+typedef struct fd_gui_accounts_stats fd_gui_accounts_stats_t;
+
 struct fd_gui_leader_slot {
   ulong slot;
   fd_hash_t block_hash;
@@ -538,6 +592,8 @@ typedef struct fd_gui_slot fd_gui_slot_t;
 struct fd_gui {
   fd_http_server_t * http;
   fd_topo_t * topo;
+  fd_accdb_shmem_t const * accdb_shmem;
+  double accdb_tick_per_ns;
 
   ulong tile_cnt;
 
@@ -684,6 +740,65 @@ struct fd_gui {
 
     fd_gui_network_stats_t network_stats_current[ 1 ];
 
+    fd_gui_accounts_stats_t accounts_stats_reference[ 1 ];
+    fd_gui_accounts_stats_t accounts_stats_current  [ 1 ];
+    int                     accounts_stats_have_reference;
+    /* Triangular-weighted moving window over per-snap deltas.  Snap
+       cadence is ~100ms, window is FD_GUI_ACCDB_WIN_SAMPLES samples
+       (~5s).  The output rate for any metric is:
+
+         rate = sum( w[i] * delta[i] ) / sum( w[i] * dt[i] )
+
+       where w[i] is the triangular weight (newest sample heaviest,
+       oldest weight=1).  This is fully caught up to a new rate after
+       the window length but smoother than a boxcar (no cliff edge as
+       samples age out). */
+#   define FD_GUI_ACCDB_WIN_SAMPLES 50UL
+    ulong                   accdb_win_idx;        /* next write index */
+    ulong                   accdb_win_count;      /* samples filled, capped at FD_GUI_ACCDB_WIN_SAMPLES */
+    long                    accdb_win_dt_nanos [ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* Aggregate delta rings (units per snap). */
+    ulong                   agg_acquired_win          [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_acquired_writable_win [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_bytes_read_win        [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_bytes_copied_win      [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_bytes_written_win     [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_bytes_written_accdb_win[FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_read_ops_win          [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_write_ops_win         [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_relocated_bytes_win   [ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   agg_misses_win            [ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* Per-class delta rings (units per snap). */
+    ulong                   class_acq_win         [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_acq_wr_win      [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_not_found_win   [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_evicted_win     [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_preevicted_win  [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_commit_new_win  [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   class_commit_over_win [ FD_ACCDB_CACHE_CLASS_CNT ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* Per-partition triangular-weighted windows for read/write rates.
+       Sized to match the accdb partition pool ceiling (8192).  Rates
+       are derived in fd_gui_printf via fd_gui_accdb_weighted_rate. */
+#   define FD_GUI_MAX_PARTITIONS 8192UL
+    ulong                   partition_cnt;            /* live count from accdb_shmem; <= FD_GUI_MAX_PARTITIONS */
+    ulong                   partition_read_ops_win    [ FD_GUI_MAX_PARTITIONS ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   partition_bytes_read_win  [ FD_GUI_MAX_PARTITIONS ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   partition_write_ops_win   [ FD_GUI_MAX_PARTITIONS ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   partition_bytes_written_win[FD_GUI_MAX_PARTITIONS ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* Per-partition snapshots (most recent values, for non-rate fields:
+       offset, layer, write_offset, bytes_freed, ticks, compaction state). */
+    fd_accdb_shmem_partition_info_t partitions[ FD_GUI_MAX_PARTITIONS ];
+
+    /* Cumulative counters from the previous snap for delta computation. */
+    ulong                   partition_prev_read_ops    [ FD_GUI_MAX_PARTITIONS ];
+    ulong                   partition_prev_bytes_read  [ FD_GUI_MAX_PARTITIONS ];
+    ulong                   partition_prev_write_ops   [ FD_GUI_MAX_PARTITIONS ];
+    ulong                   partition_prev_bytes_written[FD_GUI_MAX_PARTITIONS ];
+
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
 
@@ -825,6 +940,7 @@ fd_gui_new( void *                shmem,
             char const *          wfs_expected_bank_hash_cstr,
             ushort                expected_shred_version,
             fd_topo_t *           topo,
+            void *                accdb_shmem,
             long                  now );
 
 fd_gui_t *

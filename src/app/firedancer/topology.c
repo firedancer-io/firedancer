@@ -1124,6 +1124,9 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpc", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  if( FD_LIKELY( config->tiles.gui.enabled ) ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], accdb_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
   FD_TEST( fd_pod_insertf_ulong( topo->props, accdb_obj->id, "accdb" ) );
 
   /* Per-RO-joiner accdb epoch fseq objects.  Each read-only accdb
@@ -1557,6 +1560,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
     fd_cstr_ncpy( tile->gui.wfs_bank_hash, config->firedancer.consensus.wait_for_supermajority_with_bank_hash, sizeof(tile->gui.wfs_bank_hash) );
     tile->gui.expected_shred_version = config->consensus.expected_shred_version;
+    tile->gui.cache_size_gib         = config->firedancer.accounts.cache_size_gib;
+    tile->gui.accdb_obj_id           = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
+    FD_TEST( tile->gui.accdb_obj_id!=ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rpc" ) ) ) {
 
