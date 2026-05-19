@@ -238,10 +238,10 @@ struct fd_txn_out {
   } err;
 
   struct {
-    long                        prep_start_timestamp;
-    long                        load_start_timestamp;
-    long                        exec_start_timestamp;
-    long                        commit_start_timestamp;
+    long                        load_start_ticks;
+    long                        check_start_ticks;
+    long                        exec_start_ticks;
+    long                        commit_start_ticks;
 
     fd_compute_budget_details_t compute_budget;            /* Compute budget details */
     fd_transaction_cost_t       txn_cost;                  /* Transaction cost */
