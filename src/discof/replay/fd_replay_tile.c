@@ -24,7 +24,7 @@
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../disco/shred/fd_shred_tile.h"
+#include "../repair/fd_repair_tile.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_stack.h"
@@ -2130,16 +2130,22 @@ process_fec_complete( fd_replay_tile_t *  ctx,
 
   fd_hash_t const * merkle_root         = &complete_msg->merkle_root;
   fd_hash_t const * chained_merkle_root = &complete_msg->chained_merkle_root;
-  int               is_leader_fec       = sig == SHRED_SIG_FEC_COMPLETE_LEADER;
+  int               is_leader_fec       = sig == REPAIR_SIG_FEC_LEADER;
+  int               data_complete       = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
+  int               slot_complete       = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
 
-  int data_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
-  int slot_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
+  if( FD_UNLIKELY( sig==REPAIR_SIG_FEC_INVALID ) ) {
+    /* FEC set detected as invalid based on duplicate confirmations.
+       Nothing to do except remove from store */
+    fd_store_remove( ctx->store, merkle_root );
+    return;
+  }
 
   if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) && shred->fec_set_idx == 0) ) {
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
 
-  if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return;
+  if( FD_UNLIKELY( fd_reasm_query( ctx->reasm, merkle_root ) ) ) return; /* impossible? */
   fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec, ctx->store, &ctx->reasm_evicted );
 
   if( FD_UNLIKELY( !fec ) ) {
@@ -2149,6 +2155,7 @@ process_fec_complete( fd_replay_tile_t *  ctx,
        is to punt it and "go around."  reasm_insert populates it's last
        pool element with the data of the failed insert, so we make sure
        to publish the failed insert data to repair in after_credit. */
+    fd_store_remove( ctx->store, merkle_root );
     return;
   }
 }
@@ -2340,7 +2347,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_REPAIR: {
-      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
+      /* Store and reasm follow the invariant that any FEC in the
+         shred->out link, repair->out link, or reasm must be present in
+         store.  If any FEC is rejected at this point, it must be
+         removed from store.  See topology.c for more details. */
+      if( FD_UNLIKELY( sig==REPAIR_SIG_FEC || sig==REPAIR_SIG_FEC_LEADER || sig==REPAIR_SIG_FEC_INVALID ) ) {
         process_fec_complete( ctx, sig, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       }
       break;
