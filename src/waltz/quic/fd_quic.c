@@ -1097,7 +1097,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn ) {
   stream->state        = FD_QUIC_STREAM_STATE_RX_FIN;
   stream->stream_flags = 0u;
 
-  memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
+  memset( stream->tx_ack, 0, fd_quic_stream_tx_ack_bufsz( stream ) );
 
   /* insert into used streams */
   FD_QUIC_STREAM_LIST_REMOVE( stream );
