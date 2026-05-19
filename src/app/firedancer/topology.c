@@ -1508,8 +1508,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       fd_cstr_ncpy( tile->sign.authorized_voter_paths[ i ], config->firedancer.paths.authorized_voter_paths[ i ], sizeof(tile->sign.authorized_voter_paths[ i ]) );
     }
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
-
   } else if( FD_UNLIKELY( !strcmp( tile->name, "diag" ) ) ) {
     tile->diag.is_voting = strcmp( config->paths.vote_account, "" );
 

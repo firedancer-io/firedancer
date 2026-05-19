@@ -4,7 +4,7 @@
 
 #include "../metrics/fd_metrics.h"
 #include "../../discof/gossip/fd_gossip_tile.h"
-#include "../plugin/fd_plugin.h"
+#include "../../discoh/plugin/fd_plugin.h"
 
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/json/cJSON.h"

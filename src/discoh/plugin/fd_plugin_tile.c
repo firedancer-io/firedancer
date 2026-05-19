@@ -1,6 +1,6 @@
-#include "../topo/fd_topo.h"
+#include "../../disco/topo/fd_topo.h"
 #include "generated/fd_plugin_tile_seccomp.h"
-#include "../plugin/fd_plugin.h"
+#include "fd_plugin.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 
 #define IN_KIND_REPLAY (0)
@@ -214,7 +214,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_FRAG during_frag
 #define STEM_CALLBACK_AFTER_FRAG  after_frag
 
-#include "../stem/fd_stem.c"
+#include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_plugin = {
   .name                     = "plugin",
