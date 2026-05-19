@@ -270,8 +270,8 @@ struct fd_replay_tile {
 
   /* Randomly generated block id for the initial genesis/snapshot slot.
      Used as a fallback when the snapshot manifest does not contain a
-     block_id (this will be populated in Agave 4.1 and will be required
-     in Agave 4.2). */
+     block_id (block_id will be populated in Agave 4.1 snapshots and
+     will be required in Agave 4.2). */
 
   fd_hash_t initial_block_id;
 
