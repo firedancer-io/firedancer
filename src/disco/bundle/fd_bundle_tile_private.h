@@ -11,6 +11,7 @@
 #include "../../waltz/fd_rtt_est.h"
 #include "../../util/alloc/fd_alloc.h"
 #include "../../util/hist/fd_histf.h"
+
 #define FD_BUNDLE_CLIENT_MAX_TXN_PER_BUNDLE (5UL)
 
 /* Pending transaction buffer.  gRPC callbacks push decoded transactions
@@ -175,6 +176,22 @@ struct fd_bundle_tile {
   uchar bundle_status_plugin;  /* last 'plugin' update written */
   uchar bundle_status_logged;
   long  last_bundle_status_log_nanos;
+
+  ulong next_leader_slot; /* from replay_out reset messages, or ULONG_MAX */
+  ulong reset_slot;       /* from replay_out reset messages, or ULONG_MAX */
+  int   sleep_mode;       /* 1 means sleeping, 0 means connecting/connected */
+  long  sleep_check_ns;   /* next wallclock time to re-evaluate sleeping */
+
+  /* Staged values from during_frag, committed in after_frag */
+  ulong next_leader_slot_staged;
+  ulong reset_slot_staged;
+
+  int   in_kind[ 64 ];
+  struct {
+    fd_wksp_t * mem;
+    ulong       chunk0;
+    ulong       wmark;
+  } replay_in;
 };
 
 typedef struct fd_bundle_tile fd_bundle_tile_t;
