@@ -1023,7 +1023,6 @@ store_xinsert( fd_store_t      * store,
   if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "fd_store_pool_acquire failed" ));
   fec->key.merkle_root = *merkle_root;
   fec->key.part_idx    = 0;
-  fec->cmr             = (fd_hash_t){ 0 };
   fec->next            = fd_store_pool_idx_null();
   fec->data_sz         = 0UL;
 

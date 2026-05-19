@@ -28,7 +28,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp, ulong slot_max ) {
   FD_TEST( fd_rng_secure( ctx->repair_nonce_ss, sizeof(fd_rnonce_ss_t) ) );
 
   void * forest_mem     = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( slot_max ), 1UL );
-  void * policy_mem     = fd_wksp_alloc_laddr( wksp, fd_policy_align(), fd_policy_footprint( dedup_max, peer_max ), 1UL );
+  void * policy_mem     = fd_wksp_alloc_laddr( wksp, fd_policy_align(), fd_policy_footprint( peer_max ), 1UL );
+  void * dedup_mem      = fd_wksp_alloc_laddr( wksp, fd_reqlim_align(), fd_reqlim_footprint( dedup_max ), 1UL );
   void * inflights_mem  = fd_wksp_alloc_laddr( wksp, fd_inflights_align(), fd_inflights_footprint(), 1UL );
   void * signs_map_mem  = fd_wksp_alloc_laddr( wksp, fd_signs_map_align(), fd_signs_map_footprint( lg_sign_depth ), 1UL );
   void * pong_queue_mem = fd_wksp_alloc_laddr( wksp, fd_signs_queue_align(), fd_signs_queue_footprint(), 1UL );
@@ -36,7 +37,8 @@ setup_ctx( ctx_t * ctx, fd_wksp_t * wksp, ulong slot_max ) {
   void * metrics_mem    = fd_wksp_alloc_laddr( wksp, fd_repair_metrics_align(), fd_repair_metrics_footprint(), 1UL );
 
   ctx->forest       = fd_forest_join        ( fd_forest_new        ( forest_mem, slot_max, 0UL ) );
-  ctx->policy       = fd_policy_join        ( fd_policy_new        ( policy_mem, dedup_max, peer_max, 0UL, ctx->repair_nonce_ss ) );
+  ctx->policy       = fd_policy_join        ( fd_policy_new        ( policy_mem, peer_max, 0UL, ctx->repair_nonce_ss ) );
+  ctx->dedup        = fd_reqlim_join        ( fd_reqlim_new         ( dedup_mem, dedup_max, 0UL ) );
   ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( inflights_mem, 0UL ) );
   ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( signs_map_mem, lg_sign_depth, 0UL ) );
   ctx->pong_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( pong_queue_mem ) );
