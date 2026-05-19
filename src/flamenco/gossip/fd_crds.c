@@ -983,6 +983,17 @@ fd_crds_mask_iter_init( fd_crds_t const * crds,
 }
 
 fd_crds_mask_iter_t *
+fd_crds_mask_iter_init_at( fd_crds_t const * crds,
+                           ulong             start_hash,
+                           ulong             end_hash,
+                           uchar             iter_mem[ static 16UL ] ) {
+  fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
+  it->end_hash             = end_hash;
+  it->idx                  = hash_treap_idx_ge( crds->hash_treap, start_hash, crds->pool );
+  return it;
+}
+
+fd_crds_mask_iter_t *
 fd_crds_mask_iter_next( fd_crds_mask_iter_t * it, fd_crds_t const * crds ) {
   fd_crds_entry_t const * val = hash_treap_ele_fast_const( it->idx, crds->pool );
   it->idx                     = val->hash.next;

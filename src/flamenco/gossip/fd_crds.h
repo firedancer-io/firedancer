@@ -187,6 +187,18 @@ fd_crds_mask_iter_init( fd_crds_t const * crds,
                         uint              mask_bits,
                         uchar             iter_mem[ static 16UL ] );
 
+/* fd_crds_mask_iter_init_at is like fd_crds_mask_iter_init but
+   takes explicit start_hash and end_hash bounds instead of
+   deriving them from (mask, mask_bits).  Iteration begins at
+   the first entry whose hash >= start_hash and ends when the
+   current entry's hash exceeds end_hash. */
+
+fd_crds_mask_iter_t *
+fd_crds_mask_iter_init_at( fd_crds_t const * crds,
+                           ulong             start_hash,
+                           ulong             end_hash,
+                           uchar             iter_mem[ static 16UL ] );
+
 fd_crds_mask_iter_t *
 fd_crds_mask_iter_next( fd_crds_mask_iter_t * it,
                         fd_crds_t const * crds );
