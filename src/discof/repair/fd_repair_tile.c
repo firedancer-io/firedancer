@@ -127,6 +127,7 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/shred/fd_rnonce_ss.h"
 #include "../../disco/shred/fd_shred_tile.h"
+#include "fd_repair_tile.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../replay/fd_replay_tile.h"
 #include "../tower/fd_tower_tile.h"
@@ -388,7 +389,6 @@ struct ctx {
   struct {
     ulong send_pkt_cnt;
     ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
-    ulong repaired_slots;
     ulong current_slot;
     ulong old_shred;
     ulong last_requested_slot;
@@ -764,6 +764,11 @@ after_shred( ctx_t      * ctx,
              ulong        nonce,
              fd_hash_t *  mr,
              fd_hash_t *  cmr ) {
+
+  if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
+    ctx->metrics->old_shred++;
+    return;
+  };
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
   int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
@@ -788,9 +793,15 @@ after_shred( ctx_t      * ctx,
     int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     ulong evicted     = ULONG_MAX;
     fd_forest_blk_t * blk = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
-    if( FD_LIKELY( blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) {
-      fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr );
+    if( FD_UNLIKELY( !blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) return;
+
+    if( FD_LIKELY( fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr ) ) ) {
+      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_remove( ctx->inflights, nonce, shred->slot, shred->idx, &peer ) ) > 0 ) ) {
+        fd_policy_peer_response_update( ctx->policy, &peer, rtt );
+        fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
+      }
     }
+
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
   }
@@ -844,7 +855,8 @@ check_confirmed( ctx_t           * ctx,
   }
 }
 
-static inline void
+/* Returns 1 if the fec is invalid, 0 otherwise. */
+static inline int
 after_fec( ctx_t      * ctx,
            fd_shred_t * shred,
            fd_hash_t  * mr,
@@ -859,11 +871,13 @@ after_fec( ctx_t      * ctx,
   int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
 
   /* Similar to after_shred, do not insert a slot that chains to a slot older than root */
-  if( FD_UNLIKELY( shred->slot - shred->data.parent_off < fd_forest_root_slot( ctx->forest ) ) ) return;
+  if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ||
+                   shred->slot - shred->data.parent_off < fd_forest_root_slot( ctx->forest ) ) ) return 0;
+
   ulong evicted  = ULONG_MAX;
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, &evicted );
-  if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return;
-  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr );
+  if( FD_UNLIKELY( !blk_insert_check( ctx, ele, shred->slot, evicted ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, mr, cmr ) ) ) return -1;
 
   /* metrics for completed slots */
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx ) ) {
@@ -896,6 +910,7 @@ after_fec( ctx_t      * ctx,
                    ele->buffered_idx == ele->complete_idx ) {
     check_confirmed( ctx, ele, &ele->confirmed_bid /* if lowest_verified_fec is not UINT_MAX, confirmed_bid must be populated */ );
   }
+  return 0;
 }
 
 static inline void
@@ -1037,7 +1052,10 @@ after_frag( ctx_t *             ctx,
 
           Msgs 2 and 3 have a shred header in the dcache.  Msg 1 is empty. */
 
-      if( FD_UNLIKELY( sig==SHRED_SIG_FEC_EVICTED ) ) {
+      uint sig_src = fd_shred_sig_src( sig );
+      int  sig_res = fd_shred_sig_res( sig );
+
+      if( FD_UNLIKELY( sig_src==SHRED_SIG_FEC_EVICTED ) ) {
         fd_fec_evicted_t * evicted = (fd_fec_evicted_t *)fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, ctx->chunk ) );
         after_evict( ctx, evicted );
         return;
@@ -1047,17 +1065,12 @@ after_frag( ctx_t *             ctx,
       fd_shred_base_t * shred_msg = (fd_shred_base_t *)fd_type_pun( src );
       fd_shred_t      * shred     = &shred_msg->shred; /* completes & shred messages all have a shred header at the same offset (after merkle root) */
 
-      if( FD_UNLIKELY( shred->slot <= fd_forest_root_slot( ctx->forest ) ) ) {
-        ctx->metrics->old_shred++;
-        return;
-      };
-
-      if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
+      if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot && sig_src == SHRED_SIG_SRC_TURBINE ) ) {
         FD_LOG_INFO(( "[Turbine] slot: %lu, root: %lu", shred->slot, fd_forest_root_slot( ctx->forest ) ));
         ctx->metrics->current_slot = shred->slot;
       }
 
-      if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
+      if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX && sig_src == SHRED_SIG_SRC_TURBINE ) ) {
         ctx->turbine_slot0 = shred->slot;
         fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, shred->slot );
         fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
@@ -1081,22 +1094,19 @@ after_frag( ctx_t *             ctx,
         }
       }
 
-
       if( FD_UNLIKELY( sig==SHRED_SIG_FEC_COMPLETE || sig==SHRED_SIG_FEC_COMPLETE_LEADER ) ) {
         fd_fec_complete_t * complete_msg = (fd_fec_complete_t *)fd_type_pun( src );
-        after_fec( ctx, &complete_msg->last_shred_hdr, &complete_msg->merkle_root, &complete_msg->chained_merkle_root );
+        int   invalid = after_fec( ctx, &complete_msg->last_shred_hdr, &complete_msg->merkle_root, &complete_msg->chained_merkle_root );
+        ulong fwd_sig = invalid ? REPAIR_SIG_FEC_INVALID : (sig==SHRED_SIG_FEC_COMPLETE_LEADER ? REPAIR_SIG_FEC_LEADER : REPAIR_SIG_FEC);
 
-        /* forward along to replay */
+        /* indiscriminately forward FEC complete messages along to replay */
         memcpy( fd_chunk_to_laddr( ctx->repair_out_ctx->mem, ctx->repair_out_ctx->chunk ), src, sz );
-        fd_stem_publish( ctx->stem, ctx->repair_out_ctx->idx, sig, ctx->repair_out_ctx->chunk, sz, 0UL, 0UL, tspub );
+        fd_stem_publish( ctx->stem, ctx->repair_out_ctx->idx, fwd_sig, ctx->repair_out_ctx->chunk, sz, 0UL, 0UL, tspub );
         ctx->repair_out_ctx->chunk = fd_dcache_compact_next( ctx->repair_out_ctx->chunk, sz, ctx->repair_out_ctx->chunk0, ctx->repair_out_ctx->wmark );
-      } else if( FD_LIKELY( fd_shred_sig_res( sig )!=SHRED_SIG_RESULT_EQVOC ) ) {
+      } else if( FD_LIKELY( sig_res!=SHRED_SIG_RESULT_EQVOC ) ) {
         fd_hash_t * cmr = (fd_hash_t *)fd_type_pun(shred_msg->shred_ + fd_shred_chain_off( shred->variant ));
         after_shred( ctx, sig, shred, shred_msg->rnonce, &shred_msg->merkle_root, cmr );
       }
-
-      /* update metrics */
-      ctx->metrics->repaired_slots = fd_forest_highest_repaired_slot( ctx->forest );
       return;
     }
     default: FD_LOG_ERR(( "bad in_kind %u", in_kind )); /* Should never reach here since before_frag should have filtered out any unexpected frags. */
@@ -1428,7 +1438,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 static inline void
 metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
-  FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
+  FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    fd_forest_highest_repaired_slot( ctx->forest ) );
   FD_MCNT_SET( REPAIR, OLD_SHRED,         ctx->metrics->old_shred );
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_policy_peer_pool_used( ctx->policy->peers.pool ) );
   FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL, ctx->metrics->sign_tile_unavail );
