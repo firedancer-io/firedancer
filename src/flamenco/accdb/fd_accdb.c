@@ -1597,10 +1597,6 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
                         int *                 writable,
                         fd_acc_t *            out_accs ) {
   accdb->metrics->acquire_calls++;
-  accdb->metrics->accounts_acquired += pubkeys_cnt;
-  for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
-    if( FD_LIKELY( writable[ i ] ) ) accdb->metrics->writable_accounts_acquired++;
-  }
 
   FD_TEST( pubkeys_cnt<=5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) );
   FD_COMPILER_MFENCE();
@@ -1657,6 +1653,14 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     if( FD_UNLIKELY( acc==UINT_MAX ) )                                       accmetas[ i ] = NULL;
     else                                                                     accmetas[ i ] = &accdb->acc_pool[ acc ];
     if( FD_UNLIKELY( accmetas[ i ] && !writable[ i ] && !accmetas[ i ]->lamports ) ) accmetas[ i ] = NULL;
+
+    /* Attribute this acquired account to a size class for per-class
+       rate metrics.  Use the account's current size class when known;
+       otherwise (new account) bucket as class 0. */
+    ulong acq_class = 0UL;
+    if( FD_LIKELY( accmetas[ i ] ) ) acq_class = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) );
+    if( FD_LIKELY( writable[ i ] ) ) accdb->metrics->writable_accounts_acquired_per_class[ acq_class ]++;
+    else                             accdb->metrics->accounts_acquired_per_class[ acq_class ]++;
   }
 
   // STEP 2.
@@ -2141,7 +2145,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] || exists_in_cache[ i ] ) ) continue;
 
-    accdb->metrics->accounts_not_found++;
+    accdb->metrics->accounts_not_found_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) ) ]++;
 
     /* Tombstones (lamports==0) have no on-disk payload to read, and
        background_advance_root may unlink the acc and never assign it a
@@ -2795,8 +2799,6 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE();
 
-  accdb->metrics->accounts_acquired++;
-
   /// STEP 1.
   ///   Walk the hash chain at acc_map[hash(pubkey)] using the same
   //    visibility test as fd_accdb_acquire_inner.  See that function
@@ -2821,6 +2823,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   }
 
   if( FD_UNLIKELY( !accmeta ) ) {
+    accdb->metrics->accounts_acquired_per_class[ 0 ]++;
     *out_lamports = 0UL;
     FD_COMPILER_MFENCE();
     FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
@@ -2837,6 +2840,8 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   uint  snap_cidx     = FD_VOLATILE_CONST( accmeta->cache_idx );
   ulong data_len      = (ulong)FD_ACCDB_SIZE_DATA( snap_es );
   int   executable    = FD_ACCDB_SIZE_EXEC( snap_es );
+
+  accdb->metrics->accounts_acquired_per_class[ fd_accdb_cache_class( data_len ) ]++;
 
   if( FD_UNLIKELY( !snap_lamports ) ) {
     *out_lamports = 0UL;
@@ -2895,7 +2900,7 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
   }
 
 miss:;
-  accdb->metrics->accounts_not_found++;
+  accdb->metrics->accounts_not_found_per_class[ fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( snap_es ) ) ]++;
 
   /// STEP 4.
   ///   Disk path.  Spin until the writer publishes a real offset
@@ -3378,5 +3383,18 @@ fd_accdb_cache_class_occupancy( fd_accdb_t * accdb,
     max     [ c ] = cap;
     used    [ c ] = live;
     reserved[ c ] = FD_VOLATILE_CONST( accdb->shmem->cache_class_used[ c ].val );
+  }
+}
+
+void
+fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
+                                 ulong *      target_used,
+                                 ulong *      low_water_used ) {
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    ulong max_c    = accdb->shmem->cache_class_max     [ c ];
+    ulong free_tgt = accdb->shmem->cache_free_target   [ c ];
+    ulong free_lwm = accdb->shmem->cache_free_low_water[ c ];
+    target_used   [ c ] = max_c>free_tgt ? max_c-free_tgt : 0UL;
+    low_water_used[ c ] = max_c>free_lwm ? max_c-free_lwm : 0UL;
   }
 }

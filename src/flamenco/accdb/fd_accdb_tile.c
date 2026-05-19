@@ -65,6 +65,12 @@ metrics_write( fd_accdb_tile_ctx_t * ctx ) {
   FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_USED,     cache_used     );
   FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_MAX,      cache_max      );
   FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_RESERVED, cache_reserved );
+
+  ulong cache_target_used[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong cache_lwm_used   [ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_thresholds( ctx->accdb, cache_target_used, cache_lwm_used );
+  FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_TARGET_USED,    cache_target_used );
+  FD_MGAUGE_ENUM_COPY( ACCDB, ACCDB_CACHE_CLASS_LOW_WATER_USED, cache_lwm_used    );
 }
 
 static inline void

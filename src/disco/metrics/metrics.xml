@@ -431,8 +431,8 @@ metric introduced.
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
 
-    <counter name="AccdbAccountsAcquired" summary="Number of accounts read from the account database (one per address lookup table account fetched)" />
-    <counter name="AccdbAccountsNotFound" summary="Number of accounts that were not found in the account database cache and had to be read from disk" />
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts read from the account database (one per address lookup table account fetched), attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were not found in the account database cache and had to be read from disk, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
@@ -688,12 +688,12 @@ metric introduced.
     <counter name="TransactionLanded" enum="TransactionLanded" summary="Whether a transaction landed in the block or not" />
     <counter name="ComputeUnitsTotal" summary="Estimated number of compute units executed since tile start" />
 
-    <counter name="AccdbAccountsAcquired" summary="Number of accounts acquired from the account database" />
-    <counter name="AccdbAccountsAcquiredWritable" summary="Number of accounts acquired from the account database which were writable" />
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsAcquiredWritable" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountsEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
     <counter name="AccdbAccountsCommittedNew" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
-    <counter name="AccdbAccountsNotFound" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
     <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
@@ -803,6 +803,8 @@ metric introduced.
     <gauge name="AccdbCacheClassUsed" enum="AccdbCacheClass" summary="Number of slots currently occupied in the account database cache, broken down by size class" />
     <gauge name="AccdbCacheClassMax" enum="AccdbCacheClass" summary="Total slot capacity of the account database cache, broken down by size class" />
     <gauge name="AccdbCacheClassReserved" enum="AccdbCacheClass" summary="Number of slots currently reserved by in-flight acquires (cache_class_used), or ULONG_MAX when reservation tracking is disabled for the class" />
+    <gauge name="AccdbCacheClassTargetUsed" enum="AccdbCacheClass" summary="Target used-slot count for the account database cache (max - cache_free_target). When used exceeds this, the background preevict pass tries to bring used back down to this level." />
+    <gauge name="AccdbCacheClassLowWaterUsed" enum="AccdbCacheClass" summary="Used-slot count at which the background preevict pass kicks in (max - cache_free_low_water). When used exceeds this, preevicts start." />
 </tile>
 
 <enum name="RootPhase">
@@ -919,12 +921,12 @@ metric introduced.
     <gauge name="ProgcacheUsedPartMeanBytes" summary="Mean used heap partition size in program cache" />
     <counter name="ProgcacheTimeSeconds" converter="seconds" summary="Total time in seconds spent doing program cache tasks" />
 
-    <counter name="AccdbAccountsAcquired" summary="Number of accounts acquired from the account database" />
-    <counter name="AccdbAccountsAcquiredWritable" summary="Number of accounts acquired from the account database which were writable" />
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsAcquiredWritable" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountsEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
     <counter name="AccdbAccountsCommittedNew" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
-    <counter name="AccdbAccountsNotFound" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
     <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
@@ -1220,8 +1222,8 @@ metric introduced.
 </tile>
 
 <tile name="rpc">
-    <counter name="AccdbAccountsAcquired" summary="Number of accounts read from the account database" />
-    <counter name="AccdbAccountsNotFound" summary="Number of accounts that were not found in the account database cache and had to be read from disk" />
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts read from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were not found in the account database cache and had to be read from disk, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
@@ -1292,12 +1294,12 @@ metric introduced.
     <counter name="ProgcacheDurationTotalSeconds" converter="seconds" summary="Total time in seconds spent on program cache operations" />
     <counter name="ProgcacheDurationLoadSeconds" converter="seconds" summary="Total time in seconds spent loading programs" />
 
-    <counter name="AccdbAccountsAcquired" summary="Number of accounts acquired from the account database" />
-    <counter name="AccdbAccountsAcquiredWritable" summary="Number of accounts acquired from the account database which were writable" />
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsAcquiredWritable" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountsEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
     <counter name="AccdbAccountsCommittedNew" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
-    <counter name="AccdbAccountsNotFound" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
     <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
@@ -1396,12 +1398,12 @@ metric introduced.
     <counter name="VotesUnknownSlot" summary="Vote txn was for a slot we haven't replayed" />
     <counter name="VotesUnknownBlockId" summary="Vote txn was for a block id we don't recognize" />
 
-    <counter name="AccdbAccountsAcquired" summary="Number of accounts acquired from the account database" />
-    <counter name="AccdbAccountsAcquiredWritable" summary="Number of accounts acquired from the account database which were writable" />
+    <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
+    <counter name="AccdbAccountsAcquiredWritable" enum="AccdbCacheClass" summary="Number of writable accounts acquired from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountsEvicted" enum="AccdbCacheClass" summary="Number of accounts evicted from the account database cache to make space, broken down by cache size class" />
     <counter name="AccdbAccountsCommittedNew" enum="AccdbCacheClass" summary="Number of new (non-overwrite) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
-    <counter name="AccdbAccountsNotFound" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache" />
+    <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
     <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
