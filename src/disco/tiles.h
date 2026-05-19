@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_disco_tiles_h
 #define HEADER_fd_src_disco_tiles_h
 
+#include "gui/fd_gui_tile.h"
 #include "stem/fd_stem.h"
 #include "shred/fd_shredder.h"
 #include "../ballet/shred/fd_shred.h"
@@ -108,21 +109,7 @@ struct fd_microblock_trailer {
      transactions */
   ulong tips;
 
-  /* If the duration of a microblock is the difference between the
-     publish timestamp of the microblock from pack and the publish
-     timestamp of the microblock from execle, then these represent the
-     elapsed time between the start of the microblock and the 3 state
-     transitions (ready->start loading, loading -> execute, execute ->
-     done) for the first transaction.
-
-     For example, if a microblock starts at t=10 and ends at t=20, and
-     txn_exec_end_pct is UCHAR_MAX / 2, then this transaction started
-     executing at roughly 10+(20-10)*(128/UCHAR_MAX)=15 */
-  uchar txn_start_pct;
-  uchar txn_load_end_pct;
-  uchar txn_end_pct;
-  uchar txn_preload_end_pct;
-
+  fd_gui_txn_ns_dt_t txn_ns_dt;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 

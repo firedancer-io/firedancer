@@ -38,6 +38,7 @@
 
 #include "fd_system_ids.h"
 
+#include <limits.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -981,6 +982,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   /* Set up the transaction accounts and other txn ctx metadata */
   fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
 
+  txn_out->details.check_start_ticks = fd_long_if( txn_out->details.load_start_ticks==LONG_MAX, LONG_MAX, fd_tickcount() );
+
   /* Post-sanitization checks. Called from prepare_sanitized_batch()
      which, for now, only is used to lock the accounts and perform a
      couple basic validations.
@@ -1007,8 +1010,6 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     txn_out->err.is_committable = 0;
     return err;
   }
-
-  txn_out->details.exec_start_timestamp = fd_tickcount();
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( runtime, bank, txn_in, txn_out );
@@ -1158,7 +1159,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     FD_LOG_CRIT(( "fd_runtime_commit_txn: transaction is not committable" ));
   }
 
-  txn_out->details.commit_start_timestamp = fd_tickcount();
+  txn_out->details.commit_start_ticks = fd_long_if( txn_out->details.exec_start_ticks==LONG_MAX, LONG_MAX, fd_tickcount() );
 
   /* Release executable accounts */
 
@@ -1362,10 +1363,10 @@ fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
 static inline void
 fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
                         fd_txn_out_t *      txn_out ) {
-  txn_out->details.prep_start_timestamp   = fd_tickcount();
-  txn_out->details.load_start_timestamp   = LONG_MAX;
-  txn_out->details.exec_start_timestamp   = LONG_MAX;
-  txn_out->details.commit_start_timestamp = LONG_MAX;
+  txn_out->details.load_start_ticks   = fd_tickcount();
+  txn_out->details.check_start_ticks  = LONG_MAX;
+  txn_out->details.exec_start_ticks   = LONG_MAX;
+  txn_out->details.commit_start_ticks = LONG_MAX;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
 
@@ -1440,6 +1441,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   /* Execute the transaction if eligible to do so. */
   if( FD_LIKELY( txn_out->err.is_committable ) ) {
     if( FD_LIKELY( !txn_out->err.is_fees_only ) ) {
+      txn_out->details.exec_start_ticks = fd_long_if( txn_out->details.check_start_ticks==LONG_MAX, LONG_MAX, fd_tickcount() );
       txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
     }
     fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );

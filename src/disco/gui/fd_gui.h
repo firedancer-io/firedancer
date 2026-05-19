@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_gui_fd_gui_h
 
 #include "fd_gui_peers.h"
+#include "fd_gui_tile.h"
 
 #include "../topo/fd_topo.h"
 
@@ -406,21 +407,14 @@ struct __attribute__((packed)) fd_gui_txn {
   uint compute_units_consumed  : 21; /* <= 1.4M */
   uint bank_idx                :  6; /* in [0, 64) */
   uint error_code              :  6; /* in [0, 64) */
-  int timestamp_delta_start_nanos;
-  int timestamp_delta_end_nanos;
 
-  /* txn_{}_pct is used as a fraction of the total microblock
-     duration. For example, txn_load_end_pct can be used to find the
-     time when this transaction started executing:
+  /* relative to leader start */
+  float           microblock_start_ns_dt;
+  float           microblock_end_ns_dt;
 
-     timestamp_delta_start_exec_nanos = (
-       (timestamp_delta_end_nanos-timestamp_delta_start_nanos) *
-       ((double)txn_{}_pct/UCHAR_MAX)
-     ) */
-  uchar txn_start_pct;
-  uchar txn_load_end_pct;
-  uchar txn_end_pct;
-  uchar txn_preload_end_pct;
+  /* relative to microblock_start */
+  fd_gui_txn_ns_dt_t txn_ns_dt;
+
   uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
   uchar source_tpu; /* FD_TXN_M_TPU_SOURCE_* */
   uint  source_ipv4;
@@ -875,18 +869,15 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
                                    ulong        pack_txn_idx );
 
 void
-fd_gui_microblock_execution_end( fd_gui_t *   gui,
-                                 long         now,
-                                 ulong        bank_idx,
-                                 ulong        _slot,
-                                 ulong        txn_cnt,
-                                 fd_txn_p_t * txns,
-                                 ulong        pack_txn_idx,
-                                 uchar        txn_start_pct,
-                                 uchar        txn_load_end_pct,
-                                 uchar        txn_end_pct,
-                                 uchar        txn_preload_end_pct,
-                                 ulong        tips );
+fd_gui_microblock_execution_end( fd_gui_t *         gui,
+                                 long               now,
+                                 ulong              bank_idx,
+                                 ulong              _slot,
+                                 ulong              txn_cnt,
+                                 fd_txn_p_t *       txns,
+                                 ulong              pack_txn_idx,
+                                 fd_gui_txn_ns_dt_t txn_ns_dt,
+                                 ulong              tips );
 
 int
 fd_gui_poll( fd_gui_t * gui, long now );
