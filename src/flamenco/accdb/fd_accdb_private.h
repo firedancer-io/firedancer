@@ -97,7 +97,25 @@ struct fd_accdb_partition {
 
   ulong bytes_freed;
 
-  uchar layer; /* compaction tier this partition belongs to */
+  uchar layer; /* compaction tier this partition belongs to. */
+
+  ulong read_ops;
+  ulong bytes_read;
+  ulong write_ops;
+  ulong bytes_written;
+
+  /* Tickcount (fd_tickcount) of the partition's lifecycle events.  Set
+     only at partition creation and again when the partition closes
+     (i.e. the layer's write head rotates off it). */
+  long created_ticks;
+  long filled_ticks;
+
+  /* Compaction lifecycle flags.  queued is set when the partition is
+     pushed onto the compaction_dlist and cleared when it is popped.
+     compacting_now is set by the compaction tile around the actual
+     compaction work for this partition. */
+  uchar queued;
+  uchar compacting_now;
 
   /* Epoch at which this partition was enqueued for compaction.  Set by
      fd_accdb_shmem_bytes_freed when the partition crosses the

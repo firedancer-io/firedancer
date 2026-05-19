@@ -99,6 +99,41 @@ void
 fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
                                        ulong              partition_idx );
 
+/* Per-partition snapshot for read-only consumers (GUI tile).  This is a
+   the underlying per-partition state is updated with relaxed atomics by
+   writers, so the snapshot is best-effort consistent. compaction_state
+   is 0=idle, 1=queued, 2=compacting. */
+
+struct fd_accdb_shmem_partition_info {
+  ulong file_offset;        /* byte offset of partition start in the accdb file */
+  ulong write_offset;       /* current write head within the partition          */
+  ulong bytes_freed;        /* bytes marked freed within the partition          */
+  ulong compaction_offset;  /* current compaction read offset within partition  */
+  ulong read_ops;
+  ulong bytes_read;
+  ulong write_ops;
+  ulong bytes_written;
+  long  created_ticks;      /* fd_tickcount when the partition was opened       */
+  long  filled_ticks;       /* fd_tickcount when partition closed (0 if active) */
+  uchar layer;              /* compaction tier this partition belongs to        */
+  uchar compaction_state;   /* 0=idle, 1=queued, 2=compacting                   */
+  uchar is_write_head;      /* non-zero if this partition is the active write   */
+                            /* head for any layer at the time of the snapshot   */
+};
+
+typedef struct fd_accdb_shmem_partition_info fd_accdb_shmem_partition_info_t;
+
+ulong
+fd_accdb_shmem_partition_max( fd_accdb_shmem_t const * accdb );
+
+ulong
+fd_accdb_shmem_partition_sz( fd_accdb_shmem_t const * accdb );
+
+void
+fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
+                               ulong                             partition_idx,
+                               fd_accdb_shmem_partition_info_t * out );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_accdb_fd_accdb_shmem_h */

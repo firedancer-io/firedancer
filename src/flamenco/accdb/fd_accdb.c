@@ -95,6 +95,40 @@ cache_line( fd_accdb_t * accdb,
   return (fd_accdb_cache_line_t *)( accdb->cache[ cls ] + idx * fd_accdb_cache_slot_sz[ cls ] );
 }
 
+/* Bump the per-partition read counters for the partition that contains
+   file_offset.  Called at preadv2 sites.  Writes are counted at
+   allocate time (see fd_accdb_partition_write_bump) so that they reflect
+   bytes committed to a partition rather than syscalls — the snapshot
+   loader bypasses pwritev2 entirely, but every write still goes through
+   allocate_next_write. */
+static inline void
+fd_accdb_partition_read_bump( fd_accdb_t * accdb,
+                              ulong        file_offset,
+                              ulong        bytes ) {
+  if( FD_UNLIKELY( !bytes ) ) return;
+  ulong partition_idx = file_offset / accdb->shmem->partition_sz;
+  fd_accdb_partition_t * p = partition_pool_ele( accdb->partition_pool, partition_idx );
+  if( FD_UNLIKELY( !p ) ) return;
+  FD_ATOMIC_FETCH_AND_ADD( &p->bytes_read, bytes );
+  FD_ATOMIC_FETCH_AND_ADD( &p->read_ops,   1UL   );
+}
+
+/* Bump the per-partition write counters at allocate time.  bytes is the
+   reserved size, which equals the bytes that will land on this
+   partition.  Called from allocate_next_write and
+   allocate_next_compaction_write. */
+static inline void
+fd_accdb_partition_write_bump( fd_accdb_t * accdb,
+                               ulong        file_offset,
+                               ulong        bytes ) {
+  if( FD_UNLIKELY( !bytes ) ) return;
+  ulong partition_idx = file_offset / accdb->shmem->partition_sz;
+  fd_accdb_partition_t * p = partition_pool_ele( accdb->partition_pool, partition_idx );
+  if( FD_UNLIKELY( !p ) ) return;
+  FD_ATOMIC_FETCH_AND_ADD( &p->bytes_written, bytes );
+  FD_ATOMIC_FETCH_AND_ADD( &p->write_ops,     1UL   );
+}
+
 static inline ulong
 cache_line_idx( fd_accdb_t *                  accdb,
                 ulong                         cls,
@@ -1186,10 +1220,16 @@ change_partition( fd_accdb_t *     accdb,
     before->write_offset = partition_offset_before;
   }
 
+  /* Single rdtsc per partition lifecycle event: stamp the closing
+     partition's filled time and the new partition's created time off
+     the same sample. */
+  long now_ticks = (long)fd_tickcount();
+
   ulong free_size = accdb->shmem->partition_sz - partition_offset_before;
   if( FD_LIKELY( *has_partition ) ) {
     fd_accdb_partition_t * old = partition_pool_ele( accdb->partition_pool, partition_idx_before );
     FD_ATOMIC_FETCH_AND_ADD( &old->bytes_freed, free_size );
+    FD_VOLATILE( old->filled_ticks ) = now_ticks;
     /* The tail slack is now committed dead — count it as current
        (written-through) so fragmentation reflects it. */
     FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, free_size );
@@ -1200,6 +1240,16 @@ change_partition( fd_accdb_t *     accdb,
   partition->bytes_freed       = 0UL;
   partition->marked_compaction = 0;
   partition->layer             = layer;
+  partition->read_ops          = 0UL;
+  partition->bytes_read        = 0UL;
+  partition->write_ops         = 0UL;
+  partition->bytes_written     = 0UL;
+  partition->write_offset      = 0UL;
+  partition->compaction_offset = 0UL;
+  partition->created_ticks     = now_ticks;
+  partition->filled_ticks      = 0L;
+  partition->queued            = 0;
+  partition->compacting_now    = 0;
 
   ulong new_partition_idx = partition_pool_idx( accdb->partition_pool, partition );
   int had_partition = *has_partition;
@@ -1259,7 +1309,9 @@ allocate_next_write( fd_accdb_t * accdb,
     accdb_offset_t offset = { .val = FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->whead[ 0 ].val, sz ) };
     if( FD_LIKELY( packed_partition_offset( offset )+sz<=accdb->shmem->partition_sz ) ) {
       FD_ATOMIC_FETCH_AND_ADD( &accdb->shmem->shmetrics->disk_current_bytes, sz );
-      return packed_partition_file_offset( offset, accdb->shmem->partition_sz );
+      ulong file_offset = packed_partition_file_offset( offset, accdb->shmem->partition_sz );
+      fd_accdb_partition_write_bump( accdb, file_offset, sz );
+      return file_offset;
     }
 
     if( FD_UNLIKELY( packed_partition_offset( offset )>accdb->shmem->partition_sz ) ) {
@@ -1287,7 +1339,8 @@ allocate_next_compaction_write( fd_accdb_t * accdb,
                                 ulong        sz,
                                 ulong        dest_layer ) {
   accdb_offset_t offset = accdb->shmem->whead[ dest_layer ];
-  if( FD_UNLIKELY( packed_partition_offset( offset )+sz>accdb->shmem->partition_sz ) ) {
+  if( FD_UNLIKELY( !accdb->shmem->has_partition[ dest_layer ] ||
+                    packed_partition_offset( offset )+sz>accdb->shmem->partition_sz ) ) {
     spin_lock_acquire( &accdb->shmem->partition_lock );
     change_partition( accdb, offset, &accdb->shmem->whead[ dest_layer ], &accdb->shmem->has_partition[ dest_layer ], (uchar)dest_layer );
     spin_lock_release( &accdb->shmem->partition_lock );
@@ -1295,7 +1348,9 @@ allocate_next_compaction_write( fd_accdb_t * accdb,
   }
   accdb->shmem->whead[ dest_layer ].val += sz;
   accdb->shmem->shmetrics->disk_current_bytes += sz;
-  return packed_partition_file_offset( offset, accdb->shmem->partition_sz );
+  ulong file_offset = packed_partition_file_offset( offset, accdb->shmem->partition_sz );
+  fd_accdb_partition_write_bump( accdb, file_offset, sz );
+  return file_offset;
 }
 
 /* fd_accdb_compact relocates one record from the oldest partition
@@ -1367,6 +1422,10 @@ background_compact( fd_accdb_t * accdb,
 
   *charge_busy = 1;
 
+  /* Mark the head partition as actively compacting. */
+  FD_VOLATILE( compact->queued )         = 0;
+  FD_VOLATILE( compact->compacting_now ) = 1;
+
   fd_accdb_disk_meta_t meta[1];
 
   ulong compact_base = partition_pool_idx( accdb->partition_pool, compact )*accdb->shmem->partition_sz;
@@ -1380,6 +1439,7 @@ background_compact( fd_accdb_t * accdb,
     else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "pread() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
                                                    compact_base+compact->compaction_offset+bytes_read, sizeof(fd_accdb_disk_meta_t) ));
+    fd_accdb_partition_read_bump( accdb, compact_base+compact->compaction_offset, (ulong)result );
     bytes_read += (ulong)result;
   }
 
@@ -1418,6 +1478,7 @@ background_compact( fd_accdb_t * accdb,
       else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "copy_file_range() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
                                                       compact_base+compact->compaction_offset+bytes_copied, record_sz ));
+      fd_accdb_partition_read_bump( accdb, compact_base+compact->compaction_offset+bytes_copied, (ulong)result );
       bytes_copied += (ulong)result;
       accdb->metrics->copy_ops++;
     }
@@ -1474,6 +1535,8 @@ background_compact( fd_accdb_t * accdb,
 
     accdb->shmem->shmetrics->partitions_freed++;
     compaction_dlist_ele_pop_head( accdb->compaction_dlist[ src_layer ], accdb->partition_pool );
+    FD_VOLATILE( compact->compacting_now ) = 0;
+    FD_VOLATILE( compact->queued )         = 0;
     deferred_free_dlist_ele_push_tail( accdb->deferred_free_dlist, compact, accdb->partition_pool );
 
     accdb->shmem->shmetrics->compactions_completed++;
@@ -2198,6 +2261,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
                                                      read_offsets[ i ]+bytes_read, read_sizes[ i ] ));
+      fd_accdb_partition_read_bump( accdb, read_offsets[ i ]+bytes_read, (ulong)result );
       bytes_read += (ulong)result;
       accdb->metrics->bytes_read += (ulong)result;
       accdb->metrics->read_ops++;
@@ -2929,6 +2993,7 @@ miss:;
     if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK) ) ) continue;
     else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents", start+got, total ));
+    fd_accdb_partition_read_bump( accdb, start+got, (ulong)result );
     got += (ulong)result;
     accdb->metrics->bytes_read += (ulong)result;
     accdb->metrics->read_ops++;
