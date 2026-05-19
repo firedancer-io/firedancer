@@ -217,6 +217,59 @@ test_rx_headers( fd_grpc_client_t * client ) {
   FD_TEST( client->stream_cnt==0 );
 }
 
+static void
+test_grpc_stream_error_releases_h2_quota( fd_grpc_client_t * client ) {
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+  client->conn->peer_settings.max_concurrent_streams = 1U;
+
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_stream_acquire( client, 0UL );
+  ulong stream_id = stream->s.stream_id;
+  FD_TEST( client->conn->stream_active_cnt[1]==1U );
+  FD_TEST( !fd_grpc_client_stream_acquire_is_safe( client ) );
+
+  fd_grpc_h2_cb_headers( client->conn, &stream->s, "corrupt", 7UL, FD_H2_FLAG_END_HEADERS );
+  FD_TEST( client->stream_cnt==0UL );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+  FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
+  FD_TEST( g_rx_end_cnt>0UL );
+
+  FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
+  fd_h2_rst_stream_t rst_stream;
+  fd_h2_rbuf_pop_copy( client->frame_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+  FD_TEST( rst_stream.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ) );
+  FD_TEST( rst_stream.hdr.flags==0 );
+  FD_TEST( fd_uint_bswap( rst_stream.hdr.r_stream_id )==stream_id );
+  FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_PROTOCOL );
+
+  fd_grpc_client_reset( client );
+  test_grpc_client_mock_conn( client );
+  client->conn->peer_settings.max_concurrent_streams = 1U;
+
+  stream = fd_grpc_client_stream_acquire( client, 1UL );
+  stream_id = stream->s.stream_id;
+  stream->hdrs.h2_status     = 200U;
+  stream->hdrs.is_grpc_proto = 1U;
+  FD_TEST( client->conn->stream_active_cnt[1]==1U );
+  FD_TEST( !fd_grpc_client_stream_acquire_is_safe( client ) );
+
+  fd_grpc_hdr_t hdr = {
+    .compressed = 0U,
+    .msg_sz     = fd_uint_bswap( (uint)client->frame_rx_buf_max )
+  };
+  fd_grpc_h2_cb_data( client->conn, &stream->s, &hdr, sizeof(hdr), 0UL );
+  FD_TEST( client->stream_cnt==0UL );
+  FD_TEST( client->conn->stream_active_cnt[1]==0U );
+  FD_TEST( fd_grpc_client_stream_acquire_is_safe( client ) );
+
+  FD_TEST( fd_h2_rbuf_used_sz( client->frame_tx )==sizeof(fd_h2_rst_stream_t) );
+  fd_h2_rbuf_pop_copy( client->frame_tx, &rst_stream, sizeof(fd_h2_rst_stream_t) );
+  FD_TEST( rst_stream.hdr.typlen==fd_h2_frame_typlen( FD_H2_FRAME_TYPE_RST_STREAM, 4UL ) );
+  FD_TEST( rst_stream.hdr.flags==0 );
+  FD_TEST( fd_uint_bswap( rst_stream.hdr.r_stream_id )==stream_id );
+  FD_TEST( fd_uint_bswap( rst_stream.error_code )==FD_H2_ERR_INTERNAL );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -242,6 +295,7 @@ main( int     argc,
   test_rx_stream_quota( client );
   test_stream_release ( client );
   test_rx_headers     ( client );
+  test_grpc_stream_error_releases_h2_quota( client );
 
   fd_grpc_client_delete( client );
 

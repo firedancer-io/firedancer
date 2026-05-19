@@ -45,6 +45,9 @@ struct test_h2_srv_seq_fixture {
   fd_h2_tx_op_t            tx_op[1];
   fd_h2_rbuf_t *           rbuf_tx;
   ulong                    conn_established_cnt;
+  ulong                    rst_stream_cnt;
+  uint                     rst_stream_err;
+  int                      rst_stream_closed_by;
   test_h2_srv_seq_request_t current;
   test_h2_srv_seq_request_t last_completed;
   ulong                    request_complete_cnt;
@@ -225,6 +228,21 @@ test_h2_srv_seq_stream_window_update( fd_h2_conn_t *   conn,
 }
 
 static void
+test_h2_srv_seq_rst_stream( fd_h2_conn_t *   conn,
+                            fd_h2_stream_t * stream,
+                            uint             error_code,
+                            int              closed_by ) {
+  test_h2_srv_seq_fixture_t * fixture = conn->ctx;
+  fixture->rst_stream_cnt++;
+  fixture->rst_stream_err       = error_code;
+  fixture->rst_stream_closed_by = closed_by;
+  fd_memset( fixture->tx_op,   0, sizeof(fixture->tx_op  [0]) );
+  fd_memset( fixture->stream,  0, sizeof(fixture->stream [0]) );
+  fd_memset( &fixture->current, 0, sizeof(fixture->current) );
+  (void)stream;
+}
+
+static void
 test_h2_srv_seq_fixture_init( test_h2_srv_seq_fixture_t * fixture,
                               fd_h2_conn_t *             conn,
                               fd_h2_callbacks_t *        cb,
@@ -242,6 +260,7 @@ test_h2_srv_seq_fixture_init( test_h2_srv_seq_fixture_t * fixture,
   cb->conn_established     = test_h2_srv_seq_conn_established;
   cb->headers              = test_h2_srv_seq_headers;
   cb->data                 = test_h2_srv_seq_data;
+  cb->rst_stream           = test_h2_srv_seq_rst_stream;
   cb->window_update        = test_h2_srv_seq_window_update;
   cb->stream_window_update = test_h2_srv_seq_stream_window_update;
 }
@@ -369,6 +388,37 @@ test_h2_srv_seq_expect_tx_empty( test_h2_srv_seq_harness_t const * harness ) {
 }
 
 static void
+test_h2_srv_seq_handshake( test_h2_srv_seq_harness_t * harness ) {
+  fd_h2_tx_control( harness->conn, harness->rbuf_tx, harness->cb );
+  FD_TEST( fd_h2_rbuf_used_sz( harness->rbuf_tx )>0UL );
+  test_h2_srv_seq_expect_response_frame( harness,
+                                         FD_H2_FRAME_TYPE_SETTINGS,
+                                         0U,
+                                         0U,
+                                         TEST_H2_SRV_SEQ_PAYLOAD_NONEMPTY,
+                                         NULL,
+                                         0UL );
+  test_h2_srv_seq_expect_tx_empty( harness );
+
+  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_SETTINGS, 0U, 0U, NULL, 0UL );
+  test_h2_srv_seq_service_rx( harness );
+  test_h2_srv_seq_expect_rx_empty( harness );
+  test_h2_srv_seq_expect_response_frame( harness,
+                                         FD_H2_FRAME_TYPE_SETTINGS,
+                                         FD_H2_FLAG_ACK,
+                                         0U,
+                                         TEST_H2_SRV_SEQ_PAYLOAD_EMPTY,
+                                         NULL,
+                                         0UL );
+  test_h2_srv_seq_expect_tx_empty( harness );
+
+  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_SETTINGS, FD_H2_FLAG_ACK, 0U, NULL, 0UL );
+  test_h2_srv_seq_service_rx( harness );
+  test_h2_srv_seq_expect_rx_empty( harness );
+  test_h2_srv_seq_expect_tx_empty( harness );
+}
+
+static void
 test_h2_server_stream_accounting( void ) {
   test_h2_srv_seq_harness_t harness[1];
   uchar request_headers[ TEST_H2_SRV_SEQ_HEADER_MAX ] = {0};
@@ -405,30 +455,8 @@ test_h2_server_stream_accounting( void ) {
      Here we start from the HTTP/2 frame stream: the server emits initial
      SETTINGS, the client sends SETTINGS, then acknowledges the server's
      SETTINGS before opening the first request stream. */
-  fd_h2_tx_control( harness->conn, harness->rbuf_tx, harness->cb );
-  FD_TEST( fd_h2_rbuf_used_sz( harness->rbuf_tx )>0UL );
-  test_h2_srv_seq_expect_response_frame( harness,
-                                         FD_H2_FRAME_TYPE_SETTINGS,
-                                         0U,
-                                         0U,
-                                         TEST_H2_SRV_SEQ_PAYLOAD_NONEMPTY,
-                                         NULL,
-                                         0UL );
-  test_h2_srv_seq_expect_tx_empty( harness );
+  test_h2_srv_seq_handshake( harness );
 
-  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_SETTINGS, 0U, 0U, NULL, 0UL );
-  test_h2_srv_seq_service_rx( harness );
-  test_h2_srv_seq_expect_rx_empty( harness );
-  test_h2_srv_seq_expect_response_frame( harness,
-                                         FD_H2_FRAME_TYPE_SETTINGS,
-                                         FD_H2_FLAG_ACK,
-                                         0U,
-                                         TEST_H2_SRV_SEQ_PAYLOAD_EMPTY,
-                                         NULL,
-                                         0UL );
-  test_h2_srv_seq_expect_tx_empty( harness );
-
-  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_SETTINGS, FD_H2_FLAG_ACK, 0U, NULL, 0UL );
   test_h2_srv_seq_send_frame( harness,
                               FD_H2_FRAME_TYPE_HEADERS,
                               FD_H2_FLAG_END_HEADERS,
@@ -515,4 +543,53 @@ test_h2_server_stream_accounting( void ) {
                                          TEST_H2_SRV_SEQ_OK,
                                          sizeof(TEST_H2_SRV_SEQ_OK)-1UL );
   test_h2_srv_seq_expect_tx_empty( harness );
+}
+
+static void
+test_h2_server_stream_error_releases_quota( void ) {
+  test_h2_srv_seq_harness_t harness[1];
+  test_h2_srv_seq_harness_init( harness );
+  test_h2_srv_seq_handshake( harness );
+
+  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, 1U, NULL, 0UL );
+  test_h2_srv_seq_service_rx( harness );
+  test_h2_srv_seq_expect_rx_empty( harness );
+  test_h2_srv_seq_expect_tx_empty( harness );
+  FD_TEST( harness->fixture->stream->stream_id==1U );
+  FD_TEST( harness->conn->stream_active_cnt[0]==1U );
+
+  uint increment = fd_uint_bswap( 0x7fffffffU );
+  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_WINDOW_UPDATE, 0U, 1U, &increment, sizeof(increment) );
+  test_h2_srv_seq_service_rx( harness );
+  test_h2_srv_seq_expect_rx_empty( harness );
+  test_h2_srv_seq_expect_tx_empty( harness );
+  FD_TEST( harness->fixture->stream->stream_id==1U );
+  FD_TEST( harness->conn->stream_active_cnt[0]==1U );
+
+  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_WINDOW_UPDATE, 0U, 1U, &increment, sizeof(increment) );
+  test_h2_srv_seq_service_rx( harness );
+  test_h2_srv_seq_expect_rx_empty( harness );
+  FD_TEST( harness->fixture->rst_stream_cnt==1UL );
+  FD_TEST( harness->fixture->rst_stream_err==FD_H2_ERR_FLOW_CONTROL );
+  FD_TEST( harness->fixture->rst_stream_closed_by==0 );
+  FD_TEST( harness->fixture->stream->stream_id==0U );
+  FD_TEST( !( harness->conn->flags & FD_H2_CONN_FLAGS_DEAD ) );
+  FD_TEST( harness->conn->stream_active_cnt[0]==0U );
+
+  uint rst_err = fd_uint_bswap( FD_H2_ERR_FLOW_CONTROL );
+  test_h2_srv_seq_expect_response_frame( harness,
+                                         FD_H2_FRAME_TYPE_RST_STREAM,
+                                         0U,
+                                         1U,
+                                         TEST_H2_SRV_SEQ_PAYLOAD_EXACT,
+                                         (uchar const *)&rst_err,
+                                         sizeof(rst_err) );
+  test_h2_srv_seq_expect_tx_empty( harness );
+
+  test_h2_srv_seq_send_frame( harness, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, 3U, NULL, 0UL );
+  test_h2_srv_seq_service_rx( harness );
+  test_h2_srv_seq_expect_rx_empty( harness );
+  test_h2_srv_seq_expect_tx_empty( harness );
+  FD_TEST( harness->fixture->stream->stream_id==3U );
+  FD_TEST( harness->conn->stream_active_cnt[0]==1U );
 }
