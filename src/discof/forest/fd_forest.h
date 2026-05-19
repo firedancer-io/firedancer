@@ -750,7 +750,8 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
 /* fd_forest_fec_insert inserts a new fully completed FEC set into the
    forest. Assumes slot is already in forest, and should typically be
    called directly after fd_forest_block_insert. Returns the forest ele
-   corresponding to the shred slot. */
+   corresponding to the shred slot if the FEC was accepted, NULL
+   otherwise. */
 
 fd_forest_blk_t *
 fd_forest_fec_insert( fd_forest_t * forest,
