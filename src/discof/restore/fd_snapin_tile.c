@@ -1122,6 +1122,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         fd_accdb_fork_id_t null_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
         ctx->accdb_root_fork_id = fd_accdb_attach_child( ctx->accdb, null_fork_id );
 
+        fd_accdb_snapshot_load_begin( ctx->accdb );
+
         ctx->slot_history.captured  = 0;
         ctx->slot_history.capturing = 0;
       } else {
@@ -1205,6 +1207,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         forward_msg = 0;
         break;
       }
+
+      fd_accdb_snapshot_load_end( ctx->accdb );
 
       /* Notify replay when snapshot is fully loaded and verified. */
       fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );

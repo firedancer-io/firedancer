@@ -78,6 +78,14 @@ struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   ulong                   deferred_fork_epoch;
 
   fd_accdb_metrics_t metrics[1];
+
+  /* Set by fd_accdb_snapshot_load_begin/end.  When non-zero, layer-0
+     partition handoffs (in change_partition) re-tier the partitions
+     that fell out of the snapshot-load working set: P-2 to Warm and
+     P-3 to Cold.  This backfills tiering for snapshot-loaded data
+     that never gets a second write (and therefore would otherwise
+     never be promoted by compaction). */
+  int snapshot_loading;
 };
 
 static inline fd_accdb_cache_line_t *
@@ -200,7 +208,55 @@ fd_accdb_new( void *              ljoin,
 
   memset( accdb->metrics, 0, sizeof(fd_accdb_metrics_t) );
 
+  accdb->snapshot_loading = 0;
+
   return accdb;
+}
+
+void
+fd_accdb_snapshot_load_begin( fd_accdb_t * accdb ) {
+  accdb->snapshot_loading = 1;
+  FD_VOLATILE( accdb->shmem->snapshot_loading ) = 1;
+}
+
+static inline void
+change_partition( fd_accdb_t *     accdb,
+                  accdb_offset_t   offset_before,
+                  accdb_offset_t * out_offset,
+                  int *            has_partition,
+                  uchar            layer );
+
+void
+fd_accdb_snapshot_load_end( fd_accdb_t * accdb ) {
+  spin_lock_acquire( &accdb->shmem->partition_lock );
+
+  /* Force the next layer-0 write onto a fresh Hot partition so we do
+     not keep appending live execution writes to the tail of a partition
+     that was tagged Cold during snapshot load.  Must run while
+     snapshot_loading is still set so the partition we just closed
+     (the snapshot-tagged Cold one) is not enqueued for compaction by
+     change_partition's tail-credit try_enqueue.  change_partition will
+     retag the newly-allocated partition as Cold (because the flag is
+     still set), so we fix it back to Hot below. */
+  if( FD_LIKELY( accdb->shmem->has_partition[ 0 ] ) ) {
+    change_partition( accdb, accdb->shmem->whead[ 0 ], &accdb->shmem->whead[ 0 ], &accdb->shmem->has_partition[ 0 ], 0 );
+    ulong new_idx = packed_partition_idx( accdb->shmem->whead[ 0 ] );
+    fd_accdb_partition_t * newp = partition_pool_ele( accdb->partition_pool, new_idx );
+    FD_VOLATILE( newp->layer ) = 0;
+  }
+
+  accdb->snapshot_loading = 0;
+  FD_VOLATILE( accdb->shmem->snapshot_loading ) = 0;
+
+  /* Sweep all partitions written during the load — any that crossed
+     the fragmentation threshold while enqueue was suppressed are
+     re-checked now and pushed onto the compaction queue. */
+  ulong partition_max = accdb->shmem->partition_max;
+  for( ulong p=0UL; p<partition_max; p++ ) {
+    fd_accdb_shmem_try_enqueue_compaction( accdb->shmem, p );
+  }
+
+  spin_lock_release( &accdb->shmem->partition_lock );
 }
 
 fd_accdb_t *
@@ -1159,6 +1215,18 @@ change_partition( fd_accdb_t *     accdb,
      not a valid pool element. */
   if( FD_LIKELY( had_partition && partition_idx_before!=new_partition_idx ) ) {
     fd_accdb_shmem_try_enqueue_compaction( accdb->shmem, partition_idx_before );
+  }
+
+  /* Snapshot-load tiering: accounts loaded from a snapshot never get
+     a second write, so compaction-driven promotion never fires and
+     they would otherwise live in Hot forever.  When snapshot_loading
+     is set, tag the new partition as Cold up front.  We do not set
+     has_partition[Cold] / whead[Cold] — those are owned by the
+     compaction tile and represent the live Cold write head, which is
+     independent of snapshot-loaded partitions that happen to be
+     labeled Cold. */
+  if( FD_UNLIKELY( accdb->snapshot_loading && layer==0 ) ) {
+    FD_VOLATILE( partition->layer ) = FD_ACCDB_COMPACTION_LAYER_CNT-1UL;
   }
 
   if( FD_UNLIKELY( new_partition_idx>=accdb->shmem->partition_max ) ) {
