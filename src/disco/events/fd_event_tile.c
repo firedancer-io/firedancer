@@ -10,8 +10,10 @@
 #include "../keyguard/fd_keyswitch.h"
 #include "../topo/fd_topo.h"
 #include "../../waltz/resolv/fd_netdb.h"
-#include "../../ballet/lthash/fd_lthash.h"
+#include "../../waltz/http/fd_url.h"
+#include "../../waltz/openssl/fd_openssl_tile.h"
 #include "../../ballet/pb/fd_pb_encode.h"
+#include "../../util/alloc/fd_alloc.h"
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -21,6 +23,10 @@
 #include <sys/syscall.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+
+#if FD_HAS_OPENSSL
+#include <openssl/ssl.h>
+#endif
 
 #include "generated/fd_event_tile_seccomp.h"
 
@@ -74,6 +80,11 @@ struct fd_event_tile {
   fd_keyguard_client_t keyguard_client[1];
   fd_rng_t rng[1];
 
+#if FD_HAS_OPENSSL
+  SSL_CTX *    ssl_ctx;
+  fd_alloc_t * ssl_alloc;
+#endif
+
   fd_netdb_fds_t netdb_fds[1];
 
   ulong in_cnt;
@@ -88,6 +99,9 @@ scratch_align( void ) {
   ulong a = alignof( fd_event_tile_t );
   a = fd_ulong_max( a, fd_event_client_align() );
   a = fd_ulong_max( a, fd_circq_align() );
+#if FD_HAS_OPENSSL
+  a = fd_ulong_max( a, fd_alloc_align() );
+#endif
   return a;
 }
 
@@ -99,8 +113,19 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   l = FD_LAYOUT_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           ); /* 1GiB circq for events */
+#if FD_HAS_OPENSSL
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                      );
+#endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
+
+#if FD_HAS_OPENSSL
+FD_FN_CONST static inline ulong
+loose_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  return 1UL<<26; /* 64 MiB for OpenSSL allocations */
+}
+#endif
 
 static inline void
 metrics_write( fd_event_tile_t * ctx ) {
@@ -334,6 +359,70 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->machine_id = fd_hash( FD_EVENT_ID_SEED, _machine_id, 32UL );
 
+#if FD_HAS_OPENSSL
+  ctx->ssl_ctx = NULL;
+  ctx->ssl_alloc = NULL;
+
+  FD_SCRATCH_ALLOC_INIT( ssl_l, scratch );
+  fd_event_tile_t * ctx2 = FD_SCRATCH_ALLOC_APPEND( ssl_l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t) );
+  FD_SCRATCH_ALLOC_APPEND( ssl_l, fd_event_client_align(), fd_event_client_footprint( GRPC_BUF_MAX ) );
+  FD_SCRATCH_ALLOC_APPEND( ssl_l, fd_circq_align(), fd_circq_footprint( 1UL<<30UL ) );
+  void * alloc_mem = FD_SCRATCH_ALLOC_APPEND( ssl_l, fd_alloc_align(), fd_alloc_footprint() );
+  FD_TEST( ctx2==ctx );
+
+  fd_url_t url[1];
+  ushort unused_port;
+  _Bool is_ssl = 0;
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url,
+                                          tile->event.url,
+                                          strlen( tile->event.url ),
+                                          &unused_port,
+                                          &is_ssl,
+                                          "[tiles.event.url]" ) ) ) {
+    FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
+  }
+
+  if( is_ssl ) {
+    fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), 1UL );
+    if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_new failed" ));
+    ctx->ssl_alloc = alloc;
+    fd_ossl_tile_init( alloc );
+
+    SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
+    if( FD_UNLIKELY( !ssl_ctx ) ) FD_LOG_ERR(( "SSL_CTX_new failed" ));
+
+    if( FD_UNLIKELY( !SSL_CTX_set_mode( ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_AUTO_RETRY ) ) ) {
+      FD_LOG_ERR(( "SSL_CTX_set_mode failed" ));
+    }
+
+    if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) ) {
+      FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
+    }
+
+    if( FD_UNLIKELY( 0!=SSL_CTX_set_alpn_protos( ssl_ctx, (uchar const *)"\x02h2", 3 ) ) ) {
+      FD_LOG_ERR(( "SSL_CTX_set_alpn_protos failed" ));
+    }
+
+    fd_ossl_load_certs( ssl_ctx );
+    ctx->ssl_ctx = ssl_ctx;
+  }
+#else
+  fd_url_t url[1];
+  ushort unused_port;
+  _Bool is_ssl = 0;
+  if( FD_UNLIKELY( fd_url_parse_endpoint( url,
+                                          tile->event.url,
+                                          strlen( tile->event.url ),
+                                          &unused_port,
+                                          &is_ssl,
+                                          "[tiles.event.url]" ) ) ) {
+    FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
+  }
+  if( FD_UNLIKELY( is_ssl ) ) {
+    FD_LOG_ERR(( "This build does not include OpenSSL. Rebuild with OpenSSL to use https for [tiles.event.url]." ));
+  }
+#endif
+
   if( FD_UNLIKELY( !fd_netdb_open_fds( ctx->netdb_fds ) ) ) {
     FD_LOG_ERR(( "fd_netdb_open_fds failed" ));
   }
@@ -377,6 +466,9 @@ unprivileged_init( fd_topo_t *      topo,
                                                            ctx->circq,
                                                            2*(1UL<<20UL) /* 2 MiB */,
                                                            tile->event.url,
+#if FD_HAS_OPENSSL
+                                                           ctx->ssl_ctx,
+#endif
                                                            ctx->identity_pubkey,
                                                            firedancer_version_string,
                                                            ctx->instance_id,
@@ -486,6 +578,9 @@ fd_topo_run_tile_t fd_tile_event = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+#if FD_HAS_OPENSSL
+  .loose_footprint          = loose_footprint,
+#endif
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
