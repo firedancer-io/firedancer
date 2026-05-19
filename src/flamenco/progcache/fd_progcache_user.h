@@ -94,26 +94,6 @@ extern FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 
 /* Constructor */
 
-static inline ulong
-fd_progcache_align( void ) {
-  return alignof(fd_progcache_t);
-}
-
-static inline ulong
-fd_progcache_footprint( void ) {
-  return sizeof(fd_progcache_t);
-}
-
-static inline fd_progcache_t *
-fd_progcache_new( void * ljoin ) {
-  return ljoin;
-}
-
-static inline void *
-fd_progcache_delete( void * ljoin ) {
-  return ljoin;
-}
-
 /* fd_progcache_join joins the caller to a program cache shmem instance.
    scratch points to a FD_PROGCACHE_SCRATCH_ALIGN aligned scratch buffer
    and scratch_sz is the size of the largest program/ELF binary that is

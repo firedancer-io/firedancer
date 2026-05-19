@@ -134,16 +134,6 @@ struct fd_accdb_user {
 
 FD_PROTOTYPES_BEGIN
 
-static inline ulong
-fd_accdb_user_align( void ) {
-  return alignof(fd_accdb_user_t);
-}
-
-static inline ulong
-fd_accdb_user_footprint( void ) {
-  return sizeof(fd_accdb_user_t);
-}
-
 static inline void
 fd_accdb_user_fini( fd_accdb_user_t * accdb ) {
   accdb->base.vt->fini( accdb );
