@@ -486,7 +486,11 @@ fd_vm_new( void * shmem ) {
   }
 
   fd_vm_t * vm = (fd_vm_t *)shmem;
-  fd_memset( vm, 0, fd_vm_footprint() );
+
+  /* Zero only the config region (everything before stack/heap).
+     Stack and heap are lazily zeroed on first access via bitmap
+     tracking in fd_vm_lazy_zero_pages. */
+  fd_memset( vm, 0, offsetof( fd_vm_t, stack ) );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( vm->magic ) = FD_VM_MAGIC;
@@ -649,6 +653,11 @@ fd_vm_init(
   vm->segv_access_len                        = 0UL;
   vm->segv_access_type                       = 0;
   vm->dump_syscall_to_pb                     = dump_syscall_to_pb;
+
+  /* Reset lazy page zeroing bitmaps so stack/heap pages are lazily
+     zeroed on first access during this invocation. */
+  memset( vm->stack_zero_bitmap, 0, FD_VM_LAZY_BITMAP_WORDS * sizeof(ulong) );
+  memset( vm->heap_zero_bitmap,  0, FD_VM_LAZY_BITMAP_WORDS * sizeof(ulong) );
 
   /* Unpack input and rodata */
   fd_vm_mem_cfg( vm );

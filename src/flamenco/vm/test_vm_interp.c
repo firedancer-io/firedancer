@@ -5,8 +5,9 @@
 #include "../runtime/fd_bank.h"
 #include "../../ballet/sbpf/fd_sbpf_instr.h"
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
-#include <stdlib.h>  /* malloc */
+#include <stdlib.h>
 
 static int
 accumulator_syscall( FD_PARAM_UNUSED void *  _vm,
@@ -379,6 +380,9 @@ test_0cu_exit( fd_runtime_t * runtime ) {
   fd_sha256_delete( fd_sha256_leave( sha ) );
 }
 
+/* NOTE: p-token transfer benchmark is in bench_vm_interp.c */
+
+
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
 
 int
@@ -386,11 +390,11 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  char const * name     = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",      NULL, NULL            );
-  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"      );
-  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 5UL             );
-  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
-  ulong        wksp_tag = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",  NULL, 1234UL          );
+  char const * name       = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp",       NULL, NULL            );
+  char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",    NULL, "gigantic"      );
+  ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",   NULL, 5UL             );
+  ulong        near_cpu   = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",   NULL, fd_log_cpu_id() );
+  ulong        wksp_tag   = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-tag",   NULL, 1234UL          );
 
   fd_wksp_t * wksp;
   if( name ) {
@@ -1851,6 +1855,7 @@ main( int     argc,
   test_program_exec( "alu64_bench_short", 0x0, FD_VM_SUCCESS, TEST_VM_DEFAULT_SBPF_VERSION, text, text_cnt, syscalls, instr_ctx );
 
   test_0cu_exit( runtime );
+
 
   free( text );
 
