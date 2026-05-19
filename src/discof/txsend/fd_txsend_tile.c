@@ -19,15 +19,28 @@
 #define IN_KIND_TOWER  (3UL)
 #define IN_KIND_NET    (4UL)
 
+/* Hardcoded limits for txsend
+
+   Currently, txsend is only responsible for sending votes at a low
+   rate.  Votes are generated every ~400ms and are sent to the current
+   leader which rotates every ~1.6s.  Outgoing votes need to be tracked
+   (as "inflight frames"). */
+
+#define TXSEND_QUIC_CONN_CNT                (128UL)
+#define TXSEND_QUIC_INFLIGHT_FRAME_CNT_CONN  (64UL)
+
 fd_quic_limits_t quic_limits = {
-  .conn_cnt                    = 128UL,
-  .handshake_cnt               = 128UL,
+  /* instance limits */
+  .conn_cnt                    = TXSEND_QUIC_CONN_CNT,
+  .handshake_cnt               = TXSEND_QUIC_CONN_CNT,
+  .inflight_frame_cnt          = TXSEND_QUIC_INFLIGHT_FRAME_CNT_CONN * TXSEND_QUIC_CONN_CNT,
+  .stream_pool_cnt             = TXSEND_QUIC_INFLIGHT_FRAME_CNT_CONN * TXSEND_QUIC_CONN_CNT,
+  /* per-conn limits */
   .conn_id_cnt                 = FD_QUIC_MIN_CONN_ID_CNT,
-  .inflight_frame_cnt          = 16UL * 128UL,
-  .min_inflight_frame_cnt_conn = 4UL,
-  .stream_id_cnt               = 64UL,
+  .min_inflight_frame_cnt_conn = TXSEND_QUIC_INFLIGHT_FRAME_CNT_CONN,
+  .stream_id_cnt               = TXSEND_QUIC_INFLIGHT_FRAME_CNT_CONN,
+  /* per-stream limits */
   .tx_buf_sz                   = FD_TXN_MTU,
-  .stream_pool_cnt             = 128UL,
 };
 
 #define MAP_NAME               peer_map
