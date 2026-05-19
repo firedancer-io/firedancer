@@ -549,10 +549,12 @@ sample_accdb( config_t const * config,
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     ulong offs[11];
     accdb_per_tile_offsets( config->topo.tiles[ i ].name, offs );
-    if( offs[0]==ULONG_MAX ) continue;
-    acquired += diff_tile_idx( prev_tile, cur_tile, i, offs[0] );
-    if( offs[1]!=ULONG_MAX ) writable += diff_tile_idx( prev_tile, cur_tile, i, offs[1] );
-    if( offs[2]!=ULONG_MAX ) missed   += diff_tile_idx( prev_tile, cur_tile, i, offs[2] );
+    if( offs[0]!=ULONG_MAX ) {
+      for( ulong c=0UL; c<8UL; c++ ) acquired += diff_tile_idx( prev_tile, cur_tile, i, offs[0] + c );
+    }
+    if( offs[1]!=ULONG_MAX ) {
+      for( ulong c=0UL; c<8UL; c++ ) writable += diff_tile_idx( prev_tile, cur_tile, i, offs[1] + c );
+    }
     if( offs[3]!=ULONG_MAX ) waited   += diff_tile_idx( prev_tile, cur_tile, i, offs[3] );
     if( offs[4]!=ULONG_MAX ) bytes_rd += diff_tile_idx( prev_tile, cur_tile, i, offs[4] );
     if( offs[6]!=ULONG_MAX ) bytes_cp += diff_tile_idx( prev_tile, cur_tile, i, offs[6] );
@@ -562,6 +564,7 @@ sample_accdb( config_t const * config,
       else                                                   bytes_wr += this_wr;
     }
     for( ulong c=0UL; c<8UL; c++ ) {
+      if( offs[2]!=ULONG_MAX ) missed += diff_tile_idx( prev_tile, cur_tile, i, offs[2] + c );
       if( offs[7]!=ULONG_MAX ) {
         long d = diff_tile_idx( prev_tile, cur_tile, i, offs[7] + c );
         evicted_class[ c ] += d;

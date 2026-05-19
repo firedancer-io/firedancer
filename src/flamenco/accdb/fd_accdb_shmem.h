@@ -28,15 +28,15 @@ typedef struct fd_accdb_shmem_metrics fd_accdb_shmem_metrics_t;
 
 struct fd_accdb_metrics {
   ulong acquire_calls;
-  ulong accounts_acquired;
-  ulong writable_accounts_acquired;
+  ulong accounts_acquired_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
+  ulong writable_accounts_acquired_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_evicted;
   ulong accounts_evicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_preevicted;
   ulong accounts_preevicted_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_committed_new_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_committed_overwrite_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
-  ulong accounts_not_found;
+  ulong accounts_not_found_per_class[ FD_ACCDB_CACHE_CLASS_CNT ];
   ulong accounts_waited;
   ulong accounts_deleted;
 

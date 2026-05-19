@@ -331,6 +331,13 @@ packed_partition_file_offset( accdb_offset_t offset,
 struct fd_accdb_shmem_private {
   int partition_lock  __attribute__((aligned(64)));
 
+  /* Set non-zero by the snapin tile while a snapshot is being loaded.
+     Suppresses compaction enqueue so the compaction tile does not race
+     with bulk snapshot writes; fd_accdb_snapshot_load_end performs a
+     one-shot sweep to enqueue any partitions that crossed the
+     fragmentation threshold during the load. */
+  int snapshot_loading;
+
   /* Per-class CLOCK sweep position.  Atomically incremented by
      eviction scans (modulo cache_class_max[c]).  Each element is on
      its own cacheline to avoid false sharing between classes. */
