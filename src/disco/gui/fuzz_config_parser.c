@@ -24,10 +24,11 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  cJSON * json;
+  yyjson_doc * json;
   fd_gui_config_parse_info_t validator_info[1];
   fd_pubkey_t pubkey;
-  int valid = fd_gui_config_parse_validator_info_check( data, size, &json, &pubkey );
+  uchar json_scratch[ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_JSON_SCRATCH_SZ ];
+  int valid = fd_gui_config_parse_validator_info_check( data, size, &json, &pubkey, json_scratch, sizeof(json_scratch) );
 
   if( valid ) {
     fd_gui_config_parse_validator_info( json, validator_info );

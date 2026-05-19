@@ -5,7 +5,7 @@
 #include "../../../util/net/fd_ip4.h"
 #include "../../../waltz/http/picohttpparser.h"
 #include "../../../waltz/http/fd_http.h"
-#include "../../../ballet/json/cJSON.h"
+#include "../../../ballet/json/yyjson.h"
 #include "../../../ballet/base58/fd_base58.h"
 
 #include <math.h>
@@ -21,6 +21,8 @@ FD_STATIC_ASSERT( FD_RPC_CLIENT_ALIGN    ==alignof(fd_rpc_client_t), unit_test )
 FD_STATIC_ASSERT( FD_RPC_CLIENT_FOOTPRINT==sizeof (fd_rpc_client_t), unit_test );
 
 volatile int listening;
+
+#define JSON_SCRATCH_SZ (16UL*1024UL)
 
 void *
 fd_rpc_serve_one( void * args ) {
@@ -108,24 +110,27 @@ fd_rpc_serve_one( void * args ) {
     break;
   }
 
-  const char * parse_end;
-  cJSON * json = cJSON_ParseWithLengthOpts( buf + content_offset, content_length, &parse_end, 0 );
+  uchar json_scratch[ JSON_SCRATCH_SZ ];
+  yyjson_alc alloc[1];
+  FD_TEST( yyjson_alc_pool_init( alloc, json_scratch, sizeof(json_scratch) ) );
+  yyjson_doc * json = yyjson_read_opts( buf + content_offset, content_length, YYJSON_READ_NOFLAG, alloc, NULL );
   FD_TEST( json );
+  yyjson_val const * root = yyjson_doc_get_root( json );
 
   char response_content[ 1024 ];
   int printed;
-  char * method = cJSON_GetObjectItem( json, "method" )->valuestring;
+  char const * method = yyjson_get_str( yyjson_obj_get( root, "method" ) );
+  ulong id = yyjson_get_uint( yyjson_obj_get( root, "id" ) );
   if( !strcmp( method, "getLatestBlockhash" ) ) {
     printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\": { \"value\": { \"blockhash\": \"EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N\" } } }",
-                        cJSON_GetObjectItem( json, "id" )->valueulong );
+                        id );
   } else if( !strcmp( method, "getTransactionCount" ) ) {
     printed = snprintf( response_content, sizeof(response_content), "{\"jsonrpc\":\"2.0\",\"id\":%lu,\"result\": 268 }",
-                        cJSON_GetObjectItem( json, "id" )->valueulong );
+                        id );
   } else {
     FD_LOG_WARNING(( "%s", method ));
     FD_TEST( 0 );
   }
-  cJSON_Delete( json );
   FD_TEST( printed>=0 && (ulong)printed<sizeof(response_content) );
 
   char response[ 1024 ];

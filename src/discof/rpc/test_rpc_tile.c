@@ -88,24 +88,27 @@ expect_rpc_response( fd_rpc_tile_t * ctx,
   uchar const * got_json    = ctx->http->oring + (http_res._body_off % ctx->http->oring_sz);
   ulong         got_json_sz = http_res._body_len;
 
-  cJSON * got = cJSON_ParseWithLength( (char const *)got_json, got_json_sz );
-  FD_TEST( got );
+  yyjson_doc * got_doc = yyjson_read_opts( (char *)got_json, got_json_sz, YYJSON_READ_NOFLAG, NULL, NULL );
+  FD_TEST( got_doc );
 
-  cJSON * expected = cJSON_Parse( rpc_res );
-  FD_TEST( expected );
+  yyjson_doc * expected_doc = yyjson_read_opts( (char *)rpc_res, strlen( rpc_res ), YYJSON_READ_NOFLAG, NULL, NULL );
+  FD_TEST( expected_doc );
 
-  char * got_reserialized = cJSON_Print( got      ); FD_TEST( got_reserialized );
-  char * exp_reserialized = cJSON_Print( expected ); FD_TEST( exp_reserialized );
-  if( 0!=strcmp( got_reserialized, exp_reserialized ) ) {
+  yyjson_val * got      = yyjson_doc_get_root( got_doc );
+  yyjson_val * expected = yyjson_doc_get_root( expected_doc );
+
+  if( !yyjson_equals( got, expected ) ) {
+    char * got_reserialized = yyjson_val_write( got,      YYJSON_WRITE_PRETTY, NULL ); FD_TEST( got_reserialized );
+    char * exp_reserialized = yyjson_val_write( expected, YYJSON_WRITE_PRETTY, NULL ); FD_TEST( exp_reserialized );
     FD_LOG_WARNING(( "Expected RPC response:\n---\n%s\n---", exp_reserialized ));
     FD_LOG_WARNING(( "Got RPC response:\n---\n%s\n---", got_reserialized ));
+    free( got_reserialized );
+    free( exp_reserialized );
     FD_LOG_ERR(( "RPC response did not match expected" ));
   }
 
-  cJSON_free( got_reserialized );
-  cJSON_free( exp_reserialized );
-  cJSON_Delete( expected );
-  cJSON_Delete( got );
+  yyjson_doc_free( expected_doc );
+  yyjson_doc_free( got_doc );
 }
 
 int
