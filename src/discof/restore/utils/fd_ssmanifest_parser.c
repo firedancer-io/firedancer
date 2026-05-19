@@ -1422,6 +1422,14 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
       }
       break;
     }
+    case STATE_BLOCK_ID: {
+      static uchar const zeros[32] = {0};
+      if( FD_UNLIKELY( !memcmp( manifest->block_id, zeros, 32UL ) ) ) {
+        FD_LOG_WARNING(( "invalid snapshot manifest block_id value all zeros" ));
+        return -1;
+      }
+      break;
+    }
     default: break;
   }
 
@@ -1981,6 +1989,8 @@ state_process( fd_ssmanifest_parser_t * parser,
     return 0;
   }
 
+  if( FD_UNLIKELY( parser->state==STATE_DONE ) ) return -1;
+
   parser->state += 1;
   return 0;
 }
@@ -2031,7 +2041,9 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   parser->dst_cur     = 0UL;
   parser->manifest    = manifest;
 
-  manifest->has_block_id = 0;
+  manifest->has_accounts_lthash    = 0;
+  manifest->has_epoch_account_hash = 0;
+  manifest->has_block_id           = 0;
   for( ulong i=0UL; i<FD_EPOCH_STAKES_LEN; i++ ) {
     manifest->epoch_stakes[i].epoch           = ULONG_MAX;  /* sentinel: not populated */
     manifest->epoch_stakes[i].total_stake     = 0UL;
@@ -2064,6 +2076,14 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
   int state = parser->state;
 #endif
 
+  /* manifest_sz must be >0.  The extra field early-termination
+    mechanism relies on this; when manifest_sz == 0 the check is
+    skipped and the parser would return ADVANCE_AGAIN indefinitely
+    if the stream ends before a non-optional field. */
+  if( FD_UNLIKELY( !manifest_sz ) ) {
+    FD_LOG_WARNING(( "manifest_sz is zero" ));
+    return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
+  }
   parser->manifest_sz = manifest_sz;
 
   while( bufsz ) {

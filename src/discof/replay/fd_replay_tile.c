@@ -1182,6 +1182,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       FD_LOG_NOTICE(( "waiting for supermajority at snapshot slot %lu", snapshot_slot ));
     }
 
+    /* Manifest message must arrive before DONE */
+    if( FD_UNLIKELY( !ctx->has_expected_genesis_timestamp ) ) {
+      FD_LOG_CRIT(( "snapshot DONE received before manifest" ));
+    }
+
     /* FIXME: This is a hack when the block id of the snapshot slot
        is not provided in the snapshot (Agave versions <4.1). A
        possible solution is to get the block id of the snapshot slot
