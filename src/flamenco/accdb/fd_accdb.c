@@ -1120,7 +1120,7 @@ change_partition( fd_accdb_t *     accdb,
                   accdb_offset_t   offset_before,
                   accdb_offset_t * out_offset,
                   int *            has_partition,
-                  uchar            layer ) {
+                  uchar            layer ) FD_REQUIRES( accdb->shmem->partition_lock ) {
   /* New data will not fit in the current partition, so we need to
      move to the next one.  */
   ulong partition_idx_before = packed_partition_idx( offset_before );

@@ -3,9 +3,12 @@
 
 #include "fd_accdb_shmem.h"
 #include "fd_accdb_cache.h"
+#include "../../util/sanitize/fd_tsa.h"
+
+typedef int fd_accdb_spinlock_t FD_CAPABILITY("fd_accdb_spinlock");
 
 static inline void
-spin_lock_acquire( int * lock ) {
+spin_lock_acquire( fd_accdb_spinlock_t * lock ) FD_ACQUIRE( *lock ) FD_NO_THREAD_SAFETY_ANALYSIS {
 # if FD_HAS_THREADS
   for(;;) {
     if( FD_LIKELY( !FD_ATOMIC_CAS( lock, 0, 1 ) ) ) break;
@@ -18,7 +21,7 @@ spin_lock_acquire( int * lock ) {
 }
 
 static inline void
-spin_lock_release( int * lock ) {
+spin_lock_release( fd_accdb_spinlock_t * lock ) FD_RELEASE( *lock ) FD_NO_THREAD_SAFETY_ANALYSIS {
   FD_COMPILER_MFENCE();
 # if FD_HAS_THREADS
   FD_VOLATILE( *lock ) = 0;
@@ -329,7 +332,7 @@ packed_partition_file_offset( accdb_offset_t offset,
 #define FD_ACCDB_EVICT_SENTINEL UINT_MAX
 
 struct fd_accdb_shmem_private {
-  int partition_lock  __attribute__((aligned(64)));
+  fd_accdb_spinlock_t partition_lock  __attribute__((aligned(64)));
 
   /* Per-class CLOCK sweep position.  Atomically incremented by
      eviction scans (modulo cache_class_max[c]).  Each element is on
@@ -493,5 +496,13 @@ struct fd_accdb_shmem_private {
 
   ulong magic; /* ==FD_ACCDB_SHMEM_MAGIC */
 };
+
+FD_PROTOTYPES_BEGIN
+
+void
+fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
+                                       ulong              partition_idx ) FD_REQUIRES( accdb->partition_lock );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_accdb_fd_accdb_private_h */
