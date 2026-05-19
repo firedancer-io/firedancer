@@ -171,7 +171,11 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
   if( FD_LIKELY( FD_ATOMIC_CAS( &blockcache->pages[ page_cnt ], (ushort)USHORT_MAX, (ushort)(USHORT_MAX-1UL) )==(ushort)USHORT_MAX ) ) {
     ulong txnpages_free_cnt = tc->shmem->txnpages_free_cnt;
     for(;;) {
-      if( FD_UNLIKELY( !txnpages_free_cnt ) ) return NULL;
+      if( FD_UNLIKELY( !txnpages_free_cnt ) ) {
+        blockcache->pages[ page_cnt ] = (ushort)USHORT_MAX;
+        FD_COMPILER_MFENCE();
+        return NULL;
+      }
       ulong old_txnpages_free_cnt = FD_ATOMIC_CAS( &tc->shmem->txnpages_free_cnt, (ushort)txnpages_free_cnt, (ushort)(txnpages_free_cnt-1UL) );
       if( FD_LIKELY( old_txnpages_free_cnt==txnpages_free_cnt ) ) break;
       txnpages_free_cnt = old_txnpages_free_cnt;
@@ -188,7 +192,7 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
     return txnpage;
   } else {
     ushort txnpage_idx = blockcache->pages[ page_cnt ];
-    while( FD_UNLIKELY( txnpage_idx>=USHORT_MAX-1UL ) ) {
+    while( FD_UNLIKELY( txnpage_idx==USHORT_MAX-1UL ) ) {
       txnpage_idx = blockcache->pages[ page_cnt ];
       FD_SPIN_PAUSE();
     }
