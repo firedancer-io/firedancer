@@ -367,6 +367,11 @@ returnable_frag( fd_solcap_tile_ctx_t * ctx,
     FD_TEST( ctx->block_len > 0 );  /* Must have valid block length before writing footer */
     fd_solcap_write_ftr( ctx->capture_ctx->capture, ctx->block_len );
 
+    /* For bank preimage messages, the file is synced to disk */
+    if( ctx->msg_set_sig==SOLCAP_WRITE_BANK_PREIMAGE ) {
+      FD_TEST( fsync( ctx->fd )==0 );
+    }
+
     ctx->msg_idx        = 0;
     ctx->block_len      = 0;
     ctx->msg_set_sig    = 0;
@@ -490,6 +495,13 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_solcap_tile_ctx_t)
 
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+
+static void
+during_housekeeping( fd_solcap_tile_ctx_t * ctx ) {
+  if( FD_LIKELY( ctx->fd != -1 ) ) fsync( ctx->fd );
+}
+
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../disco/stem/fd_stem.c"
 

@@ -148,6 +148,13 @@ dev_cmd_fn( args_t *   args,
   }
 
   update_config_for_dev( config );
+
+  /* If we are about to redirect stderr to a pipe, we should decide whether
+     to colorize now, because isatty(stderr) will be false later. */
+  if( fd_log_should_colorize() ) {
+    fd_log_colorize_set( 1 );
+    setenv( "RUST_LOG_STYLE", "always", 1 );
+  }
   if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
 
   if( FD_LIKELY( args->dev.no_watch ) ) {
