@@ -36,7 +36,8 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
                                            fd_vote_stakes_t *                 vote_stakes,
                                            fd_exec_test_prev_vote_account_t * vote_accounts,
                                            pb_size_t                          vote_accounts_cnt,
-                                           uchar                              is_t_1 ) {
+                                           uchar                              is_t_1,
+                                           int                                commission_rate_in_basis_points ) {
   if( FD_UNLIKELY( !vote_accounts ) ) return;
 
   for( uint i=0U; i<vote_accounts_cnt; i++ ) {
@@ -44,6 +45,13 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_top_votes_t *                   to
     fd_pubkey_t node_pubkey = FD_LOAD( fd_pubkey_t, &vote_accounts[i].node_pubkey );
     ulong       stake       = vote_accounts[i].stake;
     ushort      commission  = (ushort)vote_accounts[i].commission_bps;
+
+    /* When commission_rate_in_basis_points is not active, round down
+       to the nearest whole percentage.
+       This mirrors fd_vote_account_commission_bps for V4 votes. */
+    if( !commission_rate_in_basis_points ) {
+      commission = (ushort)((commission / 100U) * 100U);
+    }
 
     if( is_t_1 ) {
       fd_vote_stakes_root_insert_key( vote_stakes, &vote_pubkey, &node_pubkey, stake, commission, 0 );
@@ -229,8 +237,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( block_bank->vote_accounts_t_1_count<=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
   FD_TEST( block_bank->vote_accounts_t_2_count<=FD_RUNTIME_EXPECTED_VOTE_ACCOUNTS );
 
-  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_1, vote_stakes, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count, 1 );
-  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_2, vote_stakes, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count, 0 );
+  int crbp = FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points );
+  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_1, vote_stakes, block_bank->vote_accounts_t_1, block_bank->vote_accounts_t_1_count, 1, crbp );
+  fd_solfuzz_block_update_prev_epoch_stakes( top_votes_t_2, vote_stakes, block_bank->vote_accounts_t_2, block_bank->vote_accounts_t_2_count, 0, crbp );
 
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_solfuzz_pb_load_account( runner->runtime, accdb, xid, &test_ctx->acct_states[i], i );
@@ -367,8 +376,6 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t * runner,
       fd_solcap_writer_init( capture_ctx->capture, solcap_fd );
     }
 
-    /* TODO: Make sure this is able to work with booting up inside
-       the partitioned epoch rewards distribution phase. */
     fd_funk_txn_xid_t xid = fd_bank_xid( runner->bank );
     fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb, &xid, runner->runtime_stack, capture_ctx );
 
