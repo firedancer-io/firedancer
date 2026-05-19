@@ -198,7 +198,7 @@ fd_circq_cursor_advance( fd_circq_t * circq,
 int
 fd_circq_pop_until( fd_circq_t * circq,
                     ulong        cursor ) {
-  if( FD_UNLIKELY( cursor>=circq->cursor_push_seq ) ) return -1;
+  if( FD_UNLIKELY( cursor>=circq->cursor_seq ) ) return -1;
 
   ulong oldest_seq = circq->cursor_push_seq-circq->cnt;
   if( FD_UNLIKELY( cursor<oldest_seq ) ) return 0;

@@ -72,9 +72,44 @@ test_ack_protocol( void ) {
   fd_circq_reset_cursor( circq );
   uchar const * msg = fd_circq_cursor_advance( circq, &msg_sz );
   FD_TEST( msg[0]=='D' );
+  msg = fd_circq_cursor_advance( circq, &msg_sz );
+  FD_TEST( msg[0]=='E' );
 
   FD_TEST( fd_circq_pop_until( circq, cursors[4] )==0 );
   FD_TEST( circq->cnt==0 );
+}
+
+static void
+test_pop_until_rejects_unadvanced_cursor( void ) {
+  uchar buf[ 512UL+4096UL ];
+  fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 512UL ) );
+  ulong msg_sz;
+
+  for( ulong i=0UL; i<3UL; i++ ) {
+    uchar * msg = fd_circq_push_back( circq, 1UL, 16UL );
+    msg[0] = (uchar)('A' + i);
+  }
+
+  uchar const * advanced = fd_circq_cursor_advance( circq, &msg_sz );
+  FD_TEST( advanced );
+  FD_TEST( advanced[0]=='A' );
+
+  ulong advanced_cursor   = circq->cursor_seq - 1UL;
+  ulong unadvanced_cursor = advanced_cursor + 1UL;
+
+  FD_TEST( unadvanced_cursor<circq->cursor_push_seq );
+  FD_TEST( unadvanced_cursor>=circq->cursor_seq );
+
+  FD_TEST( fd_circq_pop_until( circq, unadvanced_cursor )==-1 );
+  FD_TEST( circq->cnt==3UL );
+
+  FD_TEST( fd_circq_pop_until( circq, advanced_cursor )==0 );
+  FD_TEST( circq->cnt==2UL );
+
+  fd_circq_reset_cursor( circq );
+  uchar const * first = fd_circq_cursor_advance( circq, &msg_sz );
+  FD_TEST( first );
+  FD_TEST( first[0]=='B' );
 }
 
 static void
@@ -199,6 +234,9 @@ test_edge_cases( void ) {
   FD_TEST( fd_circq_pop_until( circq, ULONG_MAX )==-1 );
   FD_TEST( circq->cnt==1 );
 
+  uchar const * out0 = fd_circq_cursor_advance( circq, &msg_sz );
+  FD_TEST( out0 );
+
   FD_TEST( fd_circq_pop_until( circq, 0 )==0 );
   FD_TEST( circq->cnt==0 );
 
@@ -236,6 +274,8 @@ main( int     argc,
   test_fuzz();                         FD_LOG_NOTICE(( "pass: fuzz" ));
   test_cursor_lifecycle();             FD_LOG_NOTICE(( "pass: cursor_lifecycle" ));
   test_ack_protocol();                 FD_LOG_NOTICE(( "pass: ack_protocol" ));
+  test_pop_until_rejects_unadvanced_cursor();
+  FD_LOG_NOTICE(( "pass: pop_until_rejects_unadvanced_cursor" ));
   test_wraparound_iteration();         FD_LOG_NOTICE(( "pass: wraparound_iteration" ));
   test_interleaved_ops();              FD_LOG_NOTICE(( "pass: interleaved_ops" ));
   test_stale_cursor_handling();        FD_LOG_NOTICE(( "pass: stale_cursor_handling" ));
