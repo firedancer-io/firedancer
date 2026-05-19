@@ -127,10 +127,10 @@ fd_ed25519_point_eq( fd_ed25519_point_t const * a,
   return fd_f25519_eq( x1, x2 ) & fd_f25519_eq( y1, y2 );
 }
 
-/* fd_ed25519_point_eq returns 1 if a == b, 0 otherwise.
+/* fd_ed25519_point_affine_eq returns 1 if a == b, 0 otherwise.
    b is a point with Z==1, e.g. a decompressed point. */
 FD_25519_INLINE int
-fd_ed25519_point_eq_z1( fd_ed25519_point_t const * a,
+fd_ed25519_point_affine_eq( fd_ed25519_point_t const * a,
                         fd_ed25519_point_t const * b ) { /* b.Z == 1, e.g. a decompressed point */
   fd_f25519_t x1[1], y1[1];
   fd_f25519_mul( x1, b->X, a->Z );
