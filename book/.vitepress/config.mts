@@ -61,6 +61,13 @@ export default defineConfig({
           ]
         },
         {
+          text: 'Protocol',
+          collapsed: false,
+          items: [
+            { text: 'Transaction Ingress', link: 'protocol/transaction_ingress' }
+          ]
+        },
+        {
           text: 'Internals',
           collapsed: false,
           items: [
@@ -80,9 +87,15 @@ export default defineConfig({
             { text: 'Firedancer Command Line Interface', link: 'firedancer-cli' },
             { text: 'Metrics', link: 'metrics' },
             { text: 'WebSocket', link: 'websocket' },
+            { text: 'TPU-QUIC', link: 'tpu-quic' },
+            { text: 'TPU-UDP', link: 'tpu-udp' },
           ]
         }
       ] },
+    },
+
+    outline: {
+      level: [2, 3]
     },
 
     socialLinks: [
