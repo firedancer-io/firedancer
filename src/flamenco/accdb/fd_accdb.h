@@ -148,6 +148,24 @@ fd_accdb_join_readonly( void *             ljoin,
                         ulong *            my_epoch_slot_rw,
                         int                fd_ro );
 
+/* fd_accdb_snapshot_load_{begin,end} toggle a mode on this writer
+   joiner that causes layer-0 partition handoffs to backfill tiering
+   for older snapshot-loaded partitions.  Specifically, when a new
+   partition P is opened at layer 0, the partition at P-2 is retiered
+   to Warm (layer 1) and the partition at P-3 is retiered to Cold
+   (layer 2).  This compensates for the fact that snapshot-loaded
+   accounts never get a second write and therefore never get promoted
+   by normal compaction-driven tiering.
+
+   Only the snapin tile is expected to use this.  The flag is
+   per-joiner and is not visible across processes. */
+
+void
+fd_accdb_snapshot_load_begin( fd_accdb_t * accdb );
+
+void
+fd_accdb_snapshot_load_end( fd_accdb_t * accdb );
+
 /* fd_accdb_attach_child allocates a new fork as a child of
    parent_fork_id and returns the new fork's id.  This must be done
    any time a new fork is being inserted into the accounts database,

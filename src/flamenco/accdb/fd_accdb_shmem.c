@@ -324,7 +324,8 @@ fd_accdb_shmem_new( void * shmem,
   accdb->root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   accdb->generation = 0U;
 
-  accdb->partition_lock = 0;
+  accdb->partition_lock   = 0;
+  accdb->snapshot_loading = 0;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->clock_hand[ c ].val = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_free[ c ].ver_top = (ulong)UINT_MAX;
@@ -432,6 +433,12 @@ fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
 
   if( FD_UNLIKELY( partition->bytes_freed<(accdb->partition_sz*3UL/10UL) ) ) return;
   if( FD_UNLIKELY( partition->marked_compaction ) ) return;
+
+  /* While a snapshot load is in flight, defer all compaction so the
+     compaction tile cannot race with the bulk loader.  Anything that
+     crosses the threshold here will be re-checked by
+     fd_accdb_snapshot_load_end's sweep when loading completes. */
+  if( FD_UNLIKELY( FD_VOLATILE_CONST( accdb->snapshot_loading ) ) ) return;
 
   /* Do not enqueue any currently active write-head partition.  Its
      write_offset is not yet finalized, so compaction cannot determine
