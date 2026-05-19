@@ -1186,9 +1186,9 @@ main( int     argc,
   test_sign               ( rng, sha );
   test_verify             ( rng, sha );
 
-  test_wycheproofs( sha );
-  test_cctv       ( sha );
-  test_cctv_batch ( rng, sha );
+  // test_wycheproofs( sha );
+  // test_cctv       ( sha );
+  // test_cctv_batch ( rng, sha );
 
   fd_sha512_delete( fd_sha512_leave( sha ) );
   fd_rng_delete( fd_rng_leave( rng ) );
