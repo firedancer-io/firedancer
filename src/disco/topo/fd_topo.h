@@ -370,6 +370,8 @@ struct fd_topo_tile {
 
       char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
       ushort expected_shred_version;
+      ulong  cache_size_gib;
+      ulong  accdb_obj_id;
     } gui;
 
     struct {

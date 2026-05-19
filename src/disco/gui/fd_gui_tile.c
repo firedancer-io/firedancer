@@ -34,6 +34,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../discof/repair/fd_repair.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/shred/fd_shred_tile.h"
+#include "../../flamenco/accdb/fd_accdb.h"
 
 #define IN_KIND_PLUGIN        ( 0UL)
 #define IN_KIND_POH_PACK      ( 1UL)
@@ -580,10 +581,12 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strcmp( request->path, "/slotDetails" ) ||
                      !strcmp( request->path, "/leaderSchedule" ) ||
                      !strcmp( request->path, "/gossip") ||
+                     !strcmp( request->path, "/accounts") ||
                      !strncmp( request->path, "/?", strlen("/?") ) ||
                      !strncmp( request->path, "/slotDetails?", strlen("/slotDetails?") ) ||
                      !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
-                     !strncmp( request->path, "/gossip?", strlen("/gossip?") );
+                     !strncmp( request->path, "/gossip?", strlen("/gossip?") ) ||
+                     !strncmp( request->path, "/accounts?", strlen("/accounts?") );
 
   FD_TEST( STATIC_FILES );
   for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
@@ -751,7 +754,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->topo = topo;
   ctx->peers = fd_gui_peers_join( fd_gui_peers_new( _peers, ctx->gui_server, ctx->topo, http_param.max_ws_connection_cnt, tile->gui.wfs_bank_hash, fd_clock_tile_now( ctx->clock ) ) );
-  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, fd_clock_tile_now( ctx->clock ) ) );
+  void * accdb_shmem_raw = fd_topo_obj_laddr( topo, tile->gui.accdb_obj_id );
+  FD_TEST( accdb_shmem_raw );
+  ctx->gui   = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, ctx->is_full_client, ctx->snapshots_enabled, tile->gui.is_voting, tile->gui.schedule_strategy, tile->gui.wfs_bank_hash, tile->gui.expected_shred_version, ctx->topo, accdb_shmem_raw, fd_clock_tile_now( ctx->clock ) ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
@@ -837,13 +842,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   out_fds[ out_cnt++ ] = fd_http_server_fd( ctx->gui_server ); /* gui listen socket */
+  out_fds[ out_cnt++ ] = FD_ACCDB_FD_RO; /* accounts db readonly fd (inherited from parent) */
   return out_cnt;
 }
 
