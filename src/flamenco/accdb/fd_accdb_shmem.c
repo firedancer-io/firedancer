@@ -324,8 +324,8 @@ fd_accdb_shmem_new( void * shmem,
   accdb->root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   accdb->generation = 0U;
 
-  accdb->partition_lock   = 0;
-  accdb->snapshot_loading = 0;
+  accdb->partition_lock    = 0;
+  accdb->snapshot_loading  = 0;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->clock_hand[ c ].val = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_free[ c ].ver_top = (ulong)UINT_MAX;
@@ -454,6 +454,7 @@ fd_accdb_shmem_try_enqueue_compaction( fd_accdb_shmem_t * accdb,
   partition->marked_compaction = 1;
   partition->compaction_offset = 0UL;
   partition->compaction_ready_epoch = FD_ATOMIC_FETCH_AND_ADD( &accdb->epoch, 1UL );
+  partition->queued = 1;
   if( FD_LIKELY( compaction_dlist_is_empty( compaction_dlist, partition_pool ) ) ) {
     FD_LOG_NOTICE(( "compaction of layer %u partition %lu started", (uint)layer, partition_pool_idx( partition_pool, partition ) ));
   }
@@ -480,4 +481,52 @@ fd_accdb_shmem_bytes_freed( fd_accdb_shmem_t * accdb,
   spin_lock_acquire( &accdb->partition_lock );
   fd_accdb_shmem_try_enqueue_compaction( accdb, partition_idx );
   spin_lock_release( &accdb->partition_lock );
+}
+
+ulong
+fd_accdb_shmem_partition_max( fd_accdb_shmem_t const * accdb ) {
+  return accdb->partition_max;
+}
+
+ulong
+fd_accdb_shmem_partition_sz( fd_accdb_shmem_t const * accdb ) {
+  return accdb->partition_sz;
+}
+
+void
+fd_accdb_shmem_partition_info( fd_accdb_shmem_t const *          accdb,
+                               ulong                             partition_idx,
+                               fd_accdb_shmem_partition_info_t * out ) {
+  fd_accdb_partition_t const * partition_pool = (fd_accdb_partition_t const *)( (uchar const *)accdb + accdb->partition_pool_off );
+  fd_accdb_partition_t const * p              = partition_pool_ele_const( partition_pool, partition_idx );
+
+  out->file_offset       = partition_idx * accdb->partition_sz;
+  out->write_offset      = FD_VOLATILE_CONST( p->write_offset );
+  out->is_write_head     = 0;
+  /* If this partition is currently the active write head for any
+     layer, partition->write_offset is stale (it's only updated at
+     handoff in change_partition).  The live tip lives in whead[layer].
+     Surface the live value so the GUI shows real-time fill, not the
+     "0 until rolled" snapshot. */
+  for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
+    if( !FD_VOLATILE_CONST( accdb->has_partition[ k ] ) ) continue;
+    accdb_offset_t whead = { .val = FD_VOLATILE_CONST( accdb->whead[ k ].val ) };
+    if( packed_partition_idx( whead )==partition_idx ) {
+      out->write_offset  = packed_partition_offset( whead );
+      out->is_write_head = 1;
+      break;
+    }
+  }
+  out->bytes_freed       = FD_VOLATILE_CONST( p->bytes_freed );
+  out->compaction_offset = FD_VOLATILE_CONST( p->compaction_offset );
+  out->read_ops          = FD_VOLATILE_CONST( p->read_ops );
+  out->bytes_read        = FD_VOLATILE_CONST( p->bytes_read );
+  out->write_ops         = FD_VOLATILE_CONST( p->write_ops );
+  out->bytes_written     = FD_VOLATILE_CONST( p->bytes_written );
+  out->created_ticks     = (long)FD_VOLATILE_CONST( p->created_ticks );
+  out->filled_ticks      = (long)FD_VOLATILE_CONST( p->filled_ticks );
+  out->layer             = p->layer;
+  uchar compacting       = FD_VOLATILE_CONST( p->compacting_now );
+  uchar queued           = FD_VOLATILE_CONST( p->queued );
+  out->compaction_state  = compacting ? 2 : ( queued ? 1 : 0 );
 }
