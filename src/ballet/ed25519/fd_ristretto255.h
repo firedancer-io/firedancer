@@ -111,27 +111,6 @@ fd_ristretto255_point_eq_neg( fd_ristretto255_point_t * const p,
   return xx | yy;
 }
 
-/* fd_ristretto255_hash_to_curve computes an element h of the ristretto group
-   given an array s of 64-byte of uniformly random input (e.g., the output of a
-   hash function).
-   This function behaves like a random oracle.
-   It returns h. */
-
-fd_ristretto255_point_t *
-fd_ristretto255_hash_to_curve( fd_ristretto255_point_t * h,
-                               uchar const               s[ 64 ] );
-
-/* fd_ristretto255_map_to_curve implements the elligato2 map for curve25519,
-   and computes an element h of the ristretto group given an array s of 32-byte 
-   of uniformly random input (e.g., the output of a hash function).
-   This function does NOT behave like a random oracle, and is intended for
-   internal use.
-   It returns h. */
-
-fd_ristretto255_point_t *
-fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h,
-                              uchar const               s[ 32 ] );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_ed25519_fd_ristretto255_h */
