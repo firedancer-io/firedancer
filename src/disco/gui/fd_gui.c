@@ -630,6 +630,17 @@ fd_gui_accounts_stats_snap( fd_gui_t *                gui,
   ACCUM_RO( RPC,    "rpc"    )
   ACCUM_RO( RESOLV, "resolv" )
 # undef ACCUM_RO
+
+  /* snapwr writes account data to disk during snapshot load.  It does
+     not declare the accdb counter surface (writes are direct), so pick
+     up its monotonic SNAPWR_BYTES_WRITTEN gauge into the aggregate so
+     the IO panel reflects load-time disk activity. */
+  for( ulong i=0UL; i<fd_topo_tile_name_cnt( topo, "snapwr" ); i++ ) {
+    ulong t_idx = fd_topo_find_tile( topo, "snapwr", i );
+    if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;
+    volatile ulong const * m = fd_metrics_tile( topo->tiles[ t_idx ].metrics );
+    cur->bytes_written += m[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
+  }
 }
 
 /* Snapshot all of the data from metrics to construct a view of the

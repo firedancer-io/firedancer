@@ -39,11 +39,11 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      spent.  Classes 6, 7 are floored to 1. */
 
   static const ulong density[ FD_ACCDB_CACHE_CLASS_CNT ] = {
-     3461UL,  /* class 0 */
-     1042UL,  /* class 1 */
-      316UL,  /* class 2 */
-      234UL,  /* class 3 */
-       34UL,  /* class 4 */
+       25UL,  /* class 0 */
+       20UL,  /* class 1 */
+       12UL,  /* class 2 */
+        7UL,  /* class 3 */
+        6UL,  /* class 4 */
         3UL,  /* class 5 */
         1UL,  /* class 6 */
         1UL,  /* class 7 */
@@ -66,9 +66,9 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      4096UL,  /* class 2: p99  ~3.2K */
      3072UL,  /* class 3: p99  ~2.0K, was undersized at 1.3K */
      1800UL,  /* class 4: p99  ~1.0K, needs headroom for pre-evict to keep up */
-      256UL,  /* class 5: p99    ~66, was wastefully sized at 1.3K */
-      256UL,  /* class 6: p99   ~212 */
-      512UL,  /* class 7: p99   ~179; staging covered by MIN_RESERVED */
+      512UL,  /* class 5: p99    ~66, was wastefully sized at 1.3K */
+      704UL,  /* class 6: p99   ~212 */
+      544UL,  /* class 7: p99   ~179; staging covered by MIN_RESERVED */
   };
 
   ulong minimum_cost = min_reserved * ( fd_accdb_cache_slot_sz[ 0UL ] +
@@ -210,10 +210,27 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
       for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
         if( capped[c] ) continue;
         ulong budget = remaining * density[c] / total_w;
-        class_cnt[c] += budget / fd_accdb_cache_slot_sz[c];
+        ulong extra  = budget / fd_accdb_cache_slot_sz[c];
+        extra        = fd_ulong_min( extra, FD_ACCDB_CACHE_LINE_MAX - class_cnt[c] );
+        class_cnt[c] += extra;
+        remaining    -= extra * fd_accdb_cache_slot_sz[c];
       }
       break;
     }
+  }
+
+  /* Spend any per-class integer-division truncation slack left after
+     Phase 4.  Walk uncapped classes in descending density order and
+     add as many slots as fit, capped at FD_ACCDB_CACHE_LINE_MAX.  This
+     converges in at most one pass per class because each iteration
+     either fills the class to LINE_MAX or drains remaining below
+     slot_sz[c]. */
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT && remaining; c++ ) {
+    if( class_cnt[c]>=FD_ACCDB_CACHE_LINE_MAX ) continue;
+    ulong room  = FD_ACCDB_CACHE_LINE_MAX - class_cnt[c];
+    ulong extra = fd_ulong_min( room, remaining / fd_accdb_cache_slot_sz[c] );
+    class_cnt[c] += extra;
+    remaining    -= extra * fd_accdb_cache_slot_sz[c];
   }
 
   /* Past FD_ACCDB_CACHE_LINE_MAX*slot_sz[c] (~6 TiB) the index space is

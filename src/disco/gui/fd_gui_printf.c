@@ -1293,7 +1293,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
   double agg_misses_rate            = WRATE( gui->summary.agg_misses_win              );
 
   double agg_hit_rate = agg_acquired_rate>0.0
-    ? fmax( 0.0, (agg_acquired_rate - agg_misses_rate) / agg_acquired_rate )
+    ? fmax( 0.0, 1.0 - agg_misses_rate / agg_acquired_rate )
     : 0.0;
 
 
@@ -1354,7 +1354,7 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
               jsonp_double( gui->http, "reads_per_sec",  fmax( 0.0, acq_rate - acq_wr_rate ) );
               jsonp_double( gui->http, "writes_per_sec", acq_wr_rate );
               jsonp_double( gui->http, "hit_rate_ema",
-                            acq_rate>0.0 ? fmax( 0.0, (acq_rate - nf_rate) / acq_rate ) : 0.0 );
+                            acq_rate>0.0 ? fmax( 0.0, 1.0 - nf_rate / acq_rate ) : 0.0 );
             jsonp_close_object( gui->http );
           }
         jsonp_close_array( gui->http );
