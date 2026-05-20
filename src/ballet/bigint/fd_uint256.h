@@ -85,6 +85,45 @@ fd_uint256_cmp( fd_uint256_t const * a,
   return 0;
 }
 
+/* fd_uint256_sub computes r = a - b mod 2^256 and returns r. */
+static inline fd_uint256_t *
+fd_uint256_sub( fd_uint256_t *       r,
+                fd_uint256_t const * a,
+                fd_uint256_t const * b ) {
+  ulong borrow = 0UL;
+  for( ulong i=0UL; i<4UL; i++ ) {
+    ulong ai = a->limbs[i];
+    ulong bi = b->limbs[i];
+    ulong ri = ai - bi - borrow;
+    borrow = (ai < bi) | ((ai == bi) & borrow);
+    r->limbs[i] = ri;
+  }
+  return r;
+}
+
+/* fd_uint256_shl computes r = a << s mod 2^256 and returns r. */
+static inline fd_uint256_t *
+fd_uint256_shl( fd_uint256_t *       r,
+                fd_uint256_t const * a,
+                uint                 s ) {
+  if( FD_UNLIKELY( s>=256U ) ) {
+    r->limbs[0] = r->limbs[1] = r->limbs[2] = r->limbs[3] = 0UL;
+    return r;
+  }
+
+  uint word = s >> 6;
+  uint bit  = s & 63U;
+  for( int i=3; i>=0; i-- ) {
+    ulong x = 0UL;
+    if( (uint)i>=word ) {
+      x = a->limbs[(uint)i-word] << bit;
+      if( bit && ((uint)i>word) ) x |= a->limbs[(uint)i-word-1U] >> (64U-bit);
+    }
+    r->limbs[i] = x;
+  }
+  return r;
+}
+
 /* fd_uint256_bit returns the i-th bit of a.
    Important: the return value is 0, non-zero, it's NOT 0, 1. */
 static inline ulong
