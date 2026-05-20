@@ -1613,6 +1613,28 @@ fd_gui_request_slot_rankings( fd_gui_t *    gui,
 }
 
 int
+fd_gui_request_slot_shreds( fd_gui_t *    gui,
+                            ulong         ws_conn_id,
+                            ulong         request_id,
+                            cJSON const * params ) {
+  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
+  if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong _slot = slot_param->valueulong;
+
+  fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
+  if( FD_UNLIKELY( !slot || slot->shreds.start_offset==ULONG_MAX || slot->shreds.end_offset==ULONG_MAX || gui->shreds.history_tail >= slot->shreds.end_offset + FD_GUI_SHREDS_HISTORY_SZ ) ) {
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_shreds", request_id );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    return 0;
+  }
+
+  fd_gui_printf_slot_query_shreds( gui, _slot, request_id );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
+int
 fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         ws_conn_id,
                    uchar const * data,
@@ -1682,6 +1704,16 @@ fd_gui_ws_message( fd_gui_t *    gui,
     }
 
     int result = fd_gui_request_slot_rankings( gui, ws_conn_id, id, params );
+    cJSON_Delete( json );
+    return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_shreds" ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_slot_shreds( gui, ws_conn_id, id, params );
     cJSON_Delete( json );
     return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
