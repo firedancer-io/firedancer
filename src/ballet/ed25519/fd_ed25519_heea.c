@@ -22,7 +22,7 @@ fd_uint256_is_neg( fd_uint256_t const * x ) {
 
 FD_25519_INLINE fd_uint256_t *
 fd_ed25519_i256_neg( fd_uint256_t *       r,
-                    fd_uint256_t const * a ) {
+                     fd_uint256_t const * a ) {
   fd_uint256_t zero[1] = {{{ 0UL, 0UL, 0UL, 0UL }}};
   return fd_uint256_sub( r, zero, a );
 }
@@ -42,7 +42,7 @@ fd_uint256_abs_len( fd_uint256_t const * a ) {
 
 FD_25519_INLINE void
 fd_uint256_abs_tobytes( uchar out[32],
-                            fd_uint256_t const * a ) {
+                             fd_uint256_t const * a ) {
   fd_uint256_t x[1];
   if( fd_uint256_is_neg( a ) ) fd_ed25519_i256_neg( x, a );
   else                              *x = *a;
@@ -51,8 +51,8 @@ fd_uint256_abs_tobytes( uchar out[32],
 
 static int
 fd_ed25519_heea_decompose( uchar       rho[32],
-                          uchar       tau[32],
-                          uchar const h  [32] ) {
+                           uchar       tau[32],
+                           uchar const h  [32] ) {
   fd_uint256_t r0[1]; memcpy( r0->buf, fd_ed25519_scalar_l, 32UL );
   fd_uint256_t r1[1]; memcpy( r1->buf, h,                   32UL );
   fd_uint256_t t0[1] = {{{ 0UL, 0UL, 0UL, 0UL }}};
@@ -117,8 +117,8 @@ fd_ed25519_make_wnaf_table_5( fd_ed25519_point_t       table[8],
 
 FD_25519_INLINE void
 fd_ed25519_heea_add_slide( fd_ed25519_point_t *       r,
-                          short                      slide,
-                          fd_ed25519_point_t const * table ) {
+                           short                      slide,
+                           fd_ed25519_point_t const * table ) {
   if(      slide>0 ) fd_ed25519_point_add_precomputed( r, r, &table[  slide  / 2] );
   else if( slide<0 ) fd_ed25519_point_sub_precomputed( r, r, &table[(-slide) / 2] );
 }
