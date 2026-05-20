@@ -423,6 +423,24 @@ test_multiscalar_mul( fd_rng_t * rng ) {
     FD_TEST( fd_ristretto255_point_eq( h, t ) );
   }
 
+  {
+#define MSM_LARGE_N 256
+    fd_ristretto255_point_t f[ MSM_LARGE_N ];
+    uchar a[ MSM_LARGE_N ][ 32 ];
+    fd_ristretto255_point_t expected[1];
+
+    for( ulong i=0UL; i<MSM_LARGE_N; i++ ) {
+      fd_rng_b256( rng, a[i] );
+      a[i][31] &= 0x01;
+      fd_ristretto255_point_decompress( &f[i], base_point_multiples[ i%15UL + 1UL ] );
+    }
+
+    fd_ed25519_multi_scalar_mul( expected, (uchar *)a, f, MSM_LARGE_N );
+    FD_TEST( fd_ristretto255_multi_scalar_mul( h, (uchar *)a, f, MSM_LARGE_N )==h );
+    FD_TEST( fd_ristretto255_point_eq( h, expected ) );
+#undef MSM_LARGE_N
+  }
+
   /* Benchmarks */
   ulong iter = 10000UL;
 
@@ -439,6 +457,13 @@ test_multiscalar_mul( fd_rng_t * rng ) {
     fd_rng_b256(rng, _a[i]); _a[i][31] &= 0x01;
     if (i < 15) { fd_ristretto255_point_decompress( &f[i], base_point_multiples[i % 15 + 1] ); }
     else if (i % 15 == 0) { memcpy( &f[i], &f[0], sizeof(fd_ristretto255_point_t)*15 ); }
+  }
+
+  for( ulong sz=512UL; sz<=MSM_N; sz*=2UL ) {
+    fd_ristretto255_point_t expected[1];
+    fd_ed25519_multi_scalar_mul( expected, a, f, sz );
+    FD_TEST( fd_ristretto255_multi_scalar_mul( h, a, f, sz )==h );
+    FD_TEST( fd_ristretto255_point_eq( h, expected ) );
   }
 
   for( ulong sz=32; sz<=MSM_N; sz*=2 )

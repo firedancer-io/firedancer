@@ -33,7 +33,6 @@ typedef fd_ed25519_point_t fd_ristretto255_point_t;
 #define fd_ristretto255_point_sub        fd_ed25519_point_sub
 #define fd_ristretto255_scalar_validate  fd_ed25519_scalar_validate
 #define fd_ristretto255_scalar_mul       fd_ed25519_scalar_mul
-#define fd_ristretto255_multi_scalar_mul fd_ed25519_multi_scalar_mul
 #define fd_ristretto255_point_decompress fd_ristretto255_point_frombytes
 #define fd_ristretto255_point_compress   fd_ristretto255_point_tobytes
 
@@ -50,6 +49,15 @@ fd_ristretto255_point_tobytes( uchar                           buf[ 32 ],
 fd_ristretto255_point_t *
 fd_ristretto255_point_frombytes( fd_ristretto255_point_t * p,
                                   uchar const              buf[ 32 ] );
+
+/* fd_ristretto255_multi_scalar_mul computes r = n0*a0 + n1*a1 + ...
+   and returns r.  n is a vector of sz scalars, a is a vector of sz
+   ristretto points. */
+fd_ristretto255_point_t *
+fd_ristretto255_multi_scalar_mul( fd_ristretto255_point_t *       r,
+                                  uchar const                    n[], /* sz * 32 */
+                                  fd_ristretto255_point_t const  a[], /* sz */
+                                  ulong                         sz );
 
 /* fd_ristretto255_point_validate checks if a 32-byte array represents
    a valid element of the ristretto group h.
