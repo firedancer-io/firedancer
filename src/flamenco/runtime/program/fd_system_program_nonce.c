@@ -300,12 +300,15 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
     *signer = *from.pubkey;
 
   } else { /* FD_NONCE_STATE_INITIALIZED */
-    /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L107-L132 */
+    /* TODO: update permalinks once Agave 4.1 tag has been created */
+    /* https://github.com/anza-xyz/agave/blob/7585b70d5ea5fcbb1710636ad429580a18f42c2a/programs/system/src/system_instruction.rs#L125-L152 */
+
+    *signer = state->authority;
 
     if( requested_lamports == fd_borrowed_account_get_lamports( &from ) ) {
-        /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L108-L117 */
+      /* https://github.com/anza-xyz/agave/blob/7585b70d5ea5fcbb1710636ad429580a18f42c2a/programs/system/src/system_instruction.rs#L126-L138 */
 
-      /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L109 */
+      /* https://github.com/anza-xyz/agave/blob/7585b70d5ea5fcbb1710636ad429580a18f42c2a/programs/system/src/system_instruction.rs#L127-L128 */
 
       fd_blockhash_info_t blockhash[1];
       do {
@@ -316,7 +319,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
       fd_hash_t next_durable_nonce;
       fd_durable_nonce_from_blockhash( &next_durable_nonce, &blockhash->hash );
 
-      /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L110-L116 */
+      /* https://github.com/anza-xyz/agave/blob/7585b70d5ea5fcbb1710636ad429580a18f42c2a/programs/system/src/system_instruction.rs#L129-L135 */
 
       if( FD_UNLIKELY( 0==memcmp( state->durable_nonce.hash, next_durable_nonce.hash, sizeof(fd_hash_t) ) ) ) {
         fd_log_collector_msg_literal( ctx, "Withdraw nonce account: nonce can only advance once per slot" );
@@ -324,7 +327,15 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
 
-      /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L117 */
+      /* https://github.com/anza-xyz/agave/blob/7585b70d5ea5fcbb1710636ad429580a18f42c2a/programs/system/src/system_instruction.rs#L99-L109 */
+      if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, signer ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( signer->key, signer_b58 );
+        fd_log_collector_printf_dangerous_max_127( ctx,
+          "Withdraw nonce account: Account %s must sign", signer_b58 );
+        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/7585b70d5ea5fcbb1710636ad429580a18f42c2a/programs/system/src/system_instruction.rs#L137 */
 
       fd_nonce_state_versions_t new_state[1] = {{
         .version = FD_NONCE_VERSION_CURRENT,
@@ -357,10 +368,6 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
       }
 
     }
-
-    /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L131 */
-
-    *signer = state->authority;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L135-L142 */
