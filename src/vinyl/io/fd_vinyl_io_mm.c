@@ -69,10 +69,8 @@ fd_vinyl_io_mm_read_imm( fd_vinyl_io_t * io,
 
   ulong rsz = fd_ulong_min( sz, dev_sz - dev_off );
   memcpy( dst, dev + dev_base + dev_off, rsz );
-  io->cache_read_tot_sz += rsz;
   sz -= rsz;
   if( FD_UNLIKELY( sz ) ) memcpy( dst + rsz, dev + dev_base, sz );
-  io->cache_read_tot_sz += sz;
 }
 
 static void
@@ -125,10 +123,8 @@ fd_vinyl_io_mm_read( fd_vinyl_io_t *    io,
 
   ulong rsz = fd_ulong_min( sz, dev_sz - dev_off );
   memcpy( dst, dev + dev_base + dev_off, rsz );
-  io->cache_read_tot_sz += rsz;
   sz -= rsz;
   if( FD_UNLIKELY( sz ) ) memcpy( dst + rsz, dev + dev_base, sz );
-  io->cache_read_tot_sz += sz;
 }
 
 static int
@@ -194,10 +190,8 @@ fd_vinyl_io_mm_append( fd_vinyl_io_t * io,
 
   ulong wsz = fd_ulong_min( sz, dev_sz - dev_off );
   memcpy( dev + dev_base + dev_off, src, wsz );
-  io->file_write_tot_sz += wsz;
   sz -= wsz;
   if( sz ) memcpy( dev + dev_base, src + wsz, sz );
-  io->file_write_tot_sz += sz;
 
   return seq;
 }
@@ -315,8 +309,6 @@ fd_vinyl_io_mm_copy( fd_vinyl_io_t * io,
 
     memcpy( buf, dev + dev_base + src_off, csz );
     memcpy( dev + dev_base + dst_off, buf, csz );
-    io->file_read_tot_sz  += csz;
-    io->file_write_tot_sz += csz;
 
     sz -= csz;
     if( !sz ) break;
@@ -417,7 +409,6 @@ fd_vinyl_io_mm_sync( fd_vinyl_io_t * io,
   fd_vinyl_bstream_block_hash( seed, block ); /* sets hash_trail back to seed */
 
   memcpy( dev + dev_sync, block, FD_VINYL_BSTREAM_BLOCK_SZ );
-  io->file_write_tot_sz += FD_VINYL_BSTREAM_BLOCK_SZ;
 
   mm->base->seq_ancient = seq_past;
 
