@@ -13,6 +13,7 @@ OBJDIR=${OBJDIR:-build/native/gcc}
 NUM_PROCESSES=${NUM_PROCESSES:-12}
 PAGE_SZ=gigantic
 PAGE_CNT=$(( 7 * NUM_PROCESSES ))
+WORK_DIR=${WORK_DIR:-./dump/test-vectors}
 
 if [ -z "${LOG_PATH:-}" ]; then
   LOG_PATH="$(mktemp -d)"
@@ -28,33 +29,42 @@ REPO_URL="https://github.com/firedancer-io/test-vectors.git"
 
 echo "$GIT_REF"
 
-CACHE="/data/${USER}/.cache/firedancer/test-vectors"
-WORK_DIR="dump/test-vectors-$$"
+if [[ "$CI" = "1" ]]; then
+  CACHE="/data/${USER}/.cache/firedancer/test-vectors"
+  WORK_DIR="dump/test-vectors-$$"
 
-mkdir -p "$(dirname "$CACHE")"
+  mkdir -p "$(dirname "$CACHE")"
 
-exec {lockfd}>"$CACHE.lock"
-flock -x "$lockfd"
+  exec {lockfd}>"$CACHE.lock"
+  flock -x "$lockfd"
 
-# Clean up stale git lock files left by killed processes
-rm -f "$CACHE/.git/index.lock"
+  # Clean up stale git lock files left by killed processes
+  rm -f "$CACHE/.git/index.lock"
 
-if [ ! -d "$CACHE" ]; then
+  if [ ! -d "$CACHE" ]; then
     git clone -q "$REPO_URL" "$CACHE"
+  fi
+
+  git -C "$CACHE" fetch -q --prune
+  git -C "$CACHE" checkout -q "$GIT_REF"
+
+  # Remove stale working copies older than 24 hours (non-fatal)
+  find dump -maxdepth 1 -regex '.*/test-vectors-[0-9]+$' -type d -mtime +0 \
+    -exec echo "  removing stale: {}" \; -exec rm -rf {} \; 2>/dev/null || true
+
+  rm -rf "$WORK_DIR"
+  rsync -a --link-dest="$CACHE" "$CACHE"/ "$WORK_DIR"
+
+  flock -u "$lockfd"
+  exec {lockfd}>&-
+else
+  if [ ! -d "$WORK_DIR" ]; then
+    git clone -q "$REPO_URL" "$WORK_DIR"
+  fi
+
+  git -C "$WORK_DIR" fetch -q --prune
+  git -C "$WORK_DIR" checkout -q "$GIT_REF"
 fi
-
-git -C "$CACHE" fetch -q --prune
-git -C "$CACHE" checkout -q "$GIT_REF"
-
-# Remove stale working copies older than 24 hours (non-fatal)
-find dump -maxdepth 1 -regex '.*/test-vectors-[0-9]+$' -type d -mtime +0 \
-  -exec echo "  removing stale: {}" \; -exec rm -rf {} \; 2>/dev/null || true
-
-rm -rf "$WORK_DIR"
-rsync -a --link-dest="$CACHE" "$CACHE"/ "$WORK_DIR"
-
-flock -u "$lockfd"
-exec {lockfd}>&-
 
 SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" --tile-cpus "f,0-$(( NUM_PROCESSES - 1 ))" )
 
