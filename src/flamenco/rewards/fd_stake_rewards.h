@@ -53,6 +53,8 @@
 
 #define FD_STAKE_REWARDS_ALIGN (128UL)
 
+#define FD_STAKE_REWARDS_MAX_FORK_WIDTH (128UL)
+
 struct fd_stake_rewards;
 typedef struct fd_stake_rewards fd_stake_rewards_t;
 
