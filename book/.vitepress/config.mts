@@ -77,6 +77,7 @@ export default defineConfig({
             { text: 'Fork Management', link: 'internals/fork_management' },
             { text: 'Net Tile', link: 'internals/net_tile' },
             { text: 'Netlink', link: 'internals/netlink' },
+            { text: 'Supply Chain', link: 'internals/supply_chain' },
           ]
         }
       ] },
