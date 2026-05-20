@@ -62,7 +62,6 @@ FD_PROTOTYPES_BEGIN
      integer       | -3          | long
      float         | 3e-3        | float
      string        | 'hello'     | cstr
-     datetime      | 2022-08-16  | ulong (ns since unix epoch)
 
    Despite the name, TOML is neither "obvious" nor "minimal".  fd_toml
    thus only supports a subset of the 'spec' and ignores some horrors.
@@ -99,7 +98,9 @@ FD_PROTOTYPES_BEGIN
    - Keys with embedded NUL characters are truncated whereas they are
      legal in TOML.
 
-   - Infinite and NaN floats are rejected. */
+   - Infinite and NaN floats are rejected.
+
+   - Missing support for date-time values. */
 
 int
 fd_toml_parse( void const *         toml,
