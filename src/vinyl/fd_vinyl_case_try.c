@@ -130,7 +130,7 @@
       ulong szc = fd_vinyl_data_szc( val_sz );
 
       fd_vinyl_data_obj_t * obj = fd_vinyl_data_alloc( data, szc );
-      if( FD_UNLIKELY( !obj ) ) { fd_vinyl_data_diag_log( data, szc, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (try cache-miss szc=%lu)", szc )); }
+      if( FD_UNLIKELY( !obj ) ) FD_LOG_CRIT(( "increase data cache size" ));
 
       line[ line_idx ].obj = obj; obj->line_idx = line_idx;
 
@@ -155,9 +155,8 @@
 
       if( FD_LIKELY( style==FD_VINYL_BSTREAM_CTL_STYLE_RAW ) ) cobj = obj;
       else {
-        ulong cszc = fd_vinyl_data_szc( val_esz );
-        cobj = fd_vinyl_data_alloc( data, cszc );
-        if( FD_UNLIKELY( !cobj ) ) { fd_vinyl_data_diag_log( data, cszc, line, line_cnt ); FD_LOG_CRIT(( "increase data cache size (try lz4-tmp szc=%lu)", cszc )); }
+        cobj = fd_vinyl_data_alloc( data, fd_vinyl_data_szc( val_esz ) );
+        if( FD_UNLIKELY( !cobj ) ) FD_LOG_CRIT(( "increase data cache size" ));
       }
 
       cobj->rd->ctx = (ulong)obj;
