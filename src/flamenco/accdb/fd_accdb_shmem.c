@@ -260,6 +260,12 @@ fd_accdb_shmem_new( void * shmem,
     FD_LOG_WARNING(( "invalid cache_footprint" ));
     return NULL;
   }
+  /* cidx packs only FD_ACCDB_CACHE_LINE_BITS bits of line index, so
+     cache_class_max[c]>FD_ACCDB_CACHE_LINE_MAX would let line indices
+     alias.  fd_accdb_cache_class_cnt clamps this; assert here so any
+     future regression in the allocator is caught at shmem-new time
+     rather than as silent cache corruption at runtime. */
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) FD_TEST( cache_class_max[ c ]<=FD_ACCDB_CACHE_LINE_MAX );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_accdb_shmem_t * accdb = FD_SCRATCH_ALLOC_APPEND( l, FD_ACCDB_SHMEM_ALIGN,     sizeof(fd_accdb_shmem_t)                                );
@@ -324,8 +330,8 @@ fd_accdb_shmem_new( void * shmem,
   accdb->root_fork_id = (fd_accdb_fork_id_t){ .val = USHORT_MAX };
   accdb->generation = 0U;
 
-  accdb->partition_lock    = 0;
-  accdb->snapshot_loading  = 0;
+  accdb->partition_lock   = 0;
+  accdb->snapshot_loading = 0;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->clock_hand[ c ].val = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_free[ c ].ver_top = (ulong)UINT_MAX;

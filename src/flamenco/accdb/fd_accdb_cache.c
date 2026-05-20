@@ -11,7 +11,7 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      full mainnet snapshot (1.118B accounts, 363.7 GiB, slot 393863972)
      with ~20% headroom. */
 
-  static const ulong pop_max[ FD_ACCDB_CACHE_CLASS_CNT ] = {
+  static const ulong pop_max_raw[ FD_ACCDB_CACHE_CLASS_CNT ] = {
      215000000UL,  /* class 0: ~16% of accounts   */
     1041000000UL,  /* class 1: ~77.6% of accounts */
       76000000UL,  /* class 2: ~5.6%              */
@@ -21,6 +21,16 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
         244000UL,  /* class 6: ~0.02%             */
           5000UL,  /* class 7: ~0.0003%           */
   };
+
+  /* Hard per-class ceiling: cidx packs only FD_ACCDB_CACHE_LINE_BITS
+     bits of line index, so a class with more than
+     FD_ACCDB_CACHE_LINE_MAX slots would let two distinct lines pack to
+     the same cidx and silently alias on read.  Clamp pop_max[c] to that
+     representable bound before any phase of the allocator consults it.  */
+  ulong pop_max[ FD_ACCDB_CACHE_CLASS_CNT ];
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    pop_max[c] = fd_ulong_min( pop_max_raw[c], FD_ACCDB_CACHE_LINE_MAX );
+  }
 
   /* Access density weights: total_accesses / slot_size from empirical
      mainnet replay (1000-slot sample at slot 406546575), adjusted for
@@ -54,9 +64,9 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
     16384UL,  /* class 0: p99 ~13.4K, ample headroom (small slots) */
     13000UL,  /* class 1: p99 ~10.4K */
      4096UL,  /* class 2: p99  ~3.2K */
-     2560UL,  /* class 3: p99  ~2.0K — was undersized at 1.3K */
-     1800UL,  /* class 4: p99  ~1.0K — needs headroom for pre-evict to keep up */
-      256UL,  /* class 5: p99    ~66 — was wastefully sized at 1.3K */
+     3072UL,  /* class 3: p99  ~2.0K, was undersized at 1.3K */
+     1800UL,  /* class 4: p99  ~1.0K, needs headroom for pre-evict to keep up */
+      256UL,  /* class 5: p99    ~66, was wastefully sized at 1.3K */
       256UL,  /* class 6: p99   ~212 */
       512UL,  /* class 7: p99   ~179; staging covered by MIN_RESERVED */
   };
@@ -161,20 +171,60 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      still be remaining budget.  The accounts database can grow at
      runtime, so distribute excess uncapped, proportional to
      density.  This ensures we always use the full cache budget
-     the operator gave us. */
+     the operator gave us, up to the per-class cidx ceiling
+     (FD_ACCDB_CACHE_LINE_MAX, enforced via the capped[] array). */
 
   remaining = cache_footprint;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ )
     remaining -= class_cnt[c] * fd_accdb_cache_slot_sz[c];
 
-  if( remaining ) {
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) capped[c] = class_cnt[c]>=FD_ACCDB_CACHE_LINE_MAX;
+
+  for( ulong iter=0UL; iter<FD_ACCDB_CACHE_CLASS_CNT && remaining; iter++ ) {
     ulong total_w = 0UL;
-    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ )
-      total_w += density[c];
     for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
-      ulong budget = remaining * density[c] / total_w;
-      class_cnt[c] += budget / fd_accdb_cache_slot_sz[c];
+      if( !capped[c] ) total_w += density[c];
     }
+    if( FD_UNLIKELY( !total_w ) ) break;
+
+    int any_capped = 0;
+    for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+      if( capped[c] ) continue;
+      ulong budget = remaining * density[c] / total_w;
+      ulong extra  = budget / fd_accdb_cache_slot_sz[c];
+      if( class_cnt[c]+extra >= FD_ACCDB_CACHE_LINE_MAX ) {
+        ulong added  = FD_ACCDB_CACHE_LINE_MAX - class_cnt[c];
+        class_cnt[c] = FD_ACCDB_CACHE_LINE_MAX;
+        remaining   -= added * fd_accdb_cache_slot_sz[c];
+        capped[c]    = 1;
+        any_capped   = 1;
+      }
+    }
+
+    if( !any_capped ) {
+      total_w = 0UL;
+      for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+        if( !capped[c] ) total_w += density[c];
+      }
+      if( FD_UNLIKELY( !total_w ) ) break;
+      for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+        if( capped[c] ) continue;
+        ulong budget = remaining * density[c] / total_w;
+        class_cnt[c] += budget / fd_accdb_cache_slot_sz[c];
+      }
+      break;
+    }
+  }
+
+  /* Past FD_ACCDB_CACHE_LINE_MAX*slot_sz[c] (~6 TiB) the index space is
+     fully saturated and any further budget is unspendable on cache
+     lines.  Warn the operator so they can size down. */
+  ulong unspent = cache_footprint;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ )
+    unspent -= class_cnt[c] * fd_accdb_cache_slot_sz[c];
+  if( FD_UNLIKELY( unspent >= fd_accdb_cache_slot_sz[ 0UL ] ) ) {
+    FD_LOG_WARNING(( "cache_footprint exceeds per-class index space; %lu GiB will be unused (raise FD_ACCDB_CACHE_LINE_BITS to use more)",
+                     (unspent+(1UL<<30UL)-1UL)/(1UL<<30UL) ));
   }
 
   return 1;

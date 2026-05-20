@@ -262,12 +262,16 @@ fd_accdb_acc_xchg_offset( fd_accdb_accmeta_t * acc,
 
 /* Packing helpers for the embedded acc cache index.  3 bits class
    in bits 31-29, 29 bits line index.  INVAL is the sentinel for
-   "no cached location known". */
+   "no cached location known".  FD_ACCDB_CACHE_LINE_MAX (defined in
+   fd_accdb_cache.h) is the exclusive upper bound on representable
+   line indices; per-class slot counts must not exceed it, or cidx
+   values would alias. */
 
+#define FD_ACCDB_ACC_CIDX_IDX_MASK  ((uint)(FD_ACCDB_CACHE_LINE_MAX-1UL))
 #define FD_ACCDB_ACC_CIDX_INVAL     UINT_MAX
-#define FD_ACCDB_ACC_CIDX_PACK(c,i) ((uint)( ((uint)(c)<<29) | ((uint)(i) & 0x1FFFFFFFU) ))
-#define FD_ACCDB_ACC_CIDX_CLASS(ci) ((ulong)((uint)(ci) >> 29))
-#define FD_ACCDB_ACC_CIDX_IDX(ci)   ((ulong)((uint)(ci) & 0x1FFFFFFFU))
+#define FD_ACCDB_ACC_CIDX_PACK(c,i) ((uint)( ((uint)(c)<<FD_ACCDB_CACHE_LINE_BITS) | ((uint)(i) & FD_ACCDB_ACC_CIDX_IDX_MASK) ))
+#define FD_ACCDB_ACC_CIDX_CLASS(ci) ((ulong)((uint)(ci) >> FD_ACCDB_CACHE_LINE_BITS))
+#define FD_ACCDB_ACC_CIDX_IDX(ci)   ((ulong)((uint)(ci) & FD_ACCDB_ACC_CIDX_IDX_MASK))
 
 #define POOL_NAME       acc_pool
 #define POOL_ELE_T      fd_accdb_accmeta_t

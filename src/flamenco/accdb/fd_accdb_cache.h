@@ -33,6 +33,15 @@
 #define FD_ACCDB_CACHE_CLASS_CNT    (8UL)
 #define FD_ACCDB_CACHE_META_SZ     (88UL)
 
+/* Per-class line count ceiling.  The acc cache index packs (class, line)
+   into 32 bits as 3 bits of class and FD_ACCDB_CACHE_LINE_BITS bits of
+   line index (see FD_ACCDB_ACC_CIDX_* in fd_accdb_private.h).  A class
+   may not be sized larger than FD_ACCDB_CACHE_LINE_MAX slots, or two
+   distinct lines would pack to the same cidx and reads would alias. */
+
+#define FD_ACCDB_CACHE_LINE_BITS    (29)
+#define FD_ACCDB_CACHE_LINE_MAX     (1UL<<FD_ACCDB_CACHE_LINE_BITS)
+
 /* min_reserved is supplied at runtime by the caller (see
    fd_accdb_cache_class_cnt and fd_accdb_shmem_new).  It is the minimum
    number of slots reserved per class so a worst-case batch of
