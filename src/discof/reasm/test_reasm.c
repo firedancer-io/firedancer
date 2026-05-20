@@ -552,9 +552,9 @@ test_evict( fd_wksp_t * wksp ) {
 
   FD_TEST( fd_reasm_insert( reasm, mr10, mr9,  10,    0,       2,     32,     0, 0,        0, NULL, evicted ) );
 
-  FD_TEST( fd_reasm_query( reasm, mr5 ) ); /* Evicts slot 4, because slot 5 is complete  */
-  FD_TEST( !fd_reasm_query( reasm, mr3 ) );
-  FD_TEST( (*evicted)->slot == 4 && (*evicted)->fec_set_idx == 0 );
+  FD_TEST( fd_reasm_query( reasm, mr3 ) );  /* mr3 still present */
+  FD_TEST( !fd_reasm_query( reasm, mr5 ) ); /* mr5 evicted (highest unconfirmed frontier leaf) */
+  FD_TEST( (*evicted)->slot == 5 && (*evicted)->fec_set_idx == 32 );
   fd_reasm_pool_release( reasm, *evicted );
 }
 
@@ -1050,141 +1050,161 @@ test_confirm_out_ordering( fd_wksp_t * wksp ) {
 }
 
 void
-test_remove_bank_eviction( fd_wksp_t * wksp ) {
-  /* Tree structure after all inserts:
+test_evict_unconfirmed_orphan( fd_wksp_t * wksp ) {
+  /* Category 1: Highest unconfirmed orphan leaf is evicted.
 
-     root(0,0) ── (1,0) ── (1,32) ── (1,64)[slot_complete]
-                                        ├── (2,0) ── (2,32) ── (2,64) ── (2,96)
-                                        └── (3,0) ── (3,32)
+     Tree: root(0) -- a(1) -- b(2) -- c(3) -- d(4) -- e(5)
+     Orphan: f(10) [unconfirmed subtree root leaf]
 
-     Simulate the replay tile having popped and replayed the first 2
-     FECs of slot 1 ((1,0) and (1,32)).  Then simulate bank eviction
-     by calling fd_reasm_remove on (1,32) — the latest FEC that was
-     replayed on this bank */
+     Insert g(6) as child of e → triggers eviction.
+     Expected: f(10) evicted. */
 
-  ulong        fec_max = 32;
+  ulong        fec_max = 8;
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
   fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
   FD_TEST( reasm );
 
-  fd_reasm_fec_t * pool     = reasm_pool( reasm );
-  frontier_t *     frontier = reasm->frontier;
-  subtrees_t *     subtrees = reasm->subtrees;
-  orphaned_t *     orphaned = reasm->orphaned;
+  fd_hash_t mr_root[1] = {{{ 0 }}};
+  fd_hash_t mr_a[1]    = {{{ 1 }}};
+  fd_hash_t mr_b[1]    = {{{ 2 }}};
+  fd_hash_t mr_c[1]    = {{{ 3 }}};
+  fd_hash_t mr_d[1]    = {{{ 4 }}};
+  fd_hash_t mr_e[1]    = {{{ 5 }}};
+  fd_hash_t mr_f[1]    = {{{ 6 }}};
+  fd_hash_t mr_fp[1]   = {{{ 60 }}};
+  fd_hash_t mr_g[1]    = {{{ 7 }}};
 
   fd_reasm_fec_t * ev[1];
 
-  /* Merkle roots for each FEC. */
-  fd_hash_t mr_root[1] = {{{ 99 }}};
-
-  fd_hash_t mr1_0 [1] = {{{ 10 }}};
-  fd_hash_t mr1_32[1] = {{{ 11 }}};
-  fd_hash_t mr1_64[1] = {{{ 12 }}};
-
-  fd_hash_t mr2_0 [1] = {{{ 20 }}};
-  fd_hash_t mr2_32[1] = {{{ 21 }}};
-  fd_hash_t mr2_64[1] = {{{ 22 }}};
-  fd_hash_t mr2_96[1] = {{{ 23 }}};
-
-  fd_hash_t mr3_0 [1] = {{{ 30 }}};
-  fd_hash_t mr3_32[1] = {{{ 31 }}};
-
-  /* Insert root (snapshot slot). */
   fd_reasm_init( reasm, mr_root, 0 );
 
-  /* Insert slot 1: 3 FECs. (1,64) has slot_complete. */
-  /*                                mr       cmr       slot fec_idx p_off data_cnt dc   sc   ldr        */
-  fd_reasm_insert( reasm, mr1_0,  mr_root, 1,   0,     1,   32,     0,   0,   0, NULL, ev );
-  fd_reasm_insert( reasm, mr1_32, mr1_0,   1,   32,    1,   32,     0,   0,   0, NULL, ev );
-  fd_reasm_insert( reasm, mr1_64, mr1_32,  1,   64,    1,   32,     0,   1,   0, NULL, ev );
+  fd_reasm_insert( reasm, mr_a,   mr_root, 1,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_b,   mr_a,    2,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_c,   mr_b,    3,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_d,   mr_c,    4,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_e,   mr_d,    5,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_f,   mr_fp,  10,  0, 1, 32, 0, 1, 0, NULL, ev );
 
-  /* Insert slot 2: 4 FECs chaining off slot 1. */
-  fd_reasm_insert( reasm, mr2_0,  mr1_64,  2,   0,     1,   32,     0,   0,   0, NULL, ev );
-  fd_reasm_insert( reasm, mr2_32, mr2_0,   2,   32,    1,   32,     0,   0,   0, NULL, ev );
-  fd_reasm_insert( reasm, mr2_64, mr2_32,  2,   64,    1,   32,     0,   0,   0, NULL, ev );
-  fd_reasm_insert( reasm, mr2_96, mr2_64,  2,   96,    1,   32,     0,   1,   0, NULL, ev );
+  FD_TEST( *ev == NULL );
 
-  /* Insert slot 3: 2 FECs chaining off slot 1 (fork). */
-  fd_reasm_insert( reasm, mr3_0,  mr1_64,  3,   0,     2,   32,     0,   0,   0, NULL, ev );
-  fd_reasm_insert( reasm, mr3_32, mr3_0,   3,   32,    2,   32,     0,   1,   0, NULL, ev );
+  FD_TEST( fd_reasm_insert( reasm, mr_g, mr_e, 6, 0, 1, 32, 0, 1, 0, NULL, ev ) );
+  FD_TEST( *ev );
+  FD_TEST( !fd_reasm_query( reasm, mr_f ) );
+  FD_TEST( (*ev)->slot == 10 && (*ev)->fec_set_idx == 0 );
+  fd_reasm_pool_release( reasm, *ev );
 
-  verify_out_invariants( reasm );
-
-  /* Simulate replay: pop the first 2 FECs in slot 1.
-     In the replay tile, this means the bank has replayed (1,0) and
-     (1,32).  The replay tile's latest_mr would be mr1_32. */
-
-  fd_reasm_fec_t * popped1 = fd_reasm_pop( reasm );
-  FD_TEST( popped1 );
-  FD_TEST( 0==memcmp( &popped1->key, mr1_0, sizeof(fd_hash_t) ) );
-  popped1->bank_idx = 1; /* simulate bank assignment */
-
-  fd_reasm_fec_t * popped2 = fd_reasm_pop( reasm );
-  FD_TEST( popped2 );
-  FD_TEST( 0==memcmp( &popped2->key, mr1_32, sizeof(fd_hash_t) ) );
-  popped2->bank_idx = 1; /* same bank */
-
-  /* Simulate bank eviction: call fd_reasm_remove on the second FEC
-     that was popped ((1,32)), mimicking the replay tile querying
-     latest_mr and passing the result to remove. */
-
-  fd_reasm_fec_t * fec_to_evict = fd_reasm_query( reasm, mr1_32 );
-  FD_TEST( fec_to_evict );
-  FD_TEST( fec_to_evict->child != ULONG_MAX );                  /* NOT a leaf  */
-
-  fd_reasm_fec_t * evicted_head = fd_reasm_remove( reasm, fec_to_evict, NULL );
-  FD_TEST( evicted_head );
-
-  /* The evicted chain should be (1,0) -> (1,32).  head walks up from
-     (1,32) to (1,0) because fec_set_idx 0 is the stop condition. */
-
-  FD_TEST( 0==memcmp( &evicted_head->key, mr1_0, sizeof(fd_hash_t) ) );
-  fd_reasm_fec_t * evicted_child = fd_reasm_child( reasm, evicted_head );
-  FD_TEST( 0==memcmp( &evicted_child->key, mr1_32, sizeof(fd_hash_t) ) );
-
-  /* (1,0) and (1,32) should no longer be in any map. */
-
-  FD_TEST( !fd_reasm_query( reasm, mr1_0  ) );
-  FD_TEST( !fd_reasm_query( reasm, mr1_32 ) );
-
-  /* (1,64) should now be a subtree root — it was the direct child of
-     tail=(1,32) and became orphaned by the removal. */
-
-  FD_TEST( subtrees_ele_query( subtrees, mr1_64, NULL, pool ) );
-
-  /* (1,64)'s children from slot 2 and slot 3 should be in orphaned. */
-
-  FD_TEST( orphaned_ele_query( orphaned, mr2_0,  NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr2_32, NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr2_64, NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr2_96, NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr3_0,  NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr3_32, NULL, pool ) );
-
-  /* Slot 2's first FEC and slot 3's first FEC should be subtree roots
-     (they are direct children of (1,64) which is the tail's child, so
-     actually (2,0) and (3,0) should be subtree roots if the code
-     re-roots each direct child of tail). */
-
-  /* The out dlist should be empty — all previously connected FECs
-     were either popped ((1,0), (1,32)) or orphaned ((1,64) and
-     descendants). */
-
-  FD_TEST( out_is_empty( reasm->out, pool ) );
-
-  /* The root should now be a frontier leaf (its only child (1,0) was
-     evicted, so it has no children). */
-
-  FD_TEST( frontier_ele_query( frontier, mr_root, NULL, pool ) );
-
-  /* Clean up: release evicted elements back to pool. */
-
-  fd_reasm_pool_release( reasm, evicted_child );
-  fd_reasm_pool_release( reasm, evicted_head );
+  FD_TEST( fd_reasm_query( reasm, mr_g ) );
 
   fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  FD_LOG_NOTICE(( "test_evict_unconfirmed_orphan passed" ));
+}
 
-  FD_LOG_NOTICE(( "test_remove_bank_eviction passed" ));
+void
+test_evict_unconfirmed_frontier( fd_wksp_t * wksp ) {
+  /* Category 2: Highest unconfirmed frontier leaf is evicted when
+     there are no unconfirmed orphan candidates.
+
+     Tree: root(0) -- a(1) -- b(2) -- c(3) -- d(4)  [frontier, slot 4]
+                                   \-- e(5)          [frontier, slot 5]
+                                   \-- f(7)          [frontier, slot 7]
+
+     No orphans. Insert g(8) with nonexistent parent → orphan.
+     Expected: f(7) evicted (highest unconfirmed frontier leaf). */
+
+  ulong        fec_max = 8;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_hash_t mr_root[1] = {{{ 0 }}};
+  fd_hash_t mr_a[1]    = {{{ 1 }}};
+  fd_hash_t mr_b[1]    = {{{ 2 }}};
+  fd_hash_t mr_c[1]    = {{{ 3 }}};
+  fd_hash_t mr_d[1]    = {{{ 4 }}};
+  fd_hash_t mr_e[1]    = {{{ 5 }}};
+  fd_hash_t mr_f[1]    = {{{ 6 }}};
+  fd_hash_t mr_g[1]    = {{{ 7 }}};
+  fd_hash_t mr_gp[1]   = {{{ 70 }}};
+
+  fd_reasm_fec_t * ev[1];
+  fd_reasm_init( reasm, mr_root, 0 );
+  fd_reasm_insert( reasm, mr_a,   mr_root, 1,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_b,   mr_a,    2,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_c,   mr_b,    3,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_d,   mr_c,    4,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_e,   mr_b,    5,  0, 3, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_f,   mr_b,    7,  0, 5, 32, 0, 1, 0, NULL, ev );
+
+  FD_TEST( *ev == NULL );
+
+  FD_TEST( fd_reasm_insert( reasm, mr_g, mr_gp, 8, 0, 1, 32, 0, 0, 0, NULL, ev ) );
+  FD_TEST( *ev );
+  FD_TEST( !fd_reasm_query( reasm, mr_f ) );
+  FD_TEST( (*ev)->slot == 7 && (*ev)->fec_set_idx == 0 );
+  fd_reasm_pool_release( reasm, *ev );
+
+  FD_TEST( fd_reasm_query( reasm, mr_d ) );
+  FD_TEST( fd_reasm_query( reasm, mr_e ) );
+
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  FD_LOG_NOTICE(( "test_evict_unconfirmed_frontier passed" ));
+}
+
+void
+test_evict_confirmed_orphan( fd_wksp_t * wksp ) {
+  /* Category 3: Highest confirmed orphan leaf is evicted when there
+     are no unconfirmed orphan or frontier candidates.
+
+     Tree: root(0) -- a(1) -- b(2) -- c(3) -- d(4) -- e(5, is_leader)
+     Orphan: f(10, confirmed=1) [subtree root leaf]
+
+     Insert g(11) with nonexistent parent.
+     Category 1: f is confirmed → skip.
+     Category 2: e is_leader → skip.
+     Category 3: parent not found → evict confirmed orphan f. */
+
+  ulong        fec_max = 8;
+  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  FD_TEST( reasm );
+
+  fd_hash_t mr_root[1] = {{{ 0 }}};
+  fd_hash_t mr_a[1]    = {{{ 1 }}};
+  fd_hash_t mr_b[1]    = {{{ 2 }}};
+  fd_hash_t mr_c[1]    = {{{ 3 }}};
+  fd_hash_t mr_d[1]    = {{{ 4 }}};
+  fd_hash_t mr_e[1]    = {{{ 5 }}};
+  fd_hash_t mr_f[1]    = {{{ 6 }}};
+  fd_hash_t mr_fp[1]   = {{{ 60 }}};
+  fd_hash_t mr_g[1]    = {{{ 7 }}};
+  fd_hash_t mr_gp[1]   = {{{ 70 }}};
+
+  fd_reasm_fec_t * ev[1];
+
+  fd_reasm_init( reasm, mr_root, 0 );
+  fd_reasm_insert( reasm, mr_a,   mr_root, 1,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_b,   mr_a,    2,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_c,   mr_b,    3,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_d,   mr_c,    4,  0, 1, 32, 0, 1, 0, NULL, ev );
+  fd_reasm_insert( reasm, mr_e,   mr_d,    5,  0, 1, 32, 0, 1, 1, NULL, ev );
+  fd_reasm_insert( reasm, mr_f,   mr_fp,  10,  0, 1, 32, 0, 1, 0, NULL, ev );
+
+  fd_reasm_fec_t * fec_f = fd_reasm_query( reasm, mr_f );
+  FD_TEST( fec_f );
+  fec_f->confirmed = 1;
+
+  FD_TEST( *ev == NULL );
+
+  FD_TEST( fd_reasm_insert( reasm, mr_g, mr_gp, 11, 0, 1, 32, 0, 0, 0, NULL, ev ) );
+  FD_TEST( *ev );
+  FD_TEST( !fd_reasm_query( reasm, mr_f ) );
+  FD_TEST( (*ev)->slot == 10 && (*ev)->fec_set_idx == 0 );
+  fd_reasm_pool_release( reasm, *ev );
+
+  FD_TEST( fd_reasm_query( reasm, mr_e ) );
+
+  fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  FD_LOG_NOTICE(( "test_evict_confirmed_orphan passed" ));
 }
 
 void
@@ -1247,7 +1267,9 @@ main( int argc, char ** argv ) {
   test_validate_cross_slot( wksp );
   test_remove_deep_orphan_subtree( wksp );
   test_confirm_out_ordering( wksp );
-  test_remove_bank_eviction( wksp );
+  test_evict_unconfirmed_orphan( wksp );
+  test_evict_unconfirmed_frontier( wksp );
+  test_evict_confirmed_orphan( wksp );
   test_insert_rejects_when_full_and_nothing_is_evictable( wksp );
 
   fd_halt();

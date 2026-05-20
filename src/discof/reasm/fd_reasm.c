@@ -422,166 +422,76 @@ fd_reasm_pool_idx( fd_reasm_t * reasm, fd_reasm_fec_t * ele ) {
   return pool_idx( reasm_pool( reasm ), ele );
 }
 
-fd_reasm_fec_t *
-fd_reasm_remove( fd_reasm_t     * reasm,
-                 fd_reasm_fec_t * head,
-                 fd_store_t     * opt_store ) {
-  /* see fd_forest.c clear_leaf */
+/* remove_leaf removes a leaf node. This function cannot return
+   NULL. It is assumed that the passed `head` exists in reasm. */
 
-  fd_reasm_fec_t *    pool     = reasm_pool( reasm );
-  orphaned_t *        orphaned = reasm->orphaned;
-  frontier_t *        frontier = reasm->frontier;
-  ancestry_t *        ancestry = reasm->ancestry;
-  subtrees_t *        subtrees = reasm->subtrees;
-  subtreel_t *        subtreel = reasm->subtreel;
+static fd_reasm_fec_t *
+remove_leaf( fd_reasm_t     * reasm,
+             fd_reasm_fec_t * head,
+             fd_store_t     * opt_store ) {
+  fd_reasm_fec_t * pool     = reasm_pool( reasm );
+  orphaned_t *     orphaned = reasm->orphaned;
+  frontier_t *     frontier = reasm->frontier;
+  ancestry_t *     ancestry = reasm->ancestry;
+  subtrees_t *     subtrees = reasm->subtrees;
+  subtreel_t *     subtreel = reasm->subtreel;
 
-  FD_TEST( head );
-
-  fd_reasm_fec_t * tail = head;
-
-
-
-  if( FD_LIKELY( orphaned_ele_query( orphaned, &head->key, NULL, pool ) ||
-                 subtrees_ele_query( subtrees, &head->key, NULL, pool ) ) ) {
-    FD_TEST( head->child == ULONG_MAX ); /* must be a leaf node */
-  } else {
-    /* Node is in frontier or ancestry.  If the leaf is in the frontier,
-       we could be removing something that has been executed.  Move the
-       head pointer up to where we begin evicting.
-
-       We search up the tree until the theoretical boundary of a bank.
-       This is usually when we jump to a parent slot, but if an
-       equivocation occured, this could also be the middle of the slot.
-
-       0 ── 32 ──  64 ──  96          (confirmed)
-              └──  64' ── 96' ── 128' (eqvoc)
-
-        Note we only have execute a slot twice (have 2 bank idxs for it)
-        if the slot equivocated, we replayed the wrong version, and then
-        replayed the confirmed version afterwards.
-
-        The state after executing the wrong version first is:
-
-              0  ────  32 ────  64 ────  96 ──── 128
-        (bank_idx=1) (bank_idx=1) .... (all bank_idx=1)
-
-        After receiving and executing the confirmed version, the state
-        looks like:
-
-        0 (b=2) ── 32 (b=2) ──  64  (b=2) ──  96  (b=2)               (confirmed)
-                           └──  64' (b=1) ──  96' (b=1) ── 128' (b=1) (eqvoc)
-
-        Here we want to evict only until fec 64'. Or let's say we are
-        getting around to executing the confirmed version, but we haven't
-        executed it yet.
-
-        0 (b=1) ── 32 (b=1) ──  64  (b=ULONG_MAX) ── 96  (b=ULONG_MAX)           (confirmed, but not executed yet)
-                           └──  64' (b=1)         ── 96' (b=1) ── 128'(b=1)      (eqvoc)
-
-        Now we know we should evict until the max(parent has > 1 child, or fec set idx == 0) */
-
-    while( FD_LIKELY( head ) ) {
-      fd_reasm_fec_t * parent = fd_reasm_parent( reasm, head ); /* parent must exist.  It's not possible to walk up past root */
-      FD_TEST( head->bank_idx == tail->bank_idx );
-
-      if( FD_UNLIKELY( head->fec_set_idx==0  ) )                   break;
-      if( FD_UNLIKELY( head->sibling != pool_idx_null( pool ) ) )  break; /* if the parent has more than 1 child, we know for sure the parent is a slot boundary or eqvoc point, so we can stop here. */
-      if( FD_UNLIKELY( parent->child != pool_idx( pool, head ) ) ) break; /* if the parent has more than 1 child, we know for sure the parent is a slot boundary or eqvoc point, so we can stop here. */
-      if( FD_UNLIKELY( parent->slot_complete ) )                   break; /* specifically catches case where slot complete is in middle of slot. */
-      head = parent;
-    }
-  }
-  FD_LOG_INFO(( "evicting reasm slot %lu, fec idx %u, down to %u bank_idx %lu", head->slot, head->fec_set_idx, tail->fec_set_idx, head->bank_idx ));
-
-  /* Orphan the entire subtree from the tail :( */
-  if( FD_UNLIKELY( fd_reasm_child( reasm, tail ) ) ) {
-    /* subtree this child.  This code path should only be hit if this is
-       banks-driven eviction, so children are guaranteed to be in main
-       tree right now. */
-    ulong * bfs = reasm->bfs;
-    bfs_push_tail( bfs, pool_idx( pool, tail ) );
-    while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
-      fd_reasm_fec_t * ele   = pool_ele( pool, bfs_pop_head( bfs ) );
-      fd_reasm_fec_t * child = fd_reasm_child( reasm, ele );
-      while( FD_LIKELY( child ) ) {
-        bfs_push_tail( bfs, pool_idx( pool, child ) );
-        child = pool_ele( pool, child->sibling );
-      }
-
-      if( FD_UNLIKELY( ele == tail ) ) continue;
-      /* remove each child from the maps */
-      if( FD_UNLIKELY( !ancestry_ele_remove( ancestry, &ele->key, NULL, pool ) ) ) frontier_ele_remove( frontier, &ele->key, NULL, pool );
-      if( FD_LIKELY( ele->in_out ) ) { out_ele_remove( reasm->out, ele, pool ); ele->in_out = 0; }
-
-      if( FD_UNLIKELY( ele->parent == pool_idx( pool, tail ) ) ) {
-        subtrees_ele_insert( subtrees, ele, pool );
-        subtreel_ele_push_tail( reasm->subtreel, ele, pool );
-        ele->parent  = ULONG_MAX;
-        ele->sibling = ULONG_MAX;
-      } else {
-        orphaned_ele_insert( orphaned, ele, pool );
-      }
-    }
-    /* unlink the leaf from its children. */
-    tail->child = ULONG_MAX;
-  }
+  FD_TEST( head && head->child == ULONG_MAX ); /* must be a leaf node */
+  FD_LOG_INFO(( "evicting reasm slot %lu fec idx %u bank_idx %lu", head->slot, head->fec_set_idx, head->bank_idx ));
 
   fd_reasm_fec_t * parent = fd_reasm_parent( reasm, head );
-  if( FD_LIKELY( parent ) ) {
-   /* Clean up the parent pointing to this head, and remove block from the maps
-      remove the block from the parent's child list */
-
-    fd_reasm_fec_t * child = pool_ele( pool, parent->child );
-    if( FD_LIKELY( 0==memcmp( &child->key, &head->key, sizeof(fd_hash_t) ) ) ) { /* evicted is left-child (or only child) */
-      parent->child = child->sibling;
-    } else {
-      /* evicted is a right-sibling */
-      fd_reasm_fec_t * sibling = pool_ele( pool, child->sibling );
-      fd_reasm_fec_t * prev    = child;
-      while( FD_LIKELY( sibling && memcmp( &sibling->key, &head->key, sizeof(fd_hash_t) ) ) ) {
-        prev = sibling;
-        sibling = pool_ele( pool, sibling->sibling );
-      }
-      prev->sibling = sibling->sibling;
-    }
-
-    /* remove the chain itself from the maps */
-
-    fd_reasm_fec_t * removed_orphan = NULL;
-    if( FD_LIKELY  ( removed_orphan = orphaned_ele_remove( orphaned, &head->key, NULL, pool ) ) ) {
-      clear_slot_metadata( reasm, head );
-      if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &head->key );
-      return head;
-    }
-
-    /* remove from ancestry and frontier */
-    fd_reasm_fec_t * curr = head;
-    while( FD_LIKELY( curr ) ) {
-      fd_reasm_fec_t * removed = ancestry_ele_remove( ancestry, &curr->key, NULL, pool );
-      if( !removed )   removed = frontier_ele_remove( frontier, &curr->key, NULL, pool );
-      if( FD_LIKELY( removed->in_out ) ) { out_ele_remove( reasm->out, removed, pool ); removed->in_out = 0; }
-
-      curr = fd_reasm_child( reasm, curr );  /* guaranteed only one child */
-      clear_slot_metadata( reasm, removed );
-      if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &removed->key );
-    }
-
-    /* We removed from the main tree, so we might need to insert parent into the frontier.
-        Only need to add parent to the frontier if it doesn't have any other children. */
-
-    if( parent->child == pool_idx_null( pool ) ) {
-      parent = ancestry_ele_remove( ancestry, &parent->key, NULL, pool );
-      FD_TEST( parent );
-      frontier_ele_insert( frontier, parent, pool );
-    }
+  if( FD_UNLIKELY( !parent ) ) {
+    /* No parent, remove from subtrees and subtree list */
+    subtrees_ele_remove( subtrees, &head->key, NULL, pool );
+    subtreel_ele_remove( subtreel,  head,            pool );
+    clear_slot_metadata( reasm, head );
+    if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &head->key );
     return head;
   }
 
-  /* No parent, remove from subtrees and subtree list */
-  subtrees_ele_remove( subtrees, &head->key, NULL, pool );
-  subtreel_ele_remove( subtreel,  head,            pool );
+  /* Else this node is connected to a parent. Clean up the parent
+     pointing to this head, remove block from the maps. */
+
+  fd_reasm_fec_t * child = pool_ele( pool, parent->child );
+  if( FD_LIKELY( 0==memcmp( &child->key, &head->key, sizeof(fd_hash_t) ) ) ) {
+    /* evicted is left-child (or only child) */
+    parent->child = child->sibling;
+  } else {
+    /* evicted is a right-sibling */
+    fd_reasm_fec_t * sibling = pool_ele( pool, child->sibling );
+    fd_reasm_fec_t * prev    = child;
+    while( FD_LIKELY( sibling && memcmp( &sibling->key, &head->key, sizeof(fd_hash_t) ) ) ) {
+      prev = sibling;
+      sibling = pool_ele( pool, sibling->sibling );
+    }
+    prev->sibling = sibling->sibling;
+  }
+
+  /* remove the node itself from the maps */
+
+  fd_reasm_fec_t * removed = orphaned_ele_remove( orphaned, &head->key, NULL, pool );
+  if( FD_LIKELY( removed ) ) {
+    clear_slot_metadata( reasm, removed );
+    if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &removed->key );
+    return head;
+  }
+
+  /* Early exit if node was an orphan. Now we know it's in ancestry or frontier. */
+
+  removed = ancestry_ele_remove( ancestry, &head->key, NULL, pool );
+  removed = fd_ptr_if( !removed, frontier_ele_remove( frontier, &head->key, NULL, pool ), removed );
+  if( FD_LIKELY( removed->in_out ) ) { out_ele_remove( reasm->out, removed, pool ); removed->in_out = 0; }
   clear_slot_metadata( reasm, head );
   if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &head->key );
+
+  /* We removed from the main tree, so we might need to insert parent into the frontier.
+      Only need to add parent to the frontier if it doesn't have any other children. */
+
+  if( parent->child == pool_idx_null( pool ) ) {
+    parent = ancestry_ele_remove( ancestry, &parent->key, NULL, pool );
+    FD_TEST( parent );
+    frontier_ele_insert( frontier, parent, pool );
+  }
   return head;
 }
 
@@ -637,9 +547,9 @@ evict( fd_reasm_t      * reasm,
   subtreel_t *     subtreel = reasm->subtreel;
 
   /* Generally, best policy for eviction is to evict in the order of:
-    1. Highest unconfirmed orphan leaf                   - furthest from root
-    2. Highest incomplete, unconfirmed leaf in ancestry  - furthest from tip of execution
-    3. Highest confirmed orphan leaf                     - evictable, since unrelated to banks, but less ideal */
+    1. Highest unconfirmed orphan leaf       - furthest from root
+    2. Highest unconfirmed leaf in ancestry  - furthest from tip of execution
+    3. Highest confirmed orphan leaf         - evictable, since unrelated to banks, but less ideal */
 
   fd_reasm_fec_t * unconfrmd_orphan = NULL; /* 1st best candidate for eviction is the highest unconfirmed orphan. */
   fd_reasm_fec_t * confirmed_orphan = NULL; /* 3rd best candidate for eviction is the highest confirmed orphan.   */
@@ -661,24 +571,23 @@ evict( fd_reasm_t      * reasm,
   }
 
   if( FD_UNLIKELY( unconfrmd_orphan )) {
-    return fd_reasm_remove( reasm, unconfrmd_orphan, opt_store );
+    return remove_leaf( reasm, unconfrmd_orphan, opt_store );
   }
 
-  fd_reasm_fec_t * unconfrmd_leaf = NULL; /* 2nd best candidate for eviction is the highest unconfirmed, incomplete slot. */
+  fd_reasm_fec_t * unconfrmd_leaf = NULL; /* 2nd best candidate for eviction is the highest unconfirmed fec. */
   for( frontier_iter_t iter = frontier_iter_init( frontier, pool );
-                              !frontier_iter_done( iter, frontier, pool );
-                        iter = frontier_iter_next( iter, frontier, pool ) ) {
+                             !frontier_iter_done( iter, frontier, pool );
+                       iter = frontier_iter_next( iter, frontier, pool ) ) {
     fd_reasm_fec_t * ele = frontier_iter_ele( iter, frontier, pool );
     if( iter.ele_idx == reasm->root
         || 0==memcmp( &ele->key, parent_root, sizeof(fd_hash_t) )
         || ele->confirmed
-        || ele->slot_complete
         || ele->is_leader ) continue; /* not a candidate */
     unconfrmd_leaf = fd_ptr_if( !unconfrmd_leaf || ele->slot > unconfrmd_leaf->slot, ele, unconfrmd_leaf );
   }
 
   if( FD_UNLIKELY( unconfrmd_leaf )) {
-    return fd_reasm_remove( reasm, unconfrmd_leaf, opt_store );
+    return remove_leaf( reasm, unconfrmd_leaf, opt_store );
   }
 
   /* Already did traversal to find best confirmed orphan candidate,
@@ -687,7 +596,7 @@ evict( fd_reasm_t      * reasm,
   if( FD_UNLIKELY( confirmed_orphan )) {
     fd_reasm_fec_t * parent = fd_reasm_query( reasm, parent_root );
     if( !parent ) {
-      return fd_reasm_remove( reasm, confirmed_orphan, opt_store );
+      return remove_leaf( reasm, confirmed_orphan, opt_store );
     }
   /* for any subtree:
       0 ── 1 ── 2 ── 3 (confirmed) ── 4(confirmed) ── 5 ── 6 ──> add 7 here is valid.
@@ -706,7 +615,7 @@ evict( fd_reasm_t      * reasm,
 
     fd_reasm_fec_t * latest_confirmed_leaf = latest_confirmed_fec( reasm, subtree_root );
     if( !latest_confirmed_leaf || latest_confirmed_leaf == gca( reasm, latest_confirmed_leaf, parent )) {
-      return fd_reasm_remove( reasm, confirmed_orphan, opt_store );
+      return remove_leaf( reasm, confirmed_orphan, opt_store );
     }
     /* is a useless new fork. */
     return NULL;

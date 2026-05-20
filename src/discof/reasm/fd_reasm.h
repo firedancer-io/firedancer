@@ -317,15 +317,15 @@ fd_reasm_init( fd_reasm_t *      reasm,
    Insert can fail before acquiring a pool element, in which case it
    returns NULL and *evicted remains NULL.  If the reasm is full
    (fd_reasm_free() returns 1 [sic!]), reasm_insert will evict a FEC set
-   by the policy outlined in the evict function.  The evicted FEC set(s)
+   by the policy outlined in the evict function.  The evicted FEC set
    will be removed from reasm, but will remain in the pool.  If no FEC
    set was able to be evicted after the insert reaches the eviction
    path, then evicted will be set to a pool element that is populated
    with data of the failed insert.
 
-   It is the caller's responsibility to read, traverse, and release back
-   to the pool the evicted reasm_fec_t chain before the next
-   fd_reasm_insert or fd_reasm_remove call.
+   It is the caller's responsibility to read and release back to the
+   pool the evicted reasm_fec_t before the next fd_reasm_insert or
+   fd_reasm_remove call.
 
    See top-level documentation for further details on insertion. */
 
@@ -342,36 +342,6 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               leader,
                  fd_store_t      * opt_store,
                  fd_reasm_fec_t ** evicted );
-
-/* fd_reasm_remove removes a leaf node or a chain of nodes that
-   terminates with the provided node from reasm.  Returns the start of
-   the chain of evicted fd_reasm_fec_t.  This function cannot return
-   NULL.
-
-   It is assumed that the passed `head` exists in reasm.  If `head` is
-   in orphans, it is assumed that it is a leaf node, and only `head`
-   will be cleared.  If `head` is in ancestry, a chain of nodes will be
-   cleared starting from `head` and walking up the tree until one of the
-   following conditions is met: we reach fec_set_idx 0, we reach a fec
-   set with an equivocating sibling.  Any children nodes of `head` will
-   be appropriately orphaned.
-
-   Note that an invariant reasm_remove guarantees is that from the
-   returned head to the end of the chain, it is a linear chain of nodes
-   with no branches.  This is important because it allows the caller to
-   traverse the chain without needing to BFS.
-
-   The evicted fd_reasm_fec_t will be returned as a pointer to a pool
-   element. At this point the evicted pool element will still be
-   acquired in the pool, but no longer in any map.  It is the caller's
-   responsibility to read, traverse, and release back to the pool the
-   evicted reasm_fec_t chain before the next fd_reasm_insert or
-   fd_reasm_remove call. */
-
-fd_reasm_fec_t *
-fd_reasm_remove( fd_reasm_t     * reasm,
-                 fd_reasm_fec_t * head,
-                 fd_store_t     * opt_store );
 
 /* fd_reasm_pool_release releases a reasm_fec element back to the pool.
    Assumes ele is a valid pointer to a pool element inside reasm.  This
