@@ -39,9 +39,9 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      spent.  Classes 6, 7 are floored to 1. */
 
   static const ulong density[ FD_ACCDB_CACHE_CLASS_CNT ] = {
-    26861UL,  /* class 0 */
-     7742UL,  /* class 1 */
-      583UL,  /* class 2 */
+     3461UL,  /* class 0 */
+     1042UL,  /* class 1 */
+      316UL,  /* class 2 */
       234UL,  /* class 3 */
        34UL,  /* class 4 */
         3UL,  /* class 5 */
@@ -171,7 +171,7 @@ fd_accdb_cache_class_cnt( ulong   cache_footprint,
      still be remaining budget.  The accounts database can grow at
      runtime, so distribute excess uncapped, proportional to
      density.  This ensures we always use the full cache budget
-     the operator gave us, up to the per-class cidx ceiling
+     the operator gave usup to the per-class cidx ceiling
      (FD_ACCDB_CACHE_LINE_MAX, enforced via the capped[] array). */
 
   remaining = cache_footprint;
