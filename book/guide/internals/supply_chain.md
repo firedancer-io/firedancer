@@ -102,12 +102,6 @@ https://github.com/facebook/zstd
 
 Data compression library by Meta. Written in C.
 
-### LZ4
-
-https://github.com/lz4/lz4
-
-Data compression library by Cyan4973. Written in C.
-
 ### bzip2
 
 https://gitlab.com/bzip2/bzip2
