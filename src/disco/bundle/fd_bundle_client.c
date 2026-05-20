@@ -408,17 +408,14 @@ static void
 fd_bundle_client_log_status( fd_bundle_tile_t * ctx ) {
   int status = fd_bundle_client_status( ctx );
 
-  int const connected_now    = ( status==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
-  int const connected_before = ( ctx->bundle_status_logged==FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED );
+  int const connected_now    = ( status==FD_BUNDLE_STATE_CONNECTED );
+  int const connected_before = ( ctx->bundle_status_logged==FD_BUNDLE_STATE_CONNECTED );
 
   if( FD_UNLIKELY( connected_now!=connected_before ) ) {
     long ts = fd_log_wallclock();
     if( FD_LIKELY( ts-(ctx->last_bundle_status_log_nanos) >= (long)1e6 ) ) {
-      if( connected_now ) {
-        FD_LOG_NOTICE(( "Connected to bundle server" ));
-      } else {
-        FD_LOG_WARNING(( "Disconnected from bundle server" ));
-      }
+      if( connected_now ) FD_LOG_INFO(( "Connected to bundle server" ));
+      else                FD_LOG_INFO(( "Disconnected from bundle server" ));
       ctx->last_bundle_status_log_nanos = ts;
       ctx->bundle_status_logged = (uchar)status;
     }
@@ -560,7 +557,7 @@ fd_bundle_client_visit_pb_bundle_txn(
   }
 
   if( FD_UNLIKELY( packet.data.size == 0 ) ) {
-    FD_LOG_WARNING(( "Bundle server delivered an empty packet, ignoring" ));
+    FD_LOG_INFO(( "Bundle server delivered an empty packet, ignoring" ));
     return true;
   }
 
@@ -951,17 +948,17 @@ int
 fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
   if( FD_UNLIKELY( ( !ctx->tcp_sock_connected ) |
                    ( !ctx->grpc_client        ) ) ) {
-    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
+    return FD_BUNDLE_STATE_DISCONNECTED;
   }
 
   fd_h2_conn_t * conn = fd_grpc_client_h2_conn( ctx->grpc_client );
   if( FD_UNLIKELY( !conn ) ) {
-    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED; /* no conn */
+    return FD_BUNDLE_STATE_DISCONNECTED; /* no conn */
   }
   if( FD_UNLIKELY( conn->flags &
       ( FD_H2_CONN_FLAGS_DEAD |
         FD_H2_CONN_FLAGS_SEND_GOAWAY ) ) ) {
-    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED;
+    return FD_BUNDLE_STATE_DISCONNECTED;
   }
 
   if( FD_UNLIKELY( conn->flags &
@@ -969,29 +966,29 @@ fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
         FD_H2_CONN_FLAGS_WAIT_SETTINGS_ACK_0 |
         FD_H2_CONN_FLAGS_WAIT_SETTINGS_0     |
         FD_H2_CONN_FLAGS_SERVER_INITIAL ) ) ) {
-    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* connection is not ready */
+    return FD_BUNDLE_STATE_CONNECTING; /* connection is not ready */
   }
 
   if( FD_UNLIKELY( ctx->auther.state != FD_BUNDLE_AUTH_STATE_DONE_WAIT ) ) {
-    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* not authenticated */
+    return FD_BUNDLE_STATE_CONNECTING; /* not authenticated */
   }
 
   if( FD_UNLIKELY( ( !ctx->builder_info_avail       ) |
                    ( !ctx->packet_subscription_live ) |
                    ( !ctx->bundle_subscription_live ) ) ) {
-    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING; /* not fully connected */
+    return FD_BUNDLE_STATE_CONNECTING; /* not fully connected */
   }
 
   if( FD_UNLIKELY( fd_keepalive_is_timeout( ctx->keepalive, fd_bundle_now() ) ) ) {
-    return FD_BUNDLE_BLOCK_ENGINE_STATUS_DISCONNECTED; /* possible timeout */
+    return FD_BUNDLE_STATE_DISCONNECTED; /* possible timeout */
   }
 
   if( FD_UNLIKELY( !fd_grpc_client_is_connected( ctx->grpc_client ) ) ) {
-    return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTING;
+    return FD_BUNDLE_STATE_CONNECTING;
   }
 
   /* As far as we know, the bundle connection is alive and well. */
-  return FD_BUNDLE_BLOCK_ENGINE_STATUS_CONNECTED;
+  return FD_BUNDLE_STATE_CONNECTED;
 }
 
 #undef DISCONNECTED
