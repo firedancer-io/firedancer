@@ -3023,6 +3023,10 @@ int
 fd_accdb_exists( fd_accdb_t *       accdb,
                  fd_accdb_fork_id_t fork_id,
                  uchar const *      pubkey ) {
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
@@ -3039,15 +3043,24 @@ fd_accdb_exists( fd_accdb_t *       accdb,
     break;
   }
 
-  if( FD_UNLIKELY( acc==UINT_MAX ) ) return 0;
-  else                               return !!accdb->acc_pool[ acc ].lamports;
+  int result;
+  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0;
+  else                               result = !!FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  return result;
 }
 
 ulong
 fd_accdb_lamports( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,
                    uchar const *      pubkey ) {
- uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
+  FD_HW_MFENCE();
+
+  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
   uint acc = FD_VOLATILE_CONST( accdb->acc_map[ hash ] );
@@ -3063,8 +3076,13 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
     break;
   }
 
-  if( FD_UNLIKELY( acc==UINT_MAX ) ) return ULONG_MAX;
-  else                               return accdb->acc_pool[ acc ].lamports;
+  ulong result;
+  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = ULONG_MAX;
+  else                               result = FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+  return result;
 }
 
 /* cache_bg_evict pre-evicts cache lines in the background to keep the
