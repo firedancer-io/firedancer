@@ -213,6 +213,10 @@ fd_stake_rewards_init( fd_stake_rewards_t * stake_rewards,
                        fd_hash_t const *    parent_blockhash,
                        ulong                starting_block_height,
                        uint                 partitions_cnt ) {
+  if( FD_UNLIKELY( partitions_cnt>MAX_PARTITIONS_PER_EPOCH ) ) {
+    FD_LOG_ERR(( "too many reward partitions (%u > %lu)", partitions_cnt, MAX_PARTITIONS_PER_EPOCH ));
+  }
+
   index_map_t * index_map = get_index_map( stake_rewards );
   fork_t *      fork_pool = get_fork_pool( stake_rewards );
 

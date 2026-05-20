@@ -185,6 +185,7 @@ fd_sysvar_validate_epoch_rewards( uchar const * data, ulong data_sz ) {
   fd_sysvar_epoch_rewards_t ew = FD_LOAD( fd_sysvar_epoch_rewards_t, data );
   uchar active = ew.active;
   if( FD_UNLIKELY( active!=0 && active!=1 ) ) return 0;
+  if( FD_UNLIKELY( ew.num_partitions>MAX_PARTITIONS_PER_EPOCH ) ) return 0;
   return 1;
 }
 

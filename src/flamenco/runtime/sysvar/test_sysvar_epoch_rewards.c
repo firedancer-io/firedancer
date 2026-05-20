@@ -2,6 +2,7 @@
 #include "fd_sysvar.h"
 #include "test_sysvar_cache_util.h"
 #include "../fd_system_ids.h"
+#include "../../rewards/fd_rewards_base.h"
 
 FD_STATIC_ASSERT( alignof ( fd_sysvar_epoch_rewards_t                                     )==0x01UL,                             layout );
 FD_STATIC_ASSERT( offsetof( fd_sysvar_epoch_rewards_t, distribution_starting_block_height )==0x00UL,                             layout );
@@ -66,7 +67,40 @@ test_sysvar_epoch_rewards_invalid_active( fd_wksp_t * wksp ) {
 }
 
 static void
+test_sysvar_epoch_rewards_invalid_num_partitions( fd_wksp_t * wksp ) {
+  test_sysvar_cache_env_t env[1];
+  FD_TEST( test_sysvar_cache_env_create( env, wksp ) );
+  FD_TEST( fd_sysvar_cache_epoch_rewards_is_valid( env->sysvar_cache )==0 );
+
+  env->bank->f.rent = (fd_rent_t) {
+    .lamports_per_uint8_year = 3480UL,
+    .exemption_threshold     = 2.0,
+    .burn_percent            = 100
+  };
+
+  fd_sysvar_epoch_rewards_t const epoch_rewards = {
+    .distribution_starting_block_height = 123UL,
+    .num_partitions                     = MAX_PARTITIONS_PER_EPOCH+1UL,
+    .total_rewards                      = 100UL,
+    .distributed_rewards                =  40UL,
+    .active                             = 1
+  };
+  fd_sysvar_account_update( env->bank, env->accdb, &env->xid, NULL,
+                            &fd_sysvar_epoch_rewards_id, &epoch_rewards, FD_SYSVAR_EPOCH_REWARDS_BINCODE_SZ );
+
+  fd_sysvar_epoch_rewards_t restored;
+  FD_TEST( fd_sysvar_epoch_rewards_read( env->accdb, &env->xid, &restored )==NULL );
+
+  FD_TEST( !fd_sysvar_cache_restore( env->bank, env->accdb, &env->xid ) );
+  FD_TEST( fd_sysvar_cache_epoch_rewards_is_valid( env->sysvar_cache )==0 );
+  FD_TEST( fd_sysvar_cache_epoch_rewards_read( env->sysvar_cache, &restored )==NULL );
+
+  test_sysvar_cache_env_destroy( env );
+}
+
+static void
 test_sysvar_epoch_rewards( fd_wksp_t * wksp ) {
   test_sysvar_epoch_rewards_bounds();
   test_sysvar_epoch_rewards_invalid_active( wksp );
+  test_sysvar_epoch_rewards_invalid_num_partitions( wksp );
 }
