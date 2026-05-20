@@ -978,11 +978,15 @@ fd_sched_fec_ingest( fd_sched_t *     sched,
   /* Addition is safe and won't overflow because we checked the FEC
      set size above. */
   if( FD_UNLIKELY( block->fec_buf_sz+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
-    /* In a conformant block, there shouldn't be more than a
-       transaction's worth of residual data left over from the previous
-       FEC set within the same batch.  So if this condition doesn't
-       hold, it's a bad block.  Instead of crashing, we should refuse to
-       replay down the fork. */
+    /* The residual carried over from the previous parse is bounded: it
+       can only be a partial transaction or a microblock/batch header
+       that straddles a FEC set boundary.  Any trailing bytes past the
+       last microblock within the same batch are discarded by the
+       parser, so they never contribute to the residual.  So residual <=
+       max(sizeof(ulong), sizeof(fd_microblock_hdr_t), FD_TXN_MTU), and
+       the buffer is sized to always fit the residual plus a single FEC
+       set.  Otherwise, it's a bad block.  Instead of crashing, we
+       should refuse to replay down the fork. */
     FD_LOG_INFO(( "bad block: fec_buf_sz %u, fec->data_sz %lu, slot %lu, parent slot %lu", block->fec_buf_sz, fec->fec->data_sz, fec->slot, fec->parent_slot ));
     handle_bad_block( sched, block );
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
@@ -1965,12 +1969,14 @@ verify_ticks_final( fd_sched_block_t * block ) {
 #define CHECK_LEFT( n ) CHECK( (n)<=(block->fec_buf_sz-block->fec_buf_soff) )
 
 /* Consume as much as possible from the buffer.  By the end of this
-   function, we will either have residual data that is unparseable only
-   because it is a batch that straddles FEC set boundaries, or we will
-   have reached the end of a batch.  In the former case, any remaining
-   bytes should be concatenated with the next FEC set for further
-   parsing.  In the latter case, any remaining bytes should be thrown
-   away. */
+   function, there could be residual data left over in the buffer.  That
+   residual has to be either a partially received microblock header or a
+   transaction that straddles a FEC set boundary.  These bytes are kept
+   and will be concatenated with the next FEC set.  This residual is
+   bounded.
+
+   Trailing bytes within a batch are dropped immediately.  These
+   trailing bytes can span arbitrarily many FEC sets. */
 FD_WARN_UNUSED static int
 fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   while( 1 ) {
@@ -2117,6 +2123,18 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       break;
     }
   }
+  if( !block->fec_sob && block->txns_rem==0UL && block->mblks_rem==0UL ) {
+    /* All microblocks announced by the current batch header have been
+       parsed out.  Anything still in the buffer must be trailing bytes.
+       Drop them now because trailing bytes can span many FEC sets and
+       accumulating them would overflow the parse buffer.  Any followup
+       FEC sets within the same batch will simply be discarded
+       wholesale. */
+    sched->metrics->bytes_ingested_unparsed_cnt += block->fec_buf_sz-block->fec_buf_soff;
+    block->fec_buf_boff += block->fec_buf_sz;
+    block->fec_buf_soff  = 0U;
+    block->fec_buf_sz    = 0U;
+  }
   if( block->fec_eob ) {
     /* Record tick hash count at batch boundaries. */
     block->batch_end_hashcnt_wmk = fd_ulong_max( block->batch_end_hashcnt_wmk, block->curr_tick_hashcnt );
@@ -2125,13 +2143,8 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, batch_end_hashcnt_wmk %lu >= hashes_per_tick %lu, slot %lu, parent slot %lu", block->batch_end_hashcnt_wmk, block->hashes_per_tick, block->slot, block->parent_slot ));
       return FD_SCHED_BAD_BLOCK;
     }
-    /* Ignore trailing bytes at the end of a batch. */
-    sched->metrics->bytes_ingested_unparsed_cnt += block->fec_buf_sz-block->fec_buf_soff;
-    block->fec_buf_boff += block->fec_buf_sz;
-    block->fec_buf_soff = 0U;
-    block->fec_buf_sz   = 0U;
-    block->fec_sob      = 1;
-    block->fec_eob      = 0;
+    block->fec_sob = 1;
+    block->fec_eob = 0;
   }
   return FD_SCHED_OK;
 }
