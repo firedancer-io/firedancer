@@ -304,6 +304,12 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
   ulong fee_burn   = execution_fees / 2;
   ulong fee_reward = fd_ulong_sat_add( priority_fees, execution_fees - fee_burn );
 
+  /* Stash for runtime_block emit later this slot. */
+  if( FD_UNLIKELY( capture_ctx && capture_ctx->capture_runtime_block_events ) ) {
+    capture_ctx->current_block_fees_burned       = fee_burn;
+    capture_ctx->current_block_leader_fee_reward = fee_reward;
+  }
+
   /* Remove fee balance from bank (decreasing capitalization).
      Allow underflow (wrap) to match Agave's silent fetch_sub behavior. */
   bank->f.capitalization -= total_fees;
@@ -331,7 +337,11 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
       /* Guaranteed to not overflow, checked above */
       fd_accdb_ref_lamports_set( rw, fd_accdb_ref_lamports( rw->ro ) + fee_reward );
     }
+    /* Tag the close so the leader's account update lands in
+       runtime_block.fee_reward_diffs. */
+    if( capture_ctx ) capture_ctx->current_block_diff_category = FD_CAPTURE_RUNTIME_BLOCK_DIFF_FEE_REWARD;
     fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
+    if( capture_ctx ) capture_ctx->current_block_diff_category = FD_CAPTURE_RUNTIME_BLOCK_DIFF_NONE;
   }
 
   FD_LOG_INFO(( "slot=%lu priority_fees=%lu execution_fees=%lu fee_burn=%lu fee_rewards=%lu",
@@ -710,13 +720,24 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
 
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
       FD_LOG_DEBUG(( "Epoch boundary starting" ));
+      /* Vote-reward account credits happen inside process_new_epoch on
+         the slot-0-of-new-epoch path.  Hint the diff bucket to
+         VOTE_REWARD for the duration so non-sysvar non-stake account
+         writes land in the right Nested column.  Sysvar writes inside
+         still get auto-detected via owner==fd_sysvar_owner_id. */
+      if( capture_ctx ) capture_ctx->current_block_diff_category = FD_CAPTURE_RUNTIME_BLOCK_DIFF_VOTE_REWARD;
       fd_runtime_process_new_epoch( banks, bank, accdb, xid, capture_ctx, prev_epoch, runtime_stack );
+      if( capture_ctx ) capture_ctx->current_block_diff_category = FD_CAPTURE_RUNTIME_BLOCK_DIFF_NONE;
       *is_epoch_boundary = 1;
     } else {
       *is_epoch_boundary = 0;
     }
 
+    /* PER (partitioned epoch rewards) stake-account credits — pay
+       stake_reward bucket for the duration. */
+    if( capture_ctx ) capture_ctx->current_block_diff_category = FD_CAPTURE_RUNTIME_BLOCK_DIFF_STAKE_REWARD;
     fd_distribute_partitioned_epoch_rewards( bank, accdb, xid, capture_ctx );
+    if( capture_ctx ) capture_ctx->current_block_diff_category = FD_CAPTURE_RUNTIME_BLOCK_DIFF_NONE;
   } else {
     *is_epoch_boundary = 0;
   }
@@ -919,6 +940,10 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
         bank->f.signature_count );
     }
   }
+
+  /* Note: runtime_block frag emission moved to the replay tile (after
+     fd_runtime_block_execute_finalize returns) so we can populate
+     block_id / parent_block_id / leader from replay-tile state. */
 
   fd_bank_lthash_end_locking_query( bank );
 }
@@ -1162,6 +1187,27 @@ fd_runtime_save_account( fd_accdb_user_t *         accdb,
     /* First 32 bytes equal BLAKE3_256 hash of the account */
     if( 0!=memcmp( lthash_post->bytes, lthash_prev->bytes, 32UL ) ) {
       fd_runtime_finalize_account( accdb, xid, pubkey, meta );
+
+      /* Append a diff entry to the per-txn buffer for the runtime_txn
+         event.  Only actually-modified accounts land here (the branch
+         above filters out UNCHANGED).  The stake/vote flags are filled
+         in by fd_capture_link_write_runtime_txn via pubkey lookup in
+         txn_out->accounts. */
+      if( FD_UNLIKELY( capture_ctx &&
+                       capture_ctx->capture_runtime_txn_events &&
+                       capture_ctx->current_txn_diff_cnt < FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNT_DIFFS ) ) {
+        fd_capture_runtime_txn_account_diff_t * d =
+          &capture_ctx->current_txn_diffs[ capture_ctx->current_txn_diff_cnt++ ];
+        fd_memcpy( d->pubkey, pubkey,      32UL );
+        fd_memcpy( d->owner,  meta->owner, 32UL );
+        d->lamports     = meta->lamports;
+        d->data_sz      = meta->dlen;
+        d->executable   = (uchar)( meta->executable ? 1U : 0U );
+        d->stake_update = 0;  /* filled by producer fn at emit time */
+        d->vote_update  = 0;
+        d->new_vote     = 0;
+        d->rm_vote      = 0;
+      }
     } else {
       save_type = FD_RUNTIME_SAVE_UNCHANGED;
     }

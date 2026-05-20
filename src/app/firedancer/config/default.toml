@@ -1834,6 +1834,31 @@ telemetry = true
         # reconstructing what each cluster validator voted for.
         report_cluster_votes = false
 
+        # If true, emit one runtime-txn event per dispatched
+        # transaction (committable or not) carrying the execution
+        # result (txn_err / exec_err / is_fees_only / is_committable),
+        # compute usage, cost-tracker stats, fee breakdown, per-stage
+        # timing (prep/load/exec/commit) and a Nested list of the
+        # accounts the transaction actually modified during commit
+        # (pubkey/owner/lamports/data_sz/executable/stake-vote flags).
+        # Highest-volume event type by far: ~3000 rows/s at mainnet,
+        # ~1.2 KiB typical / ~11.5 KiB worst-case per row.
+        report_runtime_txn = false
+
+        # If true, emit one runtime-block event per (slot, block_id)
+        # at slot freeze, carrying block-level metadata (bank-hash
+        # inputs, counts, fees, capitalization snapshot) and three
+        # separate Nested lists of accounts modified by non-transaction
+        # paths during slot replay:
+        #   - sysvar refresh (Clock / SlotHashes / RecentBlockhashes / ...)
+        #   - vote-account reward credits at slot 0 of new epoch
+        #   - stake-account PER partition payouts during PER window
+        # Per-txn account changes live on runtime_txn, not here.
+        # ~2.5 rows/s steady-state; ~58 KiB worst-case per row.
+        # Vote/stake-reward Nested lists are capped (512 / 128
+        # entries respectively) and silently truncate beyond.
+        report_runtime_block = false
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev

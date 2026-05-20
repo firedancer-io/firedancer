@@ -1,6 +1,7 @@
 #include "fd_accdb_svm.h"
 #include "fd_hashes.h"
 #include "fd_bank.h"
+#include "fd_system_ids.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "../capture/fd_capture_ctx.h"
 
@@ -8,37 +9,61 @@ static void
 log_account_change( fd_capture_ctx_t * capture_ctx,
                     fd_bank_t const *  bank,
                     fd_accdb_ro_t *    ro ) {
-  if( capture_ctx &&
-      ( capture_ctx->capture_solcap || capture_ctx->capture_account_events ) &&
-      bank->f.slot>=capture_ctx->solcap_start_slot ) {
-    fd_solana_account_meta_t solana_meta[1];
-    fd_solana_account_meta_init(
+  if( !capture_ctx ) return;
+
+  int want_solcap         = capture_ctx->capture_solcap         && bank->f.slot>=capture_ctx->solcap_start_slot;
+  int want_account_event  = capture_ctx->capture_account_events && bank->f.slot>=capture_ctx->solcap_start_slot;
+  int want_runtime_block  = capture_ctx->capture_runtime_block_events;
+
+  if( !want_solcap && !want_account_event && !want_runtime_block ) return;
+
+  fd_solana_account_meta_t solana_meta[1];
+  fd_solana_account_meta_init(
+      solana_meta,
+      fd_accdb_ref_lamports  ( ro ),
+      fd_accdb_ref_owner     ( ro ),
+      !!fd_accdb_ref_exec_bit( ro )
+  );
+  if( want_solcap ) {
+    fd_capture_link_write_account_update(
+        capture_ctx,
+        capture_ctx->current_txn_idx,
+        fd_accdb_ref_address( ro ),
         solana_meta,
-        fd_accdb_ref_lamports  ( ro ),
-        fd_accdb_ref_owner     ( ro ),
-        !!fd_accdb_ref_exec_bit( ro )
+        bank->f.slot,
+        fd_accdb_ref_data_const( ro ),
+        fd_accdb_ref_data_sz   ( ro )
     );
-    if( capture_ctx->capture_solcap ) {
-      fd_capture_link_write_account_update(
-          capture_ctx,
-          capture_ctx->current_txn_idx,
-          fd_accdb_ref_address( ro ),
-          solana_meta,
-          bank->f.slot,
-          fd_accdb_ref_data_const( ro ),
-          fd_accdb_ref_data_sz   ( ro )
-      );
+  }
+  if( want_account_event ) {
+    fd_capture_link_write_account_event(
+        capture_ctx,
+        capture_ctx->current_txn_signature,
+        fd_accdb_ref_address( ro ),
+        solana_meta,
+        bank->f.slot,
+        fd_accdb_ref_data_sz( ro )
+    );
+  }
+  if( want_runtime_block ) {
+    /* Categorization:
+         1. owner==sysvar_owner_id → SYSVAR (auto-detect always wins)
+         2. else if caller set a hint (VOTE_REWARD / STAKE_REWARD /
+            FEE_REWARD / ...) → use that
+         3. else → OTHER (catch-all so non-txn account writes are
+            never silently dropped) */
+    int category = FD_CAPTURE_RUNTIME_BLOCK_DIFF_OTHER;
+    if( 0==memcmp( solana_meta->owner, fd_sysvar_owner_id.uc, 32UL ) ) {
+      category = FD_CAPTURE_RUNTIME_BLOCK_DIFF_SYSVAR;
+    } else if( capture_ctx->current_block_diff_category != FD_CAPTURE_RUNTIME_BLOCK_DIFF_NONE ) {
+      category = capture_ctx->current_block_diff_category;
     }
-    if( capture_ctx->capture_account_events ) {
-      fd_capture_link_write_account_event(
-          capture_ctx,
-          capture_ctx->current_txn_signature,
-          fd_accdb_ref_address( ro ),
-          solana_meta,
-          bank->f.slot,
-          fd_accdb_ref_data_sz( ro )
-      );
-    }
+    fd_capture_link_runtime_block_append_diff(
+        capture_ctx,
+        category,
+        fd_accdb_ref_address( ro ),
+        solana_meta,
+        fd_accdb_ref_data_sz( ro ) );
   }
 }
 
@@ -134,6 +159,7 @@ fd_accdb_svm_credit( fd_accdb_user_t *         accdb,
   }
 
   fd_hashes_update_lthash( pubkey, rw->meta, hash, bank, capture_ctx );
+  log_account_change( capture_ctx, bank, rw->ro );
   fd_accdb_close_rw( accdb, rw );
 }
 
@@ -179,6 +205,7 @@ fd_accdb_svm_write( fd_accdb_user_t *         accdb,
   fd_memcpy( fd_accdb_ref_data( rw ), data, sz );
 
   fd_hashes_update_lthash( pubkey, rw->meta, hash, bank, capture_ctx );
+  log_account_change( capture_ctx, bank, rw->ro );
   fd_accdb_close_rw( accdb, rw );
 }
 
@@ -199,6 +226,7 @@ fd_accdb_svm_remove( fd_accdb_user_t *         accdb,
   fd_accdb_ref_lamports_set( rw, 0UL );
 
   fd_hashes_update_lthash( pubkey, rw->meta, hash, bank, capture_ctx );
+  log_account_change( capture_ctx, bank, rw->ro );
   fd_accdb_close_rw( accdb, rw );
   return lamports;
 }

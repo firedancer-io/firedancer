@@ -1,0 +1,74 @@
+{
+    "name": "runtime_txn",
+    "id": 8,
+    "description": "Per-transaction runtime event — execution result, compute usage, fees, cost-tracker data, per-node timing, and the list of accounts that were actually modified by the transaction.",
+    "fields": {
+        "signature":                         { "type": "Bytes",  "description": "First signature of the transaction (64 bytes)" },
+        "slot":                              { "type": "UInt64", "description": "Slot the txn was executed in" },
+        "txn_idx":                           { "type": "UInt64", "description": "Position counter (matches events.account.txn_idx — monotonic since process start, not reset per slot)" },
+        "blockhash":                         { "type": "Bytes",  "description": "Recent blockhash this txn was signed with (32 bytes)" },
+        "is_simple_vote":                    { "type": "UInt8",  "description": "1 if this is a simple vote txn, 0 otherwise" },
+        "is_bundle":                         { "type": "UInt8",  "description": "1 if this txn was part of a bundle, 0 otherwise" },
+        "bundle_id":                         { "type": "UInt64", "description": "Bundle id (0 if not part of a bundle)" },
+        "is_committable":                    { "type": "UInt8",  "description": "1 if the txn result was persisted to the accountsdb, 0 if cancelled" },
+        "is_fees_only":                      { "type": "UInt8",  "description": "1 if only fees were charged; execution itself failed" },
+        "txn_err":                           { "type": "UInt32", "description": "Top-level txn error code (FD_RUNTIME_TXN_ERR_*; 0 = success). Negated to positive at emission, so e.g. FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR is stored as 9." },
+        "exec_err":                          { "type": "UInt32", "description": "Instruction-level error when txn_err indicates an instruction error. Stored as the absolute value of the internal negative code." },
+        "exec_err_kind":                     { "type": "UInt32", "description": "Sub-kind of exec_err. Stored as the absolute value of the internal negative code." },
+        "exec_err_idx":                      { "type": "UInt32", "description": "Index of the failing instruction within the txn." },
+        "custom_err":                        { "type": "UInt32", "description": "Custom error code from the failing instruction (when exec_err indicates a custom error)" },
+        "compute_unit_limit":                { "type": "UInt64", "description": "Compute unit limit set for this txn" },
+        "compute_unit_price":                { "type": "UInt64", "description": "Compute unit price (micro-lamports per CU)" },
+        "compute_units_consumed":            { "type": "UInt64", "description": "Compute units actually consumed (= limit - remaining meter at end of execution)" },
+        "heap_size":                         { "type": "UInt32", "description": "Heap size requested for VMs for this txn" },
+        "loaded_accounts_data_size":         { "type": "UInt64", "description": "Actual loaded accounts data size (bytes)" },
+        "loaded_accounts_data_size_limit":   { "type": "UInt64", "description": "Loaded accounts data size limit (bytes)" },
+        "accounts_resize_delta":             { "type": "UInt64", "description": "Net accounts data size delta for this txn (signed; stored as bit-pattern u64)" },
+        "num_builtin_instrs":                { "type": "UInt32", "description": "Number of built-in instructions in the txn" },
+        "num_non_builtin_instrs":            { "type": "UInt32", "description": "Number of non-built-in (BPF) instructions in the txn" },
+        "execution_fee":                     { "type": "UInt64", "description": "Execution fee paid by the fee payer (lamports)" },
+        "priority_fee":                      { "type": "UInt64", "description": "Priority fee paid by the fee payer (lamports)" },
+        "tips":                              { "type": "UInt64", "description": "Jito tips paid during execution (lamports)" },
+        "signature_count":                   { "type": "UInt32", "description": "Number of signatures in the txn" },
+        "cost_signature":                    { "type": "UInt32", "description": "Cost-model: signature verification cost (CU)" },
+        "cost_write_lock":                   { "type": "UInt32", "description": "Cost-model: write-lock cost (CU)" },
+        "cost_data_bytes":                   { "type": "UInt32", "description": "Cost-model: data-bytes cost (CU)" },
+        "cost_programs_execution":           { "type": "UInt32", "description": "Cost-model: programs execution cost (CU)" },
+        "cost_loaded_accounts_data_size":    { "type": "UInt32", "description": "Cost-model: loaded-accounts-data-size cost (CU)" },
+        "cost_allocated_accounts_data_size": { "type": "UInt64", "description": "Cost-model: allocated accounts data size (bytes)" },
+        "prep_start":                        { "type": "DateTime64(9)", "description": "Wall-clock time when txn preparation started (nanosecond precision)" },
+        "load_start":                        { "type": "DateTime64(9)", "description": "Wall-clock time when account loading started (nanosecond precision)" },
+        "exec_start":                        { "type": "DateTime64(9)", "description": "Wall-clock time when execution started (nanosecond precision)" },
+        "commit_start":                      { "type": "DateTime64(9)", "description": "Wall-clock time when commit started (nanosecond precision)" },
+        "account_diffs": {
+            "type": "Nested",
+            "description": "Accounts that were actually modified by this transaction (post-state). Read-only-touched accounts are NOT included.",
+            "fields": {
+                "pubkey":       { "type": "Bytes",  "description": "Account pubkey (32 bytes)" },
+                "owner":        { "type": "Bytes",  "description": "Owner program after the txn (32 bytes)" },
+                "lamports":     { "type": "UInt64", "description": "Lamports after the txn" },
+                "data_sz":      { "type": "UInt64", "description": "Account data size in bytes after the txn" },
+                "executable":   { "type": "UInt8", "description": "1 if account is executable after the txn, 0 otherwise" },
+                "stake_update": { "type": "UInt8", "description": "1 if this update triggered a stake-cache update" },
+                "vote_update":  { "type": "UInt8", "description": "1 if this update triggered a vote-cache update" },
+                "new_vote":     { "type": "UInt8", "description": "1 if this update created a new vote account" },
+                "rm_vote":      { "type": "UInt8", "description": "1 if this update removed/closed a vote account" }
+            }
+        },
+        "dispatch_fec_mr":                   { "type": "Bytes",  "description": "FEC merkle root that was the bank's latest_mr at the moment this txn was dispatched (32 bytes).  NOT the canonical block_id — an intermediate FEC mr in the bank's chain.  Join to runtime_block.fec_merkle_roots[].mr to recover the canonical block_id." },
+        "writable_accounts": {
+            "type": "Nested",
+            "description": "All accounts the txn locked as writable, in account-order.  account_diffs is a subset (writable AND actually modified).",
+            "fields": {
+                "pubkey": { "type": "Bytes", "description": "Account pubkey (32 bytes)" }
+            }
+        },
+        "readonly_accounts": {
+            "type": "Nested",
+            "description": "All accounts the txn locked as read-only, in account-order.",
+            "fields": {
+                "pubkey": { "type": "Bytes", "description": "Account pubkey (32 bytes)" }
+            }
+        }
+    }
+}

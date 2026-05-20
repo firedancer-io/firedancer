@@ -499,6 +499,64 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, ctx->capture_ctx );
 
+  /* Emit one runtime_block frag (one per (slot, block_id)) once bank
+     hashing is complete.  This is the place where we have access to
+     both bank state (counts/fees/capitalization) and replay-tile state
+     (block_id, parent_block_id, leader schedule). */
+  if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->capture_runtime_block_events ) ) {
+    fd_hash_t                   parent_blk_id  = ctx->block_id_arr[ bank->parent_idx ].latest_mr;
+    fd_hash_t const *           cur_blk_id     = &ctx->block_id_arr[ bank->idx ].latest_mr;
+    fd_epoch_leaders_t const *  leaders        = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
+    fd_pubkey_t const *         leader_pubkey  = leaders ? fd_epoch_leaders_get( leaders, bank->f.slot ) : NULL;
+
+    uchar accounts_lt_hash_checksum[FD_HASH_FOOTPRINT];
+    fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( bank );
+    fd_blake3_hash( lthash->bytes, FD_LTHASH_LEN_BYTES, accounts_lt_hash_checksum );
+    fd_bank_lthash_end_locking_query( bank );
+
+    ulong total_failed = bank->f.failed_txn_count;
+    ulong total_txns   = bank->f.txn_count;
+    ulong successful   = total_txns > total_failed ? (total_txns - total_failed) : 0UL;
+
+    fd_capture_runtime_block_info_t info = {0};
+    info.slot                      = bank->f.slot;
+    info.parent_slot               = bank->f.parent_slot;
+    info.epoch                     = (uint)bank->f.epoch;
+    info.block_id                  = cur_blk_id->uc;
+    info.parent_block_id           = parent_blk_id.uc;
+    if( leader_pubkey ) info.leader = leader_pubkey->uc;
+    info.bank_hash                 = bank->f.bank_hash.uc;
+    info.prev_bank_hash            = bank->f.prev_bank_hash.uc;
+    info.accounts_lt_hash_checksum = accounts_lt_hash_checksum;
+    info.poh_hash                  = bank->f.poh.hash;
+    info.blockhash                 = bank->f.poh.hash;
+    info.block_produced            = 1;
+
+    info.num_transactions    = (uint)total_txns;
+    info.num_successful_txns = (uint)successful;
+    info.num_failed_txns     = (uint)total_failed;
+    info.num_signatures      = bank->f.signature_count;
+    info.ticks_in_block      = (uint)bank->f.ticks_per_slot;
+    info.tick_height         = bank->f.tick_height;
+    /* num_data_shreds + num_code_shreds need shred-tile metrics; bank
+       carries only the total shred_cnt today. */
+
+    info.fees_collected         = bank->f.execution_fees + bank->f.priority_fees + bank->f.tips;
+    info.priority_fees_total    = bank->f.priority_fees;
+    info.compute_units_consumed = bank->f.total_compute_units_used;
+
+    info.capitalization           = bank->f.capitalization;
+    info.total_effective_stake    = bank->f.total_effective_stake;
+    info.total_activating_stake   = bank->f.total_activating_stake;
+    info.total_deactivating_stake = bank->f.total_deactivating_stake;
+    info.total_epoch_stake        = bank->f.total_epoch_stake;
+    info.transaction_count        = bank->f.txn_count;
+    /* fees_burned, rent_collected, inflation_rewards_paid,
+       accounts_data_size_delta — follow-ups. */
+
+    fd_capture_link_write_runtime_block( ctx->capture_ctx, &info );
+  }
+
   /* Copy out cost tracker fields before freezing */
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
@@ -1319,6 +1377,9 @@ dispatch_task( fd_replay_tile_t *  ctx,
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
       if( FD_UNLIKELY( ctx->capture_ctx ) ) {
         exec_msg->capture_txn_idx = ctx->capture_ctx->current_txn_idx++;
+        fd_memcpy( exec_msg->capture_dispatch_fec_mr,
+                   ctx->block_id_arr[ task->txn_exec->bank_idx ].latest_mr.uc,
+                   32UL );
       }
       fd_stem_publish( stem, exec_out->idx, (FD_EXECRP_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
@@ -1524,6 +1585,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->slot           = reasm_fec->slot;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
+    fd_capture_link_runtime_block_append_fec_mr( ctx->capture_ctx, reasm_fec->key.uc );
   } else {
     /* We are continuing to execute through a slot that we already have
        a bank index for. */
@@ -1539,6 +1601,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     }
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     block_id_ele->latest_mr      = reasm_fec->key;
+    fd_capture_link_runtime_block_append_fec_mr( ctx->capture_ctx, reasm_fec->key.uc );
   }
 
   if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
@@ -1546,6 +1609,8 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->block_id_seen  = 1;
     block_id_ele->latest_mr      = reasm_fec->key;
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
+    /* NOTE: don't re-append fec_mr here — the if/else above already
+       appended the same key for this FEC. */
     FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
@@ -2585,7 +2650,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->capture_ctx = NULL;
   int event_repl_enabled = fd_topo_find_tile_out_link( topo, tile, "event_repl", 0UL )!=ULONG_MAX;
   int event_bank_enabled = fd_topo_find_tile_out_link( topo, tile, "event_bank", 0UL )!=ULONG_MAX;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || event_repl_enabled || event_bank_enabled ) ) {
+  int event_rblk_enabled = fd_topo_find_tile_out_link( topo, tile, "event_rblk", 0UL )!=ULONG_MAX;
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || event_repl_enabled || event_bank_enabled || event_rblk_enabled ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
     if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
@@ -2792,6 +2858,38 @@ unprivileged_init( fd_topo_t *      topo,
 
     ctx->capture_ctx->bank_capture_link  = event_bank_out;
     ctx->capture_ctx->capture_bank_events = 1;
+  }
+
+  if( FD_UNLIKELY( event_rblk_enabled ) ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_rblk", 0UL );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+
+    fd_capture_link_buf_t * event_rblk_out = ctx->event_rblk_out;
+    event_rblk_out->base.vt = &fd_capture_link_buf_vt;
+    event_rblk_out->idx     = idx;
+    event_rblk_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    event_rblk_out->chunk0  = fd_dcache_compact_chunk0( event_rblk_out->mem, link->dcache );
+    event_rblk_out->wmark   = fd_dcache_compact_wmark ( event_rblk_out->mem, link->dcache, link->mtu );
+    event_rblk_out->chunk   = event_rblk_out->chunk0;
+    event_rblk_out->mcache  = link->mcache;
+    event_rblk_out->depth   = fd_mcache_depth( link->mcache );
+    event_rblk_out->seq     = 0UL;
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+    FD_TEST( consumer_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    event_rblk_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
+        event_rblk_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( event_rblk_out->fseq );
+        break;
+      }
+    }
+
+    ctx->capture_ctx->runtime_block_capture_link   = event_rblk_out;
+    ctx->capture_ctx->capture_runtime_block_events = 1;
   }
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );

@@ -49,6 +49,8 @@ extern char const firedancer_version_string[];
 #define IN_KIND_STAKE    (7)
 #define IN_KIND_VOTE     (8)
 #define IN_KIND_CVOTE    (9)
+#define IN_KIND_RTXN     (10)
+#define IN_KIND_RBLK     (11)
 
 union fd_event_tile_in {
   struct {
@@ -205,6 +207,8 @@ during_frag( fd_event_tile_t * ctx,
     case IN_KIND_STAKE:
     case IN_KIND_VOTE:
     case IN_KIND_CVOTE:
+    case IN_KIND_RTXN:
+    case IN_KIND_RBLK:
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
@@ -501,6 +505,246 @@ after_frag( fd_event_tile_t *   ctx,
       fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
       break;
     }
+    case IN_KIND_RTXN: {
+      FD_TEST( sz==sizeof(fd_capture_runtime_txn_event_msg_t) );
+      fd_capture_runtime_txn_event_msg_t const * rt = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
+
+      /* Worst case: ~12 KiB account_diffs + 2 × ~4 KiB writable/readonly
+         account lists + ~50 B envelope.  32 KiB is comfortable. */
+      uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, 32768UL );
+      FD_TEST( buffer );
+
+      ulong event_id = fd_event_client_id_reserve( ctx->client );
+      long timestamp_nanos = fd_log_wallclock();
+      long timestamp_seconds = timestamp_nanos / 1000000000L;
+      int  timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
+
+      fd_pb_encoder_t encoder[1];
+      fd_pb_encoder_init( encoder, buffer, 32768UL );
+
+      FD_TEST( ctx->circq->cursor_push_seq );
+      fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
+      fd_pb_push_uint64( encoder, 2U, event_id );
+      fd_pb_submsg_open( encoder, 3U );
+      if( FD_LIKELY( timestamp_seconds ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
+      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
+      fd_pb_submsg_close( encoder );
+
+      fd_pb_submsg_open( encoder, 4U ); /* Event */
+      fd_pb_submsg_open( encoder, 8U ); /* RuntimeTxn */
+
+      fd_pb_push_bytes ( encoder, 1U,  rt->signature, 64UL );
+      fd_pb_push_uint64( encoder, 2U,  rt->slot );
+      fd_pb_push_uint64( encoder, 3U,  rt->txn_idx );
+      fd_pb_push_bytes ( encoder, 4U,  rt->blockhash, 32UL );
+      fd_pb_push_uint32( encoder, 5U,  rt->is_simple_vote ? 1U : 0U );
+      fd_pb_push_uint32( encoder, 6U,  rt->is_bundle      ? 1U : 0U );
+      fd_pb_push_uint64( encoder, 7U,  rt->bundle_id );
+      fd_pb_push_uint32( encoder, 8U,  rt->is_committable ? 1U : 0U );
+      fd_pb_push_uint32( encoder, 9U,  rt->is_fees_only   ? 1U : 0U );
+      fd_pb_push_uint32( encoder, 10U, rt->txn_err );
+      fd_pb_push_uint32( encoder, 11U, rt->exec_err );
+      fd_pb_push_uint32( encoder, 12U, rt->exec_err_kind );
+      fd_pb_push_uint32( encoder, 13U, rt->exec_err_idx );
+      fd_pb_push_uint32( encoder, 14U, rt->custom_err );
+      fd_pb_push_uint64( encoder, 15U, rt->compute_unit_limit );
+      fd_pb_push_uint64( encoder, 16U, rt->compute_unit_price );
+      fd_pb_push_uint64( encoder, 17U, rt->compute_units_consumed );
+      fd_pb_push_uint32( encoder, 18U, rt->heap_size );
+      fd_pb_push_uint64( encoder, 19U, rt->loaded_accounts_data_size );
+      fd_pb_push_uint64( encoder, 20U, rt->loaded_accounts_data_size_limit );
+      fd_pb_push_int64 ( encoder, 21U, rt->accounts_resize_delta );
+      fd_pb_push_uint32( encoder, 22U, rt->num_builtin_instrs );
+      fd_pb_push_uint32( encoder, 23U, rt->num_non_builtin_instrs );
+      fd_pb_push_uint64( encoder, 24U, rt->execution_fee );
+      fd_pb_push_uint64( encoder, 25U, rt->priority_fee );
+      fd_pb_push_uint64( encoder, 26U, rt->tips );
+      fd_pb_push_uint32( encoder, 27U, rt->signature_count );
+      fd_pb_push_uint32( encoder, 28U, rt->cost_signature );
+      fd_pb_push_uint32( encoder, 29U, rt->cost_write_lock );
+      fd_pb_push_uint32( encoder, 30U, rt->cost_data_bytes );
+      fd_pb_push_uint32( encoder, 31U, rt->cost_programs_execution );
+      fd_pb_push_uint32( encoder, 32U, rt->cost_loaded_accounts_data_size );
+      fd_pb_push_uint64( encoder, 33U, rt->cost_allocated_accounts_data_size );
+      fd_pb_push_int64 ( encoder, 34U, rt->prep_start_ns );
+      fd_pb_push_int64 ( encoder, 35U, rt->load_start_ns );
+      fd_pb_push_int64 ( encoder, 36U, rt->exec_start_ns );
+      fd_pb_push_int64 ( encoder, 37U, rt->commit_start_ns );
+
+      ulong diff_cnt = rt->account_diff_cnt;
+      if( diff_cnt > FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNT_DIFFS ) diff_cnt = FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNT_DIFFS;
+      for( ulong di=0UL; di<diff_cnt; di++ ) {
+        fd_capture_runtime_txn_account_diff_t const * d = &rt->account_diffs[ di ];
+        fd_pb_submsg_open( encoder, 38U ); /* RuntimeTxnAccountDiff entry */
+        fd_pb_push_bytes ( encoder, 1U, d->pubkey, 32UL );
+        fd_pb_push_bytes ( encoder, 2U, d->owner,  32UL );
+        fd_pb_push_uint64( encoder, 3U, d->lamports );
+        fd_pb_push_uint64( encoder, 4U, d->data_sz );
+        fd_pb_push_uint32( encoder, 5U, d->executable   ? 1U : 0U );
+        fd_pb_push_uint32( encoder, 6U, d->stake_update ? 1U : 0U );
+        fd_pb_push_uint32( encoder, 7U, d->vote_update  ? 1U : 0U );
+        fd_pb_push_uint32( encoder, 8U, d->new_vote     ? 1U : 0U );
+        fd_pb_push_uint32( encoder, 9U, d->rm_vote      ? 1U : 0U );
+        fd_pb_submsg_close( encoder );
+      }
+
+      fd_pb_push_bytes( encoder, 39U, rt->dispatch_fec_mr, 32UL );
+
+      ulong w_cnt = rt->writable_accounts_cnt;
+      if( w_cnt > FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNTS ) w_cnt = FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNTS;
+      for( ulong i = 0UL; i < w_cnt; i++ ) {
+        fd_pb_submsg_open( encoder, 40U ); /* RuntimeTxnAccount entry — writable */
+        fd_pb_push_bytes ( encoder, 1U, rt->writable_accounts[ i ], 32UL );
+        fd_pb_submsg_close( encoder );
+      }
+
+      ulong r_cnt = rt->readonly_accounts_cnt;
+      if( r_cnt > FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNTS ) r_cnt = FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNTS;
+      for( ulong i = 0UL; i < r_cnt; i++ ) {
+        fd_pb_submsg_open( encoder, 41U ); /* RuntimeTxnAccount entry — readonly */
+        fd_pb_push_bytes ( encoder, 1U, rt->readonly_accounts[ i ], 32UL );
+        fd_pb_submsg_close( encoder );
+      }
+
+      fd_pb_submsg_close( encoder );
+      fd_pb_submsg_close( encoder );
+
+      fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
+      break;
+    }
+    case IN_KIND_RBLK: {
+      FD_TEST( sz==sizeof(fd_capture_runtime_block_event_msg_t) );
+      fd_capture_runtime_block_event_msg_t const * rb = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
+
+      /* Worst case: ~58 KiB wire + ~3 sub-message tags per diff entry +
+         envelope.  Round up to 65536 B for the circq slot. */
+      uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, 65536UL );
+      FD_TEST( buffer );
+
+      ulong event_id = fd_event_client_id_reserve( ctx->client );
+      long timestamp_nanos = fd_log_wallclock();
+      long timestamp_seconds = timestamp_nanos / 1000000000L;
+      int  timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
+
+      fd_pb_encoder_t encoder[1];
+      fd_pb_encoder_init( encoder, buffer, 65536UL );
+
+      FD_TEST( ctx->circq->cursor_push_seq );
+      fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
+      fd_pb_push_uint64( encoder, 2U, event_id );
+      fd_pb_submsg_open( encoder, 3U );
+      if( FD_LIKELY( timestamp_seconds ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
+      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
+      fd_pb_submsg_close( encoder );
+
+      fd_pb_submsg_open( encoder, 4U ); /* Event */
+      fd_pb_submsg_open( encoder, 9U ); /* RuntimeBlock */
+
+      fd_pb_push_uint64( encoder, 1U,  rb->slot );
+      fd_pb_push_bytes ( encoder, 2U,  rb->block_id, 32UL );
+      fd_pb_push_uint64( encoder, 3U,  rb->parent_slot );
+      fd_pb_push_bytes ( encoder, 4U,  rb->parent_block_id, 32UL );
+      fd_pb_push_uint32( encoder, 5U,  rb->epoch );
+      fd_pb_push_bytes ( encoder, 6U,  rb->leader, 32UL );
+      fd_pb_push_uint32( encoder, 7U,  rb->block_produced ? 1U : 0U );
+      fd_pb_push_bytes ( encoder, 8U,  rb->bank_hash,                 32UL );
+      fd_pb_push_bytes ( encoder, 9U,  rb->prev_bank_hash,            32UL );
+      fd_pb_push_bytes ( encoder, 10U, rb->accounts_lt_hash_checksum, 32UL );
+      fd_pb_push_bytes ( encoder, 11U, rb->poh_hash,                  32UL );
+      fd_pb_push_bytes ( encoder, 12U, rb->blockhash,                 32UL );
+      fd_pb_push_uint32( encoder, 13U, rb->num_transactions );
+      fd_pb_push_uint32( encoder, 14U, rb->num_successful_txns );
+      fd_pb_push_uint32( encoder, 15U, rb->num_failed_txns );
+      fd_pb_push_uint64( encoder, 16U, rb->num_signatures );
+      fd_pb_push_uint32( encoder, 17U, rb->ticks_in_block );
+      fd_pb_push_uint64( encoder, 18U, rb->tick_height );
+      fd_pb_push_uint64( encoder, 19U, rb->fees_collected );
+      fd_pb_push_uint64( encoder, 20U, rb->priority_fees_total );
+      fd_pb_push_uint64( encoder, 21U, rb->compute_units_consumed );
+      fd_pb_push_uint64( encoder, 22U, rb->capitalization );
+      fd_pb_push_uint64( encoder, 23U, rb->total_effective_stake );
+      fd_pb_push_uint64( encoder, 24U, rb->total_activating_stake );
+      fd_pb_push_uint64( encoder, 25U, rb->total_deactivating_stake );
+      fd_pb_push_uint64( encoder, 26U, rb->total_epoch_stake );
+      fd_pb_push_uint64( encoder, 27U, rb->transaction_count );
+      fd_pb_push_uint64( encoder, 28U, rb->fees_burned );
+      fd_pb_push_uint64( encoder, 29U, rb->leader_fee_reward );
+
+      /* Five Nested account-diff loops — tags 30, 31, 32, 33, 34 */
+      ulong sysvar_cnt = rb->sysvar_diffs_cnt;
+      if( sysvar_cnt > FD_CAPTURE_RUNTIME_BLOCK_SYSVAR_DIFFS_MAX ) sysvar_cnt = FD_CAPTURE_RUNTIME_BLOCK_SYSVAR_DIFFS_MAX;
+      for( ulong di=0UL; di<sysvar_cnt; di++ ) {
+        fd_capture_runtime_block_account_diff_t const * d = &rb->sysvar_diffs[ di ];
+        fd_pb_submsg_open( encoder, 30U );
+        fd_pb_push_bytes ( encoder, 1U, d->pubkey, 32UL );
+        fd_pb_push_bytes ( encoder, 2U, d->owner,  32UL );
+        fd_pb_push_uint64( encoder, 3U, d->lamports );
+        fd_pb_push_uint64( encoder, 4U, d->data_sz );
+        fd_pb_push_uint32( encoder, 5U, d->executable ? 1U : 0U );
+        fd_pb_submsg_close( encoder );
+      }
+      ulong vr_cnt = rb->vote_reward_diffs_cnt;
+      if( vr_cnt > FD_CAPTURE_RUNTIME_BLOCK_VOTE_REWARD_DIFFS_MAX ) vr_cnt = FD_CAPTURE_RUNTIME_BLOCK_VOTE_REWARD_DIFFS_MAX;
+      for( ulong di=0UL; di<vr_cnt; di++ ) {
+        fd_capture_runtime_block_account_diff_t const * d = &rb->vote_reward_diffs[ di ];
+        fd_pb_submsg_open( encoder, 31U );
+        fd_pb_push_bytes ( encoder, 1U, d->pubkey, 32UL );
+        fd_pb_push_bytes ( encoder, 2U, d->owner,  32UL );
+        fd_pb_push_uint64( encoder, 3U, d->lamports );
+        fd_pb_push_uint64( encoder, 4U, d->data_sz );
+        fd_pb_push_uint32( encoder, 5U, d->executable ? 1U : 0U );
+        fd_pb_submsg_close( encoder );
+      }
+      ulong sr_cnt = rb->stake_reward_diffs_cnt;
+      if( sr_cnt > FD_CAPTURE_RUNTIME_BLOCK_STAKE_REWARD_DIFFS_MAX ) sr_cnt = FD_CAPTURE_RUNTIME_BLOCK_STAKE_REWARD_DIFFS_MAX;
+      for( ulong di=0UL; di<sr_cnt; di++ ) {
+        fd_capture_runtime_block_account_diff_t const * d = &rb->stake_reward_diffs[ di ];
+        fd_pb_submsg_open( encoder, 32U );
+        fd_pb_push_bytes ( encoder, 1U, d->pubkey, 32UL );
+        fd_pb_push_bytes ( encoder, 2U, d->owner,  32UL );
+        fd_pb_push_uint64( encoder, 3U, d->lamports );
+        fd_pb_push_uint64( encoder, 4U, d->data_sz );
+        fd_pb_push_uint32( encoder, 5U, d->executable ? 1U : 0U );
+        fd_pb_submsg_close( encoder );
+      }
+      ulong fr_cnt = rb->fee_reward_diffs_cnt;
+      if( fr_cnt > FD_CAPTURE_RUNTIME_BLOCK_FEE_REWARD_DIFFS_MAX ) fr_cnt = FD_CAPTURE_RUNTIME_BLOCK_FEE_REWARD_DIFFS_MAX;
+      for( ulong di=0UL; di<fr_cnt; di++ ) {
+        fd_capture_runtime_block_account_diff_t const * d = &rb->fee_reward_diffs[ di ];
+        fd_pb_submsg_open( encoder, 33U );
+        fd_pb_push_bytes ( encoder, 1U, d->pubkey, 32UL );
+        fd_pb_push_bytes ( encoder, 2U, d->owner,  32UL );
+        fd_pb_push_uint64( encoder, 3U, d->lamports );
+        fd_pb_push_uint64( encoder, 4U, d->data_sz );
+        fd_pb_push_uint32( encoder, 5U, d->executable ? 1U : 0U );
+        fd_pb_submsg_close( encoder );
+      }
+      ulong oth_cnt = rb->other_diffs_cnt;
+      if( oth_cnt > FD_CAPTURE_RUNTIME_BLOCK_OTHER_DIFFS_MAX ) oth_cnt = FD_CAPTURE_RUNTIME_BLOCK_OTHER_DIFFS_MAX;
+      for( ulong di=0UL; di<oth_cnt; di++ ) {
+        fd_capture_runtime_block_account_diff_t const * d = &rb->other_diffs[ di ];
+        fd_pb_submsg_open( encoder, 34U );
+        fd_pb_push_bytes ( encoder, 1U, d->pubkey, 32UL );
+        fd_pb_push_bytes ( encoder, 2U, d->owner,  32UL );
+        fd_pb_push_uint64( encoder, 3U, d->lamports );
+        fd_pb_push_uint64( encoder, 4U, d->data_sz );
+        fd_pb_push_uint32( encoder, 5U, d->executable ? 1U : 0U );
+        fd_pb_submsg_close( encoder );
+      }
+      ulong fec_cnt = rb->fec_merkle_roots_cnt;
+      if( fec_cnt > FD_CAPTURE_RUNTIME_BLOCK_FEC_MRS_MAX ) fec_cnt = FD_CAPTURE_RUNTIME_BLOCK_FEC_MRS_MAX;
+      for( ulong i=0UL; i<fec_cnt; i++ ) {
+        fd_pb_submsg_open( encoder, 35U );  /* RuntimeBlockFecMr entry */
+        fd_pb_push_bytes ( encoder, 1U, rb->fec_merkle_roots[ i ], 32UL );
+        fd_pb_submsg_close( encoder );
+      }
+
+      fd_pb_submsg_close( encoder );
+      fd_pb_submsg_close( encoder );
+
+      fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
+      break;
+    }
     case IN_KIND_BANK: {
       FD_TEST( sz==sizeof(fd_capture_bank_event_msg_t) );
       fd_capture_bank_event_msg_t const * bank = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
@@ -728,6 +972,8 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "event_stake"  ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     else if( FD_LIKELY( !strcmp( link->name, "event_vote"   ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTE;
     else if( FD_LIKELY( !strcmp( link->name, "event_cvote"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CVOTE;
+    else if( FD_LIKELY( !strcmp( link->name, "event_rtxn"   ) ) ) ctx->in_kind[ i ] = IN_KIND_RTXN;
+    else if( FD_LIKELY( !strcmp( link->name, "event_rblk"   ) ) ) ctx->in_kind[ i ] = IN_KIND_RBLK;
     else FD_LOG_ERR(( "event tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem = link_wksp->wksp;

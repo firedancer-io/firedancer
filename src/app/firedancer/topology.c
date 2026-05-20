@@ -791,6 +791,17 @@ fd_topo_initialize( config_t * config ) {
       fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_bank", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
 
+    if( FD_UNLIKELY( config->development.event.report_runtime_block ) ) {
+      /* Per-block runtime events.  One row per (slot, block_id) at
+         freeze with block metadata + non-txn account diffs (sysvar /
+         vote_reward / stake_reward).  Same ~2.5 rows/s rate as bank
+         hashes; each frag is ~58 KiB worst case so a smaller depth
+         (1024) is fine. */
+      fd_topob_link( topo, "event_rblk", "event", 1024UL, sizeof(fd_capture_runtime_block_event_msg_t), 1UL );
+      fd_topob_tile_out( topo, "replay", 0UL, "event_rblk", 0UL );
+      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_rblk", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
     if( FD_UNLIKELY( config->development.event.report_stake_cache_updates ) ) {
       /* Stake-delegation cache updates: produced from execrp tiles
          during transaction commit.  Rate is much lower than account
@@ -815,6 +826,18 @@ fd_topo_initialize( config_t * config ) {
       FOR(execrp_tile_cnt) fd_topob_link( topo, "event_cvote", "event", 32768UL, sizeof(fd_capture_vote_txn_event_msg_t), 1UL );
       FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_cvote", i );
       FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_cvote", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_runtime_txn ) ) {
+      /* Per-transaction runtime events — one row per dispatched txn
+         carrying execution result, compute / cost-tracker metadata,
+         per-stage timing and the list of accounts actually modified
+         during commit.  At mainnet rates (~3000 txns/s), each frag is
+         ~1.2 KiB typical / ~11.5 KiB worst-case.  Depth 16384 gives
+         producers ~20 MiB of slack. */
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_rtxn", "event", 16384UL, sizeof(fd_capture_runtime_txn_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_rtxn", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_rtxn", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
 
     fd_topob_tile_in(  topo, "sign",   0UL, "metric_in", "event_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );

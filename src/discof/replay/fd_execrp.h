@@ -22,6 +22,12 @@ struct fd_execrp_txn_exec_msg {
   /* Used currently by solcap to maintain ordering of messages
      this will change to using txn sigs eventually */
   ulong      capture_txn_idx;
+
+  /* FEC merkle root that was the bank's latest_mr at the moment of
+     dispatch — copied from the replay tile's block_id_arr.  Stamped on
+     runtime_txn rows; NOT the canonical block_id (which only exists at
+     slot freeze).  Joinable to runtime_block.fec_merkle_roots[]. */
+  uchar      capture_dispatch_fec_mr[ 32 ];
 };
 typedef struct fd_execrp_txn_exec_msg fd_execrp_txn_exec_msg_t;
 

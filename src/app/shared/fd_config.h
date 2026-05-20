@@ -360,6 +360,8 @@ struct fd_config {
       int report_stake_cache_updates;
       int report_vote_cache_updates;
       int report_cluster_votes;
+      int report_runtime_txn;
+      int report_runtime_block;
     } event;
 
     struct {

@@ -315,6 +315,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   development.event.report_stake_cache_updates     );
   CFG_POP      ( bool,   development.event.report_vote_cache_updates      );
   CFG_POP      ( bool,   development.event.report_cluster_votes           );
+  CFG_POP      ( bool,   development.event.report_runtime_txn             );
+  CFG_POP      ( bool,   development.event.report_runtime_block           );
 
   CFG_POP      ( cstr,   development.pktgen.affinity                      );
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );

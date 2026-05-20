@@ -1,0 +1,98 @@
+{
+    "name": "runtime_block",
+    "id": 9,
+    "description": "Per-block runtime event — one row per (slot, block_id) emitted at slot freeze (after bank hashing, before voting/rooting).  Carries the deterministic block-level snapshot (counts, fees, capitalization, the four bank-hash inputs) plus separate Nested lists of accounts modified by non-transaction paths during slot replay (sysvar refresh, vote-account reward credits, stake-account PER partition payouts).  Per-transaction account changes are NOT here; they live on events.runtime_txn.",
+    "fields": {
+        "slot":                      { "type": "UInt64", "description": "Slot this block is for" },
+        "block_id":                  { "type": "Bytes",  "description": "Solana fork-choice block id (root of the last FEC set) (32 bytes).  Distinguishes equivocating blocks at the same slot — primary key is (slot, block_id)." },
+        "parent_slot":               { "type": "UInt64", "description": "Slot of the parent block" },
+        "parent_block_id":           { "type": "Bytes",  "description": "Parent's block_id (32 bytes); lets you walk the fork tree" },
+        "epoch":                     { "type": "UInt32", "description": "Epoch this slot belongs to (denormalized from slot)" },
+        "leader":                    { "type": "Bytes",  "description": "Scheduled leader identity pubkey (32 bytes)" },
+        "block_produced":            { "type": "UInt8",  "description": "1 if a block was produced at this slot, 0 if skipped" },
+        "bank_hash":                 { "type": "Bytes",  "description": "Bank hash of this slot (32 bytes).  Also available in events.bank_hash." },
+        "prev_bank_hash":            { "type": "Bytes",  "description": "Bank hash of the parent slot (32 bytes)" },
+        "accounts_lt_hash_checksum": { "type": "Bytes",  "description": "Accounts lt-hash checksum, blake3 of the accounts lthash (32 bytes)" },
+        "poh_hash":                  { "type": "Bytes",  "description": "Proof-of-history hash at the end of the slot (32 bytes)" },
+        "blockhash":                 { "type": "Bytes",  "description": "Blockhash transactions reference for this slot (32 bytes)" },
+        "num_transactions":          { "type": "UInt32", "description": "Total transactions in this block" },
+        "num_successful_txns":       { "type": "UInt32", "description": "Transactions that committed successfully" },
+        "num_failed_txns":           { "type": "UInt32", "description": "Transactions that committed with an error (or were cancelled)" },
+        "num_signatures":            { "type": "UInt64", "description": "Total signatures processed in the block (matches events.bank_hash.signature_cnt)" },
+        "ticks_in_block":            { "type": "UInt32", "description": "Tick entries in the block (= ticks_per_slot for a full block)" },
+        "tick_height":               { "type": "UInt64", "description": "Cumulative tick height at the end of this slot" },
+        "fees_collected":            { "type": "UInt64", "description": "Total fees collected in this block (lamports)" },
+        "priority_fees_total":       { "type": "UInt64", "description": "Total priority fees paid in this block (lamports)" },
+        "compute_units_consumed":    { "type": "UInt64", "description": "Sum of compute units consumed across all txns in this block" },
+        "capitalization":            { "type": "UInt64", "description": "Bank capitalization at end of slot (total supply, same value as bank->f.capitalization)" },
+        "total_effective_stake":     { "type": "UInt64", "description": "Effective stake from stake delegations" },
+        "total_activating_stake":    { "type": "UInt64", "description": "Stake activating during this slot's epoch" },
+        "total_deactivating_stake":  { "type": "UInt64", "description": "Stake deactivating during this slot's epoch" },
+        "total_epoch_stake":         { "type": "UInt64", "description": "Total staked to active vote accounts" },
+        "transaction_count":         { "type": "UInt64", "description": "Cumulative-since-genesis transaction count — strong cross-client determinism canary" },
+        "fees_burned":               { "type": "UInt64", "description": "Half of execution_fees, burned at fee settlement (lamports).  Computed in fd_runtime_settle_fees." },
+        "leader_fee_reward":         { "type": "UInt64", "description": "Lamports credited to the leader account at fee settlement (= priority_fees + execution_fees - fees_burned).  Cross-check by joining fee_reward_diffs (leader account post-credit)." },
+        "sysvar_diffs": {
+            "type": "Nested",
+            "description": "Sysvar account updates this slot (Clock, SlotHashes, RecentBlockhashes, Rent, EpochSchedule, EpochRewards, StakeHistory, ...).",
+            "fields": {
+                "pubkey":     { "type": "Bytes",  "description": "Sysvar pubkey (32 bytes)" },
+                "owner":      { "type": "Bytes",  "description": "Owner program after the update (32 bytes)" },
+                "lamports":   { "type": "UInt64", "description": "Lamports after the update" },
+                "data_sz":    { "type": "UInt64", "description": "Account data size in bytes after the update" },
+                "executable": { "type": "UInt8",  "description": "1 if account is executable after the update, 0 otherwise" }
+            }
+        },
+        "vote_reward_diffs": {
+            "type": "Nested",
+            "description": "Vote-account credits at slot 0 of a new epoch (the vote commission cut of the prior epoch's rewards).  Empty outside the first slot of an epoch.",
+            "fields": {
+                "pubkey":     { "type": "Bytes",  "description": "Vote account pubkey (32 bytes)" },
+                "owner":      { "type": "Bytes",  "description": "Owner program (vote program) after the update (32 bytes)" },
+                "lamports":   { "type": "UInt64", "description": "Lamports after the update" },
+                "data_sz":    { "type": "UInt64", "description": "Account data size in bytes after the update" },
+                "executable": { "type": "UInt8",  "description": "1 if account is executable, 0 otherwise" }
+            }
+        },
+        "stake_reward_diffs": {
+            "type": "Nested",
+            "description": "Stake-account credits during the partitioned-epoch-rewards (PER) window — one partition per slot starting at slot 1 of a new epoch.  Empty outside the PER window.",
+            "fields": {
+                "pubkey":     { "type": "Bytes",  "description": "Stake account pubkey (32 bytes)" },
+                "owner":      { "type": "Bytes",  "description": "Owner program (stake program) after the update (32 bytes)" },
+                "lamports":   { "type": "UInt64", "description": "Lamports after the update" },
+                "data_sz":    { "type": "UInt64", "description": "Account data size in bytes after the update" },
+                "executable": { "type": "UInt8",  "description": "1 if account is executable, 0 otherwise" }
+            }
+        },
+        "fee_reward_diffs": {
+            "type": "Nested",
+            "description": "Leader's account state after the fee-reward credit at slot freeze.  Typically one entry per row (the slot's leader).",
+            "fields": {
+                "pubkey":     { "type": "Bytes",  "description": "Leader identity pubkey (32 bytes)" },
+                "owner":      { "type": "Bytes",  "description": "Owner program after the credit (32 bytes)" },
+                "lamports":   { "type": "UInt64", "description": "Leader account lamports after the fee reward credit" },
+                "data_sz":    { "type": "UInt64", "description": "Account data size in bytes" },
+                "executable": { "type": "UInt8",  "description": "1 if account is executable, 0 otherwise" }
+            }
+        },
+        "other_diffs": {
+            "type": "Nested",
+            "description": "Catch-all for non-txn account updates that don't fit sysvar / vote_reward / stake_reward / fee_reward — BPF migrations, manual slot-history sysvar opens, etc.  Always populated by log_account_change when no other hint applies.",
+            "fields": {
+                "pubkey":     { "type": "Bytes",  "description": "Account pubkey (32 bytes)" },
+                "owner":      { "type": "Bytes",  "description": "Owner program after the update (32 bytes)" },
+                "lamports":   { "type": "UInt64", "description": "Lamports after the update" },
+                "data_sz":    { "type": "UInt64", "description": "Account data size in bytes" },
+                "executable": { "type": "UInt8",  "description": "1 if account is executable, 0 otherwise" }
+            }
+        },
+        "fec_merkle_roots": {
+            "type": "Nested",
+            "description": "Every FEC merkle root the bank saw while assembling this block, in arrival order.  Final entry equals block_id.  Join runtime_txn.block_id against this list to recover canonical block grouping (runtime_txn.block_id is an intermediate FEC mr stamped at dispatch time).",
+            "fields": {
+                "mr": { "type": "Bytes", "description": "FEC merkle root (32 bytes)" }
+            }
+        }
+    }
+}

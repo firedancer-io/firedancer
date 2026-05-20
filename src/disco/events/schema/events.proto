@@ -164,6 +164,212 @@ message VoteTransaction {
   bytes signature = 13;
 }
 
+// A bare account-key entry used in RuntimeTxn's writable_accounts /
+// readonly_accounts Nested columns.  Just the pubkey, ordered the way
+// the txn locked them.
+message RuntimeTxnAccount {
+  bytes pubkey = 1;
+}
+
+// A single entry in a RuntimeTxn's account_diffs list — post-state of an
+// account that was actually modified by the transaction.
+message RuntimeTxnAccountDiff {
+  // Account pubkey
+  bytes pubkey = 1;
+  // Owner program after the txn
+  bytes owner = 2;
+  // Lamports after the txn
+  uint64 lamports = 3;
+  // Data size in bytes after the txn
+  uint64 data_sz = 4;
+  // Executable after the txn (0/1)
+  uint32 executable = 5;
+  // 1 if this update triggered a stake-cache update
+  uint32 stake_update = 6;
+  // 1 if this update triggered a vote-cache update
+  uint32 vote_update = 7;
+  // 1 if this update created a new vote account
+  uint32 new_vote = 8;
+  // 1 if this update removed/closed a vote account
+  uint32 rm_vote = 9;
+}
+
+// A per-transaction runtime event with execution result, compute usage,
+// fees, cost-tracker data, per-node timing, and the list of accounts
+// that were actually modified by the transaction.
+message RuntimeTxn {
+  // First signature of the transaction (64 bytes)
+  bytes signature = 1;
+  // Slot the txn was executed in
+  uint64 slot = 2;
+  // Position counter (matches events.account.txn_idx semantics — monotonic
+  // since process start, not reset per slot)
+  uint64 txn_idx = 3;
+  // Recent blockhash this txn was signed with
+  bytes blockhash = 4;
+  // 1 if this is a simple vote txn
+  uint32 is_simple_vote = 5;
+  // 1 if this txn was part of a bundle
+  uint32 is_bundle = 6;
+  // Bundle id (0 if not part of a bundle)
+  uint64 bundle_id = 7;
+  // 1 if the txn result was persisted to the accountsdb
+  uint32 is_committable = 8;
+  // 1 if only fees were charged; execution itself failed
+  uint32 is_fees_only = 9;
+  // Top-level txn error code (0 = success, positive = FD_RUNTIME_TXN_ERR_*
+  // value, negated to positive at emission for ergonomics).
+  uint32 txn_err = 10;
+  // Instruction-level error (when txn_err == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR);
+  // also stored as the absolute value of the internal negative code.
+  uint32 exec_err = 11;
+  uint32 exec_err_kind = 12;
+  uint32 exec_err_idx = 13;
+  uint32 custom_err = 14;
+  // Compute budget
+  uint64 compute_unit_limit = 15;
+  uint64 compute_unit_price = 16;
+  uint64 compute_units_consumed = 17;
+  uint32 heap_size = 18;
+  uint64 loaded_accounts_data_size = 19;
+  uint64 loaded_accounts_data_size_limit = 20;
+  int64  accounts_resize_delta = 21;
+  uint32 num_builtin_instrs = 22;
+  uint32 num_non_builtin_instrs = 23;
+  // Fees
+  uint64 execution_fee = 24;
+  uint64 priority_fee = 25;
+  uint64 tips = 26;
+  uint32 signature_count = 27;
+  // Cost tracker (fd_usage_cost_details_t)
+  uint32 cost_signature = 28;
+  uint32 cost_write_lock = 29;
+  uint32 cost_data_bytes = 30;
+  uint32 cost_programs_execution = 31;
+  uint32 cost_loaded_accounts_data_size = 32;
+  uint64 cost_allocated_accounts_data_size = 33;
+  // Per-node timing — int64 nanoseconds since Unix epoch, from
+  // fd_log_wallclock at each stage. The schema labels these as
+  // DateTime64(9); the eventserver decodes the raw nanos into a
+  // ClickHouse DateTime64(9) column.
+  int64 prep_start = 34;
+  int64 load_start = 35;
+  int64 exec_start = 36;
+  int64 commit_start = 37;
+  // Account diffs (only accounts actually modified by this txn)
+  repeated RuntimeTxnAccountDiff account_diffs = 38;
+  // FEC merkle root (32 B) that was the bank's latest_mr at the moment
+  // this txn was dispatched.  This is NOT the canonical block_id — it's
+  // an intermediate value in the FEC chain.  Join to
+  // runtime_block.fec_merkle_roots to recover the canonical block_id.
+  bytes dispatch_fec_mr = 39;
+  // All accounts the txn locked as writable, in account-order.
+  // account_diffs is a subset of these (writable AND actually modified).
+  repeated RuntimeTxnAccount writable_accounts = 40;
+  // All accounts the txn locked as read-only, in account-order.
+  repeated RuntimeTxnAccount readonly_accounts = 41;
+}
+
+// A single FEC merkle-root the bank saw while assembling this block.
+// runtime_block.fec_merkle_roots is the ordered list of every value
+// block_id_arr[bank_idx].latest_mr passed through, in arrival order;
+// the final entry equals runtime_block.block_id.  Lets runtime_txn rows
+// (which carry an intermediate latest_mr stamped at dispatch time)
+// join back to runtime_block via the FEC chain.
+message RuntimeBlockFecMr {
+  bytes mr = 1;
+}
+
+// A single entry in a RuntimeBlock account-diff list — post-state of an
+// account that was modified during slot replay outside of any single
+// transaction.  Per-txn account changes live on RuntimeTxn.account_diffs;
+// non-txn changes are split into several separate Nested columns by
+// update category (sysvar / vote-reward / stake-reward) so downstream
+// queries don't need to filter on a category field.
+message RuntimeBlockAccountDiff {
+  // Account pubkey
+  bytes pubkey = 1;
+  // Owner program after the update
+  bytes owner = 2;
+  // Lamports after the update
+  uint64 lamports = 3;
+  // Data size in bytes after the update
+  uint64 data_sz = 4;
+  // Executable after the update (0/1)
+  uint32 executable = 5;
+}
+
+// A per-block runtime event — one row per (slot, block_id) emitted at
+// slot freeze (after bank hashing, before voting/rooting).  Carries
+// the deterministic block-level snapshot (counts, fees, capitalization,
+// the four bank-hash inputs) and a Nested list of accounts that were
+// modified by non-transaction paths during slot replay.
+message RuntimeBlock {
+  // Identity & lineage
+  uint64 slot = 1;
+  bytes  block_id = 2;            // 32 B — Solana fork-choice block id
+  uint64 parent_slot = 3;
+  bytes  parent_block_id = 4;     // 32 B
+  uint32 epoch = 5;
+  bytes  leader = 6;              // 32 B identity pubkey
+  uint32 block_produced = 7;      // 0 if skipped
+
+  // Hashes (the four bank_hash inputs)
+  bytes  bank_hash = 8;                  // 32 B
+  bytes  prev_bank_hash = 9;             // 32 B
+  bytes  accounts_lt_hash_checksum = 10; // 32 B
+  bytes  poh_hash = 11;                  // 32 B
+  bytes  blockhash = 12;                 // 32 B — PoH tail txns reference
+
+  // Counts
+  uint32 num_transactions = 13;
+  uint32 num_successful_txns = 14;
+  uint32 num_failed_txns = 15;
+  uint64 num_signatures = 16;
+  uint32 ticks_in_block = 17;
+  uint64 tick_height = 18;
+
+  // Economics
+  uint64 fees_collected = 19;
+  uint64 priority_fees_total = 20;
+  uint64 compute_units_consumed = 21;
+
+  // Capitalization & stake snapshot
+  uint64 capitalization = 22;             // bank capitalization (total supply)
+  uint64 total_effective_stake = 23;      // effective stake from stake delegations
+  uint64 total_activating_stake = 24;
+  uint64 total_deactivating_stake = 25;
+  uint64 total_epoch_stake = 26;          // total staked to active vote accounts
+  uint64 transaction_count = 27;          // cumulative since genesis
+
+  // Fee settlement breakdown (post-Solana-fee-burn rules: half of
+  // execution fees burned, the other half + all priority fees credited
+  // to the leader's account)
+  uint64 fees_burned = 28;
+  uint64 leader_fee_reward = 29;
+
+  // Sysvar account updates this slot (Clock, SlotHashes, RecentBlockhashes,
+  // Rent, EpochSchedule, EpochRewards, StakeHistory, ...).
+  repeated RuntimeBlockAccountDiff sysvar_diffs = 30;
+  // Vote-account credits at slot 0 of a new epoch (epoch reward
+  // distribution to vote accounts — their commission cut).
+  repeated RuntimeBlockAccountDiff vote_reward_diffs = 31;
+  // Stake-account credits during the partitioned-epoch-rewards (PER)
+  // window — one partition per slot starting at slot 1 of a new epoch.
+  // On non-PER slots this list is empty.
+  repeated RuntimeBlockAccountDiff stake_reward_diffs = 32;
+  // Leader's account state after fee-reward credit at slot freeze.
+  // Usually one entry (the slot's leader).
+  repeated RuntimeBlockAccountDiff fee_reward_diffs = 33;
+  // Catch-all for non-transaction account updates that don't fit any
+  // of the above buckets (BPF migrations, slot-history sysvar opens
+  // outside the auto-detect path, etc.).
+  repeated RuntimeBlockAccountDiff other_diffs = 34;
+  // Every FEC merkle root the bank saw, in arrival order.  Final entry
+  // == block_id.  Used as the join key for runtime_txn.dispatch_fec_mr.
+  repeated RuntimeBlockFecMr fec_merkle_roots = 35;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -174,5 +380,7 @@ message Event {
     StakeDelegation stake_delegation = 5;
     VoteUpdate vote_update = 6;
     VoteTransaction vote_transaction = 7;
+    RuntimeTxn runtime_txn = 8;
+    RuntimeBlock runtime_block = 9;
   }
 }

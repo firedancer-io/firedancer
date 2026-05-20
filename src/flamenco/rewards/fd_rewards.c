@@ -817,6 +817,26 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
 
   FD_STORE( fd_stake_state_t, fd_accdb_ref_data( rw ), *stake_state );
   fd_hashes_update_lthash( stake_pubkey, rw->meta, prev_hash, bank, capture_ctx );
+
+  /* PER uses bare fd_accdb_close_rw (not fd_accdb_svm_close_rw), so the
+     stake-account credit does NOT go through log_account_change — which
+     means the runtime_block stake_reward_diffs bucket never sees it via
+     the usual category-hint mechanism.  Append directly here. */
+  if( FD_UNLIKELY( capture_ctx && capture_ctx->capture_runtime_block_events ) ) {
+    fd_solana_account_meta_t solana_meta[1];
+    fd_solana_account_meta_init(
+        solana_meta,
+        acc_lamports,
+        rw->meta->owner,
+        !!rw->meta->executable );
+    fd_capture_link_runtime_block_append_diff(
+        capture_ctx,
+        FD_CAPTURE_RUNTIME_BLOCK_DIFF_STAKE_REWARD,
+        stake_pubkey,
+        solana_meta,
+        rw->meta->dlen );
+  }
+
   fd_accdb_close_rw( accdb, rw );
 
   return 0;
