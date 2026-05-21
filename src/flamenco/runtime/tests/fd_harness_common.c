@@ -130,10 +130,23 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
 void
 fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
                                        fd_funk_txn_xid_t const *          xid,
-                                       fd_exec_test_feature_set_t const * feature_set ) {
+                                       fd_exec_test_feature_set_t const * feature_set,
+                                       fd_exec_test_acct_state_t const *  acct_states,
+                                       pb_size_t                          acct_states_count ) {
   for( ulong j=0UL; j<feature_set->features_count; j++ ) {
     fd_feature_id_t const * id = fd_feature_id_query( feature_set->features[j] );
     if( FD_UNLIKELY( !id ) ) continue;
+
+    /* Skip if an acct_state already owns this pubkey so the
+       caller-supplied state wins. */
+    int collision = 0;
+    for( pb_size_t i=0U; i<acct_states_count; i++ ) {
+      if( !memcmp( acct_states[i].address, id->id.key, sizeof(fd_pubkey_t) ) ) {
+        collision = 1;
+        break;
+      }
+    }
+    if( collision ) continue;
 
     /* Genesis activation slot */
     fd_feature_t feature = { .is_active = 1, .activation_slot = 0UL };

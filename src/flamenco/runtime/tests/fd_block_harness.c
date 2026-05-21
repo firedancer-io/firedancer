@@ -199,7 +199,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( block_bank->has_features );
   fd_exec_test_feature_set_t const * feature_set = &block_bank->features;
   fd_features_t * features_bm = &bank->f.features;
-  fd_solfuzz_pb_create_feature_accounts( accdb, xid, feature_set );
+  fd_solfuzz_pb_create_feature_accounts( accdb, xid, feature_set, test_ctx->acct_states, test_ctx->acct_states_count );
   FD_TEST( fd_solfuzz_pb_restore_features( features_bm, feature_set ) );
 
   /* Total epoch stake (derived from T-1 vote accounts) */

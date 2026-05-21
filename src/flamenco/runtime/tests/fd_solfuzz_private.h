@@ -66,12 +66,16 @@ fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runn
                                                 fd_exec_test_acct_state_t * accounts,
                                                 pb_size_t                   accounts_cnt );
 
-/* Create feature accounts for all active features in the given feature set,
-   with an activation slot of 0. */
+/* Create feature accounts for all active features in the given feature
+   set, with an activation slot of 0.  Skip any feature whose pubkey
+   already appears in acct_states so the caller-supplied state wins
+   (matches solfuzz-agave's accounts_to_store filter). */
 void
 fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
                                        fd_funk_txn_xid_t const *          xid,
-                                       fd_exec_test_feature_set_t const * feature_set );
+                                       fd_exec_test_feature_set_t const * feature_set,
+                                       fd_exec_test_acct_state_t const *  acct_states,
+                                       pb_size_t                          acct_states_count );
 
 typedef ulong( exec_test_run_pb_fn_t )( fd_solfuzz_runner_t *,
                                         void const *,
