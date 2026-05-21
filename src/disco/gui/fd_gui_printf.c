@@ -1260,6 +1260,68 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
       }
     }
 
+    /* Per-tile deltas.  Cumulative values were snapped from each tile's
+       metric page in fd_gui_accounts_stats_snap; diff against prev and
+       push into the ring. */
+    for( ulong s=0UL; s<gui->summary.accdb_tile_cnt; s++ ) {
+      gui->summary.tile_acquired_win         [ s ][ i ] = gui->summary.tile_cur_acquired         [ s ] - gui->summary.tile_prev_acquired         [ s ];
+      gui->summary.tile_acquired_writable_win[ s ][ i ] = gui->summary.tile_cur_acquired_writable[ s ] - gui->summary.tile_prev_acquired_writable[ s ];
+      gui->summary.tile_bytes_read_win       [ s ][ i ] = gui->summary.tile_cur_bytes_read       [ s ] - gui->summary.tile_prev_bytes_read       [ s ];
+      gui->summary.tile_bytes_copied_win     [ s ][ i ] = gui->summary.tile_cur_bytes_copied     [ s ] - gui->summary.tile_prev_bytes_copied     [ s ];
+      gui->summary.tile_bytes_written_win    [ s ][ i ] = gui->summary.tile_cur_bytes_written    [ s ] - gui->summary.tile_prev_bytes_written    [ s ];
+      gui->summary.tile_read_ops_win         [ s ][ i ] = gui->summary.tile_cur_read_ops         [ s ] - gui->summary.tile_prev_read_ops         [ s ];
+      gui->summary.tile_write_ops_win        [ s ][ i ] = gui->summary.tile_cur_write_ops        [ s ] - gui->summary.tile_prev_write_ops        [ s ];
+      gui->summary.tile_misses_win           [ s ][ i ] = gui->summary.tile_cur_misses           [ s ] - gui->summary.tile_prev_misses           [ s ];
+      gui->summary.tile_evicted_win          [ s ][ i ] = gui->summary.tile_cur_evicted          [ s ] - gui->summary.tile_prev_evicted          [ s ];
+      gui->summary.tile_committed_win        [ s ][ i ] = gui->summary.tile_cur_committed        [ s ] - gui->summary.tile_prev_committed        [ s ];
+      gui->summary.tile_acquire_calls_win    [ s ][ i ] = gui->summary.tile_cur_acquire_calls    [ s ] - gui->summary.tile_prev_acquire_calls    [ s ];
+
+      gui->summary.tile_prev_acquired         [ s ] = gui->summary.tile_cur_acquired         [ s ];
+      gui->summary.tile_prev_acquired_writable[ s ] = gui->summary.tile_cur_acquired_writable[ s ];
+      gui->summary.tile_prev_bytes_read       [ s ] = gui->summary.tile_cur_bytes_read       [ s ];
+      gui->summary.tile_prev_bytes_copied     [ s ] = gui->summary.tile_cur_bytes_copied     [ s ];
+      gui->summary.tile_prev_bytes_written    [ s ] = gui->summary.tile_cur_bytes_written    [ s ];
+      gui->summary.tile_prev_read_ops         [ s ] = gui->summary.tile_cur_read_ops         [ s ];
+      gui->summary.tile_prev_write_ops        [ s ] = gui->summary.tile_cur_write_ops        [ s ];
+      gui->summary.tile_prev_misses           [ s ] = gui->summary.tile_cur_misses           [ s ];
+      gui->summary.tile_prev_evicted          [ s ] = gui->summary.tile_cur_evicted          [ s ];
+      gui->summary.tile_prev_committed        [ s ] = gui->summary.tile_cur_committed        [ s ];
+      gui->summary.tile_prev_acquire_calls    [ s ] = gui->summary.tile_cur_acquire_calls    [ s ];
+
+      /* 60s sparkline accumulator.  Sum this snap's delta into the
+         in-flight 1-second bucket; when the bucket closes (>=1s since
+         it opened), shift the history rings right (newest at index 0)
+         and start a new bucket with the leftover delta. */
+      ulong d_acq    = gui->summary.tile_acquired_win         [ s ][ i ];
+      ulong d_acq_wr = gui->summary.tile_acquired_writable_win[ s ][ i ];
+      gui->summary.tile_sparkline_acq_bucket   [ s ] += d_acq;
+      gui->summary.tile_sparkline_acq_wr_bucket[ s ] += d_acq_wr;
+
+      long bucket_age = cur->sample_time_nanos - gui->summary.tile_sparkline_bucket_start_nanos[ s ];
+      if( gui->summary.tile_sparkline_bucket_start_nanos[ s ]==0L ) {
+        /* First snap for this slot — just open a bucket. */
+        gui->summary.tile_sparkline_bucket_start_nanos[ s ] = cur->sample_time_nanos;
+      } else if( bucket_age>=FD_GUI_ACCDB_SPARKLINE_BUCKET_NS ) {
+        /* Close the bucket: normalize to per-second, shift right, push. */
+        double secs = (double)bucket_age / 1e9;
+        double acq_rate    = (double)gui->summary.tile_sparkline_acq_bucket   [ s ] / secs;
+        double acq_wr_rate = (double)gui->summary.tile_sparkline_acq_wr_bucket[ s ] / secs;
+        memmove( &gui->summary.tile_sparkline_acq_history   [ s ][ 1 ],
+                 &gui->summary.tile_sparkline_acq_history   [ s ][ 0 ],
+                 (FD_GUI_ACCDB_SPARKLINE_SAMPLES-1UL)*sizeof(double) );
+        memmove( &gui->summary.tile_sparkline_acq_wr_history[ s ][ 1 ],
+                 &gui->summary.tile_sparkline_acq_wr_history[ s ][ 0 ],
+                 (FD_GUI_ACCDB_SPARKLINE_SAMPLES-1UL)*sizeof(double) );
+        gui->summary.tile_sparkline_acq_history   [ s ][ 0 ] = acq_rate;
+        gui->summary.tile_sparkline_acq_wr_history[ s ][ 0 ] = acq_wr_rate;
+        if( gui->summary.tile_sparkline_count[ s ]<FD_GUI_ACCDB_SPARKLINE_SAMPLES )
+          gui->summary.tile_sparkline_count[ s ]++;
+        gui->summary.tile_sparkline_acq_bucket        [ s ] = 0UL;
+        gui->summary.tile_sparkline_acq_wr_bucket     [ s ] = 0UL;
+        gui->summary.tile_sparkline_bucket_start_nanos[ s ] = cur->sample_time_nanos;
+      }
+    }
+
     gui->summary.accdb_win_idx = (i+1UL) % FD_GUI_ACCDB_WIN_SAMPLES;
     if( gui->summary.accdb_win_count<FD_GUI_ACCDB_WIN_SAMPLES )
       gui->summary.accdb_win_count++;
@@ -1359,6 +1421,84 @@ fd_gui_printf_accounts_stats( fd_gui_t * gui ) {
           }
         jsonp_close_array( gui->http );
       jsonp_close_object( gui->http );
+
+      /* Per-tile breakdown.  Iterate the slot table built at init.
+         snapwr's row disappears when it has reached the shutdown
+         status (matching how snapwr drops out of the overview tiles
+         table). */
+      jsonp_open_array( gui->http, "tiles" );
+        for( ulong s=0UL; s<gui->summary.accdb_tile_cnt; s++ ) {
+          ulong t_idx = (ulong)gui->summary.accdb_tile_topo_idx[ s ];
+          fd_topo_tile_t const * tile = &gui->topo->tiles[ t_idx ];
+          uchar kind = gui->summary.accdb_tile_kind[ s ];
+
+          if( kind==FD_GUI_ACCDB_TILE_KIND_SNAPWR && gui->summary.tile_cur_status[ s ]==2U ) continue;
+
+          double t_acq_rate    = WRATE( gui->summary.tile_acquired_win         [ s ] );
+          double t_acq_wr_rate = WRATE( gui->summary.tile_acquired_writable_win[ s ] );
+          double t_br_rate     = WRATE( gui->summary.tile_bytes_read_win       [ s ] );
+          double t_bc_rate     = WRATE( gui->summary.tile_bytes_copied_win     [ s ] );
+          double t_bw_rate     = WRATE( gui->summary.tile_bytes_written_win    [ s ] );
+          double t_ro_rate     = WRATE( gui->summary.tile_read_ops_win         [ s ] );
+          double t_wo_rate     = WRATE( gui->summary.tile_write_ops_win        [ s ] );
+          double t_nf_rate     = WRATE( gui->summary.tile_misses_win           [ s ] );
+          double t_ev_rate     = WRATE( gui->summary.tile_evicted_win          [ s ] );
+          double t_cm_rate     = WRATE( gui->summary.tile_committed_win        [ s ] );
+          double t_ac_rate     = WRATE( gui->summary.tile_acquire_calls_win    [ s ] );
+
+          char const * joiner;
+          switch( kind ) {
+            case FD_GUI_ACCDB_TILE_KIND_RW:     joiner = "RW"; break;
+            case FD_GUI_ACCDB_TILE_KIND_SNAPWR: joiner = "RW"; break;
+            case FD_GUI_ACCDB_TILE_KIND_ACCDB:  joiner = "RW"; break;
+            default:                            joiner = "RO"; break;
+          }
+
+          jsonp_open_object( gui->http, NULL );
+            jsonp_string( gui->http, "name",         tile->name );
+            jsonp_ulong(  gui->http, "kind_id",      tile->kind_id );
+            jsonp_string( gui->http, "joiner_type",  joiner );
+            jsonp_ulong(  gui->http, "status",       (ulong)gui->summary.tile_cur_status[ s ] );
+
+            /* Lifetime totals. */
+            jsonp_ulong(  gui->http, "acquired",      gui->summary.tile_cur_acquired      [ s ] );
+            jsonp_ulong(  gui->http, "bytes_read",    gui->summary.tile_cur_bytes_read    [ s ] );
+            jsonp_ulong(  gui->http, "bytes_written", gui->summary.tile_cur_bytes_written [ s ] );
+
+            /* Rates. */
+            jsonp_double( gui->http, "acquired_per_sec",          t_acq_rate    );
+            jsonp_double( gui->http, "acquired_writable_per_sec", t_acq_wr_rate );
+            jsonp_double( gui->http, "bytes_read_per_sec",        t_br_rate     );
+            jsonp_double( gui->http, "bytes_copied_per_sec",      t_bc_rate     );
+            jsonp_double( gui->http, "bytes_written_per_sec",     t_bw_rate     );
+            jsonp_double( gui->http, "read_ops_per_sec",          t_ro_rate     );
+            jsonp_double( gui->http, "write_ops_per_sec",         t_wo_rate     );
+            jsonp_double( gui->http, "not_found_per_sec",         t_nf_rate     );
+            jsonp_double( gui->http, "evicted_per_sec",           t_ev_rate     );
+            jsonp_double( gui->http, "committed_per_sec",         t_cm_rate     );
+            jsonp_double( gui->http, "acquire_calls_per_sec",     t_ac_rate     );
+
+            jsonp_double( gui->http, "hit_rate_ema",
+                          t_acq_rate>0.0 ? fmax( 0.0, 1.0 - t_nf_rate / t_acq_rate ) : 0.0 );
+
+            /* 60-second sparkline history.  Emit oldest-first so the
+               frontend treats index 0 as the leftmost (oldest) sample. */
+            ulong sp_cnt = gui->summary.tile_sparkline_count[ s ];
+            jsonp_open_array( gui->http, "acquired_history" );
+              for( ulong k=0UL; k<sp_cnt; k++ ) {
+                ulong idx = sp_cnt - 1UL - k;
+                jsonp_double( gui->http, NULL, gui->summary.tile_sparkline_acq_history[ s ][ idx ] );
+              }
+            jsonp_close_array( gui->http );
+            jsonp_open_array( gui->http, "acquired_writable_history" );
+              for( ulong k=0UL; k<sp_cnt; k++ ) {
+                ulong idx = sp_cnt - 1UL - k;
+                jsonp_double( gui->http, NULL, gui->summary.tile_sparkline_acq_wr_history[ s ][ idx ] );
+              }
+            jsonp_close_array( gui->http );
+          jsonp_close_object( gui->http );
+        }
+      jsonp_close_array( gui->http );
 
       jsonp_open_object( gui->http, "io" );
         jsonp_ulong(  gui->http, "acquired",            cur->acquired            );

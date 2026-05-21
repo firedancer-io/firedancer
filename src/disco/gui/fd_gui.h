@@ -799,6 +799,79 @@ struct fd_gui {
     ulong                   partition_prev_write_ops   [ FD_GUI_MAX_PARTITIONS ];
     ulong                   partition_prev_bytes_written[FD_GUI_MAX_PARTITIONS ];
 
+    /* Per-tile accdb stats.  At init we walk the topology and assign a
+       slot to each tile that uses the account database (execle, execrp,
+       replay, tower, rpc, resolv, snapwr).  Each slot keeps cumulative
+       previous values for delta computation and a triangular-weighted
+       delta ring (same cadence / weighting as the aggregate rings). */
+#   define FD_GUI_MAX_ACCDB_TILES 64UL
+    /* Tile kinds.  Determines which subset of metrics to read. */
+#   define FD_GUI_ACCDB_TILE_KIND_RW     0  /* execle, execrp, replay, tower */
+#   define FD_GUI_ACCDB_TILE_KIND_RO     1  /* rpc, resolv */
+#   define FD_GUI_ACCDB_TILE_KIND_SNAPWR 2  /* snapwr (direct disk writer during snapshot load) */
+#   define FD_GUI_ACCDB_TILE_KIND_ACCDB  3  /* accdb tile itself (prewrite + compaction writes) */
+    ulong                   accdb_tile_cnt;
+    ushort                  accdb_tile_topo_idx [ FD_GUI_MAX_ACCDB_TILES ]; /* index into topo->tiles */
+    uchar                   accdb_tile_kind     [ FD_GUI_MAX_ACCDB_TILES ];
+
+    /* Most-recent cumulative values per tile, plus the snapshot from
+       the previous snap for delta computation. */
+    ulong                   tile_cur_acquired          [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_acquired_writable [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_bytes_read        [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_bytes_copied      [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_bytes_written     [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_read_ops          [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_write_ops         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_misses            [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_evicted           [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_committed         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_cur_acquire_calls     [ FD_GUI_MAX_ACCDB_TILES ];
+    uchar                   tile_cur_status            [ FD_GUI_MAX_ACCDB_TILES ]; /* 1=running, 2=shutdown */
+
+    ulong                   tile_prev_acquired         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_acquired_writable[ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_bytes_read       [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_bytes_copied     [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_bytes_written    [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_read_ops         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_write_ops        [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_misses           [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_evicted          [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_committed        [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_prev_acquire_calls    [ FD_GUI_MAX_ACCDB_TILES ];
+
+    /* Per-tile delta rings. */
+    ulong                   tile_acquired_win         [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_acquired_writable_win[ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_bytes_read_win       [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_bytes_copied_win     [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_bytes_written_win    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_read_ops_win         [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_write_ops_win        [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_misses_win           [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_evicted_win          [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_committed_win        [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+    ulong                   tile_acquire_calls_win    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_WIN_SAMPLES ];
+
+    /* 60s-history rings for the per-tile sparkline.  Each bucket is the
+       sum of per-snap deltas that fell into that bucket window.
+       index 0 = current bucket (in-flight), older buckets follow.  When
+       a bucket interval elapses we shift right (older buckets drop off
+       the end) and start a new index-0 bucket.  240 buckets x 250ms =
+       60 second window. */
+#   define FD_GUI_ACCDB_SPARKLINE_SAMPLES   240UL
+#   define FD_GUI_ACCDB_SPARKLINE_BUCKET_NS 250000000L
+    long                    tile_sparkline_bucket_start_nanos [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_sparkline_acq_bucket         [ FD_GUI_MAX_ACCDB_TILES ];
+    ulong                   tile_sparkline_acq_wr_bucket      [ FD_GUI_MAX_ACCDB_TILES ];
+    /* Per-second rates (units/second) for the last N completed buckets.
+       Newest at index 0, oldest at the end.  Filled lazily as snaps
+       complete each bucket interval. */
+    double                  tile_sparkline_acq_history    [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES ];
+    double                  tile_sparkline_acq_wr_history [ FD_GUI_MAX_ACCDB_TILES ][ FD_GUI_ACCDB_SPARKLINE_SAMPLES ];
+    ulong                   tile_sparkline_count          [ FD_GUI_MAX_ACCDB_TILES ];  /* completed buckets, capped at FD_GUI_ACCDB_SPARKLINE_SAMPLES */
+
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];
 

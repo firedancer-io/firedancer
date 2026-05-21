@@ -176,6 +176,10 @@ union fdctl_args {
   struct {
     ulong ready_slot;
   } ready;
+
+  struct {
+    ulong duration_s;
+  } context_switch;
 };
 
 typedef union fdctl_args args_t;

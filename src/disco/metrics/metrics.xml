@@ -434,6 +434,7 @@ metric introduced.
     <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts read from the account database (one per address lookup table account fetched), attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were not found in the account database cache and had to be read from disk, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
     <counter name="AccdbBytesCopied" summary="Number of bytes copied out of the account database cache on a cache hit" />
@@ -695,6 +696,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
     <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
@@ -928,6 +930,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
     <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
@@ -1225,6 +1228,7 @@ metric introduced.
     <counter name="AccdbAccountsAcquired" enum="AccdbCacheClass" summary="Number of accounts read from the account database, attributed to the cache size class of the account's current data size" />
     <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were not found in the account database cache and had to be read from disk, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that had to wait for a concurrent writer to publish a disk offset before being read" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
     <counter name="AccdbBytesCopied" summary="Number of bytes copied out of the account database cache on a cache hit" />
@@ -1301,6 +1305,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
     <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />
@@ -1405,6 +1410,7 @@ metric introduced.
     <counter name="AccdbAccountsCommittedOverwrite" enum="AccdbCacheClass" summary="Number of overwrite (existing fork+generation) account versions committed to the index, broken down by destination cache size class" />
     <counter name="AccdbAccountsNotFound" enum="AccdbCacheClass" summary="Number of accounts that were needed for transaction execution but were not found in the account database cache, broken down by cache size class" />
     <counter name="AccdbAccountsWaited" summary="Number of accounts that were needed for transaction execution but were concurrently loading into cache by another transaction, causing the transaction to wait" />
+    <counter name="AccdbAcquireCalls" summary="Number of fd_accdb_acquire (batch acquire) calls made by this tile" />
     <counter name="AccdbAcquireFailed" summary="Number of times we failed to acquire the cache lines needed for a transaction, and had to spin loop waiting" />
     <counter name="AccdbBytesRead" summary="Number of bytes read from the account database" />
     <counter name="AccdbReadOps" summary="Number of read operations performed on the account database" />

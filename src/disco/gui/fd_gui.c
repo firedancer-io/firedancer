@@ -221,6 +221,75 @@ fd_gui_new( void *                shmem,
   memset( gui->summary.partition_prev_write_ops,      0, sizeof(gui->summary.partition_prev_write_ops)      );
   memset( gui->summary.partition_prev_bytes_written,  0, sizeof(gui->summary.partition_prev_bytes_written)  );
 
+  /* Build the per-tile accdb slot table from the topology.  Order
+     matters only for stable JSON ordering: RW joiners first, RO
+     joiners, then snapwr at the end. */
+  gui->summary.accdb_tile_cnt = 0UL;
+  static const struct { char const * name; uchar kind; } accdb_kinds[] = {
+    { "execle", FD_GUI_ACCDB_TILE_KIND_RW     },
+    { "execrp", FD_GUI_ACCDB_TILE_KIND_RW     },
+    { "replay", FD_GUI_ACCDB_TILE_KIND_RW     },
+    { "tower",  FD_GUI_ACCDB_TILE_KIND_RW     },
+    { "rpc",    FD_GUI_ACCDB_TILE_KIND_RO     },
+    { "resolv", FD_GUI_ACCDB_TILE_KIND_RO     },
+    { "snapwr", FD_GUI_ACCDB_TILE_KIND_SNAPWR },
+    { "accdb",  FD_GUI_ACCDB_TILE_KIND_ACCDB  },
+  };
+  for( ulong k=0UL; k<sizeof(accdb_kinds)/sizeof(accdb_kinds[0]); k++ ) {
+    ulong cnt = fd_topo_tile_name_cnt( gui->topo, accdb_kinds[ k ].name );
+    for( ulong i=0UL; i<cnt; i++ ) {
+      ulong t_idx = fd_topo_find_tile( gui->topo, accdb_kinds[ k ].name, i );
+      if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;
+      if( FD_UNLIKELY( gui->summary.accdb_tile_cnt>=FD_GUI_MAX_ACCDB_TILES ) ) {
+        FD_LOG_ERR(( "too many accdb consumer tiles (limit %lu)", FD_GUI_MAX_ACCDB_TILES ));
+      }
+      ulong slot = gui->summary.accdb_tile_cnt++;
+      gui->summary.accdb_tile_topo_idx[ slot ] = (ushort)t_idx;
+      gui->summary.accdb_tile_kind    [ slot ] = accdb_kinds[ k ].kind;
+    }
+  }
+  memset( gui->summary.tile_cur_acquired,           0, sizeof(gui->summary.tile_cur_acquired)           );
+  memset( gui->summary.tile_cur_acquired_writable,  0, sizeof(gui->summary.tile_cur_acquired_writable)  );
+  memset( gui->summary.tile_cur_bytes_read,         0, sizeof(gui->summary.tile_cur_bytes_read)         );
+  memset( gui->summary.tile_cur_bytes_copied,       0, sizeof(gui->summary.tile_cur_bytes_copied)       );
+  memset( gui->summary.tile_cur_bytes_written,      0, sizeof(gui->summary.tile_cur_bytes_written)      );
+  memset( gui->summary.tile_cur_read_ops,           0, sizeof(gui->summary.tile_cur_read_ops)           );
+  memset( gui->summary.tile_cur_write_ops,          0, sizeof(gui->summary.tile_cur_write_ops)          );
+  memset( gui->summary.tile_cur_misses,             0, sizeof(gui->summary.tile_cur_misses)             );
+  memset( gui->summary.tile_cur_evicted,            0, sizeof(gui->summary.tile_cur_evicted)            );
+  memset( gui->summary.tile_cur_committed,          0, sizeof(gui->summary.tile_cur_committed)          );
+  memset( gui->summary.tile_cur_acquire_calls,      0, sizeof(gui->summary.tile_cur_acquire_calls)      );
+  memset( gui->summary.tile_cur_status,             0, sizeof(gui->summary.tile_cur_status)             );
+  memset( gui->summary.tile_prev_acquired,          0, sizeof(gui->summary.tile_prev_acquired)          );
+  memset( gui->summary.tile_prev_acquired_writable, 0, sizeof(gui->summary.tile_prev_acquired_writable) );
+  memset( gui->summary.tile_prev_bytes_read,        0, sizeof(gui->summary.tile_prev_bytes_read)        );
+  memset( gui->summary.tile_prev_bytes_copied,      0, sizeof(gui->summary.tile_prev_bytes_copied)      );
+  memset( gui->summary.tile_prev_bytes_written,     0, sizeof(gui->summary.tile_prev_bytes_written)     );
+  memset( gui->summary.tile_prev_read_ops,          0, sizeof(gui->summary.tile_prev_read_ops)          );
+  memset( gui->summary.tile_prev_write_ops,         0, sizeof(gui->summary.tile_prev_write_ops)         );
+  memset( gui->summary.tile_prev_misses,            0, sizeof(gui->summary.tile_prev_misses)            );
+  memset( gui->summary.tile_prev_evicted,           0, sizeof(gui->summary.tile_prev_evicted)           );
+  memset( gui->summary.tile_prev_committed,         0, sizeof(gui->summary.tile_prev_committed)         );
+  memset( gui->summary.tile_prev_acquire_calls,     0, sizeof(gui->summary.tile_prev_acquire_calls)     );
+  memset( gui->summary.tile_acquired_win,           0, sizeof(gui->summary.tile_acquired_win)           );
+  memset( gui->summary.tile_acquired_writable_win,  0, sizeof(gui->summary.tile_acquired_writable_win)  );
+  memset( gui->summary.tile_bytes_read_win,         0, sizeof(gui->summary.tile_bytes_read_win)         );
+  memset( gui->summary.tile_bytes_copied_win,       0, sizeof(gui->summary.tile_bytes_copied_win)       );
+  memset( gui->summary.tile_bytes_written_win,      0, sizeof(gui->summary.tile_bytes_written_win)      );
+  memset( gui->summary.tile_read_ops_win,           0, sizeof(gui->summary.tile_read_ops_win)           );
+  memset( gui->summary.tile_write_ops_win,          0, sizeof(gui->summary.tile_write_ops_win)          );
+  memset( gui->summary.tile_misses_win,             0, sizeof(gui->summary.tile_misses_win)             );
+  memset( gui->summary.tile_evicted_win,            0, sizeof(gui->summary.tile_evicted_win)            );
+  memset( gui->summary.tile_committed_win,          0, sizeof(gui->summary.tile_committed_win)          );
+  memset( gui->summary.tile_acquire_calls_win,      0, sizeof(gui->summary.tile_acquire_calls_win)      );
+
+  memset( gui->summary.tile_sparkline_bucket_start_nanos, 0, sizeof(gui->summary.tile_sparkline_bucket_start_nanos) );
+  memset( gui->summary.tile_sparkline_acq_bucket,         0, sizeof(gui->summary.tile_sparkline_acq_bucket)         );
+  memset( gui->summary.tile_sparkline_acq_wr_bucket,      0, sizeof(gui->summary.tile_sparkline_acq_wr_bucket)      );
+  memset( gui->summary.tile_sparkline_acq_history,        0, sizeof(gui->summary.tile_sparkline_acq_history)        );
+  memset( gui->summary.tile_sparkline_acq_wr_history,     0, sizeof(gui->summary.tile_sparkline_acq_wr_history)     );
+  memset( gui->summary.tile_sparkline_count,              0, sizeof(gui->summary.tile_sparkline_count)              );
+
   memset( gui->summary.tile_timers_snap,            0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   memset( gui->summary.tile_timers_snap + tile_cnt, 0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   gui->summary.tile_timers_snap_idx    = 2UL;
@@ -573,73 +642,122 @@ fd_gui_accounts_stats_snap( fd_gui_t *                gui,
     cur->preevicted_per_class     [ c ] = am[ MIDX( COUNTER, ACCDB, ACCDB_ACCOUNTS_PREEVICTED       ) + c ];
   }
 
-  /* Per-tile counters.  The set of accdb-related counters declared by
-     each tile varies (see metrics.xml); for tiles where a counter
-     isn't declared, we simply don't read it. */
-
-  /* Tiles that declare the full per-class acquire/commit/evict surface
-     (READ_WRITE joiners).  Metric offsets are tile-specific but the macro
-     resolves them by tile name at compile time, so unroll per tile. */
-# define ACCUM_RW( TILE_UPPER, TILE_LOWER )                                                          \
-    for( ulong i=0UL; i<fd_topo_tile_name_cnt( topo, TILE_LOWER ); i++ ) {                           \
-      ulong t_idx = fd_topo_find_tile( topo, TILE_LOWER, i );                                        \
-      if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;                                                \
-      volatile ulong const * m = fd_metrics_tile( topo->tiles[ t_idx ].metrics );                    \
-      cur->bytes_read   += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_READ        ) ];                \
-      cur->bytes_copied += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_COPIED      ) ];                \
-      cur->bytes_written+= m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_WRITTEN     ) ];                \
-      cur->read_ops     += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_READ_OPS          ) ];                \
-      cur->write_ops    += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_WRITE_OPS         ) ];                \
-      for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {                                          \
-        ulong _acq = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED          ) + c ];        \
-        ulong _acw = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED_WRITABLE ) + c ];        \
-        cur->acquired                       += _acq;                                                 \
-        cur->acquired_writable              += _acw;                                                 \
-        cur->acquired_per_class            [ c ] += _acq;                                            \
-        cur->acquired_writable_per_class   [ c ] += _acw;                                            \
-        cur->not_found_per_class           [ c ] += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_NOT_FOUND            ) + c ]; \
-        cur->evicted_per_class             [ c ] += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_EVICTED              ) + c ]; \
-        cur->committed_new_per_class       [ c ] += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_COMMITTED_NEW        ) + c ]; \
-        cur->committed_overwrite_per_class [ c ] += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_COMMITTED_OVERWRITE  ) + c ]; \
-      }                                                                                              \
-    }
-
-  ACCUM_RW( EXECLE, "execle" )
-  ACCUM_RW( EXECRP, "execrp" )
-  ACCUM_RW( REPLAY, "replay" )
-  ACCUM_RW( TOWER,  "tower"  )
-# undef ACCUM_RW
-
-  /* RO joiners declare only the read-side subset (no writes/commits/evicts). */
-# define ACCUM_RO( TILE_UPPER, TILE_LOWER )                                                          \
-    for( ulong i=0UL; i<fd_topo_tile_name_cnt( topo, TILE_LOWER ); i++ ) {                           \
-      ulong t_idx = fd_topo_find_tile( topo, TILE_LOWER, i );                                        \
-      if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;                                                \
-      volatile ulong const * m = fd_metrics_tile( topo->tiles[ t_idx ].metrics );                    \
-      cur->bytes_read += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_READ        ) ];                  \
-      cur->bytes_copied+= m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_COPIED     ) ];                  \
-      cur->read_ops   += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_READ_OPS          ) ];                  \
-      for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {                                          \
-        ulong _acq = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED ) + c ];                  \
-        cur->acquired                       += _acq;                                                 \
-        cur->acquired_per_class[ c ]        += _acq;                                                 \
-        cur->not_found_per_class[ c ]       += m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_NOT_FOUND ) + c ]; \
-      }                                                                                              \
-    }
-
-  ACCUM_RO( RPC,    "rpc"    )
-  ACCUM_RO( RESOLV, "resolv" )
-# undef ACCUM_RO
-
-  /* snapwr writes account data to disk during snapshot load.  It does
-     not declare the accdb counter surface (writes are direct), so pick
-     up its monotonic SNAPWR_BYTES_WRITTEN gauge into the aggregate so
-     the IO panel reflects load-time disk activity. */
-  for( ulong i=0UL; i<fd_topo_tile_name_cnt( topo, "snapwr" ); i++ ) {
-    ulong t_idx = fd_topo_find_tile( topo, "snapwr", i );
-    if( FD_UNLIKELY( t_idx==ULONG_MAX ) ) continue;
+  /* Walk the per-tile slot table built at init.  Each slot reads its
+     tile's accdb counters according to its kind (RW, RO, or SNAPWR),
+     accumulates into the aggregate (cur->*), and stashes the per-tile
+     cumulative values into gui->summary.tile_cur_* for the per-tile
+     rate window pushes done later in fd_gui_printf_accounts_stats. */
+  for( ulong s=0UL; s<gui->summary.accdb_tile_cnt; s++ ) {
+    ulong t_idx = (ulong)gui->summary.accdb_tile_topo_idx[ s ];
+    uchar kind  = gui->summary.accdb_tile_kind[ s ];
     volatile ulong const * m = fd_metrics_tile( topo->tiles[ t_idx ].metrics );
-    cur->bytes_written += m[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
+
+    gui->summary.tile_cur_status[ s ] = (uchar)m[ MIDX( GAUGE, TILE, STATUS ) ];
+
+    ulong t_acq=0UL, t_acw=0UL, t_misses=0UL, t_evicted=0UL, t_committed=0UL;
+    ulong t_bytes_read=0UL, t_bytes_copied=0UL, t_bytes_written=0UL;
+    ulong t_read_ops=0UL, t_write_ops=0UL;
+    ulong t_acquire_calls=0UL;
+
+    switch( kind ) {
+#   define DO_RW( TILE_UPPER )                                                                                                    \
+        t_bytes_read    = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_READ    ) ];                                                  \
+        t_bytes_copied  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_COPIED  ) ];                                                  \
+        t_bytes_written = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_WRITTEN ) ];                                                  \
+        t_read_ops      = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_READ_OPS      ) ];                                                  \
+        t_write_ops     = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_WRITE_OPS     ) ];                                                  \
+        t_acquire_calls = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACQUIRE_CALLS ) ];                                                  \
+        for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {                                                                     \
+          ulong _acq = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED          ) + c ];                                    \
+          ulong _acw = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED_WRITABLE ) + c ];                                    \
+          ulong _nf  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_NOT_FOUND         ) + c ];                                    \
+          ulong _ev  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_EVICTED           ) + c ];                                    \
+          ulong _cn  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_COMMITTED_NEW        ) + c ];                                 \
+          ulong _co  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_COMMITTED_OVERWRITE  ) + c ];                                 \
+          t_acq+=_acq; t_acw+=_acw; t_misses+=_nf; t_evicted+=_ev; t_committed+=_cn+_co;                                          \
+          cur->acquired_per_class            [ c ] += _acq;                                                                       \
+          cur->acquired_writable_per_class   [ c ] += _acw;                                                                       \
+          cur->not_found_per_class           [ c ] += _nf;                                                                        \
+          cur->evicted_per_class             [ c ] += _ev;                                                                        \
+          cur->committed_new_per_class       [ c ] += _cn;                                                                        \
+          cur->committed_overwrite_per_class [ c ] += _co;                                                                        \
+        }
+      case FD_GUI_ACCDB_TILE_KIND_RW:
+        if(      !strcmp( topo->tiles[ t_idx ].name, "execle" ) ) { DO_RW( EXECLE ); }
+        else if( !strcmp( topo->tiles[ t_idx ].name, "execrp" ) ) { DO_RW( EXECRP ); }
+        else if( !strcmp( topo->tiles[ t_idx ].name, "replay" ) ) { DO_RW( REPLAY ); }
+        else if( !strcmp( topo->tiles[ t_idx ].name, "tower"  ) ) { DO_RW( TOWER  ); }
+        cur->acquired          += t_acq;
+        cur->acquired_writable += t_acw;
+        cur->bytes_read        += t_bytes_read;
+        cur->bytes_copied      += t_bytes_copied;
+        cur->bytes_written     += t_bytes_written;
+        cur->read_ops          += t_read_ops;
+        cur->write_ops         += t_write_ops;
+        break;
+#   undef DO_RW
+
+#   define DO_RO( TILE_UPPER )                                                                                                    \
+        t_bytes_read    = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_READ    ) ];                                                  \
+        t_bytes_copied  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_BYTES_COPIED  ) ];                                                  \
+        t_read_ops      = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_READ_OPS      ) ];                                                  \
+        t_acquire_calls = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACQUIRE_CALLS ) ];                                                  \
+        for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {                                                                     \
+          ulong _acq = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_ACQUIRED  ) + c ];                                            \
+          ulong _nf  = m[ MIDX( COUNTER, TILE_UPPER, ACCDB_ACCOUNTS_NOT_FOUND ) + c ];                                            \
+          t_acq+=_acq; t_misses+=_nf;                                                                                             \
+          cur->acquired_per_class [ c ] += _acq;                                                                                  \
+          cur->not_found_per_class[ c ] += _nf;                                                                                   \
+        }
+      case FD_GUI_ACCDB_TILE_KIND_RO:
+        if( !strcmp( topo->tiles[ t_idx ].name, "rpc"    ) ) { DO_RO( RPC    ); }
+        else if( !strcmp( topo->tiles[ t_idx ].name, "resolv" ) ) { DO_RO( RESOLV ); }
+        cur->acquired     += t_acq;
+        cur->bytes_read   += t_bytes_read;
+        cur->bytes_copied += t_bytes_copied;
+        cur->read_ops     += t_read_ops;
+        break;
+#   undef DO_RO
+
+      case FD_GUI_ACCDB_TILE_KIND_SNAPWR:
+        /* snapwr writes account data to disk directly during snapshot
+           load.  It does not declare the accdb counter surface, only a
+           BytesWritten gauge.  Include in the aggregate so the IO panel
+           reflects load-time disk activity. */
+        t_bytes_written = m[ MIDX( GAUGE, SNAPWR, BYTES_WRITTEN ) ];
+        cur->bytes_written += t_bytes_written;
+        break;
+
+      case FD_GUI_ACCDB_TILE_KIND_ACCDB:
+        /* The accdb tile owns prewrite and compaction writes.  Its own
+           bytes_written/write_ops were already folded into the aggregate
+           above (see ACCDB_BYTES_WRITTEN / ACCDB_WRITE_OPS reads).  Here
+           we only stash per-slot values so the per-tile row reflects
+           them; do not re-add to cur->* or we'd double-count.  The accdb
+           tile does not expose acquired/not_found/committed (no account
+           joiner) or read_ops/bytes_copied.  Preevicts are owned by the
+           accdb tile's background preevict pass, so map them to the
+           per-tile evicted column for this row. */
+        t_bytes_read    = m[ MIDX( COUNTER, ACCDB, ACCDB_BYTES_READ    ) ];
+        t_bytes_written = m[ MIDX( COUNTER, ACCDB, ACCDB_BYTES_WRITTEN ) ];
+        t_write_ops     = m[ MIDX( COUNTER, ACCDB, ACCDB_WRITE_OPS     ) ];
+        for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+          t_evicted += m[ MIDX( COUNTER, ACCDB, ACCDB_ACCOUNTS_PREEVICTED ) + c ];
+        }
+        break;
+    }
+
+    gui->summary.tile_cur_acquired         [ s ] = t_acq;
+    gui->summary.tile_cur_acquired_writable[ s ] = t_acw;
+    gui->summary.tile_cur_bytes_read       [ s ] = t_bytes_read;
+    gui->summary.tile_cur_bytes_copied     [ s ] = t_bytes_copied;
+    gui->summary.tile_cur_bytes_written    [ s ] = t_bytes_written;
+    gui->summary.tile_cur_read_ops         [ s ] = t_read_ops;
+    gui->summary.tile_cur_write_ops        [ s ] = t_write_ops;
+    gui->summary.tile_cur_misses           [ s ] = t_misses;
+    gui->summary.tile_cur_evicted          [ s ] = t_evicted;
+    gui->summary.tile_cur_committed        [ s ] = t_committed;
+    gui->summary.tile_cur_acquire_calls    [ s ] = t_acquire_calls;
   }
 }
 

@@ -1440,6 +1440,29 @@ process start.
             "write_ops_per_sec": 819.0,
             "prewrite_ratio": 0.42
         },
+        "tiles": [
+            {
+                "name": "execle",
+                "kind_id": 0,
+                "joiner_type": "RW",
+                "status": 1,
+                "acquired": 12381924,
+                "bytes_read": 9183920,
+                "bytes_written": 18374822,
+                "acquired_per_sec": 4128.0,
+                "acquired_writable_per_sec": 2064.0,
+                "bytes_read_per_sec": 524288.0,
+                "bytes_copied_per_sec": 8388608.0,
+                "bytes_written_per_sec": 1048576.0,
+                "read_ops_per_sec": 41.0,
+                "write_ops_per_sec": 82.0,
+                "not_found_per_sec": 0.5,
+                "evicted_per_sec": 1.2,
+                "committed_per_sec": 2063.0,
+                "waited_per_sec": 0.0,
+                "hit_rate_ema": 0.9999
+            }
+        ],
         "partitions": [
             {
                 "partition_idx": 184,
@@ -1481,6 +1504,7 @@ process start.
 | compaction        | `Compaction`     | Aggregate compaction activity (see below) |
 | cache             | `Cache`          | In-memory cache occupancy and per-size-class metrics (see below) |
 | io                | `Io`             | Aggregate IO counters and rates across all accdb joiners (see below) |
+| tiles             | `Tile[]`         | Per-tile breakdown of accdb activity, one entry per consumer tile in stable order. The snapshot-loader `snapwr` row disappears once it reaches the shutdown status |
 | partitions        | `Partition[]`    | Per-partition snapshot. Partitions that have never been written and are not being compacted are omitted |
 
 **`Disk`**
@@ -1555,6 +1579,29 @@ to 128 B, `1` covers 129 B - 512 B, `2` covers 513 B - 2 KiB, `3` covers
 | read_ops_per_sec            | `number` | Recent disk read operation rate, in operations per second |
 | write_ops_per_sec           | `number` | Recent disk write operation rate, in operations per second |
 | prewrite_ratio              | `number` | Fraction of recent disk writes attributable to background prewrite/compaction, in the range `[0, 1]` |
+
+**`Tile`**
+| Field                       | Type     | Description |
+|-----------------------------|----------|-------------|
+| name                        | `string` | Tile kind name, e.g. `execle`, `execrp`, `replay`, `tower`, `rpc`, `resolv`, or `snapwr` |
+| kind_id                     | `number` | Instance index within this tile kind |
+| joiner_type                 | `string` | `RW` if the tile reads and writes accounts (`execle`, `execrp`, `replay`, `tower`, `snapwr`), `RO` if it only reads (`rpc`, `resolv`) |
+| status                      | `number` | `1` if the tile is running, `2` if it has gracefully shut down |
+| acquired                    | `number` | Cumulative count of accounts this tile has acquired since startup |
+| bytes_read                  | `number` | Cumulative bytes this tile has read from disk since startup |
+| bytes_written               | `number` | Cumulative bytes this tile has written to disk since startup |
+| acquired_per_sec            | `number` | Recent acquire rate for this tile, in accounts per second |
+| acquired_writable_per_sec   | `number` | Recent writable acquire rate for this tile, in accounts per second (always `0` for `RO` tiles and `snapwr`) |
+| bytes_read_per_sec          | `number` | Recent disk read throughput for this tile, in bytes per second |
+| bytes_copied_per_sec        | `number` | Recent cache-hit copy throughput for this tile, in bytes per second |
+| bytes_written_per_sec       | `number` | Recent disk write throughput for this tile, in bytes per second |
+| read_ops_per_sec            | `number` | Recent disk read operation rate for this tile |
+| write_ops_per_sec           | `number` | Recent disk write operation rate for this tile |
+| not_found_per_sec           | `number` | Recent rate of cache misses (account had to be read from disk) for this tile |
+| evicted_per_sec             | `number` | Recent rate at which this tile's commits evicted lines from the cache (always `0` for `RO` tiles and `snapwr`) |
+| committed_per_sec           | `number` | Recent rate of account version commits (new + overwrite) by this tile (always `0` for `RO` tiles and `snapwr`) |
+| waited_per_sec              | `number` | Recent rate at which this tile waited for a concurrent loader to publish a disk offset |
+| hit_rate_ema                | `number` | Recent cache hit rate for this tile, in the range `[0, 1]` |
 
 **`Partition`**
 Partitions are fixed-size regions of the on-disk accounts database file.

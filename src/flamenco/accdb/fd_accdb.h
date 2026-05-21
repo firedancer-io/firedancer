@@ -547,6 +547,7 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
     FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_COMMITTED_OVERWRITE, _m->accounts_committed_overwrite_per_class ); \
     FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_NOT_FOUND,   _m->accounts_not_found_per_class ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,            _m->accounts_waited            ); \
+    FD_MCNT_SET( TILE, ACCDB_ACQUIRE_CALLS,              _m->acquire_calls              ); \
     FD_MCNT_SET( TILE, ACCDB_ACQUIRE_FAILED,             _m->acquire_failed             ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_READ,                 _m->bytes_read                 ); \
     FD_MCNT_SET( TILE, ACCDB_READ_OPS,                   _m->read_ops                   ); \
@@ -565,6 +566,7 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
     FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_ACQUIRED,  _m->accounts_acquired_per_class  ); \
     FD_MCNT_ENUM_COPY( TILE, ACCDB_ACCOUNTS_NOT_FOUND, _m->accounts_not_found_per_class ); \
     FD_MCNT_SET( TILE, ACCDB_ACCOUNTS_WAITED,   _m->accounts_waited   ); \
+    FD_MCNT_SET( TILE, ACCDB_ACQUIRE_CALLS,     _m->acquire_calls     ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_READ,        _m->bytes_read        ); \
     FD_MCNT_SET( TILE, ACCDB_READ_OPS,          _m->read_ops          ); \
     FD_MCNT_SET( TILE, ACCDB_BYTES_COPIED,      _m->bytes_copied      ); \
