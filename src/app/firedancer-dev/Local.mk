@@ -7,7 +7,7 @@ ifdef FD_HAS_ZSTD
 
 .PHONY: firedancer-dev
 
-$(call add-objs,commands/gossip,fd_firedancer_dev)
+$(call add-objs,commands/gossip/gossip commands/gossip/fd_gossix_tile,fd_firedancer_dev)
 $(call add-objs,commands/bench,fd_firedancer_dev)
 $(call add-objs,commands/dev,fd_firedancer_dev)
 $(call add-objs,commands/backtest,fd_firedancer_dev)

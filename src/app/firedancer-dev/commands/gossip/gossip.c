@@ -1,15 +1,18 @@
-#include "../../shared/commands/configure/configure.h"
-#include "../../shared/commands/run/run.h" /* initialize_workspaces */
-#include "../../shared/fd_config.h" /* config_t */
-#include "../../../disco/topo/fd_topob.h"
-#include "../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
-#include "../../../disco/fd_clock_tile.h"
-#include "../../../discof/gossip/fd_gossip_tile.h"
+#include "../../../shared/commands/configure/configure.h"
+#include "../../../shared/commands/run/run.h" /* initialize_workspaces */
+#include "../../../shared/fd_config.h" /* config_t */
+#include "../../../../disco/topo/fd_topob.h"
+#include "../../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
+#include "../../../../disco/fd_clock_tile.h"
+#include "../../../../discof/gossip/fd_gossip_tile.h"
 
-#include "../../firedancer/commands/monitor_gossip/gossip_diag.h"
+#include "../../../firedancer/commands/monitor_gossip/gossip_diag.h"
 
-#include "core_subtopo.h"
+#include "../core_subtopo.h"
 #include "gossip.h"
+#include "fd_gossix_tile.h"
+
+#include "../../../../util/pod/fd_pod_format.h"
 
 #include <stdio.h> /* printf */
 #include <stdlib.h>
@@ -25,7 +28,7 @@ void
 resolve_gossip_entrypoints( config_t * config );
 
 static void
-gossip_cmd_topo( config_t * config ) {
+gossip_cmd_topo( args_t * args, config_t * config ) {
   resolve_gossip_entrypoints( config );
 
   /* Disable non-gossip listen ports */
@@ -47,6 +50,27 @@ gossip_cmd_topo( config_t * config ) {
 
   fd_core_subtopo(   config, tile_to_cpu );
   fd_gossip_subtopo( config, tile_to_cpu );
+
+  if( args && args->gossip.out_path ) {
+    fd_topob_wksp( topo, "gossix" );
+    fd_topob_tile( topo, "gossix", "gossix", "metric_in", 0UL, 0, 1, 0 );
+
+    /* Done fseq — gossix signals completion, main thread polls */
+    fd_topo_obj_t * done_obj = fd_topob_obj( topo, "fseq", "gossix" );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gossix", 0UL ) ], done_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, done_obj->id, "gossix_done" ) );
+
+    /* Plumb config through pod properties */
+    FD_TEST( fd_pod_insertf_cstr(  topo->props, args->gossip.out_path,  "gossix.out_path" ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, args->gossip.max_entries, "gossix.max_entries" ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, args->gossip.max_contact, "gossix.max_contact" ) );
+
+    long timeout_nanos = args->gossip.timeout_secs==LONG_MAX ? LONG_MAX : args->gossip.timeout_secs * (long)1e9;
+    FD_TEST( fd_pod_insertf_long( topo->props, timeout_nanos, "gossix.timeout_nanos" ) );
+    FD_TEST( fd_pod_insertf_int(  topo->props, args->gossip.exit_after_steady, "gossix.exit_after_steady" ) );
+
+    fd_topob_tile_in( topo, "gossix", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
 
   fd_topob_tile_in( topo, "gossip", 0UL, "metric_in", "sign_gossip",  0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_net_tile_finish( topo, i );
@@ -207,14 +231,20 @@ gossip_args( int *    pargc,
       "  --max-entries <num>         Exit once we see <num> CRDS entries in table\n"
       "  --max-contact-infos <num>   Exit once we see <num> contact infos in table\n"
       "  --compact                   Use compact output format\n"
+      "  --out <path>                Write JSON validator info to <path> before exit\n"
+      "  --timeout <secs>            Exit after <secs> seconds even if thresholds not met\n"
+      "  --exit-after-steady         Exit once contact info count is unchanging for ~5s\n"
       "\n",
       stderr );
     exit( EXIT_SUCCESS );
   }
 
-  args->gossip.max_entries  = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-entries", NULL, ULONG_MAX );
-  args->gossip.max_contact  = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-contact-infos", NULL, ULONG_MAX );
-  args->gossip.compact_mode = fd_env_strip_cmdline_contains( pargc, pargv, "--compact" );
+  args->gossip.max_entries       = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-entries", NULL, ULONG_MAX );
+  args->gossip.max_contact       = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-contact-infos", NULL, ULONG_MAX );
+  args->gossip.compact_mode      = fd_env_strip_cmdline_contains( pargc, pargv, "--compact" );
+  args->gossip.exit_after_steady = fd_env_strip_cmdline_contains( pargc, pargv, "--exit-after-steady" );
+  args->gossip.out_path          = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--out", NULL, NULL );
+  args->gossip.timeout_secs      = fd_env_strip_cmdline_long    ( pargc, pargv, "--timeout", NULL, LONG_MAX );
 }
 
 void
@@ -222,6 +252,15 @@ gossip_cmd_fn( args_t *   args,
                config_t * config ) {
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
+
+  char const * out_path = args->gossip.out_path;
+
+  if( FD_UNLIKELY( out_path && args->gossip.max_entries==ULONG_MAX &&
+                               args->gossip.max_contact==ULONG_MAX &&
+                               args->gossip.timeout_secs==LONG_MAX &&
+                               !args->gossip.exit_after_steady ) ) {
+    FD_LOG_ERR(( "--out requires --max-entries, --max-contact-infos, --timeout, or --exit-after-steady" ));
+  }
 
   run_firedancer_init( config, 1, 1 );
 
@@ -237,11 +276,23 @@ gossip_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( fd_gossip_diag_init( diag_ctx, &config->topo, config ) ) )
     FD_LOG_ERR(( "Failed to initialize gossip diagnostics" ));
 
+  fd_topo_t *   topo      = &config->topo;
+  ulong const * done_fseq = NULL;
+
+  if( out_path ) {
+    ulong done_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "gossix_done" );
+    FD_TEST( done_obj_id!=ULONG_MAX );
+    done_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, done_obj_id ) );
+    FD_TEST( done_fseq );
+  }
+
   fd_clock_tile_t clock[1];
   fd_clock_tile_init( clock );
 
-  long start_time       = fd_clock_tile_now( clock );
-  long next_report_time = start_time + 1000000000L;
+  long  start_time       = fd_clock_tile_now( clock );
+  long  next_report_time = start_time + 1000000000L;
+  ulong steady_prev_ci   = 0UL;
+  long  steady_since     = start_time;
 
   for(;;) {
     long current_time = fd_clock_tile_now( clock );
@@ -253,14 +304,38 @@ gossip_cmd_fn( args_t *   args,
 
     fd_gossip_diag_render( diag_ctx, args->gossip.compact_mode );
 
-    if( FD_UNLIKELY( diag_ctx->last_total_crds >= args->gossip.max_entries ||
-                     diag_ctx->last_total_contact_infos >= args->gossip.max_contact ) ) {
+    int steady = 0;
+    if( args->gossip.exit_after_steady ) {
+      ulong ci = diag_ctx->last_total_contact_infos;
+      if( FD_LIKELY( ci!=steady_prev_ci ) ) {
+        steady_prev_ci = ci;
+        steady_since   = current_time;
+      } else if( FD_UNLIKELY( ci>0UL && (current_time - steady_since)>=(long)5e9 /* 5s */ ) ) {
+        steady = 1;
+      }
+    }
+
+    int crds_reached    = ( diag_ctx->last_total_crds>=args->gossip.max_entries );
+    int contact_reached = ( diag_ctx->last_total_contact_infos>=args->gossip.max_contact );
+    int gossix_done     = ( done_fseq && fd_fseq_query( done_fseq )==FD_GOSSIX_FSEQ_DONE );
+    if( FD_UNLIKELY( crds_reached || contact_reached || gossix_done || steady ) ) {
       long elapsed = current_time - start_time;
       double elapsed_secs = (double)elapsed / 1000000000.0;
-      printf( "User defined thresholds reached in %.2fs\n"
+
+      char const * reason = crds_reached    ? "--max-entries"
+                          : contact_reached ? "--max-contact-infos"
+                          : steady          ? "--exit-after-steady"
+                          : gossix_done     ? "--timeout" : "unknown";
+      printf( "Exit condition reached: %s (%.2fs)\n"
               "  Table Size   : %lu\n"
               "  Contact Infos: %lu\n",
-              elapsed_secs, diag_ctx->last_total_crds, diag_ctx->last_total_contact_infos );
+              reason, elapsed_secs, diag_ctx->last_total_crds, diag_ctx->last_total_contact_infos );
+
+      if( done_fseq ) {
+        /* Threshold hit first — wait for the gossix tile to catch up */
+        while( fd_fseq_query( done_fseq )!=FD_GOSSIX_FSEQ_DONE ) FD_SPIN_PAUSE();
+        printf( "Wrote validator info to %s\n", out_path );
+      }
       break;
     }
     fd_clock_tile_recal( clock );

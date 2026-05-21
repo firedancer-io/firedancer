@@ -129,13 +129,13 @@ fd_dev_main( int                        argc,
                  "configuration targets a live cluster. Use `fdctl` if this is a "
                  "production environment" ));
 
-  if( FD_LIKELY( load_topo ) ) {
-    if( FD_LIKELY( action->topo ) ) action->topo( &config );
-    else                            topo_init( &config );
-  }
-
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
+
+  if( FD_LIKELY( load_topo ) ) {
+    if( FD_LIKELY( action->topo ) ) action->topo( &args, &config );
+    else                            topo_init( &config );
+  }
   if( FD_UNLIKELY( argc ) ) FD_LOG_ERR(( "unknown argument `%s`", argv[ 0 ] ));
 
   /* Check if we are appropriately permissioned to run the desired

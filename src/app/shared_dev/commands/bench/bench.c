@@ -124,7 +124,7 @@ void
 fd_topo_initialize( config_t * config );
 
 void
-bench_topo( config_t * config ) {
+bench_topo( args_t * args FD_PARAM_UNUSED, config_t * config ) {
   config->tiles.rpc.delay_startup = 0;
 
   fd_topo_initialize( config );

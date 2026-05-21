@@ -354,7 +354,7 @@ backtest_topo( config_t * config ) {
 }
 
 static void
-backtest_cmd_topo( config_t * config ) {
+backtest_cmd_topo( args_t * args FD_PARAM_UNUSED, config_t * config ) {
   backtest_topo( config );
 }
 

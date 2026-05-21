@@ -46,7 +46,7 @@ reconstruct_topo( config_t *   config,
   if( !selected       ) FD_LOG_ERR(( "Unknown --topo %s", topo_name ));
   if( !selected->topo ) FD_LOG_ERR(( "Cannot recover topology for --topo %s", topo_name ));
 
-  selected->topo( config );
+  selected->topo( NULL, config );
 }
 
 void

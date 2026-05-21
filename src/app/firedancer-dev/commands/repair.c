@@ -24,7 +24,7 @@
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../discof/repair/fd_repair_tile.c"
 
-#include "gossip.h"
+#include "gossip/gossip.h"
 #include "core_subtopo.h"
 
 #include <unistd.h> /* pause */

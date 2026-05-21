@@ -80,7 +80,7 @@ forktest_recover_expected_shred_version( config_t const * config ) {
 }
 
 static void
-forktest_topo( config_t * config ) {
+forktest_topo( args_t * args FD_PARAM_UNUSED, config_t * config ) {
 
   if( FD_UNLIKELY( !config->consensus.expected_shred_version ) ) {
     config->consensus.expected_shred_version = forktest_recover_expected_shred_version( config );

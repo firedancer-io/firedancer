@@ -158,7 +158,7 @@ snapshot_load_topo( config_t * config ) {
 }
 
 static void
-snapshot_load_topo1( config_t * config ) {
+snapshot_load_topo1( args_t * args FD_PARAM_UNUSED, config_t * config ) {
   snapshot_load_topo( config );
 }
 

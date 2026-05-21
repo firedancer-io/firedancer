@@ -36,7 +36,7 @@ ipecho_topo( fd_topo_t *  topo,
 }
 
 static void
-ipecho_server_cmd_topo( config_t * config ) {
+ipecho_server_cmd_topo( args_t * args FD_PARAM_UNUSED, config_t * config ) {
   ipecho_topo( &config->topo, config->name );
 }
 

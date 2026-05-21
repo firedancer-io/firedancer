@@ -30,7 +30,7 @@ up the entire gossip subtopo.
 #include "../../../../disco/keyguard/fd_keyload.h"
 
 #include "../core_subtopo.h"
-#include "../gossip.h"
+#include "../gossip/gossip.h"
 #include "send_test_helpers.c"
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];

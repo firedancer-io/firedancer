@@ -1,7 +1,7 @@
-#ifndef HEADER_fd_src_app_firedancer_dev_commands_gossip_h
-#define HEADER_fd_src_app_firedancer_dev_commands_gossip_h
+#ifndef HEADER_fd_src_app_firedancer_dev_commands_gossip_gossip_h
+#define HEADER_fd_src_app_firedancer_dev_commands_gossip_gossip_h
 
-#include "../../shared/fd_config.h"
+#include "../../../shared/fd_config.h"
 
 /* Shared gossip topology setup functions */
 
@@ -14,4 +14,4 @@
 void
 fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] );
 
-#endif /* HEADER_fd_src_app_firedancer_dev_commands_gossip_h */
+#endif /* HEADER_fd_src_app_firedancer_dev_commands_gossip_gossip_h */
