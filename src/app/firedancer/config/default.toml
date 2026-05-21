@@ -1859,6 +1859,17 @@ telemetry = true
         # entries respectively) and silently truncate beyond.
         report_runtime_block = false
 
+        # If true, emit one runtime-epoch event per epoch transition
+        # (one row per (slot, block_id) at the boundary slot freeze).
+        # Carries the deterministic snapshot of the new epoch
+        # (schedule + stake totals + capitalization), the reward
+        # arithmetic for the prior epoch (totals + points + num
+        # partitions), PER partition schedule (truncated), mark/unmark
+        # stake-delegation deltas, vote-account snapshots (top 256 by
+        # stake), and newly-activated features.  ~1 row every ~2 days
+        # on mainnet; ~60 KiB worst case per row.
+        report_runtime_epoch = false
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev

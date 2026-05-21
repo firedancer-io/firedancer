@@ -32,6 +32,13 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
+#include "../../flamenco/stakes/fd_vote_stakes.h"
+#include "../../flamenco/stakes/fd_stake_delegations.h"
+#include "../../flamenco/stakes/fd_top_votes.h"
+#include "../../flamenco/leaders/fd_leaders.h"
+#include "../../flamenco/features/fd_features.h"
+#include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 /* Replay concepts:
 
@@ -555,6 +562,223 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
        accounts_data_size_delta — follow-ups. */
 
     fd_capture_link_write_runtime_block( ctx->capture_ctx, &info );
+  }
+
+  /* Emit one runtime_epoch frag if this was an epoch-boundary slot.
+     current_epoch_seen is set by fd_capture_link_runtime_epoch_set_rewards
+     inside fd_begin_partitioned_rewards (only fires at boundaries), so
+     it's a reliable trigger.  Most fields here come from bank state;
+     a handful (leader_schedule_hash, features, vote accounts list,
+     partitions list) are TODO/empty for MVP. */
+  if( FD_UNLIKELY( ctx->capture_ctx &&
+                   ctx->capture_ctx->capture_runtime_epoch_events &&
+                   ctx->capture_ctx->current_epoch_seen ) ) {
+    fd_hash_t           parent_blk_id = ctx->block_id_arr[ bank->parent_idx ].latest_mr;
+    fd_hash_t const *   cur_blk_id    = &ctx->block_id_arr[ bank->idx ].latest_mr;
+
+    fd_capture_runtime_epoch_info_t info = {0};
+    info.slot                      = bank->f.slot;
+    info.block_id                  = cur_blk_id->uc;
+    info.parent_slot               = bank->f.parent_slot;
+    info.parent_block_id           = parent_blk_id.uc;
+    info.epoch                     = (uint)bank->f.epoch;
+    info.prev_epoch                = (uint)(bank->f.epoch ? bank->f.epoch - 1UL : 0UL);
+    info.last_slot_prev_epoch      = bank->f.slot ? bank->f.slot - 1UL : 0UL;
+    info.prev_epoch_final_bank_hash= bank->f.prev_bank_hash.uc;
+    info.transition_at_ns          = fd_log_wallclock();
+    info.transition_source         = FD_CAPTURE_RUNTIME_EPOCH_SOURCE_LIVE;
+    /* TODO: detect backtest / snapshot_load and set transition_source accordingly. */
+
+    info.slots_per_epoch             = bank->f.epoch_schedule.slots_per_epoch;
+    info.leader_schedule_slot_offset = bank->f.epoch_schedule.leader_schedule_slot_offset;
+    info.warmup                      = bank->f.epoch_schedule.warmup;
+    info.first_normal_epoch          = bank->f.epoch_schedule.first_normal_epoch;
+    info.first_normal_slot           = bank->f.epoch_schedule.first_normal_slot;
+
+    info.total_active_stake        = bank->f.total_effective_stake;
+    info.total_activating_stake    = bank->f.total_activating_stake;
+    info.total_deactivating_stake  = bank->f.total_deactivating_stake;
+    info.total_epoch_stake         = bank->f.total_epoch_stake;
+
+    info.capitalization_at_epoch_start = bank->f.capitalization;
+
+    /* ===== Vote accounts walk: count with stake + top-256 by current
+       epoch stake, plus per-vote credits (read from accdb) and
+       last_vote_slot (top_votes lookup).  Also sums prev_epoch total
+       credits across ALL vote accounts (not just top 256).  Iter holds
+       a vote_stakes write lock so we must always fini. ===== */
+    fd_capture_runtime_epoch_vote_account_t vote_accts[ FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX ];
+    ulong vote_accts_cnt = 0UL;
+    uint  vote_with_stake = 0U;
+    ulong prev_epoch_total_credits = 0UL;
+    fd_vote_stakes_t *     vote_stakes = fd_bank_vote_stakes( bank );
+    fd_top_votes_t const * top_votes   = fd_bank_top_votes_t_1_query( bank );
+    fd_funk_txn_xid_t      xid_bank    = fd_bank_xid( bank );
+    ulong const prev_ep_v      = bank->f.epoch ? bank->f.epoch - 1UL : 0UL;
+    ulong const prev_prev_ep_v = bank->f.epoch >= 2UL ? bank->f.epoch - 2UL : 0UL;
+    /* For commission_t_3 we query the PARENT bank's vote_stakes t_2,
+       which equals this bank's t_3 (the value `delay_commission_updates`
+       feeds into prev_epoch's reward math). */
+    fd_bank_t *            parent_bank          = fd_banks_get_parent( ctx->banks, bank );
+    int                    have_parent_fork_idx = parent_bank && parent_bank->vote_stakes_fork_id != USHORT_MAX;
+    ushort                 parent_fork_idx      = have_parent_fork_idx ? parent_bank->vote_stakes_fork_id : 0;
+    if( FD_LIKELY( vote_stakes ) ) {
+      ushort root_idx = fd_vote_stakes_get_root_idx( vote_stakes );
+      uchar __attribute__((aligned(FD_VOTE_STAKES_ITER_ALIGN))) iter_mem[ FD_VOTE_STAKES_ITER_FOOTPRINT ];
+      for( fd_vote_stakes_iter_t * it = fd_vote_stakes_fork_iter_init( vote_stakes, root_idx, iter_mem );
+           !fd_vote_stakes_fork_iter_done( vote_stakes, root_idx, it );
+           fd_vote_stakes_fork_iter_next( vote_stakes, root_idx, it ) ) {
+        fd_pubkey_t pubkey;
+        ulong       stake_t_1=0UL, stake_t_2=0UL;
+        fd_pubkey_t node_t_1={0}, node_t_2={0};
+        ushort      comm_t_1=0, comm_t_2=0;
+        fd_vote_stakes_fork_iter_ele( vote_stakes, root_idx, it, &pubkey,
+                                      &stake_t_1, &stake_t_2,
+                                      &node_t_1, &node_t_2,
+                                      &comm_t_1, &comm_t_2 );
+        if( stake_t_1 ) vote_with_stake++;
+
+        /* Per-vote credits: open the vote account, find epoch_credits
+           entries for prev_epoch and prev_prev_epoch.  Returns delta
+           (cumulative.credits - cumulative.prev_credits) = credits
+           earned IN that epoch. */
+        ulong v_prev_credits      = 0UL;
+        ulong v_prev_prev_credits = 0UL;
+        fd_accdb_ro_t vote_ro[1];
+        if( fd_accdb_open_ro( ctx->accdb, vote_ro, &xid_bank, &pubkey ) ) {
+          ulong ec_cnt = 0UL;
+          fd_vote_epoch_credits_t const * ec = fd_vote_account_epoch_credits(
+              fd_accdb_ref_data_const( vote_ro ),
+              fd_accdb_ref_data_sz( vote_ro ),
+              &ec_cnt );
+          if( ec ) {
+            for( ulong i=0UL; i<ec_cnt; i++ ) {
+              if(      ec[ i ].epoch == prev_ep_v      ) v_prev_credits      = ec[ i ].credits - ec[ i ].prev_credits;
+              else if( ec[ i ].epoch == prev_prev_ep_v ) v_prev_prev_credits = ec[ i ].credits - ec[ i ].prev_credits;
+            }
+          }
+          fd_accdb_close_ro( ctx->accdb, vote_ro );
+        }
+        prev_epoch_total_credits += v_prev_credits;
+
+        /* Per-vote last_vote_slot via top_votes cache (top ~2000 only;
+           validators outside top_votes get 0). */
+        ulong v_last_vote_slot = 0UL;
+        if( top_votes ) fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &v_last_vote_slot, NULL, NULL, NULL );
+
+        /* Maintain a min-stake slot in vote_accts: if room, append; else
+           replace the lowest-stake entry if this is bigger. */
+        fd_capture_runtime_epoch_vote_account_t * v = NULL;
+        if( vote_accts_cnt < FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX ) {
+          v = &vote_accts[ vote_accts_cnt++ ];
+        } else {
+          ulong min_idx=0UL, min_stake=vote_accts[0].active_stake;
+          for( ulong i=1UL; i<vote_accts_cnt; i++ ) {
+            if( vote_accts[ i ].active_stake < min_stake ) { min_stake = vote_accts[ i ].active_stake; min_idx = i; }
+          }
+          if( stake_t_1 > min_stake ) v = &vote_accts[ min_idx ];
+        }
+        if( v ) {
+          fd_memcpy( v->vote_account, pubkey.uc,    32UL );
+          fd_memcpy( v->node_account, node_t_1.uc,  32UL );
+          v->commission_bps               = comm_t_1;
+          v->prev_epoch_commission_bps    = comm_t_2;
+          v->prev_prev_epoch_commission_bps = 0;  /* filled below after iter fini */
+          v->active_stake                 = stake_t_1;
+          v->prev_epoch_stake             = stake_t_2;
+          v->prev_epoch_credits           = v_prev_credits;
+          v->prev_prev_epoch_credits      = v_prev_prev_credits;
+          v->last_vote_slot               = v_last_vote_slot;
+        }
+      }
+      fd_vote_stakes_fork_iter_fini( vote_stakes );
+
+      /* Parent-fork t_2 query — gives us t_3 (= "previous previous"
+         commission, the value `delay_commission_updates` uses).  Safe
+         to call now that iter is fini'd. */
+      if( have_parent_fork_idx ) {
+        for( ulong i=0UL; i<vote_accts_cnt; i++ ) {
+          fd_pubkey_t pk;
+          fd_memcpy( pk.uc, vote_accts[ i ].vote_account, 32UL );
+          ushort c_t3 = 0;
+          if( fd_vote_stakes_query_t_2( vote_stakes, parent_fork_idx, &pk,
+                                        NULL, NULL, &c_t3 ) ) {
+            vote_accts[ i ].prev_prev_epoch_commission_bps = c_t3;
+          }
+        }
+      }
+    }
+    info.vote_account_count_with_stake = vote_with_stake;
+    info.epoch_vote_accounts           = vote_accts;
+    info.epoch_vote_accounts_cnt       = vote_accts_cnt;
+    info.prev_epoch_total_vote_credits = prev_epoch_total_credits;
+
+    /* ===== Stake delegations walk: total cache size.  staker_pubkey_count
+       requires reading stake-account auth data; deferred. ===== */
+    fd_stake_delegations_t * stake_dels = fd_bank_stake_delegations_modify( bank );
+    if( FD_LIKELY( stake_dels ) ) {
+      info.stake_account_count = (uint)fd_stake_delegations_cnt( stake_dels );
+    }
+
+    /* ===== Feature activations: those whose activation_slot == first
+       slot of new epoch.  Hash is over sorted pubkeys (full list);
+       Nested array holds the first FEATURE_ACTIVATIONS_MAX entries. ===== */
+    ulong const new_epoch_first_slot = fd_epoch_slot0( &bank->f.epoch_schedule, bank->f.epoch );
+    fd_capture_runtime_epoch_feature_activation_t feature_acts[ FD_CAPTURE_RUNTIME_EPOCH_FEATURE_ACTIVATIONS_MAX ];
+    ulong feature_acts_cnt = 0UL;
+    uint  total_activated  = 0U;
+    /* First pass: hash all newly-activated feature pubkeys, populate
+       Nested array up to its cap, and count. */
+    fd_sha256_t feat_sha[1];
+    fd_sha256_init( feat_sha );
+    /* For a deterministic hash across clients we'd need to sort first.
+       The fd `ids` array is in a stable build-time order, so hashing in
+       iteration order is deterministic across Firedancer runs.  Sorted
+       canonical hash is a TODO. */
+    for( fd_feature_id_t const * id = fd_feature_iter_init();
+         !fd_feature_iter_done( id );
+         id = fd_feature_iter_next( id ) ) {
+      ulong activation_slot = fd_features_get( &bank->f.features, id );
+      if( activation_slot != new_epoch_first_slot ) continue;
+      total_activated++;
+      fd_sha256_append( feat_sha, id->id.uc, 32UL );
+      if( feature_acts_cnt < FD_CAPTURE_RUNTIME_EPOCH_FEATURE_ACTIVATIONS_MAX ) {
+        fd_capture_runtime_epoch_feature_activation_t * f = &feature_acts[ feature_acts_cnt++ ];
+        fd_memcpy( f->pubkey, id->id.uc, 32UL );
+        f->activation_slot = activation_slot;
+      }
+    }
+    uchar feature_hash[32];
+    fd_sha256_fini( feat_sha, feature_hash );
+    info.features_activated_count        = total_activated;
+    info.features_activated_pubkeys_hash = total_activated ? feature_hash : NULL;
+    info.feature_activations             = feature_acts;
+    info.feature_activations_cnt         = feature_acts_cnt;
+
+    /* ===== Leader schedule: sha256 over per-slot leader pubkeys (in
+       schedule order) + unique pubkey count. ===== */
+    fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
+    uchar leader_hash[32] = {0};
+    int   have_leader_hash = 0;
+    if( leaders && leaders->pub && leaders->sched ) {
+      info.unique_leaders_count = (uint)leaders->pub_cnt;
+      fd_sha256_t ls_sha[1];
+      fd_sha256_init( ls_sha );
+      for( ulong i=0UL; i<leaders->sched_cnt; i++ ) {
+        uint idx = leaders->sched[ i ];
+        if( FD_UNLIKELY( idx > leaders->pub_cnt ) ) continue;
+        fd_sha256_append( ls_sha, leaders->pub[ idx ].uc, 32UL );
+      }
+      fd_sha256_fini( ls_sha, leader_hash );
+      have_leader_hash = 1;
+    }
+    info.leader_schedule_hash = have_leader_hash ? leader_hash : NULL;
+
+    /* Nested arrays still deferred: partition_counts / partitions —
+       require capture_ctx stash from PER setup;
+       marked_deltas / unmarked_deltas — require stake_delegations hooks. */
+
+    fd_capture_link_write_runtime_epoch( ctx->capture_ctx, &info );
   }
 
   /* Copy out cost tracker fields before freezing */
@@ -2650,8 +2874,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->capture_ctx = NULL;
   int event_repl_enabled = fd_topo_find_tile_out_link( topo, tile, "event_repl", 0UL )!=ULONG_MAX;
   int event_bank_enabled = fd_topo_find_tile_out_link( topo, tile, "event_bank", 0UL )!=ULONG_MAX;
-  int event_rblk_enabled = fd_topo_find_tile_out_link( topo, tile, "event_rblk", 0UL )!=ULONG_MAX;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || event_repl_enabled || event_bank_enabled || event_rblk_enabled ) ) {
+  int event_rblk_enabled   = fd_topo_find_tile_out_link( topo, tile, "event_rblk",   0UL )!=ULONG_MAX;
+  int event_repoch_enabled = fd_topo_find_tile_out_link( topo, tile, "event_repoch", 0UL )!=ULONG_MAX;
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || event_repl_enabled || event_bank_enabled || event_rblk_enabled || event_repoch_enabled ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
     if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
@@ -2890,6 +3115,38 @@ unprivileged_init( fd_topo_t *      topo,
 
     ctx->capture_ctx->runtime_block_capture_link   = event_rblk_out;
     ctx->capture_ctx->capture_runtime_block_events = 1;
+  }
+
+  if( FD_UNLIKELY( event_repoch_enabled ) ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_repoch", 0UL );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+
+    fd_capture_link_buf_t * event_repoch_out = ctx->event_repoch_out;
+    event_repoch_out->base.vt = &fd_capture_link_buf_vt;
+    event_repoch_out->idx     = idx;
+    event_repoch_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    event_repoch_out->chunk0  = fd_dcache_compact_chunk0( event_repoch_out->mem, link->dcache );
+    event_repoch_out->wmark   = fd_dcache_compact_wmark ( event_repoch_out->mem, link->dcache, link->mtu );
+    event_repoch_out->chunk   = event_repoch_out->chunk0;
+    event_repoch_out->mcache  = link->mcache;
+    event_repoch_out->depth   = fd_mcache_depth( link->mcache );
+    event_repoch_out->seq     = 0UL;
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+    FD_TEST( consumer_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    event_repoch_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
+        event_repoch_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( event_repoch_out->fseq );
+        break;
+      }
+    }
+
+    ctx->capture_ctx->runtime_epoch_capture_link   = event_repoch_out;
+    ctx->capture_ctx->capture_runtime_epoch_events = 1;
   }
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );

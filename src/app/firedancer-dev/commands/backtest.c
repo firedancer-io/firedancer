@@ -312,6 +312,12 @@ backtest_topo( config_t * config ) {
       fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_rblk", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
 
+    if( FD_UNLIKELY( config->development.event.report_runtime_epoch ) ) {
+      fd_topob_link( topo, "event_repoch", "event", 16UL, sizeof(fd_capture_runtime_epoch_event_msg_t), 1UL );
+      fd_topob_tile_out( topo, "replay", 0UL, "event_repoch", 0UL );
+      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_repoch", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
     if( FD_UNLIKELY( config->development.event.report_stake_cache_updates ) ) {
       FOR(execrp_tile_cnt) fd_topob_link( topo, "event_stake", "event", 16384UL, sizeof(fd_capture_stake_event_msg_t), 1UL );
       FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_stake", i );

@@ -751,6 +751,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   runtime_stack->stakes.distributed_rewards = distributed_rewards;
   runtime_stack->stakes.total_rewards       = rewards_calc_result->validator_rewards;
   runtime_stack->stakes.total_points.ud     = rewards_calc_result->validator_points;
+  runtime_stack->stakes.validator_rate      = rewards_calc_result->validator_rate;
+  runtime_stack->stakes.foundation_rate     = rewards_calc_result->foundation_rate;
 }
 
 /* Distributes a single partitioned reward to a single stake account */
@@ -948,6 +950,8 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_hash_t const *              parent_blockhash,
                               ulong                          parent_epoch ) {
 
+  long reward_calc_started_ns = fd_log_wallclock();
+
   calculate_rewards_and_distribute_vote_rewards(
       bank,
       accdb,
@@ -982,6 +986,59 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       runtime_stack->stakes.total_rewards,
       runtime_stack->stakes.total_points.ud,
       parent_blockhash );
+
+  /* Stash the rewards-arithmetic + timing for the runtime_epoch event
+     row that will be emitted at slot freeze.  points_total is u128
+     internally but capped to u64 in our schema (truncates if it ever
+     exceeds 2⁶⁴ — mainnet doesn't). */
+  long reward_calc_completed_ns = fd_log_wallclock();
+  fd_stake_rewards_t * stake_rewards     = fd_bank_stake_rewards_modify( bank );
+  ulong                total_stake_rewards = fd_stake_rewards_total_rewards( stake_rewards, bank->stake_rewards_fork_id );
+  fd_capture_link_runtime_epoch_set_rewards(
+      capture_ctx,
+      runtime_stack->stakes.distributed_rewards,           /* vote_rewards_total */
+      total_stake_rewards,                                  /* stake_rewards_total */
+      runtime_stack->stakes.total_rewards,                  /* total_inflation_lamports */
+      (ulong)runtime_stack->stakes.total_points.ud,         /* points_total (truncated u128->u64) */
+      num_partitions,
+      runtime_stack->stakes.validator_rate,
+      runtime_stack->stakes.foundation_rate,
+      reward_calc_started_ns,
+      reward_calc_completed_ns );
+
+  /* Walk PER partitions and stash for runtime_epoch emit.
+     `partition_counts` carries the true count for every partition (up
+     to PARTITION_COUNTS_MAX).  `partitions` is a representative sample:
+     up to ceil(PARTITIONS_MAX / num_partitions) stakes per partition so
+     every partition_idx is represented (mainnet has ~250 partitions ×
+     ~10K stakes each, so this is a sample of pubkeys per partition). */
+  if( FD_UNLIKELY( capture_ctx && capture_ctx->capture_runtime_epoch_events ) ) {
+    uint   counts[ FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX ];
+    fd_capture_runtime_epoch_partition_entry_t entries[ FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX ];
+    ulong  entries_cnt = 0UL;
+    uint   counts_cap  = (uint)FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX;
+    uint   parts_to_walk = num_partitions > counts_cap ? counts_cap : num_partitions;
+    uint   per_part_cap  = parts_to_walk ? (uint)FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX / parts_to_walk : (uint)FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX;
+    if( per_part_cap == 0U ) per_part_cap = 1U;
+    for( uint p=0U; p<parts_to_walk; p++ ) {
+      uint cnt_p    = 0U;
+      uint sampled  = 0U;
+      for( fd_stake_rewards_iter_init( stake_rewards, bank->stake_rewards_fork_id, p );
+           !fd_stake_rewards_iter_done( stake_rewards );
+           fd_stake_rewards_iter_next( stake_rewards, bank->stake_rewards_fork_id ) ) {
+        fd_pubkey_t spk; ulong slam, scr;
+        fd_stake_rewards_iter_ele( stake_rewards, bank->stake_rewards_fork_id, &spk, &slam, &scr );
+        cnt_p++;
+        if( sampled < per_part_cap && entries_cnt < FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX ) {
+          fd_capture_runtime_epoch_partition_entry_t * e = &entries[ entries_cnt++ ];
+          fd_memcpy( e->stake_pubkey, spk.uc, 32UL );
+          sampled++;
+        }
+      }
+      counts[ p ] = cnt_p;
+    }
+    fd_capture_link_runtime_epoch_set_partitions( capture_ctx, counts, parts_to_walk, entries, entries_cnt );
+  }
 }
 
 /*

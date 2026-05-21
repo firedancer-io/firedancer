@@ -1,0 +1,112 @@
+{
+    "name": "runtime_epoch",
+    "id": 10,
+    "description": "Per-epoch-boundary runtime event — one row per (slot, block_id) emitted at the slot freeze of the boundary slot.  Captures the deterministic snapshot of the new epoch (schedule, stake totals, capitalization), the reward arithmetic just performed for the prior epoch (rewards totals, num_partitions, points_total), the PER partition schedule (counts + sampled pubkeys), the mark/unmark deltas during stake-delegation fork merge, and the set of features activated at the boundary.",
+    "fields": {
+        "slot":                              { "type": "UInt64", "description": "Boundary slot (first slot of the new epoch on this fork's lineage)" },
+        "block_id":                          { "type": "Bytes",  "description": "Canonical block_id of the boundary block (32 bytes) — primary key part for disambiguating forks/equivocation" },
+        "parent_slot":                       { "type": "UInt64", "description": "Slot of the parent bank (last slot of prev epoch on this lineage)" },
+        "parent_block_id":                   { "type": "Bytes",  "description": "Parent's block_id (32 bytes)" },
+        "epoch":                             { "type": "UInt32", "description": "The new epoch being entered" },
+        "prev_epoch":                        { "type": "UInt32", "description": "The just-completed epoch" },
+        "last_slot_prev_epoch":              { "type": "UInt64", "description": "slot - 1; last slot of prev_epoch.  (For lineage with skipped boundary slots, this is the lineage-relative parent_slot.)" },
+        "prev_epoch_final_bank_hash":        { "type": "Bytes",  "description": "Bank hash at the last slot of prev_epoch (32 bytes)" },
+        "transition_at_ns":                  { "type": "UInt64", "description": "fd_log_wallclock() at emit (nanoseconds since epoch).  Per-node operational; will differ across clients." },
+        "slots_per_epoch":                   { "type": "UInt64", "description": "Slots per epoch from bank epoch_schedule" },
+        "leader_schedule_slot_offset":       { "type": "UInt64", "description": "Leader schedule slot offset from bank epoch_schedule" },
+        "warmup":                            { "type": "UInt8",  "description": "1 if epoch schedule is in warmup phase, 0 normally" },
+        "first_normal_epoch":                { "type": "UInt64", "description": "First non-warmup epoch" },
+        "first_normal_slot":                 { "type": "UInt64", "description": "Slot at which first_normal_epoch begins" },
+        "total_active_stake":                { "type": "UInt64", "description": "Effective stake at start of new epoch — value the leader schedule was built from" },
+        "total_activating_stake":            { "type": "UInt64", "description": "Stake activating into the new epoch" },
+        "total_deactivating_stake":          { "type": "UInt64", "description": "Stake deactivating out of the prev epoch" },
+        "total_epoch_stake":                 { "type": "UInt64", "description": "Total staked to active vote accounts at the boundary" },
+        "vote_account_count_with_stake":     { "type": "UInt32", "description": "Number of vote accounts with non-zero stake at the boundary" },
+        "stake_account_count":               { "type": "UInt32", "description": "Total stake accounts in the delegation cache" },
+        "inflation_rate_numerator":          { "type": "UInt64", "description": "Effective inflation rate as a rational numerator (avoids float drift)" },
+        "inflation_rate_denominator":        { "type": "UInt64", "description": "Effective inflation rate denominator" },
+        "foundation_rate_numerator":         { "type": "UInt64", "description": "Foundation share of inflation as a rational numerator (zero after foundation_term)" },
+        "foundation_rate_denominator":       { "type": "UInt64", "description": "Foundation share denominator" },
+        "total_inflation_lamports":          { "type": "UInt64", "description": "Total amount being credited for prev_epoch (vote_rewards_total + stake_rewards_total)" },
+        "vote_rewards_total":                { "type": "UInt64", "description": "Sum credited to vote accounts (commission cut of prev epoch rewards)" },
+        "stake_rewards_total":               { "type": "UInt64", "description": "Sum credited to stake accounts during PER" },
+        "num_partitions":                    { "type": "UInt32", "description": "Number of PER partitions for staker payout — strong cross-client determinism canary" },
+        "points_total":                      { "type": "UInt64", "description": "Total 'points' computed across all stake accounts — denominator in PER per-stake split.  Solana's points are u128; we truncate to u64 (mainnet doesn't exceed)." },
+        "capitalization_at_epoch_start":     { "type": "UInt64", "description": "Bank capitalization after prev-epoch's last block, before any inflation credit" },
+        "total_supply_after_inflation":      { "type": "UInt64", "description": "capitalization_at_epoch_start + total_inflation_lamports (sanity check)" },
+        "leader_schedule_hash":              { "type": "Bytes",  "description": "sha256 hash of the serialized leader schedule for epoch (32 bytes) — single mismatch canary for the whole schedule" },
+        "unique_leaders_count":              { "type": "UInt32", "description": "Distinct leaders in the new epoch's schedule" },
+        "features_activated_count":          { "type": "UInt32", "description": "Number of features that flipped active at this boundary" },
+        "features_activated_pubkeys_hash":   { "type": "Bytes",  "description": "sha256 of newly-activated feature pubkeys (32 bytes)" },
+        "prev_epoch_total_vote_credits":     { "type": "UInt64", "description": "Sum of credits_earned across all vote accounts during prev_epoch" },
+        "reward_calc_started_ns":            { "type": "UInt64", "description": "fd_log_wallclock() at start of reward calculation (per-node)" },
+        "reward_calc_completed_ns":          { "type": "UInt64", "description": "fd_log_wallclock() at end of reward calculation (per-node)" },
+        "transition_source": {
+            "type": "LowCardinality(String)",
+            "description": "How this node observed the boundary",
+            "variants": {
+                "live":          { "description": "Live cluster replay" },
+                "snapshot_load": { "description": "Loaded from a snapshot that already crossed this boundary" },
+                "backtest":      { "description": "firedancer-dev backtest replay" }
+            }
+        },
+        "feature_activations": {
+            "type": "Nested",
+            "description": "Features that flipped active at this boundary (one entry per feature)",
+            "fields": {
+                "pubkey":          { "type": "Bytes",  "description": "Feature pubkey (32 bytes)" },
+                "activation_slot": { "type": "UInt64", "description": "Slot at which it became active" }
+            }
+        },
+        "partition_counts": {
+            "type": "Nested",
+            "description": "PER partition sizes.  Array index = partition_idx; value = count of stake accounts in that partition.",
+            "fields": {
+                "count": { "type": "UInt32", "description": "Number of stake accounts in this partition" }
+            }
+        },
+        "partitions": {
+            "type": "Nested",
+            "description": "Representative sample of PER partition contents — one or more stake pubkeys per partition_idx in iteration order, truncated to FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX entries.  partition_counts has the authoritative per-partition counts.",
+            "fields": {
+                "stake_pubkey": { "type": "Bytes", "description": "Stake account pubkey (32 bytes)" }
+            }
+        },
+        "marked_deltas": {
+            "type": "Nested",
+            "description": "fd_stake_delegations_mark_delta invocations during this boundary's processing.  Each entry records the bank slot at which the mark happened plus the stake delegation being temporarily tagged.",
+            "fields": {
+                "slot":         { "type": "UInt64", "description": "Bank slot at which the mark happened" },
+                "stake_pubkey": { "type": "Bytes",  "description": "Stake account pubkey (32 bytes)" },
+                "voter_pubkey": { "type": "Bytes",  "description": "Voter (vote account) the delegation points at (32 bytes)" },
+                "stake":        { "type": "UInt64", "description": "Delegated stake amount (lamports)" }
+            }
+        },
+        "unmarked_deltas": {
+            "type": "Nested",
+            "description": "fd_stake_delegations_unmark_delta invocations during this boundary's processing (paired with marked_deltas).",
+            "fields": {
+                "slot":         { "type": "UInt64", "description": "Bank slot at which the unmark happened" },
+                "stake_pubkey": { "type": "Bytes",  "description": "Stake account pubkey (32 bytes)" },
+                "voter_pubkey": { "type": "Bytes",  "description": "Voter pubkey (32 bytes)" },
+                "stake":        { "type": "UInt64", "description": "Delegated stake amount (lamports)" }
+            }
+        },
+        "epoch_vote_accounts": {
+            "type": "Nested",
+            "description": "Per-vote-account snapshot at the boundary: current-epoch stake/commission plus prev-epoch stake and last-2-epochs credits + last_vote_slot.  Truncated for MVP to top-256 voters by current-epoch stake (covers ~99% of mainnet stake by mass).",
+            "fields": {
+                "vote_account":            { "type": "Bytes",  "description": "Vote account pubkey (32 bytes)" },
+                "node_account":            { "type": "Bytes",  "description": "Validator identity pubkey (32 bytes)" },
+                "commission_bps":          { "type": "UInt16", "description": "Commission in basis points (0..10000) at the boundary — divide by 100 to get percent" },
+                "active_stake":            { "type": "UInt64", "description": "Stake at start of the new epoch (lamports)" },
+                "prev_epoch_stake":        { "type": "UInt64", "description": "Stake at start of the previous epoch" },
+                "prev_epoch_credits":      { "type": "UInt64", "description": "Vote credits earned during the previous epoch" },
+                "prev_prev_epoch_credits": { "type": "UInt64", "description": "Vote credits earned during the epoch two back" },
+                "last_vote_slot":          { "type": "UInt64", "description": "Last slot this vote account voted on at the boundary" },
+                "prev_epoch_commission_bps":      { "type": "UInt16", "description": "Commission in basis points one epoch ago (vote_stakes commission_t_2)" },
+                "prev_prev_epoch_commission_bps": { "type": "UInt16", "description": "Commission in basis points two epochs ago (= parent bank's vote_stakes commission_t_2 = this bank's commission_t_3).  This is the commission `delay_commission_updates` uses for the prev epoch's reward calculation." }
+            }
+        }
+    }
+}

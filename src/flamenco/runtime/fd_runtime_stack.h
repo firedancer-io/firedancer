@@ -112,6 +112,8 @@ struct fd_runtime_stack {
     ulong       total_rewards;
     ulong       distributed_rewards;
     fd_w_u128_t total_points;
+    double      validator_rate;
+    double      foundation_rate;
 
     ulong stake_rewards_cnt;
 

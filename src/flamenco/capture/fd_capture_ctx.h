@@ -379,6 +379,127 @@ struct __attribute__((packed)) fd_capture_runtime_block_event_msg {
 };
 typedef struct fd_capture_runtime_block_event_msg fd_capture_runtime_block_event_msg_t;
 
+/* Per-epoch-boundary runtime event capture.  One frag per (slot,
+   block_id) at the boundary's slot freeze.  Bundles the deterministic
+   snapshot of the new epoch (schedule + stake totals + capitalization),
+   the rewards arithmetic for the prior epoch (totals + points + num
+   partitions), PER partition schedule, mark/unmark stake-delegation
+   delta records, vote-account snapshots, and newly-activated features. */
+
+#define FD_CAPTURE_RUNTIME_EPOCH_FEATURE_ACTIVATIONS_MAX (16UL)
+#define FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX    (128UL)
+#define FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX          (128UL)
+#define FD_CAPTURE_RUNTIME_EPOCH_MARKED_DELTAS_MAX       (128UL)
+#define FD_CAPTURE_RUNTIME_EPOCH_UNMARKED_DELTAS_MAX     (128UL)
+#define FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX       (256UL)
+
+/* transition_source variants — match JSON insertion order. */
+#define FD_CAPTURE_RUNTIME_EPOCH_SOURCE_UNKNOWN       (0U)
+#define FD_CAPTURE_RUNTIME_EPOCH_SOURCE_LIVE          (1U)
+#define FD_CAPTURE_RUNTIME_EPOCH_SOURCE_SNAPSHOT_LOAD (2U)
+#define FD_CAPTURE_RUNTIME_EPOCH_SOURCE_BACKTEST      (3U)
+
+struct __attribute__((packed)) fd_capture_runtime_epoch_feature_activation {
+  uchar pubkey[ 32 ];
+  ulong activation_slot;
+};
+typedef struct fd_capture_runtime_epoch_feature_activation fd_capture_runtime_epoch_feature_activation_t;
+
+struct __attribute__((packed)) fd_capture_runtime_epoch_partition_entry {
+  uchar stake_pubkey[ 32 ];
+};
+typedef struct fd_capture_runtime_epoch_partition_entry fd_capture_runtime_epoch_partition_entry_t;
+
+struct __attribute__((packed)) fd_capture_runtime_epoch_stake_delta {
+  ulong slot;
+  uchar stake_pubkey[ 32 ];
+  uchar voter_pubkey[ 32 ];
+  ulong stake;
+};
+typedef struct fd_capture_runtime_epoch_stake_delta fd_capture_runtime_epoch_stake_delta_t;
+
+struct __attribute__((packed)) fd_capture_runtime_epoch_vote_account {
+  uchar  vote_account[ 32 ];
+  uchar  node_account[ 32 ];
+  ulong  active_stake;
+  ulong  prev_epoch_stake;
+  ulong  prev_epoch_credits;
+  ulong  prev_prev_epoch_credits;
+  ulong  last_vote_slot;
+  ushort commission_bps;                  /* basis points, 0..10000 — divide by 100 for % */
+  ushort prev_epoch_commission_bps;       /* commission_t_2 */
+  ushort prev_prev_epoch_commission_bps;  /* parent's commission_t_2 == this bank's t_3 */
+  uchar  _pad[ 2 ];
+};
+typedef struct fd_capture_runtime_epoch_vote_account fd_capture_runtime_epoch_vote_account_t;
+
+struct __attribute__((packed)) fd_capture_runtime_epoch_event_msg {
+  /* Identity (5× 32 B hashes — placed first for natural alignment) */
+  uchar block_id                       [ 32 ];
+  uchar parent_block_id                [ 32 ];
+  uchar prev_epoch_final_bank_hash     [ 32 ];
+  uchar leader_schedule_hash           [ 32 ];
+  uchar features_activated_pubkeys_hash[ 32 ];
+
+  /* 64-bit fields */
+  ulong slot;
+  ulong parent_slot;
+  ulong last_slot_prev_epoch;
+  long  transition_at_ns;
+  ulong slots_per_epoch;
+  ulong leader_schedule_slot_offset;
+  ulong first_normal_epoch;
+  ulong first_normal_slot;
+  ulong total_active_stake;
+  ulong total_activating_stake;
+  ulong total_deactivating_stake;
+  ulong total_epoch_stake;
+  ulong inflation_rate_numerator;
+  ulong inflation_rate_denominator;
+  ulong foundation_rate_numerator;
+  ulong foundation_rate_denominator;
+  ulong total_inflation_lamports;
+  ulong vote_rewards_total;
+  ulong stake_rewards_total;
+  ulong points_total;
+  ulong capitalization_at_epoch_start;
+  ulong total_supply_after_inflation;
+  ulong prev_epoch_total_vote_credits;
+  long  reward_calc_started_ns;
+  long  reward_calc_completed_ns;
+
+  /* 32-bit fields */
+  uint  epoch;
+  uint  prev_epoch;
+  uint  vote_account_count_with_stake;
+  uint  stake_account_count;
+  uint  num_partitions;
+  uint  unique_leaders_count;
+  uint  features_activated_count;
+  uint  transition_source;        /* FD_CAPTURE_RUNTIME_EPOCH_SOURCE_* */
+
+  /* 8-bit */
+  uchar warmup;
+  uchar _pad[ 7 ];
+
+  /* Diff counts */
+  ulong feature_activations_cnt;
+  ulong partition_counts_cnt;
+  ulong partitions_cnt;
+  ulong marked_deltas_cnt;
+  ulong unmarked_deltas_cnt;
+  ulong epoch_vote_accounts_cnt;
+
+  /* Diff arrays */
+  fd_capture_runtime_epoch_feature_activation_t feature_activations[ FD_CAPTURE_RUNTIME_EPOCH_FEATURE_ACTIVATIONS_MAX ];
+  uint                                          partition_counts   [ FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX    ];
+  fd_capture_runtime_epoch_partition_entry_t    partitions         [ FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX          ];
+  fd_capture_runtime_epoch_stake_delta_t        marked_deltas      [ FD_CAPTURE_RUNTIME_EPOCH_MARKED_DELTAS_MAX       ];
+  fd_capture_runtime_epoch_stake_delta_t        unmarked_deltas    [ FD_CAPTURE_RUNTIME_EPOCH_UNMARKED_DELTAS_MAX     ];
+  fd_capture_runtime_epoch_vote_account_t       epoch_vote_accounts[ FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX       ];
+};
+typedef struct fd_capture_runtime_epoch_event_msg fd_capture_runtime_epoch_event_msg_t;
+
 /* Context needed to do solcap capture during execution of transactions */
 
 struct fd_capture_ctx {
@@ -476,6 +597,38 @@ struct fd_capture_ctx {
   fd_capture_runtime_block_account_diff_t current_block_fee_reward_diffs  [ FD_CAPTURE_RUNTIME_BLOCK_FEE_REWARD_DIFFS_MAX   ];
   fd_capture_runtime_block_account_diff_t current_block_other_diffs       [ FD_CAPTURE_RUNTIME_BLOCK_OTHER_DIFFS_MAX        ];
   uchar                                   current_block_fec_merkle_roots  [ FD_CAPTURE_RUNTIME_BLOCK_FEC_MRS_MAX ][ 32 ];
+
+  /* Event tile per-epoch-boundary capture.  Set when the events tile is
+     configured to receive runtime_epoch events.  Accumulators fill
+     during process_new_epoch (reward calc, partition build, mark/unmark
+     deltas); drained at slot freeze by the replay tile when
+     is_epoch_boundary is set. */
+  int                                            capture_runtime_epoch_events;
+  fd_capture_link_buf_t *                        runtime_epoch_capture_link;
+  /* Reward arithmetic stashes (set by reward calc / PER setup). */
+  int                                            current_epoch_seen;   /* 1 if any of below have been set this slot, 0 otherwise */
+  ulong                                          current_epoch_vote_rewards_total;
+  ulong                                          current_epoch_stake_rewards_total;
+  ulong                                          current_epoch_total_inflation_lamports;
+  ulong                                          current_epoch_points_total;
+  uint                                           current_epoch_num_partitions;
+  long                                           current_epoch_reward_calc_started_ns;
+  long                                           current_epoch_reward_calc_completed_ns;
+  /* Inflation rates as doubles in [0,1]; producer rescales to UInt64
+     numerator over a 1e18 denominator at emit. */
+  double                                         current_epoch_validator_rate;
+  double                                         current_epoch_foundation_rate;
+  /* Streaming-append accumulators */
+  ulong                                          current_epoch_marked_deltas_cnt;
+  ulong                                          current_epoch_unmarked_deltas_cnt;
+  fd_capture_runtime_epoch_stake_delta_t         current_epoch_marked_deltas  [ FD_CAPTURE_RUNTIME_EPOCH_MARKED_DELTAS_MAX   ];
+  fd_capture_runtime_epoch_stake_delta_t         current_epoch_unmarked_deltas[ FD_CAPTURE_RUNTIME_EPOCH_UNMARKED_DELTAS_MAX ];
+  /* PER partition snapshot stashed by fd_rewards.c during boundary
+     reward calc; drained at emit. */
+  ulong                                          current_epoch_partition_counts_cnt;
+  uint                                           current_epoch_partition_counts[ FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX ];
+  ulong                                          current_epoch_partitions_cnt;
+  fd_capture_runtime_epoch_partition_entry_t     current_epoch_partitions      [ FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX       ];
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 
@@ -877,6 +1030,121 @@ typedef struct fd_capture_runtime_block_info fd_capture_runtime_block_info_t;
 void
 fd_capture_link_write_runtime_block( fd_capture_ctx_t *                       ctx,
                                      fd_capture_runtime_block_info_t const *  info );
+
+/* Per-epoch-boundary capture API.
+
+   Streaming-append helpers (called many times during processing) — they
+   silently no-op if reporting is off or the buffer is full. */
+
+void
+fd_capture_link_runtime_epoch_append_mark( fd_capture_ctx_t *  ctx,
+                                           ulong               slot,
+                                           fd_pubkey_t const * stake_pubkey,
+                                           fd_pubkey_t const * voter_pubkey,
+                                           ulong               stake );
+
+void
+fd_capture_link_runtime_epoch_append_unmark( fd_capture_ctx_t *  ctx,
+                                             ulong               slot,
+                                             fd_pubkey_t const * stake_pubkey,
+                                             fd_pubkey_t const * voter_pubkey,
+                                             ulong               stake );
+
+/* Set the reward arithmetic stash after reward calculation finishes. */
+void
+fd_capture_link_runtime_epoch_set_rewards( fd_capture_ctx_t * ctx,
+                                           ulong              vote_rewards_total,
+                                           ulong              stake_rewards_total,
+                                           ulong              total_inflation_lamports,
+                                           ulong              points_total,
+                                           uint               num_partitions,
+                                           double             validator_rate,
+                                           double             foundation_rate,
+                                           long               reward_calc_started_ns,
+                                           long               reward_calc_completed_ns );
+
+/* Stash the PER partition snapshot.  `counts` is a uint array of length
+   `counts_cnt` giving the size of each partition; `parts` is a flat list
+   of (partition_idx, stake_pubkey) entries of length `parts_cnt`.  Both
+   are truncated by the producer to their respective caps. */
+void
+fd_capture_link_runtime_epoch_set_partitions( fd_capture_ctx_t *                                       ctx,
+                                              uint const *                                             counts,
+                                              ulong                                                    counts_cnt,
+                                              fd_capture_runtime_epoch_partition_entry_t const *       parts,
+                                              ulong                                                    parts_cnt );
+
+/* fd_capture_runtime_epoch_info_t — caller-supplied snapshot of the
+   bank-derived and walked-data-structure fields needed at emit time.
+   Replay tile fills this just before calling
+   fd_capture_link_write_runtime_epoch.  Nested-array pointers (with
+   counts) supply data computed by walking vote_map / stake_rewards /
+   fd_features at the boundary. */
+
+struct fd_capture_runtime_epoch_info {
+  /* Identity */
+  ulong          slot;
+  uchar const *  block_id;          /* 32 B; NULL → all-zero */
+  ulong          parent_slot;
+  uchar const *  parent_block_id;
+  uint           epoch;
+  uint           prev_epoch;
+  ulong          last_slot_prev_epoch;
+  uchar const *  prev_epoch_final_bank_hash;
+  long           transition_at_ns;
+  uint           transition_source;   /* FD_CAPTURE_RUNTIME_EPOCH_SOURCE_* */
+
+  /* Epoch schedule */
+  ulong          slots_per_epoch;
+  ulong          leader_schedule_slot_offset;
+  int            warmup;
+  ulong          first_normal_epoch;
+  ulong          first_normal_slot;
+
+  /* Stake snapshot */
+  ulong          total_active_stake;
+  ulong          total_activating_stake;
+  ulong          total_deactivating_stake;
+  ulong          total_epoch_stake;
+  uint           vote_account_count_with_stake;
+  uint           stake_account_count;
+
+  /* Inflation */
+  ulong          inflation_rate_numerator;
+  ulong          inflation_rate_denominator;
+  ulong          foundation_rate_numerator;
+  ulong          foundation_rate_denominator;
+
+  /* Capitalization */
+  ulong          capitalization_at_epoch_start;
+
+  /* Leader schedule */
+  uchar const *  leader_schedule_hash;
+  uint           unique_leaders_count;
+
+  /* Feature activations */
+  uchar const *  features_activated_pubkeys_hash;
+  uint           features_activated_count;
+  fd_capture_runtime_epoch_feature_activation_t const * feature_activations;
+  ulong          feature_activations_cnt;
+
+  /* Vote credits rollover */
+  ulong          prev_epoch_total_vote_credits;
+
+  /* Epoch vote accounts */
+  fd_capture_runtime_epoch_vote_account_t const * epoch_vote_accounts;
+  ulong          epoch_vote_accounts_cnt;
+};
+typedef struct fd_capture_runtime_epoch_info fd_capture_runtime_epoch_info_t;
+
+/* fd_capture_link_write_runtime_epoch publishes one per-epoch-boundary
+   frag.  Combines `info` (caller-supplied scalars + walked arrays) with
+   the capture_ctx stashes (rewards arithmetic, mark/unmark deltas) and
+   drains the stashes (cnt=0, scalars=0) so they don't leak into the
+   next boundary. */
+void
+fd_capture_link_write_runtime_epoch( fd_capture_ctx_t *                       ctx,
+                                     fd_capture_runtime_epoch_info_t const *  info );
 
 /* fd_capture_link_buf_vt is the v-table for buffer mode capture links.
    It routes all write operations to the buffer implementations. */

@@ -301,6 +301,7 @@ struct fd_replay_tile {
   fd_capture_link_buf_t  event_repl_out[1];
   fd_capture_link_buf_t  event_bank_out[1];
   fd_capture_link_buf_t  event_rblk_out[1];
+  fd_capture_link_buf_t  event_repoch_out[1];
 
   /* Protobuf dumping context for debugging runtime execution and
      collecting seed corpora. */

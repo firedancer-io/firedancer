@@ -51,6 +51,7 @@ extern char const firedancer_version_string[];
 #define IN_KIND_CVOTE    (9)
 #define IN_KIND_RTXN     (10)
 #define IN_KIND_RBLK     (11)
+#define IN_KIND_REPOCH   (12)
 
 union fd_event_tile_in {
   struct {
@@ -209,6 +210,7 @@ during_frag( fd_event_tile_t * ctx,
     case IN_KIND_CVOTE:
     case IN_KIND_RTXN:
     case IN_KIND_RBLK:
+    case IN_KIND_REPOCH:
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
         FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
@@ -745,6 +747,155 @@ after_frag( fd_event_tile_t *   ctx,
       fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
       break;
     }
+    case IN_KIND_REPOCH: {
+      FD_TEST( sz==sizeof(fd_capture_runtime_epoch_event_msg_t) );
+      fd_capture_runtime_epoch_event_msg_t const * re = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
+
+      /* Worst case ~60 KiB wire + envelope; 65 KiB circq slot. */
+      uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, 65536UL );
+      FD_TEST( buffer );
+
+      ulong event_id = fd_event_client_id_reserve( ctx->client );
+      long  timestamp_nanos        = fd_log_wallclock();
+      long  timestamp_seconds      = timestamp_nanos / 1000000000L;
+      int   timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
+
+      fd_pb_encoder_t encoder[1];
+      fd_pb_encoder_init( encoder, buffer, 65536UL );
+
+      FD_TEST( ctx->circq->cursor_push_seq );
+      fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
+      fd_pb_push_uint64( encoder, 2U, event_id );
+      fd_pb_submsg_open( encoder, 3U );
+      if( FD_LIKELY( timestamp_seconds      ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
+      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
+      fd_pb_submsg_close( encoder );
+
+      fd_pb_submsg_open( encoder, 4U ); /* Event */
+      fd_pb_submsg_open( encoder, 10U ); /* RuntimeEpoch */
+
+      /* Tags 1..39 — scalars, in JSON insertion order */
+      fd_pb_push_uint64( encoder,  1U, re->slot );
+      fd_pb_push_bytes ( encoder,  2U, re->block_id, 32UL );
+      fd_pb_push_uint64( encoder,  3U, re->parent_slot );
+      fd_pb_push_bytes ( encoder,  4U, re->parent_block_id, 32UL );
+      fd_pb_push_uint32( encoder,  5U, re->epoch );
+      fd_pb_push_uint32( encoder,  6U, re->prev_epoch );
+      fd_pb_push_uint64( encoder,  7U, re->last_slot_prev_epoch );
+      fd_pb_push_bytes ( encoder,  8U, re->prev_epoch_final_bank_hash, 32UL );
+      fd_pb_push_int64 ( encoder,  9U, re->transition_at_ns );
+      fd_pb_push_uint64( encoder, 10U, re->slots_per_epoch );
+      fd_pb_push_uint64( encoder, 11U, re->leader_schedule_slot_offset );
+      fd_pb_push_uint32( encoder, 12U, re->warmup ? 1U : 0U );
+      fd_pb_push_uint64( encoder, 13U, re->first_normal_epoch );
+      fd_pb_push_uint64( encoder, 14U, re->first_normal_slot );
+      fd_pb_push_uint64( encoder, 15U, re->total_active_stake );
+      fd_pb_push_uint64( encoder, 16U, re->total_activating_stake );
+      fd_pb_push_uint64( encoder, 17U, re->total_deactivating_stake );
+      fd_pb_push_uint64( encoder, 18U, re->total_epoch_stake );
+      fd_pb_push_uint32( encoder, 19U, re->vote_account_count_with_stake );
+      fd_pb_push_uint32( encoder, 20U, re->stake_account_count );
+      fd_pb_push_uint64( encoder, 21U, re->inflation_rate_numerator );
+      fd_pb_push_uint64( encoder, 22U, re->inflation_rate_denominator );
+      fd_pb_push_uint64( encoder, 23U, re->foundation_rate_numerator );
+      fd_pb_push_uint64( encoder, 24U, re->foundation_rate_denominator );
+      fd_pb_push_uint64( encoder, 25U, re->total_inflation_lamports );
+      fd_pb_push_uint64( encoder, 26U, re->vote_rewards_total );
+      fd_pb_push_uint64( encoder, 27U, re->stake_rewards_total );
+      fd_pb_push_uint32( encoder, 28U, re->num_partitions );
+      fd_pb_push_uint64( encoder, 29U, re->points_total );
+      fd_pb_push_uint64( encoder, 30U, re->capitalization_at_epoch_start );
+      fd_pb_push_uint64( encoder, 31U, re->total_supply_after_inflation );
+      fd_pb_push_bytes ( encoder, 32U, re->leader_schedule_hash, 32UL );
+      fd_pb_push_uint32( encoder, 33U, re->unique_leaders_count );
+      fd_pb_push_uint32( encoder, 34U, re->features_activated_count );
+      fd_pb_push_bytes ( encoder, 35U, re->features_activated_pubkeys_hash, 32UL );
+      fd_pb_push_uint64( encoder, 36U, re->prev_epoch_total_vote_credits );
+      fd_pb_push_int64 ( encoder, 37U, re->reward_calc_started_ns );
+      fd_pb_push_int64 ( encoder, 38U, re->reward_calc_completed_ns );
+      fd_pb_push_int32 ( encoder, 39U, (int)re->transition_source );
+
+      /* Tag 40: feature_activations (Nested) */
+      ulong fa_cnt = re->feature_activations_cnt;
+      if( fa_cnt > FD_CAPTURE_RUNTIME_EPOCH_FEATURE_ACTIVATIONS_MAX ) fa_cnt = FD_CAPTURE_RUNTIME_EPOCH_FEATURE_ACTIVATIONS_MAX;
+      for( ulong i=0UL; i<fa_cnt; i++ ) {
+        fd_capture_runtime_epoch_feature_activation_t const * f = &re->feature_activations[ i ];
+        fd_pb_submsg_open( encoder, 40U );
+        fd_pb_push_bytes ( encoder, 1U, f->pubkey, 32UL );
+        fd_pb_push_uint64( encoder, 2U, f->activation_slot );
+        fd_pb_submsg_close( encoder );
+      }
+
+      /* Tag 41: partition_counts (Nested with single `count` field) */
+      ulong pc_cnt = re->partition_counts_cnt;
+      if( pc_cnt > FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX ) pc_cnt = FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX;
+      for( ulong i=0UL; i<pc_cnt; i++ ) {
+        fd_pb_submsg_open( encoder, 41U );
+        fd_pb_push_uint32( encoder, 1U, re->partition_counts[ i ] );
+        fd_pb_submsg_close( encoder );
+      }
+
+      /* Tag 42: partitions (Nested with stake_pubkey only) */
+      ulong pp_cnt = re->partitions_cnt;
+      if( pp_cnt > FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX ) pp_cnt = FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX;
+      for( ulong i=0UL; i<pp_cnt; i++ ) {
+        fd_capture_runtime_epoch_partition_entry_t const * p = &re->partitions[ i ];
+        fd_pb_submsg_open( encoder, 42U );
+        fd_pb_push_bytes( encoder, 1U, p->stake_pubkey, 32UL );
+        fd_pb_submsg_close( encoder );
+      }
+
+      /* Tag 43: marked_deltas */
+      ulong md_cnt = re->marked_deltas_cnt;
+      if( md_cnt > FD_CAPTURE_RUNTIME_EPOCH_MARKED_DELTAS_MAX ) md_cnt = FD_CAPTURE_RUNTIME_EPOCH_MARKED_DELTAS_MAX;
+      for( ulong i=0UL; i<md_cnt; i++ ) {
+        fd_capture_runtime_epoch_stake_delta_t const * d = &re->marked_deltas[ i ];
+        fd_pb_submsg_open( encoder, 43U );
+        fd_pb_push_uint64( encoder, 1U, d->slot );
+        fd_pb_push_bytes ( encoder, 2U, d->stake_pubkey, 32UL );
+        fd_pb_push_bytes ( encoder, 3U, d->voter_pubkey, 32UL );
+        fd_pb_push_uint64( encoder, 4U, d->stake );
+        fd_pb_submsg_close( encoder );
+      }
+
+      /* Tag 44: unmarked_deltas */
+      ulong ud_cnt = re->unmarked_deltas_cnt;
+      if( ud_cnt > FD_CAPTURE_RUNTIME_EPOCH_UNMARKED_DELTAS_MAX ) ud_cnt = FD_CAPTURE_RUNTIME_EPOCH_UNMARKED_DELTAS_MAX;
+      for( ulong i=0UL; i<ud_cnt; i++ ) {
+        fd_capture_runtime_epoch_stake_delta_t const * d = &re->unmarked_deltas[ i ];
+        fd_pb_submsg_open( encoder, 44U );
+        fd_pb_push_uint64( encoder, 1U, d->slot );
+        fd_pb_push_bytes ( encoder, 2U, d->stake_pubkey, 32UL );
+        fd_pb_push_bytes ( encoder, 3U, d->voter_pubkey, 32UL );
+        fd_pb_push_uint64( encoder, 4U, d->stake );
+        fd_pb_submsg_close( encoder );
+      }
+
+      /* Tag 45: epoch_vote_accounts (prev_prev_epoch_stake dropped) */
+      ulong va_cnt = re->epoch_vote_accounts_cnt;
+      if( va_cnt > FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX ) va_cnt = FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX;
+      for( ulong i=0UL; i<va_cnt; i++ ) {
+        fd_capture_runtime_epoch_vote_account_t const * v = &re->epoch_vote_accounts[ i ];
+        fd_pb_submsg_open( encoder, 45U );
+        fd_pb_push_bytes ( encoder, 1U, v->vote_account, 32UL );
+        fd_pb_push_bytes ( encoder, 2U, v->node_account, 32UL );
+        fd_pb_push_uint32( encoder, 3U, v->commission_bps );
+        fd_pb_push_uint64( encoder, 4U, v->active_stake );
+        fd_pb_push_uint64( encoder, 5U, v->prev_epoch_stake );
+        fd_pb_push_uint64( encoder, 6U, v->prev_epoch_credits );
+        fd_pb_push_uint64( encoder, 7U, v->prev_prev_epoch_credits );
+        fd_pb_push_uint64( encoder, 8U, v->last_vote_slot );
+        fd_pb_push_uint32( encoder, 9U, v->prev_epoch_commission_bps );
+        fd_pb_push_uint32( encoder, 10U, v->prev_prev_epoch_commission_bps );
+        fd_pb_submsg_close( encoder );
+      }
+
+      fd_pb_submsg_close( encoder );  /* RuntimeEpoch */
+      fd_pb_submsg_close( encoder );  /* Event */
+
+      fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
+      break;
+    }
     case IN_KIND_BANK: {
       FD_TEST( sz==sizeof(fd_capture_bank_event_msg_t) );
       fd_capture_bank_event_msg_t const * bank = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
@@ -974,6 +1125,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "event_cvote"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CVOTE;
     else if( FD_LIKELY( !strcmp( link->name, "event_rtxn"   ) ) ) ctx->in_kind[ i ] = IN_KIND_RTXN;
     else if( FD_LIKELY( !strcmp( link->name, "event_rblk"   ) ) ) ctx->in_kind[ i ] = IN_KIND_RBLK;
+    else if( FD_LIKELY( !strcmp( link->name, "event_repoch" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPOCH;
     else FD_LOG_ERR(( "event tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem = link_wksp->wksp;

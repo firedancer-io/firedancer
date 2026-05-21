@@ -362,6 +362,7 @@ struct fd_config {
       int report_cluster_votes;
       int report_runtime_txn;
       int report_runtime_block;
+      int report_runtime_epoch;
     } event;
 
     struct {

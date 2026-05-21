@@ -557,6 +557,209 @@ fd_capture_link_write_runtime_block( fd_capture_ctx_t *                       ct
   buf->seq++;
 }
 
+static void
+runtime_epoch_append_delta( fd_capture_runtime_epoch_stake_delta_t * arr,
+                            ulong *                                  cnt_p,
+                            ulong                                    cap,
+                            ulong                                    slot,
+                            fd_pubkey_t const *                      stake_pubkey,
+                            fd_pubkey_t const *                      voter_pubkey,
+                            ulong                                    stake ) {
+  if( FD_UNLIKELY( *cnt_p >= cap ) ) return;
+  fd_capture_runtime_epoch_stake_delta_t * d = &arr[ (*cnt_p)++ ];
+  d->slot  = slot;
+  d->stake = stake;
+  if( stake_pubkey ) fd_memcpy( d->stake_pubkey, stake_pubkey, 32UL );
+  if( voter_pubkey ) fd_memcpy( d->voter_pubkey, voter_pubkey, 32UL );
+}
+
+void
+fd_capture_link_runtime_epoch_append_mark( fd_capture_ctx_t *  ctx,
+                                           ulong               slot,
+                                           fd_pubkey_t const * stake_pubkey,
+                                           fd_pubkey_t const * voter_pubkey,
+                                           ulong               stake ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_runtime_epoch_events ) ) return;
+  ctx->current_epoch_seen = 1;
+  runtime_epoch_append_delta( ctx->current_epoch_marked_deltas,
+                              &ctx->current_epoch_marked_deltas_cnt,
+                              FD_CAPTURE_RUNTIME_EPOCH_MARKED_DELTAS_MAX,
+                              slot, stake_pubkey, voter_pubkey, stake );
+}
+
+void
+fd_capture_link_runtime_epoch_append_unmark( fd_capture_ctx_t *  ctx,
+                                             ulong               slot,
+                                             fd_pubkey_t const * stake_pubkey,
+                                             fd_pubkey_t const * voter_pubkey,
+                                             ulong               stake ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_runtime_epoch_events ) ) return;
+  ctx->current_epoch_seen = 1;
+  runtime_epoch_append_delta( ctx->current_epoch_unmarked_deltas,
+                              &ctx->current_epoch_unmarked_deltas_cnt,
+                              FD_CAPTURE_RUNTIME_EPOCH_UNMARKED_DELTAS_MAX,
+                              slot, stake_pubkey, voter_pubkey, stake );
+}
+
+void
+fd_capture_link_runtime_epoch_set_rewards( fd_capture_ctx_t * ctx,
+                                           ulong              vote_rewards_total,
+                                           ulong              stake_rewards_total,
+                                           ulong              total_inflation_lamports,
+                                           ulong              points_total,
+                                           uint               num_partitions,
+                                           double             validator_rate,
+                                           double             foundation_rate,
+                                           long               reward_calc_started_ns,
+                                           long               reward_calc_completed_ns ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_runtime_epoch_events ) ) return;
+  ctx->current_epoch_seen                    = 1;
+  ctx->current_epoch_vote_rewards_total      = vote_rewards_total;
+  ctx->current_epoch_stake_rewards_total     = stake_rewards_total;
+  ctx->current_epoch_total_inflation_lamports= total_inflation_lamports;
+  ctx->current_epoch_points_total            = points_total;
+  ctx->current_epoch_num_partitions   = num_partitions;
+  ctx->current_epoch_validator_rate          = validator_rate;
+  ctx->current_epoch_foundation_rate         = foundation_rate;
+  ctx->current_epoch_reward_calc_started_ns  = reward_calc_started_ns;
+  ctx->current_epoch_reward_calc_completed_ns= reward_calc_completed_ns;
+}
+
+void
+fd_capture_link_runtime_epoch_set_partitions( fd_capture_ctx_t *                                       ctx,
+                                              uint const *                                             counts,
+                                              ulong                                                    counts_cnt,
+                                              fd_capture_runtime_epoch_partition_entry_t const *       parts,
+                                              ulong                                                    parts_cnt ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_runtime_epoch_events ) ) return;
+  ctx->current_epoch_seen = 1;
+  if( counts_cnt > FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX ) counts_cnt = FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX;
+  if( parts_cnt  > FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX       ) parts_cnt  = FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX;
+  ctx->current_epoch_partition_counts_cnt = counts_cnt;
+  ctx->current_epoch_partitions_cnt       = parts_cnt;
+  if( counts_cnt && counts ) fd_memcpy( ctx->current_epoch_partition_counts, counts, counts_cnt * sizeof(uint) );
+  if( parts_cnt  && parts  ) fd_memcpy( ctx->current_epoch_partitions,       parts,  parts_cnt  * sizeof(fd_capture_runtime_epoch_partition_entry_t) );
+}
+
+void
+fd_capture_link_write_runtime_epoch( fd_capture_ctx_t *                       ctx,
+                                     fd_capture_runtime_epoch_info_t const *  info ) {
+  if( FD_LIKELY( !ctx ) ) return;
+
+  /* Drain stashes either way; if reporting is disabled we still reset
+     for the next boundary so nothing leaks. */
+  ulong  marked_cnt    = ctx->current_epoch_marked_deltas_cnt;
+  ulong  unmarked_cnt  = ctx->current_epoch_unmarked_deltas_cnt;
+  ulong  pc_stash_cnt  = ctx->current_epoch_partition_counts_cnt;
+  ulong  pp_stash_cnt  = ctx->current_epoch_partitions_cnt;
+  ulong  vote_rewards  = ctx->current_epoch_vote_rewards_total;
+  ulong  stake_rewards = ctx->current_epoch_stake_rewards_total;
+  ulong  total_infl    = ctx->current_epoch_total_inflation_lamports;
+  ulong  points_total  = ctx->current_epoch_points_total;
+  uint   num_parts     = ctx->current_epoch_num_partitions;
+  double val_rate      = ctx->current_epoch_validator_rate;
+  double fnd_rate      = ctx->current_epoch_foundation_rate;
+  long   calc_start    = ctx->current_epoch_reward_calc_started_ns;
+  long   calc_end      = ctx->current_epoch_reward_calc_completed_ns;
+  ctx->current_epoch_marked_deltas_cnt        = 0UL;
+  ctx->current_epoch_unmarked_deltas_cnt      = 0UL;
+  ctx->current_epoch_partition_counts_cnt     = 0UL;
+  ctx->current_epoch_partitions_cnt           = 0UL;
+  ctx->current_epoch_seen                     = 0;
+  ctx->current_epoch_vote_rewards_total       = 0UL;
+  ctx->current_epoch_stake_rewards_total      = 0UL;
+  ctx->current_epoch_total_inflation_lamports = 0UL;
+  ctx->current_epoch_points_total             = 0UL;
+  ctx->current_epoch_num_partitions    = 0U;
+  ctx->current_epoch_validator_rate           = 0.0;
+  ctx->current_epoch_foundation_rate          = 0.0;
+  ctx->current_epoch_reward_calc_started_ns   = 0L;
+  ctx->current_epoch_reward_calc_completed_ns = 0L;
+
+  if( FD_LIKELY( !ctx->capture_runtime_epoch_events || !ctx->runtime_epoch_capture_link ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->runtime_epoch_capture_link;
+  wait_to_write_event_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  fd_capture_runtime_epoch_event_msg_t msg = {0};
+
+  /* Identity */
+  if( info->block_id                        ) fd_memcpy( msg.block_id,                        info->block_id,                        32UL );
+  if( info->parent_block_id                 ) fd_memcpy( msg.parent_block_id,                 info->parent_block_id,                 32UL );
+  if( info->prev_epoch_final_bank_hash      ) fd_memcpy( msg.prev_epoch_final_bank_hash,      info->prev_epoch_final_bank_hash,      32UL );
+  if( info->leader_schedule_hash            ) fd_memcpy( msg.leader_schedule_hash,            info->leader_schedule_hash,            32UL );
+  if( info->features_activated_pubkeys_hash ) fd_memcpy( msg.features_activated_pubkeys_hash, info->features_activated_pubkeys_hash, 32UL );
+
+  msg.slot                          = info->slot;
+  msg.parent_slot                   = info->parent_slot;
+  msg.last_slot_prev_epoch          = info->last_slot_prev_epoch;
+  msg.transition_at_ns              = info->transition_at_ns;
+  msg.slots_per_epoch               = info->slots_per_epoch;
+  msg.leader_schedule_slot_offset   = info->leader_schedule_slot_offset;
+  msg.first_normal_epoch            = info->first_normal_epoch;
+  msg.first_normal_slot             = info->first_normal_slot;
+  msg.total_active_stake            = info->total_active_stake;
+  msg.total_activating_stake        = info->total_activating_stake;
+  msg.total_deactivating_stake      = info->total_deactivating_stake;
+  msg.total_epoch_stake             = info->total_epoch_stake;
+  /* Rates are stashed as doubles by set_rewards; rescale to a UInt64
+     numerator over a 1e18 denominator (mainnet rates well within range). */
+  ulong const RATE_DENOM = 1000000000000000000UL;
+  msg.inflation_rate_numerator      = (ulong)( val_rate * (double)RATE_DENOM );
+  msg.inflation_rate_denominator    = RATE_DENOM;
+  msg.foundation_rate_numerator     = (ulong)( fnd_rate * (double)RATE_DENOM );
+  msg.foundation_rate_denominator   = RATE_DENOM;
+  msg.total_inflation_lamports      = total_infl;
+  msg.vote_rewards_total            = vote_rewards;
+  msg.stake_rewards_total           = stake_rewards;
+  msg.points_total                  = points_total;
+  msg.capitalization_at_epoch_start = info->capitalization_at_epoch_start;
+  msg.total_supply_after_inflation  = info->capitalization_at_epoch_start + total_infl;
+  msg.prev_epoch_total_vote_credits = info->prev_epoch_total_vote_credits;
+  msg.reward_calc_started_ns        = calc_start;
+  msg.reward_calc_completed_ns      = calc_end;
+
+  msg.epoch                            = info->epoch;
+  msg.prev_epoch                       = info->prev_epoch;
+  msg.vote_account_count_with_stake    = info->vote_account_count_with_stake;
+  msg.stake_account_count              = info->stake_account_count;
+  msg.num_partitions                   = num_parts;
+  msg.unique_leaders_count             = info->unique_leaders_count;
+  msg.features_activated_count         = info->features_activated_count;
+  msg.transition_source                = info->transition_source;
+
+  msg.warmup = (uchar)( info->warmup ? 1U : 0U );
+
+  /* Diff counts.  partition_counts / partitions come from capture_ctx
+     stash (set by fd_rewards.c); the rest come from caller-supplied info. */
+  ulong fa_cnt = info->feature_activations_cnt;  if( fa_cnt > FD_CAPTURE_RUNTIME_EPOCH_FEATURE_ACTIVATIONS_MAX ) fa_cnt = FD_CAPTURE_RUNTIME_EPOCH_FEATURE_ACTIVATIONS_MAX;
+  ulong pc_cnt = pc_stash_cnt;
+  ulong pp_cnt = pp_stash_cnt;
+  ulong va_cnt = info->epoch_vote_accounts_cnt;  if( va_cnt > FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX       ) va_cnt = FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX;
+
+  msg.feature_activations_cnt = fa_cnt;
+  msg.partition_counts_cnt    = pc_cnt;
+  msg.partitions_cnt          = pp_cnt;
+  msg.marked_deltas_cnt       = marked_cnt;
+  msg.unmarked_deltas_cnt     = unmarked_cnt;
+  msg.epoch_vote_accounts_cnt = va_cnt;
+
+  if( fa_cnt && info->feature_activations ) fd_memcpy( msg.feature_activations, info->feature_activations, fa_cnt * sizeof(fd_capture_runtime_epoch_feature_activation_t) );
+  if( pc_cnt ) fd_memcpy( msg.partition_counts, ctx->current_epoch_partition_counts, pc_cnt * sizeof(uint) );
+  if( pp_cnt ) fd_memcpy( msg.partitions,       ctx->current_epoch_partitions,       pp_cnt * sizeof(fd_capture_runtime_epoch_partition_entry_t) );
+  if( marked_cnt   ) fd_memcpy( msg.marked_deltas,   ctx->current_epoch_marked_deltas,   marked_cnt   * sizeof(fd_capture_runtime_epoch_stake_delta_t) );
+  if( unmarked_cnt ) fd_memcpy( msg.unmarked_deltas, ctx->current_epoch_unmarked_deltas, unmarked_cnt * sizeof(fd_capture_runtime_epoch_stake_delta_t) );
+  if( va_cnt && info->epoch_vote_accounts ) fd_memcpy( msg.epoch_vote_accounts, info->epoch_vote_accounts, va_cnt * sizeof(fd_capture_runtime_epoch_vote_account_t) );
+
+  fd_memcpy( dst, &msg, sizeof(msg) );
+
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
 void
 fd_capture_link_write_account_event( fd_capture_ctx_t *               ctx,
                                      uchar const *                    signature,

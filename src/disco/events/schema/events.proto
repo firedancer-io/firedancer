@@ -370,6 +370,128 @@ message RuntimeBlock {
   repeated RuntimeBlockFecMr fec_merkle_roots = 35;
 }
 
+// A single feature-activation entry inside RuntimeEpoch.feature_activations.
+message RuntimeEpochFeatureActivation {
+  bytes  pubkey = 1;           // feature pubkey (32 bytes)
+  uint64 activation_slot = 2;  // slot at which it became active
+}
+
+// A single partition-size entry inside RuntimeEpoch.partition_counts.
+// Index in the Nested array = partition_idx.
+message RuntimeEpochPartitionCount {
+  uint32 count = 1;
+}
+
+// Representative stake pubkey sampled from a PER partition.  Inserted
+// in partition-order (entries from partition 0 first, then partition 1,
+// etc.) up to FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX.  partition_counts
+// carries the authoritative per-partition sizes.
+message RuntimeEpochPartitionEntry {
+  bytes stake_pubkey = 1;
+}
+
+// A single mark/unmark delta entry inside RuntimeEpoch.marked_deltas /
+// .unmarked_deltas.  `slot` records which bank's iteration the delta
+// was applied during.
+message RuntimeEpochStakeDelta {
+  uint64 slot = 1;
+  bytes  stake_pubkey = 2;
+  bytes  voter_pubkey = 3;
+  uint64 stake = 4;
+}
+
+// A single vote-account snapshot inside RuntimeEpoch.epoch_vote_accounts.
+// Carries the current-epoch state plus the last 3 epochs of stake and
+// credits for trailing-window analytics.  Truncated for MVP to top N
+// voters by current-epoch stake.
+message RuntimeEpochVoteAccount {
+  bytes  vote_account = 1;          // 32 B
+  bytes  node_account = 2;          // 32 B — validator identity
+  uint32 commission_bps = 3;        // basis points 0..10000 (UInt16 in JSON)
+  uint64 active_stake = 4;          // stake at start of new epoch
+  uint64 prev_epoch_stake = 5;      // stake at start of prev epoch
+  uint64 prev_epoch_credits = 6;    // credits earned during prev epoch
+  uint64 prev_prev_epoch_credits = 7;
+  uint64 last_vote_slot = 8;
+  uint32 prev_epoch_commission_bps = 9;       // basis points 1 epoch ago
+  uint32 prev_prev_epoch_commission_bps = 10; // basis points 2 epochs ago
+}
+
+// A per-epoch-boundary runtime event — one row per (slot, block_id) at
+// the slot freeze of the boundary slot.  Captures the deterministic
+// snapshot of "what does the new epoch look like" plus the rewards
+// arithmetic just performed for the prior epoch.
+message RuntimeEpoch {
+  // Identity & timing
+  uint64 slot = 1;
+  bytes  block_id = 2;
+  uint64 parent_slot = 3;
+  bytes  parent_block_id = 4;
+  uint32 epoch = 5;
+  uint32 prev_epoch = 6;
+  uint64 last_slot_prev_epoch = 7;
+  bytes  prev_epoch_final_bank_hash = 8;
+  int64  transition_at_ns = 9;          // DateTime64(9) on the ClickHouse side
+
+  // Epoch schedule
+  uint64 slots_per_epoch = 10;
+  uint64 leader_schedule_slot_offset = 11;
+  uint32 warmup = 12;                   // 0/1 (UInt8 in JSON)
+  uint64 first_normal_epoch = 13;
+  uint64 first_normal_slot = 14;
+
+  // Stake snapshot at boundary
+  uint64 total_active_stake = 15;
+  uint64 total_activating_stake = 16;
+  uint64 total_deactivating_stake = 17;
+  uint64 total_epoch_stake = 18;
+  uint32 vote_account_count_with_stake = 19;
+  uint32 stake_account_count = 20;
+
+  // Inflation & rewards
+  uint64 inflation_rate_numerator = 21;
+  uint64 inflation_rate_denominator = 22;
+  uint64 foundation_rate_numerator = 23;
+  uint64 foundation_rate_denominator = 24;
+  uint64 total_inflation_lamports = 25;
+  uint64 vote_rewards_total = 26;
+  uint64 stake_rewards_total = 27;
+  uint32 num_partitions = 28;
+  uint64 points_total = 29;             // u128 truncated to u64 — accept
+
+  // Capitalization
+  uint64 capitalization_at_epoch_start = 30;
+  uint64 total_supply_after_inflation = 31;
+
+  // Leader schedule
+  bytes  leader_schedule_hash = 32;
+  uint32 unique_leaders_count = 33;
+
+  // Feature activations
+  uint32 features_activated_count = 34;
+  bytes  features_activated_pubkeys_hash = 35;
+
+  // Vote credits rollover
+  uint64 prev_epoch_total_vote_credits = 36;
+
+  // Per-node operational (NOT deterministic across nodes)
+  int64  reward_calc_started_ns = 37;
+  int64  reward_calc_completed_ns = 38;
+  // transition_source is LowCardinality(String) with variants; on the
+  // wire it's a prost enumeration (int32).  Sender pushes the variant
+  // index in JSON-declaration order (UNKNOWN=0 implicit, live=1,
+  // snapshot_load=2, backtest=3).
+  uint32 transition_source = 39;
+
+  // Nested columns
+  repeated RuntimeEpochFeatureActivation feature_activations = 40;
+  repeated RuntimeEpochPartitionCount    partition_counts = 41;
+  repeated RuntimeEpochPartitionEntry    partitions = 42;
+  repeated RuntimeEpochStakeDelta        marked_deltas = 43;
+  repeated RuntimeEpochStakeDelta        unmarked_deltas = 44;
+  repeated RuntimeEpochVoteAccount       epoch_vote_accounts = 45;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -382,5 +504,6 @@ message Event {
     VoteTransaction vote_transaction = 7;
     RuntimeTxn runtime_txn = 8;
     RuntimeBlock runtime_block = 9;
+    RuntimeEpoch runtime_epoch = 10;
   }
 }
