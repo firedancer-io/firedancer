@@ -16,6 +16,9 @@ $(call make-proof,proof_authorize,fd_keyguard_proofs.c)
 
 ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_sign_tile,fd_disco)
+$(call make-unit-test,bench_sign_tile,bench_sign_tile,fd_disco fd_tango fd_flamenco fd_tls fd_ballet fd_util)
+$(call make-unit-test,test_sign_tile,test_sign_tile,fd_disco fd_tango fd_flamenco fd_tls fd_ballet fd_util)
+$(call run-unit-test,test_sign_tile)
 endif
 endif
 endif
