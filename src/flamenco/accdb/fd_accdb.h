@@ -7,8 +7,7 @@
 /* The accdb is a fork aware database that can be queried to get the
    current state of any accounts as-of a given fork, and update them. */
 
-#define FD_ACCDB_ALIGN     (128UL)
-#define FD_ACCDB_FOOTPRINT (128UL)
+#define FD_ACCDB_ALIGN (128UL)
 
 /* Well-known file descriptor numbers for the accounts database backing
    file.  Tiles inherit these from the parent process which dups the
