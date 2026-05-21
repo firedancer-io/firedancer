@@ -806,7 +806,7 @@ check_confirmed( ctx_t           * ctx,
                  fd_forest_blk_t * blk,
                  fd_hash_t const * confirmed_bid ) {
 
-  if( FD_LIKELY( !blk->chain_confirmed && blk->complete_idx != UINT_MAX && blk->buffered_idx == blk->complete_idx ) ) {
+  if( FD_LIKELY( !blk->chain_confirmed && blk->complete_idx != UINT_MAX ) ) {
     /* The above conditions say that all the shreds of the block have arrived. */
     fd_forest_blk_t * bad_blk = fd_forest_fec_chain_verify( ctx->forest, blk, confirmed_bid );
     if( FD_LIKELY( !bad_blk ) ) {
@@ -890,10 +890,10 @@ after_fec( ctx_t      * ctx,
                     block_id ));
   }
 
-  /* re-trigger continuation of chained merkle verification if this FEC
-     set enables it  TODO MOVE TO AFTER_SHRED? */
-  if( FD_UNLIKELY( ele->lowest_verified_fec == (shred->fec_set_idx / 32UL) + 1 ) &&
-                   ele->buffered_idx == ele->complete_idx ) {
+  /* re-trigger continuation of chained merkle verification if slot is
+     complete. TODO MOVE TO AFTER_SHRED? */
+  fd_hash_t empty_mr = (fd_hash_t){ .ul = { 0, 0, 0, 0 } };
+  if( FD_UNLIKELY( ele->buffered_idx == ele->complete_idx && !fd_hash_eq( &ele->confirmed_bid, &empty_mr ) ) ) {
     check_confirmed( ctx, ele, &ele->confirmed_bid /* if lowest_verified_fec is not UINT_MAX, confirmed_bid must be populated */ );
   }
 }

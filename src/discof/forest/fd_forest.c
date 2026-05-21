@@ -1390,6 +1390,7 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
   fd_hash_t const * expected_mr = bid;
 
   while( FD_UNLIKELY( !ele->chain_confirmed ) ) {
+    if( FD_UNLIKELY(  fd_hash_eq( &ele->merkle_roots[fec_idx].mr, &empty_mr   ) ) ) return NULL; /* can't verify the chain further */
     if( FD_UNLIKELY( !fd_hash_eq( expected_mr, &ele->merkle_roots[fec_idx].mr ) ) ) return ele;
 
     /* This FEC merkle is correct, and the chained merkle is correct. */
@@ -1406,7 +1407,7 @@ fd_forest_fec_chain_verify( fd_forest_t * forest, fd_forest_blk_t * ele, fd_hash
       if( FD_UNLIKELY( !ele ) ) return NULL; /* can't verify the chain further */
 
       ele->confirmed_bid = *expected_mr; /* CMR of child slot */
-      if( FD_UNLIKELY( ele->complete_idx == UINT_MAX || ele->buffered_idx != ele->complete_idx ) ) return NULL; /* can't verify the chain further */
+      if( FD_UNLIKELY( ele->complete_idx == UINT_MAX ) ) return NULL; /* can't verify the chain further */
 
       fec_idx = ele->complete_idx / 32UL;
       continue;
