@@ -1220,16 +1220,10 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
      occurring.  What if this shred is part of the canonical chain
      though?  When the duplicate confirmation arrives from tower, the
      false complete_idx will be cleared, and shreds higher than the
-     false complete_idx will be accepted.  It is always beneficial for
-     us to take the minimum slot complete index because this triggers
-     the chain verification to start. */
+     false complete_idx will be accepted. */
 
   if( FD_UNLIKELY( shred_idx > ele->complete_idx ) ) {
     FD_LOG_WARNING(( "[%s] slot %lu shred index %u is greater than known complete_idx %u. rejecting shred", __func__, slot, shred_idx, ele->complete_idx ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( slot_complete && ele->complete_idx < shred_idx ) ) {
-    FD_LOG_WARNING(( "[%s] slot %lu slot_complete received, but new complete_idx %u > complete_idx %u. rejecting shred", __func__, slot, ele->complete_idx, shred_idx ));
     return NULL;
   }
 
@@ -1272,7 +1266,14 @@ fd_forest_data_shred_insert( fd_forest_t * forest,
     }
   }
 
-  /* Shred accepted, merkle root verified (as much as possible) */
+  /* Shred accepted, merkle root verified (as much as possible). */
+
+  if( FD_UNLIKELY( slot_complete && ele->complete_idx != UINT_MAX && shred_idx != ele->complete_idx ) ) {
+    /* It is always beneficial for us to take the minimum slot complete
+       index because this enables the chain verification to start
+       earlier. */
+    FD_LOG_WARNING(( "[%s] slot %lu shred_idx %u is slot_complete, but recorded complete_idx is %u. Updating complete_idx to %u", __func__, slot, shred_idx, ele->complete_idx, shred_idx ));
+  }
   ele->complete_idx = fd_uint_if( slot_complete, shred_idx, ele->complete_idx );
 
   if( !fd_forest_blk_idxs_test( ele->idxs, shred_idx ) ) { /* newly seen shred */
