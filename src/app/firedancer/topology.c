@@ -768,29 +768,6 @@ fd_topo_initialize( config_t * config ) {
       fd_topob_tile_in( topo, "event", 0UL, "metric_in", "dedup_resolv", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
 
-    if( FD_UNLIKELY( config->development.event.report_accounts ) ) {
-      /* Reliable: producers wait if the event tile falls behind so
-         account updates are never dropped.  Solcap used depth=32 which
-         caused validator stalls — at metadata-only ~96 B/event a deep
-         ring (65536 entries ≈ 6 MiB per link) gives the event tile
-         plenty of slack before producers ever spin. */
-      fd_topob_link( topo, "event_repl", "event", 65536UL, sizeof(fd_capture_account_event_msg_t), 1UL );
-      fd_topob_tile_out( topo, "replay", 0UL, "event_repl", 0UL );
-      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_execrp", "event", 65536UL, sizeof(fd_capture_account_event_msg_t), 1UL );
-      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_execrp", i );
-      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_execrp", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    }
-
-    if( FD_UNLIKELY( config->development.event.report_bank_hashes ) ) {
-      /* Bank hashes are emitted once per slot (~2.5/s) so a small ring
-         is plenty.  Reliable so we never drop a hash. */
-      fd_topob_link( topo, "event_bank", "event", 1024UL, sizeof(fd_capture_bank_event_msg_t), 1UL );
-      fd_topob_tile_out( topo, "replay", 0UL, "event_bank", 0UL );
-      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_bank", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    }
-
     if( FD_UNLIKELY( config->development.event.report_runtime_block ) ) {
       /* Per-block runtime events.  One row per (slot, block_id) at
          freeze with block metadata + non-txn account diffs (sysvar /

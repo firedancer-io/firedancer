@@ -914,23 +914,13 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
   bank->f.bank_hash = *new_bank_hash;
 
   if( capture_ctx &&
-      ( capture_ctx->capture_solcap || capture_ctx->capture_bank_events ) &&
+      capture_ctx->capture_solcap &&
       bank->f.slot>=capture_ctx->solcap_start_slot ) {
 
     uchar lthash_hash[FD_HASH_FOOTPRINT];
     fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
     if( capture_ctx->capture_solcap ) {
       fd_capture_link_write_bank_preimage(
-        capture_ctx,
-        bank->f.slot,
-        (fd_hash_t *)new_bank_hash->hash,
-        (fd_hash_t *)&bank->f.prev_bank_hash,
-        (fd_hash_t *)lthash_hash,
-        (fd_hash_t *)bank->f.poh.hash,
-        bank->f.signature_count );
-    }
-    if( capture_ctx->capture_bank_events ) {
-      fd_capture_link_write_bank_event(
         capture_ctx,
         bank->f.slot,
         (fd_hash_t *)new_bank_hash->hash,

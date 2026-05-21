@@ -110,40 +110,6 @@ struct fd_capture_link_vt {
 };
 
 
-/* fd_capture_account_event_msg_t is the on-wire frag format used by the
-   event capture link.  Producers (replay/execrp tiles) publish one
-   instance per account update to the event tile, which decodes and
-   forwards it as a gRPC Account event.  Metadata only — account data
-   bytes are not included. */
-
-struct __attribute__((packed)) fd_capture_account_event_msg {
-  uchar pubkey[ 32 ];
-  uchar owner [ 32 ];
-  ulong lamports;
-  ulong slot;
-  uchar signature[ 64 ];   /* signature of the txn that caused the update;
-                              all-zero if not associated with a txn (e.g.
-                              bank-hash-time updates). */
-  ulong data_sz;
-  uchar executable;
-  uchar padding[ 7 ];
-};
-typedef struct fd_capture_account_event_msg fd_capture_account_event_msg_t;
-
-/* fd_capture_bank_event_msg_t is the on-wire frag format used by the
-   bank-hash event capture link.  One per slot, emitted at the end of
-   bank hashing. */
-
-struct __attribute__((packed)) fd_capture_bank_event_msg {
-  uchar bank_hash                [ 32 ];
-  uchar prev_bank_hash           [ 32 ];
-  uchar accounts_lt_hash_checksum[ 32 ];
-  uchar poh_hash                 [ 32 ];
-  ulong slot;
-  ulong signature_cnt;
-};
-typedef struct fd_capture_bank_event_msg fd_capture_bank_event_msg_t;
-
 /* fd_capture_stake_event_msg_t — emitted whenever the runtime updates
    the stake delegations cache during transaction commit. */
 
@@ -548,18 +514,6 @@ struct fd_capture_ctx {
                                                                  to runtime_block's
                                                                  fec_merkle_roots */
 
-  /* Event tile account capture (independent of solcap).  When
-     capture_account_events is set, producers also publish a metadata-
-     only frag to event_capture_link per account update. */
-  int                     capture_account_events;
-  fd_capture_link_buf_t * event_capture_link;
-
-  /* Event tile bank-hash capture (independent of solcap).  When
-     capture_bank_events is set, the runtime publishes one frag per
-     completed slot to bank_capture_link. */
-  int                     capture_bank_events;
-  fd_capture_link_buf_t * bank_capture_link;
-
   /* Event tile stake-cache and top-votes-cache update capture
      (independent of solcap).  When set, the runtime publishes one
      frag per cache update during transaction commit. */
@@ -869,31 +823,6 @@ fd_capture_link_write_stake_account_payout( fd_capture_ctx_t * ctx,
   FD_TEST( ctx && ctx->capture_link );
   ctx->capture_link->vt->write_stake_account_payout( ctx, slot, stake_acc_addr, update_slot, lamports, lamports_delta, credits_observed, credits_observed_delta, delegation_stake, delegation_stake_delta );
 }
-
-/* fd_capture_link_write_account_event publishes a metadata-only
-   account update frag to the event capture link (consumed by the event
-   tile).  No-op if event_capture_link is not configured. */
-
-void
-fd_capture_link_write_account_event( fd_capture_ctx_t *               ctx,
-                                     uchar const *                    signature,
-                                     fd_pubkey_t const *              key,
-                                     fd_solana_account_meta_t const * info,
-                                     ulong                            slot,
-                                     ulong                            data_sz );
-
-/* fd_capture_link_write_bank_event publishes one bank-hash frag to the
-   bank event capture link.  No-op if bank_capture_link is not
-   configured. */
-
-void
-fd_capture_link_write_bank_event( fd_capture_ctx_t * ctx,
-                                  ulong              slot,
-                                  fd_hash_t const *  bank_hash,
-                                  fd_hash_t const *  prev_bank_hash,
-                                  fd_hash_t const *  accounts_lt_hash_checksum,
-                                  fd_hash_t const *  poh_hash,
-                                  ulong              signature_cnt );
 
 /* fd_capture_link_write_stake_event publishes one stake-cache update
    frag.  Pass removed=1 if the delegation was removed (then the other

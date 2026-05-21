@@ -12,10 +12,9 @@ log_account_change( fd_capture_ctx_t * capture_ctx,
   if( !capture_ctx ) return;
 
   int want_solcap         = capture_ctx->capture_solcap         && bank->f.slot>=capture_ctx->solcap_start_slot;
-  int want_account_event  = capture_ctx->capture_account_events && bank->f.slot>=capture_ctx->solcap_start_slot;
   int want_runtime_block  = capture_ctx->capture_runtime_block_events;
 
-  if( !want_solcap && !want_account_event && !want_runtime_block ) return;
+  if( !want_solcap && !want_runtime_block ) return;
 
   fd_solana_account_meta_t solana_meta[1];
   fd_solana_account_meta_init(
@@ -33,16 +32,6 @@ log_account_change( fd_capture_ctx_t * capture_ctx,
         bank->f.slot,
         fd_accdb_ref_data_const( ro ),
         fd_accdb_ref_data_sz   ( ro )
-    );
-  }
-  if( want_account_event ) {
-    fd_capture_link_write_account_event(
-        capture_ctx,
-        capture_ctx->current_txn_signature,
-        fd_accdb_ref_address( ro ),
-        solana_meta,
-        bank->f.slot,
-        fd_accdb_ref_data_sz( ro )
     );
   }
   if( want_runtime_block ) {

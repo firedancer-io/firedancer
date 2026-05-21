@@ -1,6 +1,6 @@
 {
     "name": "runtime_epoch",
-    "id": 10,
+    "id": 8,
     "description": "Per-epoch-boundary runtime event — one row per (slot, block_id) emitted at the slot freeze of the boundary slot.  Captures the deterministic snapshot of the new epoch (schedule, stake totals, capitalization), the reward arithmetic just performed for the prior epoch (rewards totals, num_partitions, points_total), the PER partition schedule (counts + sampled pubkeys), the mark/unmark deltas during stake-delegation fork merge, and the set of features activated at the boundary.",
     "fields": {
         "slot":                              { "type": "UInt64", "description": "Boundary slot (first slot of the new epoch on this fork's lineage)" },

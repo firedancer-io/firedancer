@@ -1,6 +1,6 @@
 {
     "name": "runtime_txn",
-    "id": 8,
+    "id": 6,
     "description": "Per-transaction runtime event — execution result, compute usage, fees, cost-tracker data, per-node timing, and the list of accounts that were actually modified by the transaction.",
     "fields": {
         "signature":                         { "type": "Bytes",  "description": "First signature of the transaction (64 bytes)" },

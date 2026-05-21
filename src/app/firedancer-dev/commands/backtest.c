@@ -290,22 +290,6 @@ backtest_topo( config_t * config ) {
     /* event tile's sign_event input is added LAST below so it doesn't
        offset the polled-input indexing (sign_event is UNPOLLED). */
 
-    if( FD_UNLIKELY( config->development.event.report_accounts ) ) {
-      fd_topob_link( topo, "event_repl", "event", 65536UL, sizeof(fd_capture_account_event_msg_t), 1UL );
-      fd_topob_tile_out( topo, "replay", 0UL, "event_repl", 0UL );
-      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_execrp", "event", 65536UL, sizeof(fd_capture_account_event_msg_t), 1UL );
-      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_execrp", i );
-      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_execrp", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    }
-
-    if( FD_UNLIKELY( config->development.event.report_bank_hashes ) ) {
-      fd_topob_link( topo, "event_bank", "event", 1024UL, sizeof(fd_capture_bank_event_msg_t), 1UL );
-      fd_topob_tile_out( topo, "replay", 0UL, "event_bank", 0UL );
-      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_bank", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    }
-
     if( FD_UNLIKELY( config->development.event.report_runtime_block ) ) {
       fd_topob_link( topo, "event_rblk", "event", 1024UL, sizeof(fd_capture_runtime_block_event_msg_t), 1UL );
       fd_topob_tile_out( topo, "replay", 0UL, "event_rblk", 0UL );

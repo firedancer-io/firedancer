@@ -1802,19 +1802,6 @@ telemetry = true
         # development purposes.
         report_transactions = false
 
-        # Whether to report account updates produced during transaction
-        # execution and bank hashing to the remote server.  Metadata
-        # only (pubkey/lamports/owner/executable/slot/txn_idx/data_sz);
-        # account data bytes are not sent.  Generates a very high
-        # volume of events; debug/development only.
-        report_accounts = false
-
-        # Whether to report bank-hash events (one per completed slot)
-        # to the remote server.  Includes bank hash, parent hash,
-        # accounts lt-hash checksum, poh hash, slot, and signature
-        # count.  Low volume (~2.5/s).
-        report_bank_hashes = false
-
         # Whether to report stake-delegation cache update events.
         # Emitted whenever a stake account update changes the cached
         # delegation set during transaction commit.

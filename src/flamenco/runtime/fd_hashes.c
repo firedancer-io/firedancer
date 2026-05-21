@@ -94,7 +94,7 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
   fd_bank_lthash_end_locking_modify( bank );
 
   if( capture_ctx &&
-      ( capture_ctx->capture_solcap || capture_ctx->capture_account_events ) &&
+      capture_ctx->capture_solcap &&
       bank->f.slot>=capture_ctx->solcap_start_slot ) {
     fd_solana_account_meta_t solana_meta[1];
     fd_solana_account_meta_init(
@@ -103,8 +103,7 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
         meta->owner,
         meta->executable
     );
-    if( capture_ctx->capture_solcap ) {
-      fd_capture_link_write_account_update(
+    fd_capture_link_write_account_update(
         capture_ctx,
         capture_ctx->current_txn_idx,
         pubkey,
@@ -112,16 +111,6 @@ fd_hashes_update_lthash1( fd_lthash_value_t *       lthash_post, /* out */
         bank->f.slot,
         fd_account_data( meta ),
         meta->dlen );
-    }
-    if( capture_ctx->capture_account_events ) {
-      fd_capture_link_write_account_event(
-        capture_ctx,
-        capture_ctx->current_txn_signature,
-        pubkey,
-        solana_meta,
-        bank->f.slot,
-        meta->dlen );
-    }
   }
 }
 

@@ -139,35 +139,6 @@ wait_to_write_event_msg( fd_capture_link_buf_t * buf ) {
 }
 
 void
-fd_capture_link_write_bank_event( fd_capture_ctx_t * ctx,
-                                  ulong              slot,
-                                  fd_hash_t const *  bank_hash,
-                                  fd_hash_t const *  prev_bank_hash,
-                                  fd_hash_t const *  accounts_lt_hash_checksum,
-                                  fd_hash_t const *  poh_hash,
-                                  ulong              signature_cnt ) {
-  if( FD_LIKELY( !ctx || !ctx->capture_bank_events || !ctx->bank_capture_link ) ) return;
-
-  fd_capture_link_buf_t * buf = ctx->bank_capture_link;
-  wait_to_write_event_msg( buf );
-
-  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
-  fd_capture_bank_event_msg_t msg = {0};
-  fd_memcpy( msg.bank_hash,                 bank_hash,                 32UL );
-  fd_memcpy( msg.prev_bank_hash,            prev_bank_hash,            32UL );
-  fd_memcpy( msg.accounts_lt_hash_checksum, accounts_lt_hash_checksum, 32UL );
-  fd_memcpy( msg.poh_hash,                  poh_hash,                  32UL );
-  msg.slot          = slot;
-  msg.signature_cnt = signature_cnt;
-  fd_memcpy( dst, &msg, sizeof(msg) );
-
-  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
-  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
-  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
-  buf->seq++;
-}
-
-void
 fd_capture_link_write_stake_event( fd_capture_ctx_t *  ctx,
                                    fd_pubkey_t const * pubkey,
                                    fd_pubkey_t const * voter_pubkey,
@@ -795,35 +766,6 @@ fd_capture_link_write_runtime_epoch( fd_capture_ctx_t *                       ct
   if( unmarked_cnt ) fd_memcpy( msg.unmarked_deltas, ctx->current_epoch_unmarked_deltas, unmarked_cnt * sizeof(fd_capture_runtime_epoch_stake_delta_t) );
   if( va_cnt && info->epoch_vote_accounts ) fd_memcpy( msg.epoch_vote_accounts, info->epoch_vote_accounts, va_cnt * sizeof(fd_capture_runtime_epoch_vote_account_t) );
 
-  fd_memcpy( dst, &msg, sizeof(msg) );
-
-  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
-  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
-  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
-  buf->seq++;
-}
-
-void
-fd_capture_link_write_account_event( fd_capture_ctx_t *               ctx,
-                                     uchar const *                    signature,
-                                     fd_pubkey_t const *              key,
-                                     fd_solana_account_meta_t const * info,
-                                     ulong                            slot,
-                                     ulong                            data_sz ) {
-  if( FD_LIKELY( !ctx || !ctx->capture_account_events || !ctx->event_capture_link ) ) return;
-
-  fd_capture_link_buf_t * buf = ctx->event_capture_link;
-  wait_to_write_event_msg( buf );
-
-  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
-  fd_capture_account_event_msg_t msg = {0};
-  fd_memcpy( msg.pubkey,    key,         32UL );
-  fd_memcpy( msg.owner,     info->owner, 32UL );
-  if( signature ) fd_memcpy( msg.signature, signature, 64UL );
-  msg.lamports   = info->lamports;
-  msg.slot       = slot;
-  msg.data_sz    = data_sz;
-  msg.executable = info->executable;
   fd_memcpy( dst, &msg, sizeof(msg) );
 
   ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );

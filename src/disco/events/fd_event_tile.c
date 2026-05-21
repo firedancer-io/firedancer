@@ -44,8 +44,6 @@ extern char const firedancer_version_string[];
 #define IN_KIND_SIGN     (2)
 #define IN_KIND_GENESI   (3)
 #define IN_KIND_IPECHO   (4)
-#define IN_KIND_ACCOUNT  (5)
-#define IN_KIND_BANK     (6)
 #define IN_KIND_STAKE    (7)
 #define IN_KIND_VOTE     (8)
 #define IN_KIND_CVOTE    (9)
@@ -203,8 +201,6 @@ during_frag( fd_event_tile_t * ctx,
     case IN_KIND_DEDUP:
     case IN_KIND_GENESI:
     case IN_KIND_IPECHO:
-    case IN_KIND_ACCOUNT:
-    case IN_KIND_BANK:
     case IN_KIND_STAKE:
     case IN_KIND_VOTE:
     case IN_KIND_CVOTE:
@@ -342,45 +338,6 @@ after_frag( fd_event_tile_t *   ctx,
       FD_TEST( sig && sig<=USHORT_MAX );
       fd_event_client_init_shred_version( ctx->client, (ushort)sig );
       break;
-    case IN_KIND_ACCOUNT: {
-      FD_TEST( sz==sizeof(fd_capture_account_event_msg_t) );
-      fd_capture_account_event_msg_t const * acct = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
-
-      /* Account events are small (~256 B encoded); 512 is plenty. */
-      uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, 512UL );
-      FD_TEST( buffer );
-
-      ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = fd_log_wallclock();
-      long timestamp_seconds = timestamp_nanos / 1000000000L;
-      int  timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
-
-      fd_pb_encoder_t encoder[1];
-      fd_pb_encoder_init( encoder, buffer, 512UL );
-
-      FD_TEST( ctx->circq->cursor_push_seq );
-      fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
-      fd_pb_push_uint64( encoder, 2U, event_id );
-      fd_pb_submsg_open( encoder, 3U );
-      if( FD_LIKELY( timestamp_seconds ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
-      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
-      fd_pb_submsg_close( encoder );
-
-      fd_pb_submsg_open( encoder, 4U ); /* Event */
-      fd_pb_submsg_open( encoder, 3U ); /* Account */
-      fd_pb_push_bytes ( encoder, 1U, acct->pubkey, 32UL );
-      fd_pb_push_uint64( encoder, 2U, acct->lamports );
-      fd_pb_push_bytes ( encoder, 3U, acct->owner, 32UL );
-      fd_pb_push_uint32( encoder, 4U, acct->executable ? 1U : 0U );
-      fd_pb_push_uint64( encoder, 5U, acct->slot );
-      fd_pb_push_bytes ( encoder, 6U, acct->signature, 64UL );
-      fd_pb_push_uint64( encoder, 7U, acct->data_sz );
-      fd_pb_submsg_close( encoder );
-      fd_pb_submsg_close( encoder );
-
-      fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
-      break;
-    }
     case IN_KIND_STAKE: {
       FD_TEST( sz==sizeof(fd_capture_stake_event_msg_t) );
       fd_capture_stake_event_msg_t const * st = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
@@ -405,7 +362,7 @@ after_frag( fd_event_tile_t *   ctx,
       fd_pb_submsg_close( encoder );
 
       fd_pb_submsg_open( encoder, 4U ); /* Event */
-      fd_pb_submsg_open( encoder, 5U ); /* StakeDelegation */
+      fd_pb_submsg_open( encoder, 3U ); /* StakeDelegation */
       fd_pb_push_bytes ( encoder, 1U, st->pubkey,       32UL );
       fd_pb_push_bytes ( encoder, 2U, st->voter_pubkey, 32UL );
       fd_pb_push_uint64( encoder, 3U, st->stake );
@@ -444,7 +401,7 @@ after_frag( fd_event_tile_t *   ctx,
       fd_pb_submsg_close( encoder );
 
       fd_pb_submsg_open( encoder, 4U ); /* Event */
-      fd_pb_submsg_open( encoder, 6U ); /* VoteUpdate */
+      fd_pb_submsg_open( encoder, 4U ); /* VoteUpdate */
       fd_pb_push_bytes ( encoder, 1U, v->pubkey, 32UL );
       fd_pb_push_uint64( encoder, 2U, v->last_vote_slot );
       fd_pb_push_int64 ( encoder, 3U, v->last_vote_timestamp );
@@ -482,7 +439,7 @@ after_frag( fd_event_tile_t *   ctx,
       fd_pb_submsg_close( encoder );
 
       fd_pb_submsg_open( encoder, 4U ); /* Event */
-      fd_pb_submsg_open( encoder, 7U ); /* VoteTransaction */
+      fd_pb_submsg_open( encoder, 5U ); /* VoteTransaction */
       fd_pb_push_bytes ( encoder, 1U, cv->vote_account, 32UL );
       fd_pb_push_bytes ( encoder, 2U, cv->voter,        32UL );
       fd_pb_push_bytes ( encoder, 3U, cv->bank_hash,    32UL );
@@ -533,7 +490,7 @@ after_frag( fd_event_tile_t *   ctx,
       fd_pb_submsg_close( encoder );
 
       fd_pb_submsg_open( encoder, 4U ); /* Event */
-      fd_pb_submsg_open( encoder, 8U ); /* RuntimeTxn */
+      fd_pb_submsg_open( encoder, 6U ); /* RuntimeTxn */
 
       fd_pb_push_bytes ( encoder, 1U,  rt->signature, 64UL );
       fd_pb_push_uint64( encoder, 2U,  rt->slot );
@@ -640,7 +597,7 @@ after_frag( fd_event_tile_t *   ctx,
       fd_pb_submsg_close( encoder );
 
       fd_pb_submsg_open( encoder, 4U ); /* Event */
-      fd_pb_submsg_open( encoder, 9U ); /* RuntimeBlock */
+      fd_pb_submsg_open( encoder, 7U ); /* RuntimeBlock */
 
       fd_pb_push_uint64( encoder, 1U,  rb->slot );
       fd_pb_push_bytes ( encoder, 2U,  rb->block_id, 32UL );
@@ -772,7 +729,7 @@ after_frag( fd_event_tile_t *   ctx,
       fd_pb_submsg_close( encoder );
 
       fd_pb_submsg_open( encoder, 4U ); /* Event */
-      fd_pb_submsg_open( encoder, 10U ); /* RuntimeEpoch */
+      fd_pb_submsg_open( encoder, 8U ); /* RuntimeEpoch */
 
       /* Tags 1..39 — scalars, in JSON insertion order */
       fd_pb_push_uint64( encoder,  1U, re->slot );
@@ -892,44 +849,6 @@ after_frag( fd_event_tile_t *   ctx,
 
       fd_pb_submsg_close( encoder );  /* RuntimeEpoch */
       fd_pb_submsg_close( encoder );  /* Event */
-
-      fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
-      break;
-    }
-    case IN_KIND_BANK: {
-      FD_TEST( sz==sizeof(fd_capture_bank_event_msg_t) );
-      fd_capture_bank_event_msg_t const * bank = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, ctx->chunk );
-
-      /* Bank-hash events encode to ~200 B; 512 is plenty. */
-      uchar * buffer = fd_circq_push_back( ctx->circq, 1UL, 512UL );
-      FD_TEST( buffer );
-
-      ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = fd_log_wallclock();
-      long timestamp_seconds = timestamp_nanos / 1000000000L;
-      int  timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
-
-      fd_pb_encoder_t encoder[1];
-      fd_pb_encoder_init( encoder, buffer, 512UL );
-
-      FD_TEST( ctx->circq->cursor_push_seq );
-      fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
-      fd_pb_push_uint64( encoder, 2U, event_id );
-      fd_pb_submsg_open( encoder, 3U );
-      if( FD_LIKELY( timestamp_seconds ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
-      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
-      fd_pb_submsg_close( encoder );
-
-      fd_pb_submsg_open( encoder, 4U ); /* Event */
-      fd_pb_submsg_open( encoder, 4U ); /* BankHash */
-      fd_pb_push_bytes ( encoder, 1U, bank->bank_hash,                 32UL );
-      fd_pb_push_bytes ( encoder, 2U, bank->prev_bank_hash,            32UL );
-      fd_pb_push_bytes ( encoder, 3U, bank->accounts_lt_hash_checksum, 32UL );
-      fd_pb_push_bytes ( encoder, 4U, bank->poh_hash,                  32UL );
-      fd_pb_push_uint64( encoder, 5U, bank->slot );
-      fd_pb_push_uint64( encoder, 6U, bank->signature_cnt );
-      fd_pb_submsg_close( encoder );
-      fd_pb_submsg_close( encoder );
 
       fd_circq_resize_back( ctx->circq, fd_pb_encoder_out_sz( encoder ) );
       break;
@@ -1117,9 +1036,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "sign_event"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_GENESI; has_genesi_in = 1; }
     else if( FD_LIKELY( !strcmp( link->name, "ipecho_out"   ) ) ) { ctx->in_kind[ i ] = IN_KIND_IPECHO; has_ipecho_in = 1; }
-    else if( FD_LIKELY( !strcmp( link->name, "event_repl"   ) ) ) ctx->in_kind[ i ] = IN_KIND_ACCOUNT;
-    else if( FD_LIKELY( !strcmp( link->name, "event_execrp" ) ) ) ctx->in_kind[ i ] = IN_KIND_ACCOUNT;
-    else if( FD_LIKELY( !strcmp( link->name, "event_bank"   ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
     else if( FD_LIKELY( !strcmp( link->name, "event_stake"  ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     else if( FD_LIKELY( !strcmp( link->name, "event_vote"   ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTE;
     else if( FD_LIKELY( !strcmp( link->name, "event_cvote"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CVOTE;

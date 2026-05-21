@@ -2874,11 +2874,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->txncache );
 
   ctx->capture_ctx = NULL;
-  int event_repl_enabled = fd_topo_find_tile_out_link( topo, tile, "event_repl", 0UL )!=ULONG_MAX;
-  int event_bank_enabled = fd_topo_find_tile_out_link( topo, tile, "event_bank", 0UL )!=ULONG_MAX;
   int event_rblk_enabled   = fd_topo_find_tile_out_link( topo, tile, "event_rblk",   0UL )!=ULONG_MAX;
   int event_repoch_enabled = fd_topo_find_tile_out_link( topo, tile, "event_repoch", 0UL )!=ULONG_MAX;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || event_repl_enabled || event_bank_enabled || event_rblk_enabled || event_repoch_enabled ) ) {
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || event_rblk_enabled || event_repoch_enabled ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
     if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
@@ -3020,71 +3018,6 @@ unprivileged_init( fd_topo_t *      topo,
         break;
       }
     }
-  }
-
-  if( FD_UNLIKELY( event_repl_enabled ) ) {
-    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_repl", 0UL );
-    FD_TEST( idx!=ULONG_MAX );
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
-
-    fd_capture_link_buf_t * event_repl_out = ctx->event_repl_out;
-    event_repl_out->base.vt = &fd_capture_link_buf_vt;
-    event_repl_out->idx     = idx;
-    event_repl_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    event_repl_out->chunk0  = fd_dcache_compact_chunk0( event_repl_out->mem, link->dcache );
-    event_repl_out->wmark   = fd_dcache_compact_wmark ( event_repl_out->mem, link->dcache, link->mtu );
-    event_repl_out->chunk   = event_repl_out->chunk0;
-    event_repl_out->mcache  = link->mcache;
-    event_repl_out->depth   = fd_mcache_depth( link->mcache );
-    event_repl_out->seq     = 0UL;
-
-    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
-    FD_TEST( consumer_tile_idx!=ULONG_MAX );
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
-    event_repl_out->fseq = NULL;
-    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
-        event_repl_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
-        FD_TEST( event_repl_out->fseq );
-        break;
-      }
-    }
-
-    ctx->capture_ctx->event_capture_link     = event_repl_out;
-    ctx->capture_ctx->capture_account_events = 1;
-    ctx->capture_ctx->current_txn_idx        = 0UL;
-  }
-
-  if( FD_UNLIKELY( event_bank_enabled ) ) {
-    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_bank", 0UL );
-    FD_TEST( idx!=ULONG_MAX );
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
-
-    fd_capture_link_buf_t * event_bank_out = ctx->event_bank_out;
-    event_bank_out->base.vt = &fd_capture_link_buf_vt;
-    event_bank_out->idx     = idx;
-    event_bank_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    event_bank_out->chunk0  = fd_dcache_compact_chunk0( event_bank_out->mem, link->dcache );
-    event_bank_out->wmark   = fd_dcache_compact_wmark ( event_bank_out->mem, link->dcache, link->mtu );
-    event_bank_out->chunk   = event_bank_out->chunk0;
-    event_bank_out->mcache  = link->mcache;
-    event_bank_out->depth   = fd_mcache_depth( link->mcache );
-    event_bank_out->seq     = 0UL;
-
-    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
-    FD_TEST( consumer_tile_idx!=ULONG_MAX );
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
-    event_bank_out->fseq = NULL;
-    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
-        event_bank_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
-        FD_TEST( event_bank_out->fseq );
-        break;
-      }
-    }
-
-    ctx->capture_ctx->bank_capture_link  = event_bank_out;
-    ctx->capture_ctx->capture_bank_events = 1;
   }
 
   if( FD_UNLIKELY( event_rblk_enabled ) ) {

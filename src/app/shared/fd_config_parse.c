@@ -310,8 +310,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( bool,   development.event.report_shreds                  );
   CFG_POP      ( bool,   development.event.report_transactions            );
-  CFG_POP      ( bool,   development.event.report_accounts                );
-  CFG_POP      ( bool,   development.event.report_bank_hashes             );
   CFG_POP      ( bool,   development.event.report_stake_cache_updates     );
   CFG_POP      ( bool,   development.event.report_vote_cache_updates      );
   CFG_POP      ( bool,   development.event.report_cluster_votes           );

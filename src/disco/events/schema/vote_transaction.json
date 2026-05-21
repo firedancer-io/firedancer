@@ -1,6 +1,6 @@
 {
     "name": "vote_transaction",
-    "id": 7,
+    "id": 5,
     "description": "A vote-program instruction observed during transaction execution.  Captures the on-the-wire vote contents (tower, bank hash being voted for, voter) at processing time, regardless of whether the transaction ultimately succeeds.",
     "fields": {
         "vote_account":  { "type": "Bytes",  "description": "Vote account (instruction account[0]) (32 bytes)" },

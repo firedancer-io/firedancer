@@ -1,6 +1,6 @@
 {
     "name": "runtime_block",
-    "id": 9,
+    "id": 7,
     "description": "Per-block runtime event — one row per (slot, block_id) emitted at slot freeze (after bank hashing, before voting/rooting).  Carries the deterministic block-level snapshot (counts, fees, capitalization, the four bank-hash inputs) plus separate Nested lists of accounts modified by non-transaction paths during slot replay (sysvar refresh, vote-account reward credits, stake-account PER partition payouts).  Per-transaction account changes are NOT here; they live on events.runtime_txn.",
     "fields": {
         "slot":                      { "type": "UInt64", "description": "Slot this block is for" },

@@ -1,6 +1,6 @@
 {
     "name": "stake_delegation",
-    "id": 5,
+    "id": 3,
     "description": "A stake-cache delegation update emitted during transaction commit",
     "fields": {
         "pubkey":             { "type": "Bytes",  "description": "Stake account pubkey (32 bytes)" },

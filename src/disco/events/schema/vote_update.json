@@ -1,6 +1,6 @@
 {
     "name": "vote_update",
-    "id": 6,
+    "id": 4,
     "description": "A top-votes cache update emitted during transaction commit",
     "fields": {
         "pubkey":              { "type": "Bytes",  "description": "Vote account pubkey (32 bytes)" },

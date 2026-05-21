@@ -52,43 +52,6 @@ message Shred {
   bytes payload = 4;
 }
 
-// An account update produced during transaction execution or bank hashing.
-// This is metadata-only: data bytes are not included.
-message Account {
-  // The account public key
-  bytes pubkey = 1;
-  // The account lamport balance after the update
-  uint64 lamports = 2;
-  // The account owner program public key
-  bytes owner = 3;
-  // Whether the account is executable
-  bool executable = 4;
-  // The slot in which the update occurred
-  uint64 slot = 5;
-  // Signature of the transaction that caused this update (64 bytes);
-  // all-zero if not associated with a transaction (e.g. bank-hash-time
-  // updates).
-  bytes signature = 6;
-  // The size of the account data in bytes
-  uint64 data_sz = 7;
-}
-
-// A bank hash computed at the end of a slot's execution.
-message BankHash {
-  // Bank hash of this slot
-  bytes bank_hash = 1;
-  // Bank hash of the parent slot
-  bytes prev_bank_hash = 2;
-  // Accounts lt hash checksum (blake3 of the accounts lthash)
-  bytes accounts_lt_hash_checksum = 3;
-  // Proof-of-history hash at the end of the slot
-  bytes poh_hash = 4;
-  // Slot this bank hash is for
-  uint64 slot = 5;
-  // Total number of signatures processed in the slot
-  uint64 signature_cnt = 6;
-}
-
 // A stake-cache delegation update emitted during transaction commit.
 message StakeDelegation {
   // Stake account pubkey
@@ -497,13 +460,11 @@ message Event {
   oneof event {
     Txn txn = 1;
     Shred shred = 2;
-    Account account = 3;
-    BankHash bank_hash = 4;
-    StakeDelegation stake_delegation = 5;
-    VoteUpdate vote_update = 6;
-    VoteTransaction vote_transaction = 7;
-    RuntimeTxn runtime_txn = 8;
-    RuntimeBlock runtime_block = 9;
-    RuntimeEpoch runtime_epoch = 10;
+    StakeDelegation stake_delegation = 3;
+    VoteUpdate vote_update = 4;
+    VoteTransaction vote_transaction = 5;
+    RuntimeTxn runtime_txn = 6;
+    RuntimeBlock runtime_block = 7;
+    RuntimeEpoch runtime_epoch = 8;
   }
 }
