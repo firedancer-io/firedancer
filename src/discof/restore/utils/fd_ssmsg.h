@@ -349,11 +349,7 @@ struct fd_snapshot_manifest {
      computed by hashing all modified account state together. */
   uchar accounts_delta_hash[ 32UL ];
 
-  /* The lattice hash of all account state on chain.  It is not yet used
-     but in future will replace the accounts hash and the accounts delta
-     hash.  Those hashes are expensive to compute because they require
-     sorting the accounts, while the lattice hash uses newer cryptography
-     to avoid this. */
+  /* The lattice hash of all account state on chain. */
   int   has_accounts_lthash;
   uchar accounts_lthash[ 2048UL ];
 

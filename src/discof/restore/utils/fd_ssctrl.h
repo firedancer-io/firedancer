@@ -3,7 +3,6 @@
 
 #include "../../../util/net/fd_net_headers.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
-#include "../../../ballet/lthash/fd_lthash.h"
 
 /* The snapshot tiles have a somewhat involved state machine, which is
    controlled by snapct.  Imagine first the following sequence:
@@ -110,17 +109,6 @@
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
 #define FD_SNAPSHOT_MSG_CTRL_FINI              (9UL) /* Current snapshot has been fully loaded, finish processing */
 
-/* snapin -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_EXPECTED         (10UL) /* Expected accounts hash sent from snapin to snapls */
-
-/* snapin -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_SUB              (12UL) /* Duplicate account sent from snapin to snapls, includes account header and data */
-#define FD_SNAPSHOT_HASH_MSG_SUB_HDR          (13UL) /* Duplicate account sent from snapin to snapls, only the account header, no data */
-#define FD_SNAPSHOT_HASH_MSG_SUB_DATA         (14UL) /* Duplicate account sent from snapin to snapls, only the account data, no header */
-
-/* snapla -> snapls */
-#define FD_SNAPSHOT_HASH_MSG_RESULT_ADD       (17UL) /* Hash result sent from snapla to snapls */
-
 /* snapld -> snapct (via snapld_dc) */
 #define FD_SNAPSHOT_MSG_LOAD_COMPLETE         (18UL) /* snapld finished reading/downloading all data */
 
@@ -143,11 +131,6 @@ typedef struct fd_ssctrl_init {
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
 } fd_ssctrl_meta_t;
-
-typedef struct fd_ssctrl_hash_result {
-  fd_lthash_value_t lthash;
-  long              capitalization;
-} fd_ssctrl_hash_result_t;
 
 struct fd_snapshot_account_hdr {
   uchar   pubkey[ FD_PUBKEY_FOOTPRINT ];
@@ -174,22 +157,6 @@ fd_snapshot_account_hdr_init( fd_snapshot_account_hdr_t * account,
   account->data_len   = data_len;
 }
 
-/* fd_snapshot_full_account is the contents of the
-   SNAPSHOT_HASH_MSG_SUB message.  It contains a fd_snapshot_account_hdr_t
-   header and the corresponding account data in a single message.
-
-   For simplicity and conformance to burst limitations in snapin, the
-   entire duplicate account is sent in one message (one frag).  Consider
-   caching the lthash of the duplicate account so we do not have to
-   send the entire account over. */
-struct fd_snapshot_full_account {
-  fd_snapshot_account_hdr_t hdr;
-  uchar                     data[ FD_RUNTIME_ACC_SZ_MAX ];
-};
-typedef struct fd_snapshot_full_account fd_snapshot_full_account_t;
-
-#define FD_SNAPSHOT_MAX_SNAPLA_TILES (8UL)
-
 static inline const char *
 fd_ssctrl_state_str( ulong state ) {
   switch( state ) {
@@ -215,11 +182,6 @@ fd_ssctrl_msg_ctrl_str( ulong sig ) {
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:         return "shutdown";
     case FD_SNAPSHOT_MSG_CTRL_ERROR:            return "error";
     case FD_SNAPSHOT_MSG_CTRL_FINI:             return "fini";
-    case FD_SNAPSHOT_HASH_MSG_EXPECTED:         return "hash_expected";
-    case FD_SNAPSHOT_HASH_MSG_SUB:              return "hash_sub";
-    case FD_SNAPSHOT_HASH_MSG_SUB_HDR:          return "hash_sub_hdr";
-    case FD_SNAPSHOT_HASH_MSG_SUB_DATA:         return "hash_sub_data";
-    case FD_SNAPSHOT_HASH_MSG_RESULT_ADD:       return "hash_result_add";
     case FD_SNAPSHOT_MSG_LOAD_COMPLETE:         return "load_complete";
     default:                                    return "unknown";
   }

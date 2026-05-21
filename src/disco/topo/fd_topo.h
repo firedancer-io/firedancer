@@ -599,8 +599,6 @@ struct fd_topo_tile {
       ulong funk_obj_id;
       ulong funk_locks_obj_id;
       ulong txncache_obj_id;
-
-      uint  lthash_disabled : 1;
     } snapin;
 
     struct {

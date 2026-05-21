@@ -112,10 +112,6 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
-    -lt|--lthash-verification)
-        DISABLE_LTHASH_VERIFICATION=false
-        shift
-        ;;
     --exec)
         EXECRP_TILE_COUNT="$2"
         shift
@@ -245,7 +241,6 @@ cat <<EOF > ${CONFIG_FILE}
             allow_any = false
             allow_list = []
 [layout]
-    snapshot_hash_tile_count = 1
     execrp_tile_count = $EXECRP_TILE_COUNT
 [tiles]
 
@@ -266,8 +261,6 @@ cat <<EOF > ${CONFIG_FILE}
     snapshots = "$DUMP/$LEDGER"
     accounts = "/$DUMP/accounts.db"
 [development]
-    [development.snapshots]
-        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION
     [development.ledger_input]
         path = "$LEDGER_INPUT"
         end_slot = $END_SLOT

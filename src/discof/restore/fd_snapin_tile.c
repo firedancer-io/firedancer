@@ -614,13 +614,6 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
-  if( FD_LIKELY( !ctx->lthash_disabled ) ) {
-    fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-    fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
-    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-  }
-
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( ctx->stem, ctx->manifest_out.idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
@@ -650,14 +643,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   }
 
   if( FD_UNLIKELY( chunk<ctx->in.chunk0 || chunk>ctx->in.wmark || sz>ctx->in.mtu ) ) FD_LOG_ERR(( "invalid data frag bounds (chunk=%lu chunk0=%lu wmark=%lu sz=%lu mtu=%lu)", chunk, ctx->in.chunk0, ctx->in.wmark, sz, ctx->in.mtu ));
-
-  if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
-    if( FD_UNLIKELY( fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch )<0 ) ) {
-      transition_malformed( ctx, stem );
-      return 0;
-    }
-    return 1;
-  }
 
   for(;;) {
     if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
@@ -751,7 +736,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
-        early_exit = fd_snapin_process_account_data( ctx, result );
+        fd_snapin_process_account_data( ctx, result );
 
         /* Account data may span multiple input chunks (when an account
            straddles a decompressed chunk boundary), so we copy each
@@ -782,7 +767,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
-        early_exit = fd_snapin_process_account_batch( ctx, result, NULL );
+        early_exit = fd_snapin_process_account_batch( ctx, result );
         if( FD_UNLIKELY( early_exit<0 ) ) {
           transition_malformed( ctx, stem );
           return 0;
@@ -812,22 +797,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   int reprocess_frag = ctx->in.pos<sz;
   if( FD_LIKELY( !reprocess_frag ) ) ctx->in.pos = 0UL;
   return reprocess_frag;
-}
-
-static int
-validate_capitalization( fd_snapin_tile_t * ctx ) {
-  /* Capitalization is checked only when lthash verification is
-     enabled, since a snapshot that fails lthash would most probably
-     fail capitalization as well. */
-  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
-  if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
-    /* SnapshotError::MismatchedCapitalization
-        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
-    FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
-                     ctx->full?"full":"incr", ctx->manifest_capitalization, ctx->capitalization ));
-    return -1;
-  }
-  return 0;
 }
 
 static void
@@ -925,11 +894,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
-      if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
-        transition_malformed( ctx, stem );
-        forward_msg = 0;
-        break;
-      }
 
       ctx->recovery.capitalization = ctx->capitalization;
 
@@ -953,11 +917,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
-      if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
-        transition_malformed( ctx, stem );
-        forward_msg = 0;
-        break;
-      }
 
       /* Publish any remaining funk txn */
       if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
@@ -1114,7 +1073,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
-  ctx->lthash_disabled = tile->snapin.lthash_disabled;
 
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
@@ -1181,9 +1139,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->gui_config_acct_sz  = 0UL;
   ctx->gui_config_acct_off = 0UL;
-
-  ctx->buffered_batch.batch_cnt     = 0UL;
-  ctx->buffered_batch.remaining_idx = 0UL;
 
   ctx->advertised_slot = 0UL;
   ctx->bank_slot       = 0UL;
