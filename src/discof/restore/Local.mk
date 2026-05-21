@@ -10,6 +10,8 @@ ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)
 endif # FD_HAS_ZSTD
 $(call add-objs,fd_snapin_tile fd_snapin_tile_funk,fd_discof)
+$(call make-unit-test,test_snapin_tile,test_snapin_tile,fd_discof fd_disco fd_waltz fd_flamenco fd_funk fd_ballet fd_tango fd_util,$(OPENSSL_LIBS))
+$(call run-unit-test,test_snapin_tile)
 endif # FD_HAS_SSE
 endif # FD_HAS_ALLOCA
 $(call add-objs,utils/fd_ssparse,fd_discof)

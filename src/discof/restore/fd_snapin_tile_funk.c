@@ -161,8 +161,8 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
   uint map_node [ FD_SSPARSE_ACC_BATCH_MAX ];
   uint chain_cnt[ FD_SSPARSE_ACC_BATCH_MAX ];
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
-    map_node [ i ] =       chain_tbl[ chain_idx[ i ] ].head_cidx;
-    chain_cnt[ i ] = (uint)chain_tbl[ chain_idx[ i ] ].ver_cnt;
+    map_node [ i ] = chain_tbl[ chain_idx[ i ] ].head_cidx;
+    chain_cnt[ i ] = (uint)fd_funk_rec_map_private_vcnt_cnt( chain_tbl[ chain_idx[ i ] ].ver_cnt );
   }
   uint chain_max = 0U;
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
@@ -194,6 +194,25 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
     ctx->metrics.accounts_loaded++;
     fd_funk_rec_t * r = rec[ i ];
     if( FD_LIKELY( !r ) ) {  /* optimize for new account */
+      fd_funk_rec_map_shmem_private_chain_t * chain = &chain_tbl[ chain_idx[ i ] ];
+      ulong ver_cnt    = chain->ver_cnt;
+      ulong cnt        = fd_funk_rec_map_private_vcnt_cnt( ver_cnt );
+      uint  head_cidx  = chain->head_cidx;
+      if( FD_UNLIKELY( cnt != chain_cnt[ i ] ) ) {
+        /* a previous element in this batch modified the chain. was
+           there a duplicate account in this batch? */
+        for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx[ i ] );
+             !fd_funk_rec_map_iter_done( iter );
+             iter = fd_funk_rec_map_iter_next( iter ) ) {
+          fd_funk_rec_key_t const key2 = *fd_funk_rec_map_iter_ele( iter )->pair.key;
+          if( fd_funk_rec_key_eq( &key, &key2 ) ) {
+            FD_BASE58_ENCODE_32_BYTES( key.uc, key_b58 );
+            FD_LOG_WARNING(( "corrupt snapshot: duplicate account in batch (slot=%lu, pubkey=%s)", slot, key_b58 ));
+            return -1;
+          }
+        }
+      }
+
       r = fd_funk_rec_pool_acquire( funk->rec_pool );
       if( FD_UNLIKELY( !r ) ) {
         FD_LOG_WARNING(( "funk record pool exhausted while loading snapshot batch (increase [accounts.rec_max])" ));
@@ -213,14 +232,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
 
       funk->rec_lock[ rec_idx ] = fd_funk_rec_ver_lock( 1UL, 0UL );
 
-      /* Insert to hash map.  In theory, a key could appear twice in the
-         same batch.  All accounts in a batch are guaranteed to be from
-         the same slot though, so this is fine, assuming that accdb code
-         gracefully handles duplicate hash map entries. */
-      fd_funk_rec_map_shmem_private_chain_t * chain = &chain_tbl[ chain_idx[ i ] ];
-      ulong ver_cnt    = chain->ver_cnt;
-      uint  head_cidx  = chain->head_cidx;
-      chain->ver_cnt   = fd_funk_rec_map_private_vcnt( fd_funk_rec_map_private_vcnt_ver( ver_cnt ), fd_funk_rec_map_private_vcnt_cnt( ver_cnt )+1UL );
+      chain->ver_cnt   = fd_funk_rec_map_private_vcnt( fd_funk_rec_map_private_vcnt_ver( ver_cnt ), cnt+1UL );
       chain->head_cidx = (uint)( r-rec_tbl );
       r->map_next      = head_cidx;
       rec[ i ]         = r;
@@ -238,7 +250,8 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
         ctx->metrics.accounts_replaced++;
         ctx->dup_capitalization = fd_ulong_sat_add( ctx->dup_capitalization, existing->lamports );
       } else { /* slot==existing->slot */
-        FD_LOG_WARNING(( "corrupt snapshot: duplicate account in same slot (slot=%lu)", slot ));
+        FD_BASE58_ENCODE_32_BYTES( key.uc, key_b58 );
+        FD_LOG_WARNING(( "corrupt snapshot: duplicate account in same slot (slot=%lu pubkey=%s)", slot, key_b58 ));
         return -1;
       }
     }
