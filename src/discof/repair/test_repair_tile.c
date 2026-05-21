@@ -635,6 +635,121 @@ test_after_tower_confirmed_eviction( fd_wksp_t * wksp ) {
 }
 
 
+/* test_after_fec_dup_confirm_larger_slot
+
+   An attacker sends us a non-canonical version of slot 3 that can never
+   complete contiguously:
+
+     1. We receive 64 contiguous shreds (FEC 0 and FEC 1, shreds 0-63),
+        no slot_complete.
+     2. The attacker sends the maximum FEC set (fec_set_idx=1023*32)
+        with slot_complete.  complete_idx is now at a very high shred
+        index, but buffered_idx stays at 63 because there's a huge gap.
+
+   Then tower sends a duplicate confirmation with the correct block_id.
+   fec_chain_verify detects the wrong last FEC and fec_clears it,
+   resetting complete_idx to UINT_MAX.
+
+   Finally, the canonical FEC 1 (shreds 32-63, slot_complete) arrives
+   via after_fec.  This sets complete_idx=63 and buffered_idx==63,
+   triggering check_confirmed which chain-verifies the whole slot. */
+
+static void
+test_after_fec_dup_confirm_larger_slot( fd_wksp_t * wksp ) {
+
+  static ctx_t ctx[1];
+  setup_ctx( ctx, wksp, 512 );
+
+  fd_forest_init( ctx->forest, 0 );
+
+  fd_hash_t mr_root   = (fd_hash_t){ .ul = { 100 } };
+  fd_hash_t mr_2_0    = (fd_hash_t){ .ul = { 200 } };
+  fd_hash_t mr_2_32   = (fd_hash_t){ .ul = { 201 } };
+  fd_hash_t mr_3_0    = (fd_hash_t){ .ul = { 300 } };
+  fd_hash_t mr_3_1    = (fd_hash_t){ .ul = { 301 } };  /* correct block_id for slot 3 */
+  fd_hash_t mr_3_1_bad = (fd_hash_t){ .ul = { 997 } };  /* attacker's  FEC 1 mr */
+
+  fd_hash_t mr_3_bad  = (fd_hash_t){ .ul = { 999 } };  /* attacker's max FEC mr */
+  fd_hash_t cmr_3_bad = (fd_hash_t){ .ul = { 998 } };
+
+  /* Set up ancestry: root=0 -> slot 2 (2 correct FEC sets) */
+  fd_forest_blk_insert( ctx->forest, 2, 0, NULL );
+  fd_forest_fec_insert( ctx->forest, 2, 0, 31, 0,  0, 0, &mr_2_0,  &mr_root );
+  fd_forest_fec_insert( ctx->forest, 2, 0, 63, 32, 1, 0, &mr_2_32, &mr_2_0  );
+
+  /* Slot 3: receive FEC 0 and FEC 1 (shreds 0-63), no slot_complete */
+  fd_forest_blk_insert( ctx->forest, 3, 2, NULL );
+  fd_forest_fec_insert( ctx->forest, 3, 2, 31, 0,  0, 0, &mr_3_0, &mr_2_32 );
+  fd_forest_fec_insert( ctx->forest, 3, 2, 63, 32, 0, 0, &mr_3_1_bad, &mr_3_0  );
+
+  fd_forest_blk_t * blk3 = fd_forest_query( ctx->forest, 3 );
+  FD_TEST( blk3->complete_idx == UINT_MAX );
+  FD_TEST( blk3->buffered_idx == 63 );
+
+  /* Attacker sends the max FEC set with slot_complete.
+     complete_idx jumps to a very high value, but buffered_idx stays 63
+     because there's a gap between shred 63 and the max FEC. */
+  uint max_fec_set_idx = (FD_FEC_BLK_MAX - 1) * 32;
+  uint max_last_shred  = max_fec_set_idx + 31;
+  fd_forest_fec_insert( ctx->forest, 3, 2, max_last_shred, max_fec_set_idx, 1, 0, &mr_3_bad, &cmr_3_bad );
+
+  blk3 = fd_forest_query( ctx->forest, 3 );
+  FD_TEST( blk3->complete_idx == max_last_shred );
+  FD_TEST( blk3->buffered_idx == 63 );  /* gap prevents contiguous buffering */
+  FD_TEST( blk3->chain_confirmed == 0 );
+
+  /* Tower sends duplicate confirmation with the correct block_id.
+     check_confirmed -> fec_chain_verify should fail because the last
+     FEC (at max index) has mr_3_bad != mr_3_1 (the correct block_id).
+     fec_clear should remove the bad max FEC. */
+
+  fd_tower_slot_confirmed_t confirmed_msg[1];
+  memset( confirmed_msg, 0, sizeof(*confirmed_msg) );
+  confirmed_msg->level    = FD_TOWER_SLOT_CONFIRMED_DUPLICATE;
+  confirmed_msg->fwd      = 0;
+  confirmed_msg->slot     = 3;
+  confirmed_msg->block_id = mr_3_1;
+
+  after_tower( ctx, FD_TOWER_SIG_SLOT_CONFIRMED, (uchar *)confirmed_msg );
+
+  blk3 = fd_forest_query( ctx->forest, 3 );
+  FD_TEST( blk3 );
+
+  /* fec_clear should have reset complete_idx since it cleared the last FEC */
+  FD_TEST( blk3->complete_idx == UINT_MAX );
+  FD_TEST( blk3->chain_confirmed == 0 );
+
+  /* Now the canonical FEC 1 arrives via after_fec with slot_complete.
+     This is the correct version with complete_idx=63.
+     after_fec should set complete_idx=63, and since buffered_idx==63
+     and lowest_verified_fec was set by fec_chain_verify, it should
+     trigger check_confirmed and chain-verify the whole slot. */
+
+  fd_shred_t shred_hdr[1];
+  memset( shred_hdr, 0, sizeof(fd_shred_t) );
+  shred_hdr->variant     = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, 5 );
+  shred_hdr->slot        = 3;
+  shred_hdr->idx         = 63;
+  shred_hdr->fec_set_idx = 32;
+  shred_hdr->data.parent_off = 1;  /* parent = slot 2 */
+  shred_hdr->data.flags      = FD_SHRED_DATA_FLAG_SLOT_COMPLETE;
+
+  after_fec( ctx, shred_hdr, &mr_3_1, &mr_3_0 );
+
+  blk3 = fd_forest_query( ctx->forest, 3 );
+  FD_TEST( blk3->complete_idx == 63 );
+  FD_TEST( blk3->buffered_idx == 63 );
+  FD_TEST( blk3->chain_confirmed == 1 );
+
+  /* Slot 2 should also be chain_confirmed (chain verify walks parents) */
+  fd_forest_blk_t * blk2 = fd_forest_query( ctx->forest, 2 );
+  FD_TEST( blk2->chain_confirmed == 1 );
+
+  FD_TEST( !fd_forest_verify( ctx->forest ) );
+
+  FD_LOG_NOTICE(( "pass: test_after_fec_dup_confirm_larger_slot" ));
+}
+
 int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
@@ -654,6 +769,9 @@ int main( int argc, char ** argv ) {
 
   fd_wksp_reset( wksp, 1UL );
   test_after_tower_confirmed_eviction( wksp );
+
+  fd_wksp_reset( wksp, 1UL );
+  test_after_fec_dup_confirm_larger_slot( wksp );
 
   fd_halt();
   return 0;
