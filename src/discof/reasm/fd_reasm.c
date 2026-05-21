@@ -776,12 +776,6 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  fd_store_t      * opt_store,
                  fd_reasm_fec_t ** evicted ) {
 
-  #define ANCESTRY_LINK  0UL
-  #define FRONTIER_LINK  1UL
-  #define ORPHANED_LINK  2UL
-  #define SUBTREES_LINK  3UL
-  #define NOT_FOUND_LINK 4UL
-
 # if LOGGING
   FD_BASE58_ENCODE_32_BYTES( merkle_root->key,         merkle_root_b58         );
   FD_BASE58_ENCODE_32_BYTES( chained_merkle_root->key, chained_merkle_root_b58 );
@@ -851,20 +845,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fd_hash_t new_cmr[1];
   if( overwrite_invalid_cmr( reasm, slot, parent_off, fec_set_idx, chained_merkle_root, new_cmr ) ) chained_merkle_root = new_cmr;
 
-  fd_reasm_fec_t * parent = NULL;
-  ulong link_type;
-  if( FD_LIKELY( parent = ancestry_ele_query( ancestry, chained_merkle_root, NULL, pool ) ) ) { /* parent is connected non-leaf */
-    link_type = ANCESTRY_LINK;
-  } else if( FD_LIKELY( parent = frontier_ele_query( frontier, chained_merkle_root, NULL, pool ) ) ) { /* parent is connected leaf */
-    link_type = FRONTIER_LINK;
-  } else if( FD_LIKELY( parent = orphaned_ele_query( orphaned, chained_merkle_root, NULL, pool ) ) ) { /* parent is orphaned non-root */
-    link_type = ORPHANED_LINK;
-  } else if( FD_LIKELY( parent = subtrees_ele_query( subtrees, chained_merkle_root, NULL, pool ) ) ) { /* parent is orphaned root */
-    link_type = SUBTREES_LINK;
-  } else { /* parent not found */
-    link_type = NOT_FOUND_LINK;
-  }
-
+  fd_reasm_fec_t * parent = fd_reasm_query( reasm, chained_merkle_root );
   if( FD_UNLIKELY( parent && validate( parent, fec_set_idx, parent_off, slot )!=0 ) ) {
     if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, merkle_root );
     return NULL;
@@ -918,33 +899,26 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      set may result in a new leaf or a new orphan tree root so we need
      to check that. */
 
-  switch( link_type ) {
-    case ANCESTRY_LINK:
-      frontier_ele_insert( frontier, fec, pool );
-      out_ele_push_tail( out, fec, pool );
-      fec->in_out = 1;
-      link( reasm, parent, fec );
-      break;
-    case FRONTIER_LINK:
-      FD_TEST( frontier_ele_remove( frontier, &fec->cmr, NULL, pool )==parent );
-      ancestry_ele_insert( ancestry, parent, pool );
-      frontier_ele_insert( frontier, fec, pool );
-      out_ele_push_tail( out, fec, pool );
-      fec->in_out = 1;
-      link( reasm, parent, fec );
-      break;
-    case ORPHANED_LINK:
-    case SUBTREES_LINK:
-      orphaned_ele_insert( orphaned, fec, pool );
-      link( reasm, parent, fec );
-      break;
-    case NOT_FOUND_LINK:
-      subtrees_ele_insert( subtrees, fec, pool );
-      subtreel_ele_push_tail( subtreel, fec, pool );
-      break;
-    default:
-      __builtin_unreachable();
+  parent = NULL;
+  if( FD_LIKELY( parent = ancestry_ele_query( ancestry, &fec->cmr, NULL, pool ) ) ) { /* parent is connected non-leaf */
+    frontier_ele_insert( frontier, fec, pool );
+    out_ele_push_tail( out, fec, pool );
+    fec->in_out = 1;
+  } else if( FD_LIKELY ( parent = frontier_ele_remove( frontier, &fec->cmr, NULL, pool ) ) ) { /* parent is connected leaf */
+    ancestry_ele_insert( ancestry, parent, pool );
+    frontier_ele_insert( frontier, fec, pool );
+    out_ele_push_tail( out, fec, pool );
+    fec->in_out = 1;
+  } else if( FD_LIKELY ( parent = orphaned_ele_query( orphaned, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned non-root */
+    orphaned_ele_insert( orphaned, fec, pool );
+  } else if( FD_LIKELY ( parent = subtrees_ele_query( subtrees, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned root */
+    orphaned_ele_insert( orphaned, fec, pool );
+  } else { /* parent not found */
+    subtrees_ele_insert( subtrees, fec, pool );
+    subtreel_ele_push_tail( subtreel, fec, pool );
   }
+
+  if( FD_LIKELY( parent ) ) link( reasm, parent, fec );
 
   /* Second, we search for children of this new FEC and link them to it.
      By definition any children must be orphaned (a child cannot be part
@@ -1084,12 +1058,6 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   /* Finally, return the newly inserted FEC. */
   return fec;
-
-  #undef ANCESTRY_LINK
-  #undef FRONTIER_LINK
-  #undef ORPHANED_LINK
-  #undef SUBTREES_LINK
-  #undef NOT_FOUND_LINK
 }
 
 fd_reasm_fec_t *
