@@ -3233,6 +3233,10 @@ fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
                              ulong         data_len,
                              int           executable,
                              ulong *       out_replaced_lamports ) {
+  /* Snapshot slots are stored in the 32-bit cache_idx scratch field
+     during loading.  Reject anything that would truncate. */
+  if( FD_UNLIKELY( slot>UINT_MAX ) ) FD_LOG_ERR(( "snapshot slot %lu exceeds 2^32-1, accdb format must be widened", slot ));
+
   ulong hash = fd_accdb_hash( pubkey, accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
 
   *out_replaced_lamports = 0UL;
@@ -3243,7 +3247,7 @@ fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
   while( next_acc!=UINT_MAX ) {
     fd_accdb_accmeta_t * candidate_acc = &accdb->acc_pool[ next_acc ];
     if( FD_UNLIKELY( !memcmp( pubkey, candidate_acc->key.pubkey, 32UL ) ) ) {
-      if( FD_LIKELY( candidate_acc->cache_idx>slot ) ) {
+      if( FD_LIKELY( (ulong)candidate_acc->cache_idx>slot ) ) {
         /* Still advance the write head so snapwr and snapin stay in
            sync — snapwr unconditionally writes every account to disk.
            Mark the space as immediately freed since it is dead on
@@ -3314,6 +3318,12 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
   ulong replaced_lamports = 0UL;
   ulong ignored_lamports  = 0UL;
 
+  /* Snapshot slots are stored in the 32-bit cache_idx scratch field
+     during loading.  Reject anything that would truncate. */
+  for( ulong i=0UL; i<cnt; i++ ) {
+    if( FD_UNLIKELY( slots[ i ]>UINT_MAX ) ) FD_LOG_ERR(( "snapshot slot %lu exceeds 2^32-1, accdb format must be widened", slots[ i ] ));
+  }
+
   /* Phase 1: compute hashes and prefetch chain heads. */
 
   ulong                hashes[ 8 ];
@@ -3349,7 +3359,7 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
       }
 
       if( FD_UNLIKELY( !memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) ) {
-        if( FD_LIKELY( candidate->cache_idx>(uint)slots[ i ] ) ) {
+        if( FD_LIKELY( (ulong)candidate->cache_idx>slots[ i ] ) ) {
           skip[ i ] = 1;
         } else {
           existing[ i ] = candidate;

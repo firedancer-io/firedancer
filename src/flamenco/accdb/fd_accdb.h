@@ -409,7 +409,12 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
    acc has a higher slot), 1 if a new acc was inserted, 2 if an
    existing acc was replaced.  When 2 is returned, *out_replaced_lamports
    is set to the lamports of the replaced acc.  Otherwise it is set to
-   0.  out_replaced_lamports must be non-NULL. */
+   0.  out_replaced_lamports must be non-NULL.
+
+   slot must be <= UINT_MAX.  The slot is held in a 32-bit scratch field
+   during snapshot loading; the accdb format must be widened before
+   Solana reaches slot 2^32.  Passing a larger slot crashes the
+   process. */
 
 int
 fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
@@ -429,7 +434,10 @@ fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
    set to the sum of the lamports of all accounts ignored by this batch
    (i.e. the lamports of each input account whose write was dropped
    because an acc with a higher slot already exists).  Returns 0 on
-   success. */
+   success.
+
+   Each slots[i] must be <= UINT_MAX (see fd_accdb_snapshot_write_one
+   for the rationale).  Passing a larger slot crashes the process. */
 
 int
 fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
