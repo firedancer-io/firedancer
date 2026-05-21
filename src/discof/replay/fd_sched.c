@@ -1930,11 +1930,11 @@ verify_ticks_eager( fd_sched_block_t * block ) {
        checking the hashcnt between ticks transitively places an upper
        bound on the hashcnt of individual microblocks, thus mitigating
        the DoS vector. */
-    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, observed cumulative tick_hashcnt %lu, expected %lu, slot %lu, parent slot %lu", block->curr_tick_hashcnt, block->hashes_per_tick, block->slot, block->parent_slot ));
+    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, observed cumulative tick_hashcnt %lu, expected %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, block->hashes_per_tick ));
     return -1;
   }
   if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->batch_end_hashcnt_wmk>=block->hashes_per_tick ) ) {
-    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, batch_end_hashcnt_wmk %lu >= hashes_per_tick %lu, slot %lu, parent slot %lu", block->batch_end_hashcnt_wmk, block->hashes_per_tick, block->slot, block->parent_slot ));
+    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, batch_end_hashcnt_wmk %lu >= hashes_per_tick %lu", block->slot, block->parent_slot, block->batch_end_hashcnt_wmk, block->hashes_per_tick ));
     return -1;
   }
 
@@ -2010,14 +2010,6 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       block->mblks_rem--;
       block->txns_rem = hdr->txn_cnt;
 
-      FD_TEST( sched->mblk_pool_free_cnt ); /* can_ingest should have guaranteed sufficient free capacity. */
-      uint mblk_idx = sched->mblk_pool_free_head;
-      sched->mblk_pool_free_head = sched->mblk_pool[ mblk_idx ].next;
-      sched->mblk_pool_free_cnt--;
-
-      fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
-      mblk->start_txn_idx = block->txn_parsed_cnt;
-      mblk->end_txn_idx   = mblk->start_txn_idx+hdr->txn_cnt;
       /* One might think that every microblock needs to have at least
          one hash, otherwise the block should be considered invalid.  A
          vanilla validator certainly produces microblocks that conform
@@ -2066,20 +2058,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
          tick, so an Agave produced tick would satisfy the verifier:
          https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/poh.rs#L78
          https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/entry/src/poh.rs#L101 */
-      mblk->hashcnt = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement the above. */
-      memcpy( mblk->end_hash, hdr->hash, sizeof(fd_hash_t) );
-      memcpy( mblk->curr_hash, block->poh_hash, sizeof(fd_hash_t) );
-      mblk->curr_txn_idx = mblk->start_txn_idx;
-      mblk->curr_hashcnt = 0UL;
-      mblk->curr_sig_cnt = 0U;
-      mblk->is_tick      = !hdr->txn_cnt;
-
-      /* Update block tracking. */
       block->curr_tick_hashcnt = fd_ulong_sat_add( hdr->hash_cnt, block->curr_tick_hashcnt ); /* For tick_verify, take the number of hashes verbatim. */
-      block->hashcnt += mblk->hashcnt+fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL );
-      memcpy( block->poh_hash, hdr->hash, sizeof(fd_hash_t) );
-      block->last_mblk_is_tick = mblk->is_tick;
-      block->mblk_cnt++;
       sched->metrics->mblk_parsed_cnt++;
       if( FD_UNLIKELY( !hdr->txn_cnt ) ) {
         /* This is a tick microblock. */
@@ -2087,7 +2066,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
           block->inconsistent_hashes_per_tick = 1;
           if( FD_LIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL ) ) {
             /* >1 to ignore low power hashing or hashing disabled */
-            FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, tick idx %u, tick_hashcnt_wmk %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick ));
+            FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, tick idx %u, tick_hashcnt_wmk %lu, curr hashcnt %lu, hashes_per_tick %lu", block->slot, block->parent_slot, block->mblk_tick_cnt, block->tick_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick ));
             return FD_SCHED_BAD_BLOCK;
           }
         }
@@ -2095,6 +2074,29 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
         block->curr_tick_hashcnt = 0UL;
         block->mblk_tick_cnt++;
       }
+
+      FD_TEST( sched->mblk_pool_free_cnt ); /* can_ingest should have guaranteed sufficient free capacity. */
+      uint mblk_idx = sched->mblk_pool_free_head;
+      sched->mblk_pool_free_head = sched->mblk_pool[ mblk_idx ].next;
+      sched->mblk_pool_free_cnt--;
+
+      fd_sched_mblk_t * mblk = sched->mblk_pool+mblk_idx;
+      mblk->start_txn_idx = block->txn_parsed_cnt;
+      mblk->end_txn_idx   = mblk->start_txn_idx+hdr->txn_cnt;
+      mblk->curr_txn_idx  = mblk->start_txn_idx;
+      mblk->hashcnt       = fd_ulong_sat_sub( hdr->hash_cnt, fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL ) ); /* For pure hashing, implement saturating sub for non-tick microblocks. */
+      mblk->curr_hashcnt  = 0UL;
+      mblk->curr_sig_cnt  = 0U;
+      mblk->is_tick       = !hdr->txn_cnt;
+      memcpy( mblk->end_hash, hdr->hash, sizeof(fd_hash_t) );
+      memcpy( mblk->curr_hash, block->poh_hash, sizeof(fd_hash_t) );
+
+      /* Update block tracking. */
+      block->hashcnt += mblk->hashcnt+fd_ulong_if( !hdr->txn_cnt, 0UL, 1UL );
+      memcpy( block->poh_hash, hdr->hash, sizeof(fd_hash_t) );
+      block->last_mblk_is_tick = mblk->is_tick;
+      block->mblk_cnt++;
+
       #if FD_SCHED_SKIP_POH
       block->poh_hashing_done_cnt++;
       block->poh_hash_cmp_done_cnt++;
