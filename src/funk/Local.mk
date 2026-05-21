@@ -5,7 +5,4 @@ $(call make-unit-test,test_funk_base,test_funk_base,fd_funk fd_util)
 $(call run-unit-test,test_funk_base)
 $(call make-unit-test,test_funk,test_funk,fd_funk fd_util)
 $(call run-unit-test,test_funk)
-ifdef FD_HAS_HOSTED
-$(call make-unit-test,bench_funk_index,bench_funk_index,fd_funk fd_util)
-endif
 endif
