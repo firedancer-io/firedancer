@@ -44,14 +44,11 @@ fd_accdb_svm_credit( fd_bank_t *         bank,
                      ulong               lamports );
 
 /* fd_accdb_svm_write replaces the contents of an account.  Replaces the
-   account owner and data.  Mints lamports if account has less than
-   lamports_min balance, otherwise leaves lamports untouched.  Also
-   updates the bank LtHash and bank capitalization.  Bypasses rent-
-   exemption rules.  The following flags are accepted (FD_ACCDB_FLAG_*):
-   - CREATE: create account if it does not exist; if CREATE is not set
-     and the account does not exist, this function is a no-op
-   - TRUNCATE: truncate account data to sz (otherwise, if account larger
-     than sz, leave tail region unchanged) */
+   account owner, data, and data_len (always sets data_len to sz, growing
+   or shrinking as needed).  Creates the account if it does not exist.
+   Mints lamports if account has less than lamports_min balance, otherwise
+   leaves lamports untouched.  Also updates the bank LtHash and bank
+   capitalization.  Bypasses rent-exemption rules. */
 
 void
 fd_accdb_svm_write( fd_bank_t *         bank,

@@ -119,6 +119,11 @@ test_write_overwrite( fd_svm_mini_t * mini,
   FD_TEST( bank->f.capitalization==cap_before+500UL );
   FD_TEST( !fd_lthash_eq( &lthash, &bank->f.lthash ) );
 
+  acc = fd_accdb_read_one( accdb, fork_id, acct_c.uc );
+  FD_TEST( acc.data_len==sizeof(data3) );
+  FD_TEST( !memcmp( acc.data, data3, sizeof(data3) ) );
+  fd_accdb_unread_one( accdb, &acc );
+
   FD_LOG_NOTICE(( "test_write_overwrite passed" ));
 }
 

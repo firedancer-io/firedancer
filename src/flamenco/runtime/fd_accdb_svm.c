@@ -119,10 +119,7 @@ fd_accdb_svm_write( fd_bank_t *         bank,
   acc.executable = !!exec_bit;
 
   fd_memcpy( acc.data, data, sz );
-  if( FD_UNLIKELY( acc.data_len<sz ) ) {
-    acc.data_len = sz;
-    fd_memset( acc.data+acc.data_len, 0, sz-acc.data_len );
-  }
+  acc.data_len = sz;
 
   fd_lthash_value_t post[1];
   fd_hashes_update_simple( post, hash, pubkey->uc, acc.owner, acc.lamports, acc.executable, acc.data, acc.data_len, bank, capture_ctx );
