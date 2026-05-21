@@ -392,6 +392,9 @@ typedef struct fd_capture_runtime_block_event_msg fd_capture_runtime_block_event
 #define FD_CAPTURE_RUNTIME_EPOCH_MARKED_DELTAS_MAX       (128UL)
 #define FD_CAPTURE_RUNTIME_EPOCH_UNMARKED_DELTAS_MAX     (128UL)
 #define FD_CAPTURE_RUNTIME_EPOCH_VOTE_ACCOUNTS_MAX       (256UL)
+/* Cap on per-validator commission snapshots captured by fd_stakes.c at
+   the boundary.  Sized to fit the full active vote-set on mainnet. */
+#define FD_CAPTURE_RUNTIME_EPOCH_VOTER_COMMISSIONS_MAX   (2048UL)
 
 /* transition_source variants — match JSON insertion order. */
 #define FD_CAPTURE_RUNTIME_EPOCH_SOURCE_UNKNOWN       (0U)
@@ -408,6 +411,20 @@ typedef struct fd_capture_runtime_epoch_feature_activation fd_capture_runtime_ep
 struct __attribute__((packed)) fd_capture_runtime_epoch_partition_entry {
   uchar stake_pubkey[ 32 ];
 };
+
+/* Per-validator commission triple (t_1, t_2, t_3) captured by
+   fd_stakes.c at the boundary validator loop, indexed by vote-account
+   pubkey.  Mirrors fd_stakes' raw lookups (current accdb / parent.c_t1
+   / parent.c_t2). */
+struct __attribute__((packed)) fd_capture_runtime_epoch_voter_commission {
+  uchar  pubkey[ 32 ];
+  ushort commission_t1;
+  ushort commission_t2;
+  ushort commission_t3;
+  uchar  exists_t3;
+  uchar  _pad;
+};
+typedef struct fd_capture_runtime_epoch_voter_commission fd_capture_runtime_epoch_voter_commission_t;
 typedef struct fd_capture_runtime_epoch_partition_entry fd_capture_runtime_epoch_partition_entry_t;
 
 struct __attribute__((packed)) fd_capture_runtime_epoch_stake_delta {
@@ -426,9 +443,9 @@ struct __attribute__((packed)) fd_capture_runtime_epoch_vote_account {
   ulong  prev_epoch_credits;
   ulong  prev_prev_epoch_credits;
   ulong  last_vote_slot;
-  ushort commission_bps;                  /* basis points, 0..10000 — divide by 100 for % */
-  ushort prev_epoch_commission_bps;       /* commission_t_2 */
-  ushort prev_prev_epoch_commission_bps;  /* parent's commission_t_2 == this bank's t_3 */
+  ushort commission_t1;                   /* basis points, 0..10000 — divide by 100 for % */
+  ushort commission_t2;                   /* vote_stakes commission_t_2 */
+  ushort commission_t3;                   /* vote_stakes commission_t_3 */
   uchar  _pad[ 2 ];
 };
 typedef struct fd_capture_runtime_epoch_vote_account fd_capture_runtime_epoch_vote_account_t;
@@ -629,6 +646,10 @@ struct fd_capture_ctx {
   uint                                           current_epoch_partition_counts[ FD_CAPTURE_RUNTIME_EPOCH_PARTITION_COUNTS_MAX ];
   ulong                                          current_epoch_partitions_cnt;
   fd_capture_runtime_epoch_partition_entry_t     current_epoch_partitions      [ FD_CAPTURE_RUNTIME_EPOCH_PARTITIONS_MAX       ];
+  /* Per-validator (commission_t1, t2, t3) recorded by fd_stakes.c in
+     the boundary validator loop.  Drained at emit. */
+  ulong                                          current_epoch_voter_commissions_cnt;
+  fd_capture_runtime_epoch_voter_commission_t    current_epoch_voter_commissions[ FD_CAPTURE_RUNTIME_EPOCH_VOTER_COMMISSIONS_MAX ];
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 
@@ -1073,6 +1094,27 @@ fd_capture_link_runtime_epoch_set_partitions( fd_capture_ctx_t *                
                                               ulong                                                    counts_cnt,
                                               fd_capture_runtime_epoch_partition_entry_t const *       parts,
                                               ulong                                                    parts_cnt );
+
+/* Record one validator's (commission_t1, t2, t3) captured at the
+   boundary by fd_stakes.c.  Entries beyond the cap are silently
+   discarded. */
+void
+fd_capture_link_runtime_epoch_record_voter_commission( fd_capture_ctx_t *  ctx,
+                                                       fd_pubkey_t const * pubkey,
+                                                       ushort              commission_t1,
+                                                       ushort              commission_t2,
+                                                       ushort              commission_t3,
+                                                       uchar               exists_t3 );
+
+/* Look up a recorded voter's commission triple by pubkey.  Returns 1
+   on hit, 0 on miss. */
+int
+fd_capture_link_runtime_epoch_query_voter_commission( fd_capture_ctx_t const * ctx,
+                                                      fd_pubkey_t const *      pubkey,
+                                                      ushort *                 commission_t1_out,
+                                                      ushort *                 commission_t2_out,
+                                                      ushort *                 commission_t3_out,
+                                                      uchar *                  exists_t3_out );
 
 /* fd_capture_runtime_epoch_info_t — caller-supplied snapshot of the
    bank-derived and walked-data-structure fields needed at emit time.

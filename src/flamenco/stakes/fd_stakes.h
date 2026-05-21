@@ -65,7 +65,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
-                          ulong *                        new_rate_activation_epoch );
+                          ulong *                        new_rate_activation_epoch,
+                          fd_capture_ctx_t *             capture_ctx );
 
 /* fd_stakes_update_delegation is used to maintain the in-memory cache
    of the stake delegations that is used at the epoch boundary.  Entries

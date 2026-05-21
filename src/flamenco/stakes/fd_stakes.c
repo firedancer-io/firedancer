@@ -9,6 +9,7 @@
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_system_ids.h"
+#include "../capture/fd_capture_ctx.h"
 #include "fd_stake_delegations.h"
 #include "../accdb/fd_accdb_sync.h"
 #include "../../util/bits/fd_sat.h"
@@ -363,7 +364,8 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
                               fd_runtime_stack_t *           runtime_stack,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_stake_history_t const *     history,
-                              ulong *                        new_rate_activation_epoch ) {
+                              ulong *                        new_rate_activation_epoch,
+                              fd_capture_ctx_t *             capture_ctx ) {
 
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
@@ -546,6 +548,10 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
       vote_ele->commission = commission_t_1;
     }
 
+    fd_capture_link_runtime_epoch_record_voter_commission( capture_ctx, &pubkey,
+                                                           commission_t_1, commission_t_2,
+                                                           commission_t_3, (uchar)exists_t_3 );
+
     fd_accdb_ro_t vote_ro[1];
     FD_TEST( fd_accdb_open_ro( accdb, vote_ro, xid, &pubkey ) );
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[ vote_reward_cnt ];
@@ -567,7 +573,8 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
                                  fd_runtime_stack_t *           runtime_stack,
                                  fd_stake_delegations_t const * stake_delegations,
                                  fd_stake_history_t const *     history,
-                                 ulong *                        new_rate_activation_epoch ) {
+                                 ulong *                        new_rate_activation_epoch,
+                                 fd_capture_ctx_t *             capture_ctx ) {
   fd_vote_rewards_map_t * vote_reward_map = runtime_stack->stakes.vote_map;
   fd_vote_rewards_map_reset( vote_reward_map );
   ulong vote_reward_cnt = 0UL;
@@ -781,6 +788,11 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
       } else {
         vote_ele->commission = commission_t_1;
       }
+
+      fd_capture_link_runtime_epoch_record_voter_commission( capture_ctx, &stake_accum->pubkey,
+                                                             commission_t_1, commission_t_2,
+                                                             commission_t_3, (uchar)exists_t_3 );
+
       fd_vote_rewards_map_ele_insert( vote_reward_map, vote_ele, runtime_stack->stakes.vote_ele );
       vote_reward_cnt++;
 
@@ -813,7 +825,8 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_runtime_stack_t *           runtime_stack,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
-                          ulong *                        new_rate_activation_epoch ) {
+                          ulong *                        new_rate_activation_epoch,
+                          fd_capture_ctx_t *             capture_ctx ) {
   /* If validator_admission_ticket is enabled, the top 2000 vote
      accounts for every epoch (the agave epoch stakes), are stored in
      the top votes set.  If the feature is not active, there is no
@@ -824,9 +837,9 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      The non vat code path uses the vote stakes data structure as it
      considers all vote/stake accounts. */
   if( FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-    fd_refresh_vote_accounts_vat( bank, accdb, xid, runtime_stack, stake_delegations, history, new_rate_activation_epoch );
+    fd_refresh_vote_accounts_vat( bank, accdb, xid, runtime_stack, stake_delegations, history, new_rate_activation_epoch, capture_ctx );
   } else {
-    fd_refresh_vote_accounts_no_vat( bank, accdb, xid, runtime_stack, stake_delegations, history, new_rate_activation_epoch );
+    fd_refresh_vote_accounts_no_vat( bank, accdb, xid, runtime_stack, stake_delegations, history, new_rate_activation_epoch, capture_ctx );
   }
 }
 
@@ -871,7 +884,8 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                             runtime_stack,
                             stake_delegations,
                             stake_history,
-                            new_rate_activation_epoch );
+                            new_rate_activation_epoch,
+                            capture_ctx );
 
   fd_accdb_close_ro( accdb, sh_ro );
 }

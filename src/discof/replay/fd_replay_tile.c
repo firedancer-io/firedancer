@@ -681,9 +681,9 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
         if( v ) {
           fd_memcpy( v->vote_account, pubkey.uc,    32UL );
           fd_memcpy( v->node_account, node_t_1.uc,  32UL );
-          v->commission_bps               = comm_t_1;
-          v->prev_epoch_commission_bps    = comm_t_2;
-          v->prev_prev_epoch_commission_bps = 0;  /* filled below after iter fini */
+          v->commission_t1                = comm_t_1;
+          v->commission_t2                = comm_t_2;
+          v->commission_t3                = 0;  /* filled below from capture_ctx stash */
           v->active_stake                 = stake_t_1;
           v->prev_epoch_stake             = stake_t_2;
           v->prev_epoch_credits           = v_prev_credits;
@@ -693,18 +693,20 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       }
       fd_vote_stakes_fork_iter_fini( vote_stakes );
 
-      /* Parent-fork t_2 query — gives us t_3 (= "previous previous"
-         commission, the value `delay_commission_updates` uses).  Safe
-         to call now that iter is fini'd. */
-      if( have_parent_fork_idx ) {
-        for( ulong i=0UL; i<vote_accts_cnt; i++ ) {
-          fd_pubkey_t pk;
-          fd_memcpy( pk.uc, vote_accts[ i ].vote_account, 32UL );
-          ushort c_t3 = 0;
-          if( fd_vote_stakes_query_t_2( vote_stakes, parent_fork_idx, &pk,
-                                        NULL, NULL, &c_t3 ) ) {
-            vote_accts[ i ].prev_prev_epoch_commission_bps = c_t3;
-          }
+      /* Overlay (t1, t2, t3) from capture_ctx stash populated by
+         fd_stakes.c during the boundary validator loop.  This is the
+         canonical source — same values fd_stakes uses for reward calc. */
+      (void)parent_fork_idx; (void)have_parent_fork_idx;
+      for( ulong i=0UL; i<vote_accts_cnt; i++ ) {
+        fd_pubkey_t pk;
+        fd_memcpy( pk.uc, vote_accts[ i ].vote_account, 32UL );
+        ushort cc_t1=0, cc_t2=0, cc_t3=0;
+        uchar  ce_t3=0;
+        if( fd_capture_link_runtime_epoch_query_voter_commission(
+                ctx->capture_ctx, &pk, &cc_t1, &cc_t2, &cc_t3, &ce_t3 ) ) {
+          vote_accts[ i ].commission_t1 = cc_t1;
+          vote_accts[ i ].commission_t2 = cc_t2;
+          vote_accts[ i ].commission_t3 = ce_t3 ? cc_t3 : 0;
         }
       }
     }

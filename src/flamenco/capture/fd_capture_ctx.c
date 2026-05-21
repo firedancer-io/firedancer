@@ -642,6 +642,48 @@ fd_capture_link_runtime_epoch_set_partitions( fd_capture_ctx_t *                
 }
 
 void
+fd_capture_link_runtime_epoch_record_voter_commission( fd_capture_ctx_t *  ctx,
+                                                       fd_pubkey_t const * pubkey,
+                                                       ushort              commission_t1,
+                                                       ushort              commission_t2,
+                                                       ushort              commission_t3,
+                                                       uchar               exists_t3 ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_runtime_epoch_events ) ) return;
+  ctx->current_epoch_seen = 1;
+  ulong slot = ctx->current_epoch_voter_commissions_cnt;
+  if( slot >= FD_CAPTURE_RUNTIME_EPOCH_VOTER_COMMISSIONS_MAX ) return;
+  fd_capture_runtime_epoch_voter_commission_t * v = &ctx->current_epoch_voter_commissions[ slot ];
+  fd_memcpy( v->pubkey, pubkey->uc, 32UL );
+  v->commission_t1 = commission_t1;
+  v->commission_t2 = commission_t2;
+  v->commission_t3 = commission_t3;
+  v->exists_t3     = exists_t3;
+  v->_pad          = 0;
+  ctx->current_epoch_voter_commissions_cnt = slot + 1UL;
+}
+
+int
+fd_capture_link_runtime_epoch_query_voter_commission( fd_capture_ctx_t const * ctx,
+                                                      fd_pubkey_t const *      pubkey,
+                                                      ushort *                 commission_t1_out,
+                                                      ushort *                 commission_t2_out,
+                                                      ushort *                 commission_t3_out,
+                                                      uchar *                  exists_t3_out ) {
+  if( FD_UNLIKELY( !ctx ) ) return 0;
+  for( ulong i=0UL; i<ctx->current_epoch_voter_commissions_cnt; i++ ) {
+    fd_capture_runtime_epoch_voter_commission_t const * v = &ctx->current_epoch_voter_commissions[ i ];
+    if( !memcmp( v->pubkey, pubkey->uc, 32UL ) ) {
+      if( commission_t1_out ) *commission_t1_out = v->commission_t1;
+      if( commission_t2_out ) *commission_t2_out = v->commission_t2;
+      if( commission_t3_out ) *commission_t3_out = v->commission_t3;
+      if( exists_t3_out     ) *exists_t3_out     = v->exists_t3;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+void
 fd_capture_link_write_runtime_epoch( fd_capture_ctx_t *                       ctx,
                                      fd_capture_runtime_epoch_info_t const *  info ) {
   if( FD_LIKELY( !ctx ) ) return;
@@ -665,6 +707,7 @@ fd_capture_link_write_runtime_epoch( fd_capture_ctx_t *                       ct
   ctx->current_epoch_unmarked_deltas_cnt      = 0UL;
   ctx->current_epoch_partition_counts_cnt     = 0UL;
   ctx->current_epoch_partitions_cnt           = 0UL;
+  ctx->current_epoch_voter_commissions_cnt    = 0UL;
   ctx->current_epoch_seen                     = 0;
   ctx->current_epoch_vote_rewards_total       = 0UL;
   ctx->current_epoch_stake_rewards_total      = 0UL;

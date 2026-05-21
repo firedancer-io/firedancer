@@ -98,14 +98,14 @@
             "fields": {
                 "vote_account":            { "type": "Bytes",  "description": "Vote account pubkey (32 bytes)" },
                 "node_account":            { "type": "Bytes",  "description": "Validator identity pubkey (32 bytes)" },
-                "commission_bps":          { "type": "UInt16", "description": "Commission in basis points (0..10000) at the boundary — divide by 100 to get percent" },
+                "commission_t1":           { "type": "UInt16", "description": "Commission in basis points captured at this boundary from the vote account (commission_t_1).  Divide by 100 for percent." },
                 "active_stake":            { "type": "UInt64", "description": "Stake at start of the new epoch (lamports)" },
                 "prev_epoch_stake":        { "type": "UInt64", "description": "Stake at start of the previous epoch" },
                 "prev_epoch_credits":      { "type": "UInt64", "description": "Vote credits earned during the previous epoch" },
                 "prev_prev_epoch_credits": { "type": "UInt64", "description": "Vote credits earned during the epoch two back" },
                 "last_vote_slot":          { "type": "UInt64", "description": "Last slot this vote account voted on at the boundary" },
-                "prev_epoch_commission_bps":      { "type": "UInt16", "description": "Commission in basis points one epoch ago (vote_stakes commission_t_2)" },
-                "prev_prev_epoch_commission_bps": { "type": "UInt16", "description": "Commission in basis points two epochs ago (= parent bank's vote_stakes commission_t_2 = this bank's commission_t_3).  This is the commission `delay_commission_updates` uses for the prev epoch's reward calculation." }
+                "commission_t2":           { "type": "UInt16", "description": "Commission in basis points one boundary ago (vote_stakes commission_t_2 — = parent fork's c_t_1)" },
+                "commission_t3":           { "type": "UInt16", "description": "Commission in basis points two boundaries ago (vote_stakes commission_t_3 — = parent fork's c_t_2).  This is the value `delay_commission_updates` uses for prev-epoch reward calc." }
             }
         }
     }

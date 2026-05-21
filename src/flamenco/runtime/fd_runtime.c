@@ -1777,7 +1777,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
         runtime_stack,
         stake_delegations,
         stake_history,
-        &new_rate_activation_epoch );
+        &new_rate_activation_epoch,
+        NULL /* capture_ctx — genesis init, no events */ );
 
     if( FD_LIKELY( ro ) ) fd_accdb_close_ro( accdb, ro );
   }

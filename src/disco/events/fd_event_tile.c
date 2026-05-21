@@ -879,14 +879,14 @@ after_frag( fd_event_tile_t *   ctx,
         fd_pb_submsg_open( encoder, 45U );
         fd_pb_push_bytes ( encoder, 1U, v->vote_account, 32UL );
         fd_pb_push_bytes ( encoder, 2U, v->node_account, 32UL );
-        fd_pb_push_uint32( encoder, 3U, v->commission_bps );
+        fd_pb_push_uint32( encoder, 3U, v->commission_t1 );
         fd_pb_push_uint64( encoder, 4U, v->active_stake );
         fd_pb_push_uint64( encoder, 5U, v->prev_epoch_stake );
         fd_pb_push_uint64( encoder, 6U, v->prev_epoch_credits );
         fd_pb_push_uint64( encoder, 7U, v->prev_prev_epoch_credits );
         fd_pb_push_uint64( encoder, 8U, v->last_vote_slot );
-        fd_pb_push_uint32( encoder, 9U, v->prev_epoch_commission_bps );
-        fd_pb_push_uint32( encoder, 10U, v->prev_prev_epoch_commission_bps );
+        fd_pb_push_uint32( encoder, 9U, v->commission_t2 );
+        fd_pb_push_uint32( encoder, 10U, v->commission_t3 );
         fd_pb_submsg_close( encoder );
       }
 

@@ -407,14 +407,14 @@ message RuntimeEpochStakeDelta {
 message RuntimeEpochVoteAccount {
   bytes  vote_account = 1;          // 32 B
   bytes  node_account = 2;          // 32 B — validator identity
-  uint32 commission_bps = 3;        // basis points 0..10000 (UInt16 in JSON)
+  uint32 commission_t1 = 3;         // bps, current accdb at boundary (vote_stakes commission_t_1)
   uint64 active_stake = 4;          // stake at start of new epoch
   uint64 prev_epoch_stake = 5;      // stake at start of prev epoch
   uint64 prev_epoch_credits = 6;    // credits earned during prev epoch
   uint64 prev_prev_epoch_credits = 7;
   uint64 last_vote_slot = 8;
-  uint32 prev_epoch_commission_bps = 9;       // basis points 1 epoch ago
-  uint32 prev_prev_epoch_commission_bps = 10; // basis points 2 epochs ago
+  uint32 commission_t2 = 9;         // bps, vote_stakes commission_t_2
+  uint32 commission_t3 = 10;        // bps, vote_stakes commission_t_3 (used by delay_commission_updates)
 }
 
 // A per-epoch-boundary runtime event — one row per (slot, block_id) at
