@@ -4,26 +4,42 @@
 static void
 fd_f25519_rand_canonical( fd_f25519_t * x,
                           fd_rng_t *    rng ) {
-  for( ulong i=0UL; i<5UL; i++ ) x->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
+  x->el = wwl( (long)(fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK),
+               (long)(fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK),
+               (long)(fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK),
+               (long)(fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK),
+               (long)(fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK),
+               0L, 0L, 0L );
 }
 
 static void
 fd_f25519_rand_loose( fd_f25519_t * x,
                       fd_rng_t *    rng ) {
-  for( ulong i=0UL; i<5UL; i++ ) x->el[i] = fd_rng_ulong( rng ) & ((1UL<<54)-1UL);
+  x->el = wwl( (long)(fd_rng_ulong( rng ) & ((1UL<<54)-1UL)),
+               (long)(fd_rng_ulong( rng ) & ((1UL<<54)-1UL)),
+               (long)(fd_rng_ulong( rng ) & ((1UL<<54)-1UL)),
+               (long)(fd_rng_ulong( rng ) & ((1UL<<54)-1UL)),
+               (long)(fd_rng_ulong( rng ) & ((1UL<<54)-1UL)),
+               0L, 0L, 0L );
 }
 
 static void
 fd_f25519_reduce_ref( fd_f25519_t *       r,
                       fd_f25519_t const * x ) {
-  fd_f25519_reduce( r->el, x->el );
+  ulong h[5];
+  fd_f25519_reduce( h, x->el );
+  r->el = wwl( (long)h[0], (long)h[1], (long)h[2], (long)h[3], (long)h[4], 0L, 0L, 0L );
 }
 
 static int
 fd_f25519_eq_limbs( fd_f25519_t const * x,
                     fd_f25519_t const * y ) {
-  return (x->el[0]==y->el[0]) & (x->el[1]==y->el[1]) & (x->el[2]==y->el[2]) &
-         (x->el[3]==y->el[3]) & (x->el[4]==y->el[4]);
+  long xl[8] __attribute__((aligned(FD_F25519_ALIGN)));
+  long yl[8] __attribute__((aligned(FD_F25519_ALIGN)));
+  wwl_st( xl, x->el );
+  wwl_st( yl, y->el );
+  return (xl[0]==yl[0]) & (xl[1]==yl[1]) & (xl[2]==yl[2]) &
+         (xl[3]==yl[3]) & (xl[4]==yl[4]);
 }
 
 static void
@@ -31,11 +47,7 @@ fd_f25519_mul_const_ref( fd_f25519_t *       r,
                          fd_f25519_t const * x,
                          ulong               c ) {
   fd_f25519_t k[1];
-  k->el[0] = c;
-  k->el[1] = 0UL;
-  k->el[2] = 0UL;
-  k->el[3] = 0UL;
-  k->el[4] = 0UL;
+  k->el = wwl( (long)c, 0L, 0L, 0L, 0L, 0L, 0L, 0L );
   fd_f25519_mul( r, x, k );
 }
 
@@ -199,16 +211,10 @@ main( int     argc,
   do {
     fd_f25519_t x0[1], x1[1], x2[1], x3[1];
     fd_f25519_t y0[1], y1[1], y2[1], y3[1];
-    for( ulong i=0UL; i<5UL; i++ ) {
-      x0->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
-      x1->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
-      x2->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
-      x3->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
-      y0->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
-      y1->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
-      y2->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
-      y3->el[i] = fd_rng_ulong( rng ) & FD_F25519_LIMB_MASK;
-    }
+    fd_f25519_rand_canonical( x0, rng ); fd_f25519_rand_canonical( x1, rng );
+    fd_f25519_rand_canonical( x2, rng ); fd_f25519_rand_canonical( x3, rng );
+    fd_f25519_rand_canonical( y0, rng ); fd_f25519_rand_canonical( y1, rng );
+    fd_f25519_rand_canonical( y2, rng ); fd_f25519_rand_canonical( y3, rng );
 
 #   define BENCH(op) do {                                                     \
       for( ulong rem=warm_max; rem; rem-- ) op;                               \

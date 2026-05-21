@@ -325,4 +325,11 @@ fd_f25519_sqr4( fd_f25519_t * r1, fd_f25519_t const * a1,
   fd_f25519_sqr( r4, a4 );
 }
 
+FD_25519_INLINE int
+fd_f25519_sgn( fd_f25519_t const * a ) {
+  uchar buf[32];
+  fd_f25519_tobytes( buf, a );
+  return buf[0] & 1;
+}
+
 FD_PROTOTYPES_END

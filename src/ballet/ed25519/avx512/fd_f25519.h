@@ -2,20 +2,13 @@
 #error "Do not include this directly; use fd_f25519.h"
 #endif
 
-/* This header provides the AVX-512 field element implementation for
-   GF(2^255-19).  A field element is represented as 5 radix-2^51 limbs.
-
-    ele = el[0] + el[1]*2^51 + el[2]*2^102 + el[3]*2^153 + el[4]*2^204
-
-   Limbs may grow up to 2^54 between reductions. */
-
 #include "../../fd_ballet_base.h"
 #include "fd_r52x5_inl.h"
 
 #define FD_F25519_ALIGN 64
 
 struct fd_f25519 {
-  ulong el[5] __attribute__((aligned(FD_F25519_ALIGN)));
+  wwl_t el __attribute__((aligned(FD_F25519_ALIGN)));
 };
 typedef struct fd_f25519 fd_f25519_t;
 
@@ -25,130 +18,163 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_F25519_LIMB_MASK ((1UL << 51) - 1)
 
+FD_FN_UNUSED FD_FN_CONST static wwl_t
+fd_f25519_fold_unsigned( wwl_t x ) {
+  wwl_t const mask  = wwl( FD_F25519_LIMB_MASK, FD_F25519_LIMB_MASK,
+                           FD_F25519_LIMB_MASK, FD_F25519_LIMB_MASK,
+                           FD_F25519_LIMB_MASK, 0L, 0L, 0L );
+  wwl_t const shift = wwl( 51L, 51L, 51L, 51L, 51L, 0L, 0L, 0L );
+  wwl_t const perm  = wwl(  4L,  0L,  1L,  2L,  3L, 5L, 6L, 7L );
+  wwl_t const scale = wwl( 19L,  1L,  1L,  1L,  1L, 0L, 0L, 0L );
+
+  wwl_t carry   = wwl_shru_vector( x, shift );
+  wwl_t rotated = wwl_permute( perm, carry );
+  return wwl_madd52lo( wwl_and( x, mask ), scale, rotated );
+}
+
 /* fd_f25519_reduce performs weak reduction: carries from each limb into
    the next, wrapping limb 4's carry by *19 because 2^255 = 19 mod p. */
 FD_25519_INLINE void
-fd_f25519_reduce( ulong out[5], ulong const in[5] ) {
-  ulong c0 = in[0] >> 51;
-  ulong c1 = in[1] >> 51;
-  ulong c2 = in[2] >> 51;
-  ulong c3 = in[3] >> 51;
-  ulong c4 = in[4] >> 51;
-
-  out[0] = (in[0] & FD_F25519_LIMB_MASK) + c4 * 19;
-  out[1] = (in[1] & FD_F25519_LIMB_MASK) + c0;
-  out[2] = (in[2] & FD_F25519_LIMB_MASK) + c1;
-  out[3] = (in[3] & FD_F25519_LIMB_MASK) + c2;
-  out[4] = (in[4] & FD_F25519_LIMB_MASK) + c3;
+fd_f25519_reduce( ulong out[5], wwl_t in ) {
+  long h[8] __attribute__((aligned(FD_F25519_ALIGN)));
+  wwl_st( h, fd_f25519_fold_unsigned( in ) );
+  out[0] = (ulong)h[0];
+  out[1] = (ulong)h[1];
+  out[2] = (ulong)h[2];
+  out[3] = (ulong)h[3];
+  out[4] = (ulong)h[4];
 }
 
-#define FD_F25519_STORE_QUAD_LANE( r, Q, lane ) do { \
-    (r)->el[0] = (ulong)wl_extract( Q##0, lane );     \
-    (r)->el[1] = (ulong)wl_extract( Q##1, lane );     \
-    (r)->el[2] = (ulong)wl_extract( Q##2, lane );     \
-    (r)->el[3] = (ulong)wl_extract( Q##3, lane );     \
-    (r)->el[4] = (ulong)wl_extract( Q##4, lane );     \
-  } while(0)
-
-/* fd_f25519_mul computes r = a * b.
-   Precondition: a[i], b[i] < 2^54. */
-FD_25519_INLINE fd_f25519_t *
+/* fd_f25519_mul computes r = a * b. */
+FD_FN_UNUSED static fd_f25519_t *
 fd_f25519_mul( fd_f25519_t       * r,
                fd_f25519_t const * a,
                fd_f25519_t const * b ) {
-  ulong aa[5];
-  ulong bb[5];
-  fd_f25519_reduce( aa, a->el );
-  fd_f25519_reduce( bb, b->el );
+  wwl_t const zero = wwl_zero();
 
-  FD_R52X5_QUAD_DECL( _R );
-  fd_r52x5_quad_mul_fast( &_R0, &_R1, &_R2, &_R3, &_R4,
-                          wl_bcast( (long)aa[0] ), wl_bcast( (long)aa[1] ),
-                          wl_bcast( (long)aa[2] ), wl_bcast( (long)aa[3] ),
-                          wl_bcast( (long)aa[4] ),
-                          wl_bcast( (long)bb[0] ), wl_bcast( (long)bb[1] ),
-                          wl_bcast( (long)bb[2] ), wl_bcast( (long)bb[3] ),
-                          wl_bcast( (long)bb[4] ) );
-  FD_R52X5_QUAD_REDUCE( _R, _R );
-  FD_F25519_STORE_QUAD_LANE( r, _R, 0 );
+  wwl_t y = b->el;
 
+  wwl_t ax = a->el;
+  wwl_t x0 = wwl_permute( zero,            ax );
+  wwl_t x1 = wwl_permute( wwl_one(),       ax );
+  wwl_t x2 = wwl_permute( wwl_bcast( 2L ), ax );
+  wwl_t x3 = wwl_permute( wwl_bcast( 3L ), ax );
+  wwl_t x4 = wwl_permute( wwl_bcast( 4L ), ax );
+
+  wwl_t t0 = wwl_madd52lo( zero,                                      x0, y );
+  wwl_t t1 = wwl_madd52lo( wwl_shl( wwl_madd52hi( zero, x0, y ), 1 ), x1, y );
+  wwl_t t2 = wwl_madd52lo( wwl_shl( wwl_madd52hi( zero, x1, y ), 1 ), x2, y );
+  wwl_t t3 = wwl_madd52lo( wwl_shl( wwl_madd52hi( zero, x2, y ), 1 ), x3, y );
+  wwl_t t4 = wwl_madd52lo( wwl_shl( wwl_madd52hi( zero, x3, y ), 1 ), x4, y );
+  wwl_t t5 =               wwl_shl( wwl_madd52hi( zero, x4, y ), 1 );
+
+  wwl_t p0j =                  t0;
+  wwl_t p1j = wwl_slide( zero, t1, 7 );
+  wwl_t p2j = wwl_slide( zero, t2, 6 );
+  wwl_t p3j = wwl_slide( zero, t3, 5 );
+  wwl_t p4j = wwl_slide( zero, t4, 4 ); wwl_t q4j = wwl_slide( t4, zero, 4 );
+  wwl_t p5j = wwl_slide( zero, t5, 3 ); wwl_t q5j = wwl_slide( t5, zero, 3 );
+
+  wwl_t zl = wwl_add( wwl_add( wwl_add( p0j, p1j ), wwl_add( p2j, p3j ) ),
+                       wwl_add( p4j, p5j ) );
+  wwl_t zh = wwl_add( q4j, q5j );
+
+  wwl_t za = wwl_and( zl, wwl( -1L, -1L, -1L, -1L, -1L, 0L, 0L, 0L ) );
+  wwl_t zb = wwl_slide( zl, zh, 5 );
+
+  wwl_t z = wwl_add( wwl_add( za, zb ), wwl_add( wwl_shl( zb, 1 ), wwl_shl( zb, 4 ) ) );
+
+  r->el = fd_f25519_fold_unsigned( z );
   return r;
 }
+
 
 /* fd_f25519_sqr computes r = a^2. */
-FD_25519_INLINE fd_f25519_t *
-fd_f25519_sqr( fd_f25519_t *       r,
+FD_FN_UNUSED static fd_f25519_t *
+fd_f25519_sqr( fd_f25519_t       * r,
                fd_f25519_t const * a ) {
-  ulong aa[5];
-  fd_f25519_reduce( aa, a->el );
+  wwl_t const zero = wwl_zero();
+  wwl_t aa = a->el;
 
-  FD_R52X5_QUAD_DECL( _R );
-  fd_r52x5_quad_sqr_fast( &_R0, &_R1, &_R2, &_R3, &_R4,
-                          wl_bcast( (long)aa[0] ), wl_bcast( (long)aa[1] ),
-                          wl_bcast( (long)aa[2] ), wl_bcast( (long)aa[3] ),
-                          wl_bcast( (long)aa[4] ) );
-  FD_R52X5_QUAD_REDUCE( _R, _R );
-  FD_F25519_STORE_QUAD_LANE( r, _R, 0 );
+  wwl_t x0 = wwl_permute( wwl( 0L, 0L, 0L, 0L, 0L, 2L, 3L, 3L ), aa );
+  wwl_t x1 = wwl_permute( wwl( 0L, 1L, 2L, 3L, 4L, 3L, 3L, 4L ), aa );
+  wwl_t x2 = wwl_permute( wwl( 4L, 5L, 1L, 1L, 1L, 1L, 2L, 5L ), aa );
+  wwl_t x3 = wwl_permute( wwl( 4L, 5L, 1L, 2L, 3L, 4L, 4L, 5L ), aa );
+  wwl_t x4 = wwl_permute( wwl( 5L, 5L, 5L, 5L, 2L, 5L, 5L, 5L ), aa );
 
+  wwl_t p0l = wwl_madd52lo( zero, x0, x1 );
+  wwl_t p0h = wwl_madd52hi( zero, x0, x1 );
+  wwl_t p1l = wwl_madd52lo( zero, x2, x3 );
+  wwl_t p1h = wwl_madd52hi( zero, x2, x3 );
+  wwl_t p2l = wwl_madd52lo( zero, x4, x4 );
+  wwl_t p2h = wwl_madd52hi( zero, x4, x4 );
+
+  p0l = wwl_shl_vector( p0l, wwl( 0L, 1L, 1L, 1L, 1L, 1L, 0L, 1L ) );
+  p0h = wwl_shl_vector( p0h, wwl( 1L, 2L, 2L, 2L, 2L, 2L, 1L, 2L ) );
+  p1l = wwl_shl_vector( p1l, wwl( 0L, 0L, 0L, 1L, 1L, 1L, 1L, 0L ) );
+  p1h = wwl_shl_vector( p1h, wwl( 1L, 0L, 1L, 2L, 2L, 2L, 2L, 0L ) );
+  p2h = wwl_shl( p2h, 1 );
+
+  wwl_t const mask1 = wwl( -1L, 0L, 0L, 0L, 0L, 0L, 0L, 0L );
+
+  wwl_t zll = wwl_add( wwl_add( p0l, wwl_andnot( mask1, p1l ) ), p2l );
+  wwl_t zlh = wwl_add( wwl_add( p0h, wwl_andnot( mask1, p1h ) ), p2h );
+  wwl_t zhl = wwl_and( mask1, p1l );
+  wwl_t zhh = wwl_and( mask1, p1h );
+
+  wwl_t zl = wwl_add( zll, wwl_slide( zero, zlh, 7 ) );
+  wwl_t zh = wwl_add( zhl, wwl_add( wwl_slide( zero, zhh, 7 ), wwl_slide( zlh, zero, 7 ) ) );
+
+  wwl_t za = wwl_and( zl, wwl( -1L, -1L, -1L, -1L, -1L, 0L, 0L, 0L ) );
+  wwl_t zb = wwl_slide( zl, zh, 5 );
+
+  wwl_t z = wwl_add( wwl_add( za, zb ), wwl_add( wwl_shl( zb, 1 ), wwl_shl( zb, 4 ) ) );
+
+  r->el = fd_f25519_fold_unsigned( z );
   return r;
 }
 
-/* fd_f25519_add computes r = a + b (with weak reduction). */
+/* fd_f25519_add computes r = a + b (with fold). */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_add( fd_f25519_t *       r,
                fd_f25519_t const * a,
                fd_f25519_t const * b ) {
-  ulong t[5];
-  t[0] = a->el[0] + b->el[0];
-  t[1] = a->el[1] + b->el[1];
-  t[2] = a->el[2] + b->el[2];
-  t[3] = a->el[3] + b->el[3];
-  t[4] = a->el[4] + b->el[4];
-  fd_f25519_reduce( r->el, t );
+  r->el = fd_f25519_fold_unsigned( wwl_add( a->el, b->el ) );
   return r;
 }
 
-/* fd_f25519_sub computes r = a - b (with weak reduction).
-   Adds 16*p to avoid underflow before carry propagation. */
+/* fd_f25519_sub computes r = a - b (with fold).
+   Adds 16*p bias to avoid underflow. */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_sub( fd_f25519_t *       r,
                fd_f25519_t const * a,
                fd_f25519_t const * b ) {
-  ulong t[5];
-  t[0] = (a->el[0] + 0x7ffffffffffed0UL) - b->el[0];
-  t[1] = (a->el[1] + 0x7ffffffffffff0UL) - b->el[1];
-  t[2] = (a->el[2] + 0x7ffffffffffff0UL) - b->el[2];
-  t[3] = (a->el[3] + 0x7ffffffffffff0UL) - b->el[3];
-  t[4] = (a->el[4] + 0x7ffffffffffff0UL) - b->el[4];
-  fd_f25519_reduce( r->el, t );
+  wwl_t const bias = wwl( (long)0x7ffffffffffed0UL, (long)0x7ffffffffffff0UL,
+                          (long)0x7ffffffffffff0UL, (long)0x7ffffffffffff0UL,
+                          (long)0x7ffffffffffff0UL, 0L, 0L, 0L );
+  r->el = fd_f25519_fold_unsigned( wwl_add( a->el, wwl_sub( bias, b->el ) ) );
   return r;
 }
 
-/* fd_f25519_add_nr computes r = a + b without reduction.
-   Caller must ensure result limbs stay < 2^54 before feeding into mul/sqr. */
+/* fd_f25519_add_nr computes r = a + b without reduction. */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_add_nr( fd_f25519_t *       r,
                   fd_f25519_t const * a,
                   fd_f25519_t const * b ) {
-  r->el[0] = a->el[0] + b->el[0];
-  r->el[1] = a->el[1] + b->el[1];
-  r->el[2] = a->el[2] + b->el[2];
-  r->el[3] = a->el[3] + b->el[3];
-  r->el[4] = a->el[4] + b->el[4];
+  r->el = wwl_add( a->el, b->el );
   return r;
 }
 
 /* fd_f25519_sub_nr computes r = a - b without final reduction.
-   Adds 4*p to avoid underflow.  Result limbs stay < 2^54. */
+   Adds 4*p to avoid underflow. */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_sub_nr( fd_f25519_t *       r,
                   fd_f25519_t const * a,
                   fd_f25519_t const * b ) {
-  r->el[0] = (a->el[0] + 0x1fffffffffffb4UL) - b->el[0];
-  r->el[1] = (a->el[1] + 0x1ffffffffffffcUL) - b->el[1];
-  r->el[2] = (a->el[2] + 0x1ffffffffffffcUL) - b->el[2];
-  r->el[3] = (a->el[3] + 0x1ffffffffffffcUL) - b->el[3];
-  r->el[4] = (a->el[4] + 0x1ffffffffffffcUL) - b->el[4];
+  wwl_t const bias = wwl( (long)0x1fffffffffffb4UL, (long)0x1ffffffffffffcUL,
+                          (long)0x1ffffffffffffcUL, (long)0x1ffffffffffffcUL,
+                          (long)0x1ffffffffffffcUL, 0L, 0L, 0L );
+  r->el = wwl_add( a->el, wwl_sub( bias, b->el ) );
   return r;
 }
 
@@ -156,13 +182,10 @@ fd_f25519_sub_nr( fd_f25519_t *       r,
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_neg( fd_f25519_t *       r,
                fd_f25519_t const * a ) {
-  ulong t[5];
-  t[0] = 0x7ffffffffffed0UL - a->el[0];
-  t[1] = 0x7ffffffffffff0UL - a->el[1];
-  t[2] = 0x7ffffffffffff0UL - a->el[2];
-  t[3] = 0x7ffffffffffff0UL - a->el[3];
-  t[4] = 0x7ffffffffffff0UL - a->el[4];
-  fd_f25519_reduce( r->el, t );
+  wwl_t const bias = wwl( (long)0x7ffffffffffed0UL, (long)0x7ffffffffffff0UL,
+                          (long)0x7ffffffffffff0UL, (long)0x7ffffffffffff0UL,
+                          (long)0x7ffffffffffff0UL, 0L, 0L, 0L );
+  r->el = fd_f25519_fold_unsigned( wwl_sub( bias, a->el ) );
   return r;
 }
 
@@ -170,53 +193,35 @@ fd_f25519_neg( fd_f25519_t *       r,
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_mul_121666( fd_f25519_t *       r,
                       fd_f25519_t const * a ) {
-  uint128 c0 = (uint128)a->el[0] * 121666;
-  uint128 c1 = (uint128)a->el[1] * 121666;
-  uint128 c2 = (uint128)a->el[2] * 121666;
-  uint128 c3 = (uint128)a->el[3] * 121666;
-  uint128 c4 = (uint128)a->el[4] * 121666;
+  wwl_t const zero = wwl_zero();
+  wwl_t const k    = wwl_bcast( 121666L );
 
-  c1 += (ulong)(c0 >> 51);
-  r->el[0] = (ulong)c0 & FD_F25519_LIMB_MASK;
-
-  c2 += (ulong)(c1 >> 51);
-  r->el[1] = (ulong)c1 & FD_F25519_LIMB_MASK;
-
-  c3 += (ulong)(c2 >> 51);
-  r->el[2] = (ulong)c2 & FD_F25519_LIMB_MASK;
-
-  c4 += (ulong)(c3 >> 51);
-  r->el[3] = (ulong)c3 & FD_F25519_LIMB_MASK;
-
-  ulong carry = (ulong)(c4 >> 51);
-  r->el[4] = (ulong)c4 & FD_F25519_LIMB_MASK;
-
-  r->el[0] += carry * 19;
-  r->el[1] += r->el[0] >> 51;
-  r->el[0] &= FD_F25519_LIMB_MASK;
-
+  wwl_t lo = wwl_madd52lo( zero, k, a->el );
+  wwl_t hi = wwl_shl( wwl_madd52hi( zero, k, a->el ), 1 );
+  r->el = fd_f25519_fold_unsigned( wwl_add( lo, hi ) );
   return r;
 }
 
-/* fd_f25519_frombytes deserializes a 32-byte LE buffer into a field element.
-   The five 51-bit limbs start at byte offsets 0, 6, 12, 19, and 24. */
+/* fd_f25519_frombytes deserializes a 32-byte LE buffer into a field element. */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_frombytes( fd_f25519_t * r,
                      uchar const   buf[ 32 ] ) {
-  r->el[0] =  fd_ulong_load_8_fast( buf    )        & FD_F25519_LIMB_MASK;
-  r->el[1] = (fd_ulong_load_8_fast( buf+ 6 ) >>  3) & FD_F25519_LIMB_MASK;
-  r->el[2] = (fd_ulong_load_8_fast( buf+12 ) >>  6) & FD_F25519_LIMB_MASK;
-  r->el[3] = (fd_ulong_load_8_fast( buf+19 ) >>  1) & FD_F25519_LIMB_MASK;
-  r->el[4] = (fd_ulong_load_8_fast( buf+24 ) >> 12) & FD_F25519_LIMB_MASK;
+  r->el = wwl( fd_ulong_load_8_fast( buf    )        & FD_F25519_LIMB_MASK,
+              (fd_ulong_load_8_fast( buf+ 6 ) >>  3) & FD_F25519_LIMB_MASK,
+              (fd_ulong_load_8_fast( buf+12 ) >>  6) & FD_F25519_LIMB_MASK,
+              (fd_ulong_load_8_fast( buf+19 ) >>  1) & FD_F25519_LIMB_MASK,
+              (fd_ulong_load_8_fast( buf+24 ) >> 12) & FD_F25519_LIMB_MASK,
+              0L,
+              0L,
+              0L );
   return r;
 }
 
-/* fd_f25519_tobytes serializes a field element to a canonical 32-byte LE
-   buffer. */
-FD_25519_INLINE uchar *
-fd_f25519_tobytes( uchar               out[ 32 ],
-                   fd_f25519_t const * a ) {
-  ulong h[5];
+/* fd_f25519_canonical_limbs reduces a field element to its unique
+   canonical representative in [0, p) as 5 radix-2^51 limbs. */
+FD_25519_INLINE void
+fd_f25519_canonical_limbs( ulong               h[5],
+                           fd_f25519_t const * a ) {
   fd_f25519_reduce( h, a->el );
 
   ulong q = (h[0] + 19) >> 51;
@@ -237,6 +242,15 @@ fd_f25519_tobytes( uchar               out[ 32 ],
   c = h[3] >> 51; h[3] &= FD_F25519_LIMB_MASK;
   h[4] += c;
   h[4] &= FD_F25519_LIMB_MASK;
+}
+
+/* fd_f25519_tobytes serializes a field element to a canonical 32-byte LE
+   buffer. */
+FD_25519_INLINE uchar *
+fd_f25519_tobytes( uchar               out[ 32 ],
+                   fd_f25519_t const * a ) {
+  ulong h[5];
+  fd_f25519_canonical_limbs( h, a );
 
   out[ 0] = (uchar)( h[0]       );
   out[ 1] = (uchar)( h[0] >>  8 );
@@ -281,12 +295,8 @@ fd_f25519_if( fd_f25519_t *       r,
               int const           cond,
               fd_f25519_t const * a0,
               fd_f25519_t const * a1 ) {
-  ulong mask = -(ulong)!!cond;
-  r->el[0] = a1->el[0] ^ (mask & (a0->el[0] ^ a1->el[0]));
-  r->el[1] = a1->el[1] ^ (mask & (a0->el[1] ^ a1->el[1]));
-  r->el[2] = a1->el[2] ^ (mask & (a0->el[2] ^ a1->el[2]));
-  r->el[3] = a1->el[3] ^ (mask & (a0->el[3] ^ a1->el[3]));
-  r->el[4] = a1->el[4] ^ (mask & (a0->el[4] ^ a1->el[4]));
+  int mask = (-!!cond) & 0xff;
+  r->el = wwl_if( mask, a0->el, a1->el );
   return r;
 }
 
@@ -296,184 +306,44 @@ FD_25519_INLINE void
 fd_f25519_swap_if( fd_f25519_t * restrict a,
                    fd_f25519_t * restrict b,
                    int const              cond ) {
-  ulong mask = -(ulong)!!cond;
-  for( int i=0; i<5; i++ ) {
-    ulong t = mask & (a->el[i] ^ b->el[i]);
-    a->el[i] ^= t;
-    b->el[i] ^= t;
-  }
+  int mask = (-!!cond) & 0xff;
+  wwl_t va = a->el;
+  wwl_t vb = b->el;
+  wwl_t t  = wwl_xor( va, vb );
+  t = wwl_if( mask, t, wwl_zero() );
+  a->el = wwl_xor( va, t );
+  b->el = wwl_xor( vb, t );
 }
 
 /* fd_f25519_set copies r = a. */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_set( fd_f25519_t *       r,
                fd_f25519_t const * a ) {
-  r->el[0] = a->el[0];
-  r->el[1] = a->el[1];
-  r->el[2] = a->el[2];
-  r->el[3] = a->el[3];
-  r->el[4] = a->el[4];
+  r->el = a->el;
   return r;
 }
 
 /* fd_f25519_is_zero returns 1 if a == 0 (mod p), 0 otherwise. */
 FD_25519_INLINE int
 fd_f25519_is_zero( fd_f25519_t const * a ) {
-  uchar s[32];
-  fd_f25519_tobytes( s, a );
-  ulong acc = 0;
-  for( int i=0; i<32; i++ ) acc |= s[i];
-  return acc == 0;
+  ulong h[5];
+  fd_f25519_canonical_limbs( h, a );
+  return (h[0] | h[1] | h[2] | h[3] | h[4]) == 0;
+}
+
+/* fd_f25519_sgn returns the sign of a (bit 0 of canonical form). */
+FD_25519_INLINE int
+fd_f25519_sgn( fd_f25519_t const * a ) {
+  ulong h[5];
+  fd_f25519_canonical_limbs( h, a );
+  return (int)(h[0] & 1);
 }
 
 FD_25519_INLINE void
 fd_f25519_mul2( fd_f25519_t * r1, fd_f25519_t const * a1, fd_f25519_t const * b1,
                 fd_f25519_t * r2, fd_f25519_t const * a2, fd_f25519_t const * b2 ) {
-  ulong aa1[5]; ulong aa2[5];
-  ulong bb1[5]; ulong bb2[5];
-  fd_f25519_reduce( aa1, a1->el ); fd_f25519_reduce( bb1, b1->el );
-  fd_f25519_reduce( aa2, a2->el ); fd_f25519_reduce( bb2, b2->el );
-
-  FD_R52X5_QUAD_DECL( _A );
-  FD_R52X5_QUAD_DECL( _B );
-  _A0 = wl( (long)aa1[0], (long)aa2[0], 0L, 0L ); _B0 = wl( (long)bb1[0], (long)bb2[0], 0L, 0L );
-  _A1 = wl( (long)aa1[1], (long)aa2[1], 0L, 0L ); _B1 = wl( (long)bb1[1], (long)bb2[1], 0L, 0L );
-  _A2 = wl( (long)aa1[2], (long)aa2[2], 0L, 0L ); _B2 = wl( (long)bb1[2], (long)bb2[2], 0L, 0L );
-  _A3 = wl( (long)aa1[3], (long)aa2[3], 0L, 0L ); _B3 = wl( (long)bb1[3], (long)bb2[3], 0L, 0L );
-  _A4 = wl( (long)aa1[4], (long)aa2[4], 0L, 0L ); _B4 = wl( (long)bb1[4], (long)bb2[4], 0L, 0L );
-
-  FD_R52X5_QUAD_DECL( _M );
-  FD_R52X5_QUAD_MUL_FAST( _M, _A, _B );
-  FD_R52X5_QUAD_REDUCE( _M, _M );
-  FD_F25519_STORE_QUAD_LANE( r1, _M, 0 );
-  FD_F25519_STORE_QUAD_LANE( r2, _M, 1 );
-}
-
-FD_25519_INLINE void
-fd_f25519_mul3( fd_f25519_t * r1, fd_f25519_t const * a1, fd_f25519_t const * b1,
-                fd_f25519_t * r2, fd_f25519_t const * a2, fd_f25519_t const * b2,
-                fd_f25519_t * r3, fd_f25519_t const * a3, fd_f25519_t const * b3 ) {
-  ulong aa1[5]; ulong aa2[5]; ulong aa3[5];
-  ulong bb1[5]; ulong bb2[5]; ulong bb3[5];
-  fd_f25519_reduce( aa1, a1->el ); fd_f25519_reduce( bb1, b1->el );
-  fd_f25519_reduce( aa2, a2->el ); fd_f25519_reduce( bb2, b2->el );
-  fd_f25519_reduce( aa3, a3->el ); fd_f25519_reduce( bb3, b3->el );
-
-  FD_R52X5_QUAD_DECL( _A );
-  FD_R52X5_QUAD_DECL( _B );
-  _A0 = wl( (long)aa1[0], (long)aa2[0], (long)aa3[0], 0L ); _B0 = wl( (long)bb1[0], (long)bb2[0], (long)bb3[0], 0L );
-  _A1 = wl( (long)aa1[1], (long)aa2[1], (long)aa3[1], 0L ); _B1 = wl( (long)bb1[1], (long)bb2[1], (long)bb3[1], 0L );
-  _A2 = wl( (long)aa1[2], (long)aa2[2], (long)aa3[2], 0L ); _B2 = wl( (long)bb1[2], (long)bb2[2], (long)bb3[2], 0L );
-  _A3 = wl( (long)aa1[3], (long)aa2[3], (long)aa3[3], 0L ); _B3 = wl( (long)bb1[3], (long)bb2[3], (long)bb3[3], 0L );
-  _A4 = wl( (long)aa1[4], (long)aa2[4], (long)aa3[4], 0L ); _B4 = wl( (long)bb1[4], (long)bb2[4], (long)bb3[4], 0L );
-
-  FD_R52X5_QUAD_DECL( _M );
-  FD_R52X5_QUAD_MUL_FAST( _M, _A, _B );
-  FD_R52X5_QUAD_REDUCE( _M, _M );
-  FD_F25519_STORE_QUAD_LANE( r1, _M, 0 );
-  FD_F25519_STORE_QUAD_LANE( r2, _M, 1 );
-  FD_F25519_STORE_QUAD_LANE( r3, _M, 2 );
-}
-
-FD_25519_INLINE void
-fd_f25519_mul4( fd_f25519_t * r1, fd_f25519_t const * a1, fd_f25519_t const * b1,
-                fd_f25519_t * r2, fd_f25519_t const * a2, fd_f25519_t const * b2,
-                fd_f25519_t * r3, fd_f25519_t const * a3, fd_f25519_t const * b3,
-                fd_f25519_t * r4, fd_f25519_t const * a4, fd_f25519_t const * b4 ) {
-  ulong aa1[5]; ulong aa2[5]; ulong aa3[5]; ulong aa4[5];
-  ulong bb1[5]; ulong bb2[5]; ulong bb3[5]; ulong bb4[5];
-  fd_f25519_reduce( aa1, a1->el ); fd_f25519_reduce( bb1, b1->el );
-  fd_f25519_reduce( aa2, a2->el ); fd_f25519_reduce( bb2, b2->el );
-  fd_f25519_reduce( aa3, a3->el ); fd_f25519_reduce( bb3, b3->el );
-  fd_f25519_reduce( aa4, a4->el ); fd_f25519_reduce( bb4, b4->el );
-
-  FD_R52X5_QUAD_DECL( _A );
-  FD_R52X5_QUAD_DECL( _B );
-  _A0 = wl( (long)aa1[0], (long)aa2[0], (long)aa3[0], (long)aa4[0] ); _B0 = wl( (long)bb1[0], (long)bb2[0], (long)bb3[0], (long)bb4[0] );
-  _A1 = wl( (long)aa1[1], (long)aa2[1], (long)aa3[1], (long)aa4[1] ); _B1 = wl( (long)bb1[1], (long)bb2[1], (long)bb3[1], (long)bb4[1] );
-  _A2 = wl( (long)aa1[2], (long)aa2[2], (long)aa3[2], (long)aa4[2] ); _B2 = wl( (long)bb1[2], (long)bb2[2], (long)bb3[2], (long)bb4[2] );
-  _A3 = wl( (long)aa1[3], (long)aa2[3], (long)aa3[3], (long)aa4[3] ); _B3 = wl( (long)bb1[3], (long)bb2[3], (long)bb3[3], (long)bb4[3] );
-  _A4 = wl( (long)aa1[4], (long)aa2[4], (long)aa3[4], (long)aa4[4] ); _B4 = wl( (long)bb1[4], (long)bb2[4], (long)bb3[4], (long)bb4[4] );
-
-  FD_R52X5_QUAD_DECL( _M );
-  FD_R52X5_QUAD_MUL_FAST( _M, _A, _B );
-  FD_R52X5_QUAD_REDUCE( _M, _M );
-  FD_F25519_STORE_QUAD_LANE( r1, _M, 0 );
-  FD_F25519_STORE_QUAD_LANE( r2, _M, 1 );
-  FD_F25519_STORE_QUAD_LANE( r3, _M, 2 );
-  FD_F25519_STORE_QUAD_LANE( r4, _M, 3 );
-}
-
-FD_25519_INLINE void
-fd_f25519_sqr2( fd_f25519_t * r1, fd_f25519_t const * a1,
-                fd_f25519_t * r2, fd_f25519_t const * a2 ) {
-  ulong aa1[5]; ulong aa2[5];
-  fd_f25519_reduce( aa1, a1->el );
-  fd_f25519_reduce( aa2, a2->el );
-
-  FD_R52X5_QUAD_DECL( _A );
-  _A0 = wl( (long)aa1[0], (long)aa2[0], 0L, 0L );
-  _A1 = wl( (long)aa1[1], (long)aa2[1], 0L, 0L );
-  _A2 = wl( (long)aa1[2], (long)aa2[2], 0L, 0L );
-  _A3 = wl( (long)aa1[3], (long)aa2[3], 0L, 0L );
-  _A4 = wl( (long)aa1[4], (long)aa2[4], 0L, 0L );
-
-  FD_R52X5_QUAD_DECL( _M );
-  FD_R52X5_QUAD_SQR_FAST( _M, _A );
-  FD_R52X5_QUAD_REDUCE( _M, _M );
-  FD_F25519_STORE_QUAD_LANE( r1, _M, 0 );
-  FD_F25519_STORE_QUAD_LANE( r2, _M, 1 );
-}
-
-FD_25519_INLINE void
-fd_f25519_sqr3( fd_f25519_t * r1, fd_f25519_t const * a1,
-                fd_f25519_t * r2, fd_f25519_t const * a2,
-                fd_f25519_t * r3, fd_f25519_t const * a3 ) {
-  ulong aa1[5]; ulong aa2[5]; ulong aa3[5];
-  fd_f25519_reduce( aa1, a1->el );
-  fd_f25519_reduce( aa2, a2->el );
-  fd_f25519_reduce( aa3, a3->el );
-
-  FD_R52X5_QUAD_DECL( _A );
-  _A0 = wl( (long)aa1[0], (long)aa2[0], (long)aa3[0], 0L );
-  _A1 = wl( (long)aa1[1], (long)aa2[1], (long)aa3[1], 0L );
-  _A2 = wl( (long)aa1[2], (long)aa2[2], (long)aa3[2], 0L );
-  _A3 = wl( (long)aa1[3], (long)aa2[3], (long)aa3[3], 0L );
-  _A4 = wl( (long)aa1[4], (long)aa2[4], (long)aa3[4], 0L );
-
-  FD_R52X5_QUAD_DECL( _M );
-  FD_R52X5_QUAD_SQR_FAST( _M, _A );
-  FD_R52X5_QUAD_REDUCE( _M, _M );
-  FD_F25519_STORE_QUAD_LANE( r1, _M, 0 );
-  FD_F25519_STORE_QUAD_LANE( r2, _M, 1 );
-  FD_F25519_STORE_QUAD_LANE( r3, _M, 2 );
-}
-
-FD_25519_INLINE void
-fd_f25519_sqr4( fd_f25519_t * r1, fd_f25519_t const * a1,
-                fd_f25519_t * r2, fd_f25519_t const * a2,
-                fd_f25519_t * r3, fd_f25519_t const * a3,
-                fd_f25519_t * r4, fd_f25519_t const * a4 ) {
-  ulong aa1[5]; ulong aa2[5]; ulong aa3[5]; ulong aa4[5];
-  fd_f25519_reduce( aa1, a1->el );
-  fd_f25519_reduce( aa2, a2->el );
-  fd_f25519_reduce( aa3, a3->el );
-  fd_f25519_reduce( aa4, a4->el );
-
-  FD_R52X5_QUAD_DECL( _A );
-  _A0 = wl( (long)aa1[0], (long)aa2[0], (long)aa3[0], (long)aa4[0] );
-  _A1 = wl( (long)aa1[1], (long)aa2[1], (long)aa3[1], (long)aa4[1] );
-  _A2 = wl( (long)aa1[2], (long)aa2[2], (long)aa3[2], (long)aa4[2] );
-  _A3 = wl( (long)aa1[3], (long)aa2[3], (long)aa3[3], (long)aa4[3] );
-  _A4 = wl( (long)aa1[4], (long)aa2[4], (long)aa3[4], (long)aa4[4] );
-
-  FD_R52X5_QUAD_DECL( _M );
-  FD_R52X5_QUAD_SQR_FAST( _M, _A );
-  FD_R52X5_QUAD_REDUCE( _M, _M );
-  FD_F25519_STORE_QUAD_LANE( r1, _M, 0 );
-  FD_F25519_STORE_QUAD_LANE( r2, _M, 1 );
-  FD_F25519_STORE_QUAD_LANE( r3, _M, 2 );
-  FD_F25519_STORE_QUAD_LANE( r4, _M, 3 );
+  fd_f25519_mul( r1, a1, b1 );
+  fd_f25519_mul( r2, a2, b2 );
 }
 
 FD_PROTOTYPES_END

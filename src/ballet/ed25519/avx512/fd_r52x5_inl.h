@@ -38,45 +38,37 @@ FD_PROTOTYPES_BEGIN
   } while(0)
 
 /* Pack four scalar field elements into lane-wise r52x5 form. */
-#define FD_R52X5_QUAD_PACK( Q, x, y, z, t ) do {                         \
-    Q##0 = wl( (long)(x)[0], (long)(y)[0], (long)(z)[0], (long)(t)[0] ); \
-    Q##1 = wl( (long)(x)[1], (long)(y)[1], (long)(z)[1], (long)(t)[1] ); \
-    Q##2 = wl( (long)(x)[2], (long)(y)[2], (long)(z)[2], (long)(t)[2] ); \
-    Q##3 = wl( (long)(x)[3], (long)(y)[3], (long)(z)[3], (long)(t)[3] ); \
-    Q##4 = wl( (long)(x)[4], (long)(y)[4], (long)(z)[4], (long)(t)[4] ); \
+#define FD_R52X5_QUAD_PACK( Q, x, y, z, t ) do {                  \
+    long _x[8] __attribute__((aligned(64))); wwl_st( _x, (x) );   \
+    long _y[8] __attribute__((aligned(64))); wwl_st( _y, (y) );   \
+    long _z[8] __attribute__((aligned(64))); wwl_st( _z, (z) );   \
+    long _t[8] __attribute__((aligned(64))); wwl_st( _t, (t) );   \
+    Q##0 = wl( _x[0], _y[0], _z[0], _t[0] );                      \
+    Q##1 = wl( _x[1], _y[1], _z[1], _t[1] );                      \
+    Q##2 = wl( _x[2], _y[2], _z[2], _t[2] );                      \
+    Q##3 = wl( _x[3], _y[3], _z[3], _t[3] );                      \
+    Q##4 = wl( _x[4], _y[4], _z[4], _t[4] );                      \
   } while(0)
 
 /* Unpack lane-wise r52x5 form into four scalar field elements. */
-#define FD_R52X5_QUAD_UNPACK( x, y, z, t, Q ) do { \
-    wl_t _r0 = Q##0;                               \
-    wl_t _r1 = Q##1;                               \
-    wl_t _r2 = Q##2;                               \
-    wl_t _r3 = Q##3;                               \
-    wl_t _r4 = Q##4;                               \
-                                                   \
-    (x)[0] = (ulong)wl_extract( _r0, 0 );          \
-    (x)[1] = (ulong)wl_extract( _r1, 0 );          \
-    (x)[2] = (ulong)wl_extract( _r2, 0 );          \
-    (x)[3] = (ulong)wl_extract( _r3, 0 );          \
-    (x)[4] = (ulong)wl_extract( _r4, 0 );          \
-                                                   \
-    (y)[0] = (ulong)wl_extract( _r0, 1 );          \
-    (y)[1] = (ulong)wl_extract( _r1, 1 );          \
-    (y)[2] = (ulong)wl_extract( _r2, 1 );          \
-    (y)[3] = (ulong)wl_extract( _r3, 1 );          \
-    (y)[4] = (ulong)wl_extract( _r4, 1 );          \
-                                                   \
-    (z)[0] = (ulong)wl_extract( _r0, 2 );          \
-    (z)[1] = (ulong)wl_extract( _r1, 2 );          \
-    (z)[2] = (ulong)wl_extract( _r2, 2 );          \
-    (z)[3] = (ulong)wl_extract( _r3, 2 );          \
-    (z)[4] = (ulong)wl_extract( _r4, 2 );          \
-                                                   \
-    (t)[0] = (ulong)wl_extract( _r0, 3 );          \
-    (t)[1] = (ulong)wl_extract( _r1, 3 );          \
-    (t)[2] = (ulong)wl_extract( _r2, 3 );          \
-    (t)[3] = (ulong)wl_extract( _r3, 3 );          \
-    (t)[4] = (ulong)wl_extract( _r4, 3 );          \
+#define FD_R52X5_QUAD_UNPACK( x, y, z, t, Q ) do {                \
+    wl_t _r0 = Q##0;                                              \
+    wl_t _r1 = Q##1;                                              \
+    wl_t _r2 = Q##2;                                              \
+    wl_t _r3 = Q##3;                                              \
+    wl_t _r4 = Q##4;                                              \
+    (x) = wwl( wl_extract( _r0, 0 ), wl_extract( _r1, 0 ),         \
+               wl_extract( _r2, 0 ), wl_extract( _r3, 0 ),         \
+               wl_extract( _r4, 0 ), 0L, 0L, 0L );                 \
+    (y) = wwl( wl_extract( _r0, 1 ), wl_extract( _r1, 1 ),         \
+               wl_extract( _r2, 1 ), wl_extract( _r3, 1 ),         \
+               wl_extract( _r4, 1 ), 0L, 0L, 0L );                 \
+    (z) = wwl( wl_extract( _r0, 2 ), wl_extract( _r1, 2 ),         \
+               wl_extract( _r2, 2 ), wl_extract( _r3, 2 ),         \
+               wl_extract( _r4, 2 ), 0L, 0L, 0L );                 \
+    (t) = wwl( wl_extract( _r0, 3 ), wl_extract( _r1, 3 ),         \
+               wl_extract( _r2, 3 ), wl_extract( _r3, 3 ),         \
+               wl_extract( _r4, 3 ), 0L, 0L, 0L );                 \
   } while(0)
 
 /* Lane permutation: D = [ S(imm0), S(imm1), S(imm2), S(imm3) ]

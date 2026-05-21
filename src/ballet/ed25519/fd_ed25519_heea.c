@@ -151,10 +151,8 @@ fd_ed25519_heea_triple_mul( fd_ed25519_point_t *       r,
   }
   if( FD_UNLIKELY( i<0 ) ) return r;
 
-  fd_ed25519_point_t t[1];
   for( ; i>=0; i-- ) {
-    fd_ed25519_point_dbl( t, r );
-    fd_ed25519_point_set( r, t );
+    fd_ed25519_point_dbl( r, r );
     fd_ed25519_heea_add_slide( r, a1slide  [i], table_A1                         );
     fd_ed25519_heea_add_slide( r, a2slide  [i], table_A2                         );
     fd_ed25519_heea_add_slide( r, b_loslide[i], fd_ed25519_base_point_wnaf_table );

@@ -1,9 +1,6 @@
 #ifndef HEADER_fd_src_ballet_ed25519_avx512_fd_r52x5_ge_h
 #define HEADER_fd_src_ballet_ed25519_avx512_fd_r52x5_ge_h
 
-/* This header provides APIs for manipulating group elements / curve
-   points in Ed25519. */
-
 /* A curve point is represented by a FD_R52X5_QUAD (X,Y,Z,T) in normal
    homogeneous coordinates where X, Y, Z and T hold r52x5 field elements
    and X Y = T Z. */
@@ -26,9 +23,9 @@ FD_PROTOTYPES_BEGIN
 FD_FN_UNUSED static int
 fd_r52x5_ge_decode( wl_t * _P0, wl_t * _P1, wl_t * _P2, wl_t * _P3, wl_t * _P4,
                     uchar const buf[ 32 ] ) {
-  fd_f25519_t  y[1],  u[1],  v[1], ysq[1];
-  fd_f25519_t v2[1], v3[1], v4[1], uv3[1], uv7[1];
-  fd_f25519_t  x[1], x2[1], vx2[1], t1[1],  t2[1], t3[1], xy[1];
+  fd_f25519_t  y[1],  u[1],   v[1], ysq[1];
+  fd_f25519_t v2[1], v3[1],  v4[1], uv3[1], uv7[1];
+  fd_f25519_t  x[1], x2[1], vx2[1],  t1[1],  t2[1], t3[1], xy[1];
 
   /* Decode y and save bit 255 as the x-coordinate sign bit. */
 
@@ -103,21 +100,26 @@ fd_r52x5_ge_decode( wl_t * _P0, wl_t * _P1, wl_t * _P2, wl_t * _P3, wl_t * _P4,
     _err;                                                      \
   }))
 
-/* FD_R52X5_TO_TABLE converts a normal point S = [X, Y, Z, T] into
-   a precomputed form D = [121666*(Y-X), 121666*(X+Y), 2*121666*Z, -2*121665*T].
-   As d = -121665/121666, the common factor 121666 turns the usual
-   2*d*T product into -2*121665*T. In-place operation fine. */
-#define FD_R52X5_TO_TABLE( D, S ) do {                      \
-    FD_R52X5_QUAD_DECL( _ta );                              \
-    FD_R52X5_QUAD_DECL( _tb );                              \
-    FD_R52X5_QUAD_DIFF_SUM( _ta, S );                       \
-    FD_R52X5_QUAD_LANE_IF( _ta, 1,1,0,0, _ta, S );          \
-    FD_R52X5_QUAD_REDUCE( _ta, _ta );                       \
-    wv_t _1122d = wv( 121666, 121666, 2*121666, 2*121665 ); \
-    FD_R52X5_QUAD_MUL_CONSTANT( _ta, _ta, _1122d );         \
-    FD_R52X5_QUAD_NEGATE_LAZY( _tb, _ta );                  \
-    FD_R52X5_QUAD_LANE_IF( _ta, 0,0,0,1, _tb, _ta );        \
-    FD_R52X5_QUAD_REDUCE( D, _ta );                         \
+/* FD_R52X5_TO_TABLE converts a normal point S = [X, Y, Z, T] into the
+   precomputed form:
+
+    D = 121666 * [Y-X, X+Y, 2*Z, 2*d*T]
+      = [121666*(Y-X), 121666*(X+Y), 2*121666*Z, -2*121665*T]
+
+    Given that d = -121665/121666, multiplying the usual 2*d*T lane
+    by the common factor 121666 gives -2*121665*T.
+    In-place operation fine. */
+#define FD_R52X5_TO_TABLE( D, S ) do {                                                       \
+    FD_R52X5_QUAD_DECL( _ta );                                                               \
+    FD_R52X5_QUAD_DECL( _tb );                                                               \
+    FD_R52X5_QUAD_DIFF_SUM( _ta, S );                       /* _ta = [Y-X, X+Y, T-Z, Z+T] */ \
+    FD_R52X5_QUAD_LANE_IF( _ta, 1,1,0,0, _ta, S );          /* _ta = [Y-X, X+Y, Z,   T  ] */ \
+    FD_R52X5_QUAD_REDUCE( _ta, _ta );                       /* _ta = [Y-X, X+Y, Z,   T  ] */ \
+    wv_t _1122d = wv( 121666, 121666, 2*121666, 2*121665 );                                  \
+    FD_R52X5_QUAD_MUL_CONSTANT( _ta, _ta, _1122d );         /* _ta = [121666*(Y-X), 121666*(X+Y), 2*121666*Z, 2*121665*T] */  \
+    FD_R52X5_QUAD_NEGATE_LAZY( _tb, _ta );                  /* _tb = each lane of _ta negated */                              \
+    FD_R52X5_QUAD_LANE_IF( _ta, 0,0,0,1, _tb, _ta );        /* _ta = [121666*(Y-X), 121666*(X+Y), 2*121666*Z, -2*121665*T] */ \
+    FD_R52X5_QUAD_REDUCE( D, _ta );                         /*   D = 121666*[Y-X, X+Y, 2*Z, 2*d*T] */                         \
   } while(0)
 
 /* FD_R52X5_GE_ADD(P3,P1,P2) computes P3 = P1 + P2.  P1 and P2 are
@@ -130,54 +132,75 @@ fd_r52x5_ge_decode( wl_t * _P0, wl_t * _P1, wl_t * _P2, wl_t * _P3, wl_t * _P4,
 
 /* FD_R52X5_GE_ADD_TABLE computes P3 = P1 + T2 where P1 is a normal
    point and T2 is in the precomputed form produced by
-   FD_R52X5_TO_TABLE. */
+   FD_R52X5_TO_TABLE.
+     A = (Y1-X1)*(Y2-X2)
+     B = (Y1+X1)*(Y2+X2)
+     C = T1*2*d*T2
+     D = Z1*2*Z2
+     E = B-A
+     F = D-C
+     G = D+C
+     H = B+A
+     P3 = [ E*F, G*H, F*G, E*H ] */
 #define FD_R52X5_GE_ADD_TABLE( P3, P1, T2 ) do {    \
     FD_R52X5_QUAD_DECL( _ta );                      \
     FD_R52X5_QUAD_DECL( _tb );                      \
-    FD_R52X5_QUAD_DIFF_SUM( _ta, P1 );              \
-    FD_R52X5_QUAD_LANE_IF( _ta, 1,1,0,0, _ta, P1 ); \
-    FD_R52X5_QUAD_REDUCE( _ta, _ta );               \
-    FD_R52X5_QUAD_MUL_FAST( _ta, _ta, T2 );         \
-    FD_R52X5_QUAD_PERMUTE( _ta, 0,1,3,2, _ta );     \
-    FD_R52X5_QUAD_DIFF_SUM( _ta, _ta );             \
-    FD_R52X5_QUAD_REDUCE( _ta, _ta );               \
-    FD_R52X5_QUAD_PERMUTE( _tb, 0,3,3,0, _ta );     \
-    FD_R52X5_QUAD_PERMUTE( _ta, 2,1,2,1, _ta );     \
-    FD_R52X5_QUAD_MUL_FAST( P3, _tb, _ta );         \
-    FD_R52X5_QUAD_REDUCE( P3, P3 );                 \
+    FD_R52X5_QUAD_DIFF_SUM( _ta, P1 );              /* _ta = [Y1-X1, X1+Y1, T1-Z1, Z1+T1] */            \
+    FD_R52X5_QUAD_LANE_IF( _ta, 1,1,0,0, _ta, P1 ); /* _ta = [Y1-X1, X1+Y1, Z1,    T1   ] */            \
+    FD_R52X5_QUAD_REDUCE( _ta, _ta );               /* _ta = [Y1-X1, X1+Y1, Z1,    T1   ] */            \
+    FD_R52X5_QUAD_MUL_FAST( _ta, _ta, T2 );         /* _ta = 121666*[A, B, D, C] */                     \
+    FD_R52X5_QUAD_PERMUTE( _ta, 0,1,3,2, _ta );     /* _ta = 121666*[A, B, C, D] */                     \
+    FD_R52X5_QUAD_DIFF_SUM( _ta, _ta );             /* _ta = 121666*[E=B-A, H=A+B, F=D-C, G=C+D] */     \
+    FD_R52X5_QUAD_REDUCE( _ta, _ta );               /* _ta = 121666*[E=B-A, H=A+B, F=D-C, G=C+D] */     \
+    FD_R52X5_QUAD_PERMUTE( _tb, 0,3,3,0, _ta );     /* _tb = 121666*[E, G, G, E] */                     \
+    FD_R52X5_QUAD_PERMUTE( _ta, 2,1,2,1, _ta );     /* _ta = 121666*[F, H, F, H] */                     \
+    FD_R52X5_QUAD_MUL_FAST( P3, _tb, _ta );         /*  P3 = 121666^2*[E*F, G*H, G*F, E*H] */           \
+    FD_R52X5_QUAD_REDUCE( P3, P3 );                 /* Common scaling represent an equivalent point. */ \
   } while(0)
 
 /* FD_R52X5_GE_DBL computes P2 = 2*P1 where P1 and P2 are normal points.
-   In-place operation fine. */
-#define FD_R52X5_GE_DBL( P2, P1 ) do {                   \
-    FD_R52X5_QUAD_DECL( _ta );                           \
-    FD_R52X5_QUAD_DECL( _tb );                           \
-    FD_R52X5_QUAD_DECL( _1111 );                         \
-    FD_R52X5_QUAD_DECL( _2222 );                         \
-    FD_R52X5_QUAD_DECL( _2224 );                         \
+   In-place operation fine.
+     A = X1^2
+     B = Y1^2
+     C = 2*Z1^2
+     D = -A
+     E = (X1+Y1)^2 - A - B
+     G = D + B = B-A
+     F = G - C
+     H = D - B = -(A+B)
+     P2 = [ E*F, G*H, F*G, E*H ] */
+#define FD_R52X5_GE_DBL( P2, P1 ) do {                        \
+    FD_R52X5_QUAD_DECL( _ta );                                \
+    FD_R52X5_QUAD_DECL( _tb );                                \
+    FD_R52X5_QUAD_DECL( _1111 );                              \
+    FD_R52X5_QUAD_DECL( _2222 );                              \
+    FD_R52X5_QUAD_DECL( _2224 );                              \
     FD_R52X5_QUAD_DECL( _zero ); FD_R52X5_QUAD_ZERO( _zero ); \
-    FD_R52X5_QUAD_PERMUTE( _ta, 1,0,3,2, P1 );           \
-    FD_R52X5_QUAD_ADD_FAST( _ta, _ta, P1 );              \
-    FD_R52X5_QUAD_PERMUTE( _ta, 0,1,0,1, _ta );          \
-    FD_R52X5_QUAD_LANE_IF( _ta, 0,0,0,1, _ta, P1 );      \
-    FD_R52X5_QUAD_REDUCE( _ta, _ta );                    \
-    FD_R52X5_QUAD_SQR_FAST( _ta, _ta );                  \
-    FD_R52X5_QUAD_PERMUTE( _1111, 0,0,0,0, _ta );        \
-    FD_R52X5_QUAD_PERMUTE( _2222, 1,1,1,1, _ta );        \
-    FD_R52X5_QUAD_LANE_IF( _2224, 0,0,0,1, _ta, _2222 ); \
-    FD_R52X5_QUAD_NEGATE_LAZY( _2224, _2224 );           \
-    FD_R52X5_QUAD_ADD_FAST( _ta, _ta, _ta );             \
-    FD_R52X5_QUAD_LANE_IF( _ta, 0,0,1,0, _ta, _zero );   \
-    FD_R52X5_QUAD_ADD_FAST( _ta, _1111, _ta );           \
-    FD_R52X5_QUAD_LANE_IF( _tb, 1,0,0,1, _2222, _zero ); \
-    FD_R52X5_QUAD_ADD_FAST( _ta, _ta, _tb );             \
-    FD_R52X5_QUAD_LANE_IF( _tb, 0,1,1,1, _2224, _zero ); \
-    FD_R52X5_QUAD_ADD_FAST( _ta, _ta, _tb );             \
-    FD_R52X5_QUAD_REDUCE( _ta, _ta );                    \
-    FD_R52X5_QUAD_PERMUTE( _tb, 3,1,1,3, _ta );          \
-    FD_R52X5_QUAD_PERMUTE( _ta, 2,0,2,0, _ta );          \
-    FD_R52X5_QUAD_MUL_FAST( P2, _ta, _tb );              \
-    FD_R52X5_QUAD_REDUCE( P2, P2 );                      \
+    FD_R52X5_QUAD_PERMUTE( _ta, 1,0,3,2, P1 );           /* _ta = [Y1, X1, T1, Z1] */                  \
+    FD_R52X5_QUAD_ADD_FAST( _ta, _ta, P1 );              /* _ta = [X1+Y1,  X1+Y1,  Z1+T1, Z1+T1] */    \
+    FD_R52X5_QUAD_PERMUTE( _ta, 0,1,0,1, _ta );          /* _ta = [X1+Y1,  X1+Y1,  X1+Y1, X1+Y1] */    \
+    FD_R52X5_QUAD_LANE_IF( _ta, 0,0,0,1, _ta, P1 );      /* _ta = [X1      Y2,     Z1,    X1+Y1] */    \
+    FD_R52X5_QUAD_REDUCE( _ta, _ta );                    /* _ta = [X1      Y2,     Z1,    X1+Y1] */    \
+    FD_R52X5_QUAD_SQR_FAST( _ta, _ta );                  /* _ta = [A=X1^2, B=Y1^2, Z1^2, (X1+Y1)^2] */ \
+                                                                                                       \
+    FD_R52X5_QUAD_PERMUTE( _1111, 0,0,0,0, _ta );        /* _1111 = [A,   A,  A,  A        ] */ \
+    FD_R52X5_QUAD_PERMUTE( _2222, 1,1,1,1, _ta );        /* _2222 = [B,   B,  B,  B        ] */ \
+    FD_R52X5_QUAD_LANE_IF( _2224, 0,0,0,1, _ta, _2222 ); /* _2224 = [B,   B,  B,  (X1+Y1)^2] */ \
+    FD_R52X5_QUAD_NEGATE_LAZY( _2224, _2224 );           /* _2224 = [-B, -B, -B, -(X1+Y1)^2] */ \
+                                                                                                \
+    FD_R52X5_QUAD_ADD_FAST( _ta, _ta, _ta );             /* _ta = [2A, 2B, C=2*Z1^2, 2*(X1+Y1)^2] */ \
+    FD_R52X5_QUAD_LANE_IF( _ta, 0,0,1,0, _ta, _zero );   /* _ta = [0, 0, C,   0] */                  \
+    FD_R52X5_QUAD_ADD_FAST( _ta, _1111, _ta );           /* _ta = [A, A, A+C, A] */                  \
+    FD_R52X5_QUAD_LANE_IF( _tb, 1,0,0,1, _2222, _zero ); /* _tb = [B, 0, 0,   B] */                  \
+                                                                                                     \
+    FD_R52X5_QUAD_ADD_FAST( _ta, _ta, _tb );             /* _ta = [A+B, A, A+C,  A+B      ] */                    \
+    FD_R52X5_QUAD_LANE_IF( _tb, 0,1,1,1, _2224, _zero ); /* _tb = [0,  -B,  -B, -(X1+Y1)^2] */                    \
+    FD_R52X5_QUAD_ADD_FAST( _ta, _ta, _tb );             /* _ta = [-H=A+B, -G=A-B, -F=A+C-B, -E=A+B-(X1+Y1)^2] */ \
+    FD_R52X5_QUAD_REDUCE( _ta, _ta );                    /* _ta = [-H=A+B, -G=A-B, -F=A+C-B, -E=A+B-(X1+Y1)^2] */ \
+    FD_R52X5_QUAD_PERMUTE( _tb, 3,1,1,3, _ta );          /* _tb = [-E, -G, -G, -E] */                             \
+    FD_R52X5_QUAD_PERMUTE( _ta, 2,0,2,0, _ta );          /* _ta = [-F, -H, -F, -H] */                             \
+    FD_R52X5_QUAD_MUL_FAST( P2, _ta, _tb );              /*  P2 = [E*F, G*H, F*G, E*H] */                         \
+    FD_R52X5_QUAD_REDUCE( P2, P2 );                                                                               \
   } while(0)
 
 /* FD_R52X5_GE_IS_EQ(X,Y) returns 1 if X and Y represent the same curve
@@ -187,18 +210,52 @@ fd_r52x5_ge_decode( wl_t * _P0, wl_t * _P1, wl_t * _P2, wl_t * _P3, wl_t * _P4,
 FD_FN_UNUSED static int
 fd_r52x5_ge_is_eq( wl_t X0, wl_t X1, wl_t X2, wl_t X3, wl_t X4,
                    wl_t Y0, wl_t Y1, wl_t Y2, wl_t Y3, wl_t Y4 ) {
+  /* Cross-multiply: X = [Zx*Xy, Xx*Zy, Zx*Yy, Yx*Zy] */
   FD_R52X5_QUAD_PERMUTE( X, 2,0,2,1, X );
   FD_R52X5_QUAD_PERMUTE( Y, 0,2,1,2, Y );
   FD_R52X5_QUAD_MUL_FAST( X, X, Y );
   FD_R52X5_QUAD_REDUCE( X, X );
 
-  fd_f25519_t xn1[1], xn2[1], yn1[1], yn2[1];
-  FD_R52X5_QUAD_UNPACK( xn2->el, xn1->el, yn2->el, yn1->el, X );
+  /* Subtract pairs in QUAD: D = [xn1-xn2, xn2-xn1, yn1-yn2, yn2-yn1] */
+  FD_R52X5_QUAD_DECL( D );
+  FD_R52X5_QUAD_PERMUTE( D, 1,0,3,2, X );
+  FD_R52X5_QUAD_NEGATE_LAZY( X, X );
+  FD_R52X5_QUAD_ADD_FAST( D, D, X );
+  FD_R52X5_QUAD_REDUCE( D, D );
 
-  fd_f25519_t dx[1], dy[1];
-  fd_f25519_sub( dx, xn1, xn2 );
-  fd_f25519_sub( dy, yn1, yn2 );
-  return fd_f25519_is_zero( dx ) & fd_f25519_is_zero( dy );
+  /* Extract lanes 0 (dx) and 2 (dy), canonicalize, check zero */
+  ulong dx[5], dy[5];
+  dx[0] = (ulong)wl_extract( D0, 0 ); dy[0] = (ulong)wl_extract( D0, 2 );
+  dx[1] = (ulong)wl_extract( D1, 0 ); dy[1] = (ulong)wl_extract( D1, 2 );
+  dx[2] = (ulong)wl_extract( D2, 0 ); dy[2] = (ulong)wl_extract( D2, 2 );
+  dx[3] = (ulong)wl_extract( D3, 0 ); dy[3] = (ulong)wl_extract( D3, 2 );
+  dx[4] = (ulong)wl_extract( D4, 0 ); dy[4] = (ulong)wl_extract( D4, 2 );
+
+  /* Canonical reduction for dx */
+  ulong q = (dx[0] + 19) >> 51;
+  q = (dx[1] + q) >> 51; q = (dx[2] + q) >> 51;
+  q = (dx[3] + q) >> 51; q = (dx[4] + q) >> 51;
+  dx[0] += 19 * q;
+  ulong c;
+  c = dx[0] >> 51; dx[0] &= FD_F25519_LIMB_MASK;
+  dx[1] += c; c = dx[1] >> 51; dx[1] &= FD_F25519_LIMB_MASK;
+  dx[2] += c; c = dx[2] >> 51; dx[2] &= FD_F25519_LIMB_MASK;
+  dx[3] += c; c = dx[3] >> 51; dx[3] &= FD_F25519_LIMB_MASK;
+  dx[4] += c; dx[4] &= FD_F25519_LIMB_MASK;
+
+  /* Canonical reduction for dy */
+  q = (dy[0] + 19) >> 51;
+  q = (dy[1] + q) >> 51; q = (dy[2] + q) >> 51;
+  q = (dy[3] + q) >> 51; q = (dy[4] + q) >> 51;
+  dy[0] += 19 * q;
+  c = dy[0] >> 51; dy[0] &= FD_F25519_LIMB_MASK;
+  dy[1] += c; c = dy[1] >> 51; dy[1] &= FD_F25519_LIMB_MASK;
+  dy[2] += c; c = dy[2] >> 51; dy[2] &= FD_F25519_LIMB_MASK;
+  dy[3] += c; c = dy[3] >> 51; dy[3] &= FD_F25519_LIMB_MASK;
+  dy[4] += c; dy[4] &= FD_F25519_LIMB_MASK;
+
+  return ((dx[0]|dx[1]|dx[2]|dx[3]|dx[4]) == 0) &
+         ((dy[0]|dy[1]|dy[2]|dy[3]|dy[4]) == 0);
 }
 
 FD_PROTOTYPES_END
