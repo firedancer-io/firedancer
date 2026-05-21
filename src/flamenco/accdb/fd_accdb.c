@@ -3370,6 +3370,24 @@ fd_accdb_snapshot_write_batch( fd_accdb_t *        accdb,
     }
   }
 
+  /* Phase 2b: reject intra-batch duplicate pubkeys.  Snapin always
+     populates a batch from a single AppendVec, so every slot in the
+     batch is identical and a duplicate pubkey means the same account
+     appears twice at the same slot — i.e. a corrupt snapshot per the
+     Agave spec.  We have no principled way to pick a winner; return
+     -1 so the caller can flag the snapshot malformed.  Batches are
+     bounded (<=8) so the O(n^2) scan is trivial. */
+
+  for( ulong i=1UL; i<cnt; i++ ) {
+    for( ulong j=0UL; j<i; j++ ) {
+      if( hashes[ j ]!=hashes[ i ] ) continue;
+      if( FD_UNLIKELY( !memcmp( pubkeys[ j ], pubkeys[ i ], 32UL ) ) ) {
+        FD_LOG_WARNING(( "corrupt snapshot: duplicate pubkey within a single batch (entries %lu and %lu, slots %lu and %lu)", j, i, slots[ j ], slots[ i ] ));
+        return -1;
+      }
+    }
+  }
+
   /* Phase 3: commit.  For each account either update the existing
      entry in-place (replace), allocate and insert at the chain head
      (new), or skip entirely (ignore).  This matches the

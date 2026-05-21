@@ -802,7 +802,7 @@ process_account_batch( fd_snapin_tile_t *               ctx,
   }
 
   ulong accounts_ignored, accounts_replaced, accounts_loaded, replaced_lamports, ignored_lamports;
-  fd_accdb_snapshot_write_batch( ctx->accdb, cnt, pubkeys, slots, lamports, data_lens, executables, &accounts_ignored, &accounts_replaced, &accounts_loaded, &replaced_lamports, &ignored_lamports );
+  if( FD_UNLIKELY( fd_accdb_snapshot_write_batch( ctx->accdb, cnt, pubkeys, slots, lamports, data_lens, executables, &accounts_ignored, &accounts_replaced, &accounts_loaded, &replaced_lamports, &ignored_lamports ) ) ) return -1;
   ctx->metrics.accounts_ignored  += accounts_ignored;
   ctx->metrics.accounts_replaced += accounts_replaced;
   ctx->metrics.accounts_loaded   += accounts_loaded;

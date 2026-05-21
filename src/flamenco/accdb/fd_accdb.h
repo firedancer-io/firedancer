@@ -434,7 +434,9 @@ fd_accdb_snapshot_write_one( fd_accdb_t *  accdb,
    set to the sum of the lamports of all accounts ignored by this batch
    (i.e. the lamports of each input account whose write was dropped
    because an acc with a higher slot already exists).  Returns 0 on
-   success.
+   success, -1 if the batch contained two entries with the same pubkey
+   (a corrupt-snapshot signal — the caller should flag the snapshot
+   malformed).  Output counters are not meaningful when -1 is returned.
 
    Each slots[i] must be <= UINT_MAX (see fd_accdb_snapshot_write_one
    for the rationale).  Passing a larger slot crashes the process. */
