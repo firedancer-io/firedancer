@@ -106,6 +106,11 @@ fd_accdb_partition_read_bump( fd_accdb_t * accdb,
                               ulong        file_offset,
                               ulong        bytes ) {
   if( FD_UNLIKELY( !bytes ) ) return;
+  /* Readonly joiners have no partition_pool join (see
+     fd_accdb_join_readonly) and do not contribute to per-partition
+     read telemetry today; their disk reads still show up in the
+     joiner-local fd_accdb_metrics_t bytes_read/read_ops. */
+  if( FD_UNLIKELY( !accdb->partition_pool ) ) return;
   ulong partition_idx = file_offset / accdb->shmem->partition_sz;
   fd_accdb_partition_t * p = partition_pool_ele( accdb->partition_pool, partition_idx );
   if( FD_UNLIKELY( !p ) ) return;
