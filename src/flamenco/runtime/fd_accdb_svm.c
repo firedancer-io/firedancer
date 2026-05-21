@@ -60,25 +60,7 @@ fd_accdb_svm_close_rw( fd_accdb_user_t *       accdb,
                        fd_accdb_rw_t *         rw,
                        fd_accdb_svm_update_t * update ) {
 
-  ulong * cap      = &bank->f.capitalization;
-  ulong   lamports = fd_accdb_ref_lamports( rw->ro );
-  if( lamports > update->lamports_before ) {
-    ulong delta      = lamports - update->lamports_before;
-    ulong cap_before = *cap;
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( cap_before, delta, cap ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_address( rw->ro ), addr_b58 );
-      FD_LOG_EMERG(( "bank capitalization overflow detected (slot=%lu addr=%s delta=%lu cap_before=%lu)",
-                     bank->f.slot, addr_b58, delta, cap_before ));
-    }
-  } else if( lamports < update->lamports_before ) {
-    ulong delta      = update->lamports_before - lamports;
-    ulong cap_before = *cap;
-    if( FD_UNLIKELY( __builtin_usubl_overflow( cap_before, delta, cap ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( fd_accdb_ref_address( rw->ro ), addr_b58 );
-      FD_LOG_EMERG(( "bank capitalization underflow detected (slot=%lu addr=%s delta=%lu cap_before=%lu)",
-                     bank->f.slot, addr_b58, delta, cap_before ));
-    }
-  }
+  bank->f.capitalization += fd_accdb_ref_lamports( rw->ro ) - update->lamports_before;
 
   fd_lthash_value_t hash[1];
   fd_hashes_account_lthash( fd_accdb_ref_address( rw->ro ), rw->meta, fd_accdb_ref_data_const( rw->ro ), hash );
@@ -113,12 +95,7 @@ fd_accdb_svm_credit( fd_accdb_user_t *         accdb,
   }
   fd_accdb_ref_lamports_set( rw, lamports );
 
-  ulong * cap = &bank->f.capitalization;
-  if( FD_UNLIKELY( __builtin_uaddl_overflow( *cap, lamports_add, cap ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( pubkey->key, addr_b58 );
-    FD_LOG_EMERG(( "bank capitalization overflow detected (slot=%lu addr=%s delta=%lu cap_before=%lu)",
-                   bank->f.slot, addr_b58, lamports_add, *cap - lamports_add ));
-  }
+  bank->f.capitalization += lamports_add;
 
   fd_hashes_update_lthash( pubkey, rw->meta, hash, bank, capture_ctx );
   fd_accdb_close_rw( accdb, rw );
@@ -149,12 +126,7 @@ fd_accdb_svm_write( fd_accdb_user_t *         accdb,
     ulong delta = lamports_min - lamports;
     fd_accdb_ref_lamports_set( rw, lamports_min );
 
-    ulong * cap = &bank->f.capitalization;
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( *cap, delta, cap ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( pubkey->key, addr_b58 );
-      FD_LOG_EMERG(( "bank capitalization overflow detected (slot=%lu addr=%s delta=%lu cap_before=%lu)",
-                     bank->f.slot, addr_b58, delta, *cap - delta ));
-    }
+    bank->f.capitalization += delta;
   }
 
   fd_accdb_ref_owner_set   ( rw, owner      );
