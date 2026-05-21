@@ -396,6 +396,9 @@ fd_accdb_read_one_nocache( fd_accdb_t *       accdb,
                            uchar *            out_data,
                            ulong *            out_data_len );
 
+/* fd_accdb_lamports returns the lamports of the account at fork_id, or
+   zero if the account does not exist. */
+
 ulong
 fd_accdb_lamports( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,

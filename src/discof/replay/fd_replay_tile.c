@@ -478,8 +478,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* fetch identity / vote balance updates infrequently */
   slot_info->identity_balance = ULONG_MAX;
   if( FD_UNLIKELY( bank->f.slot%4096==0UL ) ) {
-    ulong balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
-    slot_info->identity_balance = fd_ulong_if( balance==ULONG_MAX, 0UL, balance );
+    slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
   }
 
   /* Mark the bank as frozen. */
@@ -620,8 +619,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   cost_tracker_snap( ctx->leader_bank, slot_info );
   slot_info->identity_balance = ULONG_MAX;
   if( FD_UNLIKELY( curr_slot%4096==0UL ) ) {
-    ulong balance = fd_accdb_lamports( ctx->accdb, ctx->leader_bank->accdb_fork_id, ctx->identity_pubkey->uc );
-    slot_info->identity_balance = fd_ulong_if( balance==ULONG_MAX, 0UL, balance );
+    slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, ctx->leader_bank->accdb_fork_id, ctx->identity_pubkey->uc );
   }
 
   fd_banks_mark_bank_frozen( ctx->leader_bank );
@@ -1064,8 +1062,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   cost_tracker_snap( bank, slot_info );
 
-  ulong identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
-  slot_info->identity_balance = fd_ulong_if( identity_balance==ULONG_MAX, 0UL, identity_balance );
+  slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
 
   publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
   publish_root_advanced( ctx, stem );
@@ -1178,8 +1175,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
     cost_tracker_snap( bank, slot_info );
 
-    ulong identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
-    slot_info->identity_balance = fd_ulong_if( identity_balance==ULONG_MAX, 0UL, identity_balance );
+    slot_info->identity_balance = fd_accdb_lamports( ctx->accdb, bank->accdb_fork_id, ctx->identity_pubkey->uc );
 
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
     publish_root_advanced( ctx, stem );

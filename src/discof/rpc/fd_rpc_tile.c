@@ -1187,7 +1187,6 @@ getBalance( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   ulong balance = fd_accdb_lamports( ctx->accdb, ctx->banks[ bank_idx ].accdb_fork_id, address.uc );
-  if( FD_UNLIKELY( balance==ULONG_MAX ) ) balance = 0UL;
 
   CSTR_JSON( id, id_cstr );
   return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"%s\",\"slot\":%lu},\"value\":%lu},\"id\":%s}\n", FD_RPC_AGAVE_API_VERSION, ctx->banks[ bank_idx ].slot, balance, id_cstr );

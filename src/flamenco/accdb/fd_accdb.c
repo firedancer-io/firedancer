@@ -3085,7 +3085,7 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   }
 
   ulong result;
-  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = ULONG_MAX;
+  if( FD_UNLIKELY( acc==UINT_MAX ) ) result = 0UL;
   else                               result = FD_VOLATILE_CONST( accdb->acc_pool[ acc ].lamports );
 
   FD_COMPILER_MFENCE();
