@@ -19,7 +19,7 @@ static fd_features_t g_features[1];
 #define ITER_DEFAULT    (4096UL)
 #define STEP_MAX        (100000UL)
 
-#define ROOT_XID ( (fd_xid_t) { .ul={1UL,0UL} } )
+#define ROOT_XID ( (fd_progcache_xid_t) { .ul={1UL,0UL} } )
 
 /* Declare fibers */
 
@@ -37,7 +37,7 @@ struct fiber {
 
     struct {
       fd_progcache_t *   cache;
-      fd_xid_t           xid;
+      fd_progcache_xid_t           xid;
       fd_pubkey_t        prog_addr;
       fd_prog_load_env_t load_env;
       fd_accdb_ro_t *    prog_ro;
@@ -45,7 +45,7 @@ struct fiber {
 
     struct {
       fd_progcache_t * cache;
-      fd_xid_t         xid;
+      fd_progcache_xid_t         xid;
       fd_pubkey_t      prog_addr;
       ulong            revision_key;
     } peek;
@@ -58,12 +58,12 @@ struct fiber {
 
     struct {
       fd_progcache_join_t * cache;
-      fd_xid_t              xid;
+      fd_progcache_xid_t              xid;
     } advance_root;
 
     struct {
       fd_progcache_join_t * cache;
-      fd_xid_t              xid;
+      fd_progcache_xid_t              xid;
     } cancel;
 
   };
@@ -90,7 +90,7 @@ fiber_pull_exec( void * _ctx ) {
 static fd_racesan_async_t *
 fiber_pull( fiber_t *                  fiber,
             void *                     shmem,
-            fd_xid_t const *           xid,
+            fd_progcache_xid_t const * xid,
             void const *               prog_addr,
             fd_prog_load_env_t const * load_env,
             fd_accdb_ro_t *            prog_ro ) {
@@ -113,10 +113,10 @@ fiber_peek_exec( void * _ctx ) {
 }
 
 static fd_racesan_async_t *
-fiber_peek( fiber_t *        fiber,
-            void *           shmem,
-            fd_xid_t const * xid,
-            void const *     prog_addr ) {
+fiber_peek( fiber_t *                  fiber,
+            void *                     shmem,
+            fd_progcache_xid_t const * xid,
+            void const *               prog_addr ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->peek.cache     = fiber->cache;
   fiber->peek.xid       = *xid;
@@ -152,9 +152,9 @@ fiber_advance_root_exec( void * _ctx ) {
 }
 
 static fd_racesan_async_t *
-fiber_advance_root( fiber_t *        fiber,
-                    void *           shmem,
-                    fd_xid_t const * xid ) {
+fiber_advance_root( fiber_t *                  fiber,
+                    void *                     shmem,
+                    fd_progcache_xid_t const * xid ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->advance_root.cache = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->advance_root.xid   = *xid;
@@ -169,9 +169,9 @@ fiber_cancel_exec( void * _ctx ) {
 }
 
 static fd_racesan_async_t *
-fiber_cancel( fiber_t *        fiber,
-              void *           shmem,
-              fd_xid_t const * xid ) {
+fiber_cancel( fiber_t *                  fiber,
+              void *                     shmem,
+              fd_progcache_xid_t const * xid ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
   fiber->cancel.cache = (fd_progcache_join_t *)fd_type_pun( fiber->cache );
   fiber->cancel.xid   = *xid;
@@ -224,7 +224,7 @@ static void
 test_pull_pull( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid = { .ul = { 1UL, 1UL } };
+  fd_progcache_xid_t    xid = { .ul = { 1UL, 1UL } };
   fd_pubkey_t key = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -267,7 +267,7 @@ static void
 test_pull_peek( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid = { .ul = { 1UL, 1UL } };
+  fd_progcache_xid_t    xid = { .ul = { 1UL, 1UL } };
   fd_pubkey_t key = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -310,9 +310,9 @@ static void
 test_cancel_peek( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -363,8 +363,8 @@ static void
 test_publish_evict( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -412,8 +412,8 @@ static void
 test_peek_root( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -462,8 +462,8 @@ static void
 test_peek_cancel( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -512,8 +512,8 @@ static void
 test_peek_peek( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid = ROOT_XID;
-  fd_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
+  fd_progcache_xid_t    xid = ROOT_XID;
+  fd_progcache_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
   fd_pubkey_t key = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -563,9 +563,9 @@ static void
 test_peek_root_sibling( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
-  fd_xid_t    xid2 = { .ul = { 3UL, 2UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid2 = { .ul = { 3UL, 2UL } };
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -616,9 +616,9 @@ static void
 test_peek_peek_root( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
-  fd_xid_t    xid2 = { .ul = { 3UL, 2UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid2 = { .ul = { 3UL, 2UL } };
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -672,8 +672,8 @@ static void
 test_inject_at_hook( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -713,8 +713,8 @@ static void
 test_publish_reclaim_evicted( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
 
@@ -762,9 +762,9 @@ static void
 test_root_evict_two( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
-  fd_xid_t    xid2 = { .ul = { 3UL, 2UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid2 = { .ul = { 3UL, 2UL } };
   fd_pubkey_t ka   = test_key( 1UL );
   fd_pubkey_t kb   = test_key( 2UL );
   fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
@@ -820,9 +820,9 @@ static void
 test_publish_evict_stale( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_xid_t    xid0 = ROOT_XID;
-  fd_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
-  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid0 = ROOT_XID;
+  fd_progcache_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
+  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
   fd_pubkey_t key  = test_key( 42UL );
 
   fd_prog_load_env_t load_env_root  = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };

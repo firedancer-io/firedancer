@@ -166,7 +166,9 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   fd_funk_txn_xid_set_root( root );
   env->xid = fd_bank_xid( env->bank );
   fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
-  fd_progcache_attach_child( env->progcache->join, root, &env->xid );
+  fd_progcache_xid_t pc_root = fd_progcache_xid_from_funk( root );
+  fd_progcache_xid_t pc_xid  = fd_progcache_xid_from_funk( &env->xid );
+  fd_progcache_attach_child( env->progcache->join, &pc_root, &pc_xid );
 
   init_rent_sysvar( env );
   init_epoch_schedule_sysvar( env );
@@ -211,7 +213,8 @@ test_env_cleanup( test_env_t * env ) {
   }
 
   fd_accdb_cancel    ( env->accdb_admin,     &env->xid );
-  fd_progcache_cancel( env->progcache->join, &env->xid );
+  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &env->xid );
+  fd_progcache_cancel( env->progcache->join, &pc_xid );
 
   if( env->runtime ) {
     if( env->runtime->acc_pool ) {
@@ -260,7 +263,9 @@ process_slot( test_env_t * env, ulong slot ) {
   fd_funk_txn_xid_t xid        = fd_bank_xid( new_bank    );
   fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
   fd_accdb_attach_child    ( env->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_attach_child( env->progcache->join, &parent_xid, &xid );
+  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
+  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( &xid );
+  fd_progcache_attach_child( env->progcache->join, &pc_parent_xid, &pc_xid );
 
   env->xid  = xid;
   env->bank = new_bank;

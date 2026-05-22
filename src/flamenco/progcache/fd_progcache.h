@@ -6,7 +6,8 @@
    Lock ordering:
    global txn lock, txn lock, clock lock, recm chain_lock, rec.lock */
 
-#include "fd_progcache_rec.h" /* includes fd_progcache_base.h fd_funk_base.h */
+#include "fd_progcache_rec.h" /* includes fd_progcache_base.h */
+#include "fd_progcache_xid.h"
 #include "fd_progcache_clock.h"
 #include "../fd_rwlock.h"
 #include "../runtime/fd_runtime_const.h"
@@ -15,8 +16,6 @@
    of the progcache. */
 
 #define FD_PROGCACHE_SHMEM_MAGIC (0xf17eda2ce7fc2c03UL)
-
-#define FD_PROGCACHE_DEPTH_MAX (8192UL)
 
 #define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH * (20UL<<20))
 
@@ -36,14 +35,14 @@ struct fd_progcache_shmem {
   } rec;
 
   struct __attribute__((aligned(64))) {
-    fd_rwlock_t       rwlock;
-    ulong             max;
-    ulong             map_gaddr;
-    ulong             pool_gaddr;
-    ulong             ele_gaddr;
-    uint              child_head_idx;
-    uint              child_tail_idx;
-    fd_xid_t last_publish[1];  /* root XID (initially ULONG_MAX:ULONG_MAX) */
+    fd_rwlock_t rwlock;
+    ulong       max;
+    ulong       map_gaddr;
+    ulong       pool_gaddr;
+    ulong       ele_gaddr;
+    uint        child_head_idx;
+    uint        child_tail_idx;
+    fd_progcache_xid_t last_publish[1];  /* root XID (initially ULONG_MAX:ULONG_MAX) */
   } txn;
 
   struct {
@@ -76,10 +75,10 @@ FD_STATIC_ASSERT( FD_PROGCACHE_SPAD_MAX<=UINT_MAX, "layout" );
 
 #define MAP_NAME              fd_prog_recm
 #define MAP_ELE_T             fd_progcache_rec_t
-#define MAP_KEY_T             fd_funk_xid_key_pair_t
+#define MAP_KEY_T             fd_progcache_xid_key_pair_t
 #define MAP_KEY               pair
-#define MAP_KEY_EQ(k0,k1)     fd_funk_xid_key_pair_eq((k0),(k1))
-#define MAP_KEY_HASH(k0,seed) fd_funk_xid_key_pair_hash((k0),(seed))
+#define MAP_KEY_EQ(k0,k1)     fd_progcache_xid_key_pair_eq((k0),(k1))
+#define MAP_KEY_HASH(k0,seed) fd_progcache_xid_key_pair_hash((k0),(seed))
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MAGIC             (0xf173da2ce77ecdb8UL)
@@ -90,7 +89,7 @@ FD_STATIC_ASSERT( FD_PROGCACHE_SPAD_MAX<=UINT_MAX, "layout" );
    synchronized) */
 
 struct __attribute__((aligned(64))) fd_progcache_txn {
-  fd_xid_t    xid;
+  fd_progcache_xid_t xid;
   uint        map_next;
   fd_rwlock_t lock;
   ushort      tag : 2;
@@ -114,10 +113,10 @@ struct __attribute__((aligned(64))) fd_progcache_txn {
 
 #define  MAP_NAME              fd_prog_txnm
 #define  MAP_ELE_T             fd_progcache_txn_t
-#define  MAP_KEY_T             fd_xid_t
+#define  MAP_KEY_T             fd_progcache_xid_t
 #define  MAP_KEY               xid
-#define  MAP_KEY_EQ(k0,k1)     fd_funk_txn_xid_eq((k0),(k1))
-#define  MAP_KEY_HASH(k0,seed) fd_funk_txn_xid_hash((k0),(seed))
+#define  MAP_KEY_EQ(k0,k1)     fd_progcache_txn_xid_eq((k0),(k1))
+#define  MAP_KEY_HASH(k0,seed) fd_progcache_txn_xid_hash((k0),(seed))
 #define  MAP_IDX_T             uint
 #define  MAP_NEXT              map_next
 #define  MAP_MAGIC             (0xf173da2ce77ecdb9UL)
