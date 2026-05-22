@@ -21,6 +21,7 @@ struct fiber {
   union {
     struct {
       fd_accdb_user_t *  accdb;
+      fd_accdb_admin_t * admin;
       fd_funk_txn_xid_t  xid;
       uchar              address[32];
     } open_ro;
@@ -55,7 +56,9 @@ static void
 fiber_open_ro_exec( void * _ctx ) {
   fiber_t * f = _ctx;
   fd_accdb_ro_t ro[1];
-  if( fd_accdb_open_ro( f->open_ro.accdb, ro, &f->open_ro.xid, f->open_ro.address ) ) {
+  fd_accdb_open_ro_multi( f->open_ro.accdb, ro, &f->open_ro.xid, f->open_ro.address, 1UL );
+  if( ro->ref->accdb_type!=FD_ACCDB_TYPE_NONE ) {
+    if( f->open_ro.admin ) FD_TEST( f->open_ro.admin->base.reclaim_cnt==0UL );
     fd_accdb_close_ro( f->open_ro.accdb, ro );
   }
 }
@@ -65,8 +68,23 @@ fiber_open_ro( fiber_t *                 fiber,
                fd_accdb_user_t *         accdb,
                fd_funk_txn_xid_t const * xid,
                void const *              address ) {
-  fiber->open_ro.accdb = accdb;
-  fiber->open_ro.xid   = *xid;
+  fiber->open_ro.accdb  = accdb;
+  fiber->open_ro.admin  = NULL;
+  fiber->open_ro.xid    = *xid;
+  memcpy( fiber->open_ro.address, address, 32UL );
+  fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_open_ro_exec, fiber );
+  return fiber->async;
+}
+
+static fd_racesan_async_t *
+fiber_open_ro_check_reclaim( fiber_t *                 fiber,
+                             fd_accdb_user_t *         accdb,
+                             fd_accdb_admin_t *        admin,
+                             fd_funk_txn_xid_t const * xid,
+                             void const *              address ) {
+  fiber->open_ro.accdb  = accdb;
+  fiber->open_ro.admin  = admin;
+  fiber->open_ro.xid    = *xid;
   memcpy( fiber->open_ro.address, address, 32UL );
   fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_open_ro_exec, fiber );
   return fiber->async;
@@ -207,6 +225,34 @@ populate_account( fd_accdb_admin_t *        admin,
   FD_TEST( fd_accdb_open_rw( accdb, rw, xid, address, 16UL, FD_ACCDB_FLAG_CREATE ) );
   fd_accdb_ref_lamports_set( rw, lamports );
   fd_accdb_close_rw( accdb, rw );
+}
+
+/* Populate an account directly into the root.  This is only used to
+   synthesize a legacy rooted zero-lamport tombstone. */
+
+static void
+populate_root_account( fd_accdb_user_t * accdb_,
+                       void const *      address,
+                       ulong             lamports ) {
+  fd_accdb_user_v1_t * accdb = (fd_accdb_user_v1_t *)accdb_;
+  fd_funk_t *          funk  = accdb->funk;
+
+  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire( funk->rec_pool );
+  FD_TEST( rec );
+  *rec = (fd_funk_rec_t) {
+    .next_idx = FD_FUNK_REC_IDX_NULL,
+    .prev_idx = FD_FUNK_REC_IDX_NULL
+  };
+  fd_funk_txn_xid_set_root( rec->pair.xid );
+  memcpy( rec->pair.key->uc, address, 32UL );
+
+  ulong val_sz = sizeof(fd_account_meta_t);
+  fd_account_meta_t * meta = fd_funk_val_truncate( rec, funk->alloc, funk->wksp, 16UL, val_sz, NULL );
+  FD_TEST( meta );
+  memset( meta, 0, val_sz );
+  meta->lamports = lamports;
+
+  FD_TEST( fd_funk_rec_map_insert( funk->rec_map, rec, 0 )==FD_MAP_SUCCESS );
 }
 
 /* TESTS **************************************************************/
@@ -389,6 +435,37 @@ test_read_root_multikey( fd_wksp_t * wksp ) {
   }
 }
 
+static void
+test_read_deleted_root_zero_account( fd_wksp_t * wksp ) {
+  ulong txn_max = 8UL;
+  ulong rec_max = 64UL;
+
+  static uchar const key_a[32] = { 1 };
+
+  for( ulong i=0UL; i<ITER_DEFAULT; i++ ) {
+    test_ctx_t ctx[1];
+    test_ctx_new( ctx, wksp, txn_max, rec_max );
+
+    fd_funk_txn_xid_t root = fd_accdb_root_get( ctx->admin );
+    fd_funk_txn_xid_t xid1 = { .ul={ i+1UL, 1UL } };
+    fd_accdb_attach_child( ctx->admin, &root, &xid1 );
+    populate_root_account( ctx->accdb, key_a, 0UL );
+    populate_account( ctx->admin, ctx->accdb, &xid1, key_a, 0UL );
+
+    fd_racesan_weave_t w[1];
+    fd_racesan_weave_new( w );
+    fd_racesan_weave_add( w, fiber_open_ro_check_reclaim( &g_fiber[ 0 ], ctx->accdb, ctx->admin, &root, key_a ) );
+    fd_racesan_weave_add( w, fiber_advance_root(          &g_fiber[ 1 ], ctx->admin, &xid1 ) );
+
+    fd_racesan_weave_exec_rand( w, i, STEP_MAX );
+    FD_TEST( !w->rem_cnt );
+
+    fd_racesan_weave_delete( w );
+    test_ctx_delete( ctx );
+    fd_wksp_reset( wksp, WKSP_TAG_DEF );
+  }
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -415,6 +492,7 @@ main( int     argc,
     TEST( test_read_read ),
     TEST( test_read_cancel ),
     TEST( test_read_root_multikey ),
+    TEST( test_read_deleted_root_zero_account ),
     {0}
   };
 # undef TEST
