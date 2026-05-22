@@ -104,7 +104,6 @@ fd_bundle_client_create_conn( fd_bundle_tile_t * ctx ) {
   int err = fd_getaddrinfo( ctx->server_fqdn, &hints, &res, &pscratch, sizeof(scratch) );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_getaddrinfo `%s` failed (%d-%s)", ctx->server_fqdn, err, fd_gai_strerror( err ) ));
-    fd_bundle_client_reset( ctx );
     ctx->metrics.transport_fail_cnt++;
     return;
   }
@@ -397,6 +396,7 @@ fd_bundle_client_step1( fd_bundle_tile_t * ctx,
   }
 
   /* Are we ready to issue a new request? */
+  if( FD_UNLIKELY( !fd_grpc_client_is_connected( ctx->grpc_client ) ) ) return;
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( ctx->grpc_client ) ) ) return;
   long io_ts = fd_bundle_now();
   if( FD_UNLIKELY( fd_bundle_tile_should_stall( ctx, io_ts ) ) ) return;
@@ -440,6 +440,7 @@ fd_bundle_tile_backoff( fd_bundle_tile_t * ctx,
   /* FIXME proper backoff */
   long wait_ns = (long)2e9;
   wait_ns = (long)( fd_rng_ulong( ctx->rng ) & ( (1UL<<fd_ulong_find_msb_w_default( (ulong)wait_ns, 0 ))-1UL ) );
+  wait_ns = fd_long_max( wait_ns, (long)10e6 ); /* 10ms minimum */
 
   ctx->backoff_until = now +   wait_ns;
   ctx->backoff_reset = now + 2*wait_ns;
@@ -867,27 +868,25 @@ fd_bundle_client_grpc_rx_end(
     return;
   }
 
-  resp->grpc_msg_len = (uint)fd_url_unescape( resp->grpc_msg, resp->grpc_msg_len );
-  if( !resp->grpc_msg_len ) {
-    fd_memcpy( resp->grpc_msg, "unknown error", 13 );
-    resp->grpc_msg_len = 13;
-  }
-
   switch( request_ctx ) {
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets:
     ctx->packet_subscription_live = 0;
     ctx->packet_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+    if( FD_LIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
+      fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+    }
     ctx->defer_reset = 1;
-    FD_LOG_INFO(( "SubscribePackets stream failed (gRPC status %u-%s). Reconnecting ...",
+    FD_LOG_INFO(( "SubscribePackets stream ended (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
     return;
   case FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles:
     ctx->bundle_subscription_live = 0;
     ctx->bundle_subscription_wait = 0;
-    fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+    if( FD_LIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
+      fd_bundle_tile_backoff( ctx, fd_bundle_now() );
+    }
     ctx->defer_reset = 1;
-    FD_LOG_INFO(( "SubscribeBundles stream failed (gRPC status %u-%s). Reconnecting ...",
+    FD_LOG_INFO(( "SubscribeBundles stream ended (gRPC status %u-%s). Reconnecting ...",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ) ));
     return;
   case FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo:
@@ -898,6 +897,11 @@ fd_bundle_client_grpc_rx_end(
   }
 
   if( FD_UNLIKELY( resp->grpc_status!=FD_GRPC_STATUS_OK ) ) {
+    resp->grpc_msg_len = (uint)fd_url_unescape( resp->grpc_msg, resp->grpc_msg_len );
+    if( !resp->grpc_msg_len ) {
+      fd_memcpy( resp->grpc_msg, "unknown error", 13 );
+      resp->grpc_msg_len = 13;
+    }
     FD_LOG_INFO(( "gRPC request failed (gRPC status %u-%s): %.*s",
                   resp->grpc_status, fd_grpc_status_cstr( resp->grpc_status ),
                   (int)resp->grpc_msg_len, resp->grpc_msg ));
@@ -947,7 +951,8 @@ fd_grpc_client_callbacks_t fd_bundle_client_grpc_callbacks = {
 int
 fd_bundle_client_status( fd_bundle_tile_t const * ctx ) {
   if( FD_UNLIKELY( ( !ctx->tcp_sock_connected ) |
-                   ( !ctx->grpc_client        ) ) ) {
+                   ( !ctx->grpc_client        ) |
+                   ( ctx->defer_reset         ) ) ) {
     return FD_BUNDLE_STATE_DISCONNECTED;
   }
 
