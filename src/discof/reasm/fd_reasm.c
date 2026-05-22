@@ -482,12 +482,10 @@ fd_reasm_remove( fd_reasm_t     * reasm,
 
     while( FD_LIKELY( head ) ) {
       fd_reasm_fec_t * parent = fd_reasm_parent( reasm, head ); /* parent must exist.  It's not possible to walk up past root */
-      FD_TEST( head->bank_idx == tail->bank_idx );
 
       if( FD_UNLIKELY( head->fec_set_idx==0  ) )                   break;
       if( FD_UNLIKELY( head->sibling != pool_idx_null( pool ) ) )  break; /* if the parent has more than 1 child, we know for sure the parent is a slot boundary or eqvoc point, so we can stop here. */
       if( FD_UNLIKELY( parent->child != pool_idx( pool, head ) ) ) break; /* if the parent has more than 1 child, we know for sure the parent is a slot boundary or eqvoc point, so we can stop here. */
-      if( FD_UNLIKELY( parent->slot_complete ) )                   break; /* specifically catches case where slot complete is in middle of slot. */
       head = parent;
     }
   }
