@@ -33,10 +33,12 @@
 
 #define FD_TPU_MTU (1232UL)
 
-/* FD_GOSSIP_MTU is the max sz of a gossip packet which is the same as
-   above. */
+/* FD_GOSSIP_MTU is the max sz of a gossip packet:
 
-#define FD_GOSSIP_MTU (FD_TPU_MTU)
+   Minimum MTU of IPv6 packet - IPv6 header - UDP header
+                         1280 -          40 -          8 */
+
+#define FD_GOSSIP_MTU (1232UL)
 
 /* FD_SHRED_STORE_MTU is the size of an fd_fec_set (statically
    asserted in fd_shred_tile.c). */
