@@ -62,6 +62,7 @@ struct fd_backt_tile {
   ulong prev_root;
   ulong prev_slot;
   ulong prev_fec_set_idx;
+  ulong out_fec_set_idx;
 
   ulong start_slot;
   ulong end_slot;
@@ -183,13 +184,19 @@ after_credit( fd_backt_tile_t *   ctx,
 
   int completes_slot = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   int completes_fec_set = completes_slot || next_shred->slot!=shred->slot || next_shred->fec_set_idx!=shred->fec_set_idx;
+  int begins_fec_set = ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx;
+  if( FD_UNLIKELY( begins_fec_set ) ) {
+    ctx->out_fec_set_idx = (ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot) ? 0UL : ctx->out_fec_set_idx + FD_FEC_SHRED_CNT;
+  }
+
+  ulong out_shred_idx = ctx->out_fec_set_idx + (ulong)(shred->idx - shred->fec_set_idx);
 
   /* FEC sets from the backtest tile will have their merkle root and
      chained merkle root overwritten with their slot numbers and fec
      set index. This is done in order to preserve behavior for older
      ledgers which may not have merkle roots or chained merkle roots. */
-  fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = shred->fec_set_idx };
-  if( FD_UNLIKELY( ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx ) ) {
+  fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = ctx->out_fec_set_idx };
+  if( FD_UNLIKELY( begins_fec_set ) ) {
     fd_store_slock_acquire ( ctx->store );
     fd_store_insert( ctx->store, 0, &mr );
     fd_store_slock_release ( ctx->store );
@@ -197,8 +204,11 @@ after_credit( fd_backt_tile_t *   ctx,
 
   fd_store_slock_acquire( ctx->store );
   fd_store_fec_t * fec = fd_store_query( ctx->store, &mr );
+  if( FD_UNLIKELY( !fec->data_sz ) ) memset( fec->shred_offs, 0, sizeof(fec->shred_offs) );
   fd_memcpy( fd_store_fec_data( ctx->store, fec )+fec->data_sz, fd_shred_data_payload( shred ), fd_shred_payload_sz( shred ) );
   fec->data_sz += fd_shred_payload_sz( shred );
+  ulong shred_idx = out_shred_idx - ctx->out_fec_set_idx;
+  if( FD_LIKELY( shred_idx<FD_FEC_SHRED_CNT ) ) fec->shred_offs[ shred_idx ] = (uint)fec->data_sz;
   fd_store_slock_release( ctx->store ); /* drop(fec) */
 
   ctx->shreds_idx = (ctx->shreds_idx+1UL)%SHRED_BUFFER_LEN;
@@ -214,12 +224,12 @@ after_credit( fd_backt_tile_t *   ctx,
     cmr.ul[ 0 ] = 0xbaC27e57b1d; /* any initial value works */
     ctx->first_fec_complete = 1;
   } else {
-    ulong chained_slot = shred->fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;
+    ulong chained_slot = ctx->out_fec_set_idx==0 ? shred->slot - shred->data.parent_off : shred->slot;
     cmr.ul[ 0 ] = chained_slot;
     cmr.ul[ 1 ] = ctx->fec_set_idxs[ chained_slot % OUT_FECS_BUFFER_LEN ];
   }
 
-  ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = shred->fec_set_idx;
+  ctx->fec_set_idxs[ shred->slot % OUT_FECS_BUFFER_LEN ] = ctx->out_fec_set_idx;
 
   /* We need to simulate the FEC set completion message that is sent out
      of the shred tile.  This involves copying the data shred header and
@@ -227,6 +237,8 @@ after_credit( fd_backt_tile_t *   ctx,
 
   fd_fec_complete_t * complete_msg = (fd_fec_complete_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out->mem, ctx->repair_out->chunk ) );
   complete_msg->last_shred_hdr = *shred;
+  complete_msg->last_shred_hdr.idx = (uint)out_shred_idx;
+  complete_msg->last_shred_hdr.fec_set_idx = (uint)ctx->out_fec_set_idx;
   memcpy( &complete_msg->merkle_root, &mr, sizeof(fd_hash_t) );
   memcpy( &complete_msg->chained_merkle_root, &cmr, sizeof(fd_hash_t) );
 
@@ -448,6 +460,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->reading_slot_cnt = 0UL;
 
   ctx->prev_slot = ULONG_MAX;
+  ctx->out_fec_set_idx = 0UL;
 
   ctx->prior_completion_timestamp = 0L;
 

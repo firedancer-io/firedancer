@@ -1101,7 +1101,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = ctx->initial_block_id;
-  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted );
+  fd_reasm_fec_t * fec       = fd_reasm_init( ctx->reasm, &initial_block_id, 0 /* genesis slot */ );
   fec->bank_idx              = bank->idx;
   fec->bank_seq              = bank->bank_seq;
   store_xinsert( ctx->store, &initial_block_id );
@@ -1229,7 +1229,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */, 0, 0 );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0, ctx->store, &ctx->reasm_evicted );
+    fd_reasm_fec_t * fec = fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
     fec->bank_idx        = bank->idx;
     fec->bank_seq        = bank->bank_seq;
     store_xinsert( ctx->store, &manifest_block_id );
@@ -2153,9 +2153,10 @@ process_fec_complete( fd_replay_tile_t *  ctx,
     /* reasm failed to insert.  We don't want to just put this back on
        the returnable_frag queue because it's unclear whether this FEC
        is truly something we want to process.  Therefore our best option
-       is to punt it and "go around."  reasm_insert populates it's last
-       pool element with the data of the failed insert, so we make sure
-       to publish the failed insert data to repair in after_credit. */
+       is to punt it and "go around."  Either the FEC was invalid and
+       was rejected or reasm_insert populates its last pool element with
+       the data of the failed insert, so we make sure to publish the
+       failed insert data to repair in after_credit. */
     return;
   }
 }
