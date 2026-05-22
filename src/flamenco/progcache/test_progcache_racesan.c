@@ -194,15 +194,20 @@ metrics_check_no_oom( void ) {
 }
 
 static fd_progcache_shmem_t *
-test_progcache_shmem_new( fd_wksp_t * wksp ) {
-  ulong txn_max           = 16UL;
-  ulong progcache_rec_max = 32UL;
-  ulong wksp_tag          =  1UL;
+test_progcache_shmem_new_custom( fd_wksp_t * wksp,
+                                 ulong       txn_max,
+                                 ulong       progcache_rec_max ) {
+  ulong wksp_tag = 1UL;
 
   fd_progcache_shmem_t * shmem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( txn_max, progcache_rec_max ), wksp_tag );
   FD_TEST( fd_progcache_shmem_new( shmem, wksp_tag, 1UL, txn_max, progcache_rec_max ) );
   *shmem->txn.last_publish = ROOT_XID;
   return shmem;
+}
+
+static fd_progcache_shmem_t *
+test_progcache_shmem_new( fd_wksp_t * wksp ) {
+  return test_progcache_shmem_new_custom( wksp, 16UL, 32UL );
 }
 
 static void
@@ -755,6 +760,81 @@ test_publish_reclaim_evicted( fd_wksp_t * wksp ) {
   test_progcache_shmem_delete( shmem );
 }
 
+/* test_publish_reclaim_reuse_stale_idx forces the stale-pool-index
+   root/reclaim race.  Root is paused after publishing the fork graph
+   but before walking the old txn record list.  With only one record
+   descriptor, a broken implementation lets eviction reclaim that
+   descriptor and lets a new insert reuse it before root resumes. */
+
+static void
+test_publish_reclaim_reuse_stale_idx( fd_wksp_t * wksp ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new_custom( wksp, 16UL, 1UL );
+
+  fd_xid_t    xid0 = ROOT_XID;
+  fd_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_xid_t    xid2 = { .ul = { 3UL, 2UL } };
+  fd_pubkey_t key_a = test_key( 42UL );
+  fd_pubkey_t key_b = test_key( 43UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+
+  test_account_t acc_a;
+  test_account_init( &acc_a, &key_a, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+  test_account_t acc_b;
+  test_account_init( &acc_b, &key_b, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
+
+  fd_progcache_join_t admin[1]; FD_TEST( fd_progcache_shmem_join( admin, shmem ) );
+
+  fd_progcache_attach_child( admin, &xid0, &xid1 );
+
+  {
+    fd_progcache_t tmp[1];
+    FD_TEST( fd_progcache_join( tmp, shmem, g_fiber[ 0 ].scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+    fd_progcache_rec_t * rec = fd_progcache_pull( tmp, &xid1, &key_a, &load_env, acc_a.ro );
+    FD_TEST( rec );
+    fd_progcache_rec_close( tmp, rec );
+    fd_progcache_leave( tmp, NULL );
+  }
+
+  fd_racesan_async_t * root_async = fiber_advance_root( &g_fiber[ 0 ], shmem, &xid1 );
+  FD_TEST( fd_racesan_async_step_until( root_async, "prog_advance_root:pre_publish_release", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+
+  fd_progcache_attach_child( admin, &xid1, &xid2 );
+
+  metrics_reset();
+  fd_racesan_async_t * evict_async = fiber_evict( &g_fiber[ 1 ], shmem, 1UL, 0UL );
+  FD_TEST( fd_racesan_async_step_until( evict_async, "prog_reclaim:pre_txn_lock", STEP_MAX )==FD_RACESAN_ASYNC_RET_HOOK );
+  FD_TEST( fd_racesan_async_step_until( evict_async, "prog_reclaim:pre_cas", 64UL )==FD_RACESAN_ASYNC_RET_TIMEOUT );
+
+  fd_racesan_async_t * pull_async = fiber_pull( &g_fiber[ 2 ], shmem, &xid2, &key_b, &load_env, acc_b.ro );
+  for(;;) {
+    int ret = fd_racesan_async_step( pull_async );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  FD_TEST( fd_progcache_metrics_default.spill_cnt==1UL );
+
+  for(;;) {
+    int ret = fd_racesan_async_step( root_async );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  for(;;) {
+    int ret = fd_racesan_async_step( g_fiber[ 1 ].async );
+    if( ret==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( ret==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+
+  fiber_delete( &g_fiber[ 0 ] );
+  fiber_delete( &g_fiber[ 1 ] );
+  fiber_delete( &g_fiber[ 2 ] );
+  FD_TEST( !fd_progcache_verify( admin ) );
+  test_progcache_clear( admin );
+
+  FD_TEST( fd_progcache_shmem_leave( admin, NULL ) );
+  test_progcache_shmem_delete( shmem );
+}
+
 /* test_root_evict_two races advance_root against eviction with
    two different programs populated on two sibling forks */
 
@@ -917,6 +997,7 @@ main( int     argc,
     TEST( test_inject_at_hook ),
     TEST( test_root_evict_two ),
     TEST( test_publish_reclaim_evicted ),
+    TEST( test_publish_reclaim_reuse_stale_idx ),
     TEST( test_publish_evict_stale ),
     {0}
   };
