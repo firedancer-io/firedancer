@@ -1492,6 +1492,58 @@ test_request_failed_clears_wait( fd_wksp_t * wksp ) {
   test_bundle_env_destroy( env );
 }
 
+static void
+test_http_auth_failure_resets_auther( fd_wksp_t * wksp ) {
+  static ulong const request_ctxs[] = {
+    FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo,
+    FD_BUNDLE_CLIENT_REQ_Bundle_SubscribePackets,
+    FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
+  };
+  static uint const auth_statuses[] = { 401U, 403U };
+
+  for( ulong i=0UL; i<sizeof(request_ctxs)/sizeof(request_ctxs[0]); i++ ) {
+    for( ulong j=0UL; j<sizeof(auth_statuses)/sizeof(auth_statuses[0]); j++ ) {
+      test_bundle_env_t env[1];
+      test_bundle_env_create( env, wksp );
+      test_bundle_env_mock_conn( env );
+      fd_bundle_tile_t * state = env->state;
+
+      state->auther.state      = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+      state->auther.needs_poll = 0;
+
+      fd_grpc_resp_hdrs_t hdrs = {
+        .h2_status   = auth_statuses[ j ],
+        .grpc_status = FD_GRPC_STATUS_OK
+      };
+      fd_bundle_client_grpc_rx_end( state, request_ctxs[ i ], &hdrs );
+
+      FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_REQ_CHALLENGE );
+      FD_TEST( state->auther.needs_poll==1 );
+
+      test_bundle_env_destroy( env );
+    }
+  }
+
+  test_bundle_env_t env[1];
+  test_bundle_env_create( env, wksp );
+  test_bundle_env_mock_conn( env );
+  fd_bundle_tile_t * state = env->state;
+
+  state->auther.state      = FD_BUNDLE_AUTH_STATE_DONE_WAIT;
+  state->auther.needs_poll = 0;
+
+  fd_grpc_resp_hdrs_t hdrs = {
+    .h2_status   = 503,
+    .grpc_status = FD_GRPC_STATUS_OK
+  };
+  fd_bundle_client_grpc_rx_end( state, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo, &hdrs );
+
+  FD_TEST( state->auther.state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
+  FD_TEST( state->auther.needs_poll==0 );
+
+  test_bundle_env_destroy( env );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1532,6 +1584,7 @@ main( int     argc,
   test_interleaved_drain( wksp );
   test_deque_overflow_guard( wksp );
   test_request_failed_clears_wait( wksp );
+  test_http_auth_failure_resets_auther( wksp );
 
   /* Check for memory leaks */
   fd_wksp_usage_t wksp_usage;

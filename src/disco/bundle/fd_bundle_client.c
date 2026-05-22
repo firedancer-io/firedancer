@@ -869,6 +869,11 @@ fd_bundle_client_request_failed( fd_bundle_tile_t * ctx,
   }
 }
 
+static int
+fd_bundle_client_http_auth_failed( uint h2_status ) {
+  return h2_status==401U || h2_status==403U;
+}
+
 void
 fd_bundle_client_grpc_rx_end(
     void *                app_ctx,
@@ -879,6 +884,9 @@ fd_bundle_client_grpc_rx_end(
   if( FD_UNLIKELY( resp->h2_status!=200 ) ) {
     FD_LOG_WARNING(( "gRPC request failed (HTTP status %u)", resp->h2_status ));
     fd_bundle_client_request_failed( ctx, request_ctx );
+    if( FD_UNLIKELY( fd_bundle_client_http_auth_failed( resp->h2_status ) ) ) {
+      fd_bundle_auther_reset( &ctx->auther );
+    }
     return;
   }
 
