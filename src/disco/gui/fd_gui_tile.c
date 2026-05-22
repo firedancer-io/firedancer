@@ -505,9 +505,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
         fd_microblock_execle_trailer_t trailer[1];
         fd_memcpy( trailer, src+sz-sizeof(fd_microblock_execle_trailer_t), sizeof(fd_microblock_execle_trailer_t) );
-        long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+        long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
         fd_gui_microblock_execution_begin( ctx->gui,
-                                          now,
+                                          tspub_ns,
                                           fd_disco_poh_sig_slot( sig ),
                                           (fd_txn_e_t *)src,
                                           (sz-sizeof( fd_microblock_execle_trailer_t ))/sizeof( fd_txn_e_t ),
@@ -524,19 +524,16 @@ after_frag( fd_gui_ctx_t *      ctx,
 
       fd_microblock_trailer_t trailer[1];
       fd_memcpy( trailer, src+sz-sizeof(fd_microblock_trailer_t), sizeof(fd_microblock_trailer_t) );
-      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+      long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
       ulong txn_cnt = (sz-sizeof( fd_microblock_trailer_t ))/sizeof(fd_txn_p_t);
       fd_gui_microblock_execution_end( ctx->gui,
-                                      now,
+                                      tspub_ns,
                                       ctx->in_bank_idx[ in_idx ],
                                       fd_disco_execle_sig_slot( sig ),
                                       txn_cnt,
                                       (fd_txn_p_t *)src,
                                       trailer->pack_txn_idx,
-                                      trailer->txn_start_pct,
-                                      trailer->txn_load_end_pct,
-                                      trailer->txn_end_pct,
-                                      trailer->txn_preload_end_pct,
+                                      trailer->txn_ns_dt,
                                       trailer->tips );
       break;
     }

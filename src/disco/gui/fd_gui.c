@@ -3194,7 +3194,7 @@ fd_gui_unbecame_leader( fd_gui_t *                gui,
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
-                                   long         now,
+                                   long         tspub_ns,
                                    ulong        _slot,
                                    fd_txn_e_t * txns,
                                    ulong        txn_cnt,
@@ -3206,7 +3206,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_UNLIKELY( !lslot ) ) return;
 
-  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, now, lslot->leader_start_time );
+  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, tspub_ns, lslot->leader_start_time );
 
   if( FD_UNLIKELY( lslot->txs.start_offset==ULONG_MAX ) ) lslot->txs.start_offset = pack_txn_idx;
   else                                                    lslot->txs.start_offset = fd_ulong_min( lslot->txs.start_offset, pack_txn_idx );
@@ -3241,7 +3241,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     txn_entry->compute_units_requested     = cost_estimate & 0x1FFFFFU;
     txn_entry->priority_fee                = priority_rewards;
     txn_entry->transaction_fee             = sig_rewards;
-    txn_entry->timestamp_delta_start_nanos = (int)(now - lslot->leader_start_time);
+    txn_entry->microblock_start_ns_dt      = (float)(tspub_ns - lslot->leader_start_time);
     txn_entry->source_ipv4                 = txn_payload->source_ipv4;
     txn_entry->source_tpu                  = txn_payload->source_tpu;
     txn_entry->microblock_idx              = microblock_idx;
@@ -3258,18 +3258,15 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
 }
 
 void
-fd_gui_microblock_execution_end( fd_gui_t *   gui,
-                                 long         now,
-                                 ulong        bank_idx,
-                                 ulong        _slot,
-                                 ulong        txn_cnt,
-                                 fd_txn_p_t * txns,
-                                 ulong        pack_txn_idx,
-                                 uchar        txn_start_pct,
-                                 uchar        txn_load_end_pct,
-                                 uchar        txn_end_pct,
-                                 uchar        txn_preload_end_pct,
-                                 ulong        tips ) {
+fd_gui_microblock_execution_end( fd_gui_t *     gui,
+                                 long           tspub_ns,
+                                 ulong          bank_idx,
+                                 ulong          _slot,
+                                 ulong          txn_cnt,
+                                 fd_txn_p_t *   txns,
+                                 ulong          pack_txn_idx,
+                                 fd_txn_ns_dt_t txn_ns_dt,
+                                 ulong          tips ) {
   if( FD_UNLIKELY( 1UL!=txn_cnt ) ) FD_LOG_ERR(( "gui expects 1 txn per microblock from bank, found %lu", txn_cnt ));
 
   fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
@@ -3278,7 +3275,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_UNLIKELY( !lslot ) ) return;
 
-  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, now, lslot->leader_start_time );
+  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, tspub_ns, lslot->leader_start_time );
 
   if( FD_UNLIKELY( lslot->txs.end_offset==ULONG_MAX ) ) lslot->txs.end_offset = pack_txn_idx + txn_cnt;
   else                                                  lslot->txs.end_offset = fd_ulong_max( lslot->txs.end_offset, pack_txn_idx+txn_cnt );
@@ -3300,11 +3297,8 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     txn_entry->bank_idx                  = bank_idx                             & 0x3FU;
     txn_entry->compute_units_consumed    = txn_p->execle_cu.actual_consumed_cus & 0x1FFFFFU;
     txn_entry->error_code                = (txn_p->flags >> 24)                 & 0x3FU;
-    txn_entry->timestamp_delta_end_nanos = (int)(now - lslot->leader_start_time);
-    txn_entry->txn_start_pct             = txn_start_pct;
-    txn_entry->txn_load_end_pct          = txn_load_end_pct;
-    txn_entry->txn_end_pct               = txn_end_pct;
-    txn_entry->txn_preload_end_pct       = txn_preload_end_pct;
+    txn_entry->microblock_end_ns_dt      = (float)(tspub_ns - lslot->leader_start_time);
+    txn_entry->txn_ns_dt                 = txn_ns_dt;
     txn_entry->tips                      = tips;
     txn_entry->flags                    |= (uchar)FD_GUI_TXN_FLAGS_ENDED;
     txn_entry->flags                    &= (uchar)(~(uchar)FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK);

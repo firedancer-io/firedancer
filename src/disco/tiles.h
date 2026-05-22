@@ -93,6 +93,22 @@ struct fd_completed_bank {
 
 typedef struct fd_completed_bank fd_completed_bank_t;
 
+/* fd_txn_ns_dt contains nanosecond offsets for an executed solana
+   transaction relative to the publish event by pack for its
+   corresponding microblock.
+
+   In Firedancer, these states align with the struct declaration order,
+   but in Frankendancer the "check" phase happens before "load". */
+struct __attribute__((packed)) fd_txn_ns_dt {
+  float load_start;
+  float check_start;
+  float exec_start;
+  float commit_start;
+  float commit_end;
+};
+
+typedef struct fd_txn_ns_dt fd_txn_ns_dt_t;
+
 struct fd_microblock_trailer {
   /* The hash of the transactions in the microblock, ready to be
      mixed into PoH. */
@@ -108,21 +124,7 @@ struct fd_microblock_trailer {
      transactions */
   ulong tips;
 
-  /* If the duration of a microblock is the difference between the
-     publish timestamp of the microblock from pack and the publish
-     timestamp of the microblock from execle, then these represent the
-     elapsed time between the start of the microblock and the 3 state
-     transitions (ready->start loading, loading -> execute, execute ->
-     done) for the first transaction.
-
-     For example, if a microblock starts at t=10 and ends at t=20, and
-     txn_exec_end_pct is UCHAR_MAX / 2, then this transaction started
-     executing at roughly 10+(20-10)*(128/UCHAR_MAX)=15 */
-  uchar txn_start_pct;
-  uchar txn_load_end_pct;
-  uchar txn_end_pct;
-  uchar txn_preload_end_pct;
-
+  fd_txn_ns_dt_t txn_ns_dt;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
