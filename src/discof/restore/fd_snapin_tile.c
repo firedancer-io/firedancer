@@ -666,23 +666,29 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         return 0;
       case FD_SSPARSE_ADVANCE_AGAIN:
         break;
-      case FD_SSPARSE_ADVANCE_MANIFEST: {
+      case FD_SSPARSE_ADVANCE_MANIFEST:
+      case FD_SSPARSE_ADVANCE_MANIFEST_DONE: {
         if( FD_UNLIKELY( ctx->flags.manifest_done ) ) {
           FD_LOG_WARNING(( "excess data after manifest" ));
           transition_malformed( ctx, stem );
           return 0;
         }
-        int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
-                                                result->manifest.data,
-                                                result->manifest.data_sz,
-                                                result->manifest.file_sz,
-                                                result->manifest.acc_vec_map,
-                                                result->manifest.acc_vec_pool );
-        if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+        int parser_res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
+                                                       result->manifest.data,
+                                                       result->manifest.data_sz,
+                                                       result->manifest.acc_vec_map,
+                                                       result->manifest.acc_vec_pool );
+        if( FD_UNLIKELY( parser_res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
           FD_LOG_WARNING(( "error while parsing snapshot manifest" ));
           transition_malformed( ctx, stem );
           return 0;
-        } else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
+        }
+        if( res==FD_SSPARSE_ADVANCE_MANIFEST_DONE ) {
+          if( FD_UNLIKELY( fd_ssmanifest_parser_fini( ctx->manifest_parser )!=FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
+            FD_LOG_WARNING(( "manifest stream ended before parser was done" ));
+            transition_malformed( ctx, stem );
+            return 0;
+          }
           ctx->flags.manifest_done = 1;
         }
         break;

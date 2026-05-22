@@ -385,7 +385,6 @@
 struct fd_ssmanifest_parser_private {
   int     state;
   ulong   off;
-  ulong   manifest_sz;
   uchar * dst;
   ulong   dst_cur;
   ulong   dst_sz;
@@ -2035,7 +2034,6 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
                            fd_snapshot_manifest_t * manifest ) {
   parser->state       = STATE_BLOCKHASH_QUEUE_LAST_HASH_INDEX;
   parser->off         = 0UL;
-  parser->manifest_sz = 0UL;
   parser->dst         = state_dst( parser );
   parser->dst_sz      = state_size( parser );
   parser->dst_cur     = 0UL;
@@ -2069,22 +2067,11 @@ int
 fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               uchar const *            buf,
                               ulong                    bufsz,
-                              ulong                    manifest_sz,
                               acc_vec_map_t *          acc_vec_map,
                               acc_vec_t *              acc_vec_pool ) {
 #if SSMANIFEST_DEBUG
   int state = parser->state;
 #endif
-
-  /* manifest_sz must be >0.  The extra field early-termination
-    mechanism relies on this; when manifest_sz == 0 the check is
-    skipped and the parser would return ADVANCE_AGAIN indefinitely
-    if the stream ends before a non-optional field. */
-  if( FD_UNLIKELY( !manifest_sz ) ) {
-    FD_LOG_WARNING(( "manifest_sz is zero" ));
-    return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
-  }
-  parser->manifest_sz = manifest_sz;
 
   while( bufsz ) {
 #if SSMANIFEST_DEBUG
@@ -2124,8 +2111,6 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
       parser->dst_cur = 0UL;
     }
 
-    if( FD_UNLIKELY( parser->manifest_sz && parser->off==parser->manifest_sz &&
-                     state_is_optional_extras_field( parser ) ) ) parser->state = STATE_DONE;
     if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
     if( FD_UNLIKELY( !bufsz ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
   }
@@ -2135,7 +2120,20 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
     return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
   }
 
-  if( FD_UNLIKELY( parser->state!=STATE_DONE ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
+  return parser->state==STATE_DONE ? FD_SSMANIFEST_PARSER_ADVANCE_DONE
+                                   : FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
+}
 
-  return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
+int
+fd_ssmanifest_parser_fini( fd_ssmanifest_parser_t * parser ) {
+  /* If we are at an optional extra field, it is ok to end the parsing here. */
+  if( state_is_optional_extras_field( parser ) ) {
+    parser->state = STATE_DONE;
+  }
+
+  if( FD_LIKELY( parser->state==STATE_DONE ) ) {
+    return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
+  }
+
+  return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
 }

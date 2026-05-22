@@ -60,8 +60,10 @@ main( int     argc,
 
   long ts = -fd_log_wallclock();
 
-  int result = fd_ssmanifest_parser_consume( parser, buffer, size, size, NULL, NULL );
-  if( FD_UNLIKELY( result!=FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", result ));
+  int result = fd_ssmanifest_parser_consume( parser, buffer, size, NULL, NULL );
+  if( FD_UNLIKELY( result==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", result ));
+  int fini_result = fd_ssmanifest_parser_fini( parser );
+  if( FD_UNLIKELY( fini_result!=FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_fini failed (%d)", fini_result ));
 
   /* Verify block_id parsing.  FIXME: Once block_id is required in
      Agave 4.2, has_block_id must be 1 for all test manifests. */
@@ -77,7 +79,7 @@ main( int     argc,
   fd_rng_t rng[1]; fd_rng_join( fd_rng_new( rng, (uint)fd_log_wallclock(), 0UL ) );
   uchar garbage[16];
   for( ulong i=0UL; i<sizeof(garbage); i++ ) garbage[i] = (uchar)fd_rng_uint( rng );
-  int reentry_result = fd_ssmanifest_parser_consume( parser, garbage, sizeof(garbage), sizeof(garbage), NULL, NULL );
+  int reentry_result = fd_ssmanifest_parser_consume( parser, garbage, sizeof(garbage), NULL, NULL );
   FD_TEST( reentry_result==FD_SSMANIFEST_PARSER_ADVANCE_ERROR );
 
   long elapsed = fd_log_wallclock() + ts;

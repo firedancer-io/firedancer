@@ -8,11 +8,12 @@
 #define FD_SSPARSE_ADVANCE_ERROR          (-1)
 #define FD_SSPARSE_ADVANCE_AGAIN          ( 0)
 #define FD_SSPARSE_ADVANCE_MANIFEST       ( 1)
-#define FD_SSPARSE_ADVANCE_STATUS_CACHE   ( 2)
-#define FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ( 3)
-#define FD_SSPARSE_ADVANCE_ACCOUNT_DATA   ( 4)
-#define FD_SSPARSE_ADVANCE_ACCOUNT_BATCH  ( 5)
-#define FD_SSPARSE_ADVANCE_DONE           ( 6)
+#define FD_SSPARSE_ADVANCE_MANIFEST_DONE  ( 2)
+#define FD_SSPARSE_ADVANCE_STATUS_CACHE   ( 3)
+#define FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ( 4)
+#define FD_SSPARSE_ADVANCE_ACCOUNT_DATA   ( 5)
+#define FD_SSPARSE_ADVANCE_ACCOUNT_BATCH  ( 6)
+#define FD_SSPARSE_ADVANCE_DONE           ( 7)
 
 /* fd_ssparse_t is a solana snapshot parser.  It is designed to parse a
    snapshot in streaming fasion, chunk by chunk. */
@@ -68,7 +69,6 @@ struct fd_ssparse_advance_result {
     struct {
       uchar const *   data;
       ulong           data_sz;
-      ulong           file_sz;
       acc_vec_map_t * acc_vec_map;
       acc_vec_t *     acc_vec_pool;
     } manifest;
