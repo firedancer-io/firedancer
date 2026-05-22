@@ -188,6 +188,9 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   int    popped;        /* whether this FEC has been previously delivered by fd_reasm_pop */
   int    in_out;        /* whether this FEC is currently present in the out dlist */
 
+  ulong  xid_next;     /* pool idx of next FEC with same (slot, fec_set_idx). ULONG_MAX if no next. Maintain the order of most recent to least recent. */
+  ulong  bid_next;     /* pool idx of next FEC with same (slot, UINT_MAX). ULONG_MAX if no next. Maintain the order of most recent to least recent. */
+
   /* Data (set by caller) */
 
   ulong bank_dead;
