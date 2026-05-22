@@ -352,20 +352,72 @@ send_vote_to_leader( fd_txsend_tile_t *  ctx,
 }
 
 static inline void
+peer_reset( peer_entry_t * peer ) {
+  for( ulong j=0UL; j<2UL; j++ ) {
+    fd_quic_conn_t * conn = peer->quic_conns[ j ];
+    if( FD_UNLIKELY( conn ) ) fd_quic_conn_close( conn, 0U );
+    peer->quic_conns         [ j ] = NULL;
+    peer->quic_ip_addrs      [ j ] = 0U;
+    peer->quic_ports         [ j ] = 0U;
+    peer->udp_ip_addrs       [ j ] = 0U;
+    peer->udp_ports          [ j ] = 0U;
+    peer->quic_last_connected[ j ] = 0L;
+  }
+}
+
+static inline void
+peer_remove( fd_txsend_tile_t * ctx,
+             peer_entry_t *     peer ) {
+  if( FD_LIKELY( peer->in_map ) ) {
+    FD_TEST( peer_map_ele_remove( ctx->peer_map, &peer->pubkey, NULL, ctx->peers )==peer );
+    peer->in_map = 0;
+  }
+  peer->tombstoned = 1;
+  peer_reset( peer );
+}
+
+static inline void
+peer_update_quic_endpoint( peer_entry_t * peer,
+                           ulong          idx,
+                           uint           ip4,
+                           ushort         port ) {
+  if( FD_UNLIKELY( !ip4 && !port ) ) return;
+
+  uint   old_ip4  = peer->quic_ip_addrs[ idx ];
+  ushort old_port = peer->quic_ports   [ idx ];
+
+  if( FD_LIKELY( ip4  ) ) peer->quic_ip_addrs[ idx ] = ip4;
+  if( FD_LIKELY( port ) ) peer->quic_ports   [ idx ] = port;
+
+  if( FD_UNLIKELY( peer->quic_conns[ idx ] &&
+                   old_ip4  && old_port &&
+                   ( ( ip4  && ip4 !=old_ip4  ) ||
+                     ( port && port!=old_port ) ) ) ) {
+    fd_quic_conn_close( peer->quic_conns[ idx ], 0U );
+    peer->quic_conns         [ idx ] = NULL;
+    peer->quic_last_connected[ idx ] = 0L;
+  }
+}
+
+static inline void
+peer_update_udp_endpoint( peer_entry_t * peer,
+                          ulong          idx,
+                          uint           ip4,
+                          ushort         port ) {
+  if( FD_LIKELY( ip4  ) ) peer->udp_ip_addrs[ idx ] = ip4;
+  if( FD_LIKELY( port ) ) peer->udp_ports   [ idx ] = port;
+}
+
+static inline void
 handle_contact_info_update( fd_txsend_tile_t *                 ctx,
                             fd_gossip_update_message_t const * msg ) {
+  if( FD_UNLIKELY( msg->contact_info->idx>=FD_CONTACT_INFO_TABLE_SIZE ) )
+    FD_LOG_ERR(( "unexpected contact_info_idx %lu >= %lu", msg->contact_info->idx, FD_CONTACT_INFO_TABLE_SIZE ));
+
   peer_entry_t * entry = &ctx->peers[ msg->contact_info->idx ];
-  if( FD_UNLIKELY( entry->tombstoned ) ) {
-    FD_TEST( peer_map_ele_remove( ctx->peer_map, &entry->pubkey, NULL, ctx->peers ) );
-    entry->quic_last_connected[ 0 ] = 0L;
-    entry->quic_last_connected[ 1 ] = 0L;
-    for( ulong i=0UL; i<2UL; i++ ) {
-      entry->quic_ip_addrs[ i ] = 0U;
-      entry->quic_ports   [ i ] = 0U;
-      entry->udp_ip_addrs [ i ] = 0U;
-      entry->udp_ports    [ i ] = 0U;
-    }
-  }
+
+  if( FD_UNLIKELY( entry->in_map && memcmp( entry->pubkey.uc, msg->origin, 32UL ) ) )
+    peer_remove( ctx, entry );
 
   entry->tombstoned = 0;
   fd_memcpy( entry->pubkey.uc, msg->origin, 32UL );
@@ -375,17 +427,9 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
      migrated between contact info table slots.  Evict the stale entry
      to prevent duplicate keys in the map. */
   peer_entry_t * stale = peer_map_ele_query( ctx->peer_map, &entry->pubkey, NULL, ctx->peers );
-  if( FD_UNLIKELY( stale ) ) {
-    peer_map_ele_remove( ctx->peer_map, &stale->pubkey, NULL, ctx->peers );
-    entry->quic_last_connected[ 0 ] = 0L;
-    entry->quic_last_connected[ 1 ] = 0L;
-    for( ulong i=0UL; i<2UL; i++ ) {
-      entry->quic_ip_addrs[ i ] = 0U;
-      entry->quic_ports   [ i ] = 0U;
-      entry->udp_ip_addrs [ i ] = 0U;
-      entry->udp_ports    [ i ] = 0U;
-    }
-    stale->tombstoned = 0;
+  if( FD_UNLIKELY( stale && stale!=entry ) ) {
+    peer_remove( ctx, stale );
+    peer_reset( entry );
   }
 
   static ulong const quic_socket_idx[ 2UL ] = {
@@ -403,31 +447,37 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
      chance the old one is still valid. */
 
   for( ulong i=0UL; i<2UL; i++ ) {
-    if( FD_LIKELY( !msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].is_ipv6 && msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].ip4 ) ) {
-      entry->quic_ip_addrs[ i ] = msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].ip4;
-    }
-    if( FD_LIKELY( fd_ushort_bswap( msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].port ) ) ) {
-      entry->quic_ports   [ i ] = fd_ushort_bswap( msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].port );
-    }
+    uint   ip4  = fd_uint_if( !!msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].is_ipv6, 0U, msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].ip4 );
+    ushort port = fd_ushort_bswap( msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].port );
+    peer_update_quic_endpoint( entry, i, ip4, port );
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
-    if( FD_LIKELY( !msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].is_ipv6 && msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].ip4 ) ) {
-      entry->udp_ip_addrs[ i ] = msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].ip4;
-    }
-    if( FD_LIKELY( fd_ushort_bswap( msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].port ) ) ) {
-      entry->udp_ports   [ i ] = fd_ushort_bswap( msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].port );
-    }
+    uint   ip4  = fd_uint_if( !!msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].is_ipv6, 0U, msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].ip4 );
+    ushort port = fd_ushort_bswap( msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].port );
+    peer_update_udp_endpoint( entry, i, ip4, port );
   }
 
-  FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
+  if( FD_UNLIKELY( !entry->in_map ) ) {
+    FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
+    entry->in_map = 1;
+  }
 }
 
 static inline void
 handle_contact_info_remove( fd_txsend_tile_t *                 ctx,
                             fd_gossip_update_message_t const * msg ) {
+  if( FD_UNLIKELY( msg->contact_info_remove->idx>=FD_CONTACT_INFO_TABLE_SIZE ) )
+    FD_LOG_ERR(( "unexpected remove_contact_info_idx %lu >= %lu", msg->contact_info_remove->idx, FD_CONTACT_INFO_TABLE_SIZE ));
+
   peer_entry_t * entry = &ctx->peers[ msg->contact_info_remove->idx ];
-  entry->tombstoned = 1;
+  if( FD_LIKELY( entry->in_map && !memcmp( entry->pubkey.uc, msg->origin, 32UL ) ) ) {
+    peer_remove( ctx, entry );
+    return;
+  }
+
+  peer_entry_t * stale = peer_map_ele_query( ctx->peer_map, fd_type_pun_const( msg->origin ), NULL, ctx->peers );
+  if( FD_UNLIKELY( stale ) ) peer_remove( ctx, stale );
 }
 
 static void
@@ -625,6 +675,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( ulong i=0UL; i<FD_CONTACT_INFO_TABLE_SIZE; i++ ) {
     ctx->peers[ i ].tombstoned = 0;
+    ctx->peers[ i ].in_map     = 0;
     for( ulong j=0UL; j<2UL; j++ ) {
       ctx->peers[ i ].quic_ip_addrs[ j ] = 0;
       ctx->peers[ i ].quic_ports   [ j ] = 0;
