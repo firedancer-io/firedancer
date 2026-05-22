@@ -25,6 +25,10 @@ struct fd_event_client_metrics {
   ulong events_acked;
   ulong bytes_written;
   ulong bytes_read;
+  ulong auth_fail_cnt;
+  ulong invalid_msg_cnt;
+  ulong connect_attempt_cnt;
+  ulong handshake_timeout_cnt;
 };
 
 typedef struct fd_event_client_metrics fd_event_client_metrics_t;
@@ -49,7 +53,9 @@ fd_event_client_new( void *                 shmem,
                      ulong                  instance_id,
                      ulong                  boot_id,
                      ulong                  machine_id,
-                     ulong                  buf_max );
+                     ulong                  buf_max,
+                     int                    use_tls,
+                     void *                 ssl_ctx );
 
 fd_event_client_t *
 fd_event_client_join( void * shec );
