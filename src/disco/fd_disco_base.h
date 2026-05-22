@@ -31,7 +31,7 @@
    This is minimum MTU of IPv6 packet - IPv6 header - UDP header
                                  1280 -          40 -          8 */
 
-#define FD_TPU_MTU (1232UL)
+#define FD_TPU_MTU (4096UL)
 
 /* FD_GOSSIP_MTU is the max sz of a gossip packet:
 
