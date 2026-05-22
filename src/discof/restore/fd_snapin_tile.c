@@ -730,7 +730,15 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
           result->status_cache.data += sd_result->bytes_consumed;
         }
 
-        ctx->flags.status_cache_done = fd_slot_delta_parser_consume( ctx->slot_delta_parser, result->status_cache.data, 0UL, sd_result )==FD_SLOT_DELTA_PARSER_ADVANCE_DONE;
+        if( FD_UNLIKELY( result->status_cache.done ) ) {
+          int fini_res = fd_slot_delta_parser_consume( ctx->slot_delta_parser, result->status_cache.data, 0UL, sd_result );
+          if( FD_UNLIKELY( fini_res<0 ) ) {
+            FD_LOG_WARNING(( "error while finalizing slot deltas in status cache" ));
+            transition_malformed( ctx, stem );
+            return 0;
+          }
+          ctx->flags.status_cache_done = fini_res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE;
+        }
         break;
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:

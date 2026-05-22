@@ -93,6 +93,7 @@ fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES           (-3)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER      (-4)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET     (-5)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_UNEXPECTED_EOF             (-6)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN                            ( 0)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY                            ( 1)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_GROUP                            ( 2)
@@ -106,6 +107,7 @@ fd_slot_delta_parser_advance_str( int err ) {
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES:           return "error_too_many_entries";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER:      return "error_excess_data_in_buffer";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET:     return "error_invalid_txnhash_offset";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_UNEXPECTED_EOF:             return "error_unexpected_eof";
     case FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN:                            return "again";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY:                            return "entry";
     case FD_SLOT_DELTA_PARSER_ADVANCE_GROUP:                            return "group";

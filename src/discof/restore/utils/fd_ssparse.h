@@ -75,6 +75,7 @@ struct fd_ssparse_advance_result {
     struct {
       uchar const * data;
       ulong         data_sz;
+      int           done;
     } status_cache;
 
     struct {
