@@ -18,6 +18,14 @@ typedef struct mem_obj_entry mem_obj_entry_t;
 extern action_t * ACTIONS[];
 
 static void
+fmt_size( char * buf, ulong sz ) {
+  if( FD_LIKELY( sz >= (1UL<<30) ) )      FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu GiB", sz / (1UL<<30) ) );
+  else if( FD_LIKELY( sz >= (1UL<<20) ) ) FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu MiB", sz / (1UL<<20) ) );
+  else if( FD_LIKELY( sz >= (1UL<<10) ) ) FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu KiB", sz / (1UL<<10) ) );
+  else                                    FD_TEST( fd_cstr_printf_check( buf, 24, NULL, "%lu B",   sz             ) );
+}
+
+static void
 mem_cmd_args( int *    pargc,
               char *** pargv,
               args_t * args ) {
@@ -121,26 +129,17 @@ mem_cmd_fn( args_t *   args,
       ulong sz = entries[ i ].footprint;
       cum += sz;
       char sz_str[ 24 ], cum_str[ 24 ];
-      if( FD_LIKELY( sz >= (1UL<<30) ) )      FD_TEST( fd_cstr_printf_check( sz_str, 24, NULL, "%lu GiB", sz / (1UL<<30) ) );
-      else if( FD_LIKELY( sz >= (1UL<<20) ) ) FD_TEST( fd_cstr_printf_check( sz_str, 24, NULL, "%lu MiB", sz / (1UL<<20) ) );
-      else if( FD_LIKELY( sz >= (1UL<<10) ) ) FD_TEST( fd_cstr_printf_check( sz_str, 24, NULL, "%lu KiB", sz / (1UL<<10) ) );
-      else                                    FD_TEST( fd_cstr_printf_check( sz_str, 24, NULL, "%lu B",   sz             ) );
-      if( FD_LIKELY( cum >= (1UL<<30) ) )      FD_TEST( fd_cstr_printf_check( cum_str, 24, NULL, "%lu GiB", cum / (1UL<<30) ) );
-      else if( FD_LIKELY( cum >= (1UL<<20) ) ) FD_TEST( fd_cstr_printf_check( cum_str, 24, NULL, "%lu MiB", cum / (1UL<<20) ) );
-      else if( FD_LIKELY( cum >= (1UL<<10) ) ) FD_TEST( fd_cstr_printf_check( cum_str, 24, NULL, "%lu KiB", cum / (1UL<<10) ) );
-      else                                     FD_TEST( fd_cstr_printf_check( cum_str, 24, NULL, "%lu B",   cum             ) );
+      fmt_size( sz_str,  sz  );
+      fmt_size( cum_str, cum );
       double pct     = total ? 100.0 * (double)sz  / (double)total : 0.0;
       double cum_pct = total ? 100.0 * (double)cum / (double)total : 0.0;
       FD_LOG_STDOUT(( "%7s  %5.1f%%  %15lu  %10s  %6.1f%%  %15lu  %12s  %12s\n", sz_str, pct, sz, cum_str, cum_pct, cum, entries[ i ].wksp, entries[ i ].obj ));
     }
 
     char total_str[ 24 ];
-    if( FD_LIKELY( total >= (1UL<<30) ) )      FD_TEST( fd_cstr_printf_check( total_str, 24, NULL, "%lu GiB", total / (1UL<<30) ) );
-    else if( FD_LIKELY( total >= (1UL<<20) ) ) FD_TEST( fd_cstr_printf_check( total_str, 24, NULL, "%lu MiB", total / (1UL<<20) ) );
-    else if( FD_LIKELY( total >= (1UL<<10) ) ) FD_TEST( fd_cstr_printf_check( total_str, 24, NULL, "%lu KiB", total / (1UL<<10) ) );
-    else                                       FD_TEST( fd_cstr_printf_check( total_str, 24, NULL, "%lu B",   total             ) );
+    fmt_size( total_str, total );
     FD_LOG_STDOUT(( "-------  ------  ---------------  ----------  -------  ---------------  ------------  ------------\n" ));
-    FD_LOG_STDOUT(( "%7s  %5.1f%%  %15lu  %10s  %6.1f%%  %15lu  %12s\n", total_str, 100.0, total, total_str, 100.0, total, "TOTAL" ));
+    FD_LOG_STDOUT(( "%7s  %5.1f%%  %15lu  %10s  %6.1f%%  %15lu  %12s  %12s\n", total_str, 100.0, total, total_str, 100.0, total, "TOTAL", "" ));
     return;
   }
 
