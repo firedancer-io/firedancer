@@ -755,6 +755,20 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_COMPILER_MFENCE() __asm__ __volatile__( "# FD_COMPILER_MFENCE()@" FD_SRC_LOCATION ::: "memory" )
 
+/* FD_HW_MFENCE():  A full hardware memory fence.  All prior stores
+   are globally visible before any subsequent loads execute.  Use
+   when a compiler fence is insufficient, e.g. epoch-based safe
+   reclamation where a store must be visible to another core before
+   a dependent load on this core (StoreLoad barrier). */
+
+#if FD_HAS_X86
+#define FD_HW_MFENCE() __asm__ __volatile__( "lock addl $0, (%%rsp)" ::: "memory", "cc" )
+#elif FD_HAS_ARM
+#define FD_HW_MFENCE() __asm__ __volatile__( "dmb ish" ::: "memory" )
+#else
+#define FD_HW_MFENCE() __sync_synchronize()
+#endif
+
 /* FD_SPIN_PAUSE():  Yields the logical core of the calling thread to
    the other logical cores sharing the same underlying physical core for
    a few clocks without yielding it to the operating system scheduler.
