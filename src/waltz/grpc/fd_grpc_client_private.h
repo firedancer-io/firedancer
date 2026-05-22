@@ -4,6 +4,7 @@
 #include "fd_grpc_client.h"
 #include "../grpc/fd_grpc_codec.h"
 #include "../h2/fd_h2.h"
+#include <stddef.h>
 
 /* fd_grpc_h2_stream_t holds the state of a gRPC request. */
 
@@ -128,8 +129,8 @@ struct fd_grpc_client_private {
   ulong                 stream_cnt;
 
   /* Buffers */
-  uchar * nanopb_tx;
-  ulong   nanopb_tx_max;
+  uchar * pb_tx;
+  ulong   pb_tx_max;
   uchar * frame_scratch;
   ulong   frame_scratch_max;
 

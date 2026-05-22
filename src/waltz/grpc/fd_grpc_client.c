@@ -1,6 +1,5 @@
 #include "fd_grpc_client.h"
 #include "fd_grpc_client_private.h"
-#include "../../ballet/nanopb/pb_encode.h" /* pb_msgdesc_t */
 #include <sys/socket.h>
 #include "../h2/fd_h2_rbuf_sock.h"
 #include "fd_grpc_codec.h"
@@ -20,7 +19,7 @@ ulong
 fd_grpc_client_footprint( ulong buf_max ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_grpc_client_t), sizeof(fd_grpc_client_t) );
-  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* nanopb_tx */
+  l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* pb_tx */
   l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_scratch */
   l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_rx_buf */
   l = FD_LAYOUT_APPEND( l, 1UL, buf_max ); /* frame_tx_buf */
@@ -64,7 +63,7 @@ fd_grpc_client_new( void *                             mem,
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   void * client_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_grpc_client_t), sizeof(fd_grpc_client_t) );
-  void * nanopb_tx       = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* nanopb_tx */
+  void * pb_tx           = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* pb_tx */
   void * frame_scratch   = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_scratch */
   void * frame_rx_buf    = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_rx_buf */
   void * frame_tx_buf    = FD_SCRATCH_ALLOC_APPEND( l, 1UL, buf_max ); /* frame_tx_buf */
@@ -84,8 +83,8 @@ fd_grpc_client_new( void *                             mem,
     .ctx               = app_ctx,
     .stream_pool       = stream_pool,
     .stream_bufs       = stream_buf_mem,
-    .nanopb_tx         = nanopb_tx,
-    .nanopb_tx_max     = buf_max,
+    .pb_tx             = pb_tx,
+    .pb_tx_max         = buf_max,
     .frame_scratch     = frame_scratch,
     .frame_scratch_max = buf_max,
     .frame_rx_buf      = frame_rx_buf,
@@ -463,82 +462,6 @@ fd_grpc_client_request_start(
     char const *         path,
     ulong                path_len,
     ulong                request_ctx,
-    pb_msgdesc_t const * fields,
-    void const *         message,
-    char const *         auth_token,
-    ulong                auth_token_sz,
-    int                  is_streaming
-) {
-  if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client ) ) ) return NULL;
-
-  /* Encode message */
-  FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
-  uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  pb_ostream_t ostream = pb_ostream_from_buffer( proto_buf, client->nanopb_tx_max - sizeof(fd_grpc_hdr_t) );
-  if( FD_UNLIKELY( !pb_encode( &ostream, fields, message ) ) ) {
-    FD_LOG_WARNING(( "Failed to encode Protobuf message (%.*s). This is a bug (insufficient buffer space?)", (int)path_len, path ));
-    return NULL;
-  }
-  ulong const serialized_sz = ostream.bytes_written;
-
-  /* Create gRPC length prefix */
-  fd_grpc_hdr_t hdr = {
-    .compressed=0,
-    .msg_sz=fd_uint_bswap( (uint)serialized_sz )
-  };
-  memcpy( client->nanopb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
-  ulong const payload_sz = serialized_sz + sizeof(fd_grpc_hdr_t);
-
-  /* Allocate stream descriptor */
-  fd_grpc_h2_stream_t * stream    = fd_grpc_client_stream_acquire( client, request_ctx );
-  uint const            stream_id = stream->s.stream_id;
-
-  /* Write HTTP/2 request headers */
-  fd_h2_tx_prepare( client->conn, client->frame_tx, FD_H2_FRAME_TYPE_HEADERS, FD_H2_FLAG_END_HEADERS, stream_id );
-  fd_grpc_req_hdrs_t req_meta = {
-    .host     = client->host,
-    .host_len = client->host_len,
-    .port     = client->port,
-    .path     = path,
-    .path_len = path_len,
-    .https    = 1, /* grpc_client assumes TLS encryption for now */
-
-    .bearer_auth     = auth_token,
-    .bearer_auth_len = auth_token_sz
-  };
-  if( FD_UNLIKELY( !fd_grpc_h2_gen_request_hdrs(
-      &req_meta,
-      client->frame_tx,
-      client->version,
-      client->version_len
-  ) ) ) {
-    FD_LOG_WARNING(( "Failed to generate gRPC request headers (%.*s). This is a bug", (int)path_len, path ));
-    fd_grpc_client_stream_release( client, stream );
-    return NULL;
-  }
-  fd_h2_tx_commit( client->conn, client->frame_tx );
-
-  /* Queue request payload for send
-     (Protobuf message might have to be fragmented into multiple HTTP/2
-     DATA frames if the client gets blocked)
-     For streaming requests, don't set END_STREAM flag yet */
-  uint flags = is_streaming ? 0U : FD_H2_FLAG_END_STREAM;
-  fd_h2_tx_op_init( client->request_tx_op, client->nanopb_tx, payload_sz, flags );
-  fd_grpc_client_request_continue1( client );
-  client->metrics->requests_sent++;
-  client->metrics->streams_active++;
-
-  FD_LOG_DEBUG(( "gRPC request path=%.*s sz=%lu streaming=%d", (int)path_len, path, serialized_sz, is_streaming ));
-
-  return stream;
-}
-
-fd_grpc_h2_stream_t *
-fd_grpc_client_request_start1(
-    fd_grpc_client_t *   client,
-    char const *         path,
-    ulong                path_len,
-    ulong                request_ctx,
     uchar const *        protobuf,
     ulong                protobuf_sz,
     char const *         auth_token,
@@ -548,23 +471,23 @@ fd_grpc_client_request_start1(
   if( FD_UNLIKELY( fd_grpc_client_request_is_blocked( client ) ) ) return NULL;
 
   /* Validate protobuf size */
-  FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
-  ulong const max_proto_sz = client->nanopb_tx_max - sizeof(fd_grpc_hdr_t);
+  FD_TEST( client->pb_tx_max > sizeof(fd_grpc_hdr_t) );
+  ulong const max_proto_sz = client->pb_tx_max - sizeof(fd_grpc_hdr_t);
   if( FD_UNLIKELY( protobuf_sz > max_proto_sz ) ) {
     FD_LOG_WARNING(( "Protobuf message too large (%lu bytes) for path (%.*s). Max size is %lu bytes", protobuf_sz, (int)path_len, path, max_proto_sz ));
     return NULL;
   }
 
   /* Copy protobuf to buffer after gRPC header */
-  uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  memcpy( proto_buf, protobuf, protobuf_sz );
+  uchar * proto_buf = client->pb_tx + sizeof(fd_grpc_hdr_t);
+  if( protobuf_sz ) memcpy( proto_buf, protobuf, protobuf_sz );
 
   /* Create gRPC length prefix */
   fd_grpc_hdr_t hdr = {
     .compressed=0,
     .msg_sz=fd_uint_bswap( (uint)protobuf_sz )
   };
-  memcpy( client->nanopb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
+  memcpy( client->pb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
   ulong const payload_sz = protobuf_sz + sizeof(fd_grpc_hdr_t);
 
   /* Allocate stream descriptor */
@@ -601,7 +524,7 @@ fd_grpc_client_request_start1(
      DATA frames if the client gets blocked)
      For streaming requests, don't set END_STREAM flag yet */
   uint flags = is_streaming ? 0U : FD_H2_FLAG_END_STREAM;
-  fd_h2_tx_op_init( client->request_tx_op, client->nanopb_tx, payload_sz, flags );
+  fd_h2_tx_op_init( client->request_tx_op, client->pb_tx, payload_sz, flags );
   fd_grpc_client_request_continue1( client );
   client->metrics->requests_sent++;
   client->metrics->streams_active++;
@@ -613,46 +536,6 @@ fd_grpc_client_request_start1(
 
 int
 fd_grpc_client_stream_send_msg(
-    fd_grpc_client_t *   client,
-    fd_grpc_h2_stream_t * stream,
-    pb_msgdesc_t const * fields,
-    void const *         message
-) {
-  if( FD_UNLIKELY( !client || !stream ) ) return 0;
-  if( FD_UNLIKELY( client->conn->flags & FD_H2_CONN_FLAGS_DEAD ) ) return 0;
-  if( FD_UNLIKELY( !fd_h2_rbuf_is_empty( client->frame_tx ) ) ) return 0;
-  if( FD_UNLIKELY( client->request_stream != NULL && client->request_stream != stream ) ) return 0; /* Another stream has a request in progress */
-
-  /* Encode message */
-  FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
-  uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
-  pb_ostream_t ostream = pb_ostream_from_buffer( proto_buf, client->nanopb_tx_max - sizeof(fd_grpc_hdr_t) );
-  if( FD_UNLIKELY( !pb_encode( &ostream, fields, message ) ) ) {
-    FD_LOG_WARNING(( "Failed to encode Protobuf message for stream_id=%u. This is a bug (insufficient buffer space?)", stream->s.stream_id ));
-    return 0;
-  }
-  ulong const serialized_sz = ostream.bytes_written;
-
-  /* Create gRPC length prefix */
-  fd_grpc_hdr_t hdr = {
-    .compressed=0,
-    .msg_sz=fd_uint_bswap( (uint)serialized_sz )
-  };
-  memcpy( client->nanopb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
-  ulong const payload_sz = serialized_sz + sizeof(fd_grpc_hdr_t);
-
-  /* Queue message payload for send (without END_STREAM flag) */
-  client->request_stream = stream;
-  fd_h2_tx_op_init( client->request_tx_op, client->nanopb_tx, payload_sz, 0U );
-  fd_grpc_client_request_continue1( client );
-
-  FD_LOG_DEBUG(( "gRPC stream_send_msg stream_id=%u sz=%lu", stream->s.stream_id, serialized_sz ));
-
-  return 1;
-}
-
-int
-fd_grpc_client_stream_send_msg1(
     fd_grpc_client_t *    client,
     fd_grpc_h2_stream_t * stream,
     uchar const *         protobuf,
@@ -664,15 +547,15 @@ fd_grpc_client_stream_send_msg1(
   if( FD_UNLIKELY( client->request_stream != NULL && client->request_stream != stream ) ) return 0; /* Another stream has a request in progress */
 
   /* Validate protobuf size */
-  FD_TEST( client->nanopb_tx_max > sizeof(fd_grpc_hdr_t) );
-  ulong const max_proto_sz = client->nanopb_tx_max - sizeof(fd_grpc_hdr_t);
+  FD_TEST( client->pb_tx_max > sizeof(fd_grpc_hdr_t) );
+  ulong const max_proto_sz = client->pb_tx_max - sizeof(fd_grpc_hdr_t);
   if( FD_UNLIKELY( protobuf_sz > max_proto_sz ) ) {
     FD_LOG_WARNING(( "Protobuf message too large (%lu bytes) for stream_id=%u. Max size is %lu bytes", protobuf_sz, stream->s.stream_id, max_proto_sz ));
     return 0;
   }
 
   /* Copy protobuf to buffer after gRPC header */
-  uchar * proto_buf = client->nanopb_tx + sizeof(fd_grpc_hdr_t);
+  uchar * proto_buf = client->pb_tx + sizeof(fd_grpc_hdr_t);
   memcpy( proto_buf, protobuf, protobuf_sz );
 
   /* Create gRPC length prefix */
@@ -680,12 +563,12 @@ fd_grpc_client_stream_send_msg1(
     .compressed=0,
     .msg_sz=fd_uint_bswap( (uint)protobuf_sz )
   };
-  memcpy( client->nanopb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
+  memcpy( client->pb_tx, &hdr, sizeof(fd_grpc_hdr_t) );
   ulong const payload_sz = protobuf_sz + sizeof(fd_grpc_hdr_t);
 
   /* Queue message payload for send (without END_STREAM flag) */
   client->request_stream = stream;
-  fd_h2_tx_op_init( client->request_tx_op, client->nanopb_tx, payload_sz, 0U );
+  fd_h2_tx_op_init( client->request_tx_op, client->pb_tx, payload_sz, 0U );
   fd_grpc_client_request_continue1( client );
 
   FD_LOG_DEBUG(( "gRPC stream_send_msg stream_id=%u sz=%lu", stream->s.stream_id, protobuf_sz ));

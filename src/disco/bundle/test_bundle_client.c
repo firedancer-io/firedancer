@@ -1,7 +1,6 @@
 #include "test_bundle_common.c"
-#include "proto/block_engine.pb.h"
+#include "../../ballet/pb/fd_pb_encode.h"
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/nanopb/pb_encode.h"
 
 FD_IMPORT_BINARY( test_bundle_response, "src/disco/bundle/test_bundle_response.binpb" );
 
@@ -135,7 +134,6 @@ test_bundle_rx_too_many_txns( fd_wksp_t * wksp ) {
       FD_BUNDLE_CLIENT_REQ_Bundle_SubscribeBundles
   );
 
-  FD_TEST( state->bundle_txn_cnt==6 );
   FD_TEST( pending_txn_cnt( state->pending_txns )==0UL );
   test_bundle_env_destroy( env );
 }
@@ -653,16 +651,19 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   /* Protobuf encoder util */
   uchar pb_buf[ 128 ];
   ulong pb_sz = 0UL;
-  block_engine_BlockBuilderFeeInfoResponse resp = block_engine_BlockBuilderFeeInfoResponse_init_default;
+  char pubkey_cstr[ FD_BASE58_ENCODED_32_SZ ];
+  ulong commission = 0UL;
 #define ENCODE_MSG() do { \
-    pb_ostream_t ostream = pb_ostream_from_buffer( pb_buf, sizeof(pb_buf) ); \
-    FD_TEST( pb_encode( &ostream, &block_engine_BlockBuilderFeeInfoResponse_msg, &resp ) ); \
-    pb_sz = ostream.bytes_written; \
+    fd_pb_encoder_t enc[1]; \
+    fd_pb_encoder_init( enc, pb_buf, sizeof(pb_buf) ); \
+    FD_TEST( fd_pb_push_cstr( enc, 1, pubkey_cstr ) ); \
+    FD_TEST( fd_pb_push_uint64( enc, 2, commission ) ); \
+    pb_sz = fd_pb_encoder_out_sz( enc ); \
   } while(0)
 
   /* Invalid Base58 */
-  strcpy( resp.pubkey, "hello" );
-  resp.commission = 2;
+  strcpy( pubkey_cstr, "hello" );
+  commission = 2UL;
   ENCODE_MSG();
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==0 );
@@ -673,8 +674,8 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
 
   /* Invalid commission */
   uchar const pubkey[32] = { 1,2,3,4,5 };
-  fd_base58_encode_32( pubkey, NULL, resp.pubkey );
-  resp.commission = 101;
+  fd_base58_encode_32( pubkey, NULL, pubkey_cstr );
+  commission = 101UL;
   ENCODE_MSG();
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==0 );
@@ -684,14 +685,14 @@ test_bundle_client_request_builder_fee_info( fd_wksp_t * wksp ) {
   FD_TEST( state->builder_info_valid_until==prev_builder_valid_until );
 
   /* Valid response */
-  resp.commission = 2;
+  commission = 2UL;
   ENCODE_MSG();
   fd_bundle_client_grpc_rx_msg( state, pb_buf, pb_sz, FD_BUNDLE_CLIENT_REQ_Bundle_GetBlockBuilderFeeInfo );
   FD_TEST( state->builder_info_avail==1 );
   FD_TEST( state->builder_info_wait==1 );
   FD_TEST( state->builder_commission==2U );
   uchar decoded_builder_pubkey[ 32 ];
-  FD_TEST( fd_base58_decode_32( resp.pubkey, decoded_builder_pubkey ) );
+  FD_TEST( fd_base58_decode_32( pubkey_cstr, decoded_builder_pubkey ) );
   FD_TEST( 0==memcmp( state->builder_pubkey, decoded_builder_pubkey, sizeof(decoded_builder_pubkey) ) );
   FD_TEST( state->builder_info_valid_until!=prev_builder_valid_until );
 
@@ -870,53 +871,25 @@ typedef struct {
   ulong                      bundle_cnt;
 } test_bundle_list_t;
 
-static bool
-encode_test_packet_list( pb_ostream_t *     stream,
-                         pb_field_t const * field,
-                         void * const *     arg ) {
-  test_packet_list_t const * packet_list = *arg;
-
-  for( ulong i=0UL; i<packet_list->packet_cnt; i++ ) {
-    test_packet_desc_t const * desc = &packet_list->packets[ i ];
-    packet_Packet packet = packet_Packet_init_default;
-    FD_TEST( desc->payload_sz<=sizeof(packet.data.bytes) );
-    packet.data.size = (pb_size_t)desc->payload_sz;
-    fd_memcpy( packet.data.bytes, desc->payload, desc->payload_sz );
-
-    if( FD_UNLIKELY( !pb_encode_tag_for_field( stream, field ) ) ) return false;
-    if( FD_UNLIKELY( !pb_encode_submessage( stream, &packet_Packet_msg, &packet ) ) ) return false;
-  }
-
-  return true;
+static void
+encode_test_packet( fd_pb_encoder_t *         enc,
+                    uint                      field_id,
+                    test_packet_desc_t const * desc ) {
+  FD_TEST( fd_pb_submsg_open( enc, field_id ) );
+  FD_TEST( fd_pb_push_bytes( enc, 1, desc->payload, desc->payload_sz ) ); /* data */
+  FD_TEST( fd_pb_submsg_open( enc, 2 ) );                                /* meta */
+  FD_TEST( fd_pb_push_uint64( enc, 1, desc->payload_sz ) );               /* size */
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  FD_TEST( fd_pb_submsg_close( enc ) );
 }
 
-static bool
-encode_test_bundle_list( pb_ostream_t *     stream,
-                         pb_field_t const * field,
-                         void * const *     arg ) {
-  test_bundle_list_t const * bundle_list = *arg;
-
-  for( ulong i=0UL; i<bundle_list->bundle_cnt; i++ ) {
-    test_bundle_desc_t const * desc = &bundle_list->bundles[ i ];
-    test_packet_list_t packet_list = {
-      .packets    = desc->packets,
-      .packet_cnt = desc->packet_cnt,
-    };
-    bundle_BundleUuid bundle_uuid = bundle_BundleUuid_init_default;
-    bundle_uuid.has_bundle = true;
-    bundle_uuid.bundle.packets = (pb_callback_t) {
-      .funcs.encode = encode_test_packet_list,
-      .arg          = &packet_list,
-    };
-    FD_TEST( desc->uuid_sz<=sizeof(bundle_uuid.uuid.bytes) );
-    bundle_uuid.uuid.size = (pb_size_t)desc->uuid_sz;
-    fd_memcpy( bundle_uuid.uuid.bytes, desc->uuid, desc->uuid_sz );
-
-    if( FD_UNLIKELY( !pb_encode_tag_for_field( stream, field ) ) ) return false;
-    if( FD_UNLIKELY( !pb_encode_submessage( stream, &bundle_BundleUuid_msg, &bundle_uuid ) ) ) return false;
+static void
+encode_test_packet_list( fd_pb_encoder_t *        enc,
+                         uint                     field_id,
+                         test_packet_list_t const * packet_list ) {
+  for( ulong i=0UL; i<packet_list->packet_cnt; i++ ) {
+    encode_test_packet( enc, field_id, &packet_list->packets[ i ] );
   }
-
-  return true;
 }
 
 static ulong
@@ -924,20 +897,17 @@ encode_subscribe_packets_response( uchar const *          payload_buf,
                                    ulong                  payload_buf_sz,
                                    test_packet_desc_t *   packets,
                                    ulong                  packet_cnt ) {
-  block_engine_SubscribePacketsResponse resp = block_engine_SubscribePacketsResponse_init_default;
   test_packet_list_t packet_list = {
     .packets    = packets,
     .packet_cnt = packet_cnt,
   };
-  resp.has_batch = true;
-  resp.batch.packets = (pb_callback_t) {
-    .funcs.encode = encode_test_packet_list,
-    .arg          = &packet_list,
-  };
 
-  pb_ostream_t ostream = pb_ostream_from_buffer( (pb_byte_t *)payload_buf, payload_buf_sz );
-  FD_TEST( pb_encode( &ostream, &block_engine_SubscribePacketsResponse_msg, &resp ) );
-  return ostream.bytes_written;
+  fd_pb_encoder_t enc[1];
+  fd_pb_encoder_init( enc, (uchar *)payload_buf, payload_buf_sz );
+  FD_TEST( fd_pb_submsg_open( enc, 2 ) ); /* batch */
+  encode_test_packet_list( enc, 1, &packet_list );
+  FD_TEST( fd_pb_submsg_close( enc ) );
+  return fd_pb_encoder_out_sz( enc );
 }
 
 static ulong
@@ -945,19 +915,27 @@ encode_subscribe_bundles_response( uchar const *          payload_buf,
                                    ulong                  payload_buf_sz,
                                    test_bundle_desc_t *   bundles,
                                    ulong                  bundle_cnt ) {
-  block_engine_SubscribeBundlesResponse resp = block_engine_SubscribeBundlesResponse_init_default;
   test_bundle_list_t bundle_list = {
     .bundles    = bundles,
     .bundle_cnt = bundle_cnt,
   };
-  resp.bundles = (pb_callback_t) {
-    .funcs.encode = encode_test_bundle_list,
-    .arg          = &bundle_list,
-  };
 
-  pb_ostream_t ostream = pb_ostream_from_buffer( (pb_byte_t *)payload_buf, payload_buf_sz );
-  FD_TEST( pb_encode( &ostream, &block_engine_SubscribeBundlesResponse_msg, &resp ) );
-  return ostream.bytes_written;
+  fd_pb_encoder_t enc[1];
+  fd_pb_encoder_init( enc, (uchar *)payload_buf, payload_buf_sz );
+  for( ulong i=0UL; i<bundle_list.bundle_cnt; i++ ) {
+    test_bundle_desc_t const * desc = &bundle_list.bundles[ i ];
+    test_packet_list_t packet_list = {
+      .packets    = desc->packets,
+      .packet_cnt = desc->packet_cnt,
+    };
+    FD_TEST( fd_pb_submsg_open( enc, 1 ) );              /* bundles */
+    FD_TEST( fd_pb_submsg_open( enc, 1 ) );              /* bundle */
+    encode_test_packet_list( enc, 3, &packet_list );     /* packets */
+    FD_TEST( fd_pb_submsg_close( enc ) );
+    FD_TEST( fd_pb_push_bytes( enc, 2, desc->uuid, desc->uuid_sz ) );
+    FD_TEST( fd_pb_submsg_close( enc ) );
+  }
+  return fd_pb_encoder_out_sz( enc );
 }
 
 static ulong

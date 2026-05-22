@@ -6,6 +6,7 @@
 #include "fd_grpc_client.h"
 #include "fd_grpc_client_private.h"
 #include "../../util/fd_util.h"
+#include <stdlib.h>
 
 uchar client_mem[2 << 17] __attribute__((aligned(128)));
 ulong const buf_max = 4096UL;

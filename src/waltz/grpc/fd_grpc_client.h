@@ -5,7 +5,6 @@
    streaming gRPC requests over HTTP/2+TLS. */
 
 #include "fd_grpc_codec.h"
-#include "../../ballet/nanopb/pb_firedancer.h" /* pb_msgdesc_t */
 #if FD_HAS_OPENSSL
 #include <openssl/types.h> /* SSL */
 #endif
@@ -250,10 +249,6 @@ fd_grpc_client_rxtx_socket( fd_grpc_client_t * client,
    request_ctx is an arbitrary number used to identify the request.  It
    echoes in callbacks.
 
-   fields points to a generated nanopb descriptor.  message points to a
-   generated nanopb struct that the user filled in with info.  Calls
-   pb_encode() internally.
-
    auth_token is an optional authorization header.  The header value is
    prepended with "Bearer ".  auth_token_sz==0 omits the auth header.
 
@@ -277,24 +272,12 @@ fd_grpc_client_request_start(
     char const *         path,
     ulong                path_len, /* in [0,128) */
     ulong                request_ctx,
-    pb_msgdesc_t const * fields,
-    void const *         message,
-    char const *         auth_token,
-    ulong                auth_token_sz,
-    int                  is_streaming
-);
-
-fd_grpc_h2_stream_t *
-fd_grpc_client_request_start1(
-    fd_grpc_client_t *   client,
-    char const *         path,
-    ulong                path_len, /* in [0,128) */
-    ulong                request_ctx,
     uchar const *        protobuf,
     ulong                protobuf_sz,
     char const *         auth_token,
     ulong                auth_token_sz,
-    int                  is_streaming );
+    int                  is_streaming
+);
 
 /* fd_grpc_client_stream_send_msg sends an additional message on an
    already-open client streaming request.  This function can only be
@@ -314,16 +297,9 @@ int
 fd_grpc_client_stream_send_msg(
     fd_grpc_client_t *    client,
     fd_grpc_h2_stream_t * stream,
-    pb_msgdesc_t const *  fields,
-    void const *          message
-);
-
-int
-fd_grpc_client_stream_send_msg1(
-    fd_grpc_client_t *    client,
-    fd_grpc_h2_stream_t * stream,
     uchar const *         protobuf,
-    ulong                 protobuf_sz );
+    ulong                 protobuf_sz
+);
 
 /* fd_grpc_client_stream_close explicitly closes a client streaming
    request by sending an empty DATA frame with the END_STREAM flag.

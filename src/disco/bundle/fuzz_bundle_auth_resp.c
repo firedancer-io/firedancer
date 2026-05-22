@@ -35,6 +35,7 @@ int LLVMFuzzerTestOneInput( const uchar *data, ulong size ) {
 
   fd_bundle_auther_t auther = {0};
   fd_bundle_auther_t *pAuther = fd_bundle_auther_init( &auther );
+  fd_pb_inbuf_t in; fd_pb_inbuf_init( &in, payload, payload_sz );
 
   int rc = 0;
 
@@ -43,7 +44,7 @@ int LLVMFuzzerTestOneInput( const uchar *data, ulong size ) {
       fd_bundle_auther_handle_request_fail( pAuther );
       break;
     case 1:
-      rc = fd_bundle_auther_handle_challenge_resp( pAuther, payload, payload_sz );
+      rc = fd_bundle_auther_handle_challenge_resp( pAuther, in );
       if( rc ) {
         FD_TEST( pAuther->state==FD_BUNDLE_AUTH_STATE_REQ_TOKENS );
       } else {
@@ -51,7 +52,7 @@ int LLVMFuzzerTestOneInput( const uchar *data, ulong size ) {
       }
       break;
     case 2:
-      rc = fd_bundle_auther_handle_tokens_resp( pAuther, payload, payload_sz );
+      rc = fd_bundle_auther_handle_tokens_resp( pAuther, in );
       if( rc ) {
         FD_TEST( pAuther->state==FD_BUNDLE_AUTH_STATE_DONE_WAIT );
       } else {
