@@ -109,7 +109,7 @@ test_repro_onchain( void ) {
     for( ulong j=0UL; j<txn->instr[i+1UL].acct_cnt; j++ ) {
       ASSERT_PUBKEY_EQ( payload[ txn->instr[i+1UL].acct_off+j ], payload_2ni[ txn_2ni->instr[i].acct_off+j ] );
     }
-    FD_TEST( fd_memeq( payload + txn->instr[i+1UL].data_off, payload_2ni + txn_2ni->instr[i].data_off, txn->instr[i].data_sz ) );
+    FD_TEST( fd_memeq( payload + txn->instr[i+1UL].data_off, payload_2ni + txn_2ni->instr[i].data_off, txn->instr[i+1UL].data_sz ) );
   }
 
   do {
