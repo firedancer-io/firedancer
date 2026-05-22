@@ -396,7 +396,8 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   fd_xid_t root_xid = fd_bank_xid( bank );
   fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
   fd_funk_txn_xid_copy( funk->shmem->last_publish, &root_xid );
-  fd_funk_txn_xid_copy( mini->progcache->join->shmem->txn.last_publish, &root_xid );
+  fd_progcache_xid_t pc_root_xid = fd_progcache_xid_from_funk( &root_xid );
+  fd_progcache_txn_xid_copy( mini->progcache->join->shmem->txn.last_publish, &pc_root_xid );
 
   if( params->clock ) {
     bank->f.slot  = params->clock->slot;
@@ -570,7 +571,9 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_attach_child    ( mini->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_attach_child( mini->progcache->join, &parent_xid, &xid );
+  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
+  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( &xid );
+  fd_progcache_attach_child( mini->progcache->join, &pc_parent_xid, &pc_xid );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( mini->banks, bank, mini->accdb, mini->runtime_stack, NULL, &is_epoch_boundary );
@@ -598,7 +601,8 @@ fd_svm_mini_cancel_fork( fd_svm_mini_t * mini,
   fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_cancel    ( mini->accdb_admin,     &xid );
-  fd_progcache_cancel( mini->progcache->join, &xid );
+  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
+  fd_progcache_cancel( mini->progcache->join, &pc_xid );
 }
 
 void
@@ -610,7 +614,8 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
   fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_advance_root    ( mini->accdb_admin,     &xid );
-  fd_progcache_advance_root( mini->progcache->join, &xid );
+  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
+  fd_progcache_advance_root( mini->progcache->join, &pc_xid );
   fd_banks_advance_root    ( mini->banks, bank_idx );
 }
 

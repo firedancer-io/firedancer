@@ -28,7 +28,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, xid );
-  fd_progcache_attach_child( runner->progcache->join, &parent_xid, xid );
+  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
+  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( xid );
+  fd_progcache_attach_child( runner->progcache->join, &pc_parent_xid, &pc_xid );
 
   fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
@@ -233,7 +235,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_funk_txn_xid_t exec_xid[1] = { fd_bank_xid( runner->bank ) };
   fd_accdb_attach_child    ( runner->accdb_admin,     xid, exec_xid );
-  fd_progcache_attach_child( runner->progcache->join, xid, exec_xid );
+  fd_progcache_xid_t pc_xid2      = fd_progcache_xid_from_funk( xid );
+  fd_progcache_xid_t pc_exec_xid = fd_progcache_xid_from_funk( exec_xid );
+  fd_progcache_attach_child( runner->progcache->join, &pc_xid2, &pc_exec_xid );
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );

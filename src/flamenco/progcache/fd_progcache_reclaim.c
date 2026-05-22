@@ -118,9 +118,9 @@ fd_prog_delete_rec( fd_progcache_join_t * cache,
 }
 
 long
-fd_prog_delete_rec_by_key( fd_progcache_join_t *          cache,
-                           fd_funk_xid_key_pair_t const * key,
-                           _Bool                          lock ) {
+fd_prog_delete_rec_by_key( fd_progcache_join_t *               cache,
+                           fd_progcache_xid_key_pair_t const * key,
+                           _Bool                               lock ) {
   fd_prog_recm_query_t query[1];
   int rm_err;
   if( lock ) rm_err = fd_prog_recm_remove    ( cache->rec.map, key, NULL, query, FD_MAP_FLAG_BLOCKING );

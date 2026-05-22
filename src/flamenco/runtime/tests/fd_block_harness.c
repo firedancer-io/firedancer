@@ -134,7 +134,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, xid );
-  fd_progcache_attach_child( runner->progcache->join, &parent_xid, xid );
+  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
+  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( xid );
+  fd_progcache_attach_child( runner->progcache->join, &pc_parent_xid, &pc_xid );
 
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );
@@ -301,7 +303,9 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = fd_bank_xid( bank );
   fd_accdb_attach_child    ( runner->accdb_admin,     xid, &fork_xid );
-  fd_progcache_attach_child( runner->progcache->join, xid, &fork_xid );
+  fd_progcache_xid_t pc_xid2     = fd_progcache_xid_from_funk( xid );
+  fd_progcache_xid_t pc_fork_xid = fd_progcache_xid_from_funk( &fork_xid );
+  fd_progcache_attach_child( runner->progcache->join, &pc_xid2, &pc_fork_xid );
   xid[0] = fork_xid;
 
   /* Set the initial lthash from the input since we're in a new Funk txn */
