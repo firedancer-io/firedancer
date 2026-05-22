@@ -219,13 +219,6 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
   while( FD_LIKELY( fec && !fec->confirmed ) ) {
     fec->confirmed = 1;
 
-    xid_t * xid = xid_query( reasm->xid, (fec->slot << 32) | fec->fec_set_idx, NULL );
-    xid->idx    = pool_idx( pool, fec );
-    if( FD_UNLIKELY( fec->slot_complete ) ) {
-      xid_t * bid = xid_query( reasm->xid, ( fec->slot << 32 ) | UINT_MAX, NULL );
-      bid->idx    = pool_idx( pool, fec );
-    }
-
     if( FD_LIKELY( !fec->popped && !fec->in_out ) ) {
       /* Let's say that the delivery queue already contains A, and
          we confirm A - B - C.  We walk upwards from C, but we need to
@@ -348,15 +341,21 @@ link( fd_reasm_t     * reasm,
   }
 }
 
-/* Assumes caller is de-duplicating FEC sets of the same merkle root. */
+/* Assumes caller is de-duplicating FEC sets of the same merkle root.
+   Updates the xid map and inserts the new FEC into the head of the
+   xid list. */
 static xid_t *
 xid_update( fd_reasm_t * reasm, ulong slot, uint fec_set_idx, ulong pool_idx ) {
-  xid_t * xid = xid_query( reasm->xid, (slot << 32) | fec_set_idx, NULL );
+  fd_reasm_fec_t * new_fec = pool_ele( reasm_pool( reasm ), pool_idx );
+  xid_t          * xid     = xid_query( reasm->xid, (slot << 32) | fec_set_idx, NULL );
   if( FD_UNLIKELY( xid ) ) {
+    if( FD_UNLIKELY( fec_set_idx==UINT_MAX ) ) new_fec->bid_next = xid->idx;
+    else                                       new_fec->xid_next = xid->idx;
+    xid->idx = pool_idx; /* updates head ptr */
     xid->cnt++;
   } else {
     xid = xid_insert( reasm->xid, (slot << 32) | fec_set_idx );
-    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx )); // TODO remove after reasm eviction is implemented
+    if( FD_UNLIKELY( !xid ) ) FD_LOG_CRIT(( "xid map full, slot=%lu fec_set_idx=%u", slot, fec_set_idx ));
     xid->idx = pool_idx;
     xid->cnt = 1;
   }
@@ -364,17 +363,36 @@ xid_update( fd_reasm_t * reasm, ulong slot, uint fec_set_idx, ulong pool_idx ) {
 }
 
 static fd_reasm_fec_t *
-clear_slot_metadata( fd_reasm_t     * reasm,
+clear_xid_metadata( fd_reasm_t     * reasm,
                      fd_reasm_fec_t * fec ) {
-  /* remove from bid and xid */
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  ulong fec_idx = pool_idx( pool, fec );
+
   if( FD_UNLIKELY( fec->slot_complete ) ) {
     xid_t * bid = xid_query( reasm->xid, (fec->slot << 32)|UINT_MAX, NULL );
     bid->cnt--;
-    if( FD_LIKELY( !bid->cnt ) ) xid_remove( reasm->xid, bid );
+    if( FD_LIKELY( !bid->cnt ) ) {
+      xid_remove( reasm->xid, bid );
+    } else if( FD_LIKELY( bid->idx==fec_idx ) ) {
+      bid->idx = fec->bid_next;
+    } else {
+      fd_reasm_fec_t * prev = pool_ele( pool, bid->idx );
+      while( prev->bid_next!=fec_idx ) prev = pool_ele( pool, prev->bid_next );
+      prev->bid_next = fec->bid_next;
+    }
   }
-  xid_t * xid = xid_query( reasm->xid, ( fec->slot << 32 ) | fec->fec_set_idx, NULL );
+
+  xid_t * xid = xid_query( reasm->xid, (fec->slot << 32)|fec->fec_set_idx, NULL );
   xid->cnt--;
-  if( FD_LIKELY( !xid->cnt ) ) xid_remove( reasm->xid, xid );
+  if( FD_LIKELY( !xid->cnt ) ) {
+    xid_remove( reasm->xid, xid );
+  } else if( xid->idx==fec_idx ) {
+    xid->idx = fec->xid_next;
+  } else {
+    fd_reasm_fec_t * prev = pool_ele( pool, xid->idx );
+    while( prev->xid_next!=fec_idx ) prev = pool_ele( pool, prev->xid_next );
+    prev->xid_next = fec->xid_next;
+  }
 
   return fec;
 }
@@ -404,7 +422,7 @@ remove_orphan_subtree( fd_reasm_t     * reasm,
       FD_TEST( orphaned_ele_remove( reasm->orphaned, &ele->key, NULL, pool )==ele );
     }
 
-    clear_slot_metadata( reasm, ele );
+    clear_xid_metadata( reasm, ele );
     if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &ele->key );
     pool_ele_release( pool, ele );
   }
@@ -549,7 +567,7 @@ fd_reasm_remove( fd_reasm_t     * reasm,
 
     fd_reasm_fec_t * removed_orphan = NULL;
     if( FD_LIKELY  ( removed_orphan = orphaned_ele_remove( orphaned, &head->key, NULL, pool ) ) ) {
-      clear_slot_metadata( reasm, head );
+      clear_xid_metadata( reasm, head );
       if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &head->key );
       return head;
     }
@@ -562,7 +580,7 @@ fd_reasm_remove( fd_reasm_t     * reasm,
       if( FD_LIKELY( removed->in_out ) ) { out_ele_remove( reasm->out, removed, pool ); removed->in_out = 0; }
 
       curr = fd_reasm_child( reasm, curr );  /* guaranteed only one child */
-      clear_slot_metadata( reasm, removed );
+      clear_xid_metadata( reasm, removed );
       if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &removed->key );
     }
 
@@ -580,7 +598,7 @@ fd_reasm_remove( fd_reasm_t     * reasm,
   /* No parent, remove from subtrees and subtree list */
   subtrees_ele_remove( subtrees, &head->key, NULL, pool );
   subtreel_ele_remove( subtreel,  head,            pool );
-  clear_slot_metadata( reasm, head );
+  clear_xid_metadata( reasm, head );
   if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &head->key );
   return head;
 }
@@ -878,11 +896,12 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->out.next = null;
   fec->out.prev = null;
   fec->in_out   = 0;
+  fec->xid_next = null;
+  fec->bid_next = null;
   fec->subtreel.next = null;
   fec->subtreel.prev = null;
 
   fec->cmr = *chained_merkle_root;
-  FD_TEST( memcmp( &fec->cmr, chained_merkle_root, sizeof(fd_hash_t) ) == 0 );
 
   if( FD_UNLIKELY( slot_complete ) ) {
     xid_t * bid = xid_query( reasm->xid, (slot << 32) | UINT_MAX, NULL );
@@ -993,68 +1012,13 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   xid_t * xid = xid_query( reasm->xid, (slot<<32) | fec_set_idx, NULL );
   if( FD_UNLIKELY( xid ) ) {
     eqvoc( reasm, fec );
-    eqvoc( reasm, pool_ele( pool, xid->idx ) ); /* first appearance of this xid */
+    eqvoc( reasm, pool_ele( pool, xid->idx ) ); /* most recent appearance of this xid */
+    /* We can call eqvoc on the head of the xid list because we maintain
+       the order of most recent to least recent. Inductively, this marks
+       all FECs with the same xid as equivocating. */
   }
   xid_update( reasm, slot, fec_set_idx, pool_idx( pool, fec ) );
   if( FD_UNLIKELY( parent && parent->eqvoc && !parent->confirmed ) ) eqvoc( reasm, fec );
-
-  /* 3. this FEC's parent is a slot_complete, but this FEC is part of
-        the same slot.  Or this fec is a slot_complete, but it's child
-        is part of the same slot. i.e.
-
-             A - B - C (slot cmpl) - D - E - F (slot cmpl)
-
-        We do not want to deliver this entire slot if possible. The
-        block has TWO slot complete flags. This is not honest behavior.
-
-         Two ways this can happen:
-          scenario 1: A - B - C (slot cmpl) - D - E - F (slot cmpl)
-
-          scenario 2: A - B - C (slot cmpl)
-                           \
-                            D - E - F (slot cmpl)   [true equivocation case]
-
-        Scenario 2 is handled first-class in reasm, and we will only
-        replay this slot if one version gets confirmed (or we did not
-        see evidence of the other version until after we replayed the
-        first).
-
-        In scenario 1, it is impossible for the cluster to converge on
-        ABC(slot cmpl)DEF(slot cmpl), but depending on the order in
-        which each node receives the FEC sets, the cluster could either
-        confirm ABC(slot cmpl), or mark the slot dead.  In general, if
-        the majority of nodes received and replayed the shorter version
-        before seeing the second half, the slot could still end up
-        getting confirmed. Whereas if the majority of nodes saw shreds
-        from DEF before finishing replay and voting on ABC, the slot
-        would likely be marked dead.
-
-        Firedancer handles this case by marking the slot eqvoc upon
-        detecting a slot complete in the middle of a slot.  reasm will
-        mark the earliest FEC possible in the slot as eqvoc, but may not
-        be able to detect fec 0 because the FEC may be orphaned, or fec
-        0 may not exist yet.  Thus, it is possible for Firedancer to
-        replay ABC(slot cmpl), but it is impossible for reasm to deliver
-        fecs D, E, or F. The node would then vote for ABC(slot cmpl).
-
-        If the node sees D before replaying A, B, or C, then it would be
-        able to mark ABCD as eqvoc, and prevent the corresponding FECs
-        from being delivered. In this case, the Firedancer node would
-        have an incompletely executed bank that eventually gets pruned
-        away.
-
-        Agave's handling differs because they key by slot, but our
-        handling is compatible with the protocol. */
-
-  if( FD_UNLIKELY( (parent && parent->slot_complete && parent->slot == slot) ||
-                   (fec->slot_complete && min_descendant == slot) ) ) {
-    /* walk up to the earliest fec in slot */
-    fd_reasm_fec_t * curr = fec;
-    while( FD_LIKELY( curr->parent != pool_idx_null( pool ) && pool_ele( pool, curr->parent )->slot == slot ) ) {
-      curr = pool_ele( pool, curr->parent );
-    }
-    eqvoc( reasm, curr );
-  }
 
   /* Finally, return the newly inserted FEC. */
   return fec;
@@ -1115,7 +1079,7 @@ fd_reasm_publish( fd_reasm_t      * reasm,
       }
       child = pool_ele( pool, child->sibling );                                         /* right-sibling */
     }
-    clear_slot_metadata( reasm, head );
+    clear_xid_metadata( reasm, head );
     if( FD_LIKELY( opt_store ) ) fd_store_remove( opt_store, &head->key );
     if( FD_LIKELY( head->in_out ) ) { out_ele_remove( reasm->out, head, pool ); head->in_out = 0; }
     pool_ele_release( pool, head );
