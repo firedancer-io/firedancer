@@ -1373,6 +1373,11 @@ metric introduced.
 
     <counter name="BytesWritten" summary="The total number of bytes written to the event service" />
     <counter name="BytesRead" summary="The total number of bytes read from the event service" />
+
+    <counter name="AuthFail" summary="The total number of authentication failures with the event service" />
+    <counter name="InvalidMsg" summary="The total number of malformed messages received from the event service" />
+    <counter name="ConnectAttempts" summary="The total number of connection attempts to the event service" />
+    <counter name="HandshakeTimeouts" summary="The total number of authentication handshake timeouts with the event service" />
 </tile>
 
 </metrics>
