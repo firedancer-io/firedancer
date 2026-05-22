@@ -6,6 +6,7 @@
 #include "../../ballet/utf8/fd_utf8.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/topo/fd_topob.h"
 
 #ifdef __has_include
 #if __has_include("../../app/fdctl/version.h")
@@ -1052,6 +1053,21 @@ fd_gui_printf_tile_metrics( fd_gui_t *                   gui,
   jsonp_open_array( gui->http, "last_cpu" );
     for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
       jsonp_ulong( gui->http, NULL, cur[ i ].last_cpu );
+    }
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "priority" );
+    for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
+      int priority = fd_topob_tile_priority_type( gui->topo->tiles[ i ].name );
+
+      char const * priority_type_str = "unknown";
+      switch( priority ) {
+        case FD_TOPOB_PRIORITY_FLOATING: priority_type_str = "floating"; break;
+        case FD_TOPOB_PRIORITY_STARTUP:  priority_type_str = "startup";  break;
+        case FD_TOPOB_PRIORITY_NORMAL:   priority_type_str = "normal";   break;
+        case FD_TOPOB_PRIORITY_CRITICAL: priority_type_str = "critical"; break;
+      }
+
+      jsonp_string( gui->http, NULL, priority_type_str );
     }
   jsonp_close_array( gui->http );
 }

@@ -443,6 +443,23 @@ static char const * CRITICAL_TILES[] = {
   NULL
 };
 
+int
+fd_topob_tile_priority_type( char const * name ) {
+  for( char const ** p = FLOATING; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_FLOATING;
+  }
+  for( char const ** p = STARTUP; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_STARTUP;
+  }
+  for( char const ** p = CRITICAL_TILES; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_CRITICAL;
+  }
+  for( char const ** p = POST_START; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_NORMAL;
+  }
+  return FD_TOPOB_PRIORITY_FLOATING;
+}
+
 static void
 auto_tile_cpu( fd_topo_tile_t * tile,
                fd_topo_cpus_t * cpus,
