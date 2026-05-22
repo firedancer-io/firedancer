@@ -1,4 +1,6 @@
 #include "../fd_flamenco.h"
+#include "../../util/bits/fd_float.h"
+#include "fd_cast.h"
 
 int
 main( int     argc,
