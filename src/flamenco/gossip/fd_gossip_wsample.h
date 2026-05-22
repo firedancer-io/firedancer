@@ -25,7 +25,6 @@ fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
                        ulong                 ci_idx,
                        ulong                 stake,
                        int                   ping_tracked,
-                       int                   is_entrypoint,
                        int                   is_me );
 
 void
@@ -70,11 +69,6 @@ void
 fd_gossip_wsample_ping_tracked( fd_gossip_wsample_t * sampler,
                                 ulong                 ci_idx,
                                 int                   ping_tracked );
-
-void
-fd_gossip_wsample_is_entrypoint( fd_gossip_wsample_t * sampler,
-                                 ulong                 ci_idx,
-                                 int                   is_entrypoint );
 
 void
 fd_gossip_wsample_is_me( fd_gossip_wsample_t * sampler,

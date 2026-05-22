@@ -76,10 +76,6 @@ test_basic( void ) {
   fd_ping_tracker_track( ping_tracker, random_pubkey, 1000000000UL, entrypoints[0], now );
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(10), NULL, NULL, NULL ) );
 
-  /* Entrypoints do not get tracked */
-  fd_ping_tracker_track( ping_tracker, random_pubkey, 0UL, entrypoints[0], now );
-  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(10), NULL, NULL, NULL ) );
-
   /* Low stake nodes do get tracked ... */
   peer_t p = generate_random_peer( rng );
   fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
