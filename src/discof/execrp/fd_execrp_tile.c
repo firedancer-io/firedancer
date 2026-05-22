@@ -6,6 +6,7 @@
 #include "../../ballet/sha256/fd_sha256.h" /* fd_sha256_hash_32_repeated */
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../discof/fd_accdb_topo.h"
+#include "../../discof/fd_funk_pkeys.h"
 #include "../../discof/replay/fd_execrp.h"
 #include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -15,10 +16,7 @@
 #include "../../flamenco/progcache/fd_progcache_user.h"
 #include "../../flamenco/log_collector/fd_log_collector_base.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../util/sandbox/fd_pkeys.h"
-#include "../../util/sandbox/fd_sandbox.h"
 #include <time.h>
-#include <errno.h>
 #include "generated/fd_execrp_tile_seccomp.h"
 
 /* The exec tile is responsible for executing single transactions. The
@@ -200,23 +198,6 @@ publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
   ctx->execrp_replay_out->chunk = fd_dcache_compact_next( ctx->execrp_replay_out->chunk, sizeof(*msg), ctx->execrp_replay_out->chunk0, ctx->execrp_replay_out->wmark );
 }
 
-/* funk_mprotect makes the funk wksp read-only / writable
-   (cheaply, using userland protection keys) */
-
-static inline void
-funk_mprotect( fd_execrp_tile_t * ctx,
-               int                writable ) {
-  (void)ctx; (void)writable;
-#if defined(__linux__) && defined(__x86_64__)
-  if( FD_LIKELY( ctx->funk_pkey>=0 ) ) {
-    fd_x86_pkey_update( ctx->funk_pkey, 0, !writable );
-  }
-#endif
-}
-
-static inline void funk_mprotect_readonly( fd_execrp_tile_t * ctx ) { funk_mprotect( ctx, 0 ); }
-static inline void funk_mprotect_writable( fd_execrp_tile_t * ctx ) { funk_mprotect( ctx, 1 ); }
-
 static inline int
 returnable_frag( fd_execrp_tile_t *  ctx,
                  ulong               in_idx,
@@ -253,9 +234,9 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
         if( FD_LIKELY( ctx->txn_out.err.is_committable ) ) {
-          funk_mprotect_writable( ctx );
+          fd_funk_pkey_unprotect( ctx->funk_pkey );
           fd_runtime_commit_txn( ctx->runtime, ctx->bank, &ctx->txn_out );
-          funk_mprotect_readonly( ctx );
+          fd_funk_pkey_protect( ctx->funk_pkey );
         } else {
           fd_runtime_cancel_txn( ctx->runtime, &ctx->txn_out );
         }
@@ -339,29 +320,7 @@ privileged_init( fd_topo_t *      topo,
   fd_wksp_t * funk_wksp = fd_wksp_containing( fd_topo_obj_laddr( topo, funk_obj_id ) );
   FD_TEST( funk_wksp );
 
-#if defined(__linux__) && defined(__x86_64__)
-  if( FD_UNLIKELY( fd_sandbox_getpid()!=fd_sandbox_gettid() ) ) {
-    FD_LOG_INFO(( "userland memory protection disabled: not compatible with single-process mode" ));
-    return;
-  }
-
-  int pkey = fd_syscall_pkey_alloc( 0, 0 );
-  if( FD_UNLIKELY( pkey<0 ) ) {
-    FD_LOG_INFO(( "userland memory protection disabled: pkey_alloc(0,0) failed (%i-%s)",
-                  errno, fd_io_strerror( errno ) ));
-    return;
-  }
-
-  int err = fd_wksp_pkey_install( funk_wksp, pkey );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "error while setting up userland memory protection: fd_wksp_pkey_install(funk_wksp,pkey=%d) failed (%i-%s)",
-                 pkey, err, fd_io_strerror( err ) ));
-  }
-
-  ctx->funk_pkey = pkey;
-  funk_mprotect_readonly( ctx );
-  FD_LOG_INFO(( "userland memory protection enabled (pkey=%d)", pkey ));
-# endif /* defined(__linux__) && defined(__x86_64__) */
+  ctx->funk_pkey = fd_funk_pkey_setup( funk_wksp );
 }
 
 static void

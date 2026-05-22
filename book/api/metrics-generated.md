@@ -553,7 +553,34 @@
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;fees_&#8203;only</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but was fees only and did not execute) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">landed_&#8203;failed</span>"} | counter | Whether a transaction landed in the block or not (Transaction landed, but failed to execute) |
 | <span class="metrics-name">execle_&#8203;transaction_&#8203;landed</span><br/>{transaction_&#8203;landed="<span class="metrics-enum">unlanded</span>"} | counter | Whether a transaction landed in the block or not (Transaction did not land) |
+| <span class="metrics-name">execle_&#8203;accdb_&#8203;created</span> | counter | Number of account database records created |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction setup) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">exec</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction execution (includes VM setup/execution)) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;regime</span><br/>{txn_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in transaction execution regimes (Transaction result commit) |
+| <span class="metrics-name">execle_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM setup) |
+| <span class="metrics-name">execle_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM commit) |
+| <span class="metrics-name">execle_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">setup_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM setup (CPI)) |
+| <span class="metrics-name">execle_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">commit_&#8203;cpi</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM commit (CPI)) |
+| <span class="metrics-name">execle_&#8203;vm_&#8203;regime</span><br/>{vm_&#8203;regime="<span class="metrics-enum">interpreter</span>"} | counter | Mutually exclusive and exhaustive duration of time spent in virtual machine execution regimes (VM interpreter execution) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged_&#8203;nonexist</span>"} | counter | Transaction account change event counters (Account did not exist before and still does not) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">created</span>"} | counter | Transaction account change event counters (Account created) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">delete</span>"} | counter | Transaction account change event counters (Account deleted) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">modify</span>"} | counter | Transaction account change event counters (Account modified) |
+| <span class="metrics-name">execle_&#8203;txn_&#8203;account_&#8203;changes</span><br/>{account_&#8203;change="<span class="metrics-enum">unchanged</span>"} | counter | Transaction account change event counters (Account unchanged) |
 | <span class="metrics-name">execle_&#8203;compute_&#8203;units_&#8203;total</span> | counter | Estimated number of compute units executed since tile start |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;lookups</span> | counter | Program cache lookup counter |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;hits</span> | counter | Program cache hit counter |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;misses</span> | counter | Program cache miss counter |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;oom_&#8203;heap</span> | counter | Program cache out-of-memory event counter (heap) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;oom_&#8203;desc</span> | counter | Program cache out-of-memory event counter (descriptor table) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;fill_&#8203;bytes</span> | counter | Number of bytes inserted into program cache |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;spills</span> | counter | Program cache spill counter (OOM fallback mechanism) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;spill_&#8203;bytes</span> | counter | Number of bytes spilled from program cache (OOM fallback mechanism) |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;evictions</span> | counter | Program cache eviction counter |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;eviction_&#8203;bytes</span> | counter | Number of bytes evicted from program cache |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;duration_&#8203;total_&#8203;seconds</span> | counter | Total time in seconds spent on program cache operations |
+| <span class="metrics-name">execle_&#8203;progcache_&#8203;duration_&#8203;load_&#8203;seconds</span> | counter | Total time in seconds spent loading programs |
 
 </div>
 
