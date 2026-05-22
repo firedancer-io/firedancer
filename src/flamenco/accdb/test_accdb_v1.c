@@ -344,6 +344,53 @@ test_account_creation( fd_accdb_user_t *         accdb,
 }
 
 static void
+test_zero_balance_ro( fd_accdb_admin_t * admin,
+                      fd_accdb_user_t *  accdb ) {
+  static uchar const key_live[ 32 ] = { 10 };
+  static uchar const key_dead[ 32 ] = { 11 };
+
+  add_account_funk( accdb, key_live, 500UL );
+  add_account_funk( accdb, key_dead,   0UL );
+
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 7UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_accdb_ro_t ro[1];
+  FD_TEST( fd_accdb_open_ro( accdb, ro, &xid, key_live ) );
+  FD_TEST( fd_accdb_ref_lamports( ro )==500UL );
+  fd_accdb_close_ro( accdb, ro );
+  FD_TEST( !fd_accdb_open_ro( accdb, ro, &xid, key_dead ) );
+
+  fd_accdb_advance_root( admin, &xid );
+  fd_accdb_v1_clear( admin );
+}
+
+static void
+test_zero_balance_rw( fd_accdb_admin_t * admin,
+                      fd_accdb_user_t *  accdb ) {
+  static uchar const key_dead[ 32 ] = { 11 };
+
+  add_account_funk( accdb, key_dead, 0UL );
+
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 8UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_accdb_rw_t rw[1];
+  fd_accdb_ro_t ro[1];
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, key_dead, 0UL, 0 ) );
+  for( ulong i=0UL; i<1000000UL; i++ ) {
+    FD_TEST( !fd_accdb_open_ro( accdb, ro, &xid, key_dead ) );
+    FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, key_dead, 0UL, FD_ACCDB_FLAG_CREATE ) );
+    fd_accdb_close_rw( accdb, rw ); /* creates a tombstone */
+  }
+
+  fd_accdb_advance_root( admin, &xid );
+  fd_accdb_v1_clear( admin );
+}
+
+static void
 test_tombstone( fd_accdb_admin_t * admin,
                 fd_accdb_user_t *  accdb ) {
 
@@ -407,6 +454,8 @@ test_simple( fd_wksp_t * wksp ) {
   test_truncate_nonexist( admin, accdb );
   test_truncate_inplace ( admin, accdb );
   test_truncate_copy    ( admin, accdb );
+  test_zero_balance_ro  ( admin, accdb );
+  test_zero_balance_rw  ( admin, accdb );
 
   fd_accdb_v1_clear( admin );
   test_tombstone( admin, accdb );
