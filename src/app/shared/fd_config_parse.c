@@ -90,7 +90,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.resolv_tile_count                            );
   CFG_POP      ( uint,   layout.execle_tile_count                            );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
-  CFG_POP      ( uint,   layout.snapshot_hash_tile_count                     );
 
   CFG_POP      ( ulong,  accounts.max_accounts                               );
   CFG_POP      ( ulong,  accounts.file_size_gib                              );
@@ -322,7 +321,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
 
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
-  CFG_POP      ( bool,   development.snapshots.disable_lthash_verification );
 
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
     CFG_POP    ( bool,   development.gui.websocket_compression            );

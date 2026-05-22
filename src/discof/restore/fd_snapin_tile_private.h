@@ -48,7 +48,6 @@ typedef struct buffered_account_batch buffered_account_batch_t;
 struct fd_snapin_tile {
   int  state;
   uint full      : 1;       /* loading a full snapshot? */
-  uint lthash_disabled : 1; /* disable lthash checking? */
 
   ulong seed;
   long boot_timestamp;
@@ -127,7 +126,6 @@ struct fd_snapin_tile {
   ulong                out_ct_idx;
   fd_snapin_out_link_t manifest_out;
   fd_snapin_out_link_t gui_out;
-  fd_snapin_out_link_t hash_out;
 
   ulong gui_config_acct_sz;   /* total expected account data length (0 when not accumulating) */
   ulong gui_config_acct_off;  /* bytes accumulated so far into the current gui_out link chunk */
@@ -188,69 +186,6 @@ fd_snapin_read_account( fd_snapin_tile_t *  ctx,
   /* fd_snapin_read_account will no longer be required in the snapin
      tile once funk is deprecated from the snapshot load pipeline. */
   fd_snapin_read_account_funk( ctx, acct_addr, meta, data, data_max );
-}
-
-/* fd_snapin_send_duplicate_account sends a duplicate account message
-   with the signature FD_SNAPSHOT_HASH_MSG_SUB or
-   FD_SNAPSHOT_HASH_MSG_SUB_HDR, depending on if this duplicate account
-   contains valid account data. The message is only
-   sent if lthash verification is enabled in the snapshot loader.
-
-   lamports is account's lamports value.  data is the account's data,
-   which can be optionally null.  data_len is the length of the account
-   data.  executable is the account's executable flag. owner points to
-   the account's owner (32 bytes).  pubkey points to the account's
-   pubkey (32 bytes).  early_exit is an optional pointer to an int flag
-   that is set to 1 if the caller should yield to stem following this
-   call. */
-static inline void
-fd_snapin_send_duplicate_account( fd_snapin_tile_t * ctx,
-                                  ulong              lamports,
-                                  uchar const *      data,
-                                  ulong              data_len,
-                                  uchar              executable,
-                                  uchar const *      owner,
-                                  uchar const *      pubkey,
-                                  int                has_data,
-                                  int *              early_exit ) {
-  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return;
-
-  if( FD_LIKELY( has_data ) ) {
-    fd_snapshot_full_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-    fd_snapshot_account_hdr_init( &existing_account->hdr, pubkey, owner, lamports, executable, data_len );
-    fd_memcpy( existing_account->data, data, data_len );
-    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_account_hdr_t)+data_len, 0UL, 0UL, 0UL );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_hdr_t)+data_len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
-  } else {
-    fd_snapshot_account_hdr_t * acc_hdr = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-    fd_snapshot_account_hdr_init( acc_hdr, pubkey, owner, lamports, executable, data_len );
-    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_hdr_t), 0UL, 0UL, 0UL );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_hdr_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-  }
-  if( FD_LIKELY( early_exit ) ) *early_exit = 1;
-}
-
-/* fd_snapin_send_duplicate_account_data sends a duplicate account
-   message with the signature FD_SNAPSHOT_HASH_MSG_SUB_DATA.  The
-   message is only sent if lthash verification is enabled in the
-   snapshot loader.
-
-   data is the account's data, which cannot be null.  data_len is the
-   length of the account data.  early_exit is an optional pointer to an
-   int flag that is set to 1 if the caller should yield to stem
-   following this call. */
-static inline void
-fd_snapin_send_duplicate_account_data( fd_snapin_tile_t * ctx,
-                                       uchar const *      data,
-                                       ulong              data_sz,
-                                       int *              early_exit ) {
-  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return;
-
-  uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-  fd_memcpy( drop_account_data, data, data_sz );
-  fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, data_sz, 0UL, 0UL, 0UL );
-  ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, data_sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
-  if( FD_LIKELY( early_exit ) ) *early_exit = 1;
 }
 
 FD_PROTOTYPES_END

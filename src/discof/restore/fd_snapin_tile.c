@@ -614,13 +614,6 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
-  if( FD_LIKELY( !ctx->lthash_disabled ) ) {
-    fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
-    fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
-    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-  }
-
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( ctx->stem, ctx->manifest_out.idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
@@ -651,7 +644,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
   if( FD_UNLIKELY( chunk<ctx->in.chunk0 || chunk>ctx->in.wmark || sz>ctx->in.mtu ) ) FD_LOG_ERR(( "invalid data frag bounds (chunk=%lu chunk0=%lu wmark=%lu sz=%lu mtu=%lu)", chunk, ctx->in.chunk0, ctx->in.wmark, sz, ctx->in.mtu ));
 
-  if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
+  if( FD_UNLIKELY( ctx->buffered_batch.batch_cnt>0UL ) ) {
     if( FD_UNLIKELY( fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch )<0 ) ) {
       transition_malformed( ctx, stem );
       return 0;
@@ -829,22 +822,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   return reprocess_frag;
 }
 
-static int
-validate_capitalization( fd_snapin_tile_t * ctx ) {
-  /* Capitalization is checked only when lthash verification is
-     enabled, since a snapshot that fails lthash would most probably
-     fail capitalization as well. */
-  if( FD_UNLIKELY( ctx->lthash_disabled ) ) return 0;
-  if( FD_UNLIKELY( ctx->capitalization!=ctx->manifest_capitalization ) ) {
-    /* SnapshotError::MismatchedCapitalization
-        https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/snapshot_bank_utils.rs#L217 */
-    FD_LOG_WARNING(( "%s snapshot manifest capitalization %lu does not match computed capitalization %lu",
-                     ctx->full?"full":"incr", ctx->manifest_capitalization, ctx->capitalization ));
-    return -1;
-  }
-  return 0;
-}
-
 static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
@@ -940,11 +917,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
-      if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
-        transition_malformed( ctx, stem );
-        forward_msg = 0;
-        break;
-      }
 
       ctx->recovery.capitalization = ctx->capitalization;
 
@@ -968,11 +940,6 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       ctx->capitalization = fd_ulong_sat_sub( ctx->capitalization, ctx->dup_capitalization );
-      if( FD_UNLIKELY( validate_capitalization( ctx )!=0 ) ) {
-        transition_malformed( ctx, stem );
-        forward_msg = 0;
-        break;
-      }
 
       /* Publish any remaining funk txn */
       if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
@@ -1129,7 +1096,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
-  ctx->lthash_disabled = tile->snapin.lthash_disabled;
 
   ulong funk_obj_id;       FD_TEST( (funk_obj_id       = fd_pod_query_ulong( topo->props, "funk",       ULONG_MAX ) )!=ULONG_MAX );
   ulong funk_locks_obj_id; FD_TEST( (funk_locks_obj_id = fd_pod_query_ulong( topo->props, "funk_locks", ULONG_MAX ) )!=ULONG_MAX );
@@ -1165,21 +1131,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->manifest_out = out1( topo, tile, "snapin_manif" );
   ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
-  ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
-  if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ls", 0UL );
-  if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_wm", 0UL );
-  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls` or `snapin_wm`" ));
-  fd_topo_link_t * snapin_out_link = &topo->links[ tile->out_link_id[ out_link_ct_idx ] ];
-  ctx->out_ct_idx = out_link_ct_idx;
+  ctx->out_ct_idx   = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
 
-  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls` or `snapin_wm`" ));
+  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct`" ));
   if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
-
-  if( ( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) ||
-      ( 0==strcmp( snapin_out_link->name, "snapin_wm" ) ) ) {
-    ctx->hash_out = out1( topo, tile, snapin_out_link->name );
-    FD_TEST( ctx->hash_out.idx==out_link_ct_idx );
-  }
 
   fd_ssparse_reset( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
@@ -1216,17 +1171,13 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 /* There are 3 output links that affect the calculation of STEM_BURST:
-    1. topology-dependent link:
-    | 1a. snapin_ct (no lthash verification)
-    | 1b. snapin_ls (with lthash verification)
-    | - worst case: 2 messages, e.g. process_manifest (lthash) +
-    |            FD_SSPARSE_ADVANCE_ACCOUNT_{HEADER,DATA,BATCH,ERROR}
+    1. snapin_ct    - worst case: 1 message (control msg forwarding)
     2. snapin_manif - worst case: 1 message
     3. snapin_gui   - worst case: 1 message (config program account)
    The STEM_BURST is the max value across these 3 links (not the sum).
    Note that snapin_txn is excluded from this calculation, since it is
    an unreliable link, working as a dcache place holder. */
-#define STEM_BURST 2UL
+#define STEM_BURST 1UL
 
 #define STEM_LAZY  1000L
 

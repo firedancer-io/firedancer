@@ -10,8 +10,6 @@ class Tile(Enum):
     SNAPLD = 4
     SNAPDC = 5
     SNAPIN = 6
-    SNAPLA = 9
-    SNAPLS = 10
 
     NETLNK = 14
     NET = 15

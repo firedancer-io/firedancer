@@ -386,8 +386,6 @@ static char const * STARTUP[] = {
   "snapld", /* FIREDANCER only */
   "snapdc", /* FIREDANCER only */
   "snapin", /* FIREDANCER only */
-  "snapla", /* FIREDANCER only */
-  "snapls", /* FIREDANCER only */
   NULL
 };
 

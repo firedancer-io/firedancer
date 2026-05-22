@@ -361,69 +361,40 @@ write_snapshots( config_t const * config,
   ulong snapld_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] );
   ulong snapdc_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] );
   ulong snapin_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] );
-  ulong snapls_tile_idx    = fd_topo_find_tile( &config->topo, "snapls", 0UL );
-  ulong snapls_total_ticks = snapls_tile_idx!=ULONG_MAX ? total_regime( &cur_tile[ snapls_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snapls_tile_idx*FD_METRICS_TOTAL_SZ ] )  : 0UL;
   snapct_total_ticks = fd_ulong_max( snapct_total_ticks, 1UL );
   snapld_total_ticks = fd_ulong_max( snapld_total_ticks, 1UL );
   snapdc_total_ticks = fd_ulong_max( snapdc_total_ticks, 1UL );
   snapin_total_ticks = fd_ulong_max( snapin_total_ticks, 1UL );
-  snapls_total_ticks = fd_ulong_max( snapls_total_ticks, 1UL );
 
   double snapct_backp_pct = 100.0*(double)diff_tile( config, "snapct", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapct_total_ticks;
   double snapld_backp_pct = 100.0*(double)diff_tile( config, "snapld", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapld_total_ticks;
   double snapdc_backp_pct = 100.0*(double)diff_tile( config, "snapdc", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapdc_total_ticks;
   double snapin_backp_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapin_total_ticks;
-  double snapls_backp_pct = snapls_tile_idx!=ULONG_MAX ? 100.0*(double)diff_tile( config, "snapls", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapls_total_ticks : 0.0;
 
   double snapct_idle_pct = 100.0*(double)diff_tile( config, "snapct", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapct_total_ticks;
   double snapld_idle_pct = 100.0*(double)diff_tile( config, "snapld", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapld_total_ticks;
   double snapdc_idle_pct = 100.0*(double)diff_tile( config, "snapdc", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapdc_total_ticks;
   double snapin_idle_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapin_total_ticks;
-  double snapls_idle_pct = snapls_tile_idx!=ULONG_MAX ? 100.0*(double)diff_tile( config, "snapls", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapls_total_ticks : 0.0;
 
-  if( FD_UNLIKELY( snapls_tile_idx!=ULONG_MAX ) ) {
-    PRINT( "⚡ " BOLD BYELLOW "SNAPSHOTS..." RESET UNBOLD
-           " " BOLD "STATE" UNBOLD " %s"
-           " " BOLD "PCT"   UNBOLD " %.1f %%"
-           " " BOLD "RX"    UNBOLD " %3.f MB/s"
-           " " BOLD "ACC"   UNBOLD " %3.1f M/s"
-           " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
-           " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
-      fd_snapct_state_str( (int)state ),
-      progress,
-      megabytes_per_second,
-      million_accounts_per_second,
-      snapct_backp_pct,
-      snapld_backp_pct,
-      snapdc_backp_pct,
-      snapin_backp_pct,
-      snapls_backp_pct,
-      100.0-snapct_idle_pct-snapct_backp_pct,
-      100.0-snapld_idle_pct-snapld_backp_pct,
-      100.0-snapdc_idle_pct-snapdc_backp_pct,
-      100.0-snapin_idle_pct-snapin_backp_pct,
-      100.0-snapls_idle_pct );
-  } else {
-    PRINT( "⚡ " BOLD BYELLOW "SNAPSHOTS..." RESET UNBOLD
-           " " BOLD "STATE" UNBOLD " %s"
-           " " BOLD "PCT"   UNBOLD " %.1f %%"
-           " " BOLD "RX"    UNBOLD " %3.f MB/s"
-           " " BOLD "ACC"   UNBOLD " %3.1f M/s"
-           " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
-           " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
-      fd_snapct_state_str( (int)state ),
-      progress,
-      megabytes_per_second,
-      million_accounts_per_second,
-      snapct_backp_pct,
-      snapld_backp_pct,
-      snapdc_backp_pct,
-      snapin_backp_pct,
-      100.0-snapct_idle_pct-snapct_backp_pct,
-      100.0-snapld_idle_pct-snapld_backp_pct,
-      100.0-snapdc_idle_pct-snapdc_backp_pct,
-      100.0-snapin_idle_pct-snapin_backp_pct );
-  }
+  PRINT( "⚡ " BOLD BYELLOW "SNAPSHOTS..." RESET UNBOLD
+         " " BOLD "STATE" UNBOLD " %s"
+         " " BOLD "PCT"   UNBOLD " %.1f %%"
+         " " BOLD "RX"    UNBOLD " %3.f MB/s"
+         " " BOLD "ACC"   UNBOLD " %3.1f M/s"
+         " " BOLD "BACKP" UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%"
+         " " BOLD "BUSY"  UNBOLD " %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%" CLEARLN "\n",
+    fd_snapct_state_str( (int)state ),
+    progress,
+    megabytes_per_second,
+    million_accounts_per_second,
+    snapct_backp_pct,
+    snapld_backp_pct,
+    snapdc_backp_pct,
+    snapin_backp_pct,
+    100.0-snapct_idle_pct-snapct_backp_pct,
+    100.0-snapld_idle_pct-snapld_backp_pct,
+    100.0-snapdc_idle_pct-snapdc_backp_pct,
+    100.0-snapin_idle_pct-snapin_backp_pct );
 }
 
 static uint
