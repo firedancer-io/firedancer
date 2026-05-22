@@ -44,12 +44,12 @@ bundle_client_topo( config_t *   config ) {
 
   /* Tile config */
 
-  strncpy( bundle_tile->bundle.url, config->tiles.bundle.url, sizeof(bundle_tile->bundle.url) );
-  bundle_tile->bundle.url_len = strnlen( config->tiles.bundle.url, 255 );
-  strncpy( bundle_tile->bundle.sni, config->tiles.bundle.tls_domain_name, 256 );
-  bundle_tile->bundle.sni_len = strnlen( config->tiles.bundle.tls_domain_name, 255 );
-  strncpy( bundle_tile->bundle.identity_key_path, config->paths.identity_key, sizeof(bundle_tile->bundle.identity_key_path) );
-  strncpy( bundle_tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(bundle_tile->bundle.key_log_path) );
+  fd_cstr_ncpy( bundle_tile->bundle.url, config->tiles.bundle.url, sizeof(bundle_tile->bundle.url) );
+  bundle_tile->bundle.url_len = strnlen( bundle_tile->bundle.url, sizeof(bundle_tile->bundle.url)-1UL );
+  fd_cstr_ncpy( bundle_tile->bundle.sni, config->tiles.bundle.tls_domain_name, sizeof(bundle_tile->bundle.sni) );
+  bundle_tile->bundle.sni_len = strnlen( bundle_tile->bundle.sni, sizeof(bundle_tile->bundle.sni)-1UL );
+  fd_cstr_ncpy( bundle_tile->bundle.identity_key_path, config->paths.identity_key, sizeof(bundle_tile->bundle.identity_key_path) );
+  fd_cstr_ncpy( bundle_tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(bundle_tile->bundle.key_log_path) );
   bundle_tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
   bundle_tile->bundle.out_depth = config->tiles.verify.receive_buffer_size;
   bundle_tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
