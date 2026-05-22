@@ -120,12 +120,19 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
 
   /* Remove records */
 
-  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.pool->ele[ idx ].next_idx ) {
+  uint self_idx = (uint)( txn - cache->txn.pool );
+  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; ) {
     if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (cancel_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
-    atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
+    fd_progcache_rec_t * rec = &cache->rec.pool->ele[ idx ];
+    uint next = rec->next_idx;
+
     fd_racesan_hook( "prog_cancel_one:post_orphan" );
-    fd_prog_delete_rec( cache, &cache->rec.pool->ele[ idx ] );
+    fd_prog_delete_rec( cache, rec );
+    uint rec_txn_idx = atomic_load_explicit( &rec->txn_idx, memory_order_acquire );
+    if( rec_txn_idx==self_idx ) atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
+
+    idx = next;
   }
 
   txn->rec_head_idx = UINT_MAX;
@@ -133,7 +140,6 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
 
   /* Remove transaction from fork graph */
 
-  uint self_idx = (uint)( txn - cache->txn.pool );
   uint prev_idx = txn->sibling_prev_idx;
   uint next_idx = txn->sibling_next_idx;
   if( next_idx!=UINT_MAX ) {
@@ -228,8 +234,9 @@ fd_progcache_cancel_next_list( fd_progcache_join_t * cache,
 
 static void
 fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
-                                  uint                  head ) {
+                                  fd_progcache_txn_t *  txn ) {
   ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
+  uint head = txn->rec_head_idx;
   while( head!=UINT_MAX ) {
     if( FD_UNLIKELY( (ulong)head >= rec_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (publish_release rec_idx=%u rec_max=%lu)", head, rec_max ));
@@ -249,6 +256,27 @@ fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
       continue;
     } else if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) ) {
       FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock funk rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
+    }
+
+    fd_prog_recm_query_t query[1];
+    int q_err = fd_prog_recm_txn_query( cache->rec.map, &rec->pair, NULL, query, 0 );
+    if( FD_UNLIKELY( q_err==FD_MAP_ERR_KEY ) ) {
+      /* A concurrent eviction already removed this record from the map.
+         Do not resurrect it as root.  The evicting join owns reclaim;
+         once txn_idx is cleared, reclaim can release the descriptor. */
+      atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
+      fd_prog_recm_txn_test( map_txn );
+      fd_prog_recm_txn_fini( map_txn );
+      head = next;
+      continue;
+    } else if( FD_UNLIKELY( q_err!=FD_MAP_SUCCESS ) ) {
+      FD_LOG_CRIT(( "fd_prog_recm_txn_query failed: %i-%s", q_err, fd_map_strerror( q_err ) ));
+    } else if( FD_UNLIKELY( query->ele!=rec ) ) {
+      atomic_store_explicit( &rec->txn_idx, UINT_MAX, memory_order_release );
+      fd_prog_recm_txn_test( map_txn );
+      fd_prog_recm_txn_fini( map_txn );
+      head = next;
+      continue;
     }
 
     /* Evict previous root value */
@@ -282,12 +310,15 @@ fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
 
     head = next;
   }
+
+  txn->rec_head_idx = UINT_MAX;
+  txn->rec_tail_idx = UINT_MAX;
 }
 
 /* fd_progcache_txn_publish_one merges an in-prep transaction whose
    parent is the last published, into the parent. */
 
-static uint
+static void
 fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
                               fd_progcache_txn_t *  txn ) {
 
@@ -303,19 +334,6 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   /* Phase 2: Drain inserters from transaction */
 
   fd_rwlock_write( &txn->lock );
-
-  /* Phase 3: Detach records */
-
-  ulong rec_max = fd_prog_recp_ele_max( cache->rec.pool );
-  for( uint idx = txn->rec_head_idx; idx!=UINT_MAX; idx = cache->rec.pool->ele[ idx ].next_idx ) {
-    if( FD_UNLIKELY( (ulong)idx >= rec_max ) )
-      FD_LOG_CRIT(( "progcache: corruption detected (publish_one rec_idx=%u rec_max=%lu)", idx, rec_max ));
-    atomic_store_explicit( &cache->rec.pool->ele[ idx ].txn_idx, UINT_MAX, memory_order_release );
-  }
-
-  uint rec_head = txn->rec_head_idx;
-  txn->rec_head_idx = UINT_MAX;
-  txn->rec_tail_idx = UINT_MAX;
 
   /* Phase 4: Remove transaction from fork graph */
 
@@ -337,24 +355,20 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
                   xid.ul[0], xid.ul[1] ));
   }
 
-  /* Phase 6: Free transaction object */
-
-  fd_rwlock_unwrite( &txn->lock );
   txn->parent_idx       = UINT_MAX;
   txn->sibling_prev_idx = UINT_MAX;
   txn->sibling_next_idx = UINT_MAX;
-  txn->child_head_idx   = UINT_MAX;
-  txn->child_tail_idx   = UINT_MAX;
-  fd_prog_txnp_ele_release( cache->txn.pool, txn );
 
-  return rec_head;
+  /* fd_progcache_txn_publish_release deferred, which reclaims the txn
+     object. */
 }
 
 void
 fd_progcache_advance_root( fd_progcache_join_t * cache,
                            fd_xid_t const *      xid ) {
 
-  /* Detach records from txns without acquiring record locks */
+  /* Publish the fork graph first, then retag its records while keeping
+     the published txn object alive as their descriptor lifetime guard. */
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
 
@@ -379,13 +393,20 @@ fd_progcache_advance_root( fd_progcache_join_t * cache,
   cache->shmem->txn.child_head_idx = txn->child_head_idx;
   cache->shmem->txn.child_tail_idx = txn->child_tail_idx;
 
-  uint publish_head = fd_progcache_txn_publish_one( cache, txn );
+  fd_progcache_txn_publish_one( cache, txn );
 
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
 
   /* Update records */
 
-  fd_progcache_txn_publish_release( cache, publish_head );
+  fd_racesan_hook( "prog_advance_root:pre_publish_release" );
+  fd_progcache_txn_publish_release( cache, txn );
+
+  txn->child_head_idx = UINT_MAX;
+  txn->child_tail_idx = UINT_MAX;
+  fd_rwlock_unwrite( &txn->lock );
+  fd_prog_txnp_ele_release( cache->txn.pool, txn );
+
   fd_prog_reclaim_work( cache );
 }
 
