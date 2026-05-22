@@ -2442,12 +2442,13 @@ try_activate_block( fd_sched_t * sched ) {
     ulong              head_idx     = sched->staged_head_bank_idx[ lane_idx ];
     fd_sched_block_t * head_block   = block_pool_ele( sched, head_idx );
     fd_sched_block_t * parent_block = block_pool_ele( sched, head_block->parent_idx );
-    if( FD_UNLIKELY( parent_block->dying ) ) {
-      /* Invariant: no child of a dying block should be staged. */
-      FD_LOG_CRIT(( "invariant violation: staged_head_bank_idx %lu, slot %lu, parent slot %lu on lane %d has parent_block->dying set, slot %lu, parent slot %lu",
-                    head_idx, head_block->slot, head_block->parent_slot, lane_idx, parent_block->slot, parent_block->parent_slot ));
-    }
-    //FIXME: restore this invariant check when we have immediate demotion of dying blocks
+    //FIXME: restore these invariant checks when we have immediate demotion of dying blocks
+    //Today, dying blocks can remain staged if they have in-flight transactions.
+    // if( FD_UNLIKELY( parent_block->dying ) ) {
+    //   /* Invariant: no child of a dying block should be staged. */
+    //   FD_LOG_CRIT(( "invariant violation: staged_head_bank_idx %lu, slot %lu, parent slot %lu on lane %d has parent_block->dying set, slot %lu, parent slot %lu",
+    //                 head_idx, head_block->slot, head_block->parent_slot, lane_idx, parent_block->slot, parent_block->parent_slot ));
+    // }
     // if( FD_UNLIKELY( head_block->dying ) ) {
     //   /* Invariant: no dying block should be staged. */
     //   FD_LOG_CRIT(( "invariant violation: staged_head_bank_idx %lu, slot %lu, prime %lu on lane %u has head_block->dying set",
