@@ -1261,6 +1261,11 @@ reported when you first connect by the `summary.tiles` message.
             23,
             12,
             ...
+        ],
+        "priority": [
+            "normal",
+            "critical",
+            ...
         ]
     }
 }
@@ -1281,6 +1286,7 @@ reported when you first connect by the `summary.tiles` message.
 | minflt       | `number[]`           | `minflt[i]` is the number of minor page faults that occurred for tile `i` since startup. Minor page faults occur for requested pages already in memory, but not in the page table |
 | majflt       | `number[]`           | `majflt[i]` is the number of major page faults that occurred for tile `i` since startup. Major page faults occur for requested pages not in memory or the page table |
 | last_cpu     | `number[]`           | `last_cpu[i]` is the CPU index that tile `i` was last recorded executing on |
+| priority     | `string[]`           | `priority[i]` is the priority label of tile `i`. One of `"floating"`, `"startup"`, `"normal"`, or `"critical"` |
 
 Note that a `null` entry in `timers` field indicates that the tile has
 not published new information about the following fields
