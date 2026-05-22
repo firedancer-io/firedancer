@@ -4,6 +4,7 @@
    signing vectors as test_ed25519.c (test_sign). */
 
 #include "fd_precompiles.h"
+#include "../context/fd_exec_instr_ctx.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
 #include "../../../ballet/hex/fd_hex.h"
 
