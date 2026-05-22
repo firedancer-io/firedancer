@@ -366,8 +366,8 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
 
   fd_bundle_crank_gen_pidx_t * new_bb_pidx = pidx_map_insert( gen->map, *(fd_acct_addr_t *)new_block_builder );
   if( FD_UNLIKELY( !new_bb_pidx ) ) {
-    pidx_map_remove( gen->map, new_tr_pidx   );
-    pidx_map_remove( gen->map, identity_pidx );
+    pidx_map_remove( gen->map, pidx_map_query( gen->map, *(fd_acct_addr_t *)gen->crank3->new_tip_receiver, NULL ) );
+    pidx_map_remove( gen->map, pidx_map_query( gen->map, *(fd_acct_addr_t *)identity,                      NULL ) );
     FD_LOG_WARNING(( "New block builder was already in map.  Refusing to crank bundles." ));
     return ULONG_MAX;
   }
@@ -427,11 +427,11 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
   gen->crank2->change_tip_receiver.acct_idx [3] = (uchar)(old_bb_pidx->idx);
   gen->crank2->change_block_builder.acct_idx[2] = (uchar)(old_bb_pidx->idx);
 
-  if( FD_UNLIKELY( inserted2 ) ) pidx_map_remove( gen->map, old_bb_pidx );
-  if( FD_LIKELY  ( inserted1 ) ) pidx_map_remove( gen->map, old_tr_pidx );
-  pidx_map_remove( gen->map, new_bb_pidx   );
-  pidx_map_remove( gen->map, new_tr_pidx   );
-  pidx_map_remove( gen->map, identity_pidx );
+  if( FD_UNLIKELY( inserted2 ) ) pidx_map_remove( gen->map, pidx_map_query( gen->map, *old_tip_payment_config->block_builder,        NULL ) );
+  if( FD_LIKELY  ( inserted1 ) ) pidx_map_remove( gen->map, pidx_map_query( gen->map, *old_tip_payment_config->tip_receiver,         NULL ) );
+  pidx_map_remove( gen->map, pidx_map_query( gen->map, *(fd_acct_addr_t *)new_block_builder,             NULL ) );
+  pidx_map_remove( gen->map, pidx_map_query( gen->map, *(fd_acct_addr_t *)gen->crank3->new_tip_receiver, NULL ) );
+  pidx_map_remove( gen->map, pidx_map_query( gen->map, *(fd_acct_addr_t *)identity,                      NULL ) );
 
   if( FD_UNLIKELY( swap3 ) ) {
     fd_memcpy( out_payload, gen->crank3, sizeof(gen->crank3) );
