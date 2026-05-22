@@ -66,8 +66,7 @@ fd_vsv_deserialize( fd_account_meta_t const *   meta,
   }
 
   if( FD_UNLIKELY( versioned->kind==fd_vote_state_versioned_enum_uninitialized ) ) {
-    // FIXME: update back to INVALID_ACC_DATA once agave uses vote-interface@v6.0.0
-    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
