@@ -250,14 +250,7 @@ generate_ping_token( fd_ping_peer_t * peer,
   for( ulong i=16UL; i<32UL; i++ ) peer->ping_token[ i ] = fd_rng_uchar( rng );
 }
 
-static inline int
-is_entrypoint( fd_ping_tracker_t const * ping_tracker,
-               fd_ip4_port_t             peer_addr ) {
-  for( ulong i=0UL; i<ping_tracker->entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( peer_addr.addr==ping_tracker->entrypoints[ i ].addr && peer_addr.port==ping_tracker->entrypoints[ i ].port ) ) return 1;
-  }
-  return 0;
-}
+
 
 void
 fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
@@ -269,7 +262,6 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
 
   if( FD_UNLIKELY( !peer ) ) {
     if( FD_LIKELY( peer_stake>=1000000000UL ) ) return;
-    if( FD_UNLIKELY( is_entrypoint( ping_tracker, peer_address ) ) ) return;
 
     if( FD_UNLIKELY( !pool_free( ping_tracker->pool ) ) ) {
       peer = lru_list_ele_pop_head( ping_tracker->lru, ping_tracker->pool );
@@ -305,9 +297,9 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
     peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
     lru_list_ele_push_tail( ping_tracker->lru, peer, ping_tracker->pool );
   } else {
-    if( FD_LIKELY( peer_stake>=1000000000UL || is_entrypoint( ping_tracker, peer_address ) ) ) {
-      /* Node went from unstaked (or low staked) to >=1 SOL, or to being
-         an entrypoint.  No longer need to ping it. */
+    if( FD_LIKELY( peer_stake>=1000000000UL ) ) {
+      /* Node went from unstaked (or low staked) to >=1 SOL.
+         No longer need to ping it. */
       peer_map_ele_remove_fast( ping_tracker->peers, peer, ping_tracker->pool );
       lru_list_ele_remove( ping_tracker->lru, peer, ping_tracker->pool );
       remove_tracking( ping_tracker, peer );
@@ -367,10 +359,6 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           long                now ) {
   if( FD_UNLIKELY( peer_stake>=1000000000UL ) ) {
     ping_tracker->metrics->pong_result[ 0UL ]++;
-    return;
-  }
-  if( FD_UNLIKELY( is_entrypoint( ping_tracker, peer_address ) ) ) {
-    ping_tracker->metrics->pong_result[ 1UL ]++;
     return;
   }
 

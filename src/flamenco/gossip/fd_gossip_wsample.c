@@ -55,7 +55,6 @@ struct fd_gossip_wsample_private {
   int *        exists;        /* per-peer existence flags (for quick validity checks) */
   int *        fresh;         /* per-peer freshness flags                     */
   int *        ping_tracked;  /* per-peer ping-tracked flag                   */
-  int *        is_entrypoint; /* per-peer is-entrypoint flag                  */
   int **       is_removed;    /* per-peer per-bucket is-removed flag */
   tree_ele_t * trees;         /* TREE_CNT * internal_cnt tree nodes           */
   ulong        self_stake;    /* our own stake; PR weights are capped at this */
@@ -228,7 +227,6 @@ fd_gossip_wsample_footprint( ulong max_peers ) {
   l = FD_LAYOUT_APPEND( l,  4UL, max_peers*sizeof(int)                    ); /* exists  */
   l = FD_LAYOUT_APPEND( l,  4UL, max_peers*sizeof(int)                    ); /* fresh   */
   l = FD_LAYOUT_APPEND( l,  4UL, max_peers*sizeof(int)                    ); /* ping_tracked  */
-  l = FD_LAYOUT_APPEND( l,  4UL, max_peers*sizeof(int)                    ); /* is_entrypoint */
   l = FD_LAYOUT_APPEND( l,  8UL, max_peers*sizeof(int *)                  ); /* is_removed */
   l = FD_LAYOUT_APPEND( l,  4UL, max_peers*BUCKET_CNT*sizeof(int)         ); /* removed */
   l = FD_LAYOUT_APPEND( l, 64UL, TREE_CNT*internal_cnt*sizeof(tree_ele_t) );
@@ -262,7 +260,6 @@ fd_gossip_wsample_new( void *     shmem,
   s->exists        = FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   max_peers*sizeof(int)                    );
   s->fresh         = FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   max_peers*sizeof(int)                    );
   s->ping_tracked  = FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   max_peers*sizeof(int)                    );
-  s->is_entrypoint = FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   max_peers*sizeof(int)                    );
   s->is_removed    = FD_SCRATCH_ALLOC_APPEND( l, alignof(int *), max_peers*sizeof(int *)                  );
   int * is_removed = FD_SCRATCH_ALLOC_APPEND( l, alignof(int),   max_peers*BUCKET_CNT*sizeof(int)         );
   s->trees         = FD_SCRATCH_ALLOC_APPEND( l, 64UL,           TREE_CNT*internal_cnt*sizeof(tree_ele_t) );
@@ -272,7 +269,6 @@ fd_gossip_wsample_new( void *     shmem,
   fd_memset( s->exists,        0, max_peers * sizeof(int) );
   fd_memset( s->fresh,         0, max_peers * sizeof(int) );
   fd_memset( s->ping_tracked,  0, max_peers * sizeof(int) );
-  fd_memset( s->is_entrypoint, 0, max_peers * sizeof(int) );
   fd_memset( is_removed,       0, max_peers * BUCKET_CNT*sizeof(int) );
   if( FD_LIKELY( internal_cnt ) ) fd_memset( s->trees, 0, TREE_CNT*internal_cnt*sizeof(tree_ele_t) );
 
@@ -294,15 +290,11 @@ fd_gossip_wsample_join( void * shwsample ) {
 
 static inline int
 is_active( ulong stake,
-           int   ping_tracked,
-           int   is_entrypoint ) {
-  /* 1. If the node is an entrypoint, it is active */
-  if( FD_UNLIKELY( is_entrypoint ) ) return 1;
-
-  /* 2. If the node has more than 1 sol staked, it is active */
+           int   ping_tracked ) {
+  /* 1. If the node has more than 1 sol staked, it is active */
   if( FD_UNLIKELY( stake>=1000000000UL ) ) return 1;
 
-  /* 3. If the node has actively ponged a ping, it is active */
+  /* 2. If the node has actively ponged a ping, it is active */
   if( FD_UNLIKELY( ping_tracked ) ) return 1;
 
   return 0;
@@ -313,7 +305,6 @@ fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
                        ulong                 ci_idx,
                        ulong                 stake,
                        int                   ping_tracked,
-                       int                   is_entrypoint,
                        int                   is_me ) {
   FD_TEST( !sampler->exists[ ci_idx ] );
 
@@ -321,7 +312,6 @@ fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
   sampler->stakes[ ci_idx ] = stake;
   sampler->fresh[ ci_idx ]  = 1; /* newly added peers are fresh */
   sampler->ping_tracked[ ci_idx ] = ping_tracked;
-  sampler->is_entrypoint[ ci_idx ] = is_entrypoint;
   fd_memset( sampler->is_removed[ ci_idx ], 0, BUCKET_CNT*sizeof(int) );
 
   if( FD_UNLIKELY( is_me ) ) {
@@ -336,7 +326,7 @@ fd_gossip_wsample_add( fd_gossip_wsample_t * sampler,
   /* Only active peers get weight in any sampler tree.  Inactive
      peers (e.g. un-pinged, or our own identity) are tracked by stake
      but remain unsampleable until they become active. */
-  if( FD_LIKELY( is_active( stake, ping_tracked, is_entrypoint ) ) ) {
+  if( FD_LIKELY( is_active( stake, ping_tracked ) ) ) {
     /* Pull-request tree: log-squared weight matching Agave, with the
        peer's stake capped at our own stake. */
     ulong pr_w = pr_weight( fd_ulong_min( stake, sampler->self_stake ) );
@@ -363,7 +353,7 @@ fd_gossip_wsample_remove( fd_gossip_wsample_t * sampler,
     return;
   }
 
-  int active = is_active( sampler->stakes[ ci_idx ], sampler->ping_tracked[ ci_idx ], sampler->is_entrypoint[ ci_idx ] );
+  int active = is_active( sampler->stakes[ ci_idx ], sampler->ping_tracked[ ci_idx ] );
   if( FD_UNLIKELY( !active ) ) return;
 
   ulong height       = sampler->height;
@@ -407,7 +397,7 @@ fd_gossip_wsample_sample_remove_bucket( fd_gossip_wsample_t * sampler,
   /* Remove the sampled peer from this bucket tree so it cannot be
      sampled again until re-added with fd_gossip_wsample_add_bucket. */
   FD_TEST( sampler->exists[ r.idx ] );
-  int active = is_active( sampler->stakes[ r.idx ], sampler->ping_tracked[ r.idx ], sampler->is_entrypoint[ r.idx ] );
+  int active = is_active( sampler->stakes[ r.idx ], sampler->ping_tracked[ r.idx ] );
   ulong weight = fd_ulong_if( active, adjusted_bucket_weight( sampler->stakes[ r.idx ], bucket, sampler->fresh[ r.idx ] ), 0UL );
   FD_TEST( r.weight==weight );
   FD_TEST( !sampler->is_removed[ r.idx ][ bucket ] );
@@ -429,7 +419,7 @@ fd_gossip_wsample_add_bucket( fd_gossip_wsample_t * sampler,
 
   ulong stake    = sampler->stakes[ ci_idx ];
   int   is_fresh = sampler->fresh[ ci_idx ];
-  int   active   = is_active( stake, sampler->ping_tracked[ ci_idx ], sampler->is_entrypoint[ ci_idx ] );
+  int   active   = is_active( stake, sampler->ping_tracked[ ci_idx ] );
   ulong bw       = fd_ulong_if( active, adjusted_bucket_weight( stake, bucket, is_fresh ), 0UL );
 
   tree_add_weight( sampler->trees + (1UL+bucket)*sampler->internal_cnt, sampler->height, sampler->internal_cnt, ci_idx, bw );
@@ -443,12 +433,11 @@ recompute( fd_gossip_wsample_t * sampler,
            ulong                 old_stake,
            int                   old_fresh,
            int                   old_ping_tracked,
-           int                   old_is_entrypoint,
            int                   old_is_me ) {
   FD_TEST( sampler->exists[ ci_idx ] );
 
-  int old_active = is_active( old_stake, old_ping_tracked, old_is_entrypoint );
-  int new_active = is_active( sampler->stakes[ ci_idx ], sampler->ping_tracked[ ci_idx ], sampler->is_entrypoint[ ci_idx ] );
+  int old_active = is_active( old_stake, old_ping_tracked );
+  int new_active = is_active( sampler->stakes[ ci_idx ], sampler->ping_tracked[ ci_idx ] );
 
   int   is_fresh     = sampler->fresh[ ci_idx ];
   ulong height       = sampler->height;
@@ -503,7 +492,7 @@ fd_gossip_wsample_stake( fd_gossip_wsample_t * sampler,
   if( FD_UNLIKELY( sampler->stakes[ ci_idx ]==new_stake ) ) return;
   ulong old_stake = sampler->stakes[ ci_idx ];
   sampler->stakes[ ci_idx ] = new_stake;
-  recompute( sampler, ci_idx, old_stake, sampler->fresh[ ci_idx ], sampler->ping_tracked[ ci_idx ], sampler->is_entrypoint[ ci_idx ], sampler->self_ci_idx==ci_idx );
+  recompute( sampler, ci_idx, old_stake, sampler->fresh[ ci_idx ], sampler->ping_tracked[ ci_idx ], sampler->self_ci_idx==ci_idx );
 }
 
 void
@@ -514,7 +503,7 @@ fd_gossip_wsample_fresh( fd_gossip_wsample_t * sampler,
 
   if( FD_UNLIKELY( sampler->fresh[ ci_idx ]==fresh ) ) return;
   sampler->fresh[ ci_idx ] = fresh;
-  recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], !fresh, sampler->ping_tracked[ ci_idx ], sampler->is_entrypoint[ ci_idx ], sampler->self_ci_idx==ci_idx );
+  recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], !fresh, sampler->ping_tracked[ ci_idx ], sampler->self_ci_idx==ci_idx );
 }
 
 void
@@ -525,18 +514,7 @@ fd_gossip_wsample_ping_tracked( fd_gossip_wsample_t * sampler,
 
   if( FD_UNLIKELY( sampler->ping_tracked[ ci_idx ]==ping_tracked ) ) return;
   sampler->ping_tracked[ ci_idx ] = ping_tracked;
-  recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], sampler->fresh[ ci_idx ], !ping_tracked, sampler->is_entrypoint[ ci_idx ], sampler->self_ci_idx==ci_idx );
-}
-
-void
-fd_gossip_wsample_is_entrypoint( fd_gossip_wsample_t * sampler,
-                                 ulong                 ci_idx,
-                                 int                   is_entrypoint ) {
-  FD_TEST( sampler->exists[ ci_idx ] );
-
-  if( FD_UNLIKELY( sampler->is_entrypoint[ ci_idx ]==is_entrypoint ) ) return;
-  sampler->is_entrypoint[ ci_idx ] = is_entrypoint;
-  recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], sampler->fresh[ ci_idx ], sampler->ping_tracked[ ci_idx ], !is_entrypoint, sampler->self_ci_idx==ci_idx );
+  recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], sampler->fresh[ ci_idx ], !ping_tracked, sampler->self_ci_idx==ci_idx );
 }
 
 void
@@ -552,7 +530,7 @@ fd_gossip_wsample_is_me( fd_gossip_wsample_t * sampler,
   FD_TEST( sampler->self_ci_idx==ci_idx || sampler->self_ci_idx==ULONG_MAX );
   if( FD_LIKELY( sampler->self_ci_idx==ci_idx ) ) return;
   sampler->self_ci_idx = ci_idx;
-  recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], sampler->fresh[ ci_idx ], sampler->ping_tracked[ ci_idx ], sampler->is_entrypoint[ ci_idx ], 0 );
+  recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], sampler->fresh[ ci_idx ], sampler->ping_tracked[ ci_idx ], 0 );
 }
 
 void
@@ -566,11 +544,11 @@ fd_gossip_wsample_set_identity( fd_gossip_wsample_t * sampler,
   sampler->self_ci_idx = ci_idx;
 
   if( FD_LIKELY( old_ci_idx!=ULONG_MAX ) ) {
-    recompute( sampler, old_ci_idx, sampler->stakes[ old_ci_idx ], sampler->fresh[ old_ci_idx ], sampler->ping_tracked[ old_ci_idx ], sampler->is_entrypoint[ old_ci_idx ], 1 );
+    recompute( sampler, old_ci_idx, sampler->stakes[ old_ci_idx ], sampler->fresh[ old_ci_idx ], sampler->ping_tracked[ old_ci_idx ], 1 );
   }
 
   if( FD_LIKELY( ci_idx!=ULONG_MAX ) ) {
-    recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], sampler->fresh[ ci_idx ], sampler->ping_tracked[ ci_idx ], sampler->is_entrypoint[ ci_idx ], 0 );
+    recompute( sampler, ci_idx, sampler->stakes[ ci_idx ], sampler->fresh[ ci_idx ], sampler->ping_tracked[ ci_idx ], 0 );
   }
 }
 
@@ -591,7 +569,7 @@ fd_gossip_wsample_self_stake( fd_gossip_wsample_t * sampler,
   for( ulong i=0UL; i<sampler->max_peers; i++ ) {
     if( FD_UNLIKELY( !sampler->exists[ i ] ) ) continue;
 
-    int active = is_active( stakes[ i ], sampler->ping_tracked[ i ], sampler->is_entrypoint[ i ] );
+    int active = is_active( stakes[ i ], sampler->ping_tracked[ i ] );
     ulong old_w = fd_ulong_if( active, adjusted_pr_weight( stakes[ i ], old_self_stake, fresh_flags[ i ] ), 0UL );
     if( FD_UNLIKELY( sampler->self_ci_idx==i ) ) old_w = 0UL;
     ulong new_w = fd_ulong_if( active, adjusted_pr_weight( stakes[ i ], self_stake, fresh_flags[ i ] ), 0UL );

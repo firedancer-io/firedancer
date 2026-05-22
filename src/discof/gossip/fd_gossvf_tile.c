@@ -445,15 +445,6 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
   };
 }
 
-static inline int
-is_entrypoint( fd_gossvf_tile_ctx_t * ctx,
-               fd_ip4_port_t          addr ) {
-  for( ulong i=0UL; i<ctx->entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( addr.addr==ctx->entrypoints[ i ].addr && addr.port==ctx->entrypoints[ i ].port ) ) return 1;
-  }
-  return 0;
-}
-
 static void
 filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
                            uint                   tag,
@@ -571,14 +562,11 @@ static inline int
 is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
                 fd_ip4_port_t           addr,
                 fd_pubkey_t const *     pubkey ) {
-  /* 1. If the node is an entrypoint, it is active */
-  if( FD_UNLIKELY( is_entrypoint( ctx, addr ) ) ) return 1;
-
-  /* 2. If the node has more than 1 sol staked, it is active */
+  /* 1. If the node has more than 1 sol staked, it is active */
   stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, pubkey, NULL, ctx->stake.pool );
   if( FD_LIKELY( stake && stake->stake>=1000000000UL ) ) return 1;
 
-  /* 3. If the node has actively ponged a ping, it is active */
+  /* 2. If the node has actively ponged a ping, it is active */
   ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );
   return ping!=NULL && ping->addr.l==addr.l;
 }
