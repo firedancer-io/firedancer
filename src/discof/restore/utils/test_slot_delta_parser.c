@@ -374,6 +374,41 @@ test_one_entry_with_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
 }
 
 static void
+test_unexpected_eof_in_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 114UL ];
+  fd_slot_delta_parser_init( parser );
+
+  mock_one_input( input, sizeof(input), 1, 1000UL );
+  uchar * p = input + 93UL;
+
+  *(uint *)p = 1U;
+  p += sizeof(uint);
+  *(uint *)p = 8U;
+  p += sizeof(uint);
+  *p = 0U; /* instr idx */
+  p += sizeof(uchar);
+  *(uint *)p = 44U;
+  p += sizeof(uint);
+  *(ulong *)p = ULONG_MAX;
+  p += sizeof(ulong);
+  FD_TEST( (ulong)(p - input)==sizeof(input) );
+
+  fd_slot_delta_parser_advance_result_t result[1];
+  int res = fd_slot_delta_parser_consume( parser, input, sizeof(input), result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP );
+  ulong group_bytes_consumed = result->bytes_consumed;
+  uchar const * input_cur = input + result->bytes_consumed;
+
+  res = fd_slot_delta_parser_consume( parser, input_cur, sizeof(input)-group_bytes_consumed, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN );
+  FD_TEST( result->bytes_consumed==sizeof(input)-group_bytes_consumed );
+
+  res = fd_slot_delta_parser_consume( parser, input_cur, 0UL, result );
+  FD_TEST( res==FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_UNEXPECTED_EOF );
+  FD_TEST( result->bytes_consumed==0UL );
+}
+
+static void
 test_multiple_entries( fd_slot_delta_parser_t * parser ) {
   uchar input[ 627UL ];
   ulong slots[ 3UL ]              = {1000UL, 1001UL, 1002UL};
@@ -501,6 +536,7 @@ int main( int     argc,
   test_one_entry_with_instr_error( slot_delta_parser );
   test_one_entry_with_instr_custom_error( slot_delta_parser );
   test_one_entry_with_instr_borsh_io_error( slot_delta_parser );
+  test_unexpected_eof_in_instr_borsh_io_error( slot_delta_parser );
 
   test_multiple_entries( slot_delta_parser );
   test_multiple_entries_v2( slot_delta_parser );

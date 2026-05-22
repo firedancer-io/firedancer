@@ -456,6 +456,7 @@ advance_status_cache( fd_ssparse_t *                 ssparse,
   result->bytes_consumed            = consume;
   result->status_cache.data         = data;
   result->status_cache.data_sz      = consume;
+  result->status_cache.done         = ssparse->tar.file_bytes_consumed==ssparse->tar.file_bytes;
 
   if( FD_LIKELY( ssparse->tar.file_bytes_consumed<ssparse->tar.file_bytes ) ) {
     return FD_SSPARSE_ADVANCE_STATUS_CACHE;
