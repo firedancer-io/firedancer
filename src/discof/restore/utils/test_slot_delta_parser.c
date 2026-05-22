@@ -479,6 +479,69 @@ test_too_many_entries( fd_slot_delta_parser_t * parser ) {
   consume( parser, input, sizeof(input), entry_cb_multiple_v2, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES );
 }
 
+static void
+test_too_many_statuses( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 25UL ];
+  uchar * p = input;
+
+  FD_STORE( ulong, p, 1UL );                              /* slot_deltas_len */
+  p += sizeof(ulong);
+  FD_STORE( ulong, p, 1000UL );                           /* slot */
+  p += sizeof(ulong);
+  *p = 1;                                                 /* is_root */
+  p += sizeof(uchar);
+  FD_STORE( ulong, p, FD_SLOT_DELTA_MAX_STATUS_LEN+1UL ); /* slot_delta_status_len (too large) */
+
+  fd_slot_delta_parser_init( parser );
+  consume( parser, input, sizeof(input), entry_cb_no_err, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_STATUSES );
+}
+
+static void
+test_too_many_cache_entries( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 73UL ];
+  uchar * p = input;
+
+  FD_STORE( ulong, p, 1UL );    /* slot_deltas_len */
+  p += sizeof(ulong);
+  FD_STORE( ulong, p, 1000UL ); /* slot */
+  p += sizeof(ulong);
+  *p = 1;                       /* is_root */
+  p += sizeof(uchar);
+  FD_STORE( ulong, p, 1UL );    /* slot_delta_status_len */
+  p += sizeof(ulong);
+
+  uchar blockhash[ 32UL ] = {1, 2, 3};
+  fd_memcpy( p, blockhash, 32UL );
+  p += 32UL;
+
+  FD_STORE( ulong, p, FD_SLOT_DELTA_MAX_TXNHASH_OFFSET );       /* txn idx */
+  p += sizeof(ulong);
+  FD_STORE( ulong, p, FD_SLOT_DELTA_MAX_CACHE_STATUS_LEN+1UL ); /* cache_status_len (too large) */
+
+  fd_slot_delta_parser_init( parser );
+  consume( parser, input, sizeof(input), entry_cb_no_err, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_CACHE_ENTRIES );
+}
+
+static void
+test_borsh_io_error_too_long( fd_slot_delta_parser_t * parser ) {
+  uchar input[ 114UL ];
+  fd_slot_delta_parser_init( parser );
+  mock_one_input( input, sizeof(input), 1, 1000UL );
+  uchar * p = input + 93UL;
+
+  FD_STORE( uint, p, 1U );  /* result: error */
+  p += sizeof(uint);
+  FD_STORE( uint, p, 8U );  /* InstructionError */
+  p += sizeof(uint);
+  *p = 0U;                  /* instr idx */
+  p += sizeof(uchar);
+  FD_STORE( uint, p, 44U ); /* BorshIoError */
+  p += sizeof(uint);
+  FD_STORE( ulong, p, FD_SLOT_DELTA_MAX_BORSH_IO_ERROR_LEN+1UL ); /* borsh_io_error_len (too large) */
+
+  consume( parser, input, sizeof(input), entry_cb_no_err, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_BORSH_IO_ERROR_TOO_LONG );
+}
+
 int main( int     argc,
           char ** argv ) {
   fd_boot( &argc, &argv );
@@ -509,6 +572,9 @@ int main( int     argc,
   test_duplicate_slots( slot_delta_parser );
   test_invalid_txnhash_offset( slot_delta_parser );
   test_too_many_entries( slot_delta_parser );
+  test_too_many_statuses( slot_delta_parser );
+  test_too_many_cache_entries( slot_delta_parser );
+  test_borsh_io_error_too_long( slot_delta_parser );
 
   fd_wksp_free_laddr( fd_slot_delta_parser_delete( fd_slot_delta_parser_leave( slot_delta_parser ) ) );
 

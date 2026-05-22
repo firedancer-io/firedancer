@@ -149,12 +149,36 @@ state_validate( fd_slot_delta_parser_t * parser ) {
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT;
       }
       break;
+    case STATE_SLOT_DELTA_STATUS_LEN:
+      if( FD_UNLIKELY( parser->slot_delta_status_len>FD_SLOT_DELTA_MAX_STATUS_LEN ) ) {
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)",
+                         fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_STATUSES ),
+                         FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_STATUSES ));
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_STATUSES;
+      }
+      break;
+    case STATE_CACHE_STATUS_LEN:
+      if( FD_UNLIKELY( parser->cache_status_len>FD_SLOT_DELTA_MAX_CACHE_STATUS_LEN ) ) {
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)",
+                         fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_CACHE_ENTRIES ),
+                         FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_CACHE_ENTRIES ));
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_CACHE_ENTRIES;
+      }
+      break;
     case STATE_STATUS_TXN_IDX:
       if( FD_UNLIKELY( parser->txnhash_offset>FD_SLOT_DELTA_MAX_TXNHASH_OFFSET ) ) {
         FD_LOG_WARNING(( "slot delta validation failed: %s (%d)",
                          fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET ),
                          FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET ));
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET;
+      }
+      break;
+    case STATE_CACHE_STATUS_RESULT_ERR_INSTR_ERR_CUSTOM_BORSH_LEN:
+      if( FD_UNLIKELY( parser->borsh_io_error_len>FD_SLOT_DELTA_MAX_BORSH_IO_ERROR_LEN ) ) {
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)",
+                         fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_BORSH_IO_ERROR_TOO_LONG ),
+                         FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_BORSH_IO_ERROR_TOO_LONG ));
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_BORSH_IO_ERROR_TOO_LONG;
       }
       break;
     default: break;

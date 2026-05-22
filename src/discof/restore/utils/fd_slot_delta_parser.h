@@ -16,6 +16,21 @@ typedef struct fd_sstxncache_entry fd_sstxncache_entry_t;
 
 #define FD_SLOT_DELTA_MAX_ENTRIES (300UL)
 
+/* Max blockhashes per slot delta entry.  Bounded by the max number of
+   recent blockhashes (MAX_RECENT_BLOCKHASHES=300 in Agave). */
+#define FD_SLOT_DELTA_MAX_STATUS_LEN (300UL)
+
+/* Max transactions per blockhash per slot delta entry.  All
+   transactions in a slot could reference the same blockhash, so this
+   is bounded by the per-slot transaction limit (2*FD_MAX_TXN_PER_SLOT
+   in fd_pack_cost.h). */
+#define FD_SLOT_DELTA_MAX_CACHE_STATUS_LEN (200000UL)
+
+/* Max length of a BorshIoError string.  Newer Agave versions serialize
+   this as an empty string, but older snapshots may contain short error
+   messages. */
+#define FD_SLOT_DELTA_MAX_BORSH_IO_ERROR_LEN (256UL)
+
 /* status cache txn hashes are a 20 byte extract of the 32 byte txn
    message hash.  The txnhash_offset specifies where it is sampled at.
    Due to an Agave bug, the max offset is 11 bytes.  */
@@ -93,6 +108,9 @@ fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES           (-3)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER      (-4)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET     (-5)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_STATUSES          (-6)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_CACHE_ENTRIES     (-7)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_BORSH_IO_ERROR_TOO_LONG    (-8)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN                            ( 0)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY                            ( 1)
 #define FD_SLOT_DELTA_PARSER_ADVANCE_GROUP                            ( 2)
@@ -106,6 +124,9 @@ fd_slot_delta_parser_advance_str( int err ) {
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES:           return "error_too_many_entries";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_EXCESS_DATA_IN_BUFFER:      return "error_excess_data_in_buffer";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET:     return "error_invalid_txnhash_offset";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_STATUSES:          return "error_too_many_statuses";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_CACHE_ENTRIES:     return "error_too_many_cache_entries";
+    case FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_BORSH_IO_ERROR_TOO_LONG:    return "error_borsh_io_error_too_long";
     case FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN:                            return "again";
     case FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY:                            return "entry";
     case FD_SLOT_DELTA_PARSER_ADVANCE_GROUP:                            return "group";
