@@ -204,7 +204,7 @@ during_frag( fd_bundle_tile_t * ctx,
              ulong              seq    FD_PARAM_UNUSED,
              ulong              sig,
              ulong              chunk,
-             ulong              sz     FD_PARAM_UNUSED,
+             ulong              sz,
              ulong              ctl    FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
