@@ -112,7 +112,6 @@ struct fd_configf {
     uint resolv_tile_count;
     uint execle_tile_count;
     uint execrp_tile_count;
-    uint snapshot_hash_tile_count;
   } layout;
 
   struct {
@@ -362,10 +361,6 @@ struct fd_config {
     struct {
       char affinity[ AFFINITY_SZ ];
     } udpecho;
-
-    struct {
-      int disable_lthash_verification;
-    } snapshots;
 
     struct {
       char affinity[ AFFINITY_SZ ];

@@ -118,6 +118,7 @@ struct fd_snapct_tile {
   int           load_complete;
   long          deadline_nanos;
   int           flush_ack;
+  int           flush_ack_cnt;
   int           flush_load;
   fd_sspeer_t   peer;
 
@@ -866,7 +867,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI:
-      if( !ctx->flush_ack ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
@@ -886,7 +887,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE:
-      if( !ctx->flush_ack ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
@@ -906,7 +907,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI:
-      if( !ctx->flush_ack ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
@@ -929,7 +930,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE:
-      if( !ctx->flush_ack ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
@@ -953,7 +954,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI:
-      if( !ctx->flush_ack ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
@@ -983,7 +984,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE:
-      if( !ctx->flush_ack ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
@@ -1015,7 +1016,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_FINI:
-      if( !ctx->flush_ack ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
@@ -1038,7 +1039,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE:
-      if( !ctx->flush_ack ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt ) break;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
@@ -1083,7 +1084,7 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_RESET:
     case FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET:
-      if( !ctx->flush_ack || !ctx->flush_load ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt || !ctx->flush_load ) break;
 
       if( ctx->metrics.full.num_retries==ctx->config.max_retry_abort ) {
         FD_LOG_ERR(( "hit retry limit of %u for full snapshot, aborting", ctx->config.max_retry_abort ));
@@ -1115,7 +1116,7 @@ after_credit( fd_snapct_tile_t *  ctx,
     /* ============================================================== */
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET:
     case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET:
-      if( !ctx->flush_ack || !ctx->flush_load ) break;
+      if( ctx->flush_ack < ctx->flush_ack_cnt || !ctx->flush_load ) break;
 
       if( ctx->metrics.incremental.num_retries==ctx->config.max_retry_abort ) {
         FD_LOG_ERR(("hit retry limit of %u for incremental snapshot. aborting", ctx->config.max_retry_abort ));
@@ -1142,7 +1143,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_FULL_FILE:
-      if( FD_UNLIKELY( !ctx->flush_ack ) ) break;
+      if( FD_UNLIKELY( ctx->flush_ack < ctx->flush_ack_cnt ) ) break;
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1163,7 +1164,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
-      if( FD_UNLIKELY( !ctx->flush_ack ) ) break;
+      if( FD_UNLIKELY( ctx->flush_ack < ctx->flush_ack_cnt ) ) break;
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1184,7 +1185,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_FULL_HTTP:
-      if( FD_UNLIKELY( !ctx->flush_ack ) ) break;
+      if( FD_UNLIKELY( ctx->flush_ack < ctx->flush_ack_cnt ) ) break;
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1208,7 +1209,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
-      if( FD_UNLIKELY( !ctx->flush_ack ) ) break;
+      if( FD_UNLIKELY( ctx->flush_ack < ctx->flush_ack_cnt ) ) break;
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1581,24 +1582,24 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP ||
                      ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE ) ) {
-        FD_TEST( !ctx->flush_ack );
-        ctx->flush_ack = 1;
+        ctx->flush_ack++;
+        FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( ctx->state ) ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ||
                      ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ) ) {
-        FD_TEST( !ctx->flush_ack );
-        ctx->flush_ack = 1;
+        ctx->flush_ack++;
+        FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( ctx->state ) ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
       if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP_DONE ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ) ) {
-        FD_TEST( !ctx->flush_ack );
-        ctx->flush_ack = 1;
+        ctx->flush_ack++;
+        FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( ctx->state ) ));
       break;
 
@@ -1607,8 +1608,8 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_DONE ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_DONE ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_DONE ) ) {
-        FD_TEST( !ctx->flush_ack );
-        ctx->flush_ack = 1;
+        ctx->flush_ack++;
+        FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( ctx->state ) ));
       break;
 
@@ -1617,8 +1618,8 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_FINI ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_FINI ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_FINI ) ) {
-        FD_TEST( !ctx->flush_ack );
-        ctx->flush_ack = 1;
+        ctx->flush_ack++;
+        FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( ctx->state ) ));
       break;
 
@@ -1627,8 +1628,8 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_FULL_FILE_RESET ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP_RESET ||
                      ctx->state==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE_RESET ) ) {
-        FD_TEST( !ctx->flush_ack );
-        ctx->flush_ack = 1;
+        ctx->flush_ack++;
+        FD_TEST( ctx->flush_ack <= ctx->flush_ack_cnt );
       } else FD_LOG_ERR(( "invalid control frag %lu in state %s", sig, fd_snapct_state_str( ctx->state ) ));
       break;
 
@@ -1655,7 +1656,7 @@ ctrl_ack_frag( fd_snapct_tile_t *  ctx,
           FD_LOG_WARNING(( "received error from downstream tile while in state %s",
                            fd_snapct_state_str( ctx->state ) ));
           ctx->malformed = 1;
-          ctx->flush_ack = 1;
+          ctx->flush_ack = ctx->flush_ack_cnt;
           break;
         default:
           break;
@@ -1886,7 +1887,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( ctx->http_incr_snapshot_name, 0, PATH_MAX );
 
   ctx->gossip_in_mem = NULL;
-  int has_snapld_dc = 0, has_ack_loopback = 0;
+  int has_snapld_dc = 0, ack_cnt = 0;
   FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
@@ -1898,13 +1899,13 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->snapld_in_mem = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
       FD_TEST( !has_snapld_dc );
       has_snapld_dc = 1;
-    } else if( 0==strcmp( in_link->name, "snapin_ct" ) || 0==strcmp( in_link->name, "snapls_ct" ) ) {
+    } else if( 0==strcmp( in_link->name, "snapin_ct" ) ) {
       ctx->in_kind[ i ] = IN_KIND_ACK;
-      FD_TEST( !has_ack_loopback );
-      has_ack_loopback = 1;
+      ack_cnt++;
     }
   }
-  FD_TEST( has_snapld_dc && has_ack_loopback );
+  FD_TEST( has_snapld_dc && ack_cnt>0 );
+  ctx->flush_ack_cnt = ack_cnt;
   FD_TEST( ctx->gossip_enabled==(ctx->gossip_in_mem!=NULL) );
 
   ctx->predicted_incremental.full_slot = FD_SSPEER_SLOT_UNKNOWN;
