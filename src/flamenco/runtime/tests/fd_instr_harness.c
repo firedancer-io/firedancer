@@ -24,11 +24,6 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( runner->accdb, runner->root_fork_id );
   (void)fork_id;
 
-  fd_progcache_xid_t pcache_xid = { .ul={ ULONG_MAX, ULONG_MAX } };
-  fd_progcache_xid_t pcache_parent_xid;
-  fd_progcache_txn_xid_set_root( &pcache_parent_xid );
-  fd_progcache_attach_child( runner->progcache->join, &pcache_parent_xid, &pcache_xid );
-
   fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
 
@@ -234,6 +229,13 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sol_sysvar_clock_t * clock = fd_sysvar_cache_clock_read( ctx->sysvar_cache, clock_ );
   FD_TEST( clock );
   runner->bank->f.slot = clock->slot;
+
+  /* Register a non-root progcache transaction at the bank's xid so the
+     BPF loader can insert program cache entries during execution. */
+  fd_progcache_xid_t pcache_xid = fd_bank_xid( runner->bank );
+  fd_progcache_xid_t pcache_parent_xid;
+  fd_progcache_txn_xid_set_root( &pcache_parent_xid );
+  fd_progcache_attach_child( runner->progcache->join, &pcache_parent_xid, &pcache_xid );
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );

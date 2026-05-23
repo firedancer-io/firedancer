@@ -123,10 +123,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Attach a fork off the runner's root for context loading */
   fd_accdb_fork_id_t fork_id = fd_accdb_attach_child( accdb, runner->root_fork_id );
 
-  fd_progcache_xid_t parent_xid; fd_progcache_txn_xid_set_root( &parent_xid );
-  fd_progcache_xid_t xid = { .ul={ 0UL, 0UL } };
-  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
-
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_block_bank_t const * block_bank = &test_ctx->bank;
@@ -134,6 +130,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Slot */
   ulong slot = block_bank->slot;
   bank->f.slot = slot;
+
+  /* Register a non-root progcache transaction at the bank's xid so the
+     BPF loader can insert program cache entries during execution. */
+  fd_progcache_xid_t parent_xid; fd_progcache_txn_xid_set_root( &parent_xid );
+  fd_progcache_xid_t xid = fd_bank_xid( bank );
+  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( bank, block_bank->blockhash_queue, block_bank->blockhash_queue_count );
