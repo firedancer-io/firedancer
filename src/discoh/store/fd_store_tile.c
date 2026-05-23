@@ -53,6 +53,9 @@ during_frag( fd_store_ctx_t * ctx,
   fd_memcpy( ctx->mem, src, sizeof(fd_fec_set_t) );
 }
 
+extern void fd_ext_bank_release( void const * bank );
+extern void fd_ext_bank_set_block_id( void const * bank, uchar const * block_id );
+
 extern int
 fd_ext_blockstore_insert_shreds( void const *  blockstore,
                                  ulong         shred_cnt,
@@ -89,6 +92,16 @@ after_frag( fd_store_ctx_t *    ctx,
   fd_ext_blockstore_insert_shreds( fd_ext_blockstore, 32UL, set->parity_shreds->b, FD_SHRED_MAX_SZ, FD_SHRED_MAX_SZ, trusted );
 
   FD_MCNT_INC( STORE, TRANSACTIONS_INSERTED, est_txn_cnt );
+
+  /* On receiving the SLOT_COMPLETE in an FEC set, set the block_id of
+     the slot to the FEC set's merkle root and release the bank reference.
+     FEC sets from the net tile (!trusted) and non-SLOT_COMPLETE leader
+     FEC sets pass through this branch as a no-op. */
+  if( FD_UNLIKELY( trusted && ( set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE ) ) ) {
+    FD_TEST( set->leader_bank );
+    fd_ext_bank_set_block_id( set->leader_bank, set->merkle_root );
+    fd_ext_bank_release( set->leader_bank );
+  }
 }
 
 static void
