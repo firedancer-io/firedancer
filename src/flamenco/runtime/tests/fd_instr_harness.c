@@ -24,12 +24,15 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_funk_txn_xid_t xid[1] = {{ .ul={ LONG_MAX, LONG_MAX } }};
 
+<<<<<<< Updated upstream
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, xid );
   fd_progcache_attach_child( runner->progcache->join, &parent_xid, xid );
 
+=======
+>>>>>>> Stashed changes
   fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
 
@@ -231,9 +234,18 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( clock );
   runner->bank->f.slot = clock->slot;
 
+<<<<<<< Updated upstream
   fd_funk_txn_xid_t exec_xid[1] = { fd_bank_xid( runner->bank ) };
   fd_accdb_attach_child    ( runner->accdb_admin,     xid, exec_xid );
   fd_progcache_attach_child( runner->progcache->join, xid, exec_xid );
+=======
+  /* Register a non-root progcache transaction at the bank's xid so the
+     BPF loader can insert program cache entries during execution. */
+  fd_progcache_xid_t pcache_xid = fd_bank_xid( runner->bank );
+  fd_progcache_xid_t pcache_parent_xid;
+  fd_progcache_txn_xid_set_root( &pcache_parent_xid );
+  fd_progcache_attach_child( runner->progcache->join, &pcache_parent_xid, &pcache_xid );
+>>>>>>> Stashed changes
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
