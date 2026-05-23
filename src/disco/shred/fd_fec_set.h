@@ -28,6 +28,15 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_fec_set {
     fd_shred_t s[ 1 ];
     uchar      b[ FD_SHRED_MAX_SZ ];
   } parity_shreds[ FD_FEC_SHRED_CNT ];
+
+  /* Only relevant for Frankendancer shred_store link.  When the
+     shred tile publishes a leader FEC set to the store tile, it
+     sets leader_bank and merkle_root which the store tile uses
+     to set the block_id.  For network-produced FEC sets and for
+     the Firedancer store path, leader_bank is NULL and merkle_root
+     is undefined. */
+  void const * leader_bank;
+  uchar        merkle_root[ 32 ];
 };
 typedef struct fd_fec_set fd_fec_set_t;
 

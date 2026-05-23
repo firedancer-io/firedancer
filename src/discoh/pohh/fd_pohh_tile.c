@@ -470,6 +470,19 @@ struct fd_pohh_tile {
      acquired. */
   void const * pack_leader_bank;
 
+  /* Store tile needs another reference to the bank object with its
+     own lifetime requirements.  We need to set the block_id of a
+     slot to the merkle root of the last FEC set in the slot.  We
+     also want to make sure that we correctly release the reference
+     in case we abandon a slot midway and never send a SLOT_COMPLETE.
+     For the latter part, we track the slot we acquired the bank for
+     so that we can signal to release it if we have moved on from
+     that slot.  Since poh does not have a direct link to store,
+     we pass the bank pointer using the poh_shred -> shred_store
+     route.*/
+  void const * store_leader_bank;
+  ulong        store_leader_bank_slot;
+
   /* The PoH tile must never drop microblocks that get committed by the
      bank, so it needs to always be able to mixin a microblock hash.
      Mixing in requires incrementing the hashcnt, so we need to ensure
@@ -1085,15 +1098,32 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   if( FD_UNLIKELY( leader->ticks_per_slot+leader->total_skipped_ticks>=MAX_SKIPPED_TICKS ) )
     FD_LOG_ERR(( "Too many skipped ticks %lu for slot %lu, chain must halt", leader->ticks_per_slot+leader->total_skipped_ticks, slot ));
 
-  ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
-  fd_stem_publish( ctx->stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_became_leader_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
-
-  /* increment refcount for pack's reference to the current leader bank */
+  /* increment refcount for pack's  reference to the current leader bank */
+  /* increment refcount for store's reference to the current leader bank */
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) {
     ctx->pack_leader_bank = ctx->current_leader_bank;
     fd_ext_bank_acquire( ctx->pack_leader_bank );
+
+    FD_TEST( ctx->store_leader_bank_slot==ULONG_MAX );
+    ctx->store_leader_bank = ctx->current_leader_bank;
+    ctx->store_leader_bank_slot = slot;
+    fd_ext_bank_acquire( ctx->store_leader_bank );
   }
+
+  ulong pack_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
+  fd_stem_publish( ctx->stem, ctx->pack_out->idx, pack_sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_became_leader_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+
+  /* We acquired another leader bank earlier that the store tile will use
+     to set the block_id for the slot we produce.  We send this through
+     the existing poh_shred and shred_store links. */
+  void const ** msg = (void const **)fd_chunk_to_laddr( ctx->shred_out->mem, ctx->shred_out->chunk );
+  *msg = ctx->current_leader_bank;
+
+  ulong shred_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_LEADER_BANK, 0UL );
+  fd_stem_publish( ctx->stem, ctx->shred_out->idx, shred_sig, ctx->shred_out->chunk, sizeof(void const *), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->shred_seq = ctx->stem->seqs[ ctx->shred_out->idx ];
+  ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sizeof(void const *), ctx->shred_out->chunk0, ctx->shred_out->wmark );
 }
 
 /* The PoH tile knows when it should become leader by waiting for its
@@ -1268,6 +1298,15 @@ maybe_change_identity( fd_pohh_tile_t * ctx,
 
 static CALLED_FROM_RUST void
 no_longer_leader( fd_pohh_tile_t * ctx ) {
+  /* If we acquired a bank for the store tile and never produced its
+     block_complete entry, the store tile never gets the chance to
+     drop the refcount, so we drop it directly here. */
+  if( FD_UNLIKELY( ctx->store_leader_bank_slot!=ULONG_MAX ) ) {
+    fd_ext_bank_release( ctx->store_leader_bank );
+    ctx->store_leader_bank = NULL;
+    ctx->store_leader_bank_slot = ULONG_MAX;
+  }
+
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
   /* If we stop being leader in a slot, we can never become leader in
       that slot again, and all in-flight microblocks for that slot
@@ -1491,6 +1530,15 @@ publish_tick( fd_pohh_tile_t *      ctx,
     ctx->last_hashcnt = 0UL;
   } else {
     ctx->last_hashcnt = hashcnt;
+  }
+
+  /* The store tile will release the bank refcount when an FEC set with
+     SLOT_COMPLETE arrives, so we drop our local tracking and suppress
+     the END type frag in no_longer_leader. */
+  if( FD_UNLIKELY( meta->block_complete && ctx->store_leader_bank_slot!=ULONG_MAX ) ) {
+    FD_TEST( ctx->store_leader_bank_slot==slot );
+    ctx->store_leader_bank = NULL;
+    ctx->store_leader_bank_slot = ULONG_MAX;
   }
 }
 
@@ -1996,6 +2044,14 @@ publish_microblock( fd_pohh_tile_t *    ctx,
   fd_stem_publish( stem, ctx->shred_out->idx, new_sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
   ctx->shred_seq = stem->seqs[ ctx->shred_out->idx ];
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
+
+  /* Can only happen in low power mode. Refer to comment in publish_tick()
+     for more details */
+  if( FD_UNLIKELY( meta->block_complete && ctx->store_leader_bank_slot!=ULONG_MAX ) ) {
+    FD_TEST( ctx->store_leader_bank_slot==slot );
+    ctx->store_leader_bank = NULL;
+    ctx->store_leader_bank_slot = ULONG_MAX;
+  }
 }
 
 static inline void
@@ -2115,6 +2171,11 @@ after_frag( fd_pohh_tile_t *    ctx,
 
   if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
     fd_ext_poh_register_tick( ctx->current_leader_bank, ctx->hash );
+  }
+
+  publish_microblock( ctx, stem, target_slot, hashcnt_delta, txn_cnt );
+
+  if( FD_UNLIKELY( !(ctx->hashcnt%ctx->hashcnt_per_tick ) ) ) {
     if( FD_UNLIKELY( ctx->slot>ctx->next_leader_slot ) ) {
       /* We ticked while leader and are no longer leader... transition
          the state machine. */
@@ -2129,8 +2190,6 @@ after_frag( fd_pohh_tile_t *    ctx,
       }
     }
   }
-
-  publish_microblock( ctx, stem, target_slot, hashcnt_delta, txn_cnt );
 }
 
 static void
@@ -2312,7 +2371,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sha256   = NONNULL( fd_sha256_join( fd_sha256_new( sha256 ) ) );
   ctx->current_leader_bank  = NULL;
   ctx->pack_leader_bank     = NULL;
-  ctx->signal_leader_change = NULL;
+  ctx->store_leader_bank    = NULL;
+  ctx->store_leader_bank_slot  = ULONG_MAX;
+  ctx->signal_leader_change    = NULL;
 
   ctx->shred_seq = ULONG_MAX;
   ctx->halted_switching_key = 0;
@@ -2439,8 +2500,9 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 /* One tick, one microblock, one plugin slot end, one plugin slot start,
-   one leader update, and one features activation. */
-#define STEM_BURST (6UL)
+   one leader update, one features activation, and one leader bank
+   handoff. */
+#define STEM_BURST (7UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)

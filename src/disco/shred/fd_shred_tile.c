@@ -260,6 +260,10 @@ typedef struct {
   uchar * chained_merkle_root;
   fd_bmtree_node_t out_merkle_roots[ FD_SHRED_BATCH_FEC_SETS_MAX ];
   uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
+
+  /* Bank object that we receive from the PoH tile and pass on to
+     the store tile for setting the block_id of a slot. */
+  void const * leader_bank;
 } fd_shred_ctx_t;
 
 /* shred features are generally considered active at the epoch *following*
@@ -391,7 +395,9 @@ before_frag( fd_shred_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
     ctx->poh_in_expect_seq = seq+1UL;
-    return (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) & (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_FEAT_ACT_SLOT);
+    return (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK) &
+           (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_FEAT_ACT_SLOT) &
+           (int)(fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_LEADER_BANK);
   }
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     return (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED) & (int)(fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR);
@@ -512,6 +518,22 @@ during_frag( fd_shred_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
     ctx->send_fec_set_cnt = 0UL;
+
+    if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_LEADER_BANK ) ) {
+      /* Only one tile needs to act on this. Other tiles see the frag but
+         ignore it. */
+      if( ctx->round_robin_id!=0UL ) return;
+      /* poh is handing off a leader bank pointer for a slot we may
+         be leader for.  Copy the pointer out of the dcache for
+         after_frag to attach to the FEC sets for this slot. */
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(void const *) ) )
+        FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
+              ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+      void const * const * src = (void const * const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      ctx->leader_bank = *src;
+      return;
+    }
 
     if( FD_UNLIKELY( (fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_FEAT_ACT_SLOT) ) ) {
       /* There is a subset of FD_SHRED_FEATURES_ACTIVATION_... slots that
@@ -1040,6 +1062,8 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     if( FD_LIKELY( ctx->store ) ) { /* firedancer-only */
 
+      set->leader_bank = NULL; /* un-used by firedancer */
+
       /* Insert shreds into the store. We do this regardless of whether
          we are leader. */
 
@@ -1124,12 +1148,30 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* If the low 32 bits of sig are 0, the store tile will do extra
          checks */
       ulong new_sig = txn_cnt<<32 | (ulong)(ctx->in_kind[ in_idx ]!=IN_KIND_NET);
+
+      /* Attach the leader bank pointer and merkle root so that the
+         store tile can set the block_id for the slot.  Network
+         FEC sets have no leader bank. */
+      if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
+        set->leader_bank = ctx->leader_bank;
+        memcpy( set->merkle_root, ctx->out_merkle_roots[fset_k].hash, 32UL );
+      } else {
+        set->leader_bank = NULL;
+      }
+
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       /* The size is actually slightly larger than USHORT_MAX, but the store tile
          knows to use sizeof(fd_fec_set_t) instead of the sz field.  Put
          USHORT_MAX so that monitoring tools are at least close. */
       ulong sz = fd_ulong_min( sizeof(fd_fec_set_t), USHORT_MAX );
       fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, set ), sz, 0UL, ctx->tsorig, tspub );
+
+      /* Store tile will release the bank pointer when it sees
+         SLOT_COMPLETE FEC set.  So we reset our tracking. */
+      if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH &&
+                       (set->data_shreds[ FD_FEC_SHRED_CNT-1UL ].s->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) ) ) {
+        ctx->leader_bank  = NULL;
+      }
     }
 
     /* Compute all the destinations for all the new shreds */
@@ -1449,6 +1491,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->shred_buffer_sz  = 0UL;
   memset( ctx->shred_buffer, 0xFF, FD_NET_MTU );
+
+  ctx->leader_bank  = NULL;
 
   fd_histf_join( fd_histf_new( ctx->metrics->contact_info_cnt,     FD_MHIST_MIN(         SHRED, CLUSTER_CONTACT_INFO_CNT   ),
                                                                    FD_MHIST_MAX(         SHRED, CLUSTER_CONTACT_INFO_CNT   ) ) );
