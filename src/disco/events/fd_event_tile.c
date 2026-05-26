@@ -14,6 +14,7 @@
 #include "../../util/cstr/fd_cstr.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/pb/fd_pb_encode.h"
+#include "../../tango/tempo/fd_tempo.h"
 
 #if FD_HAS_OPENSSL
 #include "../../util/alloc/fd_alloc.h"
@@ -89,6 +90,10 @@ struct fd_event_tile {
   fd_rng_t rng[1];
 
   fd_netdb_fds_t netdb_fds[1];
+
+  long   reference_wallclock;
+  long   reference_tickcount;
+  double tick_per_ns;
 
   ulong in_cnt;
   int in_kind[ 64UL ];
@@ -236,9 +241,7 @@ after_frag( fd_event_tile_t *   ctx,
       }
 
       ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = fd_frag_meta_ts_decomp( tspub, fd_tickcount() );
-      long timestamp_seconds = timestamp_nanos / 1000000000L;
-      int  timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
+      long timestamp_nanos = ctx->reference_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, ctx->reference_tickcount ) - ctx->reference_tickcount) / ctx->tick_per_ns);
 
       fd_pb_encoder_t encoder[1];
       fd_pb_encoder_init( encoder, buffer, 4096UL );
@@ -246,10 +249,7 @@ after_frag( fd_event_tile_t *   ctx,
       FD_TEST( ctx->circq->cursor_push_seq );
       fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
       fd_pb_push_uint64( encoder, 2U, event_id );
-      fd_pb_submsg_open( encoder, 3U );
-      if( FD_LIKELY( timestamp_seconds ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
-      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
-      fd_pb_submsg_close( encoder );
+      fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );
 
       fd_pb_submsg_open( encoder, 4U ); /* Event */
       fd_pb_submsg_open( encoder, 2U ); /* Shred */
@@ -283,9 +283,7 @@ after_frag( fd_event_tile_t *   ctx,
       }
 
       ulong event_id = fd_event_client_id_reserve( ctx->client );
-      long timestamp_nanos = fd_frag_meta_ts_decomp( tspub, fd_tickcount() );
-      long timestamp_seconds = timestamp_nanos / 1000000000L;
-      int  timestamp_subsec_nanos = (int)( timestamp_nanos % 1000000000L );
+      long timestamp_nanos = ctx->reference_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, ctx->reference_tickcount ) - ctx->reference_tickcount) / ctx->tick_per_ns);
 
       fd_pb_encoder_t encoder[1];
       fd_pb_encoder_init( encoder, buffer, 4096UL );
@@ -293,10 +291,7 @@ after_frag( fd_event_tile_t *   ctx,
       FD_TEST( ctx->circq->cursor_push_seq );
       fd_pb_push_uint64( encoder, 1U, ctx->circq->cursor_push_seq-1UL );
       fd_pb_push_uint64( encoder, 2U, event_id );
-      fd_pb_submsg_open( encoder, 3U );
-      if( FD_LIKELY( timestamp_seconds ) ) fd_pb_push_int64( encoder, 1U, timestamp_seconds );
-      if( FD_LIKELY( timestamp_subsec_nanos ) ) fd_pb_push_int32( encoder, 2U, timestamp_subsec_nanos );
-      fd_pb_submsg_close( encoder );
+      fd_pb_push_uint64( encoder, 3U, (ulong)timestamp_nanos );
 
       fd_pb_submsg_open( encoder, 4U ); /* Event */
       fd_pb_submsg_open( encoder, 1U ); /* Txn */
@@ -523,6 +518,10 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
+  ctx->tick_per_ns   = fd_tempo_tick_per_ns( NULL );
+  ctx->reference_wallclock = fd_log_wallclock();
+  ctx->reference_tickcount = fd_tickcount();
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -564,6 +563,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 static void
 during_housekeeping( fd_event_tile_t * ctx ) {
+  ctx->reference_wallclock = fd_log_wallclock();
+  ctx->reference_tickcount = fd_tickcount();
+
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: switching identity" ));
     memcpy( ctx->identity_pubkey, ctx->keyswitch->bytes, 32UL );

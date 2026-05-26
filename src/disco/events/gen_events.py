@@ -24,6 +24,7 @@ class ClickHouseType(Enum):
     UInt8 = auto()
     UInt16 = auto()
     UInt64 = auto()
+    DateTime64 = auto()
     String = auto()
     Bytes = auto()
     LowCardinalityString = auto()
@@ -34,6 +35,7 @@ class ClickHouseType(Enum):
         "UInt8": "UInt8",
         "UInt16": "UInt16",
         "UInt64": "UInt64",
+        "DateTime64(9)": "DateTime64",
         "String": "String",
         "Bytes": "Bytes",
         "LowCardinality(String)": "LowCardinalityString",
@@ -45,6 +47,7 @@ class ClickHouseType(Enum):
         "UInt8": "uint32",
         "UInt16": "uint32",
         "UInt64": "uint64",
+        "DateTime64": "uint64",
         "String": "bytes",
         "Bytes": "bytes",
         "LowCardinalityString": "string",

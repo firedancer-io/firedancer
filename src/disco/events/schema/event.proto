@@ -4,20 +4,14 @@ package events.v1;
 
 import "events.proto";
 
-// Nanosecond resolution timestamp
-message Timestamp {
-  int64 seconds = 1;
-  int32 nanos = 2;
-}
-
 // An event sent from the application to the event server
 message StreamEventsRequest {
   // A nonce provided by the application to identify this event, should be acknowledged back in StreamEventsResponse
   uint64 nonce = 1;
   // The unique ID of the event from this application, monotonically increasing from zero, may have gaps if events get dropped
   uint64 event_id = 2;
-  // The wall clock time when the event was recorded
-  Timestamp timestamp = 3;
+  // The wall clock time when the event was recorded, in nanoseconds since the Unix epoch
+  uint64 timestamp_nanos = 3;
   // The actual event
   Event event = 4;
 }
