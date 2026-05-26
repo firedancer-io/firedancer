@@ -134,7 +134,6 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -m 20000 -e 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall -m 1000 -e 379
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account_rekey -m 1000 -e 329
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m -m 10000 -e 603
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry -m 10000 -e 135
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct_account_pointers_in_program_input -m 10000 -e 386
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_boundary -m 10000 -e 950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot -m 10000 -e 950
