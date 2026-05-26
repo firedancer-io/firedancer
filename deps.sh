@@ -146,7 +146,6 @@ fetch () {
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum       "" "cba3956c"
   checkout_repo openssl   https://github.com/openssl/openssl          "openssl-3.6.2"
   checkout_repo blst      https://github.com/supranational/blst       "v0.3.13"
-  checkout_repo bzip2     https://gitlab.com/bzip2/bzip2              "bzip2-1.0.8"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo lz4     https://github.com/lz4/lz4                  "v1.10.0"
     checkout_repo rocksdb https://github.com/facebook/rocksdb         "v11.0.4"
@@ -425,15 +424,6 @@ install_zstd () {
   echo "[+] Successfully installed zstd"
 }
 
-install_bzip2 () {
-  cd "$PREFIX/git/bzip2"
-
-  echo "[+] Installing bzip2 to $PREFIX"
-  # Not building bzip2 here, see src/ballet/bzip2/Local.mk
-  cp bzlib.h "$PREFIX/include"
-  echo "[+] Successfully installed bzip2"
-}
-
 install_lz4 () {
   cd "$PREFIX/git/lz4/lib"
 
@@ -624,7 +614,6 @@ install () {
   ( install_s2n       )
   ( install_openssl   )
   ( install_blst      )
-  ( install_bzip2     )
   if [[ $DEVMODE == 1 ]]; then
     ( install_lz4       )
     ( install_snappy    )

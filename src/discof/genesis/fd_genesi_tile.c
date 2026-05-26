@@ -3,6 +3,7 @@
 #include "fd_genesis_client.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/fd_accdb_topo.h"
+#include "../../ballet/bzip2/bzlib.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../flamenco/accdb/fd_accdb_admin_v1.h"
@@ -21,13 +22,9 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
-#if FD_HAS_BZIP2
-#include <bzlib.h>
-#endif
 
 #include "generated/fd_genesi_tile_seccomp.h"
 
-#if FD_HAS_BZIP2
 static void *
 bz2_malloc( void * opaque,
             int    items,
@@ -47,7 +44,6 @@ bz2_free( void * opaque,
   if( FD_UNLIKELY( !addr ) ) return;
   fd_alloc_free( alloc, addr );
 }
-#endif
 
 struct fd_genesi_tile {
   fd_accdb_admin_t accdb_admin[1];
@@ -242,7 +238,6 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     uchar * decompressed = ctx->genesis_blob;
     ulong   actual_decompressed_sz = 0UL;
-#   if FD_HAS_BZIP2
     bz_stream bzstrm = {0};
     bzstrm.bzalloc = bz2_malloc;
     bzstrm.bzfree  = bz2_free;
@@ -263,11 +258,6 @@ after_credit( fd_genesi_tile_t *  ctx,
 
     bzerr = BZ2_bzDecompressEnd( &bzstrm );
     if( FD_UNLIKELY( BZ_OK!=bzerr ) ) FD_LOG_ERR(( "BZ2_bzDecompressEnd() failed (%d)", bzerr ));
-
-#   else
-    FD_LOG_ERR(( "This build does not include bzip2, which is required to boot from genesis.\n"
-                 "To install bzip2, re-run ./deps.sh +dev, make distclean, and make -j" ));
-#   endif
 
     FD_TEST( actual_decompressed_sz>=512UL );
 

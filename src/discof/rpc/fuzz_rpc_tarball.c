@@ -4,10 +4,6 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
-#if !FD_HAS_BZIP2
-#error "This target requires FD_HAS_BZIP2"
-#endif
-
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>

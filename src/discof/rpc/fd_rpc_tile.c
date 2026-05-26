@@ -27,10 +27,8 @@
 #include <zstd.h>
 #endif
 
-#if FD_HAS_BZIP2
 #include "../../util/archive/fd_tar.h"
-#include <bzlib.h>
-#endif
+#include "../../ballet/bzip2/bzlib.h"
 
 #include "generated/fd_rpc_tile_seccomp.h"
 
@@ -253,9 +251,7 @@ struct fd_rpc_tile {
   uchar genesis_tar_bz[ FD_RPC_TAR_BZ_SZ ];
   ulong genesis_tar_bz_sz;
 
-# if FD_HAS_BZIP2
   fd_alloc_t * bz2_alloc;
-# endif
 
   long next_poll_deadline;
 
@@ -278,7 +274,6 @@ struct fd_rpc_tile {
 
 typedef struct fd_rpc_tile fd_rpc_tile_t;
 
-# if FD_HAS_BZIP2
 static void *
 bz2_malloc( void * opaque,
             int    items,
@@ -349,7 +344,6 @@ fd_rpc_file_as_tarball( fd_rpc_tile_t * ctx,
 
   return tar_bz_sz;
 }
-# endif
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -370,9 +364,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                      );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),   http_fp                                      );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
-#if FD_HAS_BZIP2
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                         );
-#endif
   l = FD_LAYOUT_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t) );
   l = FD_LAYOUT_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -522,7 +514,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
     fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     *ctx->genesis_hash = genesis_meta->genesis_hash;
 
-#   if FD_HAS_BZIP2
     uchar const * blob    = (uchar const *)( genesis_meta+1 );
     ulong const   blob_sz = genesis_meta->blob_sz;
     FD_TEST( blob_sz<=FD_GENESIS_MAX_MESSAGE_SIZE );
@@ -533,7 +524,6 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       blob, blob_sz,
       ctx->genesis_tar, sizeof(ctx->genesis_tar),
       ctx->genesis_tar_bz, sizeof(ctx->genesis_tar_bz) );
-#   endif
   }
 
   return 0;
@@ -1946,9 +1936,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_rpc_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_rpc_tile_t ), sizeof( fd_rpc_tile_t )                                );
                         FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(),   fd_http_server_footprint( derive_http_params( tile ) ) );
   void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
-#if FD_HAS_BZIP2
   void * _bz2_alloc   = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
-#endif
   void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
   void * _nodes_dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_rpc_cluster_node_dlist_align(), fd_rpc_cluster_node_dlist_footprint() );
 
@@ -1962,10 +1950,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   for( ulong i=0UL; i<FD_CONTACT_INFO_TABLE_SIZE; i++ ) ctx->cluster_nodes[ i ].valid = 0;
 
-# if FD_HAS_BZIP2
   ctx->bz2_alloc = fd_alloc_join( fd_alloc_new( _bz2_alloc, 1UL ), 1UL );
   FD_TEST( ctx->bz2_alloc );
-# endif
 
   ctx->next_poll_deadline = fd_tickcount();
 

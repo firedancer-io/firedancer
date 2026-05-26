@@ -53,7 +53,6 @@ sysroot () {
     libstdc++-devel
     # Project dependencies
     kernel-headers
-    bzip2-devel bzip2-static
     libzstd-devel libzstd-static
     snappy-devel snappy
     rocksdb-devel rocksdb
