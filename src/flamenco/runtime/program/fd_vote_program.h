@@ -49,9 +49,8 @@
 #define FD_VOTE_STATE_V3_SZ (3762UL)
 #define FD_VOTE_STATE_V4_SZ (3762UL)
 
-/* Target vote state versions
-   https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L639-L645 */
-#define VOTE_STATE_TARGET_VERSION_V3 (0)
+/* Target vote state version.
+   https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L33-L38 */
 #define VOTE_STATE_TARGET_VERSION_V4 (1)
 
 FD_PROTOTYPES_BEGIN

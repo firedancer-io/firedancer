@@ -11,7 +11,6 @@
 #include "vote/fd_vote_utils.h"
 #include "vote/fd_vote_codec.h"
 #include "vote/fd_vote_state_versioned.h"
-#include "vote/fd_vote_state_v3.h"
 #include "vote/fd_vote_state_v4.h"
 #include "../../../ballet/bls/fd_bls12_381.h"
 
@@ -41,71 +40,43 @@
 /* VoteStateHandler                                                   */
 /**********************************************************************/
 
-/* This is a temporary method in Agave (until the vote state v4 feature
-   is cleaned up) to check the vote state and, in some cases, check
-   if the vote account is uninitialized or not. Initializes a v3 or v4
-   vote account depending on the target version.
-   https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L45-L77 */
+/* Check the vote state, deserialize it as V4 and convert older versions
+   to V4 in-place.
+   https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/mod.rs#L45-L77 */
 static int
 get_vote_state_handler_checked( fd_borrowed_account_t const * vote_account,
                                 int                           target_version,
                                 uchar                         check_initialized,
                                 fd_vote_state_versioned_t *   vote_state_versioned ) {
-  int rc;
-  switch( target_version ) {
-    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L50-L62 */
-    case VOTE_STATE_TARGET_VERSION_V3: {
-      rc = fd_vote_state_v3_deserialize( vote_account, vote_state_versioned );
-      if( FD_UNLIKELY( rc ) ) return rc;
+  (void)target_version;
+  (void)check_initialized; /* V4 vote states are always initialized */
 
-      if( FD_UNLIKELY( check_initialized && fd_vsv_is_uninitialized( vote_state_versioned ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
-      }
+  int rc = fd_vsv_deserialize( vote_account->meta, vote_state_versioned );
+  if( FD_UNLIKELY( rc ) ) return rc;
 
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
-    /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/mod.rs#L63-L75 */
-    case VOTE_STATE_TARGET_VERSION_V4: {
-      rc = fd_vsv_deserialize( vote_account->meta, vote_state_versioned );
-      if( FD_UNLIKELY( rc ) ) return rc;
-
-      if( FD_UNLIKELY( fd_vsv_is_uninitialized( vote_state_versioned ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
-      }
-
-      rc = fd_vsv_try_convert_to_v4( vote_state_versioned, vote_account->pubkey );
-      if( FD_UNLIKELY( rc ) ) return rc;
-
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
-    default:
-      FD_LOG_CRIT(( "unsupported version: %d", target_version ));
+  if( FD_UNLIKELY( fd_vsv_is_uninitialized( vote_state_versioned ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
   }
+
+  rc = fd_vsv_try_convert_to_v4( vote_state_versioned, vote_account->pubkey );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L888-L902 */
+/* https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L379-L393 */
 static int
 check_vote_account_length( fd_borrowed_account_t const * vote_account,
                            int                           target_version ) {
+  (void)target_version;
   ulong length = fd_borrowed_account_get_data_len( vote_account );
-  ulong expected;
-  switch( target_version ) {
-    case VOTE_STATE_TARGET_VERSION_V3:
-      expected = FD_VOTE_STATE_V3_SZ;
-      break;
-    case VOTE_STATE_TARGET_VERSION_V4:
-      expected = FD_VOTE_STATE_V4_SZ;
-      break;
-    default:
-      FD_LOG_CRIT(( "unsupported version: %d", target_version ));
-  }
-  if( FD_UNLIKELY( length!=expected ) ) {
+  if( FD_UNLIKELY( length!=FD_VOTE_STATE_V4_SZ ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L855-L870 */
+/* https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L327-L342 */
 static int
 init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
                          fd_borrowed_account_t *       vote_account,
@@ -113,19 +84,12 @@ init_vote_account_state( fd_exec_instr_ctx_t *         ctx,
                          int                           target_version,
                          fd_vote_init_t *              vote_init,
                          fd_sol_sysvar_clock_t const * clock ) {
-  switch( target_version ) {
-    case VOTE_STATE_TARGET_VERSION_V3:
-      fd_vote_program_v3_create_new( vote_init, clock, versioned );
-      return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned );
-    case VOTE_STATE_TARGET_VERSION_V4:
-      fd_vote_state_v4_create_new_with_defaults( vote_account->pubkey, vote_init, clock, versioned );
-      return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
-    default:
-      FD_LOG_CRIT(( "unsupported version: %d", target_version ));
-  }
+  (void)target_version;
+  fd_vote_state_v4_create_new_with_defaults( vote_account->pubkey, vote_init, clock, versioned );
+  return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_state/handler.rs#L965-L983 */
+/* https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L344-L362 */
 static int
 init_vote_account_state_v2( fd_exec_instr_ctx_t *         ctx,
                             fd_borrowed_account_t *       vote_account,
@@ -133,16 +97,9 @@ init_vote_account_state_v2( fd_exec_instr_ctx_t *         ctx,
                             int                           target_version,
                             fd_vote_init_v2_t *           vote_init_v2,
                             fd_sol_sysvar_clock_t const * clock ) {
-  switch( target_version ) {
-    case VOTE_STATE_TARGET_VERSION_V3:
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-
-    case VOTE_STATE_TARGET_VERSION_V4:
-      fd_vote_state_v4_create_new( vote_init_v2, clock, versioned );
-      return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
-    default:
-      FD_LOG_CRIT(( "unsupported version: %d", target_version ));
-  }
+  (void)target_version;
+  fd_vote_state_v4_create_new( vote_init_v2, clock, versioned );
+  return fd_vote_state_v4_set_vote_account_state( ctx, vote_account, versioned );
 }
 
 /**********************************************************************/
@@ -1660,8 +1617,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_processor.rs#L69-L74 */
-  int target_version = FD_FEATURE_ACTIVE_BANK( ctx->bank, vote_state_v4 ) ? VOTE_STATE_TARGET_VERSION_V4 : VOTE_STATE_TARGET_VERSION_V3;
+  /* https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_processor.rs#L118-L119 */
+  int target_version = VOTE_STATE_TARGET_VERSION_V4;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L69
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
@@ -1672,7 +1629,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
      not in feature_map.json.
 
      TODO: don't hardcode these when the features are implemented. */
-  int vote_state_v4                         = FD_FEATURE_ACTIVE_BANK( ctx->bank, vote_state_v4 );
   int bls_pubkey_management_in_vote_account = FD_FEATURE_ACTIVE_BANK( ctx->bank, bls_pubkey_management_in_vote_account );
   int delay_commission_updates              = FD_FEATURE_ACTIVE_BANK( ctx->bank, delay_commission_updates );
   int commission_rate_in_basis_points       = FD_FEATURE_ACTIVE_BANK( ctx->bank, commission_rate_in_basis_points );
@@ -1680,14 +1636,11 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   int block_revenue_sharing                 = 0;
   int vote_account_initialize_v2            = 0;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L73-L76 */
-  int is_vote_authorize_with_bls_enabled =
-      vote_state_v4 &&
-      bls_pubkey_management_in_vote_account;
+  /* https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_processor.rs#L72-L76 */
+  int is_vote_authorize_with_bls_enabled = bls_pubkey_management_in_vote_account;
 
-  /* https://github.com/anza-xyz/agave/blob/v4.0.0-alpha.0/programs/vote/src/vote_processor.rs#L63-L71 */
+  /* https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_processor.rs#L63-L70 */
   int is_init_account_v2_enabled =
-      vote_state_v4 &&
       bls_pubkey_management_in_vote_account &&
       commission_rate_in_basis_points &&
       custom_commission_collector &&
@@ -2298,8 +2251,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_vote_instruction_enum_update_commission_bps: {
     if( FD_UNLIKELY( !commission_rate_in_basis_points
-                  || !delay_commission_updates
-                  || target_version!=VOTE_STATE_TARGET_VERSION_V4 ) ) {
+                  || !delay_commission_updates ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
@@ -2320,8 +2272,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
    * - Unimplemented (gated on custom_commission_collector)
    */
   case fd_vote_instruction_enum_update_commission_collector: {
-    if( FD_UNLIKELY( !(custom_commission_collector
-                    && target_version==VOTE_STATE_TARGET_VERSION_V4) ) ) {
+    if( FD_UNLIKELY( !custom_commission_collector ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 
@@ -2343,8 +2294,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   case fd_vote_instruction_enum_deposit_delegator_rewards: {
     if( FD_UNLIKELY( !commission_rate_in_basis_points
                   || !custom_commission_collector
-                  || !block_revenue_sharing
-                  || target_version!=VOTE_STATE_TARGET_VERSION_V4 ) ) {
+                  || !block_revenue_sharing ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
 

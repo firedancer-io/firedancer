@@ -695,27 +695,16 @@ int
 fd_vsv_deinitialize_vote_account_state( fd_exec_instr_ctx_t *   ctx,
                                         fd_borrowed_account_t * vote_account,
                                         int                     target_version ) {
-  switch( target_version ) {
-    case VOTE_STATE_TARGET_VERSION_V3: {
-      /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L878 */
-      fd_vote_state_versioned_t versioned[1];
-      fd_vote_state_versioned_new( versioned, fd_vote_state_versioned_enum_v3 );
-      versioned->v3.prior_voters.idx      = 31;
-      versioned->v3.prior_voters.is_empty = 1;
-      return fd_vote_state_v3_set_vote_account_state( ctx, vote_account, versioned );
-    }
-    case VOTE_STATE_TARGET_VERSION_V4: {
-      /* https://github.com/anza-xyz/agave/blob/v3.1.1/programs/vote/src/vote_state/handler.rs#L881-L883 */
-      uchar * data;
-      ulong   dlen;
-      int rc = fd_borrowed_account_get_data_mut( vote_account, &data, &dlen );
-      if( FD_UNLIKELY( rc ) ) return rc;
-      fd_memset( data, 0, dlen );
-      return FD_EXECUTOR_INSTR_SUCCESS;
-    }
-    default:
-      FD_LOG_CRIT(( "unsupported target version" ));
-  }
+  /* V4 clears the entire account data on deinitialize.
+     https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/vote/src/vote_state/handler.rs#L366-L377 */
+  (void)ctx;
+  (void)target_version;
+  uchar * data;
+  ulong   dlen;
+  int rc = fd_borrowed_account_get_data_mut( vote_account, &data, &dlen );
+  if( FD_UNLIKELY( rc ) ) return rc;
+  fd_memset( data, 0, dlen );
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 int
