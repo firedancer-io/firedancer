@@ -47,6 +47,9 @@ off this snapshot to crash or confirm invalid state transitions.
 This is an inherent limitation of the Agave snapshot file format. It
 cannot be fixed without protocol changes.
 
+Therefore, the snapshot loader currently does not verify account
+integrity when loading a snapshot.
+
 ## Hard Forks
 
 Solana hard forks are an emergency feature used to re-synchronize a

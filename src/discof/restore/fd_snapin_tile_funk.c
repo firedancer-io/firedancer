@@ -75,16 +75,12 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   return 0;
 }
 
-int
+void
 fd_snapin_process_account_data_funk( fd_snapin_tile_t *            ctx,
                                      fd_ssparse_advance_result_t * result ) {
-  if( FD_UNLIKELY( !ctx->acc_data ) ) {
-    return 0;
-  }
-
+  if( FD_UNLIKELY( !ctx->acc_data ) ) return;
   fd_memcpy( ctx->acc_data, result->account_data.data, result->account_data.data_sz );
   ctx->acc_data += result->account_data.data_sz;
-  return 0;
 }
 
 /* streamlined_insert inserts an unfragmented account.
@@ -145,9 +141,7 @@ streamlined_insert( fd_snapin_tile_t * ctx,
 
 int
 fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
-                                      fd_ssparse_advance_result_t * result,
-                                      buffered_account_batch_t *    buffered_batch ) {
-  ulong start_idx = result ? 0 : buffered_batch->remaining_idx;
+                                      fd_ssparse_advance_result_t * result ) {
   fd_funk_t *         funk    = ctx->funk;
   fd_funk_rec_map_t * rec_map = funk->rec_map;
   fd_funk_rec_t *     rec_tbl = funk->rec_pool->ele;
@@ -156,8 +150,8 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
   /* Derive map chains */
   uint chain_idx[ FD_SSPARSE_ACC_BATCH_MAX ];
   ulong chain_mask = rec_map->map->chain_cnt-1UL;
-  for( ulong i=start_idx; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
-    uchar const * frame  = result ? result->account_batch.batch[ i ] : buffered_batch->batch[ i ];
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    uchar const * frame  = result->account_batch.batch[ i ];
     uchar const * pubkey = frame+0x10UL;
     ulong         memo   = fd_funk_rec_key_hash1( pubkey, rec_map->map->seed );
     chain_idx[ i ] = (uint)( memo&chain_mask );
@@ -166,12 +160,12 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
   /* Parallel load hash chain heads */
   uint map_node [ FD_SSPARSE_ACC_BATCH_MAX ];
   uint chain_cnt[ FD_SSPARSE_ACC_BATCH_MAX ];
-  for( ulong i=start_idx; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
     map_node [ i ] =       chain_tbl[ chain_idx[ i ] ].head_cidx;
     chain_cnt[ i ] = (uint)chain_tbl[ chain_idx[ i ] ].ver_cnt;
   }
   uint chain_max = 0U;
-  for( ulong i=start_idx; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
     chain_max = fd_uint_max( chain_max, chain_cnt[ i ] );
   }
 
@@ -179,8 +173,8 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
   static fd_funk_rec_t dummy_rec = { .map_next = UINT_MAX };
   fd_funk_rec_t * rec[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
   for( ulong j=0UL; j<chain_max; j++ ) {
-    for( ulong i=start_idx; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
-      uchar const *   frame     = result ? result->account_batch.batch[ i ] : buffered_batch->batch[ i ];
+    for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+      uchar const *   frame     = result->account_batch.batch[ i ];
       uchar const *   pubkey    = frame+0x10UL;
       int const       has_node  = j<chain_cnt[ i ];
       fd_funk_rec_t * node      = has_node ? rec_tbl+map_node[ i ] : &dummy_rec;
@@ -191,10 +185,9 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
   }
 
   /* Create map entries */
-  ulong insert_limit = FD_SSPARSE_ACC_BATCH_MAX;
-  for( ulong i=start_idx; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
-    ulong         slot       = result ? result->account_batch.slot : buffered_batch->slot;
-    uchar const * frame      = result ? result->account_batch.batch[ i ] : buffered_batch->batch[ i ];
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    ulong         slot       = result->account_batch.slot;
+    uchar const * frame      = result->account_batch.batch[ i ];
     uchar const * pubkey     = frame+0x10UL;
     fd_funk_rec_key_t key = FD_LOAD( fd_funk_rec_key_t, pubkey );
 
@@ -252,17 +245,12 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
   }
 
   /* Actually insert accounts */
-  for( ulong i=start_idx; i<insert_limit; i++ ) {
-    uchar const * frame = result ? result->account_batch.batch[ i ] : buffered_batch->batch[ i ];
-    ulong slot = result ? result->account_batch.slot : buffered_batch->slot;
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    uchar const * frame = result->account_batch.batch[ i ];
+    ulong slot = result->account_batch.slot;
     if( rec[ i ] ) {
       if( FD_UNLIKELY( streamlined_insert( ctx, rec[ i ], frame, slot ) ) ) return -1;
     }
-  }
-
-  if( FD_LIKELY( buffered_batch ) ) {
-    buffered_batch->batch_cnt     = 0UL;
-    buffered_batch->remaining_idx = 0UL;
   }
 
   return 0;

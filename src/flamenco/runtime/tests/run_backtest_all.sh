@@ -1,11 +1,6 @@
 #!/bin/bash
 set -e
 
-# Notes:
-# - snapshot lthash has been enabled for all tests (except for those
-#   where the original lthash is wrong - as documented below)
-#   TODO expand.
-
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-519-v4.0.0 -y 3 -m 2000000 -e 255312007
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066033-v4.0.0 -y 3 -m 2000000 -e 257066038
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066844-v4.0.0 -y 3 -m 2000000 -e 257066849
