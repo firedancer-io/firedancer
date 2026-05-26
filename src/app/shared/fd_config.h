@@ -210,6 +210,7 @@ struct fd_config_net {
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
     char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
+    int  listen_gre;
     int  native_bond;
   } xdp;
 

@@ -1019,6 +1019,21 @@ dynamic_port_range = "8900-9000"
         #   back to "simple" mode if necessary.
         rss_queue_mode = "simple"
 
+        # Some specialized networking setups, including DoubleZero,
+        # deliver packets to the validator in a GRE tunnel.  By default,
+        # when using rss_queue_mode="dedicated", Firedancer ignores all
+        # GRE-wrapped traffic.  Setting listen_gre = true causes
+        # Firedancer to install an ethtool 'ntuple' rule routing GRE
+        # traffic to a Firedancer net tile, enabling Firedancer to see
+        # GRE-wrapped traffic.  Unfortunately, few NICs are compatible
+        # with this class of rule, but ConnectX NICs (mlx5) are known to
+        # support listen_gre = true.  If your NIC does not support the
+        # rule and you must use GRE tunnels, set rss_queue_mode =
+        # "simple".  If rss_queue_mode is simple, this option is
+        # ignored, and Firedancer automatically listens to GRE-wrapped
+        # traffic when a GRE tunnel interface is configured.
+        listen_gre = false
+
         # Enable native network bonding support.
         #
         # If native_bond is set to 'true' and [net.interface] is a 'bond'
