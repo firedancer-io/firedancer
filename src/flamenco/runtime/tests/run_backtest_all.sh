@@ -137,3 +137,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct_account_pointers_in_program_input -y 1 -m 10000 -e 386
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_boundary -y 1 -m 10000 -e 950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot -y 1 -m 10000 -e 950
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l disable_sbpf_v0_v1_v2_deployment -y 1 -m 10000 -e 625
