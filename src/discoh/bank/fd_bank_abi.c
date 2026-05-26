@@ -1,3 +1,4 @@
+#include <stddef.h>
 
 #include "fd_bank_abi.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
