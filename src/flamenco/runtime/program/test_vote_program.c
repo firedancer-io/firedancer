@@ -447,7 +447,6 @@ test_account_initialize_simd_0387( fd_wksp_t * wksp ) {
   setup_account_initialize_txn( env );
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
@@ -460,11 +459,10 @@ test_account_initialize_simd_0387( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_account_initialize_simd_0387... ok" ));
 }
 
-/* InitializeAccountV2 requires all 6 features to be active:
-   vote_state_v4, bls_pubkey_management_in_vote_account,
-   commission_rate_in_basis_points, custom_commission_collector,
-   block_revenue_sharing, vote_account_initialize_v2.
-   Since the last 4 are not yet implemented (hardcoded to 0),
+/* InitializeAccountV2 requires all 5 features to be active:
+   bls_pubkey_management_in_vote_account, commission_rate_in_basis_points,
+   custom_commission_collector, block_revenue_sharing, vote_account_initialize_v2.
+   Since the last 3 are not yet implemented (hardcoded to 0),
    InitializeAccountV2 will always fail.
 
    TODO: un-comment tests when the features are implemented. */
@@ -478,7 +476,6 @@ test_account_initialize_v2( fd_wksp_t * wksp ) {
   setup_account_initialize_v2_txn( env );
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
@@ -507,7 +504,6 @@ test_account_initialize_v2_invalid_proof( fd_wksp_t * wksp ) {
   env->txn_p->payload[ proof_off ] = 0xFF;
 
   /* Enable SIMD-0387 feature */
-  FD_FEATURE_SET_ACTIVE( &env->bank->f.features, vote_state_v4, 0UL );
   FD_FEATURE_SET_ACTIVE( &env->bank->f.features, bls_pubkey_management_in_vote_account, 0UL );
 
   /* Run the vote program */
