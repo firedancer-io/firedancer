@@ -116,7 +116,8 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
-                   ulong                 programdata_size ) {
+                   ulong                 programdata_size,
+                   int                   disable_sbpf_v0_v1_v2_deployment ) {
   int deploy_mode                            = 1;
   int direct_mapping                         = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, account_data_direct_mapping );
   int syscall_parameter_address_restrictions = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
@@ -145,6 +146,14 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   /* Load executable */
   fd_sbpf_elf_info_t elf_info[ 1UL ];
   fd_prog_versions_t versions = fd_prog_versions( &instr_ctx->bank->f.features, deploy_slot );
+
+  /* SIMD-0500: when active, restrict program deployment to SBPF v3+.
+     Older SBPF versions remain executable.
+     TODO: fix link when 4.1 is releaed
+     https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/program-runtime/src/deploy.rs#L30-L32 */
+  if( disable_sbpf_v0_v1_v2_deployment ) {
+    versions.min_sbpf_version = FD_SBPF_V3;
+  }
 
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = deploy_mode;
@@ -214,6 +223,24 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/* SIMD-0500 finalize gate: when the feature is active and the ELF
+   embedded in `programdata` parses as SBPFv0/v1/v2, reject;
+   otherwise accept (including the short-programdata case, which
+   mirrors the let-chain short-circuit in agave).  See the call site
+   in `process_loader_upgradeable_instruction` for the SetAuthority
+   handler.
+   https://github.com/anza-xyz/agave/blob/v4.1.0-alpha.0/programs/bpf_loader/src/lib.rs#L580-L591 */
+int
+fd_bpf_loader_finalize_v3_check( int           feature_active,
+                                 uchar const * programdata,
+                                 ulong         programdata_len ) {
+  ulong const off = PROGRAMDATA_METADATA_SIZE + 48UL; /* ELF64 e_flags */
+  if( !feature_active                         ) return FD_EXECUTOR_INSTR_SUCCESS;
+  if( programdata_len < off + sizeof(uint)    ) return FD_EXECUTOR_INSTR_SUCCESS;
+  if( FD_LOAD( uint, programdata+off )<FD_SBPF_V3 ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -290,7 +317,7 @@ fd_bpf_loader_v3_program_set_state( fd_borrowed_account_t * borrowed_acct,
     return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
   }
 
-  return FD_BINCODE_SUCCESS;
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1299-L1331 */
@@ -347,7 +374,7 @@ common_close_account( fd_pubkey_t *         authority_address,
 
   state->discriminant = FD_BPF_STATE_UNINITIALIZED;
   err = fd_bpf_loader_v3_program_set_state( &close_account, state );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+  if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return err;
   }
 
@@ -388,6 +415,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   int                     syscall_parameter_address_restrictions   = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, syscall_parameter_address_restrictions );
   int                     virtual_address_space_adjustments        = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, virtual_address_space_adjustments );
   int                     provide_instruction_data_offset_in_vm_r2 = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, provide_instruction_data_offset_in_vm_r2 );
+  int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, direct_account_pointers_in_program_input );
 
   ulong instruction_data_offset = 0UL;
   /* 16-byte aligned buffer:
@@ -395,7 +423,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   uchar * input = instr_ctx->runtime->bpf_loader_serialization.serialization_mem[ instr_ctx->runtime->instr.stack_sz-1UL ];
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, virtual_address_space_adjustments, direct_mapping, is_deprecated,
+                                                  acc_region_metas, virtual_address_space_adjustments, direct_mapping,
+                                                  direct_account_pointers_in_program_input, is_deprecated,
                                                   &instruction_data_offset, &input_sz );
   if( FD_UNLIKELY( err ) ) {
     return err;
@@ -862,7 +891,8 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   ulong         programdata_size = new_len - PROGRAMDATA_METADATA_SIZE;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1512-L1522 */
-  err = fd_deploy_program( instr_ctx, programdata_data, programdata_size );
+  /* SIMD-0500: extend_program is exempt from the deployment-version gate. */
+  err = fd_deploy_program( instr_ctx, programdata_data, programdata_size, /* disable_sbpf_v0_v1_v2_deployment */ 0 );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -885,7 +915,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   if( upgrade_authority_address ) programdata_state->inner.program_data.upgrade_authority_address = *upgrade_authority_address;
 
   err = fd_bpf_loader_v3_program_set_state( &programdata_account, programdata_state );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+  if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     return err;
   }
 
@@ -933,7 +963,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_bpf_state_t buffer_state[1];
       err = fd_bpf_loader_program_get_state( buffer.meta, buffer_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
 
@@ -954,7 +984,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       buffer_state->inner.buffer.authority_address     = *authority_key;
 
       err = fd_bpf_loader_v3_program_set_state( &buffer, buffer_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
 
@@ -1084,7 +1114,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_bpf_state_t loader_state[1];
       int err = fd_bpf_loader_program_get_state( program.meta, loader_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
       if( FD_UNLIKELY( loader_state->discriminant!=FD_BPF_STATE_UNINITIALIZED ) ) {
@@ -1268,7 +1298,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
 
-      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len,
+                               FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ) );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1292,7 +1323,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           },
         };
         err = fd_bpf_loader_v3_program_set_state( &programdata, &programdata_loader_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
 
@@ -1337,7 +1368,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       loader_state->discriminant = FD_BPF_STATE_PROGRAM;
       loader_state->inner.program.programdata_address =  *programdata_key;
       err = fd_bpf_loader_v3_program_set_state( &program, loader_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
       err = fd_borrowed_account_set_executable( &program, 1 );
@@ -1547,7 +1578,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = fd_borrowed_account_get_data( &buffer ) + buffer_data_offset;
-      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len,
+                               FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ) );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1566,7 +1598,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         programdata_state->inner.program_data.has_upgrade_authority_address = 1;
         programdata_state->inner.program_data.upgrade_authority_address     = *authority_key;
         err = fd_bpf_loader_v3_program_set_state( &programdata, programdata_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
 
@@ -1666,7 +1698,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_bpf_state_t account_state[1];
       err = fd_bpf_loader_program_get_state( account.meta, account_state );
-      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         return err;
       }
 
@@ -1698,7 +1730,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
       } else if( account_state->discriminant==FD_BPF_STATE_PROGRAM_DATA ) {
@@ -1717,6 +1749,16 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
 
+        /* SIMD-0500: forbid finalize (SetAuthority None) on programs
+           that are not at least SBPF v3. */
+        if( !new_authority ) {
+          int rc = fd_bpf_loader_finalize_v3_check(
+              FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, disable_sbpf_v0_v1_v2_deployment ),
+              fd_borrowed_account_get_data    ( &account ),
+              fd_borrowed_account_get_data_len( &account ) );
+          if( FD_UNLIKELY( rc!=FD_EXECUTOR_INSTR_SUCCESS ) ) return rc;
+        }
+
         /* copy in the authority public key into the upgrade authority address.
            https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L946-L949 */
         account_state->inner.program_data.has_upgrade_authority_address = !!new_authority;
@@ -1725,7 +1767,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
       } else {
@@ -1802,7 +1844,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         account_state->inner.buffer.has_authority_address = 1;
         account_state->inner.buffer.authority_address     = *new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
       } else if( account_state->discriminant==FD_BPF_STATE_PROGRAM_DATA ) {
@@ -1831,7 +1873,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         account_state->inner.program_data.has_upgrade_authority_address = 1;
         account_state->inner.program_data.upgrade_authority_address     = *new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( &account, account_state );
-        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
           return err;
         }
       } else {
@@ -2031,8 +2073,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_loader_v4 ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
-      FD_LOG_ERR(( "migrate instruction is not implemented" ));
-      break;
+
+      /* TODO: Implement me */
+      FD_LOG_WARNING(( "migrate instruction is not implemented" ));
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
     default: {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -2174,12 +2218,12 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
-  fd_funk_txn_xid_t xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
+  fd_funk_txn_xid_t xid = fd_bank_xid( ctx->bank );
   fd_progcache_t * progcache = ctx->runtime->progcache;
   fd_progcache_rec_t * cache_entry =
-      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro, fd_type_pun_const( metadata->owner ) );
+      fd_progcache_pull( progcache, &xid, program_id, load_env, progdata_ro );
   if( FD_UNLIKELY( !cache_entry ) ) {
-    fd_log_collector_msg_literal( ctx, "Program is not cached" );
+    fd_log_collector_msg_literal( ctx, "Program is not deployed" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 

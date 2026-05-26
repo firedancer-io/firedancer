@@ -4,7 +4,6 @@
 #include "fd_sysvar_base.h"
 #include "fd_sysvar_cache.h"
 #include "../fd_system_ids_pp.h"
-#include "fd_sysvar_recent_hashes.h"
 
 #define FD_SYSVAR_CACHE_MAGIC (0x1aa5ecb2a49b600aUL) /* random number */
 
@@ -62,14 +61,7 @@ struct fd_sysvar_pos {
 
   char const * name;
 
-  /* sysvars either have a decode function (along with a decode
-     footprint) function for complex type decodes or a validate function
-     for sysvars that are simple types that can be simply memcpy'd and
-     validated. */
-
-  int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-  void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
-  int    (* validate)( uchar const * data, ulong data_sz ); /* returns 1 if valid, 0 otherwise */
+  int (* validate)( uchar const * data, ulong data_sz ); /* returns 1 if valid, 0 otherwise */
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
 

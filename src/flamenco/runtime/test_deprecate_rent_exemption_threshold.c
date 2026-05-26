@@ -176,6 +176,36 @@ add_delegated_stake_account( test_env_t *        env,
 }
 
 static void
+add_feature_account( test_env_t *            env,
+                     fd_feature_id_t const * id,
+                     ulong                   activation_slot ) {
+  fd_feature_t feature = {
+    .is_active       = 1,
+    .activation_slot = activation_slot
+  };
+  uchar feature_data[ sizeof(fd_feature_t) ];
+  fd_memcpy( feature_data, &feature, sizeof(feature) );
+
+  fd_accdb_rw_t rw[1];
+  FD_TEST( fd_accdb_open_rw( env->accdb, rw, &env->xid, &id->id, sizeof(feature_data), FD_ACCDB_FLAG_CREATE ) );
+  fd_accdb_ref_data_set( env->accdb, rw, feature_data, sizeof(feature_data) );
+  fd_accdb_ref_lamports_set( rw, 1UL );
+  fd_accdb_ref_exec_bit_set( rw, 0 );
+  fd_memcpy( rw->meta->owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) );
+  fd_accdb_close_rw( env->accdb, rw );
+}
+
+static fd_feature_id_t const *
+find_feature_id( ulong byte_offset ) {
+  for( fd_feature_id_t const * id = fd_feature_iter_init();
+                                   !fd_feature_iter_done( id );
+                               id = fd_feature_iter_next( id ) ) {
+    if( id->index == (byte_offset>>3) ) return id;
+  }
+  return NULL;
+}
+
+static void
 add_bank_stake_delegation_entry( test_env_t *        env,
                                  fd_pubkey_t const * stake_account,
                                  fd_pubkey_t const * vote_account ) {
@@ -224,6 +254,8 @@ test_env_create( test_env_t * env,
 
   env->bank = fd_banks_init_bank( env->banks );
   FD_TEST( env->bank );
+  env->bank->f.slot  = 1UL;
+  env->bank->f.epoch = 1UL;
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
@@ -231,7 +263,7 @@ test_env_create( test_env_t * env,
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 1UL, env->bank->idx } };
+  env->xid = fd_bank_xid( env->bank );
   fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
 
   init_rent_sysvar( env, TEST_DEFAULT_LAMPORTS_PER_UINT8_YEAR, TEST_DEFAULT_EXEMPTION_THRESHOLD );
@@ -239,9 +271,6 @@ test_env_create( test_env_t * env,
   init_stake_history_sysvar( env );
   init_clock_sysvar( env );
   init_blockhash_queue( env );
-
-  env->bank->f.slot = 1UL;
-  env->bank->f.epoch = 1UL;
 
   fd_bank_top_votes_t_2_modify( env->bank );
 
@@ -260,8 +289,12 @@ test_env_create( test_env_t * env,
 
   fd_features_t features = {0};
   fd_features_disable_all( &features );
-  features.deprecate_rent_exemption_threshold = TEST_FEATURE_ACTIVATION_SLOT;
   env->bank->f.features = features;
+
+  fd_feature_id_t const * deprecate_rent_id =
+      find_feature_id( offsetof( fd_features_t, deprecate_rent_exemption_threshold ) );
+  FD_TEST( deprecate_rent_id );
+  add_feature_account( env, deprecate_rent_id, TEST_FEATURE_ACTIVATION_SLOT );
 
   fd_accdb_advance_root( env->accdb_admin, &env->xid );
 
@@ -343,8 +376,8 @@ process_slot( test_env_t * env,
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
   new_bank->f.epoch = epoch;
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+  fd_funk_txn_xid_t xid        = fd_bank_xid( new_bank    );
+  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
   fd_accdb_attach_child( env->accdb_admin, &parent_xid, &xid );
 
   env->xid  = xid;

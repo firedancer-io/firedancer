@@ -8,19 +8,18 @@
 #include <unistd.h>
 
 static inline ushort
-compute_shred_version( uchar const * genesis_hash,
-                       ulong const * hard_forks,
-                       ulong const * hard_forks_cnts,
-                       ulong         hard_forks_cnt ) {
+compute_shred_version( uchar const            genesis_hash[ 32 ],
+                       fd_hard_fork_t const * hard_forks,
+                       ulong                  hard_fork_cnt ) {
   union {
     uchar  c[ 32 ];
     ushort s[ 16 ];
   } running_hash;
   fd_memcpy( running_hash.c, genesis_hash, 32UL );
 
-  for( ulong i=0UL; i<hard_forks_cnt; i++ ) {
-    ulong slot = hard_forks[ i ];
-    ulong count = hard_forks_cnts[ i ];
+  for( ulong i=0UL; i<hard_fork_cnt; i++ ) {
+    ulong slot  = hard_forks[ i ].slot;
+    ulong count = hard_forks[ i ].cnt;
 
     uchar data[ 48UL ];
     fd_memcpy( data, running_hash.c, 32UL );
@@ -71,7 +70,7 @@ read_genesis_bin( char const * genesis_path,
   fd_sha256_delete( fd_sha256_leave( sha ) );
 
   if( FD_LIKELY( opt_gen_hash ) ) memcpy( opt_gen_hash, hash.c, 32UL );
-  if( FD_LIKELY( opt_shred_version ) ) *opt_shred_version = compute_shred_version( hash.c, NULL, NULL, 0UL );
+  if( FD_LIKELY( opt_shred_version ) ) *opt_shred_version = compute_shred_version( hash.c, NULL, 0UL );
 
   return 0;
 }

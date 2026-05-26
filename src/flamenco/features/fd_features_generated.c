@@ -1599,8 +1599,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 1 },
 
   { .index                     = offsetof(fd_features_t, verify_retransmitter_signature)>>3,
-    .id                        = {"\x9c\xcc\xbd\x50\xa2\xed\x41\xa8\x85\x34\x23\x68\x9b\xcd\xb3\x28\xd1\x52\xd5\xe6\xfa\xcd\x2d\x3d\x8e\xbc\x54\x90\xee\x43\x96\xa6"},
-                                 /* BZ5g4hRbu5hLQQBdPyo2z9icGyJ8Khiyj3QS6dhWijTb */
+    .id                        = {"\x3b\x8e\xa0\xc8\x5b\x51\xf1\x39\x8a\xd4\xf3\xf5\x34\x19\x3d\xde\x75\xf2\x2e\x18\x6b\x4b\x21\xdc\x05\xa0\xdc\xfb\xd0\x06\xfc\x73"},
+                                 /* 51VCKU5eV6mcTc9q9ArfWELU2CqDoi13hdAjr6fHMdtv */
     .name                      = "verify_retransmitter_signature",
     .cleaned_up                = 0 },
 
@@ -1654,7 +1654,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x60\x72\xd6\xf8\xba\xbf\xe3\xa9\x21\x5b\x69\xfe\xc0\xa5\x38\xd5\xb2\xf6\xdf\x47\xd8\xa8\x64\xfe\x01\x57\x49\x68\xd3\xf6\xb9\x84"},
                                  /* 7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm */
     .name                      = "require_static_nonce_account",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_vote_address_leader_schedule)>>3,
     .id                        = {"\x40\x02\x73\x40\x0f\xb3\x11\x37\x08\x32\x50\x92\x29\x6a\x13\x68\xe5\xe5\xde\x04\x99\x41\x79\xc5\xa0\xdf\xd8\x45\x51\x44\x24\x80"},
@@ -1673,7 +1674,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0a\x79\xe3\x9b\x1a\xcc\x64\x5c\x8c\xdf\x47\xad\x61\x25\x63\x73\xdd\xf4\xc7\x34\x54\x57\x6d\x36\x90\xbe\xfd\xd7\x75\x72\x01\x7f"},
                                  /* htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8 */
     .name                      = "raise_account_cu_limit",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, syscall_parameter_address_restrictions)>>3,
     .id                        = {"\xc4\x4c\x41\x01\x70\xb2\xbf\x14\xb6\xdf\xfe\x7b\x58\x42\x2c\xee\x13\x69\x3b\x78\x92\x2a\x58\x3e\xc1\x18\xee\xb8\x36\x70\x77\xb8"},
@@ -1691,6 +1693,12 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa9\x99\x77\xe6\xb5\x9b\x63\x35\x90\xe7\x38\x63\x73\x13\x44\x73\xb6\x2c\x57\xe4\xcb\x61\x87\x3e\xae\xb4\xfd\xe3\xbc\x22\x14\x93"},
                                  /* CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE */
     .name                      = "account_data_direct_mapping",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, direct_account_pointers_in_program_input)>>3,
+    .id                        = {"\x0c\x44\xec\x12\x55\x21\x26\x43\xc3\xaa\xb7\x2e\xab\x43\x54\xb1\xb3\xab\xad\xef\xe3\x95\x02\xd3\xb7\xd1\x2e\x7f\xb8\xa3\x41\xd0"},
+                                 /* ptr9umikaeAS7ZBBp2fsfRhie16F1V2jCKA2y6gXNAK */
+    .name                      = "direct_account_pointers_in_program_input",
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, fix_alt_bn128_pairing_length_check)>>3,
@@ -1711,25 +1719,29 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x34\x2b\x0f\xf3\x77\x8f\xe3\x99\x3b\x5a\xc5\xab\x87\xb5\x93\xeb\xbe\x0c\xcc\xdd\x77\x66\x11\x5d\x6c\xfc\xa1\x1e\x9b\x0e\x0f\xac"},
                                  /* 4WeHX6QoXCCwqbSFgi6dxnB6QsPo6YApaNTH7P4MLQ99 */
     .name                      = "relax_intrabatch_account_locks",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, provide_instruction_data_offset_in_vm_r2)>>3,
     .id                        = {"\x49\xa8\x3f\xba\xb8\x02\x48\x7c\x34\x1e\x07\x66\xab\xd9\x59\xba\x04\xfd\xce\xcc\xe6\xbf\xdf\xd4\xc6\xe1\x62\xec\x0b\x10\x26\x6f"},
                                  /* 5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL */
     .name                      = "provide_instruction_data_offset_in_vm_r2",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enforce_fixed_fec_set)>>3,
     .id                        = {"\x09\xeb\x83\xca\x11\x23\x2a\xab\x68\xe0\x9b\xa2\x2d\x5d\xb1\x6e\x00\x68\x98\xc6\xa0\x8f\x40\x5b\x8e\x8c\xa3\xb4\x30\x3c\xf6\x03"},
                                  /* fixfecLZYMfkGzwq6NJA11Yw6KYztzXiK9QcL3K78in */
     .name                      = "enforce_fixed_fec_set",
-    .cleaned_up                = 1 },
+    .cleaned_up                = 1,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, increase_cpi_account_info_limit)>>3,
     .id                        = {"\xef\x31\xcf\xa8\x88\x28\x79\x55\xd9\xb1\x72\x19\xda\x33\x5d\x8e\x8b\x8f\x5e\x3f\x41\x49\xe5\x9a\x94\x65\xa6\x44\xef\x9c\xa2\xf6"},
                                  /* H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5 */
     .name                      = "increase_cpi_account_info_limit",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, deprecate_rent_exemption_threshold)>>3,
     .id                        = {"\x0c\xb8\x30\xab\xeb\x2f\x79\xf4\x53\xf9\xb1\x27\x15\xb8\x75\x56\xc4\x82\x1a\x67\xe0\x03\xa8\x07\x5e\x13\xa7\x58\xdd\xf7\xa2\x1d"},
@@ -1780,8 +1792,8 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, bls_pubkey_management_in_vote_account)>>3,
-    .id                        = {"\x1c\x6c\x8a\x1b\xb0\xb6\x27\x37\xd6\xc4\x05\x8b\x2f\x29\x96\x0b\x09\x31\xa0\xd5\xcd\x5f\x9d\x1a\xbb\x2a\xc0\x3a\xc6\x9f\xb6\x36"},
-                                 /* 2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq */
+    .id                        = {"\x91\x4a\xed\x4f\x06\x90\x49\xe2\x5e\x23\xe0\x40\x1c\x0d\xe5\x76\x01\x89\x67\xae\x10\x0d\x78\xf4\xfa\xb2\x4b\xb4\x34\xdf\x2a\x32"},
+                                 /* AnAP9zPV4KL7czAPQbFhpDKV2tx7g4UGNbK9wvXwjaRo */
     .name                      = "bls_pubkey_management_in_vote_account",
     .cleaned_up                = 0 },
 
@@ -1810,8 +1822,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, discard_unexpected_data_complete_shreds)>>3,
-    .id                        = {"\x09\x61\x65\x3c\x1d\xcf\x35\x67\xfc\xae\x85\xb6\x34\xbc\xf9\x33\x5e\x65\xbb\x78\x7e\x95\x22\xd4\x05\xf2\x7c\x17\x95\x22\xa9\x86"},
-                                 /* dcomRRWHXP1FVWPqi9Mm4oxJhF4ehC795SvAtUdA9os */
+    .id                        = {"\x09\x68\x3f\x18\x94\x78\x40\x21\xfc\x16\xac\x9a\xba\x18\x25\x43\x4d\x62\x51\x4c\x4c\xed\x53\x36\x8c\x79\xfd\xdf\x52\xfb\x29\x01"},
+                                 /* disCA4efguFL6Wqa4pGdG7jpjC7C5uiKzKnhEBqchBe */
     .name                      = "discard_unexpected_data_complete_shreds",
     .cleaned_up                = 0 },
 
@@ -1851,6 +1863,18 @@ fd_feature_id_t const ids[] = {
     .name                      = "enable_sha512_syscall",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, disable_sbpf_v0_v1_v2_deployment)>>3,
+    .id                        = {"\x96\x73\x7f\x9a\xb4\x9c\x39\xb0\xb7\x87\x52\xdb\x07\xef\xee\xbf\xa6\xd1\x0c\x4f\xc4\xea\x72\xe2\x8d\x72\x22\xf0\xea\xf4\xf4\x97"},
+                                 /* B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g */
+    .name                      = "disable_sbpf_v0_v1_v2_deployment",
+    .cleaned_up                = 0 },
+
+  { .index                     = offsetof(fd_features_t, commission_rate_in_basis_points)>>3,
+    .id                        = {"\xcb\x2d\x5e\xc6\xdb\xd8\x88\xd3\xda\xf5\x45\x1b\x70\x19\x53\x07\xdd\x79\xf6\xd3\x71\x9c\x8b\xe1\x53\x8d\x09\xaf\x98\x5e\x6e\x14"},
+                                 /* Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj */
+    .name                      = "commission_rate_in_basis_points",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -1863,7 +1887,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_NAME      fd_feature_id_lookup
 #define MAP_PERFECT_LG_TBL_SZ 12
 #define MAP_PERFECT_T         fd_feature_id_lookup_entry_t
-#define MAP_PERFECT_HASH_C    15700U
+#define MAP_PERFECT_HASH_C    54088U
 #define MAP_PERFECT_KEY_T     ulong
 #define MAP_PERFECT_ZERO_KEY  0UL
 
@@ -2098,7 +2122,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_228 0x4d86ca23d81d6d11UL, .val = &ids[228]
 #define MAP_PERFECT_229 0x68b66c984ac5e709UL, .val = &ids[229]
 #define MAP_PERFECT_230 0x28f6b335e2fb2040UL, .val = &ids[230]
-#define MAP_PERFECT_231 0xa841eda250bdcc9cUL, .val = &ids[231]
+#define MAP_PERFECT_231 0x39f1515bc8a08e3bUL, .val = &ids[231]
 #define MAP_PERFECT_232 0x78efccd879624c0dUL, .val = &ids[232]
 #define MAP_PERFECT_233 0x494f963ae12b5106UL, .val = &ids[233]
 #define MAP_PERFECT_234 0x210aba8db8103506UL, .val = &ids[234]
@@ -2113,31 +2137,34 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_243 0x14bfb27001414cc4UL, .val = &ids[243]
 #define MAP_PERFECT_244 0xce2f9f1c3aeba901UL, .val = &ids[244]
 #define MAP_PERFECT_245 0x35639bb5e67799a9UL, .val = &ids[245]
-#define MAP_PERFECT_246 0xf08a42c3c040e908UL, .val = &ids[246]
-#define MAP_PERFECT_247 0x8c7bee4552d93e0cUL, .val = &ids[247]
-#define MAP_PERFECT_248 0x99e38f77f30f2b34UL, .val = &ids[248]
-#define MAP_PERFECT_249 0x7c4802b8ba3fa849UL, .val = &ids[249]
-#define MAP_PERFECT_250 0xab2a2311ca83eb09UL, .val = &ids[250]
-#define MAP_PERFECT_251 0x55792888a8cf31efUL, .val = &ids[251]
-#define MAP_PERFECT_252 0xf4792febab30b80cUL, .val = &ids[252]
-#define MAP_PERFECT_253 0xdab5b6a991a03e4bUL, .val = &ids[253]
-#define MAP_PERFECT_254 0x8921a3abf23afaecUL, .val = &ids[254]
-#define MAP_PERFECT_255 0x640dddd90caae808UL, .val = &ids[255]
-#define MAP_PERFECT_256 0x9e11ee2f4bbcb608UL, .val = &ids[256]
-#define MAP_PERFECT_257 0x010f656d89a4e808UL, .val = &ids[257]
-#define MAP_PERFECT_258 0xfc12b1cef363afa7UL, .val = &ids[258]
-#define MAP_PERFECT_259 0x3727b6b01b8a6c1cUL, .val = &ids[259]
-#define MAP_PERFECT_260 0xa5ce8f931961b80cUL, .val = &ids[260]
-#define MAP_PERFECT_261 0xf55c421c9eccc012UL, .val = &ids[261]
-#define MAP_PERFECT_262 0x7428565ab3b6d152UL, .val = &ids[262]
-#define MAP_PERFECT_263 0xd2ff523ae3f23607UL, .val = &ids[263]
-#define MAP_PERFECT_264 0x6735cf1d3c656109UL, .val = &ids[264]
-#define MAP_PERFECT_265 0x632b9b7c9e9a3257UL, .val = &ids[265]
-#define MAP_PERFECT_266 0xa4c86f030ee0440cUL, .val = &ids[266]
-#define MAP_PERFECT_267 0xf5434d796d0f975aUL, .val = &ids[267]
-#define MAP_PERFECT_268 0x7f5bea39613bbc0dUL, .val = &ids[268]
-#define MAP_PERFECT_269 0xfde26f7b21c28506UL, .val = &ids[269]
-#define MAP_PERFECT_270 0x154206ed5990d30cUL, .val = &ids[270]
+#define MAP_PERFECT_246 0x4326215512ec440cUL, .val = &ids[246]
+#define MAP_PERFECT_247 0xf08a42c3c040e908UL, .val = &ids[247]
+#define MAP_PERFECT_248 0x8c7bee4552d93e0cUL, .val = &ids[248]
+#define MAP_PERFECT_249 0x99e38f77f30f2b34UL, .val = &ids[249]
+#define MAP_PERFECT_250 0x7c4802b8ba3fa849UL, .val = &ids[250]
+#define MAP_PERFECT_251 0xab2a2311ca83eb09UL, .val = &ids[251]
+#define MAP_PERFECT_252 0x55792888a8cf31efUL, .val = &ids[252]
+#define MAP_PERFECT_253 0xf4792febab30b80cUL, .val = &ids[253]
+#define MAP_PERFECT_254 0xdab5b6a991a03e4bUL, .val = &ids[254]
+#define MAP_PERFECT_255 0x8921a3abf23afaecUL, .val = &ids[255]
+#define MAP_PERFECT_256 0x640dddd90caae808UL, .val = &ids[256]
+#define MAP_PERFECT_257 0x9e11ee2f4bbcb608UL, .val = &ids[257]
+#define MAP_PERFECT_258 0x010f656d89a4e808UL, .val = &ids[258]
+#define MAP_PERFECT_259 0xfc12b1cef363afa7UL, .val = &ids[259]
+#define MAP_PERFECT_260 0xe24990064fed4a91UL, .val = &ids[260]
+#define MAP_PERFECT_261 0xa5ce8f931961b80cUL, .val = &ids[261]
+#define MAP_PERFECT_262 0xf55c421c9eccc012UL, .val = &ids[262]
+#define MAP_PERFECT_263 0x7428565ab3b6d152UL, .val = &ids[263]
+#define MAP_PERFECT_264 0xd2ff523ae3f23607UL, .val = &ids[264]
+#define MAP_PERFECT_265 0x21407894183f6809UL, .val = &ids[265]
+#define MAP_PERFECT_266 0x632b9b7c9e9a3257UL, .val = &ids[266]
+#define MAP_PERFECT_267 0xa4c86f030ee0440cUL, .val = &ids[267]
+#define MAP_PERFECT_268 0xf5434d796d0f975aUL, .val = &ids[268]
+#define MAP_PERFECT_269 0x7f5bea39613bbc0dUL, .val = &ids[269]
+#define MAP_PERFECT_270 0xfde26f7b21c28506UL, .val = &ids[270]
+#define MAP_PERFECT_271 0x154206ed5990d30cUL, .val = &ids[271]
+#define MAP_PERFECT_272 0xb0399cb49a7f7396UL, .val = &ids[272]
+#define MAP_PERFECT_273 0xd388d8dbc65e2dcbUL, .val = &ids[273]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2394,29 +2421,32 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit               
 FD_STATIC_ASSERT( offsetof( fd_features_t, syscall_parameter_address_restrictions                  )>>3==243UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, virtual_address_space_adjustments                       )>>3==244UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==245UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==246UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==247UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==248UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, provide_instruction_data_offset_in_vm_r2                )>>3==249UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_fixed_fec_set                                   )>>3==250UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, increase_cpi_account_info_limit                         )>>3==251UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_rent_exemption_threshold                      )>>3==252UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, static_instruction_limit                                )>>3==253UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==254UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==255UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==256UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==257UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==258UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==259UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, relax_programdata_account_check_migration               )>>3==260UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model                      )>>3==261UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==262UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==263UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, discard_unexpected_data_complete_shreds                 )>>3==264UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, create_account_allow_prefund                            )>>3==265UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, replace_spl_token_with_p_token                          )>>3==266UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, delay_commission_updates                                )>>3==267UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id                               )>>3==268UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5                         )>>3==269UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sha512_syscall                                   )>>3==270UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, direct_account_pointers_in_program_input                )>>3==246UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_pairing_length_check                      )>>3==247UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, poseidon_enforce_padding                                )>>3==248UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_intrabatch_account_locks                          )>>3==249UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, provide_instruction_data_offset_in_vm_r2                )>>3==250UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enforce_fixed_fec_set                                   )>>3==251UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, increase_cpi_account_info_limit                         )>>3==252UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_rent_exemption_threshold                      )>>3==253UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, static_instruction_limit                                )>>3==254UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==255UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==256UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==257UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_alt_bn128_g2_syscalls                            )>>3==258UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_chacha8_turbine                               )>>3==259UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, bls_pubkey_management_in_vote_account                   )>>3==260UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, relax_programdata_account_check_migration               )>>3==261UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, remove_simple_vote_from_cost_model                      )>>3==262UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, limit_instruction_accounts                              )>>3==263UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validator_admission_ticket                              )>>3==264UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, discard_unexpected_data_complete_shreds                 )>>3==265UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, create_account_allow_prefund                            )>>3==266UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, replace_spl_token_with_p_token                          )>>3==267UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, delay_commission_updates                                )>>3==268UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id                               )>>3==269UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, upgrade_bpf_stake_program_to_v5                         )>>3==270UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sha512_syscall                                   )>>3==271UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, disable_sbpf_v0_v1_v2_deployment                        )>>3==272UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, commission_rate_in_basis_points                         )>>3==273UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

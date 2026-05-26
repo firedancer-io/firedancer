@@ -333,11 +333,19 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   fd_banks_mark_bank_frozen( bank_D );
 
-  fd_banks_mark_bank_dead( banks, bank_D->idx );
+  ulong marked_cnt = ULONG_MAX;
+  fd_banks_mark_bank_dead( banks, bank_D->idx, NULL, &marked_cnt );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==2UL );
   FD_TEST( bank_D->state==FD_BANK_STATE_DEAD );
+  FD_TEST( marked_cnt==1UL );
 
-  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  ulong bank_D_slot = bank_D->f.slot;
+  ulong bank_D_seq  = bank_D->bank_seq;
+  ulong bank_D_idx  = bank_D->idx;
+  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel )==2 );
+  FD_TEST( cancel->slot    ==bank_D_slot );
+  FD_TEST( cancel->bank_seq==bank_D_seq  );
+  FD_TEST( cancel->bank_idx==bank_D_idx  );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==1UL );
 
   /* Case: multiple isolated dead banks get pruned at once. */
@@ -374,8 +382,8 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
 
-  fd_banks_mark_bank_dead( banks, bank_Y->idx );
-  fd_banks_mark_bank_dead( banks, bank_Z->idx );
+  fd_banks_mark_bank_dead( banks, bank_Y->idx, NULL, NULL );
+  fd_banks_mark_bank_dead( banks, bank_Z->idx, NULL, NULL );
   FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
   FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
@@ -397,8 +405,19 @@ test_bank_dead_eviction( void * mem ) {
   fd_bank_t * bank_I = fd_banks_new_bank( banks, bank_W->idx, 0L );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
 
-  fd_banks_mark_bank_dead( banks, bank_W->idx );
+  fd_bank_t * bank_J = fd_banks_new_bank( banks, bank_W->idx, 0L );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==7UL );
+
+  ulong dead_bank_idxs[3];
+  ulong dead_bank_idxs_cnt = ULONG_MAX;
+  fd_banks_mark_bank_dead( banks, bank_W->idx, dead_bank_idxs, &dead_bank_idxs_cnt );
+  FD_TEST( dead_bank_idxs_cnt==3UL );
+  FD_TEST( dead_bank_idxs[0]==bank_W->idx );
+  FD_TEST( dead_bank_idxs[1]==bank_I->idx );
+  FD_TEST( dead_bank_idxs[2]==bank_J->idx );
   FD_TEST( bank_G->sibling_idx==bank_W->idx );
+  FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
+  FD_TEST( fd_banks_pool_used( bank_data_pool )==6UL );
   FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
   FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
@@ -416,7 +435,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( bank_I );
   FD_TEST( fd_banks_bank_query( banks, bank_I->idx ) );
 
-  fd_banks_mark_bank_dead( banks, bank_W->idx );
+  fd_banks_mark_bank_dead( banks, bank_W->idx, NULL, NULL );
   FD_TEST( bank_G->sibling_idx==bank_W->idx );
   FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
@@ -433,7 +452,7 @@ test_bank_dead_eviction( void * mem ) {
 
   bank_Z = fd_banks_new_bank( banks, bank_W->idx, 0L );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==7UL );
-  fd_banks_mark_bank_dead( banks, bank_Z->idx );
+  fd_banks_mark_bank_dead( banks, bank_Z->idx, NULL, NULL );
 
   fd_banks_advance_root( banks, bank_C->idx );
   FD_TEST( fd_banks_pool_used( bank_data_pool )==3UL );
@@ -455,7 +474,7 @@ test_bank_dead_eviction( void * mem ) {
   FD_TEST( fd_banks_pool_used( bank_data_pool )==5UL );
 
   bank_D->refcnt = 1UL;
-  fd_banks_mark_bank_dead( banks, bank_D->idx );
+  fd_banks_mark_bank_dead( banks, bank_D->idx, NULL, NULL );
   FD_TEST( fd_banks_prune_one_dead_bank( banks, cancel ) );  /* W pruned */
   FD_TEST( fd_banks_pool_used( bank_data_pool )==4UL );
   FD_TEST( !fd_banks_prune_one_dead_bank( banks, cancel ) ); /* D blocked by refcnt */
@@ -539,7 +558,7 @@ test_bank_frontier( void * mem ) {
   fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==5UL );
 
-  fd_banks_mark_bank_dead( banks, bank_I->idx );
+  fd_banks_mark_bank_dead( banks, bank_I->idx, NULL, NULL );
 
   fd_banks_get_frontier( banks, frontier_indices, &frontier_cnt );
   FD_TEST( frontier_cnt==4UL );
@@ -880,7 +899,7 @@ main( int argc, char ** argv ) {
   FD_TEST( bank2->f.capitalization == 1000UL );
   /* At this point, the first epoch leaders has been allocated from the
      pool that is limited to 2 instances. */
-  fd_epoch_leaders_t * epoch_leaders = fd_bank_epoch_leaders_modify( bank2 );
+  fd_epoch_leaders_t * epoch_leaders = fd_bank_epoch_leaders_modify( bank2, bank2->f.epoch );
   FD_TEST( epoch_leaders );
 
   /* Make sure that the contents of the stake delegations is the same
@@ -936,7 +955,7 @@ main( int argc, char ** argv ) {
   /* At this point, the second epoch leaders has been allocated from the
      pool that is limited to 2 instances. */
 
-  fd_epoch_leaders_t * epoch_leaders2 = fd_bank_epoch_leaders_modify( bank3 );
+  fd_epoch_leaders_t * epoch_leaders2 = fd_bank_epoch_leaders_modify( bank3, bank3->f.epoch );
   FD_TEST( epoch_leaders2 );
 
   fd_banks_mark_bank_frozen( bank3 );

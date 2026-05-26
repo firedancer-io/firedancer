@@ -342,7 +342,6 @@ poll_keyswitch( fd_topo_t * topo,
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "sign" ) ||
                        !strcmp( topo->tiles[ i ].name, "replay" ) ||
-                       !strcmp( topo->tiles[ i ].name, "shred" ) ||
                        !strcmp( topo->tiles[ i ].name, "repair" ) ||
                        !strcmp( topo->tiles[ i ].name, "gossip" ) ||
                        !strcmp( topo->tiles[ i ].name, "txsend" ) ||
@@ -364,7 +363,6 @@ poll_keyswitch( fd_topo_t * topo,
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
         if( FD_LIKELY( topo->tiles[ i ].id_keyswitch_obj_id==ULONG_MAX ) ) continue;
         if( FD_LIKELY( !strcmp( topo->tiles[ i ].name, "replay" ) ||
-                       !strcmp( topo->tiles[ i ].name, "shred" ) ||
                        !strcmp( topo->tiles[ i ].name, "repair" ) ||
                        !strcmp( topo->tiles[ i ].name, "gossip" ) ||
                        !strcmp( topo->tiles[ i ].name, "txsend" ) ||

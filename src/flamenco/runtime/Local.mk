@@ -102,11 +102,6 @@ $(call add-objs,fd_system_ids,fd_flamenco)
 $(call make-unit-test,test_system_ids,test_system_ids,fd_flamenco fd_util fd_ballet)
 $(call run-unit-test,test_system_ids)
 
-ifdef FD_HAS_ROCKSDB
-$(call add-hdrs,fd_rocksdb.h)
-$(call add-objs,fd_rocksdb,fd_flamenco)
-endif
-
 ifdef FD_HAS_ATOMIC
 
 ifdef FD_HAS_HOSTED

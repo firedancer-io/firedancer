@@ -135,7 +135,12 @@ fd_h2_rx_data( fd_h2_conn_t *            conn,
     cb->data( conn, stream, peek, sz0, fin_flag );
   } else {
     cb->data( conn, stream, peek,          sz0, 0        );
-    cb->data( conn, stream, rbuf_rx->buf0, sz1, fin_flag );
+    /* The first callback may have released the stream.  Re-query the stream
+       map before dispatching the wrapped tail chunk. */
+    stream = cb->stream_query( conn, stream_id );
+    if( FD_LIKELY( stream ) ) {
+      cb->data( conn, stream, rbuf_rx->buf0, sz1, fin_flag );
+    }
   }
 
 skip_frame:
@@ -544,7 +549,7 @@ fd_h2_rx_window_update( fd_h2_conn_t *            conn,
     /* Stream-level window update */
     uint tx_wnd_new;
     if( FD_UNLIKELY( __builtin_uadd_overflow( stream->tx_wnd, increment, &tx_wnd_new ) ) ) {
-      fd_h2_stream_error( stream, rbuf_tx, FD_H2_ERR_FLOW_CONTROL );
+      fd_h2_stream_error( stream, conn, rbuf_tx, FD_H2_ERR_FLOW_CONTROL );
       cb->rst_stream( conn, stream, FD_H2_ERR_FLOW_CONTROL, 0 );
       /* stream points to freed memory at this point */
       return 1;

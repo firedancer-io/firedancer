@@ -2,6 +2,7 @@
 #include "fd_poh_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
+#include "../../disco/fd_clock_tile.h"
 #include "../../discof/fd_startup.h"
 #include <time.h>
 #include "generated/fd_poh_tile_seccomp.h"
@@ -65,10 +66,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 during_housekeeping( fd_poh_tile_t * ctx ) {
-  long now = fd_clock_epoch_y( ctx->poh->clock_epoch, fd_tickcount() );
-  if( FD_UNLIKELY( now >= ctx->poh->recal_next ) ) {
-    ctx->poh->recal_next = fd_clock_default_recal( ctx->poh->clock );
-    fd_clock_epoch_refresh( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
+  if( FD_UNLIKELY( fd_clock_tile_recal_due( ctx->poh->clock ) ) ) {
+    fd_clock_tile_recal( ctx->poh->clock );
   }
 }
 
@@ -137,10 +136,11 @@ returnable_frag( fd_poh_tile_t *     ctx,
   /* Pack periodically publishes a tighter microblock bound over the
      pack_poh link. */
   if( FD_UNLIKELY( sig==FD_PACK_MSG_REDUCE_MB_BOUND && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    if( FD_UNLIKELY( !fd_poh_have_leader_bank( ctx->poh ) ) ) return 0; /* must have become leader first */
     FD_TEST( sz==sizeof(ulong) );
     ulong const * new_max = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
     fd_poh_update_max_microblocks( ctx->poh, *new_max );
-    ctx->idle_cnt = 0UL;
     return 0;
   }
 
@@ -275,11 +275,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out ) );
 
-  fd_clock_default_init( ctx->poh->clock, ctx->poh->clock_mem );
-  ctx->poh->recal_next = fd_clock_recal_next( ctx->poh->clock );
-  fd_clock_epoch_init( ctx->poh->clock_epoch, fd_clock_shclock_const( ctx->poh->clock ) );
+  fd_clock_tile_init( ctx->poh->clock );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 

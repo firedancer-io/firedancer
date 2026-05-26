@@ -773,7 +773,7 @@ fd_grpc_h2_cb_headers(
   int h2_status = fd_grpc_h2_read_response_hdrs( &stream->hdrs, client->matcher, data, data_sz );
   if( FD_UNLIKELY( h2_status!=FD_H2_SUCCESS ) ) {
     /* Failed to parse HTTP/2 headers */
-    fd_h2_stream_error( h2_stream, client->frame_tx, FD_H2_ERR_PROTOCOL );
+    fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_PROTOCOL );
     client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs ); /* invalidates stream->hdrs */
     fd_grpc_client_stream_release( client, stream );
     return;
@@ -797,7 +797,7 @@ fd_grpc_h2_cb_headers(
   }
 }
 
-static void
+void
 fd_grpc_h2_cb_data(
     fd_h2_conn_t *   conn,
     fd_h2_stream_t * h2_stream,
@@ -809,6 +809,10 @@ fd_grpc_h2_cb_data(
   fd_grpc_h2_stream_t * stream = fd_grpc_h2_stream_upcast( h2_stream );
   if( FD_UNLIKELY( ( stream->hdrs.h2_status!=200 ) |
                    ( !stream->hdrs.is_grpc_proto ) ) ) {
+    if( flags & FD_H2_FLAG_END_STREAM ) {
+      client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
+      fd_grpc_client_stream_release( client, stream );
+    }
     return;
   }
 
@@ -828,7 +832,7 @@ fd_grpc_h2_cb_data(
       if( FD_UNLIKELY( sizeof(fd_grpc_hdr_t)  + stream->msg_sz > stream->msg_buf_max ) ) {
         FD_LOG_WARNING(( "Received oversized gRPC message (%lu bytes), killing request", stream->msg_sz ));
         client->callbacks->rx_end( client->ctx, stream->request_ctx, &stream->hdrs );
-        fd_h2_stream_error( h2_stream, client->frame_tx, FD_H2_ERR_INTERNAL );
+        fd_h2_stream_error( h2_stream, conn, client->frame_tx, FD_H2_ERR_INTERNAL );
         fd_grpc_client_stream_release( client, stream );
         return;
       }

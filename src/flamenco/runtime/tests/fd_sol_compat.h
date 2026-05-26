@@ -91,6 +91,12 @@ sol_compat_txn_execute_v1( uchar *       out,
                            ulong         in_sz );
 
 int
+sol_compat_bundle_execute_v1( uchar *       out,
+                              ulong *       out_sz,
+                              uchar const * in,
+                              ulong         in_sz );
+
+int
 sol_compat_txn_cost_v1( uchar *       out,
                         ulong *       out_sz,
                         uchar const * in,
@@ -119,6 +125,12 @@ sol_compat_elf_loader_v1( uchar *       out,
                           ulong *       out_sz,
                           uchar const * in,
                           ulong         in_sz );
+
+int
+sol_compat_vm_serialize_execute_v1( uchar *       out,
+                                    ulong *       out_sz,
+                                    uchar const * in,
+                                    ulong         in_sz );
 
 FD_PROTOTYPES_END
 

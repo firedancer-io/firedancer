@@ -1,9 +1,7 @@
 #include "../../util/fd_util_base.h"
 #include "fd_hashes.h"
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../types/fd_types.h"
 #include <string.h>
-#include <stdio.h>
 
 /* Helper function to check if two hashes are equal */
 static int
@@ -595,43 +593,38 @@ test_fd_hashes_apply_hard_forks( void ) {
   {
     fd_hash_t hash = {0};
     fd_hash_t zero = {0};
-    ulong fork_slots[] = { 10UL };
-    ulong fork_cnts[]  = {  1UL };
-    fd_hashes_apply_hard_forks( &hash, 9UL, 0UL, fork_slots, fork_cnts, 1UL );
+    fd_hard_fork_t hard_forks[] = { { .slot = 10UL, .cnt = 1UL } };
+    fd_hashes_apply_hard_forks( &hash, 9UL, 0UL, hard_forks, 1UL );
     FD_TEST( fd_hash_equal( &hash, &zero ) );
   }
 
   {
     fd_hash_t hash = {0};
     fd_hash_t zero = {0};
-    ulong fork_slots[] = { 10UL };
-    ulong fork_cnts[]  = {  1UL };
-    fd_hashes_apply_hard_forks( &hash, 10UL, 0UL, fork_slots, fork_cnts, 1UL );
+    fd_hard_fork_t hard_forks[] = { { .slot = 10UL, .cnt = 1UL } };
+    fd_hashes_apply_hard_forks( &hash, 10UL, 0UL, hard_forks, 1UL );
     FD_TEST( !fd_hash_equal( &hash, &zero ) );
   }
 
   {
     fd_hash_t hash = base_hash;
-    ulong fork_slots[] = { 10UL, 20UL };
-    ulong fork_cnts[]  = {  1UL,  1UL };
-    fd_hashes_apply_hard_forks( &hash, 20UL, 0UL, fork_slots, fork_cnts, 2UL );
+    fd_hard_fork_t hard_forks[] = { { .slot = 10UL, .cnt = 1UL }, { .slot = 20UL, .cnt = 1UL } };
+    fd_hashes_apply_hard_forks( &hash, 20UL, 0UL, hard_forks, 2UL );
     FD_TEST( fd_hash_equal( &hash, &expected_multi ) );
   }
 
   {
     fd_hash_t hash = base_hash;
-    ulong fork_slots[] = { 10UL, 20UL };
-    ulong fork_cnts[]  = {  1UL,  1UL };
-    fd_hashes_apply_hard_forks( &hash, 20UL, 10UL, fork_slots, fork_cnts, 2UL );
+    fd_hard_fork_t hard_forks[] = { { .slot = 10UL, .cnt = 1UL }, { .slot = 20UL, .cnt = 1UL } };
+    fd_hashes_apply_hard_forks( &hash, 20UL, 10UL, hard_forks, 2UL );
     FD_TEST( fd_hash_equal( &hash, &expected_single ) );
   }
 
   {
     fd_hash_t hash = base_hash;
     fd_hash_t unchanged = base_hash;
-    ulong fork_slots[] = { 10UL, 20UL };
-    ulong fork_cnts[]  = {  1UL,  1UL };
-    fd_hashes_apply_hard_forks( &hash, 21UL, 20UL, fork_slots, fork_cnts, 2UL );
+    fd_hard_fork_t hard_forks[] = { { .slot = 10UL, .cnt = 1UL }, { .slot = 20UL, .cnt = 1UL } };
+    fd_hashes_apply_hard_forks( &hash, 21UL, 20UL, hard_forks, 2UL );
     FD_TEST( fd_hash_equal( &hash, &unchanged ) );
   }
 

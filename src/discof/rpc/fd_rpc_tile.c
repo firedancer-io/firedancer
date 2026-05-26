@@ -191,6 +191,7 @@ struct bank_info {
   ulong epoch;
   ulong slot_in_epoch;
   ulong slots_per_epoch;
+  fd_xid_t xid;
 
   ulong transaction_count;
   uchar block_hash[ 32 ];
@@ -440,6 +441,7 @@ returnable_frag( fd_rpc_tile_t *     ctx,
         bank->epoch = slot_completed->epoch;
         bank->slot_in_epoch = slot_completed->slot_in_epoch;
         bank->slots_per_epoch = slot_completed->slots_per_epoch;
+        bank->xid = slot_completed->xid;
         bank->transaction_count = slot_completed->transaction_count;
         bank->block_height = slot_completed->block_height;
         fd_memcpy( bank->block_hash, slot_completed->block_hash.uc, 32 );
@@ -1117,9 +1119,8 @@ getAccountInfo( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   bank_info_t * info = &ctx->banks[ bank_idx ];
-  fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
   fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, address.uc ) ) ) {
+  if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &info->xid, address.uc ) ) ) {
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu},\"value\":null},\"id\":%s}\n", info->slot, id_cstr );
   }
@@ -1164,9 +1165,8 @@ getBalance( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   ulong balance = 0UL;
-  fd_funk_txn_xid_t xid = { .ul={ ctx->banks[ bank_idx ].slot, bank_idx } };
   fd_accdb_ro_t ro[ 1 ];
-  if( FD_UNLIKELY( fd_accdb_open_ro( ctx->accdb, ro, &xid, address.uc ) ) ) {
+  if( FD_UNLIKELY( fd_accdb_open_ro( ctx->accdb, ro, &ctx->banks[ bank_idx ].xid, address.uc ) ) ) {
     balance = fd_accdb_ref_lamports( ro );
     fd_accdb_close_ro( ctx->accdb, ro );
   }
@@ -1479,11 +1479,8 @@ getLatestBlockhash( fd_rpc_tile_t * ctx,
   bank_info_t * bank = &ctx->banks[ bank_idx ];
   FD_BASE58_ENCODE_32_BYTES( bank->block_hash, block_hash_b58 );
 
-  ulong age = ctx->banks[ ctx->processed_idx ].block_height - bank->block_height;
-  FD_TEST( bank->block_height <= ctx->banks[ ctx->processed_idx ].block_height );
-  FD_TEST( bank->block_height + 150UL >= age );
   CSTR_JSON( id, id_cstr );
-  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu,\"apiVersion\":\"%s\"},\"value\":{\"blockhash\":\"%s\",\"lastValidBlockHeight\":%lu}},\"id\":%s}\n", bank->slot, FD_RPC_AGAVE_API_VERSION, block_hash_b58, bank->block_height + 150UL - age, id_cstr );
+  return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"slot\":%lu,\"apiVersion\":\"%s\"},\"value\":{\"blockhash\":\"%s\",\"lastValidBlockHeight\":%lu}},\"id\":%s}\n", bank->slot, FD_RPC_AGAVE_API_VERSION, block_hash_b58, bank->block_height + 150UL, id_cstr );
 }
 
 UNIMPLEMENTED(getLeaderSchedule) // TODO: Used by solana-exporter
@@ -1584,7 +1581,6 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
   if( FD_UNLIKELY( !config_valid ) ) return response;
 
   bank_info_t * info = &ctx->banks[ bank_idx ];
-  fd_funk_txn_xid_t xid = { .ul={ info->slot, bank_idx } };
 
   fd_pubkey_t addresses[ 100UL ];
   for( ulong i=0UL; i<(ulong)cnt; i++ ) {
@@ -1601,7 +1597,7 @@ getMultipleAccounts( fd_rpc_tile_t * ctx,
     if( i>0 ) fd_http_server_printf( ctx->http, "," );
 
     fd_accdb_ro_t ro[1];
-    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &xid, addresses[ i ].uc ) ) ) {
+    if( FD_UNLIKELY( !fd_accdb_open_ro( ctx->accdb, ro, &info->xid, addresses[ i ].uc ) ) ) {
       fd_http_server_printf( ctx->http, "null" );
       continue;
     }
@@ -2005,9 +2001,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   *ctx->replay_out = out1( topo, tile, "rpc_replay" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->rpc.accdb_max_depth );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile->rpc.accdb_max_depth );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

@@ -27,6 +27,12 @@ fd_epoch_schedule_derive( fd_epoch_schedule_t * schedule,
 
   if( warmup ) {
     ulong ceil_log2_epoch   = (ulong)fd_ulong_find_msb( epoch_len-1UL ) + 1UL;
+
+    if( FD_UNLIKELY( ceil_log2_epoch>=64UL ) ) {
+      FD_LOG_WARNING(( "epoch_len too large (ceil_log2_epoch %lu)", ceil_log2_epoch ));
+      return NULL;
+    }
+
     ulong ceil_log2_len_min = (ulong)fd_ulong_find_msb( FD_EPOCH_LEN_MIN );
 
     schedule->first_normal_epoch = fd_ulong_sat_sub( ceil_log2_epoch, ceil_log2_len_min );
@@ -56,15 +62,6 @@ fd_sysvar_epoch_schedule_read( fd_accdb_user_t *         accdb,
   }
 
   if( FD_UNLIKELY( fd_accdb_ref_data_sz( ro )!=FD_SYSVAR_EPOCH_SCHEDULE_BINCODE_SZ ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
     fd_accdb_close_ro( accdb, ro );
     return NULL;
   }

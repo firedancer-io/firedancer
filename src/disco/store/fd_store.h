@@ -144,7 +144,7 @@
 
 #include "../../disco/shred/fd_fec_set.h"
 #include "../../flamenco/fd_rwlock.h"
-#include "../../flamenco/types/fd_types_custom.h"
+#include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/hist/fd_histf.h"
 
 /* FD_STORE_USE_HANDHOLDING:  Define this to non-zero at compile time

@@ -18,7 +18,7 @@
 
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
-#include "../../flamenco/runtime/fd_runtime_const.h"
+#include "../../flamenco/leaders/fd_leaders_base.h"
 
 #include "../../waltz/http/fd_http_server.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
@@ -407,8 +407,8 @@ struct fd_gui_peers_ctx {
     ulong epoch;
 
     ulong                    stakes_cnt;
-    fd_gui_peers_voter_t     stakes  [ MAX_STAKED_LEADERS ];
-    fd_gui_peers_voter_idx_t vote_idx[ MAX_STAKED_LEADERS ];
+    fd_gui_peers_voter_t     stakes  [ MAX_COMPRESSED_STAKE_WEIGHTS ];
+    fd_gui_peers_voter_idx_t vote_idx[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   } epochs[ 2 ];
 
   union {
@@ -417,13 +417,13 @@ struct fd_gui_peers_ctx {
       ulong idxs   [ FD_CONTACT_INFO_TABLE_SIZE ];
     };
     struct {
-      ulong wfs_peers[ 40200UL ];
+      ulong wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
     };
     struct {
-      fd_stake_weight_t      manifest_id_weights  [ 40200UL ];
-      fd_vote_stake_weight_t manifest_vote_weights[ 40200UL ];
+      fd_stake_weight_t      manifest_id_weights  [ FD_VOTE_ACCOUNTS_MAX ];
+      fd_vote_stake_weight_t manifest_vote_weights[ FD_VOTE_ACCOUNTS_MAX ];
     };
-    fd_gui_peers_voter_t voters_scratch[ MAX_STAKED_LEADERS ];
+    fd_gui_peers_voter_t voters_scratch[ MAX_COMPRESSED_STAKE_WEIGHTS ];
   } scratch;
 
 #if FD_HAS_ZSTD
@@ -433,7 +433,7 @@ struct fd_gui_peers_ctx {
   fd_gui_ip_db_t dbip;
 
   int                       wfs_enabled;
-  fd_gui_wfs_peer_t         wfs_peers[ 40200UL ];
+  fd_gui_wfs_peer_t         wfs_peers[ FD_VOTE_ACCOUNTS_MAX ];
   ulong                     wfs_peers_cnt;
   int                       wfs_peers_valid;
   int                       wfs_stakes_sent;

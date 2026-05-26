@@ -107,8 +107,7 @@ fd_circq_cursor_advance( fd_circq_t * circq,
 /* fd_circq_pop_until removes messages from the front of the circular
    buffer up to and including the message with the given cursor value.
    Returns 0 on success, or -1 if the given cursor value is invalid
-   (i.e., it is higher than the present cursor of the circq and has
-   never existed.) */
+   (i.e., larger than highest cursor value returned by cursor_advance). */
 
 int
 fd_circq_pop_until( fd_circq_t * circq,

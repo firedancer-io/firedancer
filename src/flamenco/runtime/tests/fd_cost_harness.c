@@ -39,7 +39,7 @@ fd_solfuzz_pb_cost_run( fd_solfuzz_runner_t *               runner,
   if( FD_UNLIKELY( err ) ) return 0;
 
   if( input->mode==FD_EXEC_TEST_TXN_COST_MODE_ACTUAL ) {
-    ulong actual_cost = input->actual_programs_execution_cost;
+    ulong actual_cost = (ulong)input->actual_programs_execution_cost;
     ulong limit = txn_out.details.compute_budget.compute_unit_limit;
     txn_out.details.compute_budget.compute_meter = fd_ulong_sat_sub( limit, fd_ulong_min( actual_cost, limit ) );
     txn_out.details.loaded_accounts_data_size = (ulong)input->actual_loaded_accounts_data_size_bytes;

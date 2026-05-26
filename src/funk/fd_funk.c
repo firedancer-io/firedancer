@@ -184,10 +184,6 @@ fd_funk_join( fd_funk_t * ljoin,
     return NULL;
   }
 
-#ifdef FD_FUNK_WKSP_PROTECT
-  fd_wksp_mprotect( wksp, 1 );
-#endif
-
   fd_funk_t * funk = ljoin;
   memset( funk, 0, sizeof(fd_funk_t) );
 

@@ -1,5 +1,6 @@
 #include "fd_ipecho_client.h"
 #include "fd_ipecho_server.h"
+
 #include "../genesis/fd_genesi_tile.h"
 #include "../genesis/genesis_hash.h"
 #include "../../disco/topo/fd_topo.h"
@@ -11,6 +12,8 @@
 #include <sys/poll.h>
 
 #include "generated/fd_ipecho_tile_seccomp.h"
+
+#define FD_IPECHO_MAX_CONNECTION_CNT (1024UL)
 
 struct fd_ipecho_tile_ctx {
   int retrieving;
@@ -40,9 +43,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t)         );
-  l = FD_LAYOUT_APPEND( l, fd_ipecho_client_align(),      fd_ipecho_client_footprint()         );
-  l = FD_LAYOUT_APPEND( l, fd_ipecho_server_align(),      fd_ipecho_server_footprint( 1024UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t)                               );
+  l = FD_LAYOUT_APPEND( l, fd_ipecho_client_align(),      fd_ipecho_client_footprint()                               );
+  l = FD_LAYOUT_APPEND( l, fd_ipecho_server_align(),      fd_ipecho_server_footprint( FD_IPECHO_MAX_CONNECTION_CNT ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -115,7 +118,7 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
   fd_genesis_meta_t const * genesis_meta = fd_chunk_to_laddr( ctx->genesi_in_mem, chunk );
 
   if( FD_UNLIKELY( genesis_meta->bootstrap ) ) {
-    ushort shred_version = compute_shred_version( genesis_meta->genesis_hash.uc, NULL, NULL, 0UL );
+    ushort shred_version = compute_shred_version( genesis_meta->genesis_hash.uc, NULL, 0UL );
     FD_TEST( shred_version );
 
     FD_MGAUGE_SET( IPECHO, CURRENT_SHRED_VERSION, shred_version );
@@ -133,9 +136,9 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_ipecho_tile_ctx_t ), sizeof( fd_ipecho_tile_ctx_t )       );
-  void * _client             = FD_SCRATCH_ALLOC_APPEND( l, fd_ipecho_client_align(),        fd_ipecho_client_footprint()         );
-  void * _server             = FD_SCRATCH_ALLOC_APPEND( l, fd_ipecho_server_align(),        fd_ipecho_server_footprint( 1024UL ) );
+  fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_ipecho_tile_ctx_t ), sizeof( fd_ipecho_tile_ctx_t )                             );
+  void * _client             = FD_SCRATCH_ALLOC_APPEND( l, fd_ipecho_client_align(),        fd_ipecho_client_footprint()                               );
+  void * _server             = FD_SCRATCH_ALLOC_APPEND( l, fd_ipecho_server_align(),        fd_ipecho_server_footprint( FD_IPECHO_MAX_CONNECTION_CNT ) );
 
   ctx->bind_address = tile->ipecho.bind_address;
   ctx->bind_port    = tile->ipecho.bind_port;
@@ -151,11 +154,11 @@ privileged_init( fd_topo_t *      topo,
     ctx->client = NULL;
   }
 
-  ctx->server = fd_ipecho_server_join( fd_ipecho_server_new( _server, 1024UL ) );
+  ctx->server = fd_ipecho_server_join( fd_ipecho_server_new( _server, FD_IPECHO_MAX_CONNECTION_CNT ) );
   FD_TEST( ctx->server );
   fd_ipecho_server_init( ctx->server, ctx->bind_address, ctx->bind_port, ctx->expected_shred_version );
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
@@ -189,15 +192,12 @@ unprivileged_init( fd_topo_t *      topo,
 static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
                  fd_topo_tile_t const * tile ) {
-  /* stderr, logfile, one for each socket() call for up to 16
-     gossip entrypoints (GOSSIP_TILE_ENTRYPOINTS_MAX) for
-     fd_ipecho_client, one for fd_ipecho_server, and up to 1024 for the
-     server's connections.  */
-  return 1UL +                          /* stderr */
-         1UL +                          /* logfile */
+  /* pipefd, socket, stderr, logfile, and one spare for
+     new accept() connections */
+  ulong base = 5UL;
+  return base +
          tile->ipecho.entrypoints_cnt + /* for the client */
-         1UL +                          /* for the server's socket */
-         1024UL;                        /* for the server's connections */;
+         FD_IPECHO_MAX_CONNECTION_CNT;  /* for the server's connections */
 }
 
 static ulong

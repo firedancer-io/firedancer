@@ -10,7 +10,3 @@ jobs:
       contents: read
       pages: write
       id-token: write
-
-  fcng_intree_fuzzers:
-    uses: ./.github/workflows/fcng_intree_fuzzers.yml
-    secrets: inherit

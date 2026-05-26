@@ -39,7 +39,6 @@
    does observe (with a flag indicating its detection). */
 
 #include "../../disco/store/fd_store.h"
-#include "../../flamenco/types/fd_types_custom.h"
 
 /* FD_REASM_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -302,16 +301,26 @@ fd_reasm_peek( fd_reasm_t * reasm );
 fd_reasm_fec_t *
 fd_reasm_pop( fd_reasm_t * reasm );
 
+/* fd_reasm_init initializes the reasm with the initial block id and a
+   given slot.  Returns the new root FEC set. */
+
+fd_reasm_fec_t *
+fd_reasm_init( fd_reasm_t *      reasm,
+               fd_hash_t const * initial_block_id,
+               ulong             slot );
+
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL if unsuccessful.  Inserting this FEC
    set may make one or more FEC sets available for in-order delivery.
    Caller can consume these FEC sets via fd_reasm_pop.
 
-   If the reasm is full (fd_reasm_free() returns 1 [sic!]), reasm_insert will
-   evict a FEC set by the policy outlined in the evict function.  The
-   evicted FEC set(s) will be removed from reasm, but will remain in the
-   pool.  If no FEC set was able to be evicted and the reasm insert
-   fails, then evicted will be set to a pool element that is populated
+   Insert can fail before acquiring a pool element, in which case it
+   returns NULL and *evicted remains NULL.  If the reasm is full
+   (fd_reasm_free() returns 1 [sic!]), reasm_insert will evict a FEC set
+   by the policy outlined in the evict function.  The evicted FEC set(s)
+   will be removed from reasm, but will remain in the pool.  If no FEC
+   set was able to be evicted after the insert reaches the eviction
+   path, then evicted will be set to a pool element that is populated
    with data of the failed insert.
 
    It is the caller's responsibility to read, traverse, and release back

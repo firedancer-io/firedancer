@@ -6,13 +6,12 @@
 
    OVERVIEW
 
-   Reasm and banks are tightly coupled.  Reasm maintains a tree of FEC
-   sets organized as a main tree (rooted at the published root) plus
-   orphan trees.  Each FEC set in the connected tree may be associated
-   with a bank via bank_idx, or be still unreplayed.  In general, reasm
-   tries to approximate the state of banks as closely as possible.  It's
-   inexact, because reasm is stores at the FEC unit, while banks are
-   stored at the slot unit.
+   Reasm maintains a tree of FEC sets organized as a main tree (rooted
+   at the published root) plus orphan trees.  Each FEC set in the
+   connected tree may be associated with a bank via bank_idx, or be
+   still unreplayed.  In general, reasm tries to approximate the state
+   of banks as closely as possible.  It's inexact, because reasm is
+   stored at the FEC unit, while banks are stored at the slot unit.
 
    When reasm delivers a FEC set (via fd_reasm_pop), the replay tile
    processes it by assigning it a bank.  If it's the first FEC in a
@@ -35,31 +34,22 @@
    When the reasm pool is nearly full (1 free element remaining) and a
    new FEC needs to be inserted, reasm runs its eviction policy to free
    space.  The eviction in general prioritizes orphans first, and then
-   frontier slots that are incomplete.  Evicted orphans has no effect on
-   the banks; if they were orphans, then banks had no knowledge of them.
+   frontier slots that are incomplete.
 
    If eviction succeeds, the evicted chain is returned as a linked
    list of pool elements (removed from maps but still acquired in
    the pool).  The replay tile is responsible for:
-     1. If the evicted chain had a valid bank_idx, marking that bank
-        dead and abandoning it in the scheduler.
-     2. Publishing each evicted FEC to repair (REPLAY_SIG_REASM_EVICTED)
+     1. Publishing each evicted FEC to repair (REPLAY_SIG_REASM_EVICTED)
         so repair can re-request the data.
-     3. Releasing each evicted element back to the reasm pool before
+     2. Releasing each evicted element back to the reasm pool before
         the next insert.
 
-   BANKS-DRIVEN EVICTION
-
-   Separately from reasm pool pressure, when banks are full (no free
-   bank slots) and the scheduler is drained, replay itself evicts
-   frontier banks to make room.  This works by:
-     1. Iterating over frontier (leaf) banks.
-     2. Marking each as dead and abandoning it in the scheduler.
-     3. Calling fd_reasm_remove on the corresponding FEC chain in
-        reasm, which walks up the tree to the bank boundary (slot
-        boundary or equivocation point) and removes the chain.
-     4. Same process happens as above where evicted FECs are published
-        to repair.
+   It's important to note that replay bank eviction is NOT coupled with
+   reasm FEC eviction.  Reasm FEC eviction is triggered by the reasm pool
+   being full, and is independent of the replay bank eviction.  Reasm
+   FEC eviction is triggered by the reasm pool being full while banks
+   eviction is triggered by the banks being full and the scheduler
+   being drained.
 
    By evicting and publishing evicted FECs to repair, replay is
    attempting a "go-around" strategy to ensure progress is made even
@@ -71,7 +61,6 @@
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
 #include "../reasm/fd_reasm.h"
-#include "../../flamenco/types/fd_types_custom.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_SLOT_DEAD      (1)
@@ -122,7 +111,8 @@ struct fd_replay_slot_completed {
   /* Reference to the bank for this completed slot.  TODO: We can
      eliminate non-timestamp fields and have consumers just use
      bank_idx. */
-  ulong bank_idx;
+  ulong    bank_idx;
+  fd_xid_t xid;
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */
   long preparation_begin_nanos;           /* timestamp when replay began preparing the state to begin execution of the slot */

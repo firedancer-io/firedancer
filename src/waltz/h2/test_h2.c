@@ -27,6 +27,9 @@ main( int     argc,
   FD_LOG_NOTICE(( "Testing h2_server_stream_accounting" ));
   test_h2_server_stream_accounting();
 
+  FD_LOG_NOTICE(( "Testing h2_server_stream_error_releases_quota" ));
+  test_h2_server_stream_error_releases_quota();
+
   FD_LOG_NOTICE(( "Testing h2_hdr_match" ));
   test_h2_hdr_match();
 

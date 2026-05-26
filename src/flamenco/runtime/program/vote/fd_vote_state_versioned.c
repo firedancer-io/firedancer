@@ -66,8 +66,7 @@ fd_vsv_deserialize( fd_account_meta_t const *   meta,
   }
 
   if( FD_UNLIKELY( versioned->kind==fd_vote_state_versioned_enum_uninitialized ) ) {
-    // FIXME: update back to INVALID_ACC_DATA once agave uses vote-interface@v6.0.0
-    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -344,6 +343,36 @@ fd_vsv_set_commission( fd_vote_state_versioned_t * self,
       break;
     case fd_vote_state_versioned_enum_v4:
       self->v4.inflation_rewards_commission_bps = (ushort)( commission*100 );
+      break;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
+  }
+}
+
+void
+fd_vsv_set_inflation_rewards_commission_bps( fd_vote_state_versioned_t * self,
+                                             ushort                      commission_bps ) {
+  switch( self->kind ) {
+    case fd_vote_state_versioned_enum_v4:
+      self->v4.inflation_rewards_commission_bps = commission_bps;
+      break;
+    case fd_vote_state_versioned_enum_v3:
+      /* No-op for v3 */
+      break;
+    default:
+      FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
+  }
+}
+
+void
+fd_vsv_set_block_revenue_commission_bps( fd_vote_state_versioned_t * self,
+                                         ushort                      commission_bps ) {
+  switch( self->kind ) {
+    case fd_vote_state_versioned_enum_v4:
+      self->v4.block_revenue_commission_bps = commission_bps;
+      break;
+    case fd_vote_state_versioned_enum_v3:
+      /* No-op for v3 */
       break;
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));

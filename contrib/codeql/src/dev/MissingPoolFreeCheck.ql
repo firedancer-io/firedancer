@@ -14,6 +14,5 @@ import fdpool
 
 from PoolAcquire acq
 where
-  not exists(PoolFree free | dominates(free, acq) and free.getPoolName() = acq.getPoolName()) and
-  not acq.getLocation().getFile().getBaseName() = "fd_types.c"
+  not exists(PoolFree free | dominates(free, acq) and free.getPoolName() = acq.getPoolName())
 select acq, acq.getPoolName()

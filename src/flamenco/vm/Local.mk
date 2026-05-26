@@ -5,10 +5,6 @@ $(call add-objs,fd_vm fd_vm_interp fd_vm_disasm fd_vm_trace,fd_flamenco)
 
 $(call add-hdrs,test_vm_util.h)
 $(call add-objs,test_vm_util,fd_flamenco)
-
-ifdef FD_HAS_BLST
-$(call make-bin,fd_vm_tool,fd_vm_tool,fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(BLST_LIBS))
-endif
 endif
 
 # Unfortunately, the get_sysvar syscall handler depends on the funk database

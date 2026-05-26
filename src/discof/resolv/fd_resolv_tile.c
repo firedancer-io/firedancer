@@ -252,7 +252,7 @@ peek_alut( fd_resolv_ctx_t *  ctx,
            fd_txn_m_t *       txnm,
            fd_alut_interp_t * interp,
            ulong              alut_idx ) {
-  fd_funk_txn_xid_t const xid = { .ul = { ctx->bank->f.slot, ctx->bank->idx } };
+  fd_funk_txn_xid_t const xid = fd_bank_xid( ctx->bank );
 
   fd_txn_t const * txn         = fd_txn_m_txn_t_const  ( txnm );
   uchar const *    txn_payload = fd_txn_m_payload_const( txnm );
@@ -291,20 +291,22 @@ peek_aluts( fd_resolv_ctx_t * ctx,
   ulong const               alut_cnt     = txn->addr_table_lookup_cnt;
   ulong const               slot         = ctx->bank->f.slot;
   fd_sysvar_cache_t const * sysvar_cache = &ctx->bank->f.sysvar_cache;
-  fd_slot_hash_t const *    slot_hashes  = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
+  fd_slot_hashes_t slot_hashes_view[1];
+  if( FD_UNLIKELY( !fd_sysvar_cache_slot_hashes_view( sysvar_cache, slot_hashes_view ) ) ) {
+    FD_LOG_ERR(( "slot hashes sysvar cache is invalid" ));
+  }
 
   /* Write indirect addrs into here */
   fd_acct_addr_t * indir_addrs = fd_txn_m_alut( txnm );
 
   int err = FD_RUNTIME_EXECUTE_SUCCESS;
   fd_alut_interp_t interp[1];
-  fd_alut_interp_new( interp, indir_addrs, txn, txn_payload, slot_hashes, slot );
+  fd_alut_interp_new( interp, indir_addrs, txn, txn_payload, slot_hashes_view, slot );
   for( ulong i=0UL; i<alut_cnt; i++ ) {
     err = peek_alut( ctx, txnm, interp, i );
     if( FD_UNLIKELY( err ) ) break;
   }
   fd_alut_interp_delete( interp );
-  fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
 
   ulong ctr_idx;
   switch( err ) {
@@ -500,7 +502,12 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   txnm->reference_slot = ctx->completed_slot;
-  blockhash_map_t const * blockhash = map_query_const( ctx->blockhash_map, *(blockhash_t*)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off ), NULL );
+
+  blockhash_t const * recent_blockhash = (blockhash_t const *)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off );
+  blockhash_map_t const * blockhash = NULL;
+  if( FD_LIKELY( !map_key_inval( *recent_blockhash ) ) ) {
+    blockhash = map_query_const( ctx->blockhash_map, *recent_blockhash, NULL );
+  }
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_slot = blockhash->slot;
     if( FD_UNLIKELY( txnm->reference_slot+151UL<ctx->completed_slot ) ) {
@@ -621,7 +628,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_replay->wmark  = fd_dcache_compact_wmark ( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
   ctx->out_replay->chunk  = ctx->out_replay->chunk0;
 
-  fd_accdb_init_from_topo( ctx->accdb, topo, tile, tile->resolv.accdb_max_depth );
+  fd_accdb_init_from_topo( ctx->accdb, topo, tile->resolv.accdb_max_depth );
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
@@ -629,7 +636,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->banks );
   ctx->bank = NULL;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
@@ -666,6 +673,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
+
+/* The default STEM_LAZY is derived from cr_max, which is the minimum
+   depth among all reliably-consumed output links.  The resolv_replay
+   link (depth 4096) dominates this, even though it only carries ~2-3
+   msgs/s.  This makes housekeeping fire ~16x more often than necessary.
+   We override with roughly what the default would be without accounting
+   for it. */
+#define STEM_LAZY (128000L) /* 128 us */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_resolv_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_resolv_ctx_t)

@@ -4,12 +4,11 @@
 #include "fd_dump_pb.h"
 #include "../fd_runtime.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
-#include "../sysvar/fd_sysvar_rent.h"
 #include "../../accdb/fd_accdb_admin_v1.h"
 #include "../../accdb/fd_accdb_impl_v1.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../log_collector/fd_log_collector.h"
-#include "../fd_system_ids.h"
+#include "../../../ballet/txn/fd_compact_u16.h"
 
 /* Macros to append data to construct a serialized transaction
    without exceeding bounds */
@@ -22,9 +21,7 @@
 #define FD_CHECKED_ADD_CU16_TO_TXN_DATA( _begin, _cur_data, _to_add ) __extension__({ \
    do {                                                                               \
       uchar _buf[3];                                                                  \
-      fd_bincode_encode_ctx_t _encode_ctx = { .data = _buf, .dataend = _buf+3 };      \
-      fd_bincode_compact_u16_encode( &_to_add, &_encode_ctx );                        \
-      ulong _sz = (ulong) ((uchar *)_encode_ctx.data - _buf );                        \
+      ulong _sz = (ulong)fd_cu16_enc( (ushort)_to_add, _buf );                        \
       FD_CHECKED_ADD_TO_TXN_DATA( _begin, _cur_data, _buf, _sz );                     \
    } while(0);                                                                        \
 })
@@ -48,20 +45,20 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                               fd_exec_test_txn_context_t const * test_ctx ) {
   fd_accdb_user_t * accdb = runner->accdb;
 
-  /* Set up the funk transaction */
-  ulong             slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
-  fd_funk_txn_xid_t xid  = { .ul = { slot, runner->bank->idx } };
-  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
+  ulong slot = fd_solfuzz_pb_get_slot( test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
   /* Initialize bank from input txn bank */
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
+  runner->bank->f.slot = slot;
+
+  /* Set up the funk transaction */
+  fd_xid_t xid = fd_bank_xid( runner->bank );
+  fd_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
+  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
+
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
-
-  /* Slot*/
-  runner->bank->f.slot = slot;
 
   /* Blockhash queue */
   fd_solfuzz_pb_restore_blockhash_queue( runner->bank, txn_bank->blockhash_queue, txn_bank->blockhash_queue_count );
@@ -174,9 +171,7 @@ fd_solfuzz_pb_txn_serialize( uchar *                                      txn_ra
 
   /* Recent blockhash (32 bytes) (https://solana.com/docs/core/transactions#recent-blockhash) */
   // Note: add an empty blockhash if none is provided
-  fd_hash_t msg_rbh = {0};
-  if( tx->message.recent_blockhash ) msg_rbh = FD_LOAD( fd_hash_t, tx->message.recent_blockhash->bytes );
-  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, &msg_rbh, sizeof(fd_hash_t) );
+  FD_CHECKED_ADD_TO_TXN_DATA( txn_raw_begin, &txn_raw_cur_ptr, tx->message.recent_blockhash, sizeof(fd_hash_t) );
 
   /* Compact array of instructions (https://solana.com/docs/core/transactions#array-of-instructions) */
   // Instruction count is a compact u16
@@ -245,7 +240,8 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
                          fd_runtime_t *        runtime,
                          fd_txn_in_t const *   txn_in,
                          int *                 exec_res,
-                         fd_txn_out_t *        txn_out ) {
+                         fd_txn_out_t *        txn_out,
+                         int                   reclaim_accounts ) {
 
   txn_out->err.is_committable = 1;
 
@@ -255,15 +251,16 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
     tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
   }
 
-  runtime->accdb              = runner->accdb;
-  runtime->progcache          = runner->progcache;
-  runtime->status_cache       = NULL;
-  runtime->log.tracing_mem    = tracing_mem;
-  runtime->log.dumping_mem    = NULL;
-  runtime->log.capture_ctx    = NULL;
-  runtime->log.dump_proto_ctx = NULL;
-  runtime->log.txn_dump_ctx   = NULL;
-  runtime->fuzz.enabled       = 1;
+  runtime->accdb                 = runner->accdb;
+  runtime->progcache             = runner->progcache;
+  runtime->status_cache          = NULL;
+  runtime->log.tracing_mem       = tracing_mem;
+  runtime->log.dumping_mem       = NULL;
+  runtime->log.capture_ctx       = NULL;
+  runtime->log.dump_proto_ctx    = NULL;
+  runtime->log.txn_dump_ctx      = NULL;
+  runtime->fuzz.enabled          = 1;
+  runtime->fuzz.reclaim_accounts = reclaim_accounts;
 
   fd_runtime_prepare_and_execute_txn( runtime, runner->bank, txn_in, txn_out );
   *exec_res = txn_out->err.txn_err;
@@ -297,7 +294,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     runtime->acc_pool = runner->acc_pool;
     txn_in->txn = txn;
     txn_in->bundle.is_bundle = 0;
-    fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out );
+    fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, txn_out, 0 );
 
     /* Build result directly into the caller-owned output_buf */
     fd_exec_test_txn_result_t * txn_result = NULL;
@@ -309,6 +306,10 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
         txn_out,
         exec_res
     );
+
+    fd_solfuzz_direct_mapping_handle_cu_exhaustion(
+        runner, txn_out->details.compute_budget.compute_meter, exec_res,
+        txn_result->modified_accounts, txn_result->modified_accounts_count );
 
     txn_out->err.is_committable = 0;
     fd_runtime_cancel_txn( runner->runtime, txn_out );

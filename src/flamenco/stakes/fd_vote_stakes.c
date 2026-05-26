@@ -149,7 +149,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
                                 fd_pubkey_t const * pubkey,
                                 fd_pubkey_t const * node_account_t_1,
                                 ulong               stake_t_1,
-                                uchar               commission_t_1,
+                                ushort              commission_t_1,
                                 ulong               epoch ) {
   fd_rwlock_write( &vote_stakes->lock );
 
@@ -165,7 +165,7 @@ fd_vote_stakes_root_insert_key( fd_vote_stakes_t *  vote_stakes,
   ele->node_account_t_1 = *node_account_t_1;
   ele->stake_t_2        = 0UL;
   ele->node_account_t_2 = (fd_pubkey_t){0};
-  ele->commission_t_2   = 0U;
+  ele->commission_t_2   = 0;
   ele->epoch            = epoch % 2;
   ele->exists_t_1       = 1;
   ele->exists_t_2       = 0;
@@ -191,7 +191,7 @@ fd_vote_stakes_root_update_meta( fd_vote_stakes_t *  vote_stakes,
                                  fd_pubkey_t const * pubkey,
                                  fd_pubkey_t const * node_account_t_2,
                                  ulong               stake_t_2,
-                                 uchar               commission_t_2,
+                                 ushort              commission_t_2,
                                  ulong               epoch ) {
   fd_rwlock_write( &vote_stakes->lock );
 
@@ -265,8 +265,8 @@ fd_vote_stakes_insert( fd_vote_stakes_t *  vote_stakes,
                        fd_pubkey_t const * node_account_t_2,
                        ulong               stake_t_1,
                        ulong               stake_t_2,
-                       uchar               commission_t_1,
-                       uchar               commission_t_2,
+                       ushort              commission_t_1,
+                       ushort              commission_t_2,
                        uchar               exists_t_1,
                        uchar               exists_t_2,
                        ulong               epoch ) {
@@ -405,8 +405,8 @@ fd_vote_stakes_query_private( fd_vote_stakes_t *  vote_stakes,
                               ulong *             stake_t_2_out_opt,
                               fd_pubkey_t *       node_account_t_1_out_opt,
                               fd_pubkey_t *       node_account_t_2_out_opt,
-                              uchar *             commission_t_1_out_opt,
-                              uchar *             commission_t_2_out_opt,
+                              ushort *            commission_t_1_out_opt,
+                              ushort *            commission_t_2_out_opt,
                               uchar *             exists_t_1_out_opt,
                               uchar *             exists_t_2_out_opt ) {
 
@@ -437,8 +437,8 @@ fd_vote_stakes_query_private( fd_vote_stakes_t *  vote_stakes,
   if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
   if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
   if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
-  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = (uchar)index_ele->commission_t_1;
-  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = (uchar)index_ele->commission_t_2;
+  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = (ushort)index_ele->commission_t_1;
+  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = index_ele->commission_t_2;
   if( exists_t_1_out_opt )       *exists_t_1_out_opt       = (uchar)index_ele->exists_t_1;
   if( exists_t_2_out_opt )       *exists_t_2_out_opt       = index_ele->exists_t_2;
   return 1;
@@ -452,8 +452,8 @@ fd_vote_stakes_query( fd_vote_stakes_t *  vote_stakes,
                       ulong *             stake_t_2_out_opt,
                       fd_pubkey_t *       node_account_t_1_out_opt,
                       fd_pubkey_t *       node_account_t_2_out_opt,
-                      uchar *             commission_t_1_out_opt,
-                      uchar *             commission_t_2_out_opt,
+                      ushort *            commission_t_1_out_opt,
+                      ushort *            commission_t_2_out_opt,
                       uchar *             exists_t_1_out_opt,
                       uchar *             exists_t_2_out_opt ) {
   fd_rwlock_read( &vote_stakes->lock );
@@ -478,7 +478,7 @@ fd_vote_stakes_query_t_1( fd_vote_stakes_t *  vote_stakes,
                           fd_pubkey_t const * pubkey,
                           ulong *             stake_out,
                           fd_pubkey_t *       node_account_out,
-                          uchar *             commission_out ) {
+                          ushort *            commission_out ) {
   fd_rwlock_read( &vote_stakes->lock );
   uchar exists_t_1 = 0;
   int found = fd_vote_stakes_query_private( vote_stakes, fork_idx, pubkey, stake_out, NULL, node_account_out, NULL, commission_out, NULL, &exists_t_1, 0 );
@@ -492,7 +492,7 @@ fd_vote_stakes_query_t_2( fd_vote_stakes_t *  vote_stakes,
                           fd_pubkey_t const * pubkey,
                           ulong *             stake_out,
                           fd_pubkey_t *       node_account_out,
-                          uchar *             commission_out ) {
+                          ushort *            commission_out ) {
   fd_rwlock_read( &vote_stakes->lock );
   uchar exists_t_2 = 0;
   int found = fd_vote_stakes_query_private( vote_stakes, fork_idx, pubkey, NULL, stake_out, NULL, node_account_out, NULL, commission_out, NULL, &exists_t_2 );
@@ -590,8 +590,8 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
                               ulong *                 stake_t_2_out_opt,
                               fd_pubkey_t *           node_account_t_1_out_opt,
                               fd_pubkey_t *           node_account_t_2_out_opt,
-                              uchar *                 commission_t_1_out_opt,
-                              uchar *                 commission_t_2_out_opt ) {
+                              ushort *                commission_t_1_out_opt,
+                              ushort *                commission_t_2_out_opt ) {
   stakes_map_iter_t * stakes_map_iter = (stakes_map_iter_t *)iter;
   stake_t * stake = stakes_map_iter_ele( *stakes_map_iter, get_stakes_map( vote_stakes, fork_idx ), get_stakes_pool( vote_stakes, fork_idx ) );
 
@@ -604,6 +604,6 @@ fd_vote_stakes_fork_iter_ele( fd_vote_stakes_t *      vote_stakes,
   if( stake_t_2_out_opt )        *stake_t_2_out_opt        = index_ele->stake_t_2;
   if( node_account_t_1_out_opt ) *node_account_t_1_out_opt = index_ele->node_account_t_1;
   if( node_account_t_2_out_opt ) *node_account_t_2_out_opt = index_ele->node_account_t_2;
-  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = (uchar)index_ele->commission_t_1;
-  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = (uchar)index_ele->commission_t_2;
+  if( commission_t_1_out_opt )   *commission_t_1_out_opt   = (ushort)index_ele->commission_t_1;
+  if( commission_t_2_out_opt )   *commission_t_2_out_opt   = index_ele->commission_t_2;
 }

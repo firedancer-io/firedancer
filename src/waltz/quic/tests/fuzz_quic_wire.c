@@ -28,6 +28,16 @@
 
 static FD_TL long g_clock = 1L;
 
+#if !FD_QUIC_DISABLE_CRYPTO
+static int
+decrypt_payload( uchar * data,
+                 ulong   size );
+
+static void
+encrypt_payload( uchar * data,
+                 ulong   size );
+#endif
+
 int
 LLVMFuzzerInitialize( int *    pargc,
                       char *** pargv ) {
@@ -71,6 +81,8 @@ send_udp_packet( fd_quic_t *   quic,
     .verihl      = FD_IP4_VERIHL(4,5),
     .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
     .net_tot_len = (ushort)( sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)+size ),
+    .saddr       = FD_QUIC_TEST_CLIENT_IP4,
+    .daddr       = FD_QUIC_TEST_SERVER_IP4,
   };
   fd_udp_hdr_t udp = {
     .net_sport = 8000,
@@ -117,6 +129,9 @@ LLVMFuzzerTestOneInput( uchar const * data,
   int enable_retry = !!(last_byte & 1);
   int role         =   (last_byte & 2) ? FD_QUIC_ROLE_SERVER : FD_QUIC_ROLE_CLIENT;
   int established  = !!(last_byte & 4);
+  int handshake_pkt = !!( size &&
+                          fd_quic_h0_hdr_form( data[0] ) &&
+                          fd_quic_h0_long_packet_type( data[0] )==FD_QUIC_PKT_TYPE_HANDSHAKE );
 
   assert( fd_quic_footprint( &quic_limits ) <= sizeof(quic_mem) );
   void *      shquic = fd_quic_new( quic_mem, &quic_limits );
@@ -145,14 +160,14 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* Create dummy connection */
   ulong             our_conn_id  = ULONG_MAX;
   fd_quic_conn_id_t peer_conn_id = { .sz=8 };
-  uint              dst_ip_addr  = 0U;
+  uint              dst_ip_addr  = FD_QUIC_TEST_CLIENT_IP4;
   ushort            dst_udp_port = (ushort)0;
 
   fd_quic_conn_t * conn =
     fd_quic_conn_create( quic,
                          our_conn_id, &peer_conn_id,
                          dst_ip_addr,  (ushort)dst_udp_port,
-                         0U, 0U,
+                         FD_QUIC_TEST_SERVER_IP4, 0U,
                          1  /* we are the server */ );
   assert( conn );
   fd_quic_svc_timers_schedule( state->svc_timers, conn, g_clock );
@@ -172,10 +187,39 @@ LLVMFuzzerTestOneInput( uchar const * data,
   if( established ) {
     conn->state = FD_QUIC_CONN_STATE_ACTIVE;
     conn->keys_avail = 0xff;
+  } else if( handshake_pkt ) {
+    conn->keys_avail = fd_uint_set_bit( conn->keys_avail, fd_quic_enc_level_handshake_id );
   }
 
+  if( established || handshake_pkt ) {
+    fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
+        fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+        state->tls,
+        (void *)conn,
+        1 /*is_server*/,
+        &state->transport_params,
+        g_clock );
+    fd_quic_tls_hs_cache_ele_push_tail( &state->hs_cache, tls_hs, state->hs_pool );
+    conn->tls_hs = tls_hs;
+  }
+
+  uchar const * wire_data = data;
+  ulong         wire_size = size;
+
+#if !FD_QUIC_DISABLE_CRYPTO
+  uchar wire_buf[ FD_QUIC_MTU ];
+  if( size <= sizeof(wire_buf) ) {
+    fd_memcpy( wire_buf, data, size );
+    if( decrypt_payload( wire_buf, size ) ) {
+      encrypt_payload( wire_buf, size );
+      wire_data = wire_buf;
+    }
+  }
+#endif
+
   /* Calls fuzz entrypoint */
-  send_udp_packet( quic, data, size );
+  send_udp_packet( quic, wire_data, wire_size );
+  assert( !quic->metrics.pkt_wrong_src_cnt );
 
   /* svc_quota is the max number of service calls that we expect to
      schedule in response to a single packet. */
@@ -262,31 +306,23 @@ guess_packet_size( uchar const * data,
   if( hdr_form == 1 ) {  /* long header */
 
     uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
-    cur_ptr += 1; cur_sz -= 1UL;
-    fd_quic_long_hdr_t long_hdr[1];
-    rc = fd_quic_decode_long_hdr( long_hdr, cur_ptr, cur_sz );
-    if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
-    cur_ptr += rc; cur_sz -= rc;
-
     switch( long_packet_type ) {
     case FD_QUIC_PKT_TYPE_INITIAL: {
       fd_quic_initial_t initial[1];
-      rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
+      rc = fd_quic_decode_initial( initial, data, size );
       if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
-      cur_ptr += rc; cur_sz -= rc;
 
       pkt_num_pnoff = initial->pkt_num_pnoff;
-      total_len     = pkt_num_pnoff + initial->len;
+      total_len     = initial->pkt_num_pnoff + initial->len;
       break;
     }
     case FD_QUIC_PKT_TYPE_HANDSHAKE: {
       fd_quic_handshake_t handshake[1];
-      rc = fd_quic_decode_handshake( handshake, cur_ptr, cur_sz );
+      rc = fd_quic_decode_handshake( handshake, data, size );
       if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
-      cur_ptr += rc; cur_sz -= rc;
 
       pkt_num_pnoff = handshake->pkt_num_pnoff;
-      total_len     = pkt_num_pnoff + handshake->len;
+      total_len     = handshake->pkt_num_pnoff + handshake->len;
       break;
     }
     case FD_QUIC_PKT_TYPE_RETRY:
@@ -331,22 +367,23 @@ decrypt_packet( uchar * const data,
   ulong pkt_num_pnoff = 0UL;
   ulong total_len = guess_packet_size( data, size, &pkt_num_pnoff );
   if( !total_len ) return 0UL;
+  if( FD_UNLIKELY( total_len > size ) ) return 0UL;
 
   /* Decrypt the packet */
 
-  int decrypt_res = fd_quic_crypto_decrypt_hdr( data, size, pkt_num_pnoff, keys );
+  int decrypt_res = fd_quic_crypto_decrypt_hdr( data, total_len, pkt_num_pnoff, keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
   uint  pkt_number_sz = fd_quic_h0_pkt_num_len( data[0] ) + 1u;
   ulong pkt_number    = fd_quic_pktnum_decode( data+pkt_num_pnoff, pkt_number_sz );
 
   decrypt_res =
-    fd_quic_crypto_decrypt( data,           size,
+    fd_quic_crypto_decrypt( data,           total_len,
                             pkt_num_pnoff,  pkt_number,
                             keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
-  return fd_ulong_min( total_len + FD_QUIC_CRYPTO_TAG_SZ, size );
+  return total_len;
 }
 
 /* decrypt_payload attempts to remove packet protection of a UDP
@@ -363,7 +400,8 @@ decrypt_payload( uchar * data,
      zero consider it an unencrypted packet */
 
   uint mask=0U;
-  for( ulong j=0UL; j<16UL; j++ ) mask |= data[size-16+j];
+  for( ulong j=0UL; j<15UL; j++ ) mask |= data[size-16+j];
+  mask |= data[size-1] & ~7U;
   if( !mask ) return 1;
 
   uchar * cur_ptr = data;

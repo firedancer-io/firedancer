@@ -2,7 +2,6 @@
 #define HEADER_fd_src_discof_txsend_fd_txsend_tile_h
 
 #include "../../waltz/quic/fd_quic.h"
-#include "../../flamenco/types/fd_types_custom.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../disco/stem/fd_stem.h"
@@ -58,7 +57,7 @@ typedef struct peer_entry peer_entry_t;
 #define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
-#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#define MAP_KEY_HASH(key,seed) fd_funk_rec_key_hash1( (key)->uc, (seed) )
 #define MAP_IMPL_STYLE         1
 #include "../../util/tmpl/fd_map_chain.c"
 

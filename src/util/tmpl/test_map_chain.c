@@ -47,6 +47,7 @@ typedef struct pair pair_t;
 #define MAP_KEY_HASH(k,s) ( ( (ulong)*(k) + (seed) ) & 3 )
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #define MAP_MULTI         1
+#define MAP_COUNT         1
 #include "fd_map_chain.c"
 
 static void

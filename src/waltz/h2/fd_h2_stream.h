@@ -71,11 +71,34 @@ fd_h2_stream_open( fd_h2_stream_t * stream,
 }
 
 static inline void
+fd_h2_stream_private_deactivate( fd_h2_stream_t * stream,
+                                 fd_h2_conn_t *   conn ) {
+  int is_tx_stream = fd_h2_stream_is_tx( stream, conn );
+#ifdef FD_H2_USE_HANDHOLDING
+  FD_TEST( conn->stream_active_cnt[ is_tx_stream ]>0U );
+#endif
+  conn->stream_active_cnt[ is_tx_stream ]--;
+}
+
+static inline void
 fd_h2_stream_error( fd_h2_stream_t * stream,
+                    fd_h2_conn_t *   conn,
                     fd_h2_rbuf_t *   rbuf_tx,
                     uint             h2_err ) {
   fd_h2_tx_rst_stream( rbuf_tx, stream->stream_id, h2_err );
-  stream->state = FD_H2_STREAM_STATE_CLOSED;
+  switch( stream->state ) {
+  case FD_H2_STREAM_STATE_OPEN:
+  case FD_H2_STREAM_STATE_CLOSING_TX:
+  case FD_H2_STREAM_STATE_CLOSING_RX:
+    stream->state = FD_H2_STREAM_STATE_CLOSED;
+    fd_h2_stream_private_deactivate( stream, conn );
+    break;
+  case FD_H2_STREAM_STATE_CLOSED:
+    break;
+  default:
+    stream->state = FD_H2_STREAM_STATE_ILLEGAL;
+    break;
+  }
 }
 
 /* fd_h2_rst_stream generates a RST_STREAM frame on the given stream.
@@ -87,16 +110,6 @@ void
 fd_h2_rst_stream( fd_h2_conn_t *   conn,
                   fd_h2_rbuf_t *   rbuf_tx,
                   fd_h2_stream_t * stream );
-
-static inline void
-fd_h2_stream_private_deactivate( fd_h2_stream_t * stream,
-                                 fd_h2_conn_t *   conn ) {
-  int is_tx_stream = fd_h2_stream_is_tx( stream, conn );
-#ifdef FD_H2_USE_HANDHOLDING
-  FD_TEST( conn->stream_active_cnt[ is_tx_stream ]>0U );
-#endif
-  conn->stream_active_cnt[ is_tx_stream ]--;
-}
 
 static inline void
 fd_h2_stream_close_rx( fd_h2_stream_t * stream,

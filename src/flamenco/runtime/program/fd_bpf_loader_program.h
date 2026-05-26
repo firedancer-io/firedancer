@@ -8,7 +8,6 @@
 
 #include "../../progcache/fd_progcache_rec.h"
 #include "../../features/fd_features.h"
-#include "../../types/fd_types.h"
 #include "../../../funk/fd_funk_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
@@ -470,7 +469,17 @@ fd_bpf_loader_program_get_state( fd_account_meta_t const * meta,
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
-                   ulong                 programdata_size );
+                   ulong                 programdata_size,
+                   int                   disable_sbpf_v0_v1_v2_deployment );
+
+/* SIMD-0500 finalize gate.  Returns
+   FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA when `feature_active` is
+   non-zero and the ELF embedded in `programdata` parses as
+   SBPFv0/v1/v2; FD_EXECUTOR_INSTR_SUCCESS otherwise. */
+int
+fd_bpf_loader_finalize_v3_check( int           feature_active,
+                                 uchar const * programdata,
+                                 ulong         programdata_len );
 
 int
 fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,

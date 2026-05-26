@@ -203,7 +203,11 @@ test_truncate_inplace( fd_accdb_admin_t * admin,
   ulong data_sz_0 = 56UL;
   FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_0, FD_ACCDB_FLAG_CREATE ) );
   FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  fd_pubkey_t owner = { .ul={ 1UL, 2UL, 3UL, 4UL } };
   fd_accdb_ref_lamports_set( rw, 32UL );
+  fd_accdb_ref_owner_set( rw, &owner );
+  fd_accdb_ref_exec_bit_set( rw, 1U );
+  fd_accdb_ref_slot_set( rw, 123UL );
   fd_accdb_ref_data_set( accdb, rw, "hello", 5UL );
   fd_funk_rec_t * rec = (void *)rw->ref->user_data;
   FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t)+5UL );
@@ -218,6 +222,34 @@ test_truncate_inplace( fd_accdb_admin_t * admin,
   FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t) );
   FD_TEST( rec->val_max   >= sizeof(fd_account_meta_t)+data_sz_1 );
   FD_TEST( rw->meta->dlen == 0UL );
+  ulong val_max_big = rec->val_max;
+  fd_accdb_close_rw( accdb, rw );
+
+  ulong data_sz_keep = val_max_big - sizeof(fd_account_meta_t) - 1UL;
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, data_sz_keep, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz    == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max   == val_max_big );
+  FD_TEST( rw->meta->dlen == 0UL );
+  fd_account_meta_t meta_keep = *rw->meta;
+  uchar val_keep[ sizeof(fd_account_meta_t) ];
+  fd_memcpy( val_keep, rw->meta, sizeof(fd_account_meta_t) );
+  fd_accdb_close_rw( accdb, rw );
+
+  FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, &key, 0UL, FD_ACCDB_FLAG_TRUNCATE ) );
+  FD_TEST( rw->ref->ref_type==FD_ACCDB_REF_RW );
+  rec = (void *)rw->ref->user_data;
+  FD_TEST( rec->val_sz  == sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max >= sizeof(fd_account_meta_t) );
+  FD_TEST( rec->val_max <  val_max_big );
+  FD_TEST( rw->meta->dlen == 0UL );
+  FD_TEST( !memcmp( rw->meta, val_keep, sizeof(fd_account_meta_t) ) );
+  FD_TEST( rw->meta->lamports   == meta_keep.lamports   );
+  FD_TEST( rw->meta->slot       == meta_keep.slot       );
+  FD_TEST( rw->meta->dlen       == meta_keep.dlen       );
+  FD_TEST( rw->meta->executable == meta_keep.executable );
+  FD_TEST( !memcmp( rw->meta->owner, meta_keep.owner, sizeof(meta_keep.owner) ) );
   fd_accdb_close_rw( accdb, rw );
 
   fd_accdb_advance_root( admin, &xid );
@@ -312,6 +344,53 @@ test_account_creation( fd_accdb_user_t *         accdb,
 }
 
 static void
+test_zero_balance_ro( fd_accdb_admin_t * admin,
+                      fd_accdb_user_t *  accdb ) {
+  static uchar const key_live[ 32 ] = { 10 };
+  static uchar const key_dead[ 32 ] = { 11 };
+
+  add_account_funk( accdb, key_live, 500UL );
+  add_account_funk( accdb, key_dead,   0UL );
+
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 7UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_accdb_ro_t ro[1];
+  FD_TEST( fd_accdb_open_ro( accdb, ro, &xid, key_live ) );
+  FD_TEST( fd_accdb_ref_lamports( ro )==500UL );
+  fd_accdb_close_ro( accdb, ro );
+  FD_TEST( !fd_accdb_open_ro( accdb, ro, &xid, key_dead ) );
+
+  fd_accdb_advance_root( admin, &xid );
+  fd_accdb_v1_clear( admin );
+}
+
+static void
+test_zero_balance_rw( fd_accdb_admin_t * admin,
+                      fd_accdb_user_t *  accdb ) {
+  static uchar const key_dead[ 32 ] = { 11 };
+
+  add_account_funk( accdb, key_dead, 0UL );
+
+  fd_funk_txn_xid_t root = fd_accdb_root_get( admin );
+  fd_funk_txn_xid_t xid = { .ul={ 8UL, 0UL } };
+  fd_accdb_attach_child( admin, &root, &xid );
+
+  fd_accdb_rw_t rw[1];
+  fd_accdb_ro_t ro[1];
+  FD_TEST( !fd_accdb_open_rw( accdb, rw, &xid, key_dead, 0UL, 0 ) );
+  for( ulong i=0UL; i<1000000UL; i++ ) {
+    FD_TEST( !fd_accdb_open_ro( accdb, ro, &xid, key_dead ) );
+    FD_TEST( fd_accdb_open_rw( accdb, rw, &xid, key_dead, 0UL, FD_ACCDB_FLAG_CREATE ) );
+    fd_accdb_close_rw( accdb, rw ); /* creates a tombstone */
+  }
+
+  fd_accdb_advance_root( admin, &xid );
+  fd_accdb_v1_clear( admin );
+}
+
+static void
 test_tombstone( fd_accdb_admin_t * admin,
                 fd_accdb_user_t *  accdb ) {
 
@@ -375,6 +454,8 @@ test_simple( fd_wksp_t * wksp ) {
   test_truncate_nonexist( admin, accdb );
   test_truncate_inplace ( admin, accdb );
   test_truncate_copy    ( admin, accdb );
+  test_zero_balance_ro  ( admin, accdb );
+  test_zero_balance_rw  ( admin, accdb );
 
   fd_accdb_v1_clear( admin );
   test_tombstone( admin, accdb );

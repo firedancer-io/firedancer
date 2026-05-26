@@ -168,7 +168,7 @@ client_fibre_fn( void * vp_arg ) {
     if( !conn ) {
       rcvd = sent = 0;
 
-      conn = fd_quic_connect( quic, 0U, 0, 0U, 0, now );
+      conn = fd_quic_connect( quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
       if( !conn ) {
         FD_LOG_WARNING(( "Client unable to obtain a connection. now: %ld", now ));
         continue;

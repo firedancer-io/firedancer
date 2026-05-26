@@ -138,7 +138,6 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
   ulong accum_garbage_sz  = 0UL;
   ulong accum_drop_link   = 0UL;
   ulong accum_drop_comp   = 0UL;
-  ulong accum_cache_hit   = 0UL;
 
   ulong seq_part = fd_vinyl_io_seq_present( io );
 
@@ -180,7 +179,6 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
       diag[ FD_VINYL_DIAG_DROP_LINK ] += accum_drop_link; accum_drop_link = 0UL;
       diag[ FD_VINYL_DIAG_DROP_COMP ] += accum_drop_comp; accum_drop_comp = 0UL;
-      diag[ FD_VINYL_DIAG_CACHE_HIT ] += accum_cache_hit; accum_cache_hit = 0UL;
 
       /* Let the number of items of garbage generated since the last
          compaction be accum_garbage_cnt and let the steady steady
@@ -327,7 +325,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
           _client[ client_cnt ].rq        = rq;
           _client[ client_cnt ].cq        = cq;
           _client[ client_cnt ].burst_max = burst_max;
-          _client[ client_cnt ].seq       = 0UL;
+          _client[ client_cnt ].seq       = fd_vinyl_rq_seq( rq );
           _client[ client_cnt ].link_id   = link_id;
           _client[ client_cnt ].laddr0    = (ulong)wksp;
           _client[ client_cnt ].laddr1    = ULONG_MAX; //wksp->gaddr_hi; /* FIXME: HOW TO GET THIS CLEANLY */
@@ -683,7 +681,6 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
 
   diag[ FD_VINYL_DIAG_DROP_LINK ] += accum_drop_link; accum_drop_link   = 0UL;
   diag[ FD_VINYL_DIAG_DROP_COMP ] += accum_drop_comp; accum_drop_comp   = 0UL;
-  diag[ FD_VINYL_DIAG_CACHE_HIT ] += accum_cache_hit; accum_cache_hit   = 0UL;
 
   /* Disconnect from the clients */
 

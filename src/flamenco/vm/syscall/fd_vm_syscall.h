@@ -698,9 +698,8 @@ FD_VM_SYSCALL_DECL( sol_get_processed_sibling_instruction );
 
      r1 - seeds, bytes VM pointer, indexed [0,seed_cnt),
      r2 - seed_cnt, may be 0,
-     r3 - program_id, byte VM pointer, indexed [0,32), FD_PUBKEY_ALIGN
-          aligned
-     r4 - out, byte VM pointer, indexed [0,32), FD_PUBKEY_ALIGN aligned
+     r3 - program_id, byte VM pointer, indexed [0,32), 8 byte aligned
+     r4 - out, byte VM pointer, indexed [0,32), 8 byte aligned
      r5 - ignored
 
      seed[i] holds the ulong pair
@@ -736,9 +735,8 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
      r1 - seed, ulong pair VM pointer, indexed [0,seed_cnt),
      r2 - seed_cnt, may be 0,
-     r3 - program_id, byte VM pointer, indexed [0,32), FD_PUBKEY_ALIGN
-          aligned
-     r4 - out, byte VM pointer, indexed [0,32), FD_PUBKEY_ALIGN aligned
+     r3 - program_id, byte VM pointer, indexed [0,32), 8 byte aligned
+     r4 - out, byte VM pointer, indexed [0,32), 8 byte aligned
      r5 - bump_seed, byte VM pointer, indexed [0,1)
 
      seed[i] holds the ulong pair

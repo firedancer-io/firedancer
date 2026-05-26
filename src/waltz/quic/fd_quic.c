@@ -1097,7 +1097,7 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn ) {
   stream->state        = FD_QUIC_STREAM_STATE_RX_FIN;
   stream->stream_flags = 0u;
 
-  memset( stream->tx_ack, 0, stream->tx_buf.cap >> 3ul );
+  memset( stream->tx_ack, 0, fd_quic_stream_tx_ack_bufsz( stream ) );
 
   /* insert into used streams */
   FD_QUIC_STREAM_LIST_REMOVE( stream );
@@ -1962,14 +1962,13 @@ fd_quic_handle_v1_retry(
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   if( FD_UNLIKELY( quic->config.role == FD_QUIC_ROLE_SERVER ) ) {
-    if( FD_UNLIKELY( conn ) ) { /* likely a misbehaving client w/o a conn */
-      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
-    }
+    /* RFC 9000 Section 5.2.2: servers MUST drop incoming packets for
+       which the RFC does not specify behavior */
     return FD_QUIC_PARSE_FAIL;
   }
 
   if( FD_UNLIKELY( !conn ) ) {
-    FD_DTRACE_PROBE_2( fd_quic_handle_v1_retry_no_conn , state->now, pkt->pkt_number );
+    FD_DTRACE_PROBE_2( fd_quic_handle_v1_retry_no_conn, state->now, pkt->pkt_number );
     quic->metrics.pkt_no_conn_cnt[1]++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2012,19 +2011,6 @@ fd_quic_handle_v1_retry(
   fd_quic_svc_prep_schedule_now( conn );
 
   return cur_sz;
-}
-
-ulong
-fd_quic_handle_v1_zero_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t const * pkt, uchar const * cur_ptr, ulong cur_sz ) {
-  (void)pkt;
-  (void)quic;
-  (void)cur_ptr;
-  (void)cur_sz;
-  /* since we do not support zero-rtt, simply fail the packet */
-  if( conn ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-  }
-  return FD_QUIC_PARSE_FAIL;
 }
 
 int
@@ -2207,8 +2193,22 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 }
 
 
+static inline int
+fd_quic_src_ip_allowed( fd_quic_conn_t const * conn,
+                        uint                   src_ip ) {
+  if( !conn ) return 1;
+  if( FD_LIKELY( conn->peer[0].ip_addr==src_ip ) ) return 1;
+
+  FD_DEBUG( FD_LOG_DEBUG(( "Rejected packet with non-sticky peer IPv4 address; conn=%u expected=" FD_IP4_ADDR_FMT " got=" FD_IP4_ADDR_FMT,
+                           conn->conn_idx,
+                           FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ),
+                           FD_IP4_ADDR_FMT_ARGS( src_ip ) )); )
+  return 0;
+}
+
 /* process v1 quic packets
    returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error */
+
 ulong
 fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 fd_quic_pkt_t * pkt,
@@ -2262,6 +2262,11 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* initialize packet number to unused value */
     pkt->pkt_number = FD_QUIC_PKT_NUM_UNUSED;
 
+    if( FD_UNLIKELY( !fd_quic_src_ip_allowed( conn, pkt->ip4->saddr ) ) ) {
+      quic->metrics.pkt_wrong_src_cnt++;
+      return FD_QUIC_PARSE_FAIL;
+    }
+
     switch( long_packet_type ) {
       case FD_QUIC_PKT_TYPE_INITIAL:
         rc = fd_quic_handle_v1_initial( quic, &conn, pkt, &dcid, &scid, cur_ptr, cur_sz );
@@ -2277,7 +2282,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
         rc = fd_quic_handle_v1_retry( quic, conn, pkt, cur_ptr, cur_sz );
         break;
       case FD_QUIC_PKT_TYPE_ZERO_RTT:
-        rc = fd_quic_handle_v1_zero_rtt( quic, conn, pkt, cur_ptr, cur_sz );
+        /* fd_quic does not support 0-RTT */
+        rc = FD_QUIC_PARSE_FAIL;
         break;
     }
 
@@ -2298,6 +2304,12 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* find connection id */
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
+
+    if( FD_UNLIKELY( !fd_quic_src_ip_allowed( conn, pkt->ip4->saddr ) ) ) {
+      quic->metrics.pkt_wrong_src_cnt++;
+      return FD_QUIC_PARSE_FAIL;
+    }
+
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
 
     fd_quic_svc_timers_schedule( state->svc_timers, conn, state->now );
@@ -2845,7 +2857,7 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
     return FD_QUIC_PARSE_FAIL;
   }
 
-  tls_hs->rx_sz = (ushort)rcv_hi;
+  if( rcv_hi > tls_hs->rx_sz ) tls_hs->rx_sz = (ushort)rcv_hi;
   fd_memcpy( tls_hs->rx_hs_buf + rcv_off, p, rcv_sz );
 
   int provide_rc = fd_quic_tls_process( conn->tls_hs );
@@ -4197,6 +4209,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      ushort                    self_udp_port,
                      int                       server ) {
   if( FD_UNLIKELY( !our_conn_id ) ) return NULL;
+  if( FD_UNLIKELY( !peer_ip_addr ) ) return NULL;
 
   fd_quic_config_t * config = &quic->config;
   fd_quic_state_t *  state  = fd_quic_get_state( quic );
@@ -4746,8 +4759,6 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
                            int                   is_largest,
                            long                  now,
                            ulong                 ack_delay ) {
-  /* FIXME: Close connection if peer ACKed a higher packet number than we sent */
-
   fd_quic_pkt_t * pkt = context->pkt;
 
   /* inclusive range */
@@ -4787,7 +4798,11 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
   ulong const       largest_ack = data->largest_ack;
 
   if( FD_UNLIKELY( data->first_ack_range > largest_ack ) ) {
-    /* this is a protocol violation, so inform the peer */
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  if( FD_UNLIKELY( largest_ack >= conn->pkt_number[pn_space] ) ) {
     fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }

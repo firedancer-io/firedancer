@@ -2,8 +2,9 @@
 
 #include "fd_solfuzz_private.h"
 #include "generated/block.pb.h"
-#include "generated/invoke.pb.h"
+#include "generated/instr.pb.h"
 #include "generated/txn.pb.h"
+#include "generated/bundle.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/elf.pb.h"
 
@@ -99,9 +100,9 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
 
   /* AcctState -> owner */
   if( !fd_memeq( expected->owner, actual->owner, sizeof(fd_pubkey_t) ) ) {
-    char a[ FD_BASE58_ENCODED_32_SZ ];
-    char b[ FD_BASE58_ENCODED_32_SZ ];
-    FD_LOG_WARNING(( "Owner mismatch: expected=%s, actual=%s", fd_acct_addr_cstr( a, expected->owner ), fd_acct_addr_cstr( b, actual->owner ) ));
+    FD_BASE58_ENCODE_32_BYTES( expected->owner, expected_b58 );
+    FD_BASE58_ENCODE_32_BYTES( actual->owner,   actual_b58   );
+    FD_LOG_WARNING(( "Owner mismatch: expected=%s, actual=%s", expected_b58, actual_b58 ));
     return 0;
   }
 
@@ -133,8 +134,8 @@ _diff_accounts( fd_exec_test_acct_state_t * expected,
       }
     }
     if( !found ) {
-      char a[ FD_BASE58_ENCODED_32_SZ ];
-      FD_LOG_WARNING(( "Account state not found in actual: expected=%s", fd_acct_addr_cstr( a, expected[i].address ) ));
+      FD_BASE58_ENCODE_32_BYTES( expected[i].address, a );
+      FD_LOG_WARNING(( "Account state not found in actual: expected=%s", a ));
       return 0;
     }
   }
@@ -305,6 +306,29 @@ fd_solfuzz_pb_txn_fixture( fd_solfuzz_runner_t * runner,
 
   // Cleanup
   pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
+  return ok;
+}
+
+int
+fd_solfuzz_pb_bundle_fixture( fd_solfuzz_runner_t * runner,
+                              uchar const *         in,
+                              ulong                 in_sz ) {
+  // Decode fixture
+  fd_exec_test_bundle_fixture_t fixture[1] = {0};
+  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_bundle_fixture_t_msg );
+  if( !res ) {
+    FD_LOG_WARNING(( "Invalid bundle fixture." ));
+    return 0;
+  }
+
+  fd_spad_push( runner->spad );
+  void * output = NULL;
+  fd_solfuzz_pb_execute_wrapper( runner, &fixture->input, &output, fd_solfuzz_pb_bundle_run );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_bundle_effects_t_msg, runner->spad );
+  fd_spad_pop( runner->spad );
+
+  // Cleanup
+  pb_release( &fd_exec_test_bundle_fixture_t_msg, fixture );
   return ok;
 }
 

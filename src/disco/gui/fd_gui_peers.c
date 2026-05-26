@@ -2,9 +2,7 @@
 #include "fd_gui_printf.h"
 #include "fd_gui_config_parse.h"
 #include "fd_gui_metrics.h"
-
 #include "../../disco/metrics/fd_metrics_base.h"
-#include "../../disco/shred/fd_stake_ci.h"
 
 FD_IMPORT_BINARY( dbip_f, "src/disco/gui/dbip.bin.zst" );
 
@@ -945,13 +943,15 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   if( FD_UNLIKELY( peers->epochs[ epoch_idx ].epoch!=ULONG_MAX && peers->epochs[ epoch_idx ].epoch>=epoch_info->epoch ) ) return;
 
   if( FD_UNLIKELY( epoch_info->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
-    FD_LOG_WARNING(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
+    FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
+  if( FD_UNLIKELY( epoch_info->staked_id_cnt>MAX_SHRED_DESTS ) )
+    FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
 
   fd_vote_stake_weight_t const * weights = fd_epoch_info_msg_stake_weights( epoch_info );
 
   ulong stakes_cnt = 0UL;
   for( ulong i=0UL; i<epoch_info->staked_vote_cnt; i++ ) {
-    if( FD_UNLIKELY( fd_pubkey_eq( &weights[ i ].id_key, &FD_DUMMY_ACCOUNT_PUBKEY ) ) ) continue;
+    if( FD_UNLIKELY( fd_pubkey_check_zero( &weights[ i ].id_key ) ) ) continue;
     peers->epochs[ epoch_idx ].stakes[ stakes_cnt ] = (fd_gui_peers_voter_t){
       .weight    = weights[ i ],
       .vote_slot = ULONG_MAX,
@@ -960,7 +960,6 @@ fd_gui_peers_handle_epoch_info( fd_gui_peers_ctx_t *        peers,
   }
   peers->epochs[ epoch_idx ].epoch      = epoch_info->epoch;
   peers->epochs[ epoch_idx ].stakes_cnt = stakes_cnt;
-  FD_TEST( stakes_cnt<=MAX_STAKED_LEADERS );
 
   /* sort for deduplication */
   fd_gui_peers_voter_sort_iden_desc_inplace( peers->epochs[ epoch_idx ].stakes, peers->epochs[ epoch_idx ].stakes_cnt );
@@ -1134,9 +1133,9 @@ fd_gui_peers_stage_snapshot_manifest( fd_gui_peers_ctx_t *           peers,
   fd_vote_stake_weight_t * vote_scratch = peers->scratch.manifest_vote_weights;
   ulong vote_scratch_cnt = 0UL;
   ulong vote_accounts_sz = manifest->vote_accounts_len;
-  if( FD_UNLIKELY( vote_accounts_sz>40200UL ) ) {
-    FD_LOG_WARNING(( "exceeded 40200UL vote accounts" ));
-    vote_accounts_sz = 40200UL;
+  if( FD_UNLIKELY( vote_accounts_sz>FD_VOTE_ACCOUNTS_MAX ) ) {
+    FD_LOG_WARNING(( "vote accounts %lu exceeds maximum %lu", vote_accounts_sz, FD_VOTE_ACCOUNTS_MAX ));
+    vote_accounts_sz = FD_VOTE_ACCOUNTS_MAX;
   }
   for( ulong i=0UL; i<vote_accounts_sz; i++ ) {
     if( FD_UNLIKELY( manifest->vote_accounts[ i ].stake==0UL ) ) continue;
@@ -1207,21 +1206,6 @@ fd_gui_peers_viewport_snap( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {
   if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt==0UL ) ) return; /* empty viewport */
   if( FD_UNLIKELY( peers->client_viewports[ ws_conn_id ].row_cnt>FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ) ) FD_LOG_ERR(("row_cnt=%lu", peers->client_viewports[ ws_conn_id ].row_cnt ));
 
-  if( FD_UNLIKELY( fd_gui_peers_live_table_active_sort_key_cnt( peers->live_table )==FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT ) ) {
-    /* we're out of cached sort keys. disconnect the oldest client */
-    ulong oldest_ws_conn_id    = ULONG_MAX;
-    long oldest_connected_time = LONG_MAX;
-    for( ulong i=0UL; i<peers->max_ws_conn_cnt; i++ ) {
-      if( FD_UNLIKELY( peers->client_viewports[ i ].connected && peers->client_viewports[ i ].connected_time < oldest_connected_time ) ) {
-        oldest_ws_conn_id = i;
-        oldest_connected_time = peers->client_viewports[ i ].connected_time;
-      }
-    }
-    FD_TEST( oldest_ws_conn_id!=ULONG_MAX );
-    fd_gui_peers_live_table_sort_key_remove( peers->live_table, &peers->client_viewports[ oldest_ws_conn_id ].sort_key );
-    FD_TEST( fd_gui_peers_live_table_active_sort_key_cnt( peers->live_table )==FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT-1UL );
-  }
-
   for( fd_gui_peers_live_table_fwd_iter_t iter = fd_gui_peers_live_table_fwd_iter_init( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key, peers->contact_info_table ), j = 0;
        !fd_gui_peers_live_table_fwd_iter_done( iter ) && j<peers->client_viewports[ ws_conn_id ].start_row+peers->client_viewports[ ws_conn_id ].row_cnt;
        iter = fd_gui_peers_live_table_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
@@ -1280,7 +1264,7 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
   const cJSON * _col = cJSON_GetObjectItemCaseSensitive( params, "col" );
   if( FD_UNLIKELY( !cJSON_IsArray( _col ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
-  fd_gui_peers_live_table_sort_key_t sort_key;
+  fd_gui_peers_live_table_sort_key_t sort_key = {0};
 
   do {
     cJSON * c;
@@ -1294,6 +1278,7 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
         return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
       }
     }
+    if( FD_UNLIKELY( i!=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } while( 0 );
 
   const cJSON * _dir = cJSON_GetObjectItemCaseSensitive( params, "dir" );
@@ -1304,8 +1289,10 @@ fd_gui_peers_request_sort( fd_gui_peers_ctx_t * peers,
     ulong i;
     for( c = _dir->child, i=0UL; c; c = c->next, i++ ) {
       if( FD_UNLIKELY( i >= fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+      if( FD_UNLIKELY( !cJSON_IsNumber( c ) || c->valuedouble!=(double)c->valueint || c->valueint<-1 || c->valueint>1 ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
       sort_key.dir[ i ] = c->valueint;
     }
+    if( FD_UNLIKELY( i!=fd_gui_peers_live_table_col_cnt() ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
   } while( 0 );
 
   if( FD_UNLIKELY( !fd_gui_peers_live_table_verify_sort_key( &sort_key ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;

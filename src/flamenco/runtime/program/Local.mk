@@ -39,6 +39,9 @@ ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_bpf_loader_serialization,test_bpf_loader_serialization,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bpf_loader_serialization)
 
+$(call make-unit-test,test_bpf_loader_program,test_bpf_loader_program,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_bpf_loader_program)
+
 $(call make-unit-test,test_vote_program,test_vote_program,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_vote_program)
 
@@ -50,3 +53,6 @@ endif
 
 $(call make-unit-test,test_compute_budget_decode,test_compute_budget_decode,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_compute_budget_decode)
+
+$(call make-unit-test,test_precompiles,test_precompiles,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_precompiles)

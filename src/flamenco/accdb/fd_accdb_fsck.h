@@ -5,8 +5,6 @@
    database. */
 
 #include "../../funk/fd_funk_base.h"
-#include "../../vinyl/io/fd_vinyl_io.h"
-#include "../../vinyl/meta/fd_vinyl_meta.h"
 
 /* FD_ACCDB_FSCK_* gives high-level fsck status results */
 
@@ -30,16 +28,6 @@ FD_PROTOTYPES_BEGIN
 uint
 fd_accdb_fsck_funk( fd_funk_t * funk,
                     uint        flags );
-
-/* fd_accdb_fsck_vinyl verifies a bstream and meta index.  Returns the
-   high-level result (FD_ACCDB_FSCK_*) and writes NOTICE/WARNING logs
-   along the way.  Assumes that no data cache is active (smashes bits
-   used by vinyl_data for integrity check scratch space). */
-
-uint
-fd_accdb_fsck_vinyl( fd_vinyl_io_t *   io,     /* must be io_mm */
-                     fd_vinyl_meta_t * meta,   /* local join to meta index */
-                     uint              flags );
 
 FD_PROTOTYPES_END
 

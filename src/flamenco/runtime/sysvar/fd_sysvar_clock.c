@@ -65,12 +65,7 @@ fd_sysvar_clock_read( fd_accdb_user_t *         accdb,
     return NULL;
   }
 
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro ) == 0UL ||
-                   fd_accdb_ref_data_sz ( ro ) <  sizeof(fd_sol_sysvar_clock_t) ) ) {
+  if( FD_UNLIKELY( fd_accdb_ref_data_sz ( ro ) <  sizeof(fd_sol_sysvar_clock_t) ) ) {
     fd_accdb_close_ro( accdb, ro );
     return NULL;
   }
@@ -135,7 +130,8 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
 
     ulong last_vote_slot;
     long  last_vote_timestamp;
-    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL );
+    uchar is_valid = 1;
+    int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL, &is_valid );
     if( FD_UNLIKELY( !found ) ) {
       fd_accdb_ro_t ro[1];
       if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &pubkey ) ) ) {
@@ -151,6 +147,7 @@ accum_vote_stakes_no_vat( fd_accdb_user_t *         accdb,
       last_vote_slot      = last_vote.slot;
       last_vote_timestamp = last_vote.timestamp;
     }
+    if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
     ulong slot_delta;
@@ -219,7 +216,8 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
     ulong       stake_t_2;
     ulong       last_vote_slot;
     long        last_vote_timestamp;
-    int is_valid = fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp );
+    uchar       is_valid;
+    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, &stake_t_2, NULL, &last_vote_slot, &last_vote_timestamp, &is_valid );
     if( FD_UNLIKELY( !is_valid ) ) continue;
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
@@ -227,7 +225,7 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
     int err = fd_ulong_checked_sub( current_slot, last_vote_slot, &slot_delta );
     if( FD_UNLIKELY( err ) ) {
       /* Don't count vote accounts with a last vote slot that is greater
-          than the current slot. */
+         than the current slot. */
       continue;
     }
 
@@ -271,12 +269,13 @@ accum_vote_stakes_vat( fd_bank_t *          bank,
    process with FD_LOG_ERR on failure (e.g. too many vote accounts).
 
   https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2563-L2601 */
-long
+static long
 get_timestamp_estimate( fd_accdb_user_t *         accdb,
                         fd_funk_txn_xid_t const * xid,
                         fd_bank_t *               bank,
                         fd_sol_sysvar_clock_t *   clock,
-                        fd_runtime_stack_t *      runtime_stack ) {
+                        fd_runtime_stack_t *      runtime_stack,
+                        ulong const *             parent_epoch ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->f.slot;
@@ -323,9 +322,11 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
 
   int const fix_estimate_into_u64 = FD_FEATURE_ACTIVE_BANK( bank, warp_timestamp_again );
 
-  /* Bound estimate by `max_allowable_drift` since the start of the epoch
+  /* Bound estimate by `max_allowable_drift` since the start of the
+     epoch.
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L69-L99 */
-  ulong epoch_start_slot      = fd_epoch_slot0( epoch_schedule, clock->epoch );
+  ulong epoch_for_start_slot  = parent_epoch ? *parent_epoch : curr_epoch;
+  ulong epoch_start_slot      = fd_epoch_slot0( epoch_schedule, epoch_for_start_slot );
   long  epoch_start_timestamp = clock->epoch_start_timestamp;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L71-L72 */
@@ -383,7 +384,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
 
   /* TODO: Are we handling slot 0 correctly?
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2176-L2183 */
-  long timestamp_estimate = get_timestamp_estimate( accdb, xid, bank, clock, runtime_stack );
+  long timestamp_estimate = get_timestamp_estimate( accdb, xid, bank, clock, runtime_stack, parent_epoch );
 
   /* If the timestamp was successfully calculated, use it. It not keep the old one. */
   if( FD_LIKELY( timestamp_estimate!=0L ) ) {

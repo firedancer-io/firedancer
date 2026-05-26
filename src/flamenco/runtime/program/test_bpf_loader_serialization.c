@@ -39,6 +39,8 @@ typedef struct fixture_region fixture_region_t;
 
 struct fixture_acc_meta {
   ulong original_data_len;
+  ulong vm_addr;
+  int   vm_addr_present;
   ulong vm_key_addr;
   ulong vm_lamports_addr;
   ulong vm_owner_addr;
@@ -57,6 +59,7 @@ struct fixture_input {
   fd_pubkey_t               program_id;
   uchar                     virtual_address_space_adj;
   uchar                     direct_mapping;
+  uchar                     direct_account_pointers_in_program_input;
   uchar                     is_deprecated;
 };
 typedef struct fixture_input fixture_input_t;
@@ -140,6 +143,10 @@ check_acc_meta( fd_vm_acc_region_meta_t const * got,
                 ulong                           idx ) {
   if( got->original_data_len!=expected->original_data_len ) {
     FD_LOG_WARNING(( "acc_meta[%lu] original_data_len: got %lu, expected %lu", idx, got->original_data_len, expected->original_data_len ));
+    return 0;
+  }
+  if( expected->vm_addr_present && got->vm_addr!=expected->vm_addr ) {
+    FD_LOG_WARNING(( "acc_meta[%lu] vm_addr: got %lu, expected %lu", idx, got->vm_addr, expected->vm_addr ));
     return 0;
   }
   if( got->vm_key_addr!=expected->vm_key_addr ) {
@@ -271,9 +278,10 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
     cJSON_Delete( root ); return -1;
   }
 
-  in->virtual_address_space_adj = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "virtual_address_space_adjustments" ) ) ? 1U : 0U;
-  in->direct_mapping            = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"          ) ) ? 1U : 0U;
-  in->is_deprecated             = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                 ) ) ? 1U : 0U;
+  in->virtual_address_space_adj                = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "virtual_address_space_adjustments"        ) ) ? 1U : 0U;
+  in->direct_mapping                           = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "account_data_direct_mapping"              ) ) ? 1U : 0U;
+  in->direct_account_pointers_in_program_input = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "direct_account_pointers_in_program_input" ) ) ? 1U : 0U;
+  in->is_deprecated                            = cJSON_IsTrue( cJSON_GetObjectItemCaseSensitive( input, "is_deprecated_loader"                     ) ) ? 1U : 0U;
 
   cJSON * output = cJSON_GetObjectItemCaseSensitive( root, "output" );
   out->result = cJSON_GetObjectItemCaseSensitive( output, "result" )->valueint;
@@ -326,6 +334,14 @@ parse_fixture( fd_alloc_t * alloc, char const * json_str, fixture_t * fix ) {
       out->acc_metas[i].vm_lamports_addr   = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_lamports_addr"   )->valuedouble;
       out->acc_metas[i].vm_owner_addr      = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_owner_addr"      )->valuedouble;
       out->acc_metas[i].vm_data_addr       = (ulong)cJSON_GetObjectItemCaseSensitive( m, "vm_data_addr"       )->valuedouble;
+      cJSON * vm_addr_item                 = cJSON_GetObjectItemCaseSensitive( m, "vm_addr" );
+      if( vm_addr_item ) {
+        out->acc_metas[i].vm_addr         = (ulong)vm_addr_item->valuedouble;
+        out->acc_metas[i].vm_addr_present = 1;
+      } else {
+        out->acc_metas[i].vm_addr         = 0UL;
+        out->acc_metas[i].vm_addr_present = 0;
+      }
     }
 
     out->instr_data_offset = (ulong)cJSON_GetObjectItemCaseSensitive( output, "instruction_data_offset" )->valuedouble;
@@ -482,8 +498,9 @@ run_fixture( fd_alloc_t * alloc,
   int program_idx = find_program_index( in );
   FD_TEST( program_idx>=0 );
 
-  FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, is_deprecated=%d",
-                  in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping, in->is_deprecated ));
+  FD_LOG_NOTICE(( "  %s: %lu accounts, virtual_address_space_adj=%d, direct_mapping=%d, direct_account_pointers=%d, is_deprecated=%d",
+                  in->name, in->num_accounts, in->virtual_address_space_adj, in->direct_mapping,
+                  in->direct_account_pointers_in_program_input, in->is_deprecated ));
 
   uchar **           storage = NULL;
   fd_txn_out_t *     txn_out = NULL;
@@ -508,6 +525,7 @@ run_fixture( fd_alloc_t * alloc,
   int result = fd_bpf_loader_input_serialize_parameters(
       ctx, pre_lens, regions, &region_cnt, acc_metas,
       in->virtual_address_space_adj, in->direct_mapping,
+      in->direct_account_pointers_in_program_input,
       in->is_deprecated,
       &idata_offset, &serialized_sz );
 

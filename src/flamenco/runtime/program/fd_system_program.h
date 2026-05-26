@@ -12,7 +12,6 @@
    https://github.com/anza-xyz/solana-sdk/blob/system-interface%40v3.0.0/system-interface/src/instruction.rs#L92-L299 */
 
 #include "../../fd_flamenco_base.h"
-#include "../../types/fd_types.h"
 #include "../../../ballet/utf8/fd_utf8.h"
 
 /* Custom error types */
@@ -578,8 +577,7 @@ int fd_system_program_exec_create_account_allow_prefund( fd_exec_instr_ctx_t * c
    the nonce provided in the transaction. */
 
 int
-fd_check_transaction_age( fd_runtime_t *      runtime,
-                          fd_bank_t *         bank,
+fd_check_transaction_age( fd_bank_t *         bank,
                           fd_txn_in_t const * txn_in,
                           fd_txn_out_t *      txn_out );
 

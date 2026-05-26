@@ -8,7 +8,6 @@
 
 #include "../../../util/fd_util_base.h"
 #include "../../../util/net/fd_net_headers.h"
-#include "../../../flamenco/types/fd_types_custom.h"
 #include "fd_sspeer.h"
 
 #define FD_SSPEER_SELECTOR_MAGIC (0xF17EDA2CE5593350) /* FIREDANCE SSPING V0 */
@@ -28,14 +27,11 @@
 /* Sentinel value indicating that peer latency has not been measured. */
 #define FD_SSPEER_LATENCY_UNKNOWN (ULONG_MAX)
 
-/* Return codes for fd_sspeer_selector_update_on_resolve. */
-#define FD_SSPEER_UPDATE_SUCCESS         ( 0)
-#define FD_SSPEER_UPDATE_ERR_NULL_KEY    (-1)
-#define FD_SSPEER_UPDATE_ERR_NOT_FOUND   (-2)
-#define FD_SSPEER_UPDATE_ERR_INVALID_ARG (-3)
+/* Return code for fd_sspeer_selector_update (internal). */
+#define FD_SSPEER_UPDATE_SUCCESS ( 0)
 
-/* fd_sscluster_slot stores the highest full and incremental slot pair
-   seen in the cluster. */
+/* fd_sscluster_slot stores the max value for full and incremental
+   slot computed from all tracked peers in the cluster. */
 struct fd_sscluster_slot {
   ulong full;
   ulong incremental;
@@ -47,12 +43,13 @@ typedef struct fd_sscluster_slot fd_sscluster_slot_t;
     selector, including the peer's address, resolved snapshot slots,
     and selector score. */
 struct fd_sspeer {
-  fd_ip4_port_t addr;      /* address of the peer */
-  ulong         full_slot;
-  ulong         incr_slot;
-  ulong         score;    /* selector score of peer */
-  uchar         full_hash[ FD_HASH_FOOTPRINT ];
-  uchar         incr_hash[ FD_HASH_FOOTPRINT ];
+  fd_sspeer_key_t key;       /* key identifying the peer */
+  fd_ip4_port_t   addr;      /* address of the peer */
+  ulong           full_slot;
+  ulong           incr_slot;
+  ulong           score;    /* selector score of peer */
+  uchar           full_hash[ FD_HASH_FOOTPRINT ];
+  uchar           incr_hash[ FD_HASH_FOOTPRINT ];
 };
 
 typedef struct fd_sspeer fd_sspeer_t;
@@ -71,7 +68,6 @@ fd_sspeer_selector_footprint( ulong max_peers );
 void *
 fd_sspeer_selector_new( void * shmem,
                         ulong  max_peers,
-                        int    incremental_snapshot_fetch,
                         ulong  seed );
 
 fd_sspeer_selector_t *
@@ -82,27 +78,6 @@ fd_sspeer_selector_leave( fd_sspeer_selector_t * selector );
 
 void *
 fd_sspeer_selector_delete( void * shselector );
-
-/* Update the selector when an http server is resolved.  The peer is
-   identified by key.  The values that can be updated are slot and
-   hash, for both full and incremental snapshots.  Returns
-   FD_SSPEER_UPDATE_SUCCESS on success, FD_SSPEER_UPDATE_ERR_NULL_KEY
-   if key==NULL, FD_SSPEER_UPDATE_ERR_NOT_FOUND if the key was not
-   found, and FD_SSPEER_UPDATE_ERR_INVALID_ARG if the update failed
-   due to invalid arguments (e.g. incr_slot < full_slot).
-
-   Slot-based incremental clearing: when the caller provides
-   incr_slot==FD_SSPEER_SLOT_UNKNOWN and full_slot!=FD_SSPEER_SLOT_UNKNOWN,
-   the peer's existing incremental data is cleared if it is stale
-   (peer->incr_slot < full_slot).  Otherwise, existing incremental
-   data is preserved. */
-int
-fd_sspeer_selector_update_on_resolve( fd_sspeer_selector_t *  selector,
-                                      fd_sspeer_key_t const * key,
-                                      ulong                   full_slot,
-                                      ulong                   incr_slot,
-                                      uchar const             full_hash[ FD_HASH_FOOTPRINT ],
-                                      uchar const             incr_hash[ FD_HASH_FOOTPRINT ] );
 
 /* Update the selector when a ping response is received.  The only
    value that can be updated is the latency.  If multiple peers
@@ -158,16 +133,16 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                          int                    incremental,
                          ulong                  base_slot );
 
-/* Updates the selector's internal cluster slot and re-score all peers
-   when the cluster slot updates (moves forward) */
+/* Recompute the selector's internal cluster slot from the max of
+   all tracked peers' slots.  If the max changes, all peers are
+   rescored.  add() and remove() only mark the selector dirty;
+   callers must invoke this function after mutations to apply the
+   recomputation.  No-op when the dirty flag is not set. */
 void
-fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
-                                         ulong                  full_slot,
-                                         ulong                  incr_slot );
+fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector );
 
 /* Obtain the cluster slot from the selector.  It is the highest
-   resolved full/incremental slot pair seen from snapshot hashes or
-   from resolved http peers. */
+   of all tracked peers' full/incremental slots. */
 fd_sscluster_slot_t
 fd_sspeer_selector_cluster_slot( fd_sspeer_selector_t * selector );
 

@@ -149,6 +149,14 @@ state_validate( fd_slot_delta_parser_t * parser ) {
         return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT;
       }
       break;
+    case STATE_STATUS_TXN_IDX:
+      if( FD_UNLIKELY( parser->txnhash_offset>FD_SLOT_DELTA_MAX_TXNHASH_OFFSET ) ) {
+        FD_LOG_WARNING(( "slot delta validation failed: %s (%d)",
+                         fd_slot_delta_parser_advance_str( FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET ),
+                         FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET ));
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_INVALID_TXNHASH_OFFSET;
+      }
+      break;
     default: break;
   }
 
@@ -416,7 +424,15 @@ fd_slot_delta_parser_consume( fd_slot_delta_parser_t *                parser,
   }
 
   result->bytes_consumed = (ulong)(data - buf);
-  return parser->state==STATE_DONE ? FD_SLOT_DELTA_PARSER_ADVANCE_DONE : FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN;
+  if( FD_LIKELY( parser->state==STATE_DONE ) ) return FD_SLOT_DELTA_PARSER_ADVANCE_DONE;
+
+  if( FD_UNLIKELY( !bufsz ) ) {
+    FD_LOG_WARNING(( "unexpected end of data while parsing slot delta, state=%d, dst_cur=%lu, dst_sz=%lu",
+                     parser->state, parser->dst_cur, parser->dst_sz ));
+    return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_UNEXPECTED_EOF;
+  }
+
+  return FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN;
 }
 
 fd_slot_delta_slot_set_t

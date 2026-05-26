@@ -376,7 +376,6 @@ static char const * FLOATING[] = {
   "bencho",
   "genesi", /* FIREDANCER ONLY */
   "ipecho", /* FIREDANCER ONLY */
-  "snapwr", /* FIREDANCER ONLY */
   NULL
 };
 
@@ -387,12 +386,8 @@ static char const * STARTUP[] = {
   "snapld", /* FIREDANCER only */
   "snapdc", /* FIREDANCER only */
   "snapin", /* FIREDANCER only */
-  "snapwm", /* FIREDANCER only */
-  "snapwh", /* FIREDANCER only */
   "snapla", /* FIREDANCER only */
   "snapls", /* FIREDANCER only */
-  "snaplh", /* FIREDANCER only */
-  "snaplv", /* FIREDANCER only */
   NULL
 };
 
@@ -400,7 +395,6 @@ static char const * STARTUP[] = {
    (Must sleep until snapshot load finishes) */
 static char const * POST_START[] = {
   "resolv", /* FIREDANCER only */
-  "accdb",  /* FIREDANCER only */
   "execle", /* FIREDANCER only */
   "poh",    /* FIREDANCER only */
   "execrp", /* FIREDANCER only */
@@ -448,6 +442,23 @@ static char const * CRITICAL_TILES[] = {
   "gui",
   NULL
 };
+
+int
+fd_topob_tile_priority_type( char const * name ) {
+  for( char const ** p = FLOATING; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_FLOATING;
+  }
+  for( char const ** p = STARTUP; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_STARTUP;
+  }
+  for( char const ** p = CRITICAL_TILES; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_CRITICAL;
+  }
+  for( char const ** p = POST_START; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_NORMAL;
+  }
+  return FD_TOPOB_PRIORITY_FLOATING;
+}
 
 static void
 auto_tile_cpu( fd_topo_tile_t * tile,

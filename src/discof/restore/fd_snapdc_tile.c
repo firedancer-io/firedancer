@@ -100,6 +100,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
                      ulong               chunk,
                      ulong               sz ) {
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_META ) ) return;
+  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_LOAD_COMPLETE ) ) return;
 
   /* All control messages cause us to want to reset the decompression stream */
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
@@ -357,7 +358,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.mem, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu",
                  scratch_top - (ulong)scratch - scratch_footprint( tile ),
@@ -368,7 +369,7 @@ unprivileged_init( fd_topo_t *      topo,
 /* handle_data_frag can publish one data frag plus an error frag */
 #define STEM_BURST 2UL
 
-#define STEM_LAZY  1000L
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapdc_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_snapdc_tile_t)

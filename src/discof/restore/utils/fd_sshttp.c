@@ -6,7 +6,7 @@
 #include "../../../waltz/openssl/fd_openssl_tile.h"
 #include "../../../waltz/openssl/fd_openssl.h"
 #include "../../../util/log/fd_log.h"
-#include "../../../flamenco/types/fd_types_custom.h"
+#include "../../../waltz/http/fd_http.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -47,6 +47,7 @@ fd_sshttp_new( void * shmem ) {
   fd_sshttp_t * sshttp = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sshttp_t), sizeof(fd_sshttp_t) );
 
   sshttp->state = FD_SSHTTP_STATE_INIT;
+  sshttp->sockfd = -1;
   sshttp->content_len = 0UL;
   fd_cstr_fini( sshttp->snapshot_name );
 
@@ -101,31 +102,39 @@ fd_sshttp_join( void * shhttp ) {
 }
 
 #if FD_HAS_OPENSSL
-static void
+static int
 http_init_ssl( fd_sshttp_t * http ) {
   FD_TEST( http->hostname );
   FD_TEST( http->ssl_ctx );
 
   http->ssl = SSL_new( http->ssl_ctx );
   if( FD_UNLIKELY( !http->ssl ) ) {
-    FD_LOG_ERR(( "SSL_new failed for %s", http->hostname ));
+    FD_LOG_WARNING(( "SSL_new failed for %s", http->hostname ));
+    return -1;
   }
 
   static uchar const alpn_protos[] = { 8, 'h', 't', 't', 'p', '/', '1', '.', '1' };
   int alpn_res = SSL_set_alpn_protos( http->ssl, alpn_protos, sizeof(alpn_protos) );
   if( FD_UNLIKELY( alpn_res!=0 ) ) {
-    FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d) for %s", alpn_res, http->hostname ));
+    FD_LOG_WARNING(( "SSL_set_alpn_protos failed (%d) for %s", alpn_res, http->hostname ));
+    SSL_free( http->ssl ); http->ssl = NULL;
+    return -1;
   }
 
   /* set SNI and hostname verification */
   long sni_res = SSL_set_tlsext_host_name( http->ssl, http->hostname );
   if( FD_UNLIKELY( !sni_res ) ) {
-    FD_LOG_ERR(( "SSL_set_tlsext_host_name failed (%ld) for %s", sni_res, http->hostname ));
+    FD_LOG_WARNING(( "SSL_set_tlsext_host_name failed (%ld) for %s", sni_res, http->hostname ));
+    SSL_free( http->ssl ); http->ssl = NULL;
+    return -1;
   }
   int set1_host_res = SSL_set1_host( http->ssl, http->hostname );
   if( FD_UNLIKELY( !set1_host_res ) ) {
-    FD_LOG_ERR(( "SSL_set1_host failed (%d) for %s", set1_host_res, http->hostname ));
+    FD_LOG_WARNING(( "SSL_set1_host failed (%d) for %s", set1_host_res, http->hostname ));
+    SSL_free( http->ssl ); http->ssl = NULL;
+    return -1;
   }
+  return 0;
 }
 #endif
 
@@ -145,7 +154,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   if( FD_LIKELY( is_https ) ) {
 #if FD_HAS_OPENSSL
-    http_init_ssl( http );
+    if( FD_UNLIKELY( http_init_ssl( http ) ) ) return -1;
 #else
   FD_LOG_ERR(( "cannot make HTTPS connection without OpenSSL" ));
 #endif
@@ -153,22 +162,30 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   if( hops!=ULONG_MAX ) http->hops = hops;
   http->request_sent = 0UL;
+  int fmt_ok;
   if( FD_LIKELY( is_https ) ) {
-    FD_TEST( fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
+    fmt_ok = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
       "GET %.*s HTTP/1.1\r\n"
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
       "Host: %s\r\n\r\n",
-      (int)path_len, path, hostname ) );
+      (int)path_len, path, hostname );
   } else {
-    FD_TEST( fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
+    fmt_ok = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
       "GET %.*s HTTP/1.1\r\n"
       "User-Agent: Firedancer\r\n"
       "Accept: */*\r\n"
       "Accept-Encoding: identity\r\n"
       "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-      (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ) ) );
+      (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ) );
+  }
+  if( FD_UNLIKELY( !fmt_ok ) ) {
+    FD_LOG_WARNING(( "HTTP request too long for %.*s", (int)path_len, path ));
+#if FD_HAS_OPENSSL
+    if( FD_LIKELY( http->ssl ) ) { SSL_free( http->ssl ); http->ssl = NULL; }
+#endif
+    return -1;
   }
 
   http->response_len = 0UL;
@@ -178,8 +195,14 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   http->addr   = addr;
   http->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
-  if( FD_UNLIKELY( -1==http->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
-                                                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+  if( FD_UNLIKELY( -1==http->sockfd ) ) {
+    FD_LOG_WARNING(( "socket() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+#if FD_HAS_OPENSSL
+    if( FD_LIKELY( http->ssl ) ) { SSL_free( http->ssl ); http->ssl = NULL; }
+#endif
+    return -1;
+  }
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
@@ -203,7 +226,17 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   if( FD_LIKELY( is_https ) ) {
 #if FD_HAS_OPENSSL
-    FD_TEST( fd_openssl_ssl_set_fd( http->ssl, http->sockfd ) );
+    if( FD_UNLIKELY( !fd_openssl_ssl_set_fd( http->ssl, http->sockfd ) ) ) {
+      FD_LOG_WARNING(( "fd_openssl_ssl_set_fd failed for " FD_IP4_ADDR_FMT ":%hu",
+                       FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) {
+        FD_LOG_ERR(( "close() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      }
+      http->sockfd = -1;
+      SSL_free( http->ssl ); http->ssl = NULL;
+      return -1;
+    }
 #endif
     http->state    = FD_SSHTTP_STATE_CONNECT;
     http->deadline = now + FD_SSHTTP_DEADLINE_NANOS;
@@ -233,8 +266,7 @@ http_connect_ssl( fd_sshttp_t * http,
     if( FD_UNLIKELY( ssl_err_code!=SSL_ERROR_WANT_READ && ssl_err_code!=SSL_ERROR_WANT_WRITE ) ) {
       FD_LOG_WARNING(( "SSL_connect failed (%d-%s) to " FD_IP4_ADDR_FMT ":%hu", ssl_err_code, fd_openssl_ssl_strerror( ssl_err_code ),
                        FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
-      SSL_free( http->ssl );
-      http->ssl = NULL;
+      fd_sshttp_cancel( http );
       return FD_SSHTTP_ADVANCE_ERROR;
     }
     /* in progress */
@@ -262,8 +294,7 @@ http_shutdown_ssl( fd_sshttp_t * http,
     if( FD_UNLIKELY( ssl_err_code!=SSL_ERROR_WANT_READ && ssl_err_code!=SSL_ERROR_WANT_WRITE && res!=0 ) ) {
       FD_LOG_WARNING(( "SSL_shutdown failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", ssl_err_code, fd_openssl_ssl_strerror( ssl_err_code ),
                        FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
-      SSL_free( http->ssl );
-      http->ssl = NULL;
+      fd_sshttp_cancel( http );
       return FD_SSHTTP_ADVANCE_ERROR;
     }
 
@@ -381,9 +412,13 @@ http_recv( fd_sshttp_t * http,
         .fd = http->sockfd,
         .events = POLLIN,
       };
-      if( -1==fd_syscall_poll( &pfd, 1 /*fds*/, 1 /*ms*/ ) ) {
-        FD_LOG_ERR(( "fd_syscall_poll() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
-                     FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      if( FD_UNLIKELY( -1==fd_syscall_poll( &pfd, 1 /*fds*/, 1 /*ms*/ ) ) ) {
+        if( FD_UNLIKELY( errno!=EINTR ) ) {
+          FD_LOG_WARNING(( "fd_syscall_poll() failed (%d-%s) for " FD_IP4_ADDR_FMT ":%hu", errno, fd_io_strerror( errno ),
+                           FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+          fd_sshttp_cancel( http );
+          return FD_SSHTTP_ADVANCE_ERROR;
+        }
       }
     }
     return FD_SSHTTP_ADVANCE_AGAIN;
@@ -492,13 +527,29 @@ follow_redirect( fd_sshttp_t *        http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  if( FD_UNLIKELY( !fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
-    "GET %.*s HTTP/1.1\r\n"
-    "User-Agent: Firedancer\r\n"
-    "Accept: */*\r\n"
-    "Accept-Encoding: identity\r\n"
-    "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-    (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) ) ) ) {
+  /* Pre-validate that the redirect request will fit in the request
+     buffer.  The request is rebuilt from scratch by fd_sshttp_init
+     during the redirect, but the format must match so that a path
+     accepted here will not overflow in fd_sshttp_init. */
+  int pre_check;
+  if( FD_LIKELY( http->is_https ) ) {
+    pre_check = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
+      "GET %.*s HTTP/1.1\r\n"
+      "User-Agent: Firedancer\r\n"
+      "Accept: */*\r\n"
+      "Accept-Encoding: identity\r\n"
+      "Host: %s\r\n\r\n",
+      (int)location_len, location, http->hostname );
+  } else {
+    pre_check = fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
+      "GET %.*s HTTP/1.1\r\n"
+      "User-Agent: Firedancer\r\n"
+      "Accept: */*\r\n"
+      "Accept-Encoding: identity\r\n"
+      "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
+      (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) );
+  }
+  if( FD_UNLIKELY( !pre_check ) ) {
     FD_LOG_WARNING(( "redirect request too long `%.*s` from " FD_IP4_ADDR_FMT ":%hu", (int)location_len, location,
                      FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
     fd_sshttp_cancel( http );
@@ -572,7 +623,7 @@ read_response( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_AGAIN;
   }
 
-  int is_redirect = (status==301) | (status==302) | (status==303) | (status==304) | (status==307) | (status==308);
+  int is_redirect = (status==301) | (status==302) | (status==303) | (status==307) | (status==308);
   if( FD_UNLIKELY( is_redirect ) ) {
     return follow_redirect( http, headers, header_cnt, now );
   }
@@ -590,7 +641,13 @@ read_response( fd_sshttp_t * http,
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
     if( FD_LIKELY( strncasecmp( headers[i].name, "content-length", 14UL ) ) ) continue;
 
-    http->content_len = strtoul( headers[i].value, NULL, 10 );
+    ulong val = 0UL;
+    if( FD_UNLIKELY( fd_http_parse_content_len( headers[i].value, (ulong)headers[i].value_len, &val ) || val==0UL ) ) {
+      FD_LOG_WARNING(( "invalid content-length in response from " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ) ));
+      fd_sshttp_cancel( http );
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
+    http->content_len = val;
     break;
   }
 
@@ -603,7 +660,7 @@ read_response( fd_sshttp_t * http,
 
   http->state = FD_SSHTTP_STATE_DL;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
-    ulong need_len = http->response_len - (ulong)parsed;
+    ulong need_len = fd_ulong_min( http->response_len - (ulong)parsed, http->content_len );
     if( FD_UNLIKELY( *data_len<need_len ) ) {
       FD_LOG_WARNING(( "data buffer too small (data_len=%lu required=%lu response_len=%lu parsed=%lu)",
                        *data_len, need_len, http->response_len, (ulong)parsed ));
@@ -641,8 +698,6 @@ read_body( fd_sshttp_t * http,
   FD_TEST( http->content_read<http->content_len );
   long read = http_recv( http, data, fd_ulong_min( *data_len, http->content_len-http->content_read ) );
   if( FD_UNLIKELY( read<=0 ) ) return (int)read;
-
-  if( FD_UNLIKELY( !read ) ) return FD_SSHTTP_ADVANCE_AGAIN;
 
   *data_len = (ulong)read;
   http->content_read += (ulong)read;

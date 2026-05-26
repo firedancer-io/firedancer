@@ -100,9 +100,10 @@ struct fd_replay_tile {
 
   fd_hash_t expected_bank_hash;
 
+  ulong            blockhash_seed;
   ulong            reasm_seed;
   fd_reasm_t     * reasm;
-  fd_reasm_fec_t * reasm_evicted;       /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
+  fd_reasm_fec_t * reasm_evicted; /* evicted FEC by reasm_insert must be stored in returnable_frag, and then drained in after_credit */
 
   fd_sched_t * sched;
   ulong        in_cnt;
@@ -122,10 +123,8 @@ struct fd_replay_tile {
   int   has_expected_genesis_timestamp;
   ulong expected_genesis_timestamp;
 
-#define FD_REPLAY_HARD_FORKS_MAX (64UL)
-  ulong hard_forks_cnt;
-  ulong hard_forks[ FD_REPLAY_HARD_FORKS_MAX ];
-  ulong hard_forks_cnts[ FD_REPLAY_HARD_FORKS_MAX ];
+  ulong          hard_fork_cnt;
+  fd_hard_fork_t hard_forks[ FD_HARD_FORKS_MAX ];
 
   ushort expected_shred_version;
   ushort ipecho_shred_version;

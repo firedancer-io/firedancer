@@ -243,8 +243,11 @@ fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
     } _map_txn;
     fd_prog_recm_txn_t * map_txn = fd_prog_recm_txn_init( _map_txn.txn, cache->rec.map, 1UL );
     fd_prog_recm_txn_add( map_txn, &rec->pair, 1 );
-    int txn_err = fd_prog_recm_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
-    if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) ) {
+    int txn_err = fd_prog_recm_txn_try( map_txn, 0 );
+    if( FD_UNLIKELY( txn_err==FD_MAP_ERR_AGAIN ) ) {
+      FD_SPIN_PAUSE();
+      continue;
+    } else if( FD_UNLIKELY( txn_err!=FD_MAP_SUCCESS ) ) {
       FD_LOG_CRIT(( "Failed to insert progcache record: cannot lock funk rec map chain: %i-%s", txn_err, fd_map_strerror( txn_err ) ));
     }
 
@@ -257,7 +260,12 @@ fd_progcache_txn_publish_release( fd_progcache_join_t * cache,
     }
 
     /* Migrate record to root */
-    fd_rwlock_write( &rec->lock );
+    if( FD_UNLIKELY( !fd_rwlock_trywrite( &rec->lock ) ) ) {
+      fd_prog_recm_txn_test( map_txn );
+      fd_prog_recm_txn_fini( map_txn );
+      FD_SPIN_PAUSE();
+      continue;
+    }
     fd_racesan_hook( "prog_publish_release:pre_retag" );
     rec->prev_idx = UINT_MAX;
     rec->next_idx = UINT_MAX;

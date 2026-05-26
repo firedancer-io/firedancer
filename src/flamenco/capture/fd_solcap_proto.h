@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_capture_fd_solcap_proto_h
 #define HEADER_fd_src_flamenco_capture_fd_solcap_proto_h
 
-#include "../types/fd_types.h"
+#include "../fd_flamenco_base.h"
 #include "../../util/net/fd_pcapng_private.h"
 #include <stdbool.h>
 

@@ -1,35 +1,37 @@
 # Firedancer
 
-## Overview
-
 This repo contains two validator clients:
 
 - **Firedancer** — A fully C-based Solana validator client.
-- **Frankendancer** — A hybrid validator that uses an FFI shim to call out to the `agave/` Rust submodule for some functions.
+- **Frankendancer** — Legacy Rust/C hybrid validator.
 
-## Topologies
+Unless prompted, only focus on Firedancer and avoid Frankendancer-specific parts (fdctl, fddev, discoh).
+focus on Firedancer equivalents (firedancer-dev, discof).
 
-- **Firedancer topology:** `src/app/firedancer/topology.c`
-  - All files in `src/discof/` are for Firedancer only (not Frankendancer).
-- **Frankendancer topology:** `src/app/fdctl/topology.c`
-  - All files in `src/discoh/` are for Frankendancer only (not Firedancer).
-- Many other files are shared between both clients — see the topology files for details.
+Topology: `src/app/firedancer/topology.c`.
+Tiles: `src/disco`, `src/discof`.
 
 ## Building
 
-**Firedancer:**
-```bash
-make -j
-```
+`make -j` - builds everything
+`make -j firedancer-dev` - builds dev validator
+`make -j test_blake3` - builds a test
 
-**Frankendancer:**
-```bash
-git submodule update --init --recursive && make -j fdctl solana
-```
+The default make parameters are:
+- CC=gcc
+- MACHINE=native
+- EXTRAS=''
+
+Always isolate build dirs when changing Make params, e.g.:
+- `make -j BUILDDIR=clang-fuzz-asan CC=clang EXTRAS="fuzz asan"`
+- `make -j BUILDDIR=clang-cov CC=clang EXTRAS=cov`
+
+For Firedancer builds:
+- keep a single flat name for BUILDDIR
+- never pass arbitrary other make variables
+- never invoke raw gcc
 
 ## Auto-generated Code
-
-Some code is auto-generated. Do not edit generated files directly — regenerate them instead.
 
 - **Metrics:** After changing `metrics.xml`, run:
   ```bash
@@ -43,28 +45,11 @@ Some code is auto-generated. Do not edit generated files directly — regenerate
   ```
   Regenerates `fd_features_generated.h` and `fd_features_generated.c`.
 
-- **Types:** After changing `fd_types.json`, run:
+- **Protobufs:** After protosol proto definitions change, run:
   ```bash
-  cd src/flamenco/types && make stubs
+  make -C src/flamenco/runtime/tests protobufs
   ```
-  Regenerates `fd_types.h` and `fd_types.c`.
-
-## Fuzzing
-
-### build fuzzer
-make -j CC=clang EXTRAS=fuzz BUILDDIR=clang-fuzz
-
-### build coverage report
-make -j CC=clang EXTRAS=llvm-cov BUILDDIR=clang-cov
-
-### start fuzzing
-CORPUS=/data/corpus/my_fuzzer
-mkdir $CORPUS
-build/clang-fuzz/fuzz-test/my_fuzzer $CORPUS -timeout=3
-
-### look at coverage report
-./contrib/test/single_test_cov.sh build/clang-cov/fuzz-test/my_fuzzer $CORPUS
-python3 -m http.server 12000
+  Regenerates all files in `src/flamenco/runtime/tests/generated/`.
 
 ## Code Style
 

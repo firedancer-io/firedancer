@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_stake_types_h
 #define HEADER_fd_src_flamenco_stakes_fd_stake_types_h
 
-#include "../types/fd_types_custom.h"
+#include "../fd_flamenco_base.h"
 
 #define FD_STAKE_STATE_SZ (200UL)
 

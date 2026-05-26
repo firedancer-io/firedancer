@@ -21,7 +21,7 @@ struct vote_ele {
   ulong       stake;
   ulong       last_vote_slot;
   long        last_vote_timestamp;
-  uchar       commission;
+  ushort      commission;
   uchar       is_valid;
 
   ushort      left;
@@ -182,7 +182,7 @@ fd_top_votes_insert( fd_top_votes_t *    top_votes,
                      fd_pubkey_t const * pubkey,
                      fd_pubkey_t const * node_account,
                      ulong               stake,
-                     uchar               commission ) {
+                     ushort              commission ) {
 /* If the heap is full, treat the current minimum stake as the cutoff
    stake.  This matches Agave's retain(stake > floor_stake) behavior:
    1. Reject candidates below the cutoff.
@@ -256,19 +256,20 @@ fd_top_votes_query( fd_top_votes_t const * top_votes,
                     ulong *                stake_out_opt,
                     ulong *                last_vote_slot_out_opt,
                     long *                 last_vote_timestamp_out_opt,
-                    uchar *                commission_out_opt ) {
+                    ushort *               commission_out_opt,
+                    uchar *                is_valid_out_opt ) {
   vote_ele_t * pool = get_pool( top_votes );
   map_t *      map  = get_map( top_votes );
 
   vote_ele_t const * ele = map_ele_query_const( map, pubkey, NULL, pool );
   if( FD_UNLIKELY( !ele ) ) return 0;
-  if( FD_UNLIKELY( !ele->is_valid ) ) return 0;
 
   if( node_account_out_opt )        *node_account_out_opt        = ele->node_account;
   if( stake_out_opt )               *stake_out_opt               = ele->stake;
   if( last_vote_slot_out_opt )      *last_vote_slot_out_opt      = ele->last_vote_slot;
   if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   if( commission_out_opt )          *commission_out_opt          = ele->commission;
+  if( is_valid_out_opt )            *is_valid_out_opt            = ele->is_valid;
   return 1;
 }
 
@@ -281,7 +282,7 @@ fd_top_votes_refresh( fd_top_votes_t *          top_votes,
         !fd_top_votes_iter_done( top_votes, iter );
         fd_top_votes_iter_next( top_votes, iter ) ) {
     fd_pubkey_t pubkey;
-    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL, NULL );
+    fd_top_votes_iter_ele( top_votes, iter, &pubkey, NULL, NULL, NULL, NULL, NULL, NULL );
 
     int is_valid = 1;
     fd_accdb_ro_t acc[1];
@@ -328,15 +329,16 @@ fd_top_votes_iter_next( fd_top_votes_t const * top_votes,
   *map_iter = map_iter_next( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
 }
 
-int
+void
 fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
                        fd_top_votes_iter_t *  iter,
                        fd_pubkey_t *          pubkey_out,
                        fd_pubkey_t *          node_account_out_opt,
                        ulong *                stake_out_opt,
-                       uchar *                commission_out_opt,
+                       ushort *               commission_out_opt,
                        ulong *                last_vote_slot_out_opt,
-                       long *                 last_vote_timestamp_out_opt ) {
+                       long *                 last_vote_timestamp_out_opt,
+                       uchar *                is_valid_out_opt ) {
   map_iter_t * map_iter = (map_iter_t *)iter;
   vote_ele_t * ele      = map_iter_ele( *map_iter, get_map( top_votes ), get_pool( top_votes ) );
   *pubkey_out = ele->pubkey;
@@ -346,6 +348,5 @@ fd_top_votes_iter_ele( fd_top_votes_t const * top_votes,
   if( last_vote_slot_out_opt )      *last_vote_slot_out_opt      = ele->last_vote_slot;
   if( last_vote_timestamp_out_opt ) *last_vote_timestamp_out_opt = ele->last_vote_timestamp;
   if( commission_out_opt )          *commission_out_opt          = ele->commission;
-
-  return ele->is_valid;
+  if( is_valid_out_opt )            *is_valid_out_opt            = ele->is_valid;
 }

@@ -15,7 +15,7 @@ static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
     .sig_cnt         =  1,
     ._sig_cnt        =  1,
     .ro_signed_cnt   =  0,
-    .ro_unsigned_cnt =  6,
+    .ro_unsigned_cnt =  5,
     .acct_addr_cnt   = 21,
 
     .system_program         = { SYS_PROG_ID            },
@@ -24,7 +24,7 @@ static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
 
     .instr_cnt = 5,
     .compute_budget_instruction = {
-        .prog_id = 15,
+        .prog_id = 16,
         .acct_cnt = 0,
         .data_sz = 5,
         .set_cu_limit = 2,
@@ -32,15 +32,15 @@ static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
     },
 
     .init_tip_distribution_acct = {
-        .prog_id = 19,
+        .prog_id = 20,
         .acct_cnt = 5,
-        .acct_idx = { 9, 13, 17, 0, 18 },
+        .acct_idx = { 9, 13, 15, 0, 19 },
         .data_sz = 43,
         .ix_discriminator = { FD_BUNDLE_CRANK_DISC_INIT_TIP_DISTR },
     },
 
     .change_tip_receiver = {
-        .prog_id = 16,
+        .prog_id = 17,
         .acct_cnt = 13,
         .acct_idx = { 10, 11, 13, 12, 1, 2, 3, 4, 5, 6, 7, 8, 0 },
         .data_sz = 8,
@@ -48,7 +48,7 @@ static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
     },
 
     .change_block_builder = {
-        .prog_id = 16,
+        .prog_id = 17,
         .acct_cnt = 13,
         .acct_idx = { 10, 13, 12, 14, 1, 2, 3, 4, 5, 6, 7, 8, 0},
         .data_sz = 16,
@@ -56,7 +56,7 @@ static const fd_bundle_crank_3_t fd_bundle_crank_3_base[1] = {{
     },
 
     .memo = {
-      .prog_id = 20,
+      .prog_id = 18,
       .acct_cnt = 0,
       .data_sz  = 3
     },
@@ -90,14 +90,14 @@ static const fd_bundle_crank_2_t fd_bundle_crank_2_base[1] = {{
     ._sig_cnt        =  1,
     .ro_signed_cnt   =  0,
     .ro_unsigned_cnt =  3,
-    .acct_addr_cnt   = 18,
+    .acct_addr_cnt   = 19,
 
     .compute_budget_program = { COMPUTE_BUDGET_PROG_ID },
     .memo_program           = { MEMO_PROGRAM_ID        },
 
     .instr_cnt = 4,
     .compute_budget_instruction = {
-        .prog_id = 15,
+        .prog_id = 16,
         .acct_cnt = 0,
         .data_sz = 5,
         .set_cu_limit = 2,
@@ -105,7 +105,7 @@ static const fd_bundle_crank_2_t fd_bundle_crank_2_base[1] = {{
     },
 
     .change_tip_receiver = {
-        .prog_id = 16,
+        .prog_id = 17,
         .acct_cnt = 13,
         .acct_idx = { 10, 11, 13, 12, 1, 2, 3, 4, 5, 6, 7, 8, 0 },
         .data_sz = 8,
@@ -113,7 +113,7 @@ static const fd_bundle_crank_2_t fd_bundle_crank_2_base[1] = {{
     },
 
     .change_block_builder = {
-        .prog_id = 16,
+        .prog_id = 17,
         .acct_cnt = 13,
         .acct_idx = { 10, 13, 12, 14, 1, 2, 3, 4, 5, 6, 7, 8, 0},
         .data_sz = 16,
@@ -121,7 +121,7 @@ static const fd_bundle_crank_2_t fd_bundle_crank_2_base[1] = {{
     },
 
     .memo = {
-      .prog_id = 17,
+      .prog_id = 18,
       .acct_cnt = 0,
       .data_sz = 3
     },
@@ -135,6 +135,7 @@ static const fd_bundle_crank_2_t fd_bundle_crank_2_base[1] = {{
     /* Fields that depend on the validator configuration: */
     .authorized_voter       = { 0 },
     .memo.memo              = { 0 },
+    .validator_vote_account = { 0 },
 
     /* Fields that vary each time: */
     .old_tip_receiver  = { 0 },
@@ -232,6 +233,7 @@ fd_bundle_crank_gen_init( void                 * mem,
   memcpy( g->crank2->tip_distribution_program_config, g->crank3->tip_distribution_program_config,     32UL );
   memcpy( g->crank2->tip_payment_program_config,      g->crank3->tip_payment_program_config,          32UL );
   memcpy( g->crank2->tip_payment_program,             g->crank3->tip_payment_program,                 32UL );
+  memcpy( g->crank2->validator_vote_account,          g->crank3->validator_vote_account,              32UL );
   memcpy( g->crank2->memo.memo,                       g->crank3->memo.memo,                            3UL );
 
   FD_TEST( sizeof(g->txn3)==fd_txn_parse( (uchar const *)g->crank3, sizeof(g->crank3), g->txn3, NULL ) );
@@ -248,10 +250,11 @@ fd_bundle_crank_gen_init( void                 * mem,
   pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->tip_payment_accounts[7],         0 ) }} )->idx= 8UL;
   pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->tip_distribution_program_config, 0 ) }} )->idx= 9UL;
   pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->tip_payment_program_config,      0 ) }} )->idx=10UL;
-  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->compute_budget_program,          0 ) }} )->idx=15UL;
-  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->tip_payment_program,             0 ) }} )->idx=16UL;
-  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->validator_vote_account,          0 ) }} )->idx=17UL;
-  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->tip_distribution_program,        0 ) }} )->idx=19UL;
+  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->validator_vote_account,          0 ) }} )->idx=15UL;
+  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->compute_budget_program,          0 ) }} )->idx=16UL;
+  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->tip_payment_program,             0 ) }} )->idx=17UL;
+  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->memo_program,                    0 ) }} )->idx=18UL;
+  pidx_map_insert( g->map, (fd_acct_addr_t){{ EXPAND_ARR32( g->crank3->tip_distribution_program,        0 ) }} )->idx=20UL;
 
   g->configured_epoch = ULONG_MAX;
   return g;
@@ -331,14 +334,21 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
   }
 
   /* If it weren't for the fact that the old tip payment config is
-     essentially attacker-controlled, we'd be golden.  However, someone
-     trying to grief us can e.g. set the old block builder to the tip
-     payment program, and if we're not careful, we'll create a
-     transaction with a duplicate account.  We trust identity, new
-     tip_receiver, and new_block_builder well enough though.  Note that
-     it's not possible for either attacker-controlled address to be the
-     system program, because the account must be writable, and write
-     locks to the system program get demoted. */
+     essentially attacker-controlled, we'd be basically done now.
+     However, someone trying to grief us can e.g. set the old block
+     builder to the tip payment program, and if we're not careful, we'll
+     create a transaction with a duplicate account.  We trust identity,
+     new tip_receiver, and new_block_builder well enough though.  Note
+     that it's not possible for either attacker-controlled address to be
+     the system program, because the account must be writable, and write
+     locks to the system program get demoted.
+
+     Technically, the validator vote account could be a read only
+     account, but if an attacker set the old block builder or tip
+     receiver to that address, we'd need to promote it to a writable
+     account which is a bit difficult with this way of doing it.
+     There's not much harm in passing it as writable, and that makes
+     things much easier. */
   fd_bundle_crank_gen_pidx_t * identity_pidx = pidx_map_insert( gen->map, *(fd_acct_addr_t *)identity );
   if( FD_UNLIKELY( !identity_pidx ) ) {
     FD_LOG_WARNING(( "Identity was already in map.  Refusing to crank bundles." ));
@@ -367,19 +377,30 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
   int inserted2 = 0;
   fd_bundle_crank_gen_pidx_t dummy1[1] = {{ .idx = 11UL }};
   fd_bundle_crank_gen_pidx_t dummy2[1] = {{ .idx = 12UL }};
+  ulong swap2_unused_idx = ULONG_MAX;
 
   fd_bundle_crank_gen_pidx_t * old_tr_pidx = pidx_map_query( gen->map, *old_tip_payment_config->tip_receiver, NULL );
   if( FD_LIKELY( NULL==old_tr_pidx ) ) {
     old_tr_pidx = pidx_map_insert( gen->map, *old_tip_payment_config->tip_receiver );
     old_tr_pidx->idx = 11UL;
     inserted1 = 1;
-  } else if( FD_UNLIKELY( !swap3 && old_tr_pidx->idx>16UL ) ) {
-    old_tr_pidx = dummy1;
+  } else if( FD_UNLIKELY( !swap3 && old_tr_pidx->idx>18UL ) ) {
+    /* Not an account we use in swap2, so it's okay to use index 11 for
+       the old tip receiver. */
+    swap2_unused_idx = old_tr_pidx->idx;
+    old_tr_pidx      = dummy1;
   } else {
-    /* perturb the old tip receiver pubkey so that it's not a duplicate,
-       then don't use it. */
-    gen->crank3->old_tip_receiver[0]++;
-    gen->crank2->old_tip_receiver[0]++;
+    /* perturb the account at index 11, where the old tip receiver
+       pubkey normally goes, so that it's not a duplicate, then use the
+       other index.  None of the non-attacker controlled keys look
+       anything like 0xEE, 0xEE, ..., 0xEE, so we just need to make sure
+       it doesn't match the old block builder (which will end up with a
+       first byte of either 0xFE or the current value of
+       old_block_builder[0]). */
+    memset( gen->crank3->old_tip_receiver, (char)0xEE, 32UL );
+    memset( gen->crank2->old_tip_receiver, (char)0xEE, 32UL );
+    gen->crank3->old_tip_receiver[0] = gen->crank3->old_block_builder[0]+1;
+    gen->crank2->old_tip_receiver[0] = gen->crank2->old_block_builder[0]+1;
   }
 
   fd_bundle_crank_gen_pidx_t * old_bb_pidx = pidx_map_query( gen->map, *old_tip_payment_config->block_builder, NULL );
@@ -387,13 +408,16 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
     old_bb_pidx = pidx_map_insert( gen->map, *old_tip_payment_config->block_builder );
     old_bb_pidx->idx = 12UL;
     inserted2 = 1;
-  } else if( FD_UNLIKELY( !swap3 && old_bb_pidx->idx>16UL ) ) {
+  } else if( FD_UNLIKELY( !swap3 && old_bb_pidx->idx>18UL && old_bb_pidx->idx!=swap2_unused_idx ) ) {
+    /* If it happens to be the same account that we don't use in swap2,
+       then we need to handle it differently. */
     old_bb_pidx = dummy2;
   } else {
-    /* perturb, but do it differently so it can't conflict with the
-       old tip receiver if they're both the same. */
-    gen->crank3->old_block_builder[0]--;
-    gen->crank2->old_block_builder[0]--;
+    memset( gen->crank3->old_block_builder, (char)0xFE, 32UL );
+    memset( gen->crank2->old_block_builder, (char)0xFE, 32UL );
+    gen->crank3->old_block_builder[2] = gen->crank3->old_tip_receiver[2]+1;
+    gen->crank2->old_block_builder[2] = gen->crank2->old_tip_receiver[2]+1;
+    if( FD_UNLIKELY( old_bb_pidx->idx==swap2_unused_idx ) ) old_bb_pidx = dummy1;
   }
 
   gen->crank3->change_tip_receiver.acct_idx [1] = (uchar)(old_tr_pidx->idx);

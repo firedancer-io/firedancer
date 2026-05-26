@@ -94,26 +94,6 @@ extern FD_TL fd_progcache_metrics_t fd_progcache_metrics_default;
 
 /* Constructor */
 
-static inline ulong
-fd_progcache_align( void ) {
-  return alignof(fd_progcache_t);
-}
-
-static inline ulong
-fd_progcache_footprint( void ) {
-  return sizeof(fd_progcache_t);
-}
-
-static inline fd_progcache_t *
-fd_progcache_new( void * ljoin ) {
-  return ljoin;
-}
-
-static inline void *
-fd_progcache_delete( void * ljoin ) {
-  return ljoin;
-}
-
 /* fd_progcache_join joins the caller to a program cache shmem instance.
    scratch points to a FD_PROGCACHE_SCRATCH_ALIGN aligned scratch buffer
    and scratch_sz is the size of the largest program/ELF binary that is
@@ -134,15 +114,25 @@ void *
 fd_progcache_leave( fd_progcache_t *        cache,
                     fd_progcache_shmem_t ** opt_shmem );
 
-/* fd_progcache_revision_slot returns the slot number under which a
-   progcache entry is indexed at.  epoch_slot0 is the first slot number
-   of the epoch.  deploy_slot is the slot at which the program was
-   deployed using the program loader. */
+/* fd_progcache_revision_key returns the search key of a progcache
+   entry.  The 63 upper bits are the effective slot of the entry.  The
+   LSB is 1 if this revision was created by a redeploy, and 0 if it was
+   created by a cache invalidation.  epoch_slot0 is the first slot
+   number of the epoch.  deploy_slot is the slot at which the program
+   was deployed using the program loader. */
 
 static inline ulong
-fd_progcache_revision_slot( ulong epoch_slot0,
-                            ulong deploy_slot ) {
-  return fd_ulong_max( epoch_slot0, deploy_slot );
+fd_progcache_revision_key( ulong epoch_slot0,
+                           ulong deploy_slot ) {
+  if( FD_UNLIKELY( deploy_slot < epoch_slot0 ) ) {
+    return epoch_slot0<<1;
+  }
+  return (deploy_slot<<1) | 1;
+}
+
+static inline ulong
+fd_progcache_revision_key_slot( ulong revision_key ) {
+  return revision_key>>1;
 }
 
 /* fd_progcache_peek queries the program cache for an existing cache
@@ -155,7 +145,7 @@ fd_progcache_rec_t * /* read locked */
 fd_progcache_peek( fd_progcache_t    * cache,
                    fd_xid_t    const * xid,
                    fd_pubkey_t const * prog_addr,
-                   ulong               revision_slot );
+                   ulong               revision_key );
 
 /* fd_progcache_pull loads a program from cache, filling the cache if
    necessary.  The load operation can have a number of outcomes:
@@ -177,8 +167,7 @@ fd_progcache_pull( fd_progcache_t           * cache,
                    fd_xid_t const           * xid,
                    fd_pubkey_t        const * prog_addr,
                    fd_prog_load_env_t const * env,
-                   fd_accdb_ro_t            * progdata_ro,
-                   fd_pubkey_t        const * program_owner );
+                   fd_accdb_ro_t            * progdata_ro );
 
 /* fd_progcache_rec_close releases a cache record handle returned by
    fd_progcache_{pull,peek}. */

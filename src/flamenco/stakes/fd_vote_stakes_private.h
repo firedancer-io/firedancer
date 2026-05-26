@@ -1,8 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_vote_stakes_private_h
 #define HEADER_fd_src_flamenco_stakes_fd_vote_stakes_private_h
 
-#include "../../util/fd_util_base.h"
-#include "../types/fd_types_custom.h"
+#include "fd_vote_stakes.h"
 #include "../fd_rwlock.h"
 
 struct index_key {
@@ -33,7 +32,7 @@ struct index_ele {
   uint        prev_multi;
   uint        next_multi;
   ushort      refcnt;
-  uchar       commission_t_2;
+  ushort      commission_t_2;
   uchar       exists_t_2;
 };
 typedef struct index_ele index_ele_t;

@@ -109,7 +109,7 @@ before_credit( fd_quic_ctx_t *     ctx,
   ctx->stem = stem;
 
   /* Publishes to mcache via callbacks */
-  long now = fd_clock_now( ctx->clock );
+  long now = fd_clock_tile_now( ctx->clock );
   ctx->now = now;
   *charge_busy = fd_quic_service( ctx->quic, now );
 }
@@ -152,6 +152,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED,   ctx->quic->metrics.pkt_decrypt_fail_cnt );
   FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,          ctx->quic->metrics.pkt_no_key_cnt );
   FD_MCNT_ENUM_COPY( QUIC, PKT_NO_CONN,         ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_SET(       QUIC, PKT_WRONG_SRC,       ctx->quic->metrics.pkt_wrong_src_cnt );
   FD_MCNT_ENUM_COPY( QUIC, FRAME_TX_ALLOC,        ctx->quic->metrics.frame_tx_alloc_cnt );
   FD_MCNT_SET(       QUIC, PKT_NET_HEADER_INVALID,  ctx->quic->metrics.pkt_net_hdr_err_cnt );
   FD_MCNT_SET(       QUIC, PKT_QUIC_HEADER_INVALID, ctx->quic->metrics.pkt_quic_hdr_err_cnt );
@@ -445,12 +446,12 @@ quic_tls_keylog( void *       _ctx,
 
 static void
 during_housekeeping( fd_quic_ctx_t * ctx ) {
-  if( FD_UNLIKELY( ctx->recal_next <= ctx->now ) ) {
-    ctx->recal_next = fd_clock_default_recal( ctx->clock );
+  long now = ctx->now = fd_clock_tile_now( ctx->clock );
+  if( FD_UNLIKELY( now >= fd_clock_tile_recal_next( ctx->clock ) ) ) {
+    fd_clock_tile_recal( ctx->clock );
   }
 
   if( FD_UNLIKELY( ctx->keylog_stream.wbuf ) ) {
-    long now = ctx->now = fd_clock_now( ctx->clock );
     if( FD_UNLIKELY( now > ctx->keylog_next_flush ) ) {
       int err = fd_io_buffered_ostream_flush( &ctx->keylog_stream );
       if( FD_UNLIKELY( err ) ) {
@@ -542,10 +543,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
   }
 
-  fd_clock_t * clock = ctx->clock;
-  fd_clock_default_init( clock, ctx->clock_mem );
-  ctx->recal_next = fd_clock_recal_next( clock );
-  ctx->now        = fd_clock_now( clock );
+  fd_clock_tile_t * clock = ctx->clock;
+  fd_clock_tile_init( clock );
+  ctx->now = fd_clock_tile_now( clock );
 
   if( FD_UNLIKELY( getrandom( ctx->tls_priv_key, ED25519_PRIV_KEY_SZ, 0 )!=ED25519_PRIV_KEY_SZ ) ) {
     FD_LOG_ERR(( "getrandom failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -614,7 +614,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "invalid round robin configuration" ));
   }
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 

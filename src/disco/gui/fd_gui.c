@@ -4,7 +4,8 @@
 
 #include "../metrics/fd_metrics.h"
 #include "../../discof/gossip/fd_gossip_tile.h"
-#include "../plugin/fd_plugin.h"
+#include "../../discoh/plugin/fd_plugin.h"
+#include "../bundle/fd_bundle_tile.h"
 
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/json/cJSON.h"
@@ -182,6 +183,12 @@ fd_gui_new( void *                shmem,
 
   memset( gui->summary.tile_stats_reference, 0, sizeof(gui->summary.tile_stats_reference) );
   memset( gui->summary.tile_stats_current, 0, sizeof(gui->summary.tile_stats_current) );
+
+  gui->summary.progcache_history_idx = 0UL;
+  memset( gui->summary.progcache_hits_history,    0, sizeof(gui->summary.progcache_hits_history) );
+  memset( gui->summary.progcache_lookups_history, 0, sizeof(gui->summary.progcache_lookups_history) );
+  gui->summary.progcache_hits_1min    = 0UL;
+  gui->summary.progcache_lookups_1min = 0UL;
 
   memset( gui->summary.tile_timers_snap,            0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
   memset( gui->summary.tile_timers_snap + tile_cnt, 0, tile_cnt * sizeof(fd_gui_tile_timers_t) );
@@ -661,6 +668,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERSZ              ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_CRYPTO_FAILED       ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NO_CONN             ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_WRONG_SRC           ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NET_HEADER_INVALID  ) ];
     cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_QUIC_HEADER_INVALID ) ];
     cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_ABANDONED          ) ];
@@ -1003,12 +1011,49 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now ) {
 
 void
 fd_gui_handle_repair_request( fd_gui_t * gui, ulong slot, ulong shred_idx, long now ) {
-  fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-  gui->shreds.staged_tail++;
+  fd_gui_slot_staged_shred_event_t * recv_event = fd_gui_staged_push( gui );
   recv_event->timestamp = now;
   recv_event->shred_idx = (ushort)shred_idx;
   recv_event->slot      = slot;
   recv_event->event     = FD_GUI_SLOT_SHRED_REPAIR_REQUEST;
+}
+
+static void
+fd_gui_progcache_sample( fd_gui_t * gui ) {
+  fd_topo_t const * topo = gui->topo;
+
+  ulong hits    = 0UL;
+  ulong lookups = 0UL;
+
+  for( ulong i=0UL; i<gui->summary.execrp_tile_cnt; i++ ) {
+    fd_topo_tile_t const * execrp = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
+    volatile ulong const * metrics = fd_metrics_tile( execrp->metrics );
+
+    lookups += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_LOOKUPS ) ];
+    hits    += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_HITS    ) ];
+  }
+
+  /* The execrp tile writes lookups before hits in metrics_write, so
+     reading lookups first then hits here means we may observe the
+     new hits before the new lookups, giving hits > lookups
+     momentarily.  Clamp to maintain the invariant hits <= lookups. */
+
+  hits = fd_ulong_min( hits, lookups );
+
+  ulong ring_idx       = gui->summary.progcache_history_idx % FD_GUI_PROGCACHE_HISTORY_CNT;
+  ulong oldest_hits    = gui->summary.progcache_hits_history   [ ring_idx ];
+  ulong oldest_lookups = gui->summary.progcache_lookups_history[ ring_idx ];
+
+  gui->summary.progcache_hits_history   [ ring_idx ] = hits;
+  gui->summary.progcache_lookups_history[ ring_idx ] = lookups;
+  gui->summary.progcache_history_idx = gui->summary.progcache_history_idx + 1UL;
+
+  ulong hits_1min    = hits    - oldest_hits;
+  ulong lookups_1min = lookups - oldest_lookups;
+  hits_1min = fd_ulong_min( hits_1min, lookups_1min );
+
+  gui->summary.progcache_hits_1min    = hits_1min;
+  gui->summary.progcache_lookups_1min = lookups_1min;
 }
 
 int
@@ -1037,6 +1082,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_http_server_ws_broadcast( gui->http );
 
     if( FD_LIKELY( gui->summary.is_full_client ) ) {
+      fd_gui_progcache_sample( gui );
       fd_gui_printf_live_program_cache( gui );
       fd_http_server_ws_broadcast( gui->http );
     }
@@ -1045,6 +1091,17 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
       fd_gui_run_boot_progress( gui, now );
       fd_gui_printf_boot_progress( gui );
       fd_http_server_ws_broadcast( gui->http );
+    }
+
+    ulong bundle_tile_idx = fd_topo_find_tile( gui->topo, "bundle", 0UL );
+    if( FD_LIKELY( bundle_tile_idx!=ULONG_MAX ) ) {
+      volatile ulong const * bundle_metrics = fd_metrics_tile( gui->topo->tiles[ bundle_tile_idx ].metrics );
+      int cur_state = (int)bundle_metrics[ MIDX( GAUGE, BUNDLE, STATE ) ];
+      if( FD_UNLIKELY( cur_state != gui->block_engine.status ) ) {
+        gui->block_engine.status = cur_state;
+        fd_gui_printf_block_engine( gui );
+        fd_http_server_ws_broadcast( gui->http );
+      }
     }
 
     gui->next_sample_100millis += 100L*1000L*1000L;
@@ -1568,6 +1625,28 @@ fd_gui_request_slot_rankings( fd_gui_t *    gui,
 }
 
 int
+fd_gui_request_slot_shreds( fd_gui_t *    gui,
+                            ulong         ws_conn_id,
+                            ulong         request_id,
+                            cJSON const * params ) {
+  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
+  if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong _slot = slot_param->valueulong;
+
+  fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
+  if( FD_UNLIKELY( !slot || slot->shreds.start_offset==ULONG_MAX || slot->shreds.end_offset==ULONG_MAX || gui->shreds.history_tail >= slot->shreds.end_offset + FD_GUI_SHREDS_HISTORY_SZ ) ) {
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_shreds", request_id );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    return 0;
+  }
+
+  fd_gui_printf_slot_query_shreds( gui, _slot, request_id );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
+int
 fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         ws_conn_id,
                    uchar const * data,
@@ -1637,6 +1716,16 @@ fd_gui_ws_message( fd_gui_t *    gui,
     }
 
     int result = fd_gui_request_slot_rankings( gui, ws_conn_id, id, params );
+    cJSON_Delete( json );
+    return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_shreds" ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_slot_shreds( gui, ws_conn_id, id, params );
     cJSON_Delete( json );
     return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
@@ -1961,8 +2050,7 @@ fd_gui_handle_shred( fd_gui_t * gui,
     if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_run_length_slot( gui->summary.catch_up_turbine, FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ, &gui->summary.catch_up_turbine_sz, slot );
   }
 
-  fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-  gui->shreds.staged_tail++;
+  fd_gui_slot_staged_shred_event_t * recv_event = fd_gui_staged_push( gui );
   recv_event->timestamp = tsorig;
   recv_event->shred_idx = (ushort)shred_idx;
   recv_event->slot      = slot;
@@ -1976,8 +2064,7 @@ fd_gui_handle_leader_fec( fd_gui_t * gui,
                           int        is_end_of_slot,
                           long       tsorig ) {
   for( ulong i=gui->shreds.leader_shred_cnt; i<gui->shreds.leader_shred_cnt+fec_shred_cnt; i++ ) {
-    fd_gui_slot_staged_shred_event_t * exec_end_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-    gui->shreds.staged_tail++;
+    fd_gui_slot_staged_shred_event_t * exec_end_event = fd_gui_staged_push( gui );
     exec_end_event->timestamp = tsorig;
     exec_end_event->shred_idx = (ushort)i;
     exec_end_event->slot      = slot;
@@ -2008,8 +2095,7 @@ fd_gui_handle_exec_txn_done( fd_gui_t * gui,
       exec_start_event->event     = FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START;
     */
 
-    fd_gui_slot_staged_shred_event_t * exec_end_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-    gui->shreds.staged_tail++;
+    fd_gui_slot_staged_shred_event_t * exec_end_event = fd_gui_staged_push( gui );
     exec_end_event->timestamp = tspub_ns;
     exec_end_event->shred_idx = (ushort)i;
     exec_end_event->slot      = slot;
@@ -2486,8 +2572,6 @@ fd_gui_handle_block_engine_update( fd_gui_t *                              gui,
   fd_memcpy( gui->block_engine.url,     update->url,     url_len+1UL );
   fd_memcpy( gui->block_engine.ip_cstr, update->ip_cstr, ip_cstr_len+1UL );
 
-  gui->block_engine.status = update->status;
-
   fd_gui_printf_block_engine( gui );
   fd_http_server_ws_broadcast( gui->http );
 }
@@ -2523,9 +2607,9 @@ void
 fd_gui_stage_snapshot_manifest( fd_gui_t *                    gui,
                                  fd_snapshot_manifest_t const * manifest ) {
   ulong attempt = 0UL;
-  for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
-    if( FD_UNLIKELY( manifest->hard_forks[ i ]==manifest->slot ) ) {
-      attempt = manifest->hard_forks_cnts[ i ];
+  for( ulong i=0UL; i<manifest->hard_fork_cnt; i++ ) {
+    if( FD_UNLIKELY( manifest->hard_forks[ i ].slot==manifest->slot ) ) {
+      attempt = manifest->hard_forks[ i ].cnt;
       break;
     }
   }
@@ -2742,6 +2826,7 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
     if( FD_UNLIKELY( gui->shreds.history_slot!=ULONG_MAX && src->slot<=gui->shreds.history_slot ) ) continue;
 
     if( FD_UNLIKELY( src->slot<=root_slot ) ) {
+      if( FD_UNLIKELY( archive_cnt>=FD_GUI_SHREDS_STAGING_SZ ) ) continue;
       gui->shreds._staged_scratch[ archive_cnt++ ] = *src;
       continue;
     }
@@ -2980,8 +3065,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
 
   /* Add a "slot complete" event for all of the shreds in this slot */
   if( FD_UNLIKELY( slot->shred_cnt > FD_GUI_MAX_SHREDS_PER_BLOCK ) ) FD_LOG_ERR(( "unexpected shred_cnt=%lu", (ulong)slot->shred_cnt ));
-  fd_gui_slot_staged_shred_event_t * slot_complete_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
-  gui->shreds.staged_tail++;
+  fd_gui_slot_staged_shred_event_t * slot_complete_event = fd_gui_staged_push( gui );
   slot_complete_event->event     = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
   slot_complete_event->timestamp = slot_completed->completion_time_nanos;
   slot_complete_event->shred_idx = USHORT_MAX;
@@ -3110,7 +3194,7 @@ fd_gui_unbecame_leader( fd_gui_t *                gui,
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
-                                   long         now,
+                                   long         tspub_ns,
                                    ulong        _slot,
                                    fd_txn_e_t * txns,
                                    ulong        txn_cnt,
@@ -3122,7 +3206,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_UNLIKELY( !lslot ) ) return;
 
-  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, now, lslot->leader_start_time );
+  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, tspub_ns, lslot->leader_start_time );
 
   if( FD_UNLIKELY( lslot->txs.start_offset==ULONG_MAX ) ) lslot->txs.start_offset = pack_txn_idx;
   else                                                    lslot->txs.start_offset = fd_ulong_min( lslot->txs.start_offset, pack_txn_idx );
@@ -3145,18 +3229,25 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     sig_rewards = sig_rewards * FD_PACK_TXN_FEE_BURN_PCT / 100UL;
 
     fd_gui_txn_t * txn_entry = gui->txs[ (pack_txn_idx + i)%FD_GUI_TXN_HISTORY_SZ ];
-    fd_memcpy(txn_entry->signature, txn_payload->payload + txn->signature_off, FD_SHA512_HASH_SZ);
+
+    /* If execution_end already ran for this txn, the arrival timestamp
+       it stamped will match.  Preserve all existing flags. Otherwise
+       the entry is stale from a ring buffer wrap-around, so clear all
+       flags. */
+    if( FD_LIKELY( txn_entry->timestamp_arrival_nanos!=txn_payload->scheduler_arrival_time_nanos ) ) txn_entry->flags = (uchar)0;
+
+    fd_memcpy( txn_entry->signature, txn_payload->payload + txn->signature_off, FD_SHA512_HASH_SZ );
     txn_entry->timestamp_arrival_nanos     = txn_payload->scheduler_arrival_time_nanos;
     txn_entry->compute_units_requested     = cost_estimate & 0x1FFFFFU;
     txn_entry->priority_fee                = priority_rewards;
     txn_entry->transaction_fee             = sig_rewards;
-    txn_entry->timestamp_delta_start_nanos = (int)(now - lslot->leader_start_time);
+    txn_entry->microblock_start_ns_dt      = (float)(tspub_ns - lslot->leader_start_time);
     txn_entry->source_ipv4                 = txn_payload->source_ipv4;
     txn_entry->source_tpu                  = txn_payload->source_tpu;
     txn_entry->microblock_idx              = microblock_idx;
-    txn_entry->flags                       = (uchar)FD_GUI_TXN_FLAGS_STARTED;
-    txn_entry->flags                      |= (uchar)fd_uint_if(txn_payload->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE, 0U);
-    txn_entry->flags                      |= (uchar)fd_uint_if((txn_payload->flags & FD_TXN_P_FLAGS_BUNDLE) || (txn_payload->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE), FD_GUI_TXN_FLAGS_FROM_BUNDLE, 0U);
+    txn_entry->flags                      |= (uchar)FD_GUI_TXN_FLAGS_STARTED;
+    txn_entry->flags                      |= (uchar)fd_uint_if( !!(txn_payload->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE), FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE, 0U );
+    txn_entry->flags                      |= (uchar)fd_uint_if( (txn_payload->flags & FD_TXN_P_FLAGS_BUNDLE) || (txn_payload->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE), FD_GUI_TXN_FLAGS_FROM_BUNDLE, 0U );
   }
 
   /* At the moment, bank publishes at most 1 transaction per microblock,
@@ -3167,18 +3258,15 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
 }
 
 void
-fd_gui_microblock_execution_end( fd_gui_t *   gui,
-                                 long         now,
-                                 ulong        bank_idx,
-                                 ulong        _slot,
-                                 ulong        txn_cnt,
-                                 fd_txn_p_t * txns,
-                                 ulong        pack_txn_idx,
-                                 uchar        txn_start_pct,
-                                 uchar        txn_load_end_pct,
-                                 uchar        txn_end_pct,
-                                 uchar        txn_preload_end_pct,
-                                 ulong        tips ) {
+fd_gui_microblock_execution_end( fd_gui_t *     gui,
+                                 long           tspub_ns,
+                                 ulong          bank_idx,
+                                 ulong          _slot,
+                                 ulong          txn_cnt,
+                                 fd_txn_p_t *   txns,
+                                 ulong          pack_txn_idx,
+                                 fd_txn_ns_dt_t txn_ns_dt,
+                                 ulong          tips ) {
   if( FD_UNLIKELY( 1UL!=txn_cnt ) ) FD_LOG_ERR(( "gui expects 1 txn per microblock from bank, found %lu", txn_cnt ));
 
   fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
@@ -3187,7 +3275,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_UNLIKELY( !lslot ) ) return;
 
-  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, now, lslot->leader_start_time );
+  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, tspub_ns, lslot->leader_start_time );
 
   if( FD_UNLIKELY( lslot->txs.end_offset==ULONG_MAX ) ) lslot->txs.end_offset = pack_txn_idx + txn_cnt;
   else                                                  lslot->txs.end_offset = fd_ulong_max( lslot->txs.end_offset, pack_txn_idx+txn_cnt );
@@ -3198,18 +3286,23 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     fd_txn_p_t * txn_p = &txns[ i ];
 
     fd_gui_txn_t * txn_entry = gui->txs[ (pack_txn_idx + i)%FD_GUI_TXN_HISTORY_SZ ];
+
+    /* If execution_begin already ran for this txn, the arrival
+       timestamp it stamped will match.  Preserve all existing flags.
+       Otherwise the entry is stale from a ring buffer wrap-around, so
+       clear all flags. */
+    if( FD_UNLIKELY( txn_entry->timestamp_arrival_nanos!=txn_p->scheduler_arrival_time_nanos ) ) txn_entry->flags = (uchar)0;
+
+    txn_entry->timestamp_arrival_nanos   = txn_p->scheduler_arrival_time_nanos;
     txn_entry->bank_idx                  = bank_idx                             & 0x3FU;
     txn_entry->compute_units_consumed    = txn_p->execle_cu.actual_consumed_cus & 0x1FFFFFU;
     txn_entry->error_code                = (txn_p->flags >> 24)                 & 0x3FU;
-    txn_entry->timestamp_delta_end_nanos = (int)(now - lslot->leader_start_time);
-    txn_entry->txn_start_pct             = txn_start_pct;
-    txn_entry->txn_load_end_pct          = txn_load_end_pct;
-    txn_entry->txn_end_pct               = txn_end_pct;
-    txn_entry->txn_preload_end_pct       = txn_preload_end_pct;
+    txn_entry->microblock_end_ns_dt      = (float)(tspub_ns - lslot->leader_start_time);
+    txn_entry->txn_ns_dt                 = txn_ns_dt;
     txn_entry->tips                      = tips;
     txn_entry->flags                    |= (uchar)FD_GUI_TXN_FLAGS_ENDED;
     txn_entry->flags                    &= (uchar)(~(uchar)FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK);
-    txn_entry->flags                    |= (uchar)fd_uint_if(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS, FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK, 0U);
+    txn_entry->flags                    |= (uchar)fd_uint_if( !!(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS), FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK, 0U );
   }
 
   lslot->txs.end_microblocks = lslot->txs.end_microblocks + (uint)txn_cnt;

@@ -54,6 +54,29 @@ int
 fd_solfuzz_pb_restore_features( fd_features_t *                    features,
                                 fd_exec_test_feature_set_t const * feature_set );
 
+/* Due to how Firedancer's VM CU accounting works, when
+   virtual_address_space_adjustments is enabled and execution
+   fails with the CU meter exhausted, we cannot compare the data
+   region of the accounts with Agave. This function clears the
+   data field on each captured account in this case. */
+void
+fd_solfuzz_direct_mapping_handle_cu_exhaustion( fd_solfuzz_runner_t *       runner,
+                                                ulong                       cu_avail,
+                                                int                         has_err,
+                                                fd_exec_test_acct_state_t * accounts,
+                                                pb_size_t                   accounts_cnt );
+
+/* Create feature accounts for all active features in the given feature
+   set, with an activation slot of 0.  Skip any feature whose pubkey
+   already appears in acct_states so the caller-supplied state wins
+   (matches solfuzz-agave's accounts_to_store filter). */
+void
+fd_solfuzz_pb_create_feature_accounts( fd_accdb_user_t *                  accdb,
+                                       fd_funk_txn_xid_t const *          xid,
+                                       fd_exec_test_feature_set_t const * feature_set,
+                                       fd_exec_test_acct_state_t const *  acct_states,
+                                       pb_size_t                          acct_states_count );
+
 typedef ulong( exec_test_run_pb_fn_t )( fd_solfuzz_runner_t *,
                                         void const *,
                                         void **,

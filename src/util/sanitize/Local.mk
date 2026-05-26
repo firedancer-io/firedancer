@@ -4,8 +4,3 @@ $(call make-lib,fd_fuzz_stub)
 $(call add-objs,fd_fuzz_stub,fd_fuzz_stub)
 $(call add-objs,fd_hfuzz_metrics_stubs,fd_util)
 endif
-
-ifdef FD_HAS_DEEPASAN_WATCH
-CPPFLAGS+=-DFD_HAS_DEEPASAN_WATCH=1
-$(call add-objs,fd_asan fd_backtrace,fd_util)
-endif

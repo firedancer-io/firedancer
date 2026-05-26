@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_features_fd_features_h
 
 #include "../fd_flamenco_base.h"
-#include "../types/fd_types.h"
 #include "fd_features_generated.h"
 #include "../accdb/fd_accdb_user.h"
 

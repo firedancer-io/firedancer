@@ -5,6 +5,7 @@
 #include "../../tango/fd_tango.h"
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/net/fd_net_headers.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
@@ -413,7 +414,6 @@ struct fd_topo_tile {
       ulong heap_size_gib;
       ulong sched_depth;
       ulong max_live_slots;
-      ulong write_delay_slots;
 
       /* not specified in TOML */
 
@@ -548,8 +548,6 @@ struct fd_topo_tile {
       int requests_fd;
       int fecs_fd;
       int peers_fd;
-      int bank_hashes_fd;
-      int slices_fd;
     } shredcap;
 
 #define FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX      (32UL)
@@ -603,29 +601,7 @@ struct fd_topo_tile {
       ulong txncache_obj_id;
 
       uint  lthash_disabled : 1;
-      uint  use_vinyl : 1;
     } snapin;
-
-    struct {
-      ulong vinyl_meta_map_obj_id;
-      ulong vinyl_meta_pool_obj_id;
-      ulong snapwr_depth;
-      char  vinyl_path[ PATH_MAX ];
-      uint  lthash_disabled : 1;
-      ulong max_accounts;
-    } snapwm;
-
-    struct {
-      ulong dcache_obj_id;
-      char  vinyl_path[ PATH_MAX ];
-      uint  lthash_disabled : 1;
-    } snapwr;
-
-    struct {
-      ulong dcache_obj_id;
-      int   io_uring_enabled;
-      char  vinyl_path[ PATH_MAX ];
-    } snaplh;
 
     struct {
 
@@ -662,18 +638,6 @@ struct fd_topo_tile {
 
       ulong accdb_max_depth;
     } genesi;
-
-    struct {
-      ulong meta_map_obj_id;
-      ulong meta_pool_obj_id;
-      ulong line_max;
-      ulong data_obj_id;
-      char  bstream_path[ PATH_MAX ];
-      ulong pair_cnt_limit;
-
-      int  io_type; /* FD_VINYL_IO_TYPE_* */
-      uint uring_depth;
-    } accdb;
 
     struct {
       ulong capture_start_slot;

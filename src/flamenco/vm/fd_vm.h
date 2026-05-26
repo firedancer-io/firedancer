@@ -49,6 +49,7 @@ struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
    /* The expected virtual addresses of the serialized pubkey, lamports, owner,
       and data for this account in VM address space.
       Used for CPI security checks. */
+   ulong               vm_addr;
    ulong               vm_key_addr;
    ulong               vm_lamports_addr;
    ulong               vm_owner_addr;

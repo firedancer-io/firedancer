@@ -12,8 +12,7 @@
 
 /* FD_ACCDB_IMPL_FOOTPRINT sizes the inline impl[] buffer in
    fd_accdb_user_t and fd_accdb_admin_t.  The main contributor to this
-   footprint is fd_accdb_lineage_t.  We add 2048 onto that to
-   accommodate various vinyl pointers and etc. */
+   footprint is fd_accdb_lineage_t. */
 #define FD_ACCDB_IMPL_FOOTPRINT (FD_ACCDB_LINEAGE_FOOTPRINT+2048UL)
 
 /* fd_accdb_user_vt_t specifies the interface (vtable) for the account
@@ -134,16 +133,6 @@ struct fd_accdb_user {
 };
 
 FD_PROTOTYPES_BEGIN
-
-static inline ulong
-fd_accdb_user_align( void ) {
-  return alignof(fd_accdb_user_t);
-}
-
-static inline ulong
-fd_accdb_user_footprint( void ) {
-  return sizeof(fd_accdb_user_t);
-}
 
 static inline void
 fd_accdb_user_fini( fd_accdb_user_t * accdb ) {

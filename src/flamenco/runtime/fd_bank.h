@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_bank_h
 #define HEADER_fd_src_flamenco_runtime_fd_bank_h
 
-#include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
 #include "../features/fd_features.h"
 #include "../stakes/fd_new_votes.h"
@@ -186,7 +185,7 @@ FD_PROTOTYPES_BEGIN
   as dead.  This does not actually free the underlying resources that
   the dead bank has allocated and instead just queues them up for
   pruning:
-  fd_banks_mark_bank_dead( banks, dead_bank_idx );
+  fd_banks_mark_bank_dead( banks, dead_bank_idx, NULL, NULL );
 
   To actually prune away any dead banks, the caller should call:
   fd_banks_prune_one_dead_bank( banks, cancel_info )
@@ -268,7 +267,6 @@ struct fd_bank {
   ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
   ushort                new_votes_fork_id; /* fork id used by new vote account deltas */
   ulong                 cost_tracker_pool_idx;
-  ulong                 epoch_leaders_idx; /* always 0 or 1 based on % epoch */
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
@@ -315,6 +313,8 @@ struct fd_bank {
     ulong                  signature_count;
     fd_hash_t              poh;
     ulong                  last_restart_slot;
+    ulong                  hard_fork_cnt;
+    fd_hard_fork_t         hard_forks[ FD_HARD_FORKS_MAX ]; /* never changes at runtime, required for snapshot creation */
     fd_hash_t              bank_hash;
     fd_hash_t              prev_bank_hash;
     fd_hash_t              genesis_hash;
@@ -341,6 +341,7 @@ typedef struct fd_bank fd_bank_t;
 struct fd_banks_prune_cancel_info {
   fd_txncache_fork_id_t txncache_fork_id;
   ulong                 slot;
+  ulong                 bank_seq;
   ulong                 bank_idx;
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
@@ -443,10 +444,12 @@ fd_stake_rewards_t *
 fd_bank_stake_rewards_modify( fd_bank_t * bank );
 
 fd_epoch_leaders_t const *
-fd_bank_epoch_leaders_query( fd_bank_t const * bank );
+fd_bank_epoch_leaders_query( fd_bank_t const * bank,
+                             ulong             epoch );
 
 fd_epoch_leaders_t *
-fd_bank_epoch_leaders_modify( fd_bank_t * bank );
+fd_bank_epoch_leaders_modify( fd_bank_t * bank,
+                              ulong       epoch );
 
 fd_top_votes_t const *
 fd_bank_top_votes_t_1_query( fd_bank_t const * bank );
@@ -663,7 +666,7 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
 /* fd_banks_clear releases all banks back to the pool and resets the
    banks manager to its post-new state.  Assumes no active references to
-   any bank. */
+   any bank.  WARNING: collision risk, resets bank_seq to 0. */
 
 void
 fd_banks_clear( fd_banks_t * banks );
@@ -695,15 +698,21 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
                                ulong *      advanceable_bank_idx_out );
 
 /* fd_banks_mark_bank_dead marks the current bank (and all of its
-   descendants) as dead.  The caller is still responsible for handling
-   the behavior of the dead bank correctly.  The function should not be
-   called on a bank that is already dead nor on any ancestor of an
-   already dead bank.  After a bank is marked dead, the caller should
-   never increment the reference count on the bank. */
+   descendants) as dead.  If opt_idxs is non-NULL, it is populated with
+   each bank index marked dead.  The caller is responsible for ensuring
+   the buffer is large enough to hold the whole subtree.  If
+   opt_idxs_cnt is non-NULL, it is set to the number of banks marked
+   dead.  The caller is still responsible for handling the behavior of
+   the dead bank correctly.  The function should not be called on a bank
+   that is already dead nor on any ancestor of an already dead bank.
+   After a bank is marked dead, the caller should never increment the
+   reference count on the bank. */
 
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
-                         ulong        bank_idx );
+                         ulong        bank_idx,
+                         ulong *      opt_idxs,
+                         ulong *      opt_idxs_cnt );
 
 /* fd_banks_prune_one_dead_bank will try to prune one bank that was
    marked as dead.  It will not prune a dead bank that has a non-zero
@@ -760,6 +769,14 @@ fd_banks_get_frontier( fd_banks_t * banks,
 
 int
 fd_banks_is_full( fd_banks_t * banks );
+
+/* fd_bank_xid returns the accdb/progcache xid for the given bank. */
+
+static inline fd_xid_t
+fd_bank_xid( fd_bank_t const * bank ) {
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_CRIT(( "NULL bank" ));
+  return (fd_xid_t){ .ul = { bank->f.slot, bank->bank_seq } };
+}
 
 FD_PROTOTYPES_END
 

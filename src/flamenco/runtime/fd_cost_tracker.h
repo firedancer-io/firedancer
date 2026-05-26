@@ -14,14 +14,14 @@
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
 
-#define FD_WRITE_LOCK_UNITS                   (      300UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20 */
-#define FD_MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA (100000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L42 */
-#define FD_MAX_WRITABLE_ACCOUNT_UNITS         ( 12000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L34 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0207          ( 50000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L50-L56 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0256          ( 60000000UL) /* https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56 */
-#define FD_MAX_BLOCK_UNITS_SIMD_0286          (100000000UL) /* https://github.com/anza-xyz/agave/blob/v3.0.0/cost-model/src/block_cost_limits.rs#L30 */
-#define FD_MAX_VOTE_UNITS                     ( 36000000UL) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
-#define FD_SIMPLE_VOTE_USAGE_COST             (     3428UL) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
+#define FD_WRITE_LOCK_UNITS                   (      300U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20 */
+#define FD_MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA (100000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L42 */
+#define FD_MAX_WRITABLE_ACCOUNT_UNITS         ( 12000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L34 */
+#define FD_MAX_BLOCK_UNITS_SIMD_0207          ( 50000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L50-L56 */
+#define FD_MAX_BLOCK_UNITS_SIMD_0256          ( 60000000U) /* https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56 */
+#define FD_MAX_BLOCK_UNITS_SIMD_0286          (100000000U) /* https://github.com/anza-xyz/agave/blob/v3.0.0/cost-model/src/block_cost_limits.rs#L30 */
+#define FD_MAX_VOTE_UNITS                     ( 36000000U) /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38 */
+#define FD_SIMPLE_VOTE_USAGE_COST             (     3428U) /* https://github.com/anza-xyz/agave/blob/v3.1.8/cost-model/src/transaction_cost.rs#L21 */
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
 #define FD_COST_TRACKER_SUCCESS                                     (0)
@@ -31,10 +31,28 @@
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT (4)
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT (5)
 
-/* A reasonably tight bound can be derived based on CUs.  The most
-   optimal use of CUs is to pack as many writable accounts as possible
-   for as cheaply as possible.  This means we should try to pack as many
-   writable accounts as possible into each transaction.  Each
+/* A reasonably tight bound of the number of writable accounts per slot
+   can be derived from worst-case CU limits.  For the cost tracker,
+   there are two main codepaths:
+   - Simple vote transactions: legacy transactions that invoke the vote
+     program.  These can have unused writable accounts.
+   - Everything else: these transactions are charged based on CUs per
+     signature and write lock.
+
+   For the simple vote transactions, the worst-case transaction has 35
+   writable accounts.  These transactions can not use ALTs and are
+   subject to fitting within the transaction size limit (1232B).
+
+   36000000 vote CUs per slot
+   3428 CUs per simple vote transaction
+   35 writable accounts per simple vote transaction
+   Therefore, the number of simple vote transactions per slot is:
+   (36000000 / 3428) = 10501 vote txns per slot
+   Therefore, the number of writable accounts per slot is:
+   (10501 * 35) = 367535 writable accounts per slot
+
+   Now consider the general case.  This means we should try to pack as
+   many writable accounts as possible into each transaction.  Each
    transaction requires at least one signature.  We will assume that all
    of these accounts have no account data.
 
@@ -50,22 +68,30 @@
    So, 5020 transactions per slot * 64 accounts per transaction =
    321280 writable accounts per slot.
 
-   NOTE: A slightly tighter bound can probably be derived. */
+   We should use the bound derived from simple vote transactions.
 
-#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT ( \
-  FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION * (FD_MAX_BLOCK_UNITS_SIMD_0286 / ( FD_WRITE_LOCK_UNITS * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION + FD_PACK_COST_PER_SIGNATURE)) )
-FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==321280UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
+   TODO: After remove_simple_vote_from_cost_model is activated, the
+   smaller bound can be used. */
+
+#define FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT               (FD_MAX_VOTE_UNITS / FD_SIMPLE_VOTE_USAGE_COST)
+#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS (35UL) /* see FD_TXN_ACCT_ADDR_MAX */
+#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT      (FD_RUNTIME_MAX_VOTE_TXNS_IN_SLOT * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_VOTE_TXNS)
+FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==367535UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
 
 /* TODO: Extremely gross.  Used because these are in a pool which needs
    to be compile time sized T. */
-#define FD_COST_TRACKER_CHAIN_CNT_EST (262144UL)
+
+/* The average mainnet block uses around 4200 distinct writable
+   accounts. We size the cost tracker's account map at 8192 chains
+   to give ~2x headroom over the observed average load. */
+#define FD_COST_TRACKER_CHAIN_CNT_EST (8192UL)
 #define FD_COST_TRACKER_FOOTPRINT                                                                   \
   ( FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND(         \
     FD_LAYOUT_INIT,                                                                                 \
       128UL /* alignof(fd_cost_tracker_t) */,  128UL /* sizeof(fd_cost_tracker_t) */          ),    \
       128UL /* alignof(cost_tracker_out_t )*/, 128UL /* sizeof(cost_tracker_out_t ) */        ),    \
-      8UL   /* alignof(account_cost_map_t) */, FD_COST_TRACKER_CHAIN_CNT_EST*8UL /*sizeof(ulong)*/ +24UL /* sizeof(account_cost_map_t) */ ), \
-      8UL   /* alignof(account_cost_t) */,     FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*48UL /*sizeof(account_cost_t)*/ ), \
+      8UL   /* alignof(account_cost_map_t) */, FD_COST_TRACKER_CHAIN_CNT_EST*4UL /*sizeof(uint)*/ +24UL /* sizeof(account_cost_map_t) */ ), \
+      4UL   /* alignof(account_cost_t) */,     FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*40UL /*sizeof(account_cost_t)*/ ), \
       128UL ) )                                               \
 
 #define FD_COST_TRACKER_MAGIC (0xF17EDA2CE7C05170UL) /* FIREDANCER COST V0 */
@@ -90,11 +116,11 @@ typedef struct fd_cost_tracker fd_cost_tracker_t;
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
 
 struct fd_usage_cost_details {
-  ulong signature_cost;
-  ulong write_lock_cost;
-  ulong data_bytes_cost;
-  ulong programs_execution_cost;
-  ulong loaded_accounts_data_size_cost;
+  uint  signature_cost;
+  uint  write_lock_cost;
+  uint  data_bytes_cost;
+  uint  programs_execution_cost;
+  uint  loaded_accounts_data_size_cost;
   ulong allocated_accounts_data_size;
 };
 typedef struct fd_usage_cost_details fd_usage_cost_details_t;
@@ -155,7 +181,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
                       ulong                 slot );
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
-FD_FN_PURE ulong
+FD_FN_PURE uint
 fd_cost_tracker_calculate_loaded_accounts_data_size_cost( fd_txn_out_t const * txn_out );
 
 /* fd_cost_tracker_calculate_cost_and_add takes a transaction,

@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_acc_pool_h
 
 #include "../../util/fd_util_base.h"
-#include "../types/fd_types_custom.h"
 
 FD_PROTOTYPES_BEGIN
 

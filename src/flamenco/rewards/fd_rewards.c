@@ -5,9 +5,8 @@
 #include "../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../stakes/fd_stakes.h"
-#include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
-#include "../runtime/sysvar/fd_sysvar_cache.h"
+#include "../runtime/fd_system_ids.h"
 #include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_accdb_svm.h"
@@ -17,9 +16,6 @@
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
 total( fd_inflation_t const * inflation, double year ) {
-  if ( FD_UNLIKELY( year == 0.0 ) ) {
-    FD_LOG_ERR(( "inflation year 0" ));
-  }
   double tapered = inflation->initial * pow( (1.0 - inflation->taper), year );
   return (tapered > inflation->terminal) ? tapered : inflation->terminal;
 }
@@ -172,46 +168,46 @@ calculate_stake_points_and_credits( fd_epoch_credits_t *           epoch_credits
   result->force_credits_update_with_skipped_reward = 0;
 }
 
-/// returns commission split as (voter_portion, staker_portion, was_split) tuple
-///
-/// if commission calculation is 100% one way or other, indicate with false for was_split
+/* Returns commission split as
+   (voter_portion, staker_portion, was_split) tuple.  If commission
+   calculation is 10000 (100%) one way or other, indicate with false for
+   was_split.
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L543
+   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L237-L272 */
 void
-fd_vote_commission_split( uchar                   commission,
+fd_vote_commission_split( ushort                  commission,
                           ulong                   on,
                           fd_commission_split_t * result ) {
-  uint commission_split = fd_uint_min( (uint)commission, 100 );
-  result->is_split      = (commission_split != 0 && commission_split != 100);
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
-  if( commission_split==0U ) {
-    result->voter_portion  = 0;
-    result->staker_portion = on;
-    return;
-  }
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L546
-  if( commission_split==100U ) {
-    result->voter_portion  = on;
-    result->staker_portion = 0;
-    return;
-  }
-  /* Note: order of operations may matter for int division. That's why I didn't make the
-   * optimization of getting out the common calculations */
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L244-L245 */
+  #define MAX_BPS (10000)
 
-  // ... This is copied from the solana comments...
-  //
-  // Calculate mine and theirs independently and symmetrically instead
-  // of using the remainder of the other to treat them strictly
-  // equally. This is also to cancel the rewarding if either of the
-  // parties should receive only fractional lamports, resulting in not
-  // being rewarded at all. Thus, note that we intentionally discard
-  // any residual fractional lamports.
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L246-L271 */
+  ushort commission_split = fd_ushort_min( commission, MAX_BPS );
+  switch( commission_split ) {
+    case 0: {
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L246 */
+      result->voter_portion  = 0UL;
+      result->staker_portion = on;
+      result->is_split       = 0;
+      break;
+    }
+    case MAX_BPS: {
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L247 */
+      result->voter_portion  = on;
+      result->staker_portion = 0UL;
+      result->is_split       = 0;
+      break;
+    }
+    default: {
+      /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/inflation_rewards/mod.rs#L256-L259 */
+      result->voter_portion  = (ulong)((uint128)on * (uint128)commission_split / (uint128)MAX_BPS);
+      result->staker_portion = (ulong)((uint128)on * (uint128)(MAX_BPS-commission_split) / (uint128)MAX_BPS);
+      result->is_split       = 1;
+      break;
+    }
+  }
 
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L548
-  result->voter_portion =
-      (ulong)((uint128)on * (uint128)commission_split / (uint128)100);
-  result->staker_portion =
-      (ulong)((uint128)on * (uint128)( 100 - commission_split ) / (uint128)100);
+  #undef MAX_BPS
 }
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/rewards.rs#L33 */
@@ -585,9 +581,13 @@ calculate_validator_rewards( fd_bank_t *                    bank,
                              ulong                          rewarded_epoch,
                              ulong *                        rewards_out ) {
 
+  fd_accdb_ro_t sh_ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, sh_ro, xid, &fd_sysvar_stake_history_id ) ) ) {
+    FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  }
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, fd_accdb_ref_data_const( sh_ro ), fd_accdb_ref_data_sz( sh_ro ) ) ) ) {
+    FD_LOG_ERR(( "Unable to decode stake history sysvar" ));
   }
 
   /* Calculate the epoch reward points from stake/vote accounts */
@@ -642,6 +642,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       *rewards_out,
       total_points );
 
+  fd_accdb_close_ro( accdb, sh_ro );
   return total_points;
 }
 
@@ -866,12 +867,13 @@ distribute_epoch_rewards_in_partition( fd_stake_rewards_t *      stake_rewards,
 
 /* Process reward distribution for the block if it is inside reward interval.
 
-   https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L42 */
+   https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L45-L136 */
 void
 fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
                                          fd_accdb_user_t *         accdb,
                                          fd_funk_txn_xid_t const * xid,
                                          fd_capture_ctx_t *        capture_ctx ) {
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L46-L48 */
   if( FD_LIKELY( bank->stake_rewards_fork_id==UCHAR_MAX ) ) return;
 
   fd_stake_rewards_t * stake_rewards = fd_bank_stake_rewards_modify( bank );
@@ -880,6 +882,17 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
   ulong distribution_starting_block_height = fd_stake_rewards_starting_block_height( stake_rewards, bank->stake_rewards_fork_id );
   ulong distribution_end_exclusive         = fd_stake_rewards_exclusive_ending_block_height( stake_rewards, bank->stake_rewards_fork_id );
 
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L55-L58 */
+  if( FD_UNLIKELY( block_height<distribution_starting_block_height ) ) {
+    return;
+  }
+
+  /* The logic in Agave for EpochRewardPhase::Calculation has no direct
+     equivalent in Firedancer, because reward calculation is done
+     eagerly at the epoch boundary, whereas for Agave it's done at the
+     first distribution block.
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L60-L90 */
+
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong                       epoch          = bank->f.epoch;
 
@@ -887,16 +900,17 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
     FD_LOG_CRIT(( "Should not be distributing rewards" ));
   }
 
-  if( FD_UNLIKELY( block_height>=distribution_starting_block_height && block_height<distribution_end_exclusive ) ) {
-
+  /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L110-L114 */
+  if( FD_LIKELY( block_height>=distribution_starting_block_height && block_height<distribution_end_exclusive ) ) {
     ulong partition_idx = block_height-distribution_starting_block_height;
     distribute_epoch_rewards_in_partition( stake_rewards, partition_idx, bank, accdb, xid, capture_ctx );
+  }
 
-    /* If we have finished distributing rewards, set the status to inactive */
-    if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
-      fd_sysvar_epoch_rewards_set_inactive( bank, accdb, xid, capture_ctx );
-      bank->stake_rewards_fork_id = UCHAR_MAX;
-    }
+  /* If we have finished distributing rewards, set the status to inactive
+     https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L116-L135 */
+  if( fd_ulong_sat_add( block_height, 1UL )>=distribution_end_exclusive ) {
+    fd_sysvar_epoch_rewards_set_inactive( bank, accdb, xid, capture_ctx );
+    bank->stake_rewards_fork_id = UCHAR_MAX;
   }
 }
 
@@ -975,20 +989,40 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
      feature. */
 
   fd_vote_rewards_map_t * vote_ele_map = runtime_stack->stakes.vote_map;
+  fd_vote_rewards_map_reset( vote_ele_map );
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   ushort             vs_fork_idx = bank->vote_stakes_fork_id;
 
+  int vat_active = FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket );
+  int vat_in_t_2 = 0;
+  if( FD_UNLIKELY( vat_active ) ) {
+    ulong vat_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.validator_admission_ticket, NULL );
+    vat_in_t_2 = bank->f.epoch>=vat_epoch+1UL;
+  }
+
+  fd_top_votes_t const * top_votes_t_1 = fd_bank_top_votes_t_1_query( bank );
+  fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
+
   ulong epoch_credits_len = *fd_bank_epoch_credits_len( bank );
   for( ulong i=0UL; i<epoch_credits_len; i++ ) {
     fd_epoch_credits_t * epoch_credits = &fd_bank_epoch_credits( bank )[i];
-    ulong stake_t_1;
-    uchar commission_t_1;
-    ulong stake_t_2;
-    uchar commission_t_2;
-    uchar exists_t_1 = 0;
-    uchar exists_t_2 = 0;
-    fd_vote_stakes_query( vote_stakes, vs_fork_idx, (fd_pubkey_t *)epoch_credits->pubkey, &stake_t_1, &stake_t_2, NULL, NULL, &commission_t_1, &commission_t_2, &exists_t_1, &exists_t_2 );
+    fd_pubkey_t const *  pubkey        = (fd_pubkey_t const *)epoch_credits->pubkey;
+
+    /* Get the t-1 stake account information.  This is guaranteed to be
+       valid since the epoch credits are populated from the t-1 stakes
+       in the snapshot manfiest. */
+    ushort commission_t_1 = 0;
+    if( vat_active ) FD_TEST( fd_top_votes_query( top_votes_t_1, pubkey, NULL, NULL, NULL, NULL, &commission_t_1, NULL ) );
+    else             FD_TEST( fd_vote_stakes_query_t_1( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_1 ) );
+
+    /* Now get the t-2 information (if it exists).  This is not
+       guaranteed to be valid since it's possible for a vote account to
+       have been created in the last epoch. */
+    int    exists_t_2     = 0;
+    ushort commission_t_2 = 0;
+    if( vat_in_t_2 ) exists_t_2 = fd_top_votes_query( top_votes_t_2, pubkey, NULL, NULL, NULL, NULL, &commission_t_2, NULL );
+    else             exists_t_2 = fd_vote_stakes_query_t_2( vote_stakes, vs_fork_idx, pubkey, NULL, NULL, &commission_t_2 );
 
     fd_vote_rewards_t * vote_ele = &runtime_stack->stakes.vote_ele[i];
     vote_ele->pubkey       = *(fd_pubkey_t *)epoch_credits->pubkey;
@@ -1001,6 +1035,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     fd_vote_rewards_map_idx_insert( vote_ele_map, i, runtime_stack->stakes.vote_ele );
   }
 
+  /* Copy in historical commission information if it exists. */
   if( FD_FEATURE_ACTIVE_BANK( bank, delay_commission_updates ) ) {
     ulong                     commission_t_3_len = *fd_bank_snapshot_commission_t_3_len( bank );
     fd_stashed_commission_t * commission_t_3     = fd_bank_snapshot_commission_t_3( bank );
@@ -1033,9 +1068,13 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   ulong const epoch          = bank->f.epoch;
   ulong const rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
+  fd_accdb_ro_t sh_ro[1];
+  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, sh_ro, xid, &fd_sysvar_stake_history_id ) ) ) {
+    FD_LOG_ERR(( "Unable to read stake history sysvar" ));
+  }
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, fd_accdb_ref_data_const( sh_ro ), fd_accdb_ref_data_sz( sh_ro ) ) ) ) {
+    FD_LOG_ERR(( "Unable to decode stake history sysvar" ));
   }
 
   fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
@@ -1066,5 +1105,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       epoch_rewards_sysvar->total_rewards,
       epoch_rewards_sysvar->total_points.ud );
 
+  fd_accdb_close_ro( accdb, sh_ro );
   fd_bank_stake_delegations_end_frontier_query( banks, bank );
 }

@@ -38,8 +38,7 @@
 
 #include "fd_system_ids.h"
 
-#include "../../disco/pack/fd_pack_tip_prog_blacklist.h"
-
+#include <limits.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -75,11 +74,11 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-static void
-update_next_leaders( fd_bank_t *          bank,
-                     fd_runtime_stack_t * runtime_stack,
-                     fd_vote_stakes_t *   vote_stakes ) {
+void
+fd_runtime_update_next_leaders( fd_bank_t *          bank,
+                                fd_runtime_stack_t * runtime_stack ) {
 
+  fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
 
   ulong epoch    = fd_slot_to_epoch ( epoch_schedule, bank->f.slot, NULL ) + 1UL;
@@ -90,7 +89,7 @@ update_next_leaders( fd_bank_t *          bank,
   fd_vote_stake_weight_t * epoch_weights    = runtime_stack->stakes.stake_weights;
   ulong                    stake_weight_cnt = fd_stake_weights_by_node_next( top_votes_t_1, vote_stakes, bank->vote_stakes_fork_id, epoch_weights, FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) );
 
-  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
       epoch_leaders_mem,
       epoch,
@@ -123,8 +122,8 @@ update_next_leaders( fd_bank_t *          bank,
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
       stake_weights[ idx-1UL ].stake += stake;
     } else {
-      stake_weights[ idx ].id_key   = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
-      stake_weights[ idx ].vote_key = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].id_key   = (fd_pubkey_t){{0}};
+      stake_weights[ idx ].vote_key = (fd_pubkey_t){{0}};
       stake_weights[ idx ].stake    = stake;
       idx++;
     }
@@ -159,8 +158,6 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
 
-  update_next_leaders( bank, runtime_stack, vote_stakes );
-
   int vat_in_prev = epoch>=vat_epoch+1UL ? 1 : 0;
 
   fd_top_votes_t const *   top_votes_t_2    = fd_bank_top_votes_t_2_query( bank );
@@ -169,7 +166,7 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
   /* TODO: Can optimize by avoiding recomputing if another fork has
      already computed them for this epoch. */
-  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  void * epoch_leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
       epoch_leaders_mem,
       epoch,
@@ -202,8 +199,8 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
     } else if( idx!=0UL && !fd_epoch_leaders_is_leader_idx( leaders, i-1UL ) ) {
       stake_weights[ idx-1UL ].stake += stake;
     } else {
-      stake_weights[ idx ].id_key   = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
-      stake_weights[ idx ].vote_key = (fd_pubkey_t){ .uc = FD_DUMMY_ACCOUNT };
+      stake_weights[ idx ].id_key   = (fd_pubkey_t){{0}};
+      stake_weights[ idx ].vote_key = (fd_pubkey_t){{0}};
       stake_weights[ idx ].stake    = stake;
       idx++;
     }
@@ -307,19 +304,15 @@ fd_runtime_settle_fees( fd_bank_t *               bank,
   ulong fee_burn   = execution_fees / 2;
   ulong fee_reward = fd_ulong_sat_add( priority_fees, execution_fees - fee_burn );
 
-  /* Remove fee balance from bank (decreasing capitalization) */
-  if( FD_UNLIKELY( total_fees > bank->f.capitalization ) ) {
-    FD_LOG_EMERG(( "fee settlement would underflow capitalization (slot=%lu total_fees=%lu cap=%lu)",
-                   slot, total_fees, bank->f.capitalization ));
-  }
+  /* Remove fee balance from bank (decreasing capitalization).
+     Allow underflow (wrap) to match Agave's silent fetch_sub behavior. */
   bank->f.capitalization -= total_fees;
   bank->f.execution_fees  = 0;
   bank->f.priority_fees   = 0;
 
   if( FD_LIKELY( fee_reward ) ) {
-    fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank );
-    if( FD_UNLIKELY( !leaders ) ) FD_LOG_CRIT(( "fd_bank_epoch_leaders_query returned NULL" ));
-    fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, bank->f.slot );
+    fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_query( bank, bank->f.epoch );
+    fd_pubkey_t const *        leader  = fd_epoch_leaders_get( leaders, bank->f.slot );
     if( FD_UNLIKELY( !leader ) ) FD_LOG_CRIT(( "fd_epoch_leaders_get(%lu) returned NULL", bank->f.slot ));
 
     /* Pay out reward portion of collected fees (increasing capitalization) */
@@ -351,7 +344,7 @@ fd_runtime_freeze( fd_bank_t *         bank,
                    fd_accdb_user_t *   accdb,
                    fd_capture_ctx_t *  capture_ctx ) {
 
-  fd_funk_txn_xid_t const xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_funk_txn_xid_t const xid = fd_bank_xid( bank );
 
   if( FD_LIKELY( bank->f.slot != 0UL ) ) {
     fd_sysvar_recent_hashes_update( bank, accdb, &xid, capture_ctx );
@@ -487,6 +480,8 @@ fd_feature_activate( fd_bank_t *               bank,
                      fd_feature_id_t const *   id,
                      fd_pubkey_t const *       addr ) {
   fd_features_t * features = &bank->f.features;
+
+  fd_features_set( features, id, FD_FEATURE_DISABLED );
 
   if( id->reverted==1 ) return;
 
@@ -749,7 +744,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
   if( bank->f.slot != 0 ) {
     fd_sysvar_slot_hashes_update( bank, accdb, xid, capture_ctx );
   }
-  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx, bank->f.last_restart_slot );
+  fd_sysvar_last_restart_slot_update( bank, accdb, xid, capture_ctx );
 }
 
 int
@@ -759,7 +754,7 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
                                            fd_accdb_user_t *         accdb,
                                            fd_funk_txn_xid_t const * xid,
                                            ulong                     slot,
-                                           fd_slot_hash_t const *    hashes, /* deque */
+                                           fd_slot_hashes_t const *  hashes,
                                            fd_acct_addr_t *          out_accts_alt ) {
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -862,7 +857,7 @@ fd_runtime_block_execute_prepare( fd_banks_t *         banks,
                                   fd_capture_ctx_t *   capture_ctx,
                                   int *                is_epoch_boundary ) {
 
-  fd_funk_txn_xid_t const xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_funk_txn_xid_t const xid = fd_bank_xid( bank );
 
   fd_runtime_block_pre_execute_process_new_epoch( banks, bank, accdb, &xid, capture_ctx, runtime_stack, is_epoch_boundary );
 
@@ -987,6 +982,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   /* Set up the transaction accounts and other txn ctx metadata */
   fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
 
+  txn_out->details.check_start_ticks = fd_tickcount();
+
   /* Post-sanitization checks. Called from prepare_sanitized_batch()
      which, for now, only is used to lock the accounts and perform a
      couple basic validations.
@@ -1013,8 +1010,6 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     txn_out->err.is_committable = 0;
     return err;
   }
-
-  txn_out->details.exec_start_timestamp = fd_tickcount();
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( runtime, bank, txn_in, txn_out );
@@ -1164,7 +1159,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     FD_LOG_CRIT(( "fd_runtime_commit_txn: transaction is not committable" ));
   }
 
-  txn_out->details.commit_start_timestamp = fd_tickcount();
+  txn_out->details.commit_start_ticks = fd_tickcount();
 
   /* Release executable accounts */
 
@@ -1181,7 +1176,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   }
 
-  fd_funk_txn_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_funk_txn_xid_t xid = fd_bank_xid( bank );
 
   if( FD_UNLIKELY( txn_out->err.txn_err ) ) {
 
@@ -1235,13 +1230,6 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[i];
       fd_accdb_rw_t *     account = &txn_out->accounts.account[i];
 
-      /* Tips for bundles are collected in the bank: a user submitting a
-         bundle must include a instruction that transfers lamports to
-         a specific tip account.  Tips accumulated through the slot. */
-      if( fd_pack_tip_is_tip_account( fd_type_pun_const( pubkey->uc ) ) ) {
-       txn_out->details.tips += fd_ulong_sat_sub( fd_accdb_ref_lamports( account->ro ), runtime->accounts.starting_lamports[i] );
-      }
-
       if( txn_out->accounts.stake_update[i] ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
       }
@@ -1251,13 +1239,19 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
         fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
         fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
       }
+      if( txn_out->accounts.rm_vote[i] &&
+          !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
+        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+        fd_new_votes_remove( new_votes, bank->new_votes_fork_id, pubkey );
+      }
 
       if( txn_out->accounts.vote_update[i] ) {
-        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL || !fd_vsv_is_correct_size_owner_and_init( account->meta ) ) ) {
+        fd_vote_block_timestamp_t last_vote;
+        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL ||
+                         !fd_vsv_is_correct_size_owner_and_init( account->meta ) ||
+                         fd_vote_account_last_timestamp( fd_account_data( account->meta ), account->meta->dlen, &last_vote ) ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
         } else {
-          fd_vote_block_timestamp_t last_vote;
-          FD_TEST( !fd_vote_account_last_timestamp( fd_account_data( account->meta ), account->meta->dlen, &last_vote ) );
           fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
         }
       }
@@ -1369,10 +1363,10 @@ fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
 static inline void
 fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
                         fd_txn_out_t *      txn_out ) {
-  txn_out->details.prep_start_timestamp   = fd_tickcount();
-  txn_out->details.load_start_timestamp   = LONG_MAX;
-  txn_out->details.exec_start_timestamp   = LONG_MAX;
-  txn_out->details.commit_start_timestamp = LONG_MAX;
+  txn_out->details.load_start_ticks   = fd_tickcount();
+  txn_out->details.check_start_ticks  = LONG_MAX;
+  txn_out->details.exec_start_ticks   = LONG_MAX;
+  txn_out->details.commit_start_ticks = LONG_MAX;
 
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
 
@@ -1400,6 +1394,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   memset( txn_out->accounts.stake_update, 0, sizeof(txn_out->accounts.stake_update) );
   memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
   memset( txn_out->accounts.new_vote, 0, sizeof(txn_out->accounts.new_vote) );
+  memset( txn_out->accounts.rm_vote, 0, sizeof(txn_out->accounts.rm_vote) );
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
@@ -1446,6 +1441,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *       runtime,
   /* Execute the transaction if eligible to do so. */
   if( FD_LIKELY( txn_out->err.is_committable ) ) {
     if( FD_LIKELY( !txn_out->err.is_fees_only ) ) {
+      txn_out->details.exec_start_ticks = fd_tickcount();
       txn_out->err.txn_err = fd_execute_txn( runtime, bank, txn_in, txn_out );
     }
     fd_cost_tracker_calculate_cost( bank, txn_in, txn_out );
@@ -1665,17 +1661,24 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
 
   ulong new_rate_activation_epoch = 0UL;
 
-  fd_stake_history_t stake_history[1];
-  fd_sysvar_stake_history_read( accdb, xid, stake_history );
+  {
+    fd_stake_history_t   stake_history_[1];
+    fd_accdb_ro_t        ro_[1];
+    fd_stake_history_t * stake_history = NULL;
+    fd_accdb_ro_t *      ro = fd_accdb_open_ro( accdb, ro_, xid, &fd_sysvar_stake_history_id );
+    if( ro ) stake_history = fd_sysvar_stake_history_view( stake_history_, fd_accdb_ref_data_const( ro ), fd_accdb_ref_data_sz( ro ) );
 
-  fd_refresh_vote_accounts(
-      bank,
-      accdb,
-      xid,
-      runtime_stack,
-      stake_delegations,
-      stake_history,
-      &new_rate_activation_epoch );
+    fd_refresh_vote_accounts(
+        bank,
+        accdb,
+        xid,
+        runtime_stack,
+        stake_delegations,
+        stake_history,
+        &new_rate_activation_epoch );
+
+    if( FD_LIKELY( ro ) ) fd_accdb_close_ro( accdb, ro );
+  }
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_genesis_fini( vote_stakes );

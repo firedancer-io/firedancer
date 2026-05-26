@@ -155,6 +155,8 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   FD_TEST( env->banks );
   env->bank = fd_banks_init_bank( env->banks );
   FD_TEST( env->bank );
+  env->bank->f.slot = 9UL;
+  env->bank->f.epoch = 4UL;
 
   env->runtime_stack = fd_wksp_alloc_laddr( wksp, fd_runtime_stack_align(), fd_runtime_stack_footprint( 2048UL, 2048UL, 2048UL ), env->tag );
   FD_TEST( env->runtime_stack );
@@ -162,7 +164,7 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
 
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
-  env->xid = (fd_funk_txn_xid_t){ .ul = { 9UL, env->bank->idx } };
+  env->xid = fd_bank_xid( env->bank );
   fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
   fd_progcache_attach_child( env->progcache->join, root, &env->xid );
 
@@ -171,9 +173,6 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   init_stake_history_sysvar( env );
   init_clock_sysvar( env );
   init_blockhash_queue( env );
-
-  env->bank->f.slot = 9UL;
-  env->bank->f.epoch = 4UL;
 
   fd_bank_top_votes_t_2_modify( env->bank );
 
@@ -258,8 +257,8 @@ process_slot( test_env_t * env, ulong slot ) {
   ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, NULL );
   new_bank->f.epoch = epoch;
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, new_bank_idx } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+  fd_funk_txn_xid_t xid        = fd_bank_xid( new_bank    );
+  fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
   fd_accdb_attach_child    ( env->accdb_admin,     &parent_xid, &xid );
   fd_progcache_attach_child( env->progcache->join, &parent_xid, &xid );
 
@@ -432,6 +431,8 @@ test_account_initialize( fd_wksp_t * wksp ) {
   fd_account_meta_t * vote_account_meta = env->txn_out->accounts.account[1].meta;
   FD_TEST( vote_account_meta->dlen>0 );
   FD_TEST( !fd_mem_iszero( fd_account_data( vote_account_meta ), vote_account_meta->dlen ) );
+  FD_TEST( env->txn_out->accounts.new_vote[1] );
+  FD_TEST( !env->txn_out->accounts.rm_vote[1] );
 
   test_env_cleanup( env );
   FD_LOG_NOTICE(( "test_account_initialize... ok" ));
@@ -451,6 +452,8 @@ test_account_initialize_simd_0387( fd_wksp_t * wksp ) {
   /* Run the vote program */
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, env->txn_in, env->txn_out );
   FD_TEST( txn_succeeded( env ) );
+  FD_TEST( env->txn_out->accounts.new_vote[1] );
+  FD_TEST( !env->txn_out->accounts.rm_vote[1] );
 
   test_env_cleanup( env );
   FD_LOG_NOTICE(( "test_account_initialize_simd_0387... ok" ));

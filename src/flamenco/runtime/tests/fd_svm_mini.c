@@ -15,6 +15,7 @@
 #include "../../runtime/sysvar/fd_sysvar_cache.h"
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../runtime/sysvar/fd_sysvar_slot_history.h"
 #include "../../runtime/program/fd_vote_program.h"
 #include "../../stakes/fd_stake_types.h"
 #include "../../stakes/fd_vote_stakes.h"
@@ -370,7 +371,7 @@ fd_svm_mini_init_mock_validators( fd_svm_mini_t *              mini,
   ulong slot0    = fd_epoch_slot0( &bank->f.epoch_schedule, epoch );
   ulong slot_cnt = bank->f.epoch_schedule.slots_per_epoch;
 
-  void * leaders_mem = fd_bank_epoch_leaders_modify( bank );
+  void * leaders_mem = fd_bank_epoch_leaders_modify( bank, epoch );
   FD_TEST( fd_epoch_leaders_join( fd_epoch_leaders_new(
       leaders_mem, epoch, slot0, slot_cnt, N, stakes, 0UL ) ) );
 
@@ -392,7 +393,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   bank->f.slot = params->root_slot;
 
-  fd_xid_t root_xid = { .ul = { params->root_slot, bank_idx } };
+  fd_xid_t root_xid = fd_bank_xid( bank );
   fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
   fd_funk_txn_xid_copy( funk->shmem->last_publish, &root_xid );
   fd_funk_txn_xid_copy( mini->progcache->join->shmem->txn.last_publish, &root_xid );
@@ -503,9 +504,15 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     /* Slot hashes (empty) */
     uchar slot_hashes_enc[ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ ] = {0};
 
-    /* Slot history (empty -- large, heap alloc) */
+    /* Slot history -- well-formed bincode (large, heap alloc) */
     uchar * slot_history_enc = calloc( 1, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
     FD_TEST( slot_history_enc );
+    ulong sh_blocks_len = FD_SLOT_HISTORY_MAX_ENTRIES / 64UL;
+    slot_history_enc[0] = 1; /* has_bits */
+    FD_STORE( ulong, slot_history_enc+1, sh_blocks_len );
+    uchar * sh_footer = slot_history_enc + 9UL + sh_blocks_len * sizeof(ulong);
+    FD_STORE( ulong, sh_footer,     FD_SLOT_HISTORY_MAX_ENTRIES );
+    FD_STORE( ulong, sh_footer+8UL, bank->f.slot + 1UL );
 
     /* Stake history (empty) */
     uchar stake_history_enc[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ] = {0};
@@ -552,7 +559,7 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   if( FD_UNLIKELY( !parent_bank ) ) FD_LOG_ERR(( "invalid parent_bank_idx" ));
   ulong parent_slot = parent_bank->f.slot;
   if( FD_UNLIKELY( child_slot<=parent_slot ) ) FD_LOG_ERR(( "child_slot (%lu) <= parent_slot (%lu)", child_slot, parent_slot ));
-  fd_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
+  fd_xid_t parent_xid = fd_bank_xid( parent_bank );
 
   fd_bank_t * bank = fd_banks_new_bank( mini->banks, parent_bank_idx, 0L );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "fd_banks_new_bank failed" ));
@@ -560,7 +567,7 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "fd_banks_clone_from_parent failed" ));
   ulong bank_idx = bank->idx;
   bank->f.slot = child_slot;
-  fd_xid_t xid = { .ul = { child_slot, bank_idx } };
+  fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_attach_child    ( mini->accdb_admin,     &parent_xid, &xid );
   fd_progcache_attach_child( mini->progcache->join, &parent_xid, &xid );
@@ -588,7 +595,7 @@ fd_svm_mini_cancel_fork( fd_svm_mini_t * mini,
 
   fd_bank_t * bank = fd_svm_mini_bank( mini, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  fd_xid_t xid = { .ul = { bank->f.slot, bank->idx } };
+  fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_cancel    ( mini->accdb_admin,     &xid );
   fd_progcache_cancel( mini->progcache->join, &xid );
@@ -600,8 +607,7 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
 
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  ulong slot = bank->f.slot;
-  fd_xid_t xid = { .ul = { slot, bank_idx } };
+  fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_advance_root    ( mini->accdb_admin,     &xid );
   fd_progcache_advance_root( mini->progcache->join, &xid );
@@ -621,8 +627,7 @@ fd_xid_t
 fd_svm_mini_xid( fd_svm_mini_t * mini,
                  ulong           bank_idx ) {
   fd_bank_t * bank = fd_banks_bank_query( mini->banks, bank_idx );
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
-  return (fd_xid_t){ .ul = { bank->f.slot, bank->idx } };
+  return fd_bank_xid( bank );
 }
 
 void

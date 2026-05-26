@@ -902,7 +902,7 @@ fuzz_execute_op( fuzz_op_t const * op,
           g_client_state.conn->state==FD_QUIC_CONN_STATE_INVALID ) {
         g_client_state.last_stream = NULL;
         g_server_state.last_stream = NULL;
-        g_client_state.conn = fd_quic_connect( g_client_quic, 0U, 0, 0U, 0, *now );
+        g_client_state.conn = fd_quic_connect( g_client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, *now );
 
         long step_ns = (long)( 1000000UL + (op->u.reconnect.seed % 9000000UL) );
         uint rounds  = (uint)( 2U + (uint)(op->u.reconnect.seed & 3UL) );
@@ -1040,7 +1040,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   long now = 1000000L;
   fd_quic_sync_clocks( g_client_quic, g_server_quic, now );
 
-  g_client_state.conn = fd_quic_connect( g_client_quic, 0U, 0, 0U, 0, now );
+  g_client_state.conn = fd_quic_connect( g_client_quic, FD_QUIC_TEST_SERVER_IP4, 0, FD_QUIC_TEST_CLIENT_IP4, 0, now );
 
   for( ulong j=0UL; j<FUZZ_HS_ITERS; j++ ) {
     if( g_client_hs_complete & g_server_hs_complete ) break;

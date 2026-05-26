@@ -87,7 +87,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000-v4.0.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346179946-v4.0.0 -y 30 -m 90000000 -e 346179950 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v4.0.0 -y 1 -m 1000 -e 108 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l local-multi-boundary-v4.0.0 -y 1 -m 1000 -e 2325 -lt
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 -y 1 -m 3000 -e 1352 -g -lt --funk
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l genesis-v4.0.0 -y 1 -m 3000 -e 1352 -g -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l localnet-stake-v4.0.0 -y 1 -m 3000 -e 541 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-413869565-v4.0.0 -y 40 -m 100000000 -e 413869600 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880-v4.0.0 -y 1 -m 2000000 -e 376969880
@@ -100,14 +100,15 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-387596258-v4.0.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l deployment-before-boundary-v4.0.0 -y 1 -m 1000 -e 75
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l vote-stake-scenarios-v4.0.0-alpha.0 -y 1 -m 10000
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-391824000-boundary -y 2 -m 2000000 -e 391824016
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l progcache-stale-entry -y 1 -m 10000 -e 135
 
 # Direct mapping has 3 different interplaying feature gates:
 # syscall_parameter_address_restrictions, virtual_address_space_adjustments and account_data_direct_mapping
 # account_data_direct_mapping is dependent on virtual_address_space_adjustments,
 # which is in turn dependent on syscall_parameter_address_restrictions.
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-3 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-4 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-5 -y 3 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-3 -y 5 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-4 -y 5 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping-5 -y 5 -m 2000000 -e 368528501 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-362107883-direct-mapping-3 -y 1 -m 2000000 -e 362219427 -o EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF,7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz,CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE
 
 # Local cluster ledgers testing specific feature gates
@@ -123,10 +124,14 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l syscall-parameter-address-r
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l virtual-address-space-adjustments -y 1 -m 1000 -e 819
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l account-data-direct-mapping -y 1 -m 1000 -e 1395
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_sbpf_v3_deployment_and_execution -y 1 -m 1000 -e 961
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5 -y 1 -m 1000 -e 586
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-7 -y 1 -m 10000 -e 1596
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-8 -y 1 -m 10000 -e 1596
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -y 1 -m 10000 -e 540
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5 -y 1 -m 2000 -e 586
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l upgrade_bpf_stake_program_to_v5_revoke -y 1 -m 1000 -e 290
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-7 -y 1 -m 20000 -e 1596
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l delay-comission-updates-8 -y 1 -m 20000 -e 1596
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l vat-activation -y 1 -m 20000 -e 540
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l enable_bls12_381_syscall -y 1 -m 1000 -e 379
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account -y 1 -m 1000 -e 364
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l bls_pubkey_management_in_vote_account_rekey -y 1 -m 1000 -e 329
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l raise_block_limits_to_100m -y 1 -m 10000 -e 603
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct_account_pointers_in_program_input -y 1 -m 10000 -e 386
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_boundary -y 1 -m 10000 -e 950
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot -y 1 -m 10000 -e 950

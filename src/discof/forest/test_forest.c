@@ -1644,7 +1644,281 @@ test_eqvoc_different_slot_size( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( fd_forest_fini( forest ) ) ) );
 }
 
+void
+test_fec_complete_no_poison_verified( fd_wksp_t * wksp ) {
+  /* A conflicting FEC_COMPLETE arrives for an FEC index that has
+     already been chain-verified.  The merkle root metadata doesn't get
+     overwritten. */
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_init( forest, 0 );
 
+  fd_hash_t mr_0   = (fd_hash_t){ .key = { 0 } };
+  fd_hash_t mr_1   = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_3_0 = (fd_hash_t){ .key = { 30 } }; /* correct FEC 0 mr */
+  fd_hash_t mr_3_1 = (fd_hash_t){ .key = { 31 } }; /* correct FEC 1 mr = block_id */
+
+  /* Conflicting FEC 1 merkle roots */
+  fd_hash_t mr_3_1_bad = (fd_hash_t){ .key = { 99 } };
+  fd_hash_t cmr_bad    = (fd_hash_t){ .key = { 98 } };
+
+  /* Set up ancestry: root=0 -> slot 1 -> slot 2 -> slot 3 */
+  fd_forest_blk_insert( forest, 1, 0, NULL );
+  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0 );
+  fd_forest_blk_insert( forest, 2, 1, NULL );
+  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1 );
+
+  /* Insert correct version of slot 3: 2 FEC sets, parent=2 */
+  fd_forest_blk_insert( forest, 3, 2, NULL );
+  /* FEC 0: shreds 0-31 */
+  fd_forest_fec_insert( forest, 3, 2, 31, 0, 0, 0, &mr_3_0, &mr_2 );
+  /* FEC 1: shreds 32-63, slot_complete=1 */
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0 );
+
+  fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
+  FD_TEST( ele->complete_idx == 63 );
+
+  /* Chain-verify with the correct block_id.  Both FEC 1 and FEC 0
+     should be verified, and chain_confirmed should be set. */
+  fd_forest_blk_t * fail = fd_forest_fec_chain_verify( forest, ele, &mr_3_1 );
+  FD_TEST( !fail ); /* NULL means full success */
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+
+  fd_hash_t saved_mr  = ele->merkle_roots[1].mr;
+  fd_hash_t saved_cmr = ele->merkle_roots[1].cmr;
+  FD_TEST( fd_hash_eq( &saved_mr, &mr_3_1 ) );
+
+  /* Now a conflicting FEC_COMPLETE arrives for FEC 1 (fec_set_idx=32)
+     with a different merkle root.  This is the bug scenario: without
+     the fix, this would overwrite the verified merkle entry. */
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1_bad, &cmr_bad );
+
+  /* The verified merkle root must NOT have been overwritten */
+  FD_TEST( fd_hash_eq( &ele->merkle_roots[1].mr,  &saved_mr  ) );
+  FD_TEST( fd_hash_eq( &ele->merkle_roots[1].cmr, &saved_cmr ) );
+
+  /* The block should still be chain-confirmed */
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( fd_forest_fini( forest ) ) ) );
+}
+
+
+/* test_buffered_idx_oob
+
+   fd_forest_data_shred_insert used to OOB read on the idxs bitmap when
+   buffered_idx reaches FD_SHRED_BLK_MAX - 1 (32767).
+
+   The while loop:
+     while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) )
+       ele->buffered_idx++;
+
+   Could end up testing into the in merkle_roots array.  If that memory
+   has bit 0 set, buffered_idx advances to 32768 or beyond, corrupting
+   the slot.
+
+   Trigger: fill a slot to max capacity (32768 shreds across 1024 FEC
+   sets), then insert an equivocating data shred.  The equivocation sets
+   merkle_roots[0].mr = invalid_mr = {ULONG_MAX, ...}, whose bit 0 is
+   set, causing the OOB read to return true. */
+
+static void
+test_buffered_idx_oob( fd_wksp_t * wksp ) {
+
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  ulong slot        = 2;
+  ulong parent_slot = 0;
+
+  fd_forest_blk_insert( forest, slot, parent_slot, NULL );
+
+  /* Fill every FEC set (0 .. FD_FEC_BLK_MAX-1).  Each FEC set covers
+     32 shred indices.  The last FEC set marks slot_complete. */
+
+  for( uint fec = 0; fec < FD_FEC_BLK_MAX; fec++ ) {
+    uint fec_set_idx   = fec * FD_FEC_SHRED_CNT;
+    uint last_shred_idx = fec_set_idx + FD_FEC_SHRED_CNT - 1;
+    int  slot_complete  = (fec == FD_FEC_BLK_MAX - 1);
+
+    /* Each FEC gets a unique merkle root so they're all distinct. */
+    fd_hash_t mr  = {0}; mr.ul[0]  = fec + 1;
+    fd_hash_t cmr = {0}; cmr.ul[0] = fec;  /* chained to previous FEC's mr */
+
+    fd_forest_fec_insert( forest, slot, parent_slot,
+                          last_shred_idx, fec_set_idx, slot_complete, 0,
+                          &mr, &cmr );
+  }
+
+  /* the slot is fully buffered and complete. */
+  fd_forest_blk_t * blk = fd_forest_query( forest, slot );
+  FD_TEST( blk );
+  FD_TEST( blk->complete_idx == FD_SHRED_BLK_MAX - 1 );
+  FD_TEST( blk->buffered_idx == FD_SHRED_BLK_MAX - 1 ); /* orginally merkle root[0] causes buffered_idx to increment to FD_SHRED_BLK_MAX */
+
+  /* Now insert an equivocating data shred at index 0 with a DIFFERENT
+     merkle root.  This triggers:
+       merkle_roots[0].mr = invalid_mr = { ULONG_MAX, ULONG_MAX, ... }
+     which puts all-ones into the memory word immediately past idxs[]. */
+
+  fd_hash_t bad_mr  = {0}; bad_mr.ul[0]  = 0xBAD;
+  fd_hash_t bad_cmr = {0}; bad_cmr.ul[0] = 0xBAD;
+
+  fd_forest_data_shred_insert( forest, slot, parent_slot,
+                                0,   /* shred_idx */
+                                0,   /* fec_set_idx */
+                                0,   /* slot_complete */
+                                0,   /* ref_tick */
+                                SHRED_SRC_TURBINE,
+                                &bad_mr, &bad_cmr );
+
+  blk = fd_forest_query( forest, slot );
+  FD_TEST( blk );
+
+  /* buffered_idx should still be FD_SHRED_BLK_MAX - 1 */
+  FD_TEST( blk->buffered_idx == FD_SHRED_BLK_MAX - 1 );
+  FD_TEST( blk->merkle_roots[0].mr.ul[0] == ULONG_MAX );
+
+  /* no longer blocks consumed-frontier advancement and FEC chain verification. */
+  FD_TEST( blk->buffered_idx == blk->complete_idx );
+}
+
+
+void
+test_fec_insert_reject_oob_after_verify( fd_wksp_t * wksp ) {
+  /* After a slot is fully received and chain-verified, an attacker
+     sends a FEC set with the maximum possible fec_set_idx (well beyond
+     complete_idx).  The FEC is rejected because fec_set_idx > complete_idx. */
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_init( forest, 0 );
+
+  fd_hash_t mr_0   = (fd_hash_t){ .key = { 0 } };
+  fd_hash_t mr_1   = (fd_hash_t){ .key = { 1 } };
+  fd_hash_t mr_2   = (fd_hash_t){ .key = { 2 } };
+  fd_hash_t mr_3_0 = (fd_hash_t){ .key = { 30 } };
+  fd_hash_t mr_3_1 = (fd_hash_t){ .key = { 31 } };
+
+  /* Build chain: root=0 -> slot 1 -> slot 2 -> slot 3 (2 FEC sets) */
+  fd_forest_blk_insert( forest, 1, 0, NULL );
+  fd_forest_data_shred_insert( forest, 1, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_1, &mr_0 );
+  fd_forest_blk_insert( forest, 2, 1, NULL );
+  fd_forest_data_shred_insert( forest, 2, 1, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_1 );
+
+  fd_forest_blk_insert( forest, 3, 2, NULL );
+  fd_forest_fec_insert( forest, 3, 2, 31, 0, 0, 0, &mr_3_0, &mr_2 );
+  fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0 );
+
+  fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
+  FD_TEST( ele->complete_idx == 63 );
+
+  /* Chain-verify slot 3 all the way back. */
+  FD_TEST( !fd_forest_fec_chain_verify( forest, ele, &mr_3_1 ) );
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+
+  /* Attacker sends a FEC with the max possible fec_set_idx.
+     complete_idx == 63, attacker's fec_set_idx == (1023*32) >> 63.
+     This must be rejected (return NULL). */
+  uint    attack_fec_set_idx = (FD_FEC_BLK_MAX - 1) * 32;
+  uint    attack_last_shred  = attack_fec_set_idx + 31;
+  fd_hash_t mr_bad  = (fd_hash_t){ .key = { 0xBA } };
+  fd_hash_t cmr_bad = (fd_hash_t){ .key = { 0xBB } };
+
+  fd_forest_blk_t * result = fd_forest_fec_insert( forest, 3, 2, attack_last_shred, attack_fec_set_idx, 0, 0, &mr_bad, &cmr_bad );
+  FD_TEST( !result );
+
+  /* Slot 3 state must be untouched. */
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+  FD_TEST( ele->complete_idx == 63 );
+
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( fd_forest_fini( forest ) ) ) );
+}
+
+void
+test_fec_insert_dup_confirm_larger_complete_idx( fd_wksp_t * wksp ) {
+  /* Attacker sends a false slot_complete shred at shred 31 (1 FEC set),
+     so complete_idx == 31.  Later, duplicate confirmation arrives and
+     we fec_clear the bad FEC.  The canonical version has 2 FEC sets
+     (complete_idx == 63).  After clearing, we must be able to receive
+     the canonical FEC sets that extend beyond the old complete_idx.
+
+         0
+         |
+         2
+         |
+         3  (attacker: complete_idx=31, canonical: complete_idx=63)
+  */
+
+  ulong ele_max = 16;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL ) );
+  fd_forest_init( forest, 0 );
+
+  fd_hash_t mr_0    = (fd_hash_t){ .key = { 0 } };
+  fd_hash_t mr_2    = (fd_hash_t){ .key = { 2 } };
+
+  /* Attacker's version of slot 3: 1 FEC set, slot_complete at shred 31 */
+  fd_hash_t mr_3_bad = (fd_hash_t){ .key = { 99 } };
+
+  /* Canonical version of slot 3: 2 FEC sets */
+  fd_hash_t mr_3_0  = (fd_hash_t){ .key = { 30 } };
+  fd_hash_t mr_3_1  = (fd_hash_t){ .key = { 31 } };
+
+  /* Build ancestry: root=0 -> slot 2 (1 FEC) */
+  fd_forest_blk_insert( forest, 2, 0, NULL );
+  fd_forest_data_shred_insert( forest, 2, 0, 31, 0, 1, 0, SHRED_SRC_REPAIR, &mr_2, &mr_0 );
+
+  /* Receive the attacker's version of slot 3: complete at shred 31 */
+  fd_forest_blk_insert( forest, 3, 2, NULL );
+  fd_forest_fec_insert( forest, 3, 2, 31, 0, 1, 0, &mr_3_bad, &mr_2 );
+
+  fd_forest_blk_t * ele = fd_forest_query( forest, 3 );
+  FD_TEST( ele->complete_idx == 31 );
+
+  /* Canonical FEC 1 (fec_set_idx=32) should be rejected because
+     fec_set_idx 32 > complete_idx 31. */
+  FD_TEST( !fd_forest_fec_insert( forest, 3, 2, 63, 32, 0, 0, &mr_3_1, &mr_3_0 ) );
+
+  /* Duplicate confirmation arrives: clear the bad FEC (shreds 0-31).
+     This resets complete_idx to UINT_MAX. */
+  FD_TEST( fd_forest_fec_chain_verify( forest, ele, &mr_3_1 ) == ele );
+  FD_TEST( fd_forest_merkle_last_incorrect_idx( ele ) == 0 );
+  fd_forest_fec_clear( forest, 3, 0, 31 );
+  FD_TEST( ele->complete_idx == UINT_MAX );
+
+  /* Try inserting the bad version again.  It should be rejected. */
+  FD_TEST( !fd_forest_fec_insert( forest, 3, 2, 31, 0, 1, 0, &mr_3_bad, &mr_2 ) );
+  /* Now we can receive the canonical version: 2 FEC sets */
+  FD_TEST( fd_forest_fec_insert( forest, 3, 2, 31, 0,  0, 0, &mr_3_0, &mr_2 ) );
+  FD_TEST( fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_1, &mr_3_0 ) );
+  FD_TEST( ele->complete_idx == 63 );
+
+  /* Chain-verify succeeds */
+  FD_TEST( !fd_forest_fec_chain_verify( forest, ele, &mr_3_1 ) );
+  FD_TEST( ele->chain_confirmed );
+  FD_TEST( ele->lowest_verified_fec == 0 );
+
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( fd_forest_fini( forest ) ) ) );
+}
 
 int
 main( int argc, char ** argv ) {
@@ -1656,6 +1930,7 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
+  test_buffered_idx_oob( wksp );
   test_invalid_frontier_insert( wksp );
   test_publish( wksp );
   test_publish_incremental( wksp );
@@ -1680,6 +1955,9 @@ main( int argc, char ** argv ) {
   test_eqvoc_blk_wrong_parent( wksp );
   test_parent_update( wksp );
   test_eqvoc_different_slot_size( wksp );
+  test_fec_complete_no_poison_verified( wksp );
+  test_fec_insert_reject_oob_after_verify( wksp );
+  test_fec_insert_dup_confirm_larger_complete_idx( wksp );
 
   fd_halt();
   return 0;

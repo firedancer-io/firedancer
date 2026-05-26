@@ -1261,6 +1261,11 @@ reported when you first connect by the `summary.tiles` message.
             23,
             12,
             ...
+        ],
+        "priority": [
+            "normal",
+            "critical",
+            ...
         ]
     }
 }
@@ -1281,6 +1286,7 @@ reported when you first connect by the `summary.tiles` message.
 | minflt       | `number[]`           | `minflt[i]` is the number of minor page faults that occurred for tile `i` since startup. Minor page faults occur for requested pages already in memory, but not in the page table |
 | majflt       | `number[]`           | `majflt[i]` is the number of major page faults that occurred for tile `i` since startup. Major page faults occur for requested pages not in memory or the page table |
 | last_cpu     | `number[]`           | `last_cpu[i]` is the CPU index that tile `i` was last recorded executing on |
+| priority     | `string[]`           | `priority[i]` is the priority label of tile `i`. One of `"floating"`, `"startup"`, `"normal"`, or `"critical"` |
 
 Note that a `null` entry in `timers` field indicates that the tile has
 not published new information about the following fields
@@ -1339,8 +1345,8 @@ sBPF ELF binaries on every transaction execution.
 **`ProgramCacheMetrics`**
 | Field               | Type     | Description |
 |---------------------|----------|-------------|
-| hits                | `number` | Total number of program cache hits across all execution tiles since startup. Misses can be derived as `lookups - hits` |
-| lookups             | `number` | Total number of program cache lookups across all execution tiles since startup |
+| hits                | `number` | Total number of program cache hits across all execution tiles over the last 1 minute. Misses can be derived as `lookups - hits` |
+| lookups             | `number` | Total number of program cache lookups across all execution tiles over the last 1 minute |
 | insertions          | `number` | Total number of program cache insertions across all execution tiles since startup |
 | insertion_bytes     | `number` | Total number of bytes inserted into the program cache since startup |
 | evictions           | `number` | Total number of program cache evictions across all execution tiles since startup |
@@ -2639,19 +2645,20 @@ explicitly mentioned, skipped slots are not included.
             "txn_bank_idx": [0],
             "txn_compute_units_consumed": [3428],
             "txn_compute_units_requested": [3428],
-            "txn_end_timestamps_nanos": ["1754409729594477657"],
+            "txn_check_start_timestamps_nanos": ["1754409729594432846"],
+            "txn_commit_end_timestamps_nanos": ["1754409729594500000"],
+            "txn_commit_start_timestamps_nanos": ["1754409729594477657"],
             "txn_error_code": [0],
+            "txn_execute_start_timestamps_nanos": ["1754409729594455631"],
             "txn_from_bundle": [false],
             "txn_is_simple_vote": [true],
             "txn_landed": [true],
-            "txn_load_end_timestamps_nanos": ["1754409729594455631"],
+            "txn_load_start_timestamps_nanos": ["1754409729594451074"],
             "txn_mb_end_timestamps_nanos": ["1754409729594625003"],
             "txn_mb_start_timestamps_nanos": ["1754409729594431327"],
             "txn_microblock_id": [0],
-            "txn_preload_end_timestamps_nanos": ["1754409729594432846"],
             "txn_priority_fee": ["0"],
             "txn_signature": ["2BfWBnhTP1ZZwFZutwThj5VT1hX71X9otbgFr21W2XJfcppXakbPCvJ2eCh8eBcS74Lfjar5AuowuppAjsEceSuW"],
-            "txn_start_timestamps_nanos": ["1754409729594451074"],
             "txn_transaction_fee": [0],
             "txn_tips": ["0"],
             "txn_source_ipv4": ["123.123.123.123"],
@@ -2775,31 +2782,32 @@ explicitly mentioned, skipped slots are not included.
 
 
 **`Transactions`**
-| Field                             | Type                | Description |
-|-----------------------------------|---------------------|-------------|
-| start_timestamp_nanos             | `string`            | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
-| target_end_timestamp_nanos        | `string`            | A UNIX timestamp, in nanoseconds, representing the target time in nanoseconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
-| txn_arrival_timestamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_arrival_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot arrived at the transaction scheduler (i.e. pack) |
-| txn_mb_start_timestamps_nanos     | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
-| txn_preload_end_timestamps_nanos  | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_preload_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot was successfully dispatched into an execution environment and is about to start validation checks, which include a final deduplication check as well as an expiration check |
-| txn_start_timestamps_nanos        | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading |
-| txn_load_end_timestamps_nanos     | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot finished loading and started executing. At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
-| txn_end_timestamps_nanos          | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot finished executing |
-| txn_mb_end_timestamps_nanos       | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
-| txn_compute_units_requested       | `number[]`          | `txn_compute_units_requested[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time |
-| txn_compute_units_consumed        | `number[]`          | `txn_compute_units_consumed[i]` is the actual post-execution cost of the `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed |
-| txn_transaction_fee               | `string[]`          | `txn_transaction_fee[i]` is the signature fee for the `i`-th transaction in the slot. Currently, this is the number of signatures in the transaction times 5000 lamports. This fee used to (and may in the future) include rewards from other parts of the transaction, which is why a more general name is used.  50% of this fee is burned and the other 50% is included in validator block rewards. The provided values reflect the fee balance after burning |
-| txn_priority_fee                  | `string[]`          | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot.  The priority fee is a static metric computed by multiplying the requested execution cost (derived from a provided computeBudget instruction, or from a protocol defined default) by the compute unit price (derived from a separate computeBudget instruction) |
-| txn_tips                          | `string[]`          | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
-| txn_error_code                    | `number[]`          | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
-| txn_from_bundle                   | `boolean[]`         | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
-| txn_is_simple_vote                | `boolean[]`         | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
-| txn_landed                        | `boolean[]`         | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
-| txn_bank_idx                      | `number[]`          | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
-| txn_microblock_id                 | `string[]`          | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
-| txn_signature                     | `string[]`          | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
-| txn_source_ipv4                   | `string[]`          | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
-| txn_source_tpu                    | `string[]`          | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
+| Field                              | Type                | Description |
+|------------------------------------|---------------------|-------------|
+| start_timestamp_nanos              | `string`            | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
+| target_end_timestamp_nanos         | `string`            | A UNIX timestamp, in nanoseconds, representing the target time in nanoseconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
+| txn_arrival_timestamps_nanos       | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_arrival_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot arrived at the transaction scheduler (i.e. pack) |
+| txn_mb_start_timestamps_nanos      | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_start_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot was successfully scheduled for execution by pack.  At this point, the microblock was sent off to a bank tile for execution.  Since a microblock may contain multiple transactions (e.g. a bundle), all transactions from the same microblock will share the same start timestamp |
+| txn_load_start_timestamps_nanos    | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_load_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started loading relevant on-chain account data |
+| txn_check_start_timestamps_nanos   | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_check_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started validation checks, which include a final deduplication check as well as an expiration check.  In Firedancer, the load phase occurs before validation checks, but in Frankendancer the check phase occurs before loading |
+| txn_execute_start_timestamps_nanos | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_execute_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started executing.  At this point, relevant on-chain data has been loaded for the transaction and it is ready to be fed into the Solana Virtual Machine (SVM) |
+| txn_commit_start_timestamps_nanos  | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_commit_start_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot started committing the transaction (or canceling it) |
+| txn_commit_end_timestamps_nanos    | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_commit_end_timestamps_nanos[i]` is the time when the `i`-th transaction in the slot finished the commit/cancel phase |
+| txn_mb_end_timestamps_nanos        | `string[]`          | An array of UNIX timestamps, in nanoseconds. `txn_mb_end_timestamps_nanos[i]` is the time when the microblock for the `i`-th transaction in the slot completed executing.  At this point, the bank tile for this microblock was ready to communicate the execution result back to the pack. pack uses this result to track the progress of the growing block and also repurposes any unused compute units for other microblocks.  The current implementation splits microblocks which originally contained multiple transactions (i.e. bundles) apart so that consumers always receive one transaction per microblock, so unlike `txn_mb_start_timestamps_nanos` this timestamp may be unique for a given transaction |
+| txn_compute_units_requested        | `number[]`          | `txn_compute_units_requested[i]` is a strict upper bound on the total cost for the `i`-th transaction in the slot.  The transaction cannot have succeeded if its incurred cost (known after execution) exceeds this bound.  This bound is used by the pack tile to estimate the pace at which the block is being filled, and to filter out transactions that it knows will fail ahead of time |
+| txn_compute_units_consumed         | `number[]`          | `txn_compute_units_consumed[i]` is the actual post-execution cost of the `i`-th transaction in the slot.  While some transactions costs are known from the transaction payload itself (such as the cost incurred by the amount of instruction data), other costs (like execution costs or the cost due to loaded on-chain account data) are a function of the state of the blockchain at the time of execution. This value represents the actual cost after a transaction is executed.  Consensus requires that all validators agree on this value for a given transaction in a slot. There are two special cases to consider for scheduled transactions that were not added to the produced block. Failed bundle transactions that successfully executed up to the point of failure will show actual consumed CUs. Subsequent failed bundle transactions will show 0 cus consumed.  Non-bundle transactions that were not added to the block will also show 0 cus consumed |
+| txn_transaction_fee                | `string[]`          | `txn_transaction_fee[i]` is the signature fee for the `i`-th transaction in the slot. Currently, this is the number of signatures in the transaction times 5000 lamports. This fee used to (and may in the future) include rewards from other parts of the transaction, which is why a more general name is used.  50% of this fee is burned and the other 50% is included in validator block rewards. The provided values reflect the fee balance after burning |
+| txn_priority_fee                   | `string[]`          | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot.  The priority fee is a static metric computed by multiplying the requested execution cost (derived from a provided computeBudget instruction, or from a protocol defined default) by the compute unit price (derived from a separate computeBudget instruction) |
+| txn_tips                           | `string[]`          | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. The tip is the increase (due to this transaction) in the total balance of all tip payment accounts across all block builders after any commission to the block builder is subtracted.  This implies that both the validator and staker portions of the tip are included in this value.  Non-bundle transactions may have a non-zero tip.  Tips for transactions in failed bundles are included up to the point of failure |
+| txn_error_code                     | `number[]`          | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. See below for more details |
+| txn_from_bundle                    | `boolean[]`         | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise.  A bundle is a microblock with 1-5 transactions that atomically fail or succeed. It is sent to the validator from a compatible block engine (e.g. jito) that can additionally collect MEV rewards that are distributed to stakers (i.e. tips) |
+| txn_is_simple_vote                 | `boolean[]`         | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise |
+| txn_landed                         | `boolean[]`         | `txn_landed[i]` is `true` if the `i`-th transaction in the slot was included in the produced block. A scheduled transaction may not be included in the block for any number of reasons (e.g. a failed bundle, a duplicate transaction, invalid fee-payer) |
+| txn_bank_idx                       | `number[]`          | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
+| txn_microblock_id                  | `string[]`          | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
+| txn_signature                      | `string[]`          | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
+| txn_source_ipv4                    | `string[]`          | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
+| txn_source_tpu                     | `string[]`          | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
 
 The source tpu for a transaction can be one of the following
 

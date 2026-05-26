@@ -3,7 +3,6 @@
 
 #include "../tiles.h"
 #include "../keyguard/fd_keyguard_client.h"
-#include "../../flamenco/types/fd_types_custom.h"
 #include "fd_fec_resolver.h"
 
 /* Forward declarations */

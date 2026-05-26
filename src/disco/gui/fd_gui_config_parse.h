@@ -2,8 +2,7 @@
 #define HEADER_fd_src_disco_gui_fd_gui_config_parse_h
 
 #include "../../ballet/json/cJSON.h"
-#include "../../flamenco/types/fd_types_custom.h"
-#include "../../util/fd_util_base.h"
+#include "../../flamenco/fd_flamenco_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/master/account-decoder/src/validator_info.rs */
 #define FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ             (  80UL) /* +1UL for NULL terminator */

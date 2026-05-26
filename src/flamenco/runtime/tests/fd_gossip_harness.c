@@ -4,6 +4,7 @@
 #include "fd_solfuzz_private.h"
 #include "fd_gossip_harness.h"
 #include "../../gossip/fd_gossip_message.h"
+#include "../../../ballet/txn/fd_compact_u16.h"
 #include "generated/gossip.pb.h"
 
 /* alloc_bytes allocates a pb_bytes_array_t on the spad and copies
@@ -19,18 +20,212 @@ alloc_bytes( fd_spad_t *   spad,
   return arr;
 }
 
+/* Re-parse helpers that walk raw wire bytes to extract fields the
+   main deserializer does not retain (addrs, sockets, extensions,
+   compressed slots). */
+
+#define FD_VARINT_U64_MAX_BYTES (10UL) /* ceil(64/7) */
+
+static inline int
+skip_varint_u16( uchar const ** p,
+                 ulong *        sz ) {
+  ulong n = fd_cu16_dec_sz( *p, *sz );
+  if( FD_UNLIKELY( !n ) ) return 0;
+  *p  += n;
+  *sz -= n;
+  return 1;
+}
+
+static inline int
+read_varint_u16( ushort *        dst,
+                 uchar const **  p,
+                 ulong *         sz ) {
+  ulong n = fd_cu16_dec_sz( *p, *sz );
+  if( FD_UNLIKELY( !n ) ) return 0;
+  *dst = fd_cu16_dec_fixed( *p, n );
+  *p  += n;
+  *sz -= n;
+  return 1;
+}
+
+static inline int
+skip_varint_u64( uchar const ** p,
+                 ulong *        sz ) {
+  for( ulong i=0UL; i<FD_VARINT_U64_MAX_BYTES; i++ ) {
+    if( FD_UNLIKELY( !*sz ) ) return 0;
+    uchar byte = **p;
+    (*p)++; (*sz)--;
+    if( FD_LIKELY( !(byte & 0x80) ) ) return 1;
+  }
+  return 0;
+}
+
+#define NEED(n) do { if( FD_UNLIKELY( sz < (n) ) ) return; } while(0)
+#define SKIP(n) do { NEED(n); p += (n); sz -= (n); } while(0)
+
 static void
-convert_crds_data( fd_spad_t *                      spad,
-                   fd_gossip_value_t const *         val,
-                   fd_exec_test_gossip_crds_data_t * out ) {
+reparse_contact_info_extra( fd_spad_t *                          spad,
+                            uchar const *                        value_start,
+                            ulong                                value_len,
+                            fd_exec_test_gossip_contact_info_t * ci ) {
+  uchar const * p  = value_start;
+  ulong         sz = value_len;
+
+  SKIP( 68UL );  /* signature(64) + tag(4) */
+  SKIP( 32UL );  /* origin(32) */
+  if( FD_UNLIKELY( !skip_varint_u64( &p, &sz ) ) ) return;  /* wallclock */
+  SKIP( 10UL );  /* outset(8) + shred_version(2) */
+
+  if( FD_UNLIKELY( !skip_varint_u16( &p, &sz ) ) ) return;  /* major */
+  if( FD_UNLIKELY( !skip_varint_u16( &p, &sz ) ) ) return;  /* minor */
+  if( FD_UNLIKELY( !skip_varint_u16( &p, &sz ) ) ) return;  /* patch */
+  SKIP( 4UL );  /* commit (u32) */
+  SKIP( 4UL );  /* feature_set (u32) */
+  if( FD_UNLIKELY( !skip_varint_u16( &p, &sz ) ) ) return;  /* client */
+
+  /* Addrs */
+  ushort addrs_len = 0;
+  if( FD_UNLIKELY( !read_varint_u16( &addrs_len, &p, &sz ) ) ) return;
+  ci->addrs_count = (pb_size_t)addrs_len;
+  if( addrs_len ) {
+    ci->addrs = fd_spad_alloc( spad, alignof(fd_exec_test_gossip_ip_addr_t),
+                               addrs_len * sizeof(fd_exec_test_gossip_ip_addr_t) );
+    for( ushort i=0; i<addrs_len; i++ ) {
+      NEED( 4UL );
+      uint is_ip6 = FD_LOAD( uint, p );
+      p += 4UL; sz -= 4UL;
+      if( !is_ip6 ) {
+        NEED( 4UL );
+        ci->addrs[i].which_addr = FD_EXEC_TEST_GOSSIP_IP_ADDR_IPV4_TAG;
+        ci->addrs[i].addr.ipv4  = fd_uint_bswap( FD_LOAD( uint, p ) );
+        p += 4UL; sz -= 4UL;
+      } else {
+        NEED( 16UL );
+        ci->addrs[i].which_addr    = FD_EXEC_TEST_GOSSIP_IP_ADDR_IPV6_TAG;
+        ci->addrs[i].addr.ipv6.hi  = fd_ulong_bswap( FD_LOAD( ulong, p ) );
+        ci->addrs[i].addr.ipv6.lo  = fd_ulong_bswap( FD_LOAD( ulong, p+8UL ) );
+        p += 16UL; sz -= 16UL;
+      }
+    }
+  }
+
+  /* Sockets */
+  ushort sockets_len = 0;
+  if( FD_UNLIKELY( !read_varint_u16( &sockets_len, &p, &sz ) ) ) return;
+  ci->sockets_count = (pb_size_t)sockets_len;
+  if( sockets_len ) {
+    ci->sockets = fd_spad_alloc( spad, alignof(fd_exec_test_gossip_socket_entry_t),
+                                 sockets_len * sizeof(fd_exec_test_gossip_socket_entry_t) );
+    for( ushort i=0; i<sockets_len; i++ ) {
+      NEED( 2UL );
+      ci->sockets[i].key   = *p; p++; sz--;
+      ci->sockets[i].index = *p; p++; sz--;
+      ushort offset = 0;
+      if( FD_UNLIKELY( !read_varint_u16( &offset, &p, &sz ) ) ) return;
+      ci->sockets[i].offset = offset;
+    }
+  }
+
+  /* Extensions (Agave always sends empty) */
+  ci->extensions = NULL;
+}
+
+static void
+reparse_epoch_slots_extra( fd_spad_t *                         spad,
+                           uchar const *                       value_start,
+                           ulong                               value_len,
+                           fd_exec_test_gossip_epoch_slots_t * es ) {
+  uchar const * p  = value_start;
+  ulong         sz = value_len;
+
+  SKIP( 68UL );  /* signature(64) + tag(4) */
+  SKIP( 33UL );  /* index(1) + origin(32) */
+
+  /* slots_len (u64) */
+  NEED( 8UL );
+  ulong slots_len = FD_LOAD( ulong, p );
+  p += 8UL; sz -= 8UL;
+
+  es->slots_count = (pb_size_t)slots_len;
+  if( !slots_len ) {
+    es->slots = NULL;
+    return;
+  }
+
+  es->slots = fd_spad_alloc( spad, alignof(fd_exec_test_gossip_compressed_slots_t),
+                             slots_len * sizeof(fd_exec_test_gossip_compressed_slots_t) );
+
+  for( ulong i=0UL; i<slots_len; i++ ) {
+    fd_exec_test_gossip_compressed_slots_t * slot = &es->slots[i];
+
+    NEED( 4UL );
+    uint is_uncompressed = FD_LOAD( uint, p );
+    p += 4UL; sz -= 4UL;
+
+    NEED( 8UL );
+    slot->first_slot = FD_LOAD( ulong, p );
+    p += 8UL; sz -= 8UL;
+
+    NEED( 8UL );
+    slot->num = FD_LOAD( ulong, p );
+    p += 8UL; sz -= 8UL;
+
+    if( is_uncompressed ) {
+      slot->which_data = FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_UNCOMPRESSED_TAG;
+      NEED( 1UL );
+      uchar has_bits = *p; p++; sz--;
+
+      if( has_bits ) {
+        NEED( 8UL );
+        ulong bits_cap = FD_LOAD( ulong, p );
+        p += 8UL; sz -= 8UL;
+        NEED( bits_cap );
+        slot->data.uncompressed = alloc_bytes( spad, p, bits_cap );
+        p += bits_cap; sz -= bits_cap;
+        SKIP( 8UL );  /* bits_cnt */
+      } else {
+        slot->data.uncompressed = alloc_bytes( spad, NULL, 0UL );
+        SKIP( 8UL );  /* bits_cnt */
+      }
+    } else {
+      slot->which_data = FD_EXEC_TEST_GOSSIP_COMPRESSED_SLOTS_FLATE2_TAG;
+      NEED( 8UL );
+      ulong compressed_len = FD_LOAD( ulong, p );
+      p += 8UL; sz -= 8UL;
+      NEED( compressed_len );
+      slot->data.flate2 = alloc_bytes( spad, p, compressed_len );
+      p += compressed_len; sz -= compressed_len;
+    }
+  }
+}
+
+#undef SKIP
+#undef NEED
+
+static void
+convert_crds_data( fd_spad_t *                          spad,
+                   fd_gossip_value_t const *            val,
+                   uchar const *                        raw_in,
+                   fd_exec_test_gossip_crds_data_t *    out ) {
   switch( val->tag ) {
-  case FD_GOSSIP_VALUE_CONTACT_INFO:
+  case FD_GOSSIP_VALUE_CONTACT_INFO: {
     out->which_data = FD_EXEC_TEST_GOSSIP_CRDS_DATA_CONTACT_INFO_TAG;
-    out->data.contact_info.pubkey        = alloc_bytes( spad, val->origin, sizeof(val->origin) );
-    out->data.contact_info.wallclock     = val->wallclock;
-    out->data.contact_info.outset        = val->contact_info->outset;
-    out->data.contact_info.shred_version = val->contact_info->shred_version;
+    fd_exec_test_gossip_contact_info_t * ci = &out->data.contact_info;
+    ci->pubkey              = alloc_bytes( spad, val->origin, sizeof(val->origin) );
+    ci->wallclock           = val->wallclock;
+    ci->outset              = val->contact_info->outset;
+    ci->shred_version       = val->contact_info->shred_version;
+    ci->version_major       = val->contact_info->version.major;
+    ushort packed_minor     = val->contact_info->version.minor;
+    ushort prerelease_bits  = (ushort)((packed_minor >> 14U) & 0x3U);
+    ci->version_minor       = (uint)(packed_minor & 0x3FFFU);
+    ci->version_patch       = prerelease_bits ? 0U : (uint)val->contact_info->version.patch;
+    ci->version_commit      = val->contact_info->version.commit;
+    ci->version_feature_set = val->contact_info->version.feature_set;
+    ci->version_client      = val->contact_info->version.client;
+    reparse_contact_info_extra( spad, raw_in + val->offset, val->length, ci );
     break;
+  }
   case FD_GOSSIP_VALUE_VOTE:
     out->which_data = FD_EXEC_TEST_GOSSIP_CRDS_DATA_VOTE_TAG;
     out->data.vote.index       = val->vote->index;
@@ -45,12 +240,15 @@ convert_crds_data( fd_spad_t *                      spad,
     out->data.lowest_slot.lowest    = val->lowest_slot->lowest;
     out->data.lowest_slot.wallclock = val->wallclock;
     break;
-  case FD_GOSSIP_VALUE_EPOCH_SLOTS:
+  case FD_GOSSIP_VALUE_EPOCH_SLOTS: {
     out->which_data = FD_EXEC_TEST_GOSSIP_CRDS_DATA_EPOCH_SLOTS_TAG;
-    out->data.epoch_slots.index     = val->epoch_slots->index;
-    out->data.epoch_slots.from      = alloc_bytes( spad, val->origin, sizeof(val->origin) );
-    out->data.epoch_slots.wallclock = val->wallclock;
+    fd_exec_test_gossip_epoch_slots_t * es = &out->data.epoch_slots;
+    es->index     = val->epoch_slots->index;
+    es->from      = alloc_bytes( spad, val->origin, sizeof(val->origin) );
+    es->wallclock = val->wallclock;
+    reparse_epoch_slots_extra( spad, raw_in + val->offset, val->length, es );
     break;
+  }
   case FD_GOSSIP_VALUE_SNAPSHOT_HASHES: {
     out->which_data = FD_EXEC_TEST_GOSSIP_CRDS_DATA_SNAPSHOT_HASHES_TAG;
     fd_exec_test_gossip_snapshot_hashes_t * sh = &out->data.snapshot_hashes;
@@ -81,31 +279,33 @@ convert_crds_data( fd_spad_t *                      spad,
     out->data.duplicate_shred.num_chunks  = val->duplicate_shred->num_chunks;
     out->data.duplicate_shred.chunk_index = val->duplicate_shred->chunk_index;
     out->data.duplicate_shred.chunk       = val->duplicate_shred->chunk_len
-                                              ? alloc_bytes( spad, val->duplicate_shred->chunk, val->duplicate_shred->chunk_len )
+                                              ? alloc_bytes( spad, val->duplicate_shred->chunk,
+                                                             val->duplicate_shred->chunk_len )
                                               : NULL;
     break;
   default:
-    /* Deprecated or unrecognized variant -- empty data */
     out->which_data = 0;
     break;
   }
 }
 
 static void
-convert_crds_value( fd_spad_t *                       spad,
-                    fd_gossip_value_t const *          val,
-                    fd_exec_test_gossip_crds_value_t * out ) {
+convert_crds_value( fd_spad_t *                          spad,
+                    fd_gossip_value_t const *            val,
+                    uchar const *                        raw_in,
+                    fd_exec_test_gossip_crds_value_t *   out ) {
   out->signature = alloc_bytes( spad, val->signature, sizeof(val->signature) );
   out->has_data  = true;
-  convert_crds_data( spad, val, &out->data );
+  convert_crds_data( spad, val, raw_in, &out->data );
 }
 
 static void
-convert_crds_values( fd_spad_t *                        spad,
-                     fd_gossip_value_t const *           vals,
-                     ulong                               vals_len,
-                     fd_exec_test_gossip_crds_value_t ** out_vals,
-                     pb_size_t *                         out_count ) {
+convert_crds_values( fd_spad_t *                           spad,
+                     fd_gossip_value_t const *             vals,
+                     ulong                                 vals_len,
+                     uchar const *                         raw_in,
+                     fd_exec_test_gossip_crds_value_t **   out_vals,
+                     pb_size_t *                           out_count ) {
   *out_count = (pb_size_t)vals_len;
   if( !vals_len ) {
     *out_vals = NULL;
@@ -114,7 +314,7 @@ convert_crds_values( fd_spad_t *                        spad,
   *out_vals = fd_spad_alloc( spad, alignof(fd_exec_test_gossip_crds_value_t),
                              vals_len * sizeof(fd_exec_test_gossip_crds_value_t) );
   for( ulong i=0UL; i<vals_len; i++ ) {
-    convert_crds_value( spad, &vals[i], &(*out_vals)[i] );
+    convert_crds_value( spad, &vals[i], raw_in, &(*out_vals)[i] );
   }
 }
 
@@ -148,6 +348,7 @@ convert_bloom( fd_spad_t *                   spad,
 static void
 convert_gossip_msg( fd_spad_t *                 spad,
                     fd_gossip_message_t const * msg,
+                    uchar const *               raw_in,
                     fd_exec_test_gossip_msg_t * out ) {
   switch( msg->tag ) {
   case FD_GOSSIP_MESSAGE_PING:
@@ -168,10 +369,13 @@ convert_gossip_msg( fd_spad_t *                 spad,
     pr->has_filter = true;
     pr->filter.has_filter = true;
     convert_bloom( spad, msg->pull_request->crds_filter->filter, &pr->filter.filter );
-    pr->filter.mask      = msg->pull_request->crds_filter->mask;
     pr->filter.mask_bits = msg->pull_request->crds_filter->mask_bits;
+    /* Agave canonicalizes the mask by setting all (64-mask_bits) low bits to 1.
+       https://github.com/anza-xyz/agave/blob/v4.0.0-beta.6/gossip/src/crds_gossip_pull.rs#L152-L155 */
+    ulong lsb_mask = (pr->filter.mask_bits>=64U) ? 0UL : (ULONG_MAX >> pr->filter.mask_bits);
+    pr->filter.mask = msg->pull_request->crds_filter->mask | lsb_mask;
     pr->has_value = true;
-    convert_crds_value( spad, msg->pull_request->contact_info, &pr->value );
+    convert_crds_value( spad, msg->pull_request->contact_info, raw_in, &pr->value );
     break;
   }
   case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
@@ -180,6 +384,7 @@ convert_gossip_msg( fd_spad_t *                 spad,
     pr->pubkey = alloc_bytes( spad, msg->pull_response->from, sizeof(msg->pull_response->from) );
     convert_crds_values( spad, msg->pull_response->values,
                          msg->pull_response->values_len,
+                         raw_in,
                          &pr->values, &pr->values_count );
     break;
   }
@@ -189,6 +394,7 @@ convert_gossip_msg( fd_spad_t *                 spad,
     pm->pubkey = alloc_bytes( spad, msg->push->from, sizeof(msg->push->from) );
     convert_crds_values( spad, msg->push->values,
                          msg->push->values_len,
+                         raw_in,
                          &pm->values, &pm->values_count );
     break;
   }
@@ -223,6 +429,8 @@ fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
                           ulong *               out_sz,
                           uchar const *         in,
                           ulong                 in_sz ) {
+  if( FD_UNLIKELY( in_sz>FD_TPU_MTU ) ) FD_LOG_CRIT(( "invariant violation: gossip input %lu bytes exceeds MTU %lu, check fuzzer configuration", in_sz, FD_TPU_MTU ));
+
   fd_gossip_message_t * msg = fd_spad_alloc( runner->spad, alignof(fd_gossip_message_t), sizeof(fd_gossip_message_t) );
   fd_memset( msg, 0, sizeof(fd_gossip_message_t) );
   fd_exec_test_gossip_effects_t effects = FD_EXEC_TEST_GOSSIP_EFFECTS_INIT_ZERO;
@@ -231,7 +439,7 @@ fd_solfuzz_gossip_decode( fd_solfuzz_runner_t * runner,
   if( ok ) {
     effects.valid   = true;
     effects.has_msg = true;
-    convert_gossip_msg( runner->spad, msg, &effects.msg );
+    convert_gossip_msg( runner->spad, msg, in, &effects.msg );
   } else {
     effects.valid   = false;
     effects.has_msg = false;

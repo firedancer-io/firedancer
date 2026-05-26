@@ -1,94 +1,167 @@
 #include "fd_sysvar_stake_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
+#include "../fd_accdb_svm.h"
 #include "../../accdb/fd_accdb_sync.h"
-
-/* Ensure that the size declared by our header matches the minimum size
-   of the corresponding fd_types entry. */
-
-static void
-write_stake_history( fd_bank_t *               bank,
-                     fd_accdb_user_t *         accdb,
-                     fd_funk_txn_xid_t const * xid,
-                     fd_capture_ctx_t *        capture_ctx,
-                     fd_stake_history_t *      stake_history ) {
-  /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
-  uchar __attribute__((aligned(FD_STAKE_HISTORY_ALIGN))) enc[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ] = {0};
-  fd_bincode_encode_ctx_t encode =
-    { .data    = enc,
-      .dataend = enc + sizeof(enc) };
-  if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
-    FD_LOG_ERR(("fd_stake_history_encode failed"));
-
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
-}
-
-fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_accdb_user_t *         accdb,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_stake_history_t *      stake_history ) {
-  fd_accdb_ro_t ro[1];
-  if( FD_UNLIKELY( !fd_accdb_open_ro( accdb, ro, xid, &fd_sysvar_stake_history_id ) ) ) {
-    return NULL;
-  }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_accdb_ref_lamports( ro )==0UL ) ) {
-    fd_accdb_close_ro( accdb, ro );
-    return NULL;
-  }
-
-  stake_history = fd_bincode_decode_static(
-      stake_history, stake_history,
-      fd_accdb_ref_data_const( ro ),
-      fd_accdb_ref_data_sz( ro ) );
-  fd_accdb_close_ro( accdb, ro );
-  return stake_history;
-}
+#include "fd_sysvar_rent.h"
 
 void
 fd_sysvar_stake_history_init( fd_bank_t *               bank,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx ) {
-  fd_stake_history_t stake_history;
-  fd_stake_history_new( &stake_history );
-  write_stake_history( bank, accdb, xid, capture_ctx, &stake_history );
+  uchar data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
+  fd_memset( data, 0, sizeof(data) );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_stake_history_id, data, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
 }
 
+/* https://github.com/anza-xyz/agave/blob/v4.0.0-rc.1/runtime/src/bank.rs#L2452-L2463 */
+
 void
-fd_sysvar_stake_history_update( fd_bank_t *                                 bank,
-                                fd_accdb_user_t *                           accdb,
-                                fd_funk_txn_xid_t const *                   xid,
-                                fd_capture_ctx_t *                          capture_ctx,
-                                fd_epoch_stake_history_entry_pair_t const * pair ) {
+fd_sysvar_stake_history_update( fd_bank_t *                      bank,
+                                fd_accdb_user_t *                accdb,
+                                fd_funk_txn_xid_t const *        xid,
+                                fd_capture_ctx_t *               capture_ctx,
+                                fd_stake_history_entry_t const * entry ) {
 
-  fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb, xid, stake_history ) ) ) {
-    FD_LOG_CRIT(( "Failed to read stake history sysvar" ));
+  fd_accdb_rw_t rw[1];
+  fd_accdb_svm_update_t update[1];
+  if( FD_UNLIKELY( !fd_accdb_svm_open_rw( accdb, bank, xid, rw, update, &fd_sysvar_stake_history_id, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ, FD_ACCDB_FLAG_CREATE ) ) ) {
+    FD_LOG_ERR(( "state is missing stake history sysvar" ));
   }
 
-  if( stake_history->fd_stake_history_offset == 0 ) {
-    stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
+  if( FD_UNLIKELY( !fd_accdb_ref_lamports( rw->ro ) ) ) {
+    /* Initialize account if it did not exist */
+    fd_accdb_ref_owner_set( rw, &fd_sysvar_owner_id );
+    fd_accdb_ref_lamports_set( rw, fd_rent_exempt_minimum_balance( &bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) );
+    fd_accdb_ref_data_sz_set( accdb, rw, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ, 0 );
+    /* Now a valid StakeHistory sysvar with zero entries */
   } else {
-    stake_history->fd_stake_history_offset--;
+    /* Sanity check existing state */
+    if( FD_UNLIKELY( 0!=memcmp( fd_accdb_ref_owner( rw->ro ), &fd_sysvar_owner_id, sizeof(fd_pubkey_t) ) ) ) {
+      FD_LOG_ERR(( "stake history sysvar not owned by sysvar owner" ));
+    }
   }
 
-  if( stake_history->fd_stake_history_len < stake_history->fd_stake_history_size ) {
-    stake_history->fd_stake_history_len++;
+  uchar * data    = fd_accdb_ref_data   ( rw );
+  ulong   data_sz = fd_accdb_ref_data_sz( rw->ro );
+  if( FD_UNLIKELY( data_sz < 8UL ) ) {
+    FD_LOG_ERR(( "invalid stake history sysvar" ));
   }
 
-  // This should be done with a bit mask
-  ulong idx = stake_history->fd_stake_history_offset;
+  ulong len = FD_LOAD( ulong, data );
+  len = fd_ulong_min( len, FD_SYSVAR_STAKE_HISTORY_CAP );
+  ulong min_sz = 8UL + len * sizeof(fd_stake_history_entry_t);
+  if( FD_UNLIKELY( data_sz < min_sz ) ) {
+    FD_LOG_ERR(( "invalid stake history sysvar: data_sz too small (%lu, required %lu)", data_sz, min_sz ));
+  }
 
-  stake_history->fd_stake_history[ idx ].epoch              = pair->epoch;
-  stake_history->fd_stake_history[ idx ].entry.activating   = pair->entry.activating;
-  stake_history->fd_stake_history[ idx ].entry.effective    = pair->entry.effective;
-  stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
+  /* https://github.com/anza-xyz/solana-sdk/blob/account%40v4.3.0/account/src/lib.rs#L618 */
+  if( data_sz!=FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ) {
+    fd_accdb_ref_data_sz_set( accdb, rw, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ, 0 );
+  }
 
-  write_stake_history( bank, accdb, xid, capture_ctx, stake_history );
+  fd_stake_history_entry_t * entries = fd_type_pun( data+8UL );
 
+  /* https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L83 */
+  ulong idx   = 0UL;
+  int   found = 0;
+  {
+    ulong lo = 0UL;
+    ulong hi = len;
+    while( lo < hi ) {
+      ulong mid         = lo + (hi - lo) / 2UL;
+      ulong probe_epoch = entries[mid].epoch;
+      if( entry->epoch == probe_epoch ) {
+        idx   = mid;
+        found = 1;
+        break;
+      } else if( entry->epoch > probe_epoch ) {
+        hi = mid;
+      } else {
+        lo = mid + 1UL;
+      }
+    }
+    if( !found ) idx = lo;
+  }
+
+  /* Ensure account is rent exempt
+     https://github.com/anza-xyz/agave/blob/v4.0.0-rc.1/runtime/src/bank.rs#L5849-L5854 */
+  ulong rent_min = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  if( rent_min > fd_accdb_ref_lamports( rw->ro ) ) {
+    fd_accdb_ref_lamports_set( rw, rent_min );
+  }
+
+  /* Insert new element */
+  ulong new_len = fd_ulong_if( found, len, fd_ulong_min( len+1UL, FD_SYSVAR_STAKE_HISTORY_CAP ) );
+  ulong used_sz = 8UL + new_len * sizeof(fd_stake_history_entry_t);
+
+  if( found ) {
+    /* https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L84 */
+    entries[ idx ] = *entry;
+  } else if( idx < FD_SYSVAR_STAKE_HISTORY_CAP ) {
+    /* https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L85
+       https://github.com/solana-program/stake/blob/interface%40v4.0.0/interface/src/stake_history.rs#L87 */
+    ulong shift_count = fd_ulong_min( len, FD_SYSVAR_STAKE_HISTORY_CAP-1UL ) - idx;
+    memmove( &entries[ idx+1UL ], &entries[ idx ], shift_count * sizeof(fd_stake_history_entry_t) );
+    entries[ idx ] = *entry;
+    new_len = fd_ulong_min( len+1UL, FD_SYSVAR_STAKE_HISTORY_CAP );
+  }
+  /* else: idx == cap and not found - new entry would be truncated, drop */
+
+  /* Zero trailing bytes (technically a no-op) */
+  FD_TEST( used_sz <= FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+  fd_memset( data+used_sz, 0, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ-used_sz );
+
+  FD_STORE( ulong, data, new_len );
+  fd_accdb_svm_close_rw( accdb, bank, capture_ctx, rw, update );
+}
+
+int
+fd_sysvar_stake_history_validate( uchar const * data,
+                                  ulong         sz ) {
+  if( FD_UNLIKELY( sz < 8UL ) ) return 0;
+  ulong len = FD_LOAD( ulong, data );
+  ulong min_sz;
+  if( FD_UNLIKELY( __builtin_umull_overflow( len, 32UL, &min_sz ) ) ) return 0;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( min_sz, 8UL, &min_sz ) ) ) return 0;
+  if( FD_UNLIKELY( sz < min_sz ) ) return 0;
+  return 1;
+}
+
+fd_stake_history_t *
+fd_sysvar_stake_history_view( fd_stake_history_t * view,
+                              uchar const *        data,
+                              ulong                sz ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_validate( data, sz ) ) ) return NULL;
+  view->len     = FD_LOAD( ulong, data );
+  view->entries = fd_type_pun_const( data + 8UL );
+  return view;
+}
+
+fd_stake_history_entry_t const *
+fd_sysvar_stake_history_query( fd_stake_history_t const * view,
+                               ulong                      epoch ) {
+  if( FD_UNLIKELY( !view || !view->len ) ) return NULL;
+  if( epoch > view->entries[0].epoch ) return NULL;
+
+  ulong off = view->entries[0].epoch - epoch;
+  if( off < view->len && view->entries[off].epoch == epoch ) {
+    return &view->entries[off];
+  }
+
+  ulong lo = 0UL;
+  ulong hi = view->len - 1UL;
+  while( lo <= hi ) {
+    ulong mid = lo + ( hi - lo ) / 2UL;
+    if( view->entries[mid].epoch == epoch ) {
+      return &view->entries[mid];
+    } else if( view->entries[mid].epoch > epoch ) {
+      lo = mid + 1UL;
+    } else {
+      if( mid == 0UL ) return NULL;
+      hi = mid - 1UL;
+    }
+  }
+  return NULL;
 }

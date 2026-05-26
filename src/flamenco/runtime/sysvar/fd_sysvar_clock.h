@@ -5,7 +5,6 @@
 
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../../types/fd_bincode.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
 #define FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND ( 160UL )
@@ -62,9 +61,8 @@ fd_sysvar_clock_write( fd_bank_t *                   bank,
   fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, clock, sizeof(fd_sol_sysvar_clock_t) );
 }
 
-/* fd_sysvar_clock_read reads the current value of the rent sysvar from
-   funk. If the account doesn't exist in funk or if the account
-   has zero lamports, this function returns NULL. */
+/* fd_sysvar_clock_read reads the current value of the clock sysvar.
+   Returns NULL on failure. */
 
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_accdb_user_t *         accdb,

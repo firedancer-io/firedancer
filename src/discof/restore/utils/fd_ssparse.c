@@ -146,6 +146,41 @@ fd_ssparse_join( void * shssparse ) {
   return ssparse;
 }
 
+void *
+fd_ssparse_leave( fd_ssparse_t * ssparse ) {
+  if( FD_UNLIKELY( !ssparse ) ) {
+    FD_LOG_WARNING(( "NULL ssparse" ));
+    return NULL;
+  }
+  return (void *)ssparse;
+}
+
+void *
+fd_ssparse_delete( void * shssparse ) {
+  if( FD_UNLIKELY( !shssparse ) ) {
+    FD_LOG_WARNING(( "NULL shssparse" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shssparse, fd_ssparse_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shssparse" ));
+    return NULL;
+  }
+
+  fd_ssparse_t * ssparse = (fd_ssparse_t *)shssparse;
+
+  if( FD_UNLIKELY( ssparse->magic!=FD_SSPARSE_MAGIC ) ) {
+    FD_LOG_WARNING(( "bad magic" ));
+    return NULL;
+  }
+
+  FD_COMPILER_MFENCE();
+  ssparse->magic = 0UL;
+  FD_COMPILER_MFENCE();
+
+  return (void *)ssparse;
+}
+
 void
 fd_ssparse_reset( fd_ssparse_t * ssparse ) {
   ssparse->state = FD_SSPARSE_STATE_TAR_HEADER;
@@ -267,7 +302,13 @@ advance_tar( fd_ssparse_t *                ssparse,
     return FD_SSPARSE_ADVANCE_ERROR;
   }
 
-  if( FD_UNLIKELY( hdr->typeflag==FD_TAR_TYPE_DIR ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+  if( FD_UNLIKELY( hdr->typeflag==FD_TAR_TYPE_DIR ) ) {
+    if( FD_UNLIKELY( ssparse->tar.file_bytes ) ) {
+      FD_LOG_WARNING(( "invalid tar directory entry with non-zero size %lu", ssparse->tar.file_bytes ));
+      return FD_SSPARSE_ADVANCE_ERROR;
+    }
+    return FD_SSPARSE_ADVANCE_AGAIN;
+  }
 
   if( FD_UNLIKELY( !fd_tar_meta_is_reg( hdr ) ) ) {
     FD_LOG_WARNING(( "invalid tar header type %d", hdr->typeflag ));
@@ -295,21 +336,23 @@ advance_tar( fd_ssparse_t *                ssparse,
       FD_LOG_WARNING(( "invalid account append vec name %." FD_EXPAND_THEN_STRINGIFY(FD_TAR_NAME_SZ) "s", hdr->name ));
       return FD_SSPARSE_ADVANCE_ERROR;
     }
+    ssparse->slot = slot;
 
     acc_vec_key_t key = { .slot = slot, .id = id };
     acc_vec_t const * acc_vec = acc_vec_map_ele_query_const( ssparse->manifest.acc_vec_map, &key, NULL, ssparse->manifest.acc_vec_pool );
-    if( FD_UNLIKELY( !acc_vec ) ) {
-      FD_LOG_WARNING(( "append vec %lu.%lu not found in manifest", slot, id ));
-      return FD_SSPARSE_ADVANCE_ERROR;
+    if( !acc_vec ) {
+      if( FD_UNLIKELY( acc_vec_map_ele_cnt( ssparse->manifest.acc_vec_map )>0UL ) ) {
+        FD_LOG_WARNING(( "append vec %lu.%lu not found in manifest", slot, id ));
+        return FD_SSPARSE_ADVANCE_ERROR;
+      }
+      ssparse->acc_vec_bytes = ssparse->tar.file_bytes;
+    } else {
+      ssparse->acc_vec_bytes = acc_vec->file_sz;
+      if( FD_UNLIKELY( ssparse->acc_vec_bytes>ssparse->tar.file_bytes ) ) {
+        FD_LOG_WARNING(( "invalid append vec file size %lu > %lu", ssparse->acc_vec_bytes, ssparse->tar.file_bytes ));
+        return FD_SSPARSE_ADVANCE_ERROR;
+      }
     }
-
-    ssparse->acc_vec_bytes = acc_vec->file_sz;
-    if( FD_UNLIKELY( ssparse->acc_vec_bytes>ssparse->tar.file_bytes ) ) {
-      FD_LOG_WARNING(( "invalid append vec file size %lu > %lu", ssparse->acc_vec_bytes, ssparse->tar.file_bytes ));
-      return FD_SSPARSE_ADVANCE_ERROR;
-    }
-
-    ssparse->slot = slot;
   } else if( FD_LIKELY( !strncmp( hdr->name, "snapshots/status_cache", 22UL ) ) ) desired_state = FD_SSPARSE_STATE_STATUS_CACHE;
   else if( FD_LIKELY( !strncmp( hdr->name, "snapshots/", 10UL ) ) ) {
     desired_state = FD_SSPARSE_STATE_MANIFEST;
@@ -413,6 +456,7 @@ advance_status_cache( fd_ssparse_t *                 ssparse,
   result->bytes_consumed            = consume;
   result->status_cache.data         = data;
   result->status_cache.data_sz      = consume;
+  result->status_cache.done         = ssparse->tar.file_bytes_consumed==ssparse->tar.file_bytes;
 
   if( FD_LIKELY( ssparse->tar.file_bytes_consumed<ssparse->tar.file_bytes ) ) {
     return FD_SSPARSE_ADVANCE_STATUS_CACHE;

@@ -209,14 +209,14 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t )                                       );
-  l = FD_LAYOUT_APPEND( l, peer_pool_align(),               peer_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE )                    );
-  l = FD_LAYOUT_APPEND( l, peer_map_align(),                peer_map_footprint( 2UL*FD_CONTACT_INFO_TABLE_SIZE )                 );
-  l = FD_LAYOUT_APPEND( l, ping_pool_align(),               ping_pool_footprint( FD_PING_TRACKER_MAX )                           );
-  l = FD_LAYOUT_APPEND( l, ping_map_align(),                ping_map_footprint( 2UL*FD_PING_TRACKER_MAX )                        );
-  l = FD_LAYOUT_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_STAKED_LEADERS )                           );
-  l = FD_LAYOUT_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) ) );
-  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )                );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t )                                    );
+  l = FD_LAYOUT_APPEND( l, peer_pool_align(),               peer_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE )                 );
+  l = FD_LAYOUT_APPEND( l, peer_map_align(),                peer_map_footprint( 2UL*FD_CONTACT_INFO_TABLE_SIZE )              );
+  l = FD_LAYOUT_APPEND( l, ping_pool_align(),               ping_pool_footprint( FD_PING_TRACKER_MAX )                        );
+  l = FD_LAYOUT_APPEND( l, ping_map_align(),                ping_map_footprint( 2UL*FD_PING_TRACKER_MAX )                     );
+  l = FD_LAYOUT_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_SHRED_DESTS )                           );
+  l = FD_LAYOUT_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
+  l = FD_LAYOUT_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -281,6 +281,11 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
     }
     case IN_KIND_EPOCH: {
       fd_epoch_info_msg_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      if( FD_UNLIKELY( msg->staked_vote_cnt>MAX_COMPRESSED_STAKE_WEIGHTS ) )
+        FD_LOG_ERR(( "epoch stakes exceed MAX_COMPRESSED_STAKE_WEIGHTS=%lu", MAX_COMPRESSED_STAKE_WEIGHTS ));
+      if( FD_UNLIKELY( msg->staked_id_cnt>MAX_SHRED_DESTS ) )
+        FD_LOG_ERR(( "epoch id weights exceed MAX_SHRED_DESTS=%lu", MAX_SHRED_DESTS ));
+
       ulong msg_sz = fd_epoch_info_msg_sz( msg->staked_vote_cnt, msg->staked_id_cnt );
       fd_memcpy( ctx->stake.msg_buf, msg, msg_sz );
       break;
@@ -440,15 +445,6 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
   };
 }
 
-static inline int
-is_entrypoint( fd_gossvf_tile_ctx_t * ctx,
-               fd_ip4_port_t          addr ) {
-  for( ulong i=0UL; i<ctx->entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( addr.addr==ctx->entrypoints[ i ].addr && addr.port==ctx->entrypoints[ i ].port ) ) return 1;
-  }
-  return 0;
-}
-
 static void
 filter_shred_version_crds( fd_gossvf_tile_ctx_t * ctx,
                            uint                   tag,
@@ -566,16 +562,13 @@ static inline int
 is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
                 fd_ip4_port_t           addr,
                 fd_pubkey_t const *     pubkey ) {
-  /* 1. If the node is an entrypoint, it is active */
-  if( FD_UNLIKELY( is_entrypoint( ctx, addr ) ) ) return 1;
-
-  /* 2. If the node has more than 1 sol staked, it is active */
+  /* 1. If the node has more than 1 sol staked, it is active */
   stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, pubkey, NULL, ctx->stake.pool );
   if( FD_LIKELY( stake && stake->stake>=1000000000UL ) ) return 1;
 
-  /* 3. If the node has actively ponged a ping, it is active */
+  /* 2. If the node has actively ponged a ping, it is active */
   ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );
-  return ping!=NULL;
+  return ping!=NULL && ping->addr.l==addr.l;
 }
 
 static int
@@ -782,10 +775,10 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !memcmp( message->pull_request->contact_info->origin, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
     if( FD_UNLIKELY( message->pull_request->crds_filter->mask_bits>=64U ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_MASK_BITS_IDX;
 
-    long clamp_wallclock_lower_nanos = now-15L*1000L*1000L*1000L;
-    long clamp_wallclock_upper_nanos = now+15L*1000L*1000L*1000L;
-    if( FD_UNLIKELY( FD_MILLI_TO_NANOSEC( message->pull_request->contact_info->wallclock )<clamp_wallclock_lower_nanos ||
-                     FD_MILLI_TO_NANOSEC( message->pull_request->contact_info->wallclock )>clamp_wallclock_upper_nanos ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_WALLCLOCK_IDX;
+    ulong clamp_wallclock_lower_millis = (ulong)(FD_NANOSEC_TO_MILLI( now )-15L*1000L);
+    ulong clamp_wallclock_upper_millis = (ulong)(FD_NANOSEC_TO_MILLI( now )+15L*1000L);
+    if( FD_UNLIKELY( message->pull_request->contact_info->wallclock<clamp_wallclock_lower_millis ||
+                     message->pull_request->contact_info->wallclock>clamp_wallclock_upper_millis ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_WALLCLOCK_IDX;
   }
 
   if( FD_UNLIKELY( message->tag==FD_GOSSIP_MESSAGE_PRUNE ) ) {
@@ -793,15 +786,15 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     /* Agave uses a window of 500ms here, rather than 1s, but it's too
        narrow in production and causes us to throw away a lot of prunes
        that are actually valid and useful. */
-    if( FD_UNLIKELY( now-1000L*1000L*1000L>FD_MILLI_TO_NANOSEC( message->prune->wallclock ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_WALLCLOCK_IDX;
+    if( FD_UNLIKELY( (ulong)(FD_NANOSEC_TO_MILLI( now )-1000L)>message->prune->wallclock ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_WALLCLOCK_IDX;
   }
 
   if( FD_LIKELY( message->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
     ulong i = 0UL;
     while( i<message->push->values_len ) {
       fd_gossip_value_t const * value = &message->push->values[ i ];
-      if( FD_UNLIKELY( FD_MILLI_TO_NANOSEC( value->wallclock )<now-15L*1000L*1000L*1000L ||
-                       FD_MILLI_TO_NANOSEC( value->wallclock )>now+15L*1000L*1000L*1000L ) ) {
+      if( FD_UNLIKELY( value->wallclock<(ulong)(FD_NANOSEC_TO_MILLI( now )-15L*1000L) ||
+                       value->wallclock>(ulong)(FD_NANOSEC_TO_MILLI( now )+15L*1000L) ) ) {
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_WALLCLOCK_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_WALLCLOCK_IDX ] += value->length;
         message->push->values[ i ] = message->push->values[ message->push->values_len-1UL ];
@@ -832,7 +825,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
         else                                   accept_after_nanos = now-432000L*400L*1000L*1000L;
       }
 
-      if( FD_UNLIKELY( accept_after_nanos>FD_MILLI_TO_NANOSEC( value->wallclock ) ) ) {
+      if( FD_UNLIKELY( (ulong)(FD_NANOSEC_TO_MILLI( accept_after_nanos ))>value->wallclock ) ) {
         peer_t const * origin_peer = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t const *)value->origin, NULL, ctx->peers );
         if( FD_UNLIKELY( !origin_peer ) ) {
           ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_WALLCLOCK_IDX ]++;
@@ -970,13 +963,13 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gossvf_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gossvf_tile_ctx_t ), sizeof( fd_gossvf_tile_ctx_t ) );
-  void * _peer_pool          = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),               peer_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE )                    );
-  void * _peer_map           = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),                peer_map_footprint( 2UL*FD_CONTACT_INFO_TABLE_SIZE )                 );
-  void * _ping_pool          = FD_SCRATCH_ALLOC_APPEND( l, ping_pool_align(),               ping_pool_footprint( FD_PING_TRACKER_MAX )                           );
-  void * _ping_map           = FD_SCRATCH_ALLOC_APPEND( l, ping_map_align(),                ping_map_footprint( 2UL*FD_PING_TRACKER_MAX )                        );
-  void * _stake_pool         = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_STAKED_LEADERS )                           );
-  void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) ) );
-  void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )                );
+  void * _peer_pool          = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),               peer_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE )                 );
+  void * _peer_map           = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),                peer_map_footprint( 2UL*FD_CONTACT_INFO_TABLE_SIZE )              );
+  void * _ping_pool          = FD_SCRATCH_ALLOC_APPEND( l, ping_pool_align(),               ping_pool_footprint( FD_PING_TRACKER_MAX )                        );
+  void * _ping_map           = FD_SCRATCH_ALLOC_APPEND( l, ping_map_align(),                ping_map_footprint( 2UL*FD_PING_TRACKER_MAX )                     );
+  void * _stake_pool         = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_SHRED_DESTS )                           );
+  void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
+  void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
 
   ctx->peers = peer_pool_join( peer_pool_new( _peer_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( ctx->peers );
@@ -991,10 +984,10 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->ping_map );
 
   ctx->stake.count = 0UL;
-  ctx->stake.pool  = stake_pool_join( stake_pool_new( _stake_pool, MAX_STAKED_LEADERS ) );
+  ctx->stake.pool  = stake_pool_join( stake_pool_new( _stake_pool, MAX_SHRED_DESTS ) );
   FD_TEST( ctx->stake.pool );
 
-  ctx->stake.map = stake_map_join( stake_map_new( _stake_map, stake_map_chain_cnt_est( MAX_STAKED_LEADERS ), ctx->seed ) );
+  ctx->stake.map = stake_map_join( stake_map_new( _stake_map, stake_map_chain_cnt_est( MAX_SHRED_DESTS ), ctx->seed ) );
   FD_TEST( ctx->stake.map );
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
@@ -1074,7 +1067,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out->wmark  = fd_dcache_compact_wmark ( ctx->out->mem, gossvf_out->dcache, gossvf_out->mtu );
   ctx->out->chunk  = ctx->out->chunk0;
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }

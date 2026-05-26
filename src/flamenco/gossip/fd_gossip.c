@@ -100,6 +100,12 @@ struct fd_gossip_private {
     long last_replenish_nanos; /* last replenish timestamp in nanos  */
   } outbound_budget;
 
+  /* Per-request iteration budget for the CRDS treap scan in
+     rx_pull_request.  Reset at the start of each request. */
+  struct {
+    ulong remaining;
+  } scan_budget;
+
   /* Callbacks */
   fd_gossip_sign_fn   sign_fn;
   void *              sign_ctx;
@@ -129,15 +135,15 @@ fd_gossip_footprint( ulong max_values,
                      ulong entrypoints_len ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t),     sizeof(fd_gossip_t)                                                  );
-  l = FD_LAYOUT_APPEND( l, fd_gossip_purged_align(), fd_gossip_purged_footprint( max_values )                             );
-  l = FD_LAYOUT_APPEND( l, fd_gossip_wsample_align(),fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )            );
-  l = FD_LAYOUT_APPEND( l, fd_crds_align(),          fd_crds_footprint( max_values )                                      );
-  l = FD_LAYOUT_APPEND( l, fd_active_set_align(),    fd_active_set_footprint()                                            );
-  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(),  fd_ping_tracker_footprint( entrypoints_len )                         );
-  l = FD_LAYOUT_APPEND( l, fd_prune_finder_align(),  fd_prune_finder_footprint()                                          );
-  l = FD_LAYOUT_APPEND( l, stake_pool_align(),       stake_pool_footprint( MAX_STAKED_LEADERS )                           );
-  l = FD_LAYOUT_APPEND( l, stake_map_align(),        stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t),     sizeof(fd_gossip_t)                                               );
+  l = FD_LAYOUT_APPEND( l, fd_gossip_purged_align(), fd_gossip_purged_footprint( max_values )                          );
+  l = FD_LAYOUT_APPEND( l, fd_gossip_wsample_align(),fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )         );
+  l = FD_LAYOUT_APPEND( l, fd_crds_align(),          fd_crds_footprint( max_values )                                   );
+  l = FD_LAYOUT_APPEND( l, fd_active_set_align(),    fd_active_set_footprint()                                         );
+  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(),  fd_ping_tracker_footprint( entrypoints_len )                      );
+  l = FD_LAYOUT_APPEND( l, fd_prune_finder_align(),  fd_prune_finder_footprint()                                       );
+  l = FD_LAYOUT_APPEND( l, stake_pool_align(),       stake_pool_footprint( MAX_SHRED_DESTS )                           );
+  l = FD_LAYOUT_APPEND( l, stake_map_align(),        stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
 }
@@ -234,15 +240,15 @@ fd_gossip_new( void *                           shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),      sizeof(fd_gossip_t)                                                  );
-  void * purged         = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_purged_align(),  fd_gossip_purged_footprint( max_values )                             );
-  void * wsample        = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_wsample_align(), fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )            );
-  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),           fd_crds_footprint( max_values )                                      );
-  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),     fd_active_set_footprint()                                            );
-  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(),   fd_ping_tracker_footprint( entrypoints_len )                         );
-  void * prune_finder   = FD_SCRATCH_ALLOC_APPEND( l, fd_prune_finder_align(),   fd_prune_finder_footprint()                                          );
-  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),        stake_pool_footprint( MAX_STAKED_LEADERS )                           );
-  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),         stake_map_footprint( stake_map_chain_cnt_est( MAX_STAKED_LEADERS ) ) );
+  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),      sizeof(fd_gossip_t)                                               );
+  void * purged         = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_purged_align(),  fd_gossip_purged_footprint( max_values )                          );
+  void * wsample        = FD_SCRATCH_ALLOC_APPEND( l, fd_gossip_wsample_align(), fd_gossip_wsample_footprint( FD_CONTACT_INFO_TABLE_SIZE )         );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),           fd_crds_footprint( max_values )                                   );
+  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),     fd_active_set_footprint()                                         );
+  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(),   fd_ping_tracker_footprint( entrypoints_len )                      );
+  void * prune_finder   = FD_SCRATCH_ALLOC_APPEND( l, fd_prune_finder_align(),   fd_prune_finder_footprint()                                       );
+  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),        stake_pool_footprint( MAX_SHRED_DESTS )                           );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),         stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
 
   gossip->gossip_net_out  = gossip_net_out;
 
@@ -268,10 +274,10 @@ fd_gossip_new( void *                           shmem,
   FD_TEST( gossip->prune_finder );
 
   gossip->stake.count = 0UL;
-  gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, MAX_STAKED_LEADERS ) );
+  gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, MAX_SHRED_DESTS ) );
   FD_TEST( gossip->stake.pool );
 
-  gossip->stake.map = stake_map_join( stake_map_new( stake_weights, stake_map_chain_cnt_est( MAX_STAKED_LEADERS ), fd_rng_ulong( rng ) ) );
+  gossip->stake.map = stake_map_join( stake_map_new( stake_weights, stake_map_chain_cnt_est( MAX_SHRED_DESTS ), fd_rng_ulong( rng ) ) );
   FD_TEST( gossip->stake.map );
 
   FD_TEST( fd_sha256_join( fd_sha256_new( gossip->sha256 ) ) );
@@ -467,6 +473,46 @@ txbuild_flush( fd_gossip_t *         gossip,
   fd_gossip_txbuild_init( txbuild, gossip->identity_pubkey, txbuild->tag );
 }
 
+/* pull_scan_range iterates CRDS entries in [start_hash, end_hash] and
+   appends values the caller is missing to pull_resp.  Returns 1 if a
+   budget was exhausted (iteration or outbound data), 0 if the range was
+   fully scanned. */
+
+static int
+pull_scan_range( fd_gossip_t *         gossip,
+                 ulong                 start_hash,
+                 ulong                 end_hash,
+                 fd_bloom_t *          filter,
+                 ulong                 adjusted_wallclock_ms,
+                 fd_gossip_txbuild_t * pull_resp,
+                 fd_stem_context_t *   stem,
+                 fd_ip4_port_t         peer_addr,
+                 long                  now ) {
+  uchar iter_mem[ 16UL ];
+
+  for( fd_crds_mask_iter_t * it = fd_crds_mask_iter_init_range( gossip->crds, start_hash, end_hash, iter_mem );
+       !fd_crds_mask_iter_done( it, gossip->crds );
+       it=fd_crds_mask_iter_next( it, gossip->crds ) ) {
+    if( FD_UNLIKELY( !gossip->scan_budget.remaining ) ) return 1;
+    gossip->scan_budget.remaining--;
+
+    fd_crds_entry_t const * candidate = fd_crds_mask_iter_entry( it, gossip->crds );
+
+    if( FD_UNLIKELY( fd_crds_entry_wallclock( candidate )>adjusted_wallclock_ms ) ) continue;
+
+    if( FD_UNLIKELY( fd_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
+
+    uchar const * crds_val;
+    ulong         crds_size;
+    fd_crds_entry_value( candidate, &crds_val, &crds_size );
+    if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( pull_resp, crds_size ) ) ) txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
+    fd_gossip_txbuild_append( pull_resp, crds_size, crds_val );
+
+    if( FD_UNLIKELY( !gossip->outbound_budget.remaining ) ) return 1;
+  }
+  return 0;
+}
+
 static void
 rx_pull_request( fd_gossip_t *                    gossip,
                  fd_gossip_pull_request_t const * pr_view,
@@ -509,27 +555,53 @@ rx_pull_request( fd_gossip_t *                    gossip,
   fd_gossip_txbuild_t pull_resp[1];
   fd_gossip_txbuild_init( pull_resp, gossip->identity_pubkey, FD_GOSSIP_MESSAGE_PULL_RESPONSE );
 
-  uchar iter_mem[ 16UL ];
+  /* CPU budget for the CRDS treap scan.  An honest sender picks
 
-  for( fd_crds_mask_iter_t * it=fd_crds_mask_iter_init( gossip->crds, pr_view->crds_filter->mask, pr_view->crds_filter->mask_bits, iter_mem );
-       !fd_crds_mask_iter_done( it, gossip->crds );
-       it=fd_crds_mask_iter_next( it, gossip->crds ) ) {
-    fd_crds_entry_t const * candidate = fd_crds_mask_iter_entry( it, gossip->crds );
+       mask_bits = ceil(log2(num_items / max_items))
+       num_items >= MIN_NUM_BLOOM_ITEMS (65536)
 
-    /* Skip CRDS entries whose originator wallclock is newer than the
-       caller's wallclock + jitter.  The caller hasn't had time to
-       observe these values yet, so including them would be wasteful. */
-    if( FD_UNLIKELY( fd_crds_entry_wallclock( candidate )>adjusted_wallclock_ms ) ) continue;
+     max_items is computed by fd_bloom_max_items as:
 
-    if( FD_UNLIKELY( fd_bloom_contains( filter, fd_crds_entry_hash( candidate ), 32UL ) ) ) continue;
+       max_items = ceil( max_bits / D(K) )
+       D(K)      = -K / ln(1 - exp(ln(p)/K)),  p=0.1
 
-    uchar const * crds_val;
-    ulong         crds_size;
-    fd_crds_entry_value( candidate, &crds_val, &crds_size );
-    if( FD_UNLIKELY( !fd_gossip_txbuild_can_fit( pull_resp, crds_size ) ) ) txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
-    fd_gossip_txbuild_append( pull_resp, crds_size, crds_val );
-    if( FD_UNLIKELY( !gossip->outbound_budget.remaining ) ) break;
-  }
+     where K is the number of bloom hash functions.  D(K) is minimized
+     at K=3 where D(3)=4.808.  max_bits is bounded by the bloom struct's
+     bits[] array which holds at most 151 u64 words = 9664 bits (see
+     fd_gossip_message.h). Therefore,
+
+       max_items <= ceil(9664/4.808) = 2010 < 2048.
+
+     The sender's mask_bits partitions the hash space into 2^mask_bits
+     partitions, each covering ~max_items of the sender's entries.
+     What's the worst case iteration count for the receiver given an
+     honest sender?
+
+       2^mask_bits >= MIN_NUM_BLOOM_ITEMS / max_items
+       iterations <= crds_len / 2^mask_bits
+       iterations <= crds_len * max_items / MIN_NUM_BLOOM_ITEMS
+                  <= crds_len * 2048 / 65536
+                  <= crds_len / 32
+
+     A floor of 1024 handles small tables where the budget
+     would otherwise round to near-zero. */
+
+  gossip->scan_budget.remaining = fd_ulong_max( fd_crds_len( gossip->crds ) / 32UL, 1024UL );
+
+  /* Compute the hash range [start_hash, end_hash] for this mask
+     partition, then pick a random starting point within it.
+     We iterate [mid_hash, end_hash] then [start_hash, mid_hash)
+     so that when the iteration budget truncates the scan, different
+     entries are skipped each time rather than always penalizing the
+     tail of the partition. */
+
+  ulong start_hash, end_hash;
+  fd_gossip_purged_generate_masks( pr_view->crds_filter->mask, pr_view->crds_filter->mask_bits, &start_hash, &end_hash );
+  ulong range    = end_hash - start_hash;
+  ulong mid_hash = start_hash + ( range==ULONG_MAX ? fd_rng_ulong( gossip->rng ) : fd_rng_ulong( gossip->rng ) % (range + 1UL) );
+
+  int exhausted                                      = pull_scan_range( gossip, mid_hash,   end_hash,     filter, adjusted_wallclock_ms, pull_resp, stem, peer_addr, now );
+  if( FD_LIKELY( !exhausted && mid_hash>start_hash ) ) pull_scan_range( gossip, start_hash, mid_hash-1UL, filter, adjusted_wallclock_ms, pull_resp, stem, peer_addr, now );
 
   txbuild_flush( gossip, pull_resp, stem, peer_addr, now );
 }
@@ -555,23 +627,28 @@ rx_values( fd_gossip_t *             gossip,
     }
 
     ulong origin_stake = get_stake( gossip, value->origin );
-    int origin_ping_tracker_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin );
     int is_me = !memcmp( value->origin, gossip->identity_pubkey, 32UL );
+
+    int origin_ping_tracker_active = 0;
+    fd_ip4_port_t origin_addr = { 0 };
+    if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+      origin_addr = (fd_ip4_port_t){
+        .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
+        .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
+      };
+      origin_ping_tracker_active = fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr );
+    }
 
     results[ i ] = fd_crds_insert( gossip->crds, value, payload+value->offset, value->length, origin_stake, origin_ping_tracker_active, is_me, now, stem );
     if( FD_UNLIKELY( results[ i ] ) ) continue;
 
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      fd_ip4_port_t origin_addr = {
-        .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
-        .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
-      };
       if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, value->origin, origin_stake, origin_addr, now );
 
       /* We just learned this peer's contact info.  Drain any
          no_contact_info hashes associated with this origin from the
          purged set so peers re-send those CRDS values. */
-      if( FD_LIKELY( fd_ping_tracker_active( gossip->ping_tracker, value->origin ) ) ) fd_gossip_purged_drain_no_contact_info( gossip->purged, value->origin );
+      if( FD_LIKELY( fd_ping_tracker_active( gossip->ping_tracker, value->origin, origin_addr ) ) ) fd_gossip_purged_drain_no_contact_info( gossip->purged, value->origin );
     }
 
     fd_active_set_push( gossip->active_set, payload+value->offset, value->length, value->origin, origin_stake, stem, now, 0 );

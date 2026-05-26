@@ -20,9 +20,7 @@ struct fd_txn_p
 typedef struct fd_txn_p fd_txn_p_t;
 
 #define FD_HASH_FOOTPRINT (32UL)
-#define FD_HASH_ALIGN (8UL)
 #define FD_PUBKEY_FOOTPRINT FD_HASH_FOOTPRINT
-#define FD_PUBKEY_ALIGN FD_HASH_ALIGN
 union __attribute__((packed)) fd_hash
 {
     uchar hash[FD_HASH_FOOTPRINT];

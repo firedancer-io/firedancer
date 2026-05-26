@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_blockhashes_h
 #define HEADER_fd_src_flamenco_runtime_fd_blockhashes_h
 
-#include "../types/fd_types.h"
+#include "../fd_flamenco_base.h"
 #include "../../funk/fd_funk_base.h" /* fd_funk_rec_key_hash1 */
 
 /* fd_blockhashes.h provides a "blockhash queue" API.  The blockhash
@@ -10,7 +10,7 @@
 
    See solana_accounts_db::blockhash_queue::BlockhashQueue. */
 
-#define FD_BLOCKHASHES_MAX 301
+#define FD_BLOCKHASHES_MAX (301UL)
 
 /* See solana_accounts_db::blockhash_queue::HashInfo. */
 

@@ -6,7 +6,6 @@
 #include "../runtime/program/fd_vote_program.h"
 #include "../runtime/program/vote/fd_vote_codec.h"
 #include "../runtime/sysvar/fd_sysvar_rent.h"
-#include "../types/fd_types.h"
 
 /* TODO: Unify type with the one in fd_genesis_parse.c */
 

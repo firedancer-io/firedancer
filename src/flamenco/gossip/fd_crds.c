@@ -805,16 +805,6 @@ crds_compare( fd_crds_entry_t const *   incumbent,
   else return 0;
 }
 
-static int
-is_entrypoint( fd_crds_t *                crds,
-               fd_gossip_socket_t const * socket ) {
-  if( FD_UNLIKELY( socket->is_ipv6 ) ) return 0;
-  for( ulong i=0UL; i<crds->entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( socket->ip4==crds->entrypoints[ i ].addr && socket->port==crds->entrypoints[ i ].port ) ) return 1;
-  }
-  return 0;
-}
-
 long
 fd_crds_insert( fd_crds_t *               crds,
                 fd_gossip_value_t const * value,
@@ -846,8 +836,7 @@ fd_crds_insert( fd_crds_t *               crds,
     incumbent = crds_acquire( crds, value->tag==FD_GOSSIP_VALUE_CONTACT_INFO, now, stem );
     incumbent->key = candidate_key;
     if( FD_UNLIKELY( value->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      int entrypoint = is_entrypoint( crds, &value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ] );
-      fd_gossip_wsample_add( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake, origin_ping_tracked, entrypoint, is_me );
+      fd_gossip_wsample_add( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake, origin_ping_tracked, is_me );
     }
   } else {
     /* Fast duplicate check by signature before computing expensive
@@ -879,8 +868,6 @@ fd_crds_insert( fd_crds_t *               crds,
       fd_gossip_wsample_fresh( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), 1 );
       fd_gossip_wsample_stake( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_stake );
       fd_gossip_wsample_ping_tracked( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), origin_ping_tracked );
-      int entrypoint = is_entrypoint( crds, &value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ] );
-      fd_gossip_wsample_is_entrypoint( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), entrypoint );
       fd_gossip_wsample_is_me( crds->wsample, crds_contact_info_pool_idx( crds->ci_pool, incumbent->ci ), is_me );
     }
   }
@@ -976,6 +963,17 @@ fd_crds_mask_iter_init( fd_crds_t const * crds,
   ulong start_hash, end_hash;
   fd_gossip_purged_generate_masks( mask, mask_bits, &start_hash, &end_hash );
 
+  fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
+  it->end_hash             = end_hash;
+  it->idx                  = hash_treap_idx_ge( crds->hash_treap, start_hash, crds->pool );
+  return it;
+}
+
+fd_crds_mask_iter_t *
+fd_crds_mask_iter_init_range( fd_crds_t const * crds,
+                              ulong             start_hash,
+                              ulong             end_hash,
+                              uchar             iter_mem[ static 16UL ] ) {
   fd_crds_mask_iter_t * it = (fd_crds_mask_iter_t *)iter_mem;
   it->end_hash             = end_hash;
   it->idx                  = hash_treap_idx_ge( crds->hash_treap, start_hash, crds->pool );

@@ -150,6 +150,10 @@ struct fd_runtime {
 
     struct {
       fd_vote_state_versioned_t vote_state;
+    } update_commission_bps;
+
+    struct {
+      fd_vote_state_versioned_t vote_state;
     } withdraw;
 
     struct {
@@ -204,6 +208,7 @@ struct fd_runtime {
 
   struct {
     int enabled;
+    int reclaim_accounts;
   } fuzz;
 };
 typedef struct fd_runtime fd_runtime_t;
@@ -233,10 +238,10 @@ struct fd_txn_out {
   } err;
 
   struct {
-    long                        prep_start_timestamp;
-    long                        load_start_timestamp;
-    long                        exec_start_timestamp;
-    long                        commit_start_timestamp;
+    long                        load_start_ticks;
+    long                        check_start_ticks;
+    long                        exec_start_ticks;
+    long                        commit_start_ticks;
 
     fd_compute_budget_details_t compute_budget;            /* Compute budget details */
     fd_transaction_cost_t       txn_cost;                  /* Transaction cost */
@@ -275,6 +280,7 @@ struct fd_txn_out {
     uchar         stake_update[ MAX_TX_ACCOUNT_LOCKS ];
     uchar         vote_update [ MAX_TX_ACCOUNT_LOCKS ];
     uchar         new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar         rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
 
     /* The fee payer and nonce accounts are treated differently than
        other accounts: if an on-transaction fails they are still

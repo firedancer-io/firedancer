@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_fd_hashes_h
 
 #include "../fd_flamenco_base.h"
-#include "../types/fd_types.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
 /* fd_hashes.h provides functions for computing and updating the bank hash
@@ -149,23 +148,21 @@ fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
 /* fd_hashes_apply_hard_forks mixes hard-fork data into an existing bank
    hash in place, matching Agave's bank hash computation.
 
-   For each registered hard fork i where parent_slot < hard_forks[i] <= slot,
+   For each registered hard fork i where
+     parent_slot < hard_forks[i].slot <= slot,
    the fork's count is summed.  If the sum is non-zero, the hash is updated:
      hash = sha256( hash || sum_as_u64_le )
 
    hash is mutated in place.  slot and parent_slot are the slot and parent
-   slot of the bank being finalized.  hard_forks is the array of fork slots
-   of length hard_forks_cnt.  hard_forks_cnts is the array of fork counts
-   of length hard_forks_cnt.  If hard_forks_cnt is zero or no forks are in
-   range, hash is unchanged. */
+   slot of the bank being finalized.  If hard_fork_cnt is zero or no
+   forks are in range, hash is unchanged. */
 
 void
-fd_hashes_apply_hard_forks( fd_hash_t *   hash,
-                            ulong         slot,
-                            ulong         parent_slot,
-                            ulong const * hard_forks,
-                            ulong const * hard_forks_cnts,
-                            ulong         hard_forks_cnt );
+fd_hashes_apply_hard_forks( fd_hash_t *            hash,
+                            ulong                  slot,
+                            ulong                  parent_slot,
+                            fd_hard_fork_t const * hard_forks,
+                            ulong                  hard_fork_cnt );
 
 FD_PROTOTYPES_END
 

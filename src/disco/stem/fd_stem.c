@@ -605,7 +605,11 @@ STEM_(run1)( ulong                        in_cnt,
     ulong                  this_in_seq   = this_in->seq;
     fd_frag_meta_t const * this_in_mline = this_in->mline; /* Already at appropriate line for this_in_seq */
 
-#if FD_HAS_SSE
+#if FD_HAS_AVX
+    __m256i yline   = FD_VOLATILE_CONST( this_in_mline->avx );
+    ulong seq_found = fd_frag_meta_avx_seq( yline );
+    ulong sig       = fd_frag_meta_avx_sig( yline );
+#elif FD_HAS_SSE
     __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
     ulong sig       = fd_frag_meta_sse0_sig( seq_sig );
@@ -675,16 +679,21 @@ STEM_(run1)( ulong                        in_cnt,
        should always be successful if in producers are honoring our flow
        control.  Since we can cheaply detect if there are
        misconfigurations (should be an L1 cache hit / predictable branch
-       in the properly configured case), we do so anyway.  Note that if
-       we are on a platform where AVX is atomic, this could be replaced
-       by a flat AVX load of the metadata and an extraction of the found
-       sequence number for higher performance. */
+       in the properly configured case), we do so anyway. */
     FD_COMPILER_MFENCE();
+#if FD_HAS_AVX
+    ulong chunk    = fd_frag_meta_avx_chunk ( yline ); (void)chunk;
+    ulong sz       = fd_frag_meta_avx_sz    ( yline ); (void)sz;
+    ulong ctl      = fd_frag_meta_avx_ctl   ( yline ); (void)ctl;
+    ulong tsorig   = fd_frag_meta_avx_tsorig( yline ); (void)tsorig;
+    ulong tspub    = fd_frag_meta_avx_tspub ( yline ); (void)tspub;
+#else
     ulong chunk    = (ulong)this_in_mline->chunk;  (void)chunk;
     ulong sz       = (ulong)this_in_mline->sz;     (void)sz;
     ulong ctl      = (ulong)this_in_mline->ctl;    (void)ctl;
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
+#endif
 
 #ifdef STEM_CALLBACK_DURING_FRAG1
     STEM_CALLBACK_DURING_FRAG1( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, tsorig, tspub );
@@ -694,7 +703,7 @@ STEM_(run1)( ulong                        in_cnt,
 #endif
 
     FD_COMPILER_MFENCE();
-    ulong seq_test =        this_in_mline->seq;
+    ulong seq_test = FD_VOLATILE_CONST( this_in_mline->seq );
     FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */

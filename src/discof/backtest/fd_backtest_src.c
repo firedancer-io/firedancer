@@ -139,22 +139,26 @@ fd_backtest_src_create( fd_backtest_src_opts_t const * opts ) {
       FD_LOG_WARNING(( "cannot open ledger" ));
       return NULL;
     }
+#if FD_HAS_ROCKSDB
   } else if( 0==strcmp( opts->format, "rocksdb" ) ) {
     if( fmt!=FD_BACKT_SRC_FMT_ROCKSDB ) {
       FD_LOG_WARNING(( "cannot open ledger" ));
       return NULL;
     }
+#endif
   } else {
     FD_LOG_WARNING(( "unsupported opts.format \"%s\"", opts->format ));
     return NULL;
   }
 
   switch( fmt ) {
+#   if FD_HAS_ROCKSDB
     case FD_BACKT_SRC_FMT_ROCKSDB: return fd_backt_src_rocksdb_create( opts );
+#   endif
     case FD_BACKT_SRC_FMT_PCAP:
     case FD_BACKT_SRC_FMT_PCAPNG:  return fd_backt_src_pcap_create( opts, fmt, flags );
     default:
-      FD_LOG_WARNING(( "unsupported detected source type" ));
+      FD_LOG_WARNING(( "unsupported source type" ));
       return NULL;
   }
 }

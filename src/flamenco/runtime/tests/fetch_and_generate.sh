@@ -3,8 +3,8 @@ set -euo pipefail
 
 PROJECT_ROOT=../../../..
 
-# Allow overriding proto version; default pinned
-PROTO_VERSION="${PROTO_VERSION:-v6.0.0}"
+# Set protosol version
+PROTO_VERSION="v7.3.0"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/ballet/nanopb/nanopb_tag.txt)

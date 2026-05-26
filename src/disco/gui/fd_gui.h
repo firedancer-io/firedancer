@@ -16,7 +16,6 @@
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/tower/fd_tower_serdes.h"
 #include "../../flamenco/leaders/fd_leaders.h"
-#include "../../flamenco/types/fd_types_custom.h"
 #include "../../util/fd_util_base.h"
 #include "../../util/hist/fd_histf.h"
 #include "../../waltz/http/fd_http_server.h"
@@ -96,6 +95,8 @@ struct fd_gui_validator_info {
 
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L)
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
+
+#define FD_GUI_PROGCACHE_HISTORY_CNT               (600UL) /* 60s / 100ms */
 
 #define FD_GUI_TILE_TIMER_SNAP_CNT                   (512UL)
 #define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT      (50UL)  /* 500ms / 10ms */
@@ -407,21 +408,14 @@ struct __attribute__((packed)) fd_gui_txn {
   uint compute_units_consumed  : 21; /* <= 1.4M */
   uint bank_idx                :  6; /* in [0, 64) */
   uint error_code              :  6; /* in [0, 64) */
-  int timestamp_delta_start_nanos;
-  int timestamp_delta_end_nanos;
 
-  /* txn_{}_pct is used as a fraction of the total microblock
-     duration. For example, txn_load_end_pct can be used to find the
-     time when this transaction started executing:
+  /* relative to leader start */
+  float           microblock_start_ns_dt;
+  float           microblock_end_ns_dt;
 
-     timestamp_delta_start_exec_nanos = (
-       (timestamp_delta_end_nanos-timestamp_delta_start_nanos) *
-       ((double)txn_{}_pct/UCHAR_MAX)
-     ) */
-  uchar txn_start_pct;
-  uchar txn_load_end_pct;
-  uchar txn_end_pct;
-  uchar txn_preload_end_pct;
+  /* relative to microblock_start */
+  fd_txn_ns_dt_t txn_ns_dt;
+
   uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
   uchar source_tpu; /* FD_TXN_M_TPU_SOURCE_* */
   uint  source_ipv4;
@@ -691,6 +685,12 @@ struct fd_gui {
     fd_gui_tile_stats_t tile_stats_reference[ 1 ];
     fd_gui_tile_stats_t tile_stats_current[ 1 ];
 
+    ulong progcache_history_idx;
+    ulong progcache_hits_history   [ FD_GUI_PROGCACHE_HISTORY_CNT ];
+    ulong progcache_lookups_history[ FD_GUI_PROGCACHE_HISTORY_CNT ];
+    ulong progcache_hits_1min;
+    ulong progcache_lookups_1min;
+
     ulong                  tile_timers_snap_idx;
     ulong                  tile_timers_snap_idx_slot_start;
     /* Temporary storage for samples.  Will be downsampled into
@@ -740,8 +740,8 @@ struct fd_gui {
       ulong start_slot;
       ulong end_slot;
       fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_STAKED_LEADERS, MAX_SLOTS_PER_EPOCH) ];
-      fd_vote_stake_weight_t stakes[ MAX_STAKED_LEADERS ];
+      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(MAX_COMPRESSED_STAKE_WEIGHTS, MAX_SLOTS_PER_EPOCH) ];
+      fd_vote_stake_weight_t stakes[ MAX_COMPRESSED_STAKE_WEIGHTS ];
 
       ulong rankings_slot; /* One more than the largest slot we've processed into our rankings */
       fd_gui_slot_rankings_t rankings[ 1 ]; /* global slot rankings */
@@ -785,6 +785,23 @@ struct fd_gui {
 };
 
 typedef struct fd_gui fd_gui_t;
+
+/* fd_gui_staged_push returns a pointer to the next free staging slot
+   and advances staged_tail.  If the ring is full staged_head is
+   advanced first so the oldest entry is silently dropped. */
+static inline fd_gui_slot_staged_shred_event_t *
+fd_gui_staged_push( fd_gui_t * gui ) {
+  if( FD_UNLIKELY( gui->shreds.staged_tail - gui->shreds.staged_head >= FD_GUI_SHREDS_STAGING_SZ ) ) {
+    gui->shreds.staged_head = gui->shreds.staged_tail - FD_GUI_SHREDS_STAGING_SZ + 1UL;
+    if( FD_UNLIKELY( gui->shreds.staged_next_broadcast < gui->shreds.staged_head ) ) {
+      gui->shreds.staged_next_broadcast = gui->shreds.staged_head;
+    }
+  }
+  fd_gui_slot_staged_shred_event_t * dst =
+      &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+  gui->shreds.staged_tail++;
+  return dst;
+}
 
 FD_PROTOTYPES_BEGIN
 
@@ -851,7 +868,7 @@ fd_gui_unbecame_leader( fd_gui_t *                gui,
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
-                                   long         now,
+                                   long         tspub_ns,
                                    ulong        _slot,
                                    fd_txn_e_t * txns,
                                    ulong        txn_cnt,
@@ -859,18 +876,15 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
                                    ulong        pack_txn_idx );
 
 void
-fd_gui_microblock_execution_end( fd_gui_t *   gui,
-                                 long         now,
-                                 ulong        bank_idx,
-                                 ulong        _slot,
-                                 ulong        txn_cnt,
-                                 fd_txn_p_t * txns,
-                                 ulong        pack_txn_idx,
-                                 uchar        txn_start_pct,
-                                 uchar        txn_load_end_pct,
-                                 uchar        txn_end_pct,
-                                 uchar        txn_preload_end_pct,
-                                 ulong        tips );
+fd_gui_microblock_execution_end( fd_gui_t *     gui,
+                                 long           tspub_ns,
+                                 ulong          bank_idx,
+                                 ulong          _slot,
+                                 ulong          txn_cnt,
+                                 fd_txn_p_t *   txns,
+                                 ulong          pack_txn_idx,
+                                 fd_txn_ns_dt_t txn_ns_dt,
+                                 ulong          tips );
 
 int
 fd_gui_poll( fd_gui_t * gui, long now );

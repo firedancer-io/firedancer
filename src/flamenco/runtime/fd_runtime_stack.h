@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h
 
-#include "../types/fd_types_custom.h"
 #include "../leaders/fd_leaders_base.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "program/fd_builtin_programs.h"
@@ -33,7 +32,7 @@ struct fd_vote_rewards {
   fd_pubkey_t pubkey;
   ulong       vote_rewards;
   uint        next;
-  uchar       commission;
+  ushort      commission;
 };
 typedef struct fd_vote_rewards fd_vote_rewards_t;
 

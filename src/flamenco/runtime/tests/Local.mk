@@ -8,19 +8,19 @@ $(call add-objs,fd_dump_pb,fd_flamenco)
 endif
 endif
 
-$(call add-hdrs,fd_instr_harness.h fd_txn_harness.h fd_gossip_harness.h fd_cost_harness.h)
-$(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_cost_harness fd_harness_common fd_vm_harness fd_gossip_harness,fd_flamenco_test)
+$(call add-hdrs,fd_instr_harness.h fd_txn_harness.h fd_bundle_harness.h fd_gossip_harness.h fd_cost_harness.h)
+$(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_bundle_harness fd_cost_harness fd_harness_common fd_vm_harness fd_gossip_harness,fd_flamenco_test)
 ifdef FD_HAS_INT128
 $(call add-objs,fd_block_harness,fd_flamenco_test)
 endif
 $(call add-objs,fd_sol_compat,fd_flamenco_test)
 
-$(call add-hdrs,generated/context.pb.h generated/invoke.pb.h generated/txn.pb.h generated/block.pb.h generated/vm.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h generated/elf.pb.h)
-$(call add-objs,generated/context.pb generated/invoke.pb generated/txn.pb generated/block.pb generated/vm.pb generated/metadata.pb generated/gossip.pb generated/cost.pb generated/elf.pb,fd_flamenco)
+$(call add-hdrs,generated/context.pb.h generated/instr.pb.h generated/txn.pb.h generated/bundle.pb.h generated/block.pb.h generated/vm.pb.h generated/vm_serialization.pb.h generated/metadata.pb.h generated/gossip.pb.h generated/cost.pb.h generated/elf.pb.h)
+$(call add-objs,generated/context.pb generated/instr.pb generated/txn.pb generated/bundle.pb generated/block.pb generated/vm.pb generated/vm_serialization.pb generated/metadata.pb generated/gossip.pb generated/cost.pb generated/elf.pb,fd_flamenco)
 
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128
-SOL_COMPAT_FLAGS:=-Wl,--undefined=fd_types_vt_by_name -Wl,--version-script=src/flamenco/runtime/tests/libfd_exec_sol_compat.map
+SOL_COMPAT_FLAGS:=-Wl,--version-script=src/flamenco/runtime/tests/libfd_exec_sol_compat.map
 $(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_flamenco fd_tango fd_funk fd_ballet fd_util fd_disco)
 $(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SOL_COMPAT_FLAGS))
 $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)

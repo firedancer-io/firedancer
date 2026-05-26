@@ -690,6 +690,12 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   } else {
     /* This is not the first shred in the set */
 
+    /* Verify that the shred's slot and fec_set_idx match the context
+       established by the first shred. */
+    if( FD_UNLIKELY( shred->slot!=ctx->slot || shred->fec_set_idx!=ctx->fec_set_idx ) ) {
+      return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
+
     /* First ensure that all the shreds in the FEC set have consistent
        variants.  They all must have the same tree_depth and the same
        chained/not chained, resigned/not resigned bits. */
@@ -859,7 +865,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
   /* Check idx of base shreds */
   reject = reject || ((base_data_shred->idx!=ctx->fec_set_idx) | (base_parity_shred->idx!=ctx->fec_set_idx) |
-                      (base_data_shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE));
+                      (base_data_shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE));
 
   for( ulong i=1UL; (!reject) & (i<FD_FEC_SHRED_CNT); i++ ) {
     /* Technically, we only need to re-parse the ones we recovered with
@@ -873,7 +879,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     reject |= parsed->fec_set_idx     != base_data_shred->fec_set_idx;
     reject |= parsed->data.parent_off != base_data_shred->data.parent_off;
     reject |= parsed->idx             != (uint)(ctx->fec_set_idx+i);
-    reject |= (i!=FD_FEC_SHRED_CNT-1UL) && (parsed->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+    reject |= (i!=FD_FEC_SHRED_CNT-1UL) && (parsed->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE);
 
     reject |= fd_shred_is_chained( fd_shred_type( parsed->variant ) ) &&
                 !fd_memeq( (uchar *)parsed         +fd_shred_chain_off( parsed->variant          ),

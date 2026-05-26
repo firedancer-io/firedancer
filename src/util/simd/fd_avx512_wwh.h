@@ -13,6 +13,13 @@
 
 #define wwh_t __m512i
 
+/* Constructors */
+
+/* Given the ushort values, return ... */
+
+#define wwh_bcast(b0) _mm512_set1_epi16( (ushort)(b0) ) /* [ b0 b0 ... b0 ] */
+
+
 /* Predefined constants */
 
 #define wwh_zero()           _mm512_setzero_si512()  /* wwh(0, 0, ... 0) */
@@ -32,3 +39,9 @@ static inline void  wwh_stu( void * m, wwh_t x ) { _mm512_storeu_epi32( m, x ); 
 
 #define wwh_add(x,y) _mm512_add_epi16( (x), (y) ) /* wwh( x0+y0, x1+y1, ... xf+y31 ) */
 #define wwh_sub(x,y) _mm512_sub_epi16( (x), (y) ) /* wwh( x0-y0, x1-y1, ... xf-y31 ) */
+
+
+/* Bit operations */
+
+#define wwh_shl(a,imm) _mm512_slli_epi16( (a), (imm) ) /* [ a0<<imm a1<<imm ... a31<<imm ] */
+#define wwh_shr(a,imm) _mm512_srli_epi16( (a), (imm) ) /* [ a0>>imm a1>>imm ... a31>>imm ] */
