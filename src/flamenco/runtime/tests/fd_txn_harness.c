@@ -41,7 +41,14 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Initialize bank from input txn bank */
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
-  runner->bank->f.slot = slot;
+  runner->bank->f.slot         = slot;
+  runner->bank->accdb_fork_id  = fork_id;
+
+  /* Register a non-root progcache transaction at the bank's xid so the
+     BPF loader can insert program cache entries during execution. */
+  fd_progcache_xid_t parent_xid; fd_progcache_txn_xid_set_root( &parent_xid );
+  fd_progcache_xid_t xid = fd_bank_xid( runner->bank );
+  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
 
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
