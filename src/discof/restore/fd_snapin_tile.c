@@ -734,6 +734,11 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         break;
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
+        if( FD_UNLIKELY( result->account_header.data_len > FD_RUNTIME_ACC_SZ_MAX ) ) {
+          FD_LOG_WARNING(( "Found unusually large account (data_sz=%lu)", result->account_header.data_len ));
+          transition_malformed( ctx, stem );
+          return 0;
+        }
         early_exit = fd_snapin_process_account_header( ctx, result );
         if( FD_UNLIKELY( early_exit<0 ) ) {
           transition_malformed( ctx, stem );
