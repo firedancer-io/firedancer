@@ -36,6 +36,8 @@ int
 LLVMFuzzerTestOneInput( uchar const * data_,
                         ulong         size ) {
   fd_ssmanifest_parser_init( parser, output_mem );
-  fd_ssmanifest_parser_consume( parser, data_, size, NULL, NULL );
+  if( fd_ssmanifest_parser_consume( parser, data_, size, NULL, NULL )!=FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) {
+    fd_ssmanifest_parser_fini( parser );
+  }
   return 0;
 }
