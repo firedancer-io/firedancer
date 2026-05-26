@@ -383,9 +383,9 @@ ulong
 fd_svm_mini_reset( fd_svm_mini_t *        mini,
                    fd_svm_mini_params_t * params ) {
 
-  fd_accdb_v1_clear ( mini->accdb_admin     );
-  fd_progcache_clear( mini->progcache->join );
-  fd_banks_clear    ( mini->banks           );
+  fd_accdb_v1_clear( mini->accdb_admin );
+  fd_progcache_clear( mini->progcache->join, &(fd_progcache_xid_t){0} );
+  fd_banks_clear( mini->banks           );
 
   fd_bank_t * bank = fd_banks_init_bank( mini->banks );
   FD_TEST( bank );
@@ -396,8 +396,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   fd_xid_t root_xid = fd_bank_xid( bank );
   fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
   fd_funk_txn_xid_copy( funk->shmem->last_publish, &root_xid );
-  fd_progcache_xid_t pc_root_xid = fd_progcache_xid_from_funk( &root_xid );
-  fd_progcache_txn_xid_copy( mini->progcache->join->shmem->txn.last_publish, &pc_root_xid );
+  *mini->progcache->join->shmem->txn.last_publish = fd_progcache_xid_from_funk( &root_xid );
 
   if( params->clock ) {
     bank->f.slot  = params->clock->slot;

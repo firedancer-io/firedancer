@@ -177,8 +177,7 @@ metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
-  FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED,  pcm->root_cnt    );
-  FD_MCNT_SET( REPLAY, PROGCACHE_GC_ROOT, pcm->gc_root_cnt );
+  FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED, pcm->root_cnt );
 
   fd_wksp_mon_t * wm = fd_wksp_mon_tick( ctx->progcache_wksp_mon, fd_tickcount() );
   FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTS,             wm->free_cnt       );
@@ -733,14 +732,8 @@ init_funk( fd_replay_tile_t * ctx,
   if( FD_UNLIKELY( !ctx->progcache->shmem ) ) {
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
   }
-  fd_progcache_clear( ctx->progcache );
-
-  fd_funk_txn_xid_t last_publish = fd_accdb_root_get( ctx->accdb_admin );
-  fd_funk_txn_xid_t root = { .ul = { ULONG_MAX, ULONG_MAX } };
-  fd_progcache_xid_t pc_root         = fd_progcache_xid_from_funk( &root );
-  fd_progcache_xid_t pc_last_publish = fd_progcache_xid_from_funk( &last_publish );
-  fd_progcache_attach_child( ctx->progcache, &pc_root, &pc_last_publish );
-  fd_progcache_advance_root( ctx->progcache,           &pc_last_publish );
+  fd_funk_txn_xid_t root = fd_accdb_root_get( ctx->accdb_admin );
+  fd_progcache_clear( ctx->progcache, &(fd_progcache_xid_t){ .slot=root.ul[0], .bank_seq=root.ul[1] } );
 }
 
 static void

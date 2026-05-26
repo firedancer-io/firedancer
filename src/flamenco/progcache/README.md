@@ -129,11 +129,10 @@ Each record access considers the following slot numbers:
 
 - **load_slot**: the current slot number at the time the cache is being
   accessed
-- **epoch_slot0**: the first slot of the epoch of load_slot
 - **deploy_slot**: the most recent slot in which the program was
   deployed or retracted, as of load_slot
-- **revision_key**: derived from the above three (`>=deploy_slot`,
-  `>=epoch_slot0`)
+- **feature_slot**: slot in which the feature set last changed (some
+  features invalidate programs or change their behavior)
 
 ### Record life cycle
 

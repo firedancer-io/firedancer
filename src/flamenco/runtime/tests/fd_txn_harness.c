@@ -29,7 +29,7 @@
 static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_v1_clear( runner->accdb_admin );
-  fd_progcache_clear( runner->progcache->join );
+  fd_progcache_clear( runner->progcache->join, &(fd_progcache_xid_t){0} );
 
   /* In order to check for leaks in the workspace, we need to compact the
      allocators. Without doing this, empty superblocks may be retained
@@ -55,9 +55,8 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_xid_t xid = fd_bank_xid( runner->bank );
   fd_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
-  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_attach_child( runner->progcache->join, &pc_parent_xid, &pc_xid );
+  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
+  fd_progcache_attach_child( runner->progcache->join, &(fd_progcache_xid_t){0}, &pc_xid );
 
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;

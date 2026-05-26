@@ -165,9 +165,10 @@ test_env_init( test_env_t * env, fd_wksp_t * wksp, int enable_loader_v4 ) {
   fd_funk_txn_xid_t root[1];
   fd_funk_txn_xid_set_root( root );
   env->xid = fd_bank_xid( env->bank );
-  fd_accdb_attach_child    ( env->accdb_admin,     root, &env->xid );
+  fd_accdb_attach_child( env->accdb_admin, root, &env->xid );
   fd_progcache_xid_t pc_root = fd_progcache_xid_from_funk( root );
   fd_progcache_xid_t pc_xid  = fd_progcache_xid_from_funk( &env->xid );
+  fd_progcache_clear( env->progcache->join, &pc_root );
   fd_progcache_attach_child( env->progcache->join, &pc_root, &pc_xid );
 
   init_rent_sysvar( env );

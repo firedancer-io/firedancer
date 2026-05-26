@@ -7,7 +7,6 @@ union fd_features;
 typedef union fd_features fd_features_t;
 
 struct fd_progcache_admin_metrics {
-  ulong gc_root_cnt;
   ulong root_cnt;
 };
 
@@ -56,19 +55,12 @@ void
 fd_progcache_cancel( fd_progcache_join_t *      cache,
                      fd_progcache_xid_t const * xid );
 
-/* Reset operations ***************************************************/
-
-/* fd_progcache_reset removes all cache entries while leaving the txn
-   graph intact.  Does not support concurrent usage. */
-
-void
-fd_progcache_reset( fd_progcache_join_t * cache );
-
 /* fd_progcache_clear removes all cache entries and destroys the txn
    graph.  Does not support concurrent usage. */
 
 void
-fd_progcache_clear( fd_progcache_join_t * cache );
+fd_progcache_clear( fd_progcache_join_t *      cache,
+                    fd_progcache_xid_t const * root_xid );
 
 /* fd_progcache_verify checks the structural integrity of the program
    cache.  Returns 0 on success, -1 on failure.  Logs warnings
