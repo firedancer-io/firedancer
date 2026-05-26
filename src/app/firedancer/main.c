@@ -77,9 +77,7 @@ extern fd_topo_run_tile_t fd_tile_diag;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_rpc;
 extern fd_topo_run_tile_t fd_tile_bundle;
-#if FD_HAS_BZIP2
 extern fd_topo_run_tile_t fd_tile_genesi;
-#endif
 extern fd_topo_run_tile_t fd_tile_ipecho;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
@@ -126,9 +124,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
-# if FD_HAS_BZIP2
   &fd_tile_genesi,
-# endif
   &fd_tile_ipecho,
   &fd_tile_solcap,
   NULL,

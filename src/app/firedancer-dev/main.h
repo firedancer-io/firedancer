@@ -151,9 +151,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
-# if FD_HAS_BZIP2
   &fd_tile_genesi,
-# endif
   &fd_tile_ipecho,
   &fd_tile_solcap,
   NULL,

@@ -85,6 +85,12 @@ https://musl.libc.org/releases/musl-1.2.5.tar.gz
 Imported name resolver and DNS client from the musl libc project.
 Written in C.
 
+### bzip2
+
+https://gitlab.com/bzip2/bzip2
+
+Data compression library. Written in C.
+
 ## External
 
 External dependencies are downloaded and installed when running
@@ -101,12 +107,6 @@ Firedancer executable.
 https://github.com/facebook/zstd
 
 Data compression library by Meta. Written in C.
-
-### bzip2
-
-https://gitlab.com/bzip2/bzip2
-
-Data compression library. Written in C.
 
 ### s2n-bignum
 
