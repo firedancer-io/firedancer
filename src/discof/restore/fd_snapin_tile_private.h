@@ -35,16 +35,6 @@ struct fd_snapin_out_link {
 };
 typedef struct fd_snapin_out_link fd_snapin_out_link_t;
 
-struct buffered_account_batch {
-  uchar const * batch[ FD_SSPARSE_ACC_BATCH_MAX ];
-  ulong         batch_cnt;
-  ulong         slot;
-  /* index at which to start processing a buffered account batch */
-  ulong         remaining_idx;
-};
-
-typedef struct buffered_account_batch buffered_account_batch_t;
-
 struct fd_snapin_tile {
   int  state;
   uint full      : 1;       /* loading a full snapshot? */
@@ -66,8 +56,6 @@ struct fd_snapin_tile {
   fd_ssparse_t *           ssparse;
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
-
-  buffered_account_batch_t buffered_batch;
 
   struct {
     int manifest_done;
@@ -138,8 +126,8 @@ typedef struct fd_snapin_tile fd_snapin_tile_t;
 FD_PROTOTYPES_BEGIN
 
 int fd_snapin_process_account_header_funk( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-int fd_snapin_process_account_data_funk  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-int fd_snapin_process_account_batch_funk ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result, buffered_account_batch_t * buffered_batch );
+void fd_snapin_process_account_data_funk  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+int fd_snapin_process_account_batch_funk ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
 
 void
 fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
@@ -164,17 +152,16 @@ fd_snapin_process_account_header( fd_snapin_tile_t *            ctx,
   return fd_snapin_process_account_header_funk( ctx, result );
 }
 
-static inline int
+static inline void
 fd_snapin_process_account_data( fd_snapin_tile_t *            ctx,
                                 fd_ssparse_advance_result_t * result ) {
-  return fd_snapin_process_account_data_funk( ctx, result );
+  fd_snapin_process_account_data_funk( ctx, result );
 }
 
 static inline int
 fd_snapin_process_account_batch( fd_snapin_tile_t *            ctx,
-                                 fd_ssparse_advance_result_t * result,
-                                 buffered_account_batch_t *    buffered_batch ) {
-  return fd_snapin_process_account_batch_funk( ctx, result, buffered_batch );
+                                 fd_ssparse_advance_result_t * result ) {
+  return fd_snapin_process_account_batch_funk( ctx, result );
 }
 
 static inline void

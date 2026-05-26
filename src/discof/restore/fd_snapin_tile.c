@@ -644,14 +644,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
   if( FD_UNLIKELY( chunk<ctx->in.chunk0 || chunk>ctx->in.wmark || sz>ctx->in.mtu ) ) FD_LOG_ERR(( "invalid data frag bounds (chunk=%lu chunk0=%lu wmark=%lu sz=%lu mtu=%lu)", chunk, ctx->in.chunk0, ctx->in.wmark, sz, ctx->in.mtu ));
 
-  if( FD_UNLIKELY( ctx->buffered_batch.batch_cnt>0UL ) ) {
-    if( FD_UNLIKELY( fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch )<0 ) ) {
-      transition_malformed( ctx, stem );
-      return 0;
-    }
-    return 1;
-  }
-
   for(;;) {
     if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
 
@@ -759,7 +751,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
-        early_exit = fd_snapin_process_account_data( ctx, result );
+        fd_snapin_process_account_data( ctx, result );
 
         /* Account data may span multiple input chunks (when an account
            straddles a decompressed chunk boundary), so we copy each
@@ -790,7 +782,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
-        early_exit = fd_snapin_process_account_batch( ctx, result, NULL );
+        early_exit = fd_snapin_process_account_batch( ctx, result );
         if( FD_UNLIKELY( early_exit<0 ) ) {
           transition_malformed( ctx, stem );
           return 0;
@@ -1151,9 +1143,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->gui_config_acct_sz  = 0UL;
   ctx->gui_config_acct_off = 0UL;
-
-  ctx->buffered_batch.batch_cnt     = 0UL;
-  ctx->buffered_batch.remaining_idx = 0UL;
 
   ctx->advertised_slot = 0UL;
   ctx->bank_slot       = 0UL;
