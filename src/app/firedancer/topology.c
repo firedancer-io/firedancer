@@ -845,23 +845,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "txsend",  0UL,          "metric_in", "sign_txsend",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_txsend",  0UL                                                  );
 
-  if( FD_UNLIKELY( config->tiles.shredcap.enabled ) ) {
-    fd_topob_wksp( topo, "scap" );
-
-    fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0, 0 );
-
-    fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    for( ulong j=0UL; j<net_tile_cnt; j++ ) {
-      fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "net_shred", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    }
-    for( ulong j=0UL; j<shred_tile_cnt; j++ ) {
-      fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "shred_out", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    }
-    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-    /* No default fd_topob_tile_in connection to stake_out */
-  }
-
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_link( topo, "rpc_replay", "rpc_replay", 8UL, 0UL, 1UL );
     fd_topob_tile_out( topo, "rpc", 0UL, "rpc_replay", 0UL );
@@ -1526,14 +1509,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       FD_LOG_ERR(( "missing [development.ledger_input.path] config option or '--ledger' flag" ));
     }
     tile->forktest.end_slot = config->firedancer.development.ledger_input.end_slot;
-
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
-
-    tile->shredcap.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
-    fd_cstr_ncpy( tile->shredcap.folder_path, config->tiles.shredcap.folder_path, sizeof(tile->shredcap.folder_path) );
-    tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
-    tile->shredcap.enable_publish_stake_weights = 0; /* this is not part of the config */
-    fd_cstr_ncpy( tile->shredcap.manifest_path, "", PATH_MAX ); /* this is not part of the config */
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
     fd_cstr_ncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );

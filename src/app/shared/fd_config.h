@@ -485,12 +485,6 @@ struct fd_config {
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
     } replay;
 
-    struct {
-      int   enabled;
-      char  folder_path[ PATH_MAX ];
-      ulong write_buffer_size;
-    } shredcap;
-
   } tiles;
   struct {
     ulong capture_start_slot;
