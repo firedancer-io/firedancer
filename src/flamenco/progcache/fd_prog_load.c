@@ -83,10 +83,11 @@ fd_prog_versions( fd_features_t const * features,
 fd_prog_load_env_t *
 fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
                             fd_bank_t const *    bank ) {
+  /* FIXME: Use true feature_slot instead */
+  ulong feature_slot = fd_epoch_slot0( &bank->f.epoch_schedule, bank->f.epoch );
   *env = (fd_prog_load_env_t) {
-    .features    = &bank->f.features,
-    .epoch       = bank->f.epoch,
-    .epoch_slot0 = fd_epoch_slot0( &bank->f.epoch_schedule, bank->f.epoch )
+    .features     = &bank->f.features,
+    .feature_slot = feature_slot
   };
   return env;
 }

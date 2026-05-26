@@ -11,7 +11,8 @@ struct fd_progcache_lineage {
 
   /* Current fork cache */
   fd_progcache_xid_t fork[ FD_PROGCACHE_DEPTH_MAX ];
-  ulong             fork_depth;
+  ulong              fork_depth;
+  ulong              root_slot;
 
   uint txn_idx[ FD_PROGCACHE_DEPTH_MAX ];
 
@@ -34,7 +35,7 @@ FD_FN_UNUSED static int
 fd_progcache_lineage_has_xid( fd_progcache_lineage_t const * lineage,
                               fd_progcache_xid_t const *     rec_xid ) {
   ulong const fork_depth = lineage->fork_depth;
-  if( fd_progcache_txn_xid_eq_root( rec_xid ) ) return 1;
+  if( rec_xid->slot <= lineage->root_slot ) return 1;
   for( ulong i=0UL; i<fork_depth; i++ ) {
     if( fd_progcache_txn_xid_eq( &lineage->fork[i], rec_xid ) ) return 1;
   }

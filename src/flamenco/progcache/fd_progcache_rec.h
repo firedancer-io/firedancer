@@ -19,7 +19,8 @@
 struct __attribute__((aligned(64))) fd_progcache_rec {
   fd_progcache_xid_key_pair_t pair;  /* Transaction id and record key pair */
 
-  ulong revision_key;
+  ulong feature_slot;
+  ulong deploy_slot;
 
   uint        map_next;  /* Internal use by map */
   atomic_uint txn_idx;

@@ -19,7 +19,7 @@ static fd_features_t g_features[1];
 #define ITER_DEFAULT    (4096UL)
 #define STEP_MAX        (100000UL)
 
-#define ROOT_XID ( (fd_progcache_xid_t) { .ul={1UL,0UL} } )
+#define ROOT_XID ((fd_progcache_xid_t){{1UL,0UL}})
 
 /* Declare fibers */
 
@@ -44,10 +44,11 @@ struct fiber {
     } pull;
 
     struct {
-      fd_progcache_t * cache;
-      fd_progcache_xid_t         xid;
-      fd_pubkey_t      prog_addr;
-      ulong            revision_key;
+      fd_progcache_t *   cache;
+      fd_progcache_xid_t xid;
+      fd_pubkey_t        prog_addr;
+      ulong              feature_slot;
+      ulong              deploy_slot;
     } peek;
 
     struct {
@@ -108,7 +109,8 @@ static void
 fiber_peek_exec( void * _ctx ) {
   fiber_t * f = _ctx;
   fd_progcache_rec_t * res = fd_progcache_peek(
-      f->peek.cache, &f->peek.xid, &f->peek.prog_addr, f->peek.revision_key );
+      f->peek.cache, &f->peek.xid, &f->peek.prog_addr,
+      f->peek.feature_slot, f->peek.deploy_slot );
   if( res ) fd_progcache_rec_close( f->peek.cache, res );
 }
 
@@ -118,10 +120,11 @@ fiber_peek( fiber_t *                  fiber,
             fd_progcache_xid_t const * xid,
             void const *               prog_addr ) {
   FD_TEST( fd_progcache_join( fiber->cache, shmem, fiber->scratch, sizeof(fiber->scratch) ) );
-  fiber->peek.cache     = fiber->cache;
-  fiber->peek.xid       = *xid;
-  fiber->peek.prog_addr = FD_LOAD( fd_pubkey_t, prog_addr );
-  fiber->peek.revision_key = fd_progcache_revision_key( 1UL, 0UL );
+  fiber->peek.cache        = fiber->cache;
+  fiber->peek.xid          = *xid;
+  fiber->peek.prog_addr    = FD_LOAD( fd_pubkey_t, prog_addr );
+  fiber->peek.feature_slot = 0UL;
+  fiber->peek.deploy_slot  = 1UL;
   fd_racesan_async_new( fiber->async, fiber->stack+FIBER_STACK_MAX, FIBER_STACK_MAX, fiber_peek_exec, fiber );
   return fiber->async;
 }
@@ -212,8 +215,7 @@ test_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
 
 static void
 test_progcache_clear( fd_progcache_join_t * join ) {
-  fd_progcache_clear( join );
-  *join->shmem->txn.last_publish = ROOT_XID;
+  fd_progcache_clear( join, &ROOT_XID );
 }
 
 /* TESTS **************************************************************/
@@ -224,9 +226,9 @@ static void
 test_pull_pull( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_progcache_xid_t    xid = { .ul = { 1UL, 1UL } };
-  fd_pubkey_t key = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_progcache_xid_t xid = { .slot=1UL, .bank_seq=1UL };
+  fd_pubkey_t        key = test_key( 42UL );
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot=0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -267,9 +269,9 @@ static void
 test_pull_peek( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
-  fd_progcache_xid_t    xid = { .ul = { 1UL, 1UL } };
+  fd_progcache_xid_t    xid = {{ 1UL, 1UL }};
   fd_pubkey_t key = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -311,10 +313,10 @@ test_cancel_peek( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid_pre = {{ 1UL, 1UL }};
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
   fd_pubkey_t key  = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -364,9 +366,9 @@ test_publish_evict( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
   fd_pubkey_t key  = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -413,9 +415,9 @@ test_peek_root( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
   fd_pubkey_t key  = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -463,9 +465,9 @@ test_peek_cancel( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
   fd_pubkey_t key  = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -513,9 +515,9 @@ test_peek_peek( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid = ROOT_XID;
-  fd_progcache_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
+  fd_progcache_xid_t    xid_pre = {{ 1UL, 1UL }};
   fd_pubkey_t key = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -564,10 +566,10 @@ test_peek_root_sibling( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
-  fd_progcache_xid_t    xid2 = { .ul = { 3UL, 2UL } };
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
+  fd_progcache_xid_t    xid2 = {{ 3UL, 2UL }};
   fd_pubkey_t key  = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -617,10 +619,10 @@ test_peek_peek_root( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
-  fd_progcache_xid_t    xid2 = { .ul = { 3UL, 2UL } };
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
+  fd_progcache_xid_t    xid2 = {{ 3UL, 2UL }};
   fd_pubkey_t key  = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -673,9 +675,9 @@ test_inject_at_hook( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
   fd_pubkey_t key  = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -714,9 +716,9 @@ test_publish_reclaim_evicted( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
   fd_pubkey_t key  = test_key( 42UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -763,11 +765,11 @@ test_root_evict_two( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
-  fd_progcache_xid_t    xid2 = { .ul = { 3UL, 2UL } };
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
+  fd_progcache_xid_t    xid2 = {{ 3UL, 2UL }};
   fd_pubkey_t ka   = test_key( 1UL );
   fd_pubkey_t kb   = test_key( 2UL );
-  fd_prog_load_env_t load_env = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
+  fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
 
   test_account_t acc_a;
   test_account_init( &acc_a, &ka, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );
@@ -821,12 +823,12 @@ test_publish_evict_stale( fd_wksp_t * wksp ) {
   fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
 
   fd_progcache_xid_t    xid0 = ROOT_XID;
-  fd_progcache_xid_t    xid_pre = { .ul = { 1UL, 1UL } };
-  fd_progcache_xid_t    xid1 = { .ul = { 2UL, 1UL } };
+  fd_progcache_xid_t    xid_pre = {{ 1UL, 1UL }};
+  fd_progcache_xid_t    xid1 = {{ 2UL, 1UL }};
   fd_pubkey_t key  = test_key( 42UL );
 
-  fd_prog_load_env_t load_env_root  = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 0UL };
-  fd_prog_load_env_t load_env_child = { .features = g_features, .epoch = 0UL, .epoch_slot0 = 2UL };
+  fd_prog_load_env_t load_env_root  = { .features = g_features, .feature_slot = 0UL };
+  fd_prog_load_env_t load_env_child = { .features = g_features, .feature_slot = 2UL };
 
   test_account_t acc;
   test_account_init( &acc, &key, &fd_solana_bpf_loader_deprecated_program_id, 1, valid_program_data, valid_program_data_sz );

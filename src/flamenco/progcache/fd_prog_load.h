@@ -48,9 +48,7 @@ FD_PROTOTYPES_END
 
 struct fd_prog_load_env {
   fd_features_t const * features;
-
-  ulong epoch;        /* current epoch */
-  ulong epoch_slot0;  /* slot0 of current epoch */
+  ulong feature_slot; /* newest feature activated at this slot */
 };
 
 typedef struct fd_prog_load_env fd_prog_load_env_t;
