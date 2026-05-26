@@ -1089,6 +1089,7 @@ boot_genesis( fd_replay_tile_t *        ctx,
 
   ctx->reset_slot            = 0UL;
   ctx->reset_bank            = bank;
+  ctx->reset_block_id        = ctx->initial_block_id;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot != ULONG_MAX ) ) {

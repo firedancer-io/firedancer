@@ -2042,6 +2042,7 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
   manifest->has_accounts_lthash    = 0;
   manifest->has_epoch_account_hash = 0;
   manifest->has_block_id           = 0;
+  manifest->has_hashes_per_tick    = 0;
   for( ulong i=0UL; i<FD_EPOCH_STAKES_LEN; i++ ) {
     manifest->epoch_stakes[i].epoch           = ULONG_MAX;  /* sentinel: not populated */
     manifest->epoch_stakes[i].total_stake     = 0UL;
