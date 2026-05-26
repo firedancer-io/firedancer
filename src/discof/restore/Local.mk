@@ -24,7 +24,7 @@ endif
 $(call make-unit-test,test_slot_delta_parser,utils/test_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_sspeer_selector,utils/test_sspeer_selector,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_ssping,utils/test_ssping,fd_discof fd_flamenco fd_ballet fd_util)
-$(call make-unit-test,test_ssload,utils/test_ssload,fd_discof fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_ssload,utils/test_ssload,fd_discof fd_disco fd_flamenco fd_ballet fd_tango fd_util)
 $(call make-unit-test,test_ssarchive,utils/test_ssarchive,fd_discof fdctl_platform fd_ballet fd_util)
 $(call make-unit-test,test_ssparse,utils/test_ssparse,fd_discof fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_slot_delta_parser)

@@ -314,17 +314,16 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 }
 
 int
-fd_ssload_recover( fd_snapshot_manifest_t * manifest,
-                   fd_banks_t *             banks,
-                   fd_bank_t *              bank,
-                   int                      is_incremental,
-                   ulong                    blockhash_seed ) {
+fd_ssload_recover_validate( fd_snapshot_manifest_t const * manifest,
+                            fd_banks_t const *             banks ) {
+  return fd_ssload_manifest_validate( manifest, banks->max_vote_accounts, banks->max_stake_accounts );
+}
 
-  /* Validate manifest before mutating the bank. */
-  if( FD_UNLIKELY( fd_ssload_manifest_validate( manifest, banks->max_vote_accounts, banks->max_stake_accounts ) ) ) {
-    FD_LOG_WARNING(( "snapshot manifest validation failed" ));
-    return -1;
-  }
+int
+fd_ssload_recover_apply( fd_snapshot_manifest_t * manifest,
+                         fd_banks_t *             banks,
+                         fd_bank_t *              bank,
+                         ulong                    blockhash_seed ) {
 
   /* Slot */
 
@@ -453,7 +452,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   /* Stake delegations for the current epoch. */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
-  if( is_incremental ) fd_stake_delegations_reset( stake_delegations );
+  fd_stake_delegations_reset( stake_delegations );
   for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
     fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
     if( FD_UNLIKELY( elem->stake_delegation==0UL ) ) {
@@ -472,7 +471,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
 
   fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-  if( is_incremental ) fd_new_votes_reset_root( new_votes );
+  fd_new_votes_reset_root( new_votes );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
     if( FD_UNLIKELY( elem->stake==0UL ) ) fd_new_votes_root_insert( new_votes, (fd_pubkey_t *)elem->vote_account_pubkey );
@@ -499,7 +498,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      in fd_ssmanifest_parser.c. */
 
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
-  if( is_incremental ) fd_vote_stakes_reset( vote_stakes );
+  fd_vote_stakes_reset( vote_stakes );
 
   fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
   fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
@@ -579,4 +578,18 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 
   return 0;
+}
+
+int
+fd_ssload_recover( fd_snapshot_manifest_t * manifest,
+                   fd_banks_t *             banks,
+                   fd_bank_t *              bank,
+                   ulong                    blockhash_seed ) {
+
+  if( FD_UNLIKELY( fd_ssload_recover_validate( manifest, banks ) ) ) {
+    FD_LOG_WARNING(( "snapshot manifest validation failed" ));
+    return -1;
+  }
+
+  return fd_ssload_recover_apply( manifest, banks, bank, blockhash_seed );
 }

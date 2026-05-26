@@ -1264,7 +1264,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
                                           ctx->banks,
                                           fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_SEQ ),
-                                          msg==FD_SSMSG_MANIFEST_INCREMENTAL,
                                           ctx->blockhash_seed ) ) ) {
         FD_LOG_ERR(( "Snapshot manifest recovery failed, aborting." ));
       }
