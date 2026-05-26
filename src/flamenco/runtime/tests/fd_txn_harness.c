@@ -27,6 +27,10 @@
 static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_progcache_clear( runner->progcache->join );
+
+  /* Compact the progcache allocator so empty superblocks are returned
+     to the workspace.  Required for the leak check to pass. */
+  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Creates transaction execution context for a single test case.

@@ -296,6 +296,10 @@ fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
   fd_progcache_clear( runner->progcache->join );
+
+  /* Compact the progcache allocator so empty superblocks are returned
+     to the workspace.  Required for the leak check to pass. */
+  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 ulong

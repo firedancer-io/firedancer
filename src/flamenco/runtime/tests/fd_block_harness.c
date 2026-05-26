@@ -100,6 +100,10 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   runner->bank->stake_rewards_fork_id = UCHAR_MAX;
 
   fd_progcache_clear( runner->progcache->join );
+
+  /* Compact the progcache allocator so empty superblocks are returned
+     to the workspace.  Required for the leak check to pass. */
+  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Sets up block execution context from an input test case to execute
