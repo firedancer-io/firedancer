@@ -92,7 +92,7 @@ fd_vsv_get_commission( fd_vote_state_versioned_t * self ) {
     case fd_vote_state_versioned_enum_v3:
       return self->v3.commission;
     case fd_vote_state_versioned_enum_v4:
-      return (uchar)(self->v4.inflation_rewards_commission_bps/100);
+      return (uchar)fd_ushort_min( (ushort)UCHAR_MAX, (ushort)( self->v4.inflation_rewards_commission_bps/100 ) );
     default:
       FD_LOG_CRIT(( "unsupported vote state version: %u", self->kind ));
   }
