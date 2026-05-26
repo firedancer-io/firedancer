@@ -102,7 +102,6 @@ extern fd_topo_run_tile_t fd_tile_txsend;
 extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_backtest;
 extern fd_topo_run_tile_t fd_tile_forktest;
-extern fd_topo_run_tile_t fd_tile_shredcap;
 extern fd_topo_run_tile_t fd_tile_solcap;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
@@ -139,7 +138,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_poh,
   &fd_tile_txsend,
   &fd_tile_tower,
-  &fd_tile_shredcap,
   &fd_tile_backtest,
   &fd_tile_forktest,
   &fd_tile_bencho,

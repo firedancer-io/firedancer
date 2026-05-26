@@ -660,16 +660,6 @@ repair_cmd_fn_catchup( args_t *   args,
   memset( &config->topo, 0, sizeof(config->topo) );
   repair_topo( config );
 
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
-      /* This is not part of the config, and it must be set manually
-         on purpose as a safety mechanism. */
-      tile->shredcap.enable_publish_stake_weights = 1;
-      fd_cstr_ncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
-    }
-  }
-
   fd_topo_print_log( 1, &config->topo );
 
   args_t configure_args = {
@@ -797,18 +787,9 @@ repair_cmd_fn_catchup( args_t *   args,
 static void
 repair_cmd_fn_eqvoc( args_t *   args,
                      config_t * config ) {
+  (void)args;
   memset( &config->topo, 0, sizeof(config->topo) );
   repair_topo( config );
-
-  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
-    if( FD_UNLIKELY( !strcmp( tile->name, "scap" ) ) ) {
-      /* This is not part of the config, and it must be set manually
-          on purpose as a safety mechanism. */
-      tile->shredcap.enable_publish_stake_weights = 1;
-      fd_cstr_ncpy( tile->shredcap.manifest_path, args->repair.manifest_path, PATH_MAX );
-    }
-  }
 
   FD_LOG_NOTICE(( "Repair eqvoc testing init" ));
   fd_topo_print_log( 1, &config->topo );

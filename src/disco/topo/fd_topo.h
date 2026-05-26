@@ -536,20 +536,6 @@ struct fd_topo_tile {
       char  base_path[PATH_MAX];
     } tower;
 
-    struct {
-      char   folder_path[ PATH_MAX ];
-      ushort repair_intake_listen_port;
-      ulong   write_buffer_size; /* Size of the write buffer for the capture tile */
-      int    enable_publish_stake_weights;
-      char   manifest_path[ PATH_MAX ];
-
-      /* Set internally by the capture tile */
-      int shreds_fd;
-      int requests_fd;
-      int fecs_fd;
-      int peers_fd;
-    } shredcap;
-
 #define FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX      (32UL)
 #define FD_TOPO_SNAPSHOTS_SERVERS_MAX          (16UL)
 #define FD_TOPO_MAX_RESOLVED_ADDRS             ( 4UL)
