@@ -788,6 +788,15 @@ fd_topo_initialize( config_t * config ) {
       fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_repoch", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
 
+    if( FD_UNLIKELY( config->development.event.report_runtime_rooted ) ) {
+      /* Per-root events.  One row per root advance (~1.5/s mainnet
+         steady-state, bursty around epoch boundaries).  Each frag is
+         ~60 KiB worst case; depth 1024 leaves plenty of slack. */
+      fd_topob_link( topo, "event_rooted", "event", 1024UL, sizeof(fd_capture_runtime_rooted_event_msg_t), 1UL );
+      fd_topob_tile_out( topo, "replay", 0UL, "event_rooted", 0UL );
+      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_rooted", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
     if( FD_UNLIKELY( config->development.event.report_stake_cache_updates ) ) {
       /* Stake-delegation cache updates: produced from execrp tiles
          during transaction commit.  Rate is much lower than account

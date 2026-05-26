@@ -1,0 +1,87 @@
+{
+    "name": "runtime_rooted",
+    "id": 9,
+    "description": "Per-root runtime event — one row per (slot, block_id) emitted at the end of advance_published_root() in the replay tile, after all sub-advances (accdb, txncache, sched, banks, progcache, reasm) complete.  Captures the new root identity, the prior root on this lineage, the stake-total snapshot at the root (with the prior-root snapshot for free deltas), the stake delegations applied at this root (upserts + removes), program-cache fork operations, pool occupancy + pool-prune deltas, and per-node timing for the root advance itself.",
+    "fields": {
+        "slot":                              { "type": "UInt64", "description": "Slot of the new root" },
+        "block_id":                          { "type": "Bytes",  "description": "Canonical block_id of the new root (32 bytes) — primary key part" },
+        "parent_slot":                       { "type": "UInt64", "description": "Slot of the parent block of the new root" },
+        "parent_block_id":                   { "type": "Bytes",  "description": "Parent's block_id (32 bytes)" },
+        "epoch":                             { "type": "UInt32", "description": "Epoch the new root belongs to" },
+        "epoch_boundary_root":               { "type": "UInt8",  "description": "1 if old_root.epoch != new_root.epoch (fd_bank_apply_deltas branch in fd_bank.c) — this root advance also materialized the per-epoch stake_delegations totals and reset new_votes root.  0 for intra-epoch root advances." },
+        "prev_root_slot":                    { "type": "UInt64", "description": "Slot of the prior root on this lineage (the old_root captured before this advance)" },
+        "prev_root_block_id":                { "type": "Bytes",  "description": "Prior root's block_id (32 bytes)" },
+        "new_root_fork_idx":                 { "type": "UInt32", "description": "stake_delegations / vote_stakes fork_idx of the new root after the advance — cross-ref against runtime_epoch's per-fork queries" },
+        "total_effective_stake":             { "type": "UInt64", "description": "bank->f.total_effective_stake at the new root (lamports)" },
+        "total_effective_stake_prev":        { "type": "UInt64", "description": "total_effective_stake at the prior root on this lineage (lamports)" },
+        "total_activating_stake":            { "type": "UInt64", "description": "bank->f.total_activating_stake at the new root (lamports)" },
+        "total_activating_stake_prev":       { "type": "UInt64", "description": "total_activating_stake at the prior root (lamports)" },
+        "total_deactivating_stake":          { "type": "UInt64", "description": "bank->f.total_deactivating_stake at the new root (lamports)" },
+        "total_deactivating_stake_prev":     { "type": "UInt64", "description": "total_deactivating_stake at the prior root (lamports)" },
+        "total_epoch_stake":                 { "type": "UInt64", "description": "bank->f.total_epoch_stake at the new root (lamports)" },
+        "total_epoch_stake_prev":            { "type": "UInt64", "description": "total_epoch_stake at the prior root (lamports)" },
+        "capitalization":                    { "type": "UInt64", "description": "bank->f.capitalization at the new root (lamports)" },
+        "last_rooted_slot_prev_epoch":       { "type": "UInt64", "description": "Last slot rooted in the previous epoch on this lineage.  Populated when epoch_boundary_root=1, else 0." },
+        "stake_delegations_cnt":             { "type": "UInt64", "description": "fd_stake_delegations_cnt(stake_delegations) after the advance" },
+        "new_votes_cnt":                     { "type": "UInt64", "description": "fd_new_votes_cnt(new_votes) after the advance" },
+        "vote_stakes_root_idx_cnt":          { "type": "UInt64", "description": "Number of live index_ele entries on the new root's vote_stakes fork (post-prune)" },
+        "banks_pool_used":                   { "type": "UInt64", "description": "fd_banks_pool_used_cnt(banks) after pruning the non-root subtree" },
+        "accdb_index_used":                  { "type": "UInt64", "description": "fd_accdb index element count after publishing root txn" },
+        "progcache_index_used":              { "type": "UInt64", "description": "fd_progcache index element count after the root advance" },
+        "sched_pool_used":                   { "type": "UInt64", "description": "Scheduler block-pool element count after subtree_prune" },
+        "top_votes_cnt":                     { "type": "UInt64", "description": "fd_top_votes entry count after any pruning at this root" },
+        "banks_pruned_count":                { "type": "UInt32", "description": "Banks evicted from the bank pool during this root advance (non-root subtree pruning).  Strong fork-divergence canary — non-zero means equivocation/competing forks existed." },
+        "sched_subtree_pruned_count":        { "type": "UInt32", "description": "Scheduler pool elements released during subtree_prune at this root" },
+        "vote_stakes_evicted_count":         { "type": "UInt32", "description": "vote_stakes index_ele entries removed at root (zero-refcount removals after non-root forks were dropped)" },
+        "funk_txns_published":               { "type": "UInt32", "description": "accdb txns promoted/published during fd_accdb_v1_advance_root" },
+        "funk_siblings_cancelled":           { "type": "UInt32", "description": "accdb sibling txns cancelled during the root advance" },
+        "progcache_txns_published":          { "type": "UInt32", "description": "progcache txns published during fd_progcache_advance_root" },
+        "progcache_siblings_cancelled":      { "type": "UInt32", "description": "progcache sibling txns cancelled during the root advance" },
+        "root_advance_started_ns":           { "type": "UInt64", "description": "fd_log_wallclock() at the start of advance_published_root() (per-node)" },
+        "root_advance_completed_ns":         { "type": "UInt64", "description": "fd_log_wallclock() at the end of advance_published_root() (per-node)" },
+        "transition_at_ns":                  { "type": "UInt64", "description": "fd_log_wallclock() at emit (nanoseconds since epoch).  Per-node operational." },
+        "transition_source": {
+            "type": "LowCardinality(String)",
+            "description": "How this node observed the root advance",
+            "variants": {
+                "live":          { "description": "Live cluster replay" },
+                "snapshot_load": { "description": "Loaded from a snapshot that already advanced to this root" },
+                "backtest":      { "description": "firedancer-dev backtest replay" }
+            }
+        },
+        "stake_delegations_upserts": {
+            "type": "Nested",
+            "description": "Stake delegations upserted into the stake_delegations cache during this root advance (from fd_stake_delegations_apply_fork_delta).  Truncated to FD_CAPTURE_RUNTIME_ROOTED_STAKE_UPSERTS_MAX entries.",
+            "fields": {
+                "stake_pubkey":       { "type": "Bytes",  "description": "Stake account pubkey (32 bytes)" },
+                "voter_pubkey":       { "type": "Bytes",  "description": "Voter (vote account) the delegation points at (32 bytes)" },
+                "stake":              { "type": "UInt64", "description": "Delegated stake amount (lamports)" },
+                "activation_epoch":   { "type": "UInt64", "description": "Epoch the delegation activated in" },
+                "deactivation_epoch": { "type": "UInt64", "description": "Epoch the delegation deactivates in (u64::MAX if active)" }
+            }
+        },
+        "stake_delegations_removes": {
+            "type": "Nested",
+            "description": "Stake delegations removed from the stake_delegations cache during this root advance.  Truncated to FD_CAPTURE_RUNTIME_ROOTED_STAKE_REMOVES_MAX entries.",
+            "fields": {
+                "stake_pubkey": { "type": "Bytes", "description": "Stake account pubkey (32 bytes)" }
+            }
+        },
+        "program_cache_updates": {
+            "type": "Nested",
+            "description": "Program cache fork operations during fd_progcache_advance_root — children promoted to the new root, sibling chains cancelled.  Truncated to FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_MAX entries.",
+            "fields": {
+                "pubkey":      { "type": "Bytes",  "description": "Program pubkey (32 bytes)" },
+                "kind": {
+                    "type": "LowCardinality(String)",
+                    "description": "Which fork operation hit this program",
+                    "variants": {
+                        "Promoted":  { "description": "Program txn promoted as the new root's child" },
+                        "Cancelled": { "description": "Program txn cancelled as a non-root sibling" }
+                    }
+                },
+                "slot_loaded": { "type": "UInt64", "description": "Slot the program was originally loaded/verified at" }
+            }
+        }
+    }
+}

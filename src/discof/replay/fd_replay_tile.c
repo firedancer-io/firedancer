@@ -2074,6 +2074,35 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   }
   fd_block_id_ele_t * advanceable_root_ele = &ctx->block_id_arr[ advanceable_root_idx ];
 
+  /* Snapshot prior-root state before any sub-advance can free it.  Used
+     by runtime_rooted emission below. */
+  long  root_started_ns                 = 0L;
+  ulong prev_root_slot                  = 0UL;
+  uchar prev_root_block_id_buf[ 32 ]    = {0};
+  uchar * prev_root_block_id_p          = NULL;
+  ulong prev_total_effective_stake      = 0UL;
+  ulong prev_total_activating_stake     = 0UL;
+  ulong prev_total_deactivating_stake   = 0UL;
+  ulong prev_total_epoch_stake          = 0UL;
+  uint  prev_epoch                      = 0U;
+  int   rooted_capture_on               = ctx->capture_ctx && ctx->capture_ctx->capture_runtime_rooted_events;
+  if( FD_UNLIKELY( rooted_capture_on ) ) {
+    root_started_ns = fd_log_wallclock();
+    fd_bank_t * old_root = fd_banks_root( ctx->banks );
+    if( FD_LIKELY( old_root ) ) {
+      prev_root_slot                = old_root->f.slot;
+      prev_total_effective_stake    = old_root->f.total_effective_stake;
+      prev_total_activating_stake   = old_root->f.total_activating_stake;
+      prev_total_deactivating_stake = old_root->f.total_deactivating_stake;
+      prev_total_epoch_stake        = old_root->f.total_epoch_stake;
+      prev_epoch                    = (uint)old_root->f.epoch;
+      if( ctx->published_root_bank_idx < ctx->block_id_len ) {
+        fd_memcpy( prev_root_block_id_buf, ctx->block_id_arr[ ctx->published_root_bank_idx ].latest_mr.key, 32UL );
+        prev_root_block_id_p = prev_root_block_id_buf;
+      }
+    }
+  }
+
   ulong advanceable_root_slot = bank->f.slot;
   fd_xid_t const xid = fd_bank_xid( bank );
   accdb_advance_root( ctx, &xid );
@@ -2088,6 +2117,42 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
+
+  /* Emit per-root event after all sub-advances complete. */
+  if( FD_UNLIKELY( rooted_capture_on ) ) {
+    long root_completed_ns = fd_log_wallclock();
+    fd_bank_t * new_root = fd_banks_root( ctx->banks );
+
+    fd_capture_runtime_rooted_info_t info = {0};
+    info.slot                          = advanceable_root_slot;
+    info.block_id                      = advanceable_root_ele->latest_mr.key;
+    info.parent_slot                   = new_root ? new_root->f.parent_slot : 0UL;
+    info.parent_block_id               = NULL;
+    info.epoch                         = new_root ? (uint)new_root->f.epoch : 0U;
+    info.epoch_boundary_root           = new_root && ( (uint)new_root->f.epoch != prev_epoch );
+    info.prev_root_slot                = prev_root_slot;
+    info.prev_root_block_id            = prev_root_block_id_p;
+    info.new_root_fork_idx             = (uint)advanceable_root_idx;
+    info.total_effective_stake         = new_root ? new_root->f.total_effective_stake    : 0UL;
+    info.total_effective_stake_prev    = prev_total_effective_stake;
+    info.total_activating_stake        = new_root ? new_root->f.total_activating_stake   : 0UL;
+    info.total_activating_stake_prev   = prev_total_activating_stake;
+    info.total_deactivating_stake      = new_root ? new_root->f.total_deactivating_stake : 0UL;
+    info.total_deactivating_stake_prev = prev_total_deactivating_stake;
+    info.total_epoch_stake             = new_root ? new_root->f.total_epoch_stake        : 0UL;
+    info.total_epoch_stake_prev        = prev_total_epoch_stake;
+    info.capitalization                = new_root ? new_root->f.capitalization           : 0UL;
+    info.last_rooted_slot_prev_epoch   = info.epoch_boundary_root ? prev_root_slot : 0UL;
+    info.banks_pool_used               = fd_banks_pool_used_cnt( ctx->banks );
+    /* Remaining pool counts are 0 for now; will be filled in as
+       producer hooks are wired into the relevant sub-advance routines. */
+    info.root_advance_started_ns       = root_started_ns;
+    info.root_advance_completed_ns     = root_completed_ns;
+    info.transition_at_ns              = root_completed_ns;
+    info.transition_source             = FD_CAPTURE_RUNTIME_ROOTED_SOURCE_LIVE;
+
+    fd_capture_link_write_runtime_rooted( ctx->capture_ctx, &info );
+  }
 
   return 1;
 }
@@ -2876,7 +2941,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->capture_ctx = NULL;
   int event_rblk_enabled   = fd_topo_find_tile_out_link( topo, tile, "event_rblk",   0UL )!=ULONG_MAX;
   int event_repoch_enabled = fd_topo_find_tile_out_link( topo, tile, "event_repoch", 0UL )!=ULONG_MAX;
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || event_rblk_enabled || event_repoch_enabled ) ) {
+  int event_rooted_enabled = fd_topo_find_tile_out_link( topo, tile, "event_rooted", 0UL )!=ULONG_MAX;
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || event_rblk_enabled || event_repoch_enabled || event_rooted_enabled ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
     if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
@@ -3082,6 +3148,38 @@ unprivileged_init( fd_topo_t *      topo,
 
     ctx->capture_ctx->runtime_epoch_capture_link   = event_repoch_out;
     ctx->capture_ctx->capture_runtime_epoch_events = 1;
+  }
+
+  if( FD_UNLIKELY( event_rooted_enabled ) ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "event_rooted", 0UL );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+
+    fd_capture_link_buf_t * event_rooted_out = ctx->event_rooted_out;
+    event_rooted_out->base.vt = &fd_capture_link_buf_vt;
+    event_rooted_out->idx     = idx;
+    event_rooted_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    event_rooted_out->chunk0  = fd_dcache_compact_chunk0( event_rooted_out->mem, link->dcache );
+    event_rooted_out->wmark   = fd_dcache_compact_wmark ( event_rooted_out->mem, link->dcache, link->mtu );
+    event_rooted_out->chunk   = event_rooted_out->chunk0;
+    event_rooted_out->mcache  = link->mcache;
+    event_rooted_out->depth   = fd_mcache_depth( link->mcache );
+    event_rooted_out->seq     = 0UL;
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "event", 0UL );
+    FD_TEST( consumer_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    event_rooted_out->fseq = NULL;
+    for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ] == link->id ) ) {
+        event_rooted_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( event_rooted_out->fseq );
+        break;
+      }
+    }
+
+    ctx->capture_ctx->runtime_rooted_capture_link   = event_rooted_out;
+    ctx->capture_ctx->capture_runtime_rooted_events = 1;
   }
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );

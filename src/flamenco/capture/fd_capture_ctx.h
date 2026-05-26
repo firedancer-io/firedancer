@@ -483,6 +483,113 @@ struct __attribute__((packed)) fd_capture_runtime_epoch_event_msg {
 };
 typedef struct fd_capture_runtime_epoch_event_msg fd_capture_runtime_epoch_event_msg_t;
 
+/* Per-root runtime event capture.  Emitted once per (slot, block_id) at
+   the end of advance_published_root() in the replay tile, after all
+   sub-advances (accdb, txncache, sched, banks, progcache, reasm)
+   complete.  Bundles the new root identity, the prior root on this
+   lineage, the stake-total snapshot (with the prior-root snapshot for
+   free deltas), the stake delegations applied at this root (upserts +
+   removes), program-cache fork operations, pool occupancy + pool-prune
+   deltas, and per-node timing for the root advance itself. */
+
+#define FD_CAPTURE_RUNTIME_ROOTED_STAKE_UPSERTS_MAX (512UL)
+#define FD_CAPTURE_RUNTIME_ROOTED_STAKE_REMOVES_MAX (256UL)
+#define FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_MAX     (128UL)
+
+/* transition_source variants — share runtime_epoch's numbering so a
+   single decoder enum maps both events.  Sender pushes the variant
+   index in JSON-declaration order. */
+#define FD_CAPTURE_RUNTIME_ROOTED_SOURCE_UNKNOWN       (0U)
+#define FD_CAPTURE_RUNTIME_ROOTED_SOURCE_LIVE          (1U)
+#define FD_CAPTURE_RUNTIME_ROOTED_SOURCE_SNAPSHOT_LOAD (2U)
+#define FD_CAPTURE_RUNTIME_ROOTED_SOURCE_BACKTEST      (3U)
+
+/* program_cache_updates kind variants — match JSON insertion order. */
+#define FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_KIND_UNKNOWN   (0U)
+#define FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_KIND_PROMOTED  (1U)
+#define FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_KIND_CANCELLED (2U)
+
+struct __attribute__((packed)) fd_capture_runtime_rooted_stake_upsert {
+  uchar stake_pubkey[ 32 ];
+  uchar voter_pubkey[ 32 ];
+  ulong stake;
+  ulong activation_epoch;
+  ulong deactivation_epoch;
+};
+typedef struct fd_capture_runtime_rooted_stake_upsert fd_capture_runtime_rooted_stake_upsert_t;
+
+struct __attribute__((packed)) fd_capture_runtime_rooted_stake_remove {
+  uchar stake_pubkey[ 32 ];
+};
+typedef struct fd_capture_runtime_rooted_stake_remove fd_capture_runtime_rooted_stake_remove_t;
+
+struct __attribute__((packed)) fd_capture_runtime_rooted_program_cache_update {
+  uchar pubkey[ 32 ];
+  uchar kind;                  /* FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_KIND_* */
+  uchar _pad[ 7 ];             /* align slot_loaded to 8 B */
+  ulong slot_loaded;
+};
+typedef struct fd_capture_runtime_rooted_program_cache_update fd_capture_runtime_rooted_program_cache_update_t;
+
+struct __attribute__((packed)) fd_capture_runtime_rooted_event_msg {
+  /* Identity & lineage (hashes first for natural alignment) */
+  uchar block_id         [ 32 ];
+  uchar parent_block_id  [ 32 ];
+  uchar prev_root_block_id[ 32 ];
+
+  /* 64-bit fields */
+  ulong slot;
+  ulong parent_slot;
+  ulong prev_root_slot;
+  ulong total_effective_stake;
+  ulong total_effective_stake_prev;
+  ulong total_activating_stake;
+  ulong total_activating_stake_prev;
+  ulong total_deactivating_stake;
+  ulong total_deactivating_stake_prev;
+  ulong total_epoch_stake;
+  ulong total_epoch_stake_prev;
+  ulong capitalization;
+  ulong last_rooted_slot_prev_epoch;   /* 0 unless epoch_boundary_root=1 */
+  ulong stake_delegations_cnt;
+  ulong new_votes_cnt;
+  ulong vote_stakes_root_idx_cnt;
+  ulong banks_pool_used;
+  ulong accdb_index_used;
+  ulong progcache_index_used;
+  ulong sched_pool_used;
+  ulong top_votes_cnt;
+  long  root_advance_started_ns;
+  long  root_advance_completed_ns;
+  long  transition_at_ns;
+
+  /* 32-bit fields */
+  uint  epoch;
+  uint  epoch_boundary_root;            /* 0/1 — old_root.epoch != new_root.epoch */
+  uint  new_root_fork_idx;
+  uint  banks_pruned_count;
+  uint  sched_subtree_pruned_count;
+  uint  vote_stakes_evicted_count;
+  uint  funk_txns_published;
+  uint  funk_siblings_cancelled;
+  uint  progcache_txns_published;
+  uint  progcache_siblings_cancelled;
+  uint  transition_source;              /* FD_CAPTURE_RUNTIME_ROOTED_SOURCE_* */
+
+  uchar _pad[ 4 ];                      /* align nested cnt fields to 8 B */
+
+  /* Nested counts */
+  ulong stake_delegations_upserts_cnt;
+  ulong stake_delegations_removes_cnt;
+  ulong program_cache_updates_cnt;
+
+  /* Nested arrays */
+  fd_capture_runtime_rooted_stake_upsert_t         stake_delegations_upserts[ FD_CAPTURE_RUNTIME_ROOTED_STAKE_UPSERTS_MAX ];
+  fd_capture_runtime_rooted_stake_remove_t         stake_delegations_removes[ FD_CAPTURE_RUNTIME_ROOTED_STAKE_REMOVES_MAX ];
+  fd_capture_runtime_rooted_program_cache_update_t program_cache_updates    [ FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_MAX     ];
+};
+typedef struct fd_capture_runtime_rooted_event_msg fd_capture_runtime_rooted_event_msg_t;
+
 /* Context needed to do solcap capture during execution of transactions */
 
 struct fd_capture_ctx {
@@ -604,6 +711,29 @@ struct fd_capture_ctx {
      the boundary validator loop.  Drained at emit. */
   ulong                                          current_epoch_voter_commissions_cnt;
   fd_capture_runtime_epoch_voter_commission_t    current_epoch_voter_commissions[ FD_CAPTURE_RUNTIME_EPOCH_VOTER_COMMISSIONS_MAX ];
+
+  /* Event tile per-root capture.  When set, hooks inside
+     fd_stake_delegations_apply_fork_delta append upsert/remove entries,
+     fd_progcache_advance_root appends program cache fork operations,
+     and the replay tile drains the accumulators at the end of
+     advance_published_root() and publishes one frag per root. */
+  int                                              capture_runtime_rooted_events;
+  fd_capture_link_buf_t *                          runtime_rooted_capture_link;
+  ulong                                            current_root_stake_upserts_cnt;
+  ulong                                            current_root_stake_removes_cnt;
+  ulong                                            current_root_progcache_updates_cnt;
+  /* Pool-prune delta accumulators (incremented from inside the
+     sub-advance routines, drained at emit). */
+  uint                                             current_root_banks_pruned_count;
+  uint                                             current_root_sched_subtree_pruned_count;
+  uint                                             current_root_vote_stakes_evicted_count;
+  uint                                             current_root_funk_txns_published;
+  uint                                             current_root_funk_siblings_cancelled;
+  uint                                             current_root_progcache_txns_published;
+  uint                                             current_root_progcache_siblings_cancelled;
+  fd_capture_runtime_rooted_stake_upsert_t         current_root_stake_upserts        [ FD_CAPTURE_RUNTIME_ROOTED_STAKE_UPSERTS_MAX ];
+  fd_capture_runtime_rooted_stake_remove_t         current_root_stake_removes        [ FD_CAPTURE_RUNTIME_ROOTED_STAKE_REMOVES_MAX ];
+  fd_capture_runtime_rooted_program_cache_update_t current_root_progcache_updates    [ FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_MAX     ];
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 
@@ -1116,6 +1246,90 @@ typedef struct fd_capture_runtime_epoch_info fd_capture_runtime_epoch_info_t;
 void
 fd_capture_link_write_runtime_epoch( fd_capture_ctx_t *                       ctx,
                                      fd_capture_runtime_epoch_info_t const *  info );
+
+/* Per-root capture API.
+
+   Streaming-append helpers called from inside the root-advance sub-
+   routines.  Each silently no-ops if reporting is off or the matching
+   buffer is full. */
+
+void
+fd_capture_link_runtime_rooted_append_stake_upsert( fd_capture_ctx_t *  ctx,
+                                                    fd_pubkey_t const * stake_pubkey,
+                                                    fd_pubkey_t const * voter_pubkey,
+                                                    ulong               stake,
+                                                    ulong               activation_epoch,
+                                                    ulong               deactivation_epoch );
+
+void
+fd_capture_link_runtime_rooted_append_stake_remove( fd_capture_ctx_t *  ctx,
+                                                    fd_pubkey_t const * stake_pubkey );
+
+void
+fd_capture_link_runtime_rooted_append_progcache_update( fd_capture_ctx_t *  ctx,
+                                                        fd_pubkey_t const * pubkey,
+                                                        uint                kind,
+                                                        ulong               slot_loaded );
+
+/* fd_capture_runtime_rooted_info_t — caller-supplied snapshot of all
+   the non-accumulator fields needed to emit a runtime_rooted frag.
+   Replay tile fills this just before calling
+   fd_capture_link_write_runtime_rooted.  Hash pointers left at NULL
+   are written as all-zeros. */
+
+struct fd_capture_runtime_rooted_info {
+  /* Identity */
+  ulong         slot;
+  uchar const * block_id;                /* 32 B; NULL → all-zero */
+  ulong         parent_slot;
+  uchar const * parent_block_id;
+  uint          epoch;
+  int           epoch_boundary_root;     /* 0/1 — old_root.epoch != new_root.epoch */
+
+  /* Prior root on this lineage */
+  ulong         prev_root_slot;
+  uchar const * prev_root_block_id;
+
+  uint          new_root_fork_idx;
+
+  /* Stake totals — new vs prior root */
+  ulong         total_effective_stake;
+  ulong         total_effective_stake_prev;
+  ulong         total_activating_stake;
+  ulong         total_activating_stake_prev;
+  ulong         total_deactivating_stake;
+  ulong         total_deactivating_stake_prev;
+  ulong         total_epoch_stake;
+  ulong         total_epoch_stake_prev;
+
+  ulong         capitalization;
+  ulong         last_rooted_slot_prev_epoch;
+
+  /* Pool occupancy at the new root */
+  ulong         stake_delegations_cnt;
+  ulong         new_votes_cnt;
+  ulong         vote_stakes_root_idx_cnt;
+  ulong         banks_pool_used;
+  ulong         accdb_index_used;
+  ulong         progcache_index_used;
+  ulong         sched_pool_used;
+  ulong         top_votes_cnt;
+
+  long          root_advance_started_ns;
+  long          root_advance_completed_ns;
+  long          transition_at_ns;
+  uint          transition_source;        /* FD_CAPTURE_RUNTIME_ROOTED_SOURCE_* */
+};
+typedef struct fd_capture_runtime_rooted_info fd_capture_runtime_rooted_info_t;
+
+/* fd_capture_link_write_runtime_rooted publishes one per-root frag.
+   Combines `info` (caller-supplied scalars and pool-occupancy snapshot)
+   with the capture_ctx accumulators (stake upserts/removes, progcache
+   updates, pool-prune delta counters) and drains the accumulators
+   (cnt=0, scalars=0) so they don't leak into the next root advance. */
+void
+fd_capture_link_write_runtime_rooted( fd_capture_ctx_t *                        ctx,
+                                      fd_capture_runtime_rooted_info_t const *  info );
 
 /* fd_capture_link_buf_vt is the v-table for buffer mode capture links.
    It routes all write operations to the buffer implementations. */

@@ -361,6 +361,7 @@ struct fd_config {
       int report_runtime_txn;
       int report_runtime_block;
       int report_runtime_epoch;
+      int report_runtime_rooted;
     } event;
 
     struct {

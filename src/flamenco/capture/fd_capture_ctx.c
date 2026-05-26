@@ -775,6 +775,138 @@ fd_capture_link_write_runtime_epoch( fd_capture_ctx_t *                       ct
 }
 
 void
+fd_capture_link_runtime_rooted_append_stake_upsert( fd_capture_ctx_t *  ctx,
+                                                    fd_pubkey_t const * stake_pubkey,
+                                                    fd_pubkey_t const * voter_pubkey,
+                                                    ulong               stake,
+                                                    ulong               activation_epoch,
+                                                    ulong               deactivation_epoch ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_runtime_rooted_events ) ) return;
+  if( FD_UNLIKELY( ctx->current_root_stake_upserts_cnt >= FD_CAPTURE_RUNTIME_ROOTED_STAKE_UPSERTS_MAX ) ) return;
+  fd_capture_runtime_rooted_stake_upsert_t * u = &ctx->current_root_stake_upserts[ ctx->current_root_stake_upserts_cnt++ ];
+  if( stake_pubkey ) fd_memcpy( u->stake_pubkey, stake_pubkey, 32UL );
+  if( voter_pubkey ) fd_memcpy( u->voter_pubkey, voter_pubkey, 32UL );
+  u->stake              = stake;
+  u->activation_epoch   = activation_epoch;
+  u->deactivation_epoch = deactivation_epoch;
+}
+
+void
+fd_capture_link_runtime_rooted_append_stake_remove( fd_capture_ctx_t *  ctx,
+                                                    fd_pubkey_t const * stake_pubkey ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_runtime_rooted_events ) ) return;
+  if( FD_UNLIKELY( ctx->current_root_stake_removes_cnt >= FD_CAPTURE_RUNTIME_ROOTED_STAKE_REMOVES_MAX ) ) return;
+  fd_capture_runtime_rooted_stake_remove_t * r = &ctx->current_root_stake_removes[ ctx->current_root_stake_removes_cnt++ ];
+  if( stake_pubkey ) fd_memcpy( r->stake_pubkey, stake_pubkey, 32UL );
+}
+
+void
+fd_capture_link_runtime_rooted_append_progcache_update( fd_capture_ctx_t *  ctx,
+                                                        fd_pubkey_t const * pubkey,
+                                                        uint                kind,
+                                                        ulong               slot_loaded ) {
+  if( FD_LIKELY( !ctx || !ctx->capture_runtime_rooted_events ) ) return;
+  if( FD_UNLIKELY( ctx->current_root_progcache_updates_cnt >= FD_CAPTURE_RUNTIME_ROOTED_PROGCACHE_MAX ) ) return;
+  fd_capture_runtime_rooted_program_cache_update_t * p = &ctx->current_root_progcache_updates[ ctx->current_root_progcache_updates_cnt++ ];
+  if( pubkey ) fd_memcpy( p->pubkey, pubkey, 32UL );
+  p->kind        = (uchar)kind;
+  p->slot_loaded = slot_loaded;
+}
+
+void
+fd_capture_link_write_runtime_rooted( fd_capture_ctx_t *                        ctx,
+                                      fd_capture_runtime_rooted_info_t const *  info ) {
+  if( FD_LIKELY( !ctx ) ) return;
+
+  /* Drain accumulators either way; if reporting is disabled we still
+     reset them so they don't leak into the next root advance. */
+  ulong upserts_cnt   = ctx->current_root_stake_upserts_cnt;
+  ulong removes_cnt   = ctx->current_root_stake_removes_cnt;
+  ulong progcache_cnt = ctx->current_root_progcache_updates_cnt;
+  uint  banks_pruned                 = ctx->current_root_banks_pruned_count;
+  uint  sched_pruned                 = ctx->current_root_sched_subtree_pruned_count;
+  uint  vote_stakes_evicted          = ctx->current_root_vote_stakes_evicted_count;
+  uint  funk_pub                     = ctx->current_root_funk_txns_published;
+  uint  funk_can                     = ctx->current_root_funk_siblings_cancelled;
+  uint  progcache_pub                = ctx->current_root_progcache_txns_published;
+  uint  progcache_can                = ctx->current_root_progcache_siblings_cancelled;
+  ctx->current_root_stake_upserts_cnt              = 0UL;
+  ctx->current_root_stake_removes_cnt              = 0UL;
+  ctx->current_root_progcache_updates_cnt          = 0UL;
+  ctx->current_root_banks_pruned_count             = 0U;
+  ctx->current_root_sched_subtree_pruned_count     = 0U;
+  ctx->current_root_vote_stakes_evicted_count      = 0U;
+  ctx->current_root_funk_txns_published            = 0U;
+  ctx->current_root_funk_siblings_cancelled        = 0U;
+  ctx->current_root_progcache_txns_published       = 0U;
+  ctx->current_root_progcache_siblings_cancelled   = 0U;
+
+  if( FD_LIKELY( !ctx->capture_runtime_rooted_events || !ctx->runtime_rooted_capture_link ) ) return;
+
+  fd_capture_link_buf_t * buf = ctx->runtime_rooted_capture_link;
+  wait_to_write_event_msg( buf );
+
+  uchar * dst = (uchar *)fd_chunk_to_laddr( buf->mem, buf->chunk );
+  fd_capture_runtime_rooted_event_msg_t msg = {0};
+
+  if( info->block_id           ) fd_memcpy( msg.block_id,           info->block_id,           32UL );
+  if( info->parent_block_id    ) fd_memcpy( msg.parent_block_id,    info->parent_block_id,    32UL );
+  if( info->prev_root_block_id ) fd_memcpy( msg.prev_root_block_id, info->prev_root_block_id, 32UL );
+
+  msg.slot                          = info->slot;
+  msg.parent_slot                   = info->parent_slot;
+  msg.prev_root_slot                = info->prev_root_slot;
+  msg.total_effective_stake         = info->total_effective_stake;
+  msg.total_effective_stake_prev    = info->total_effective_stake_prev;
+  msg.total_activating_stake        = info->total_activating_stake;
+  msg.total_activating_stake_prev   = info->total_activating_stake_prev;
+  msg.total_deactivating_stake      = info->total_deactivating_stake;
+  msg.total_deactivating_stake_prev = info->total_deactivating_stake_prev;
+  msg.total_epoch_stake             = info->total_epoch_stake;
+  msg.total_epoch_stake_prev        = info->total_epoch_stake_prev;
+  msg.capitalization                = info->capitalization;
+  msg.last_rooted_slot_prev_epoch   = info->last_rooted_slot_prev_epoch;
+  msg.stake_delegations_cnt         = info->stake_delegations_cnt;
+  msg.new_votes_cnt                 = info->new_votes_cnt;
+  msg.vote_stakes_root_idx_cnt      = info->vote_stakes_root_idx_cnt;
+  msg.banks_pool_used               = info->banks_pool_used;
+  msg.accdb_index_used              = info->accdb_index_used;
+  msg.progcache_index_used          = info->progcache_index_used;
+  msg.sched_pool_used               = info->sched_pool_used;
+  msg.top_votes_cnt                 = info->top_votes_cnt;
+  msg.root_advance_started_ns       = info->root_advance_started_ns;
+  msg.root_advance_completed_ns     = info->root_advance_completed_ns;
+  msg.transition_at_ns              = info->transition_at_ns;
+
+  msg.epoch                         = info->epoch;
+  msg.epoch_boundary_root           = (uint)( info->epoch_boundary_root ? 1U : 0U );
+  msg.new_root_fork_idx             = info->new_root_fork_idx;
+  msg.banks_pruned_count            = banks_pruned;
+  msg.sched_subtree_pruned_count    = sched_pruned;
+  msg.vote_stakes_evicted_count     = vote_stakes_evicted;
+  msg.funk_txns_published           = funk_pub;
+  msg.funk_siblings_cancelled       = funk_can;
+  msg.progcache_txns_published      = progcache_pub;
+  msg.progcache_siblings_cancelled  = progcache_can;
+  msg.transition_source             = info->transition_source;
+
+  msg.stake_delegations_upserts_cnt = upserts_cnt;
+  msg.stake_delegations_removes_cnt = removes_cnt;
+  msg.program_cache_updates_cnt     = progcache_cnt;
+
+  if( upserts_cnt   ) fd_memcpy( msg.stake_delegations_upserts, ctx->current_root_stake_upserts,     upserts_cnt   * sizeof(fd_capture_runtime_rooted_stake_upsert_t) );
+  if( removes_cnt   ) fd_memcpy( msg.stake_delegations_removes, ctx->current_root_stake_removes,     removes_cnt   * sizeof(fd_capture_runtime_rooted_stake_remove_t) );
+  if( progcache_cnt ) fd_memcpy( msg.program_cache_updates,     ctx->current_root_progcache_updates, progcache_cnt * sizeof(fd_capture_runtime_rooted_program_cache_update_t) );
+
+  fd_memcpy( dst, &msg, sizeof(msg) );
+
+  ulong ctl = fd_frag_meta_ctl( 0UL, 1UL, 1UL, 0UL );
+  fd_mcache_publish( buf->mcache, buf->depth, buf->seq, 0UL, buf->chunk, sizeof(msg), ctl, 0UL, 0UL );
+  buf->chunk = fd_dcache_compact_next( buf->chunk, sizeof(msg), buf->chunk0, buf->wmark );
+  buf->seq++;
+}
+
+void
 fd_capture_link_write_account_update_buf( fd_capture_ctx_t *               ctx,
                                           ulong                            txn_idx,
                                           fd_pubkey_t const *              key,

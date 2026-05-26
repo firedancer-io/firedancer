@@ -455,6 +455,107 @@ message RuntimeEpoch {
   repeated RuntimeEpochVoteAccount       epoch_vote_accounts = 45;
 }
 
+// A single stake-delegation upsert applied at root inside
+// RuntimeRooted.stake_delegations_upserts.  Sourced from
+// fd_stake_delegations_apply_fork_delta during advance_published_root().
+message RuntimeRootedStakeUpsert {
+  bytes  stake_pubkey = 1;        // 32 B
+  bytes  voter_pubkey = 2;        // 32 B
+  uint64 stake = 3;               // lamports
+  uint64 activation_epoch = 4;
+  uint64 deactivation_epoch = 5;  // ULONG_MAX if active
+}
+
+// A single stake-delegation removal applied at root inside
+// RuntimeRooted.stake_delegations_removes.
+message RuntimeRootedStakeRemove {
+  bytes stake_pubkey = 1;         // 32 B
+}
+
+// A single program-cache fork operation observed during
+// fd_progcache_advance_root inside RuntimeRooted.program_cache_updates.
+// On the wire `kind` is a prost enumeration; sender pushes the variant
+// index in JSON-declaration order (UNKNOWN=0, Promoted=1, Cancelled=2).
+message RuntimeRootedProgramCacheUpdate {
+  bytes  pubkey = 1;              // 32 B
+  uint32 kind = 2;
+  uint64 slot_loaded = 3;
+}
+
+// A per-root runtime event — one row per (slot, block_id) emitted at
+// the end of advance_published_root() in the replay tile, after all
+// sub-advances (accdb, txncache, sched, banks, progcache, reasm)
+// complete.  Captures the new root identity, the prior root on this
+// lineage, the stake-total snapshot (with the prior-root snapshot for
+// free deltas), the stake delegations applied at this root
+// (upserts + removes), program-cache fork operations, pool occupancy +
+// pool-prune deltas, and per-node timing for the root advance itself.
+message RuntimeRooted {
+  // Identity & lineage
+  uint64 slot = 1;
+  bytes  block_id = 2;            // 32 B — new root's canonical block_id
+  uint64 parent_slot = 3;
+  bytes  parent_block_id = 4;     // 32 B
+  uint32 epoch = 5;
+  uint32 epoch_boundary_root = 6; // 0/1 — old_root.epoch != new_root.epoch
+
+  // Prior root on this lineage
+  uint64 prev_root_slot = 7;
+  bytes  prev_root_block_id = 8;  // 32 B
+
+  // Stake-delegations / vote-stakes fork_idx of the new root
+  uint32 new_root_fork_idx = 9;
+
+  // Stake totals — new root vs prior root on this lineage
+  uint64 total_effective_stake = 10;
+  uint64 total_effective_stake_prev = 11;
+  uint64 total_activating_stake = 12;
+  uint64 total_activating_stake_prev = 13;
+  uint64 total_deactivating_stake = 14;
+  uint64 total_deactivating_stake_prev = 15;
+  uint64 total_epoch_stake = 16;
+  uint64 total_epoch_stake_prev = 17;
+
+  // Misc bank state at the new root
+  uint64 capitalization = 18;
+  uint64 last_rooted_slot_prev_epoch = 19; // 0 unless epoch_boundary_root=1
+
+  // Pool occupancy after the advance
+  uint64 stake_delegations_cnt = 20;
+  uint64 new_votes_cnt = 21;
+  uint64 vote_stakes_root_idx_cnt = 22;
+  uint64 banks_pool_used = 23;
+  uint64 accdb_index_used = 24;
+  uint64 progcache_index_used = 25;
+  uint64 sched_pool_used = 26;
+  uint64 top_votes_cnt = 27;
+
+  // Pool deltas — what got pruned/published during the advance
+  uint32 banks_pruned_count = 28;
+  uint32 sched_subtree_pruned_count = 29;
+  uint32 vote_stakes_evicted_count = 30;
+  uint32 funk_txns_published = 31;
+  uint32 funk_siblings_cancelled = 32;
+  uint32 progcache_txns_published = 33;
+  uint32 progcache_siblings_cancelled = 34;
+
+  // Per-node timing (int64 nanoseconds since Unix epoch from
+  // fd_log_wallclock)
+  int64 root_advance_started_ns = 35;
+  int64 root_advance_completed_ns = 36;
+  int64 transition_at_ns = 37;
+
+  // transition_source is LowCardinality(String) with variants; on the
+  // wire it's a prost enumeration (int32).  UNKNOWN=0 implicit,
+  // live=1, snapshot_load=2, backtest=3.
+  uint32 transition_source = 38;
+
+  // Nested columns
+  repeated RuntimeRootedStakeUpsert         stake_delegations_upserts = 39;
+  repeated RuntimeRootedStakeRemove         stake_delegations_removes = 40;
+  repeated RuntimeRootedProgramCacheUpdate  program_cache_updates = 41;
+}
+
 // Combined event type
 message Event {
   oneof event {
@@ -466,5 +567,6 @@ message Event {
     RuntimeTxn runtime_txn = 6;
     RuntimeBlock runtime_block = 7;
     RuntimeEpoch runtime_epoch = 8;
+    RuntimeRooted runtime_rooted = 9;
   }
 }

@@ -1857,6 +1857,19 @@ telemetry = true
         # on mainnet; ~60 KiB worst case per row.
         report_runtime_epoch = false
 
+        # If true, emit one runtime-rooted event per root advance
+        # (one row per (slot, block_id) of the new root).  Carries the
+        # new root identity, the prior root on this lineage, the
+        # stake-total snapshot (with the prior-root snapshot for free
+        # deltas), stake delegations applied at this root
+        # (upserts + removes), program-cache fork operations
+        # (Promoted/Cancelled), pool occupancy + pool-prune deltas,
+        # and per-node timing for the root advance itself.  Steady-state
+        # rate ~= rooting rate (~1.5 rows/s mainnet); ~60 KiB worst case
+        # per row (capped at 512 upserts / 256 removes / 128 progcache
+        # entries).
+        report_runtime_rooted = false
+
     # The following options relate to the 'firedance-dev pktgen' tool
     # only.  pktgen tests net tile transmit throughput by generating a
     # flood of non-routable Ethernet frames.  Only use 'firedancer-dev
