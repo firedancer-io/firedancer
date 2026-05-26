@@ -18,6 +18,13 @@ fd_solfuzz_bundle_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   }
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
+  /* Purge the fork attached in ctx_create so the accdb fork pool slot
+     is released back for reuse.  Without this, repeated harness
+     invocations (e.g. under a fuzzer) exhaust max_live_slots. */
+  fd_accdb_purge( runner->accdb, runner->bank->accdb_fork_id );
+  int charge_busy = 0;
+  fd_accdb_background( runner->accdb, &charge_busy );
+
   fd_progcache_clear( runner->progcache->join );
 
   /* Keep the runner reusable across many bundle inputs. */
@@ -38,6 +45,7 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 
   runner->bank->f.slot = slot;
   runner->bank->bank_seq = runner->bank->idx;
+  runner->bank->accdb_fork_id = fork_id;
   fd_progcache_xid_t xid = fd_bank_xid( runner->bank );
   fd_progcache_xid_t parent_xid; fd_progcache_txn_xid_set_root( &parent_xid );
   fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
