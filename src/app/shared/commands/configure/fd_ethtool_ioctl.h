@@ -172,7 +172,7 @@ fd_ethtool_ioctl_ntuple_clear( fd_ethtool_ioctl_t * ioc );
 /* fd_ethtool_ioctl_ntuple_set_udp_dport installs a flow steering rule
    at the given rule_idx to route all UDP/IPv4 packets with the given
    destination port to the given queue_idx.  Note that if a rule already
-   exists at rule_idx, it will be overwritten.
+   exists at rule_idx, it may be overwritten.
 
    In order to facilitate load balancing flows across multiple queues,
    a nonzero rule_group_idx can be given.  rule_group_cnt must be a
@@ -192,21 +192,34 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 rule_group_cnt,
                                        uint                 queue_idx );
 
-/* fd_ethtool_ioctl_ntuple_validate_udp_dport queries all ntuple
-   rules and then sets valid to 1 if they match the expected set of
-   rules for the given UDP destination ports and the given number of
-   queues (each queue should have a group of rules, one for each port
-   in dports).  In other words, this makes sure the existing rules are
-   correct and that no other rules are active.  If dports_cnt is zero,
-   then this effectively checks whether any rules exist.  Returns
-   nonzero on failure (uncertain if valid or not). */
+/* fd_ethtool_ioctl_ntuple_set_gre installs a flow steering rule at the
+   given rule_idx to route all GRE traffic (IP proto 47) to the given
+   queue_idx.  Note that if a rule already exists at rule_idx, it may
+   be overwritten.
+
+   Returns nonzero on failure. */
+int
+fd_ethtool_ioctl_ntuple_set_gre( fd_ethtool_ioctl_t * ioc,
+                                 uint                 rule_idx,
+                                 uint                 queue_idx );
+
+/* fd_ethtool_ioctl_ntuple_validate queries all ntuple rules and then
+   sets valid to 1 if they match the expected set of rules for GRE to go
+   to gre_queue (unless it is UINT_MAX), and the given UDP destination
+   ports and the given number of queues (each queue should have a group
+   of rules, one for each port in dports).  In other words, this makes
+   sure the existing rules are correct and that no other rules are
+   active.  If dports_cnt is zero and gre_queue is UINT_MAX, then this
+   effectively checks whether any rules exist.  Returns nonzero on
+   failure (uncertain if valid or not). */
 
 int
-fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
-                                            ushort const *       dports,
-                                            uint                 dports_cnt,
-                                            uint                 queue_cnt,
-                                            int *                valid );
+fd_ethtool_ioctl_ntuple_validate( fd_ethtool_ioctl_t * ioc,
+                                  ushort const *       dports,
+                                  uint                 dports_cnt,
+                                  uint                 queue_cnt,
+                                  uint                 gre_queue,
+                                  int *                valid );
 
 /* fd_ethtool_ioctl_rxfh_set_flow_hash_udp4 configures the NIC to
    include source and destination ports in the RSS hash for UDP/IPv4
