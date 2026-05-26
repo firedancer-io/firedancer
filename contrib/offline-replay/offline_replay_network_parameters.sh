@@ -17,7 +17,6 @@ case $network in
     export BACKTEST_FUNK_PAGES=600
     export INDEX_MAX=1200000000
     export PAGES=50
-    export AGAVE_TAG=v3.0.6
     ;;
   "testnet")
     export BUCKET_ENDPOINT="gs://testnet-ledger-us-sv15"
@@ -26,7 +25,6 @@ case $network in
     export BACKTEST_FUNK_PAGES=50
     export INDEX_MAX=200000000
     export PAGES=50
-    export AGAVE_TAG=v3.1.1
     ;;
   "devnet")
     export BUCKET_ENDPOINT="gs://solana-devnet-ledger-us-ny5"
@@ -35,7 +33,6 @@ case $network in
     export BACKTEST_FUNK_PAGES=400
     export INDEX_MAX=300000000
     export PAGES=50
-    export AGAVE_TAG=v3.0.6
     ;;
   *)
     echo "Unknown network: $network"
