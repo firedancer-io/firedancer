@@ -4,6 +4,14 @@ OBJDIR=${OBJDIR:-build/native/gcc}
 
 source $NETWORK_PARAMETERS_FILE $NETWORK
 echo "Updated network parameters"
+
+CLUSTER_LETTER=${NETWORK:0:1}
+AGAVE_VERSION_OUTPUT=$(solana cluster-version -u${CLUSTER_LETTER} 2>/dev/null)
+if [ -n "$AGAVE_VERSION_OUTPUT" ]; then
+    export AGAVE_TAG="v${AGAVE_VERSION_OUTPUT}"
+fi
+echo "Using AGAVE_TAG=$AGAVE_TAG (from cluster-version -u${CLUSTER_LETTER})"
+
 send_slack_message() {
     MESSAGE=$1
     json_payload=$(cat <<EOF
@@ -47,6 +55,14 @@ CURRENT_FAILURE_COUNT=0
 while true; do
     source $NETWORK_PARAMETERS_FILE $NETWORK
     echo "Updated network parameters"
+
+    CLUSTER_LETTER=${NETWORK:0:1}
+    AGAVE_VERSION_OUTPUT=$(solana cluster-version -u${CLUSTER_LETTER} 2>/dev/null)
+    if [ -n "$AGAVE_VERSION_OUTPUT" ]; then
+        export AGAVE_TAG="v${AGAVE_VERSION_OUTPUT}"
+    fi
+    echo "Using AGAVE_TAG=$AGAVE_TAG (from cluster-version -u${CLUSTER_LETTER})"
+
     NEWEST_BUCKET=$(gcloud storage ls $BUCKET_ENDPOINT --billing-project=$BILLING_PROJECT | sort -n -t / -k 4 | tail -n 1)
     NEWEST_BUCKET_SLOT=$(echo $NEWEST_BUCKET | awk -F'/' '{print $(NF-1)}')
     LATEST_RUN_BUCKET_SLOT=$(cat $LATEST_RUN_BUCKET_SLOT_FILE)
