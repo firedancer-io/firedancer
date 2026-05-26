@@ -137,7 +137,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     runtime->accounts.refcnt[j] = 0UL;
 
     uint dlen = test_ctx->accounts[j].data ? test_ctx->accounts[j].data->size : 0U;
-    uchar * data_buf = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, dlen ? dlen : 1UL );
+    uchar * data_buf = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
     if( test_ctx->accounts[j].data && dlen ) {
       fd_memcpy( data_buf, test_ctx->accounts[j].data->bytes, dlen );
     }
