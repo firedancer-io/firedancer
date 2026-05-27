@@ -1027,10 +1027,10 @@
 | <span class="metrics-name">tower_&#8203;root_&#8203;slot</span> | gauge | The highest rooted slot, ULONG_MAX if no root yet. Monotonically increasing. |
 | <span class="metrics-name">tower_&#8203;init_&#8203;slot</span> | gauge | Init slot. Either the snapshot or genesis slot. Set once and does not change. |
 | <span class="metrics-name">tower_&#8203;not_&#8203;ready</span> | counter | Frag was dropped because it arrived before tower tile was initialized |
-| <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;deser</span> | counter | Vote txn failed to deserialize |
-| <span class="metrics-name">tower_&#8203;txn_&#8203;bad_&#8203;tower</span> | counter | Vote txn deserialized but tower was invalid |
-| <span class="metrics-name">tower_&#8203;txn_&#8203;not_&#8203;tower_&#8203;sync</span> | counter | Vote txn was not a TowerSync instruction |
-| <span class="metrics-name">tower_&#8203;txn_&#8203;empty_&#8203;tower</span> | counter | Vote txn had an empty tower (validator hasn't voted) |
+| <span class="metrics-name">tower_&#8203;bad_&#8203;parse</span> | counter | Vote txn failed to deserialize |
+| <span class="metrics-name">tower_&#8203;bad_&#8203;cnt</span> | counter | Vote txn deserialized but tower was invalid |
+| <span class="metrics-name">tower_&#8203;bad_&#8203;kind</span> | counter | Vote txn was not a TowerSync instruction |
+| <span class="metrics-name">tower_&#8203;empty_&#8203;cnt</span> | counter | Vote txn had an empty tower (zero lockouts) |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;merkle</span> | counter | Merkle root conflict |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;meta</span> | counter | Coding metadata conflict |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;success_&#8203;last</span> | counter | Last shred index conflict |

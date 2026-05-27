@@ -19,8 +19,9 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/accdb/fd_accdb_pipe.h"
-#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_state_versioned.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
 #include "../../util/pod/fd_pod.h"
@@ -228,7 +229,8 @@ struct fd_tower_tile {
   fd_votes_t * votes;
   fd_tower_t * tower;
 
-  fd_tower_vote_t *   scratch_tower;  /* spare deque used during vote txn processing */
+  fd_vote_instruction_t scratch_ix;
+  fd_tower_vote_t *     scratch_tower; /* spare deque used during vote txn processing */
 
   publish_t *                publishes; /* deque of slot_confirmed msgs queued for publishing */
   fd_multi_epoch_leaders_t * mleaders; /* multi-epoch leaders */
@@ -295,10 +297,10 @@ struct fd_tower_tile {
     ulong threshold_fail;
     ulong propagated_fail;
 
-    ulong txn_bad_deser;
-    ulong txn_bad_tower;
-    ulong txn_not_tower_sync;
-    ulong txn_empty_tower;
+    ulong bad_parse;
+    ulong bad_cnt;
+    ulong bad_kind;
+    ulong empty_cnt;
 
     ulong votes_too_old;
     ulong votes_too_new;
@@ -732,9 +734,34 @@ count_vote_acc( fd_tower_tile_t *            ctx,
   ctx->vtr_cnt++;
 }
 
+/* parse_vote_txn is the C equivalent of Agave's
+   parse_vote_transaction.  Returns the vote account on success, NULL
+   on failure.  Deserializes the vote instruction into ctx->scratch_ix.
+
+   https://github.com/anza-xyz/agave/blob/v2.3.7/sdk/src/transaction/versioned/mod.rs#L79 */
+
+static fd_pubkey_t const *
+parse_vote_txn( fd_tower_tile_t * ctx,
+                fd_txn_t const *  txn,
+                uchar const *     payload ) {
+
+  if( FD_UNLIKELY( !txn->instr_cnt ) ) return NULL;
+  fd_txn_instr_t const * instr = &txn->instr[ 0 ];
+
+  fd_pubkey_t const * accs = (fd_pubkey_t const *)fd_type_pun_const( payload + txn->acct_addr_off );
+  if( FD_UNLIKELY( 0!=memcmp( &accs[ instr->program_id ], &fd_solana_vote_program_id, FD_TXN_ACCT_ADDR_SZ ) ) ) return NULL;
+
+  uchar const * instr_data = payload + instr->data_off;
+  if( FD_UNLIKELY( !fd_vote_instruction_deserialize( &ctx->scratch_ix, instr_data, instr->data_sz ) ) ) return NULL;
+
+  if( FD_UNLIKELY( !instr->acct_cnt ) ) return NULL;
+  uchar const * instr_accts = payload + instr->acct_off;
+  return (fd_pubkey_t const *)fd_type_pun_const( &accs[ instr_accts[ 0 ] ] );
+}
+
 /* count_vote_txn counts vote txns from Gossip, TPU and Replay.  Note
    these txns have already been parsed and sigverified before they are
-   sent to tower.   In addition, vote txns coming from Replay have also
+   sent to tower.  In addition, vote txns coming from Replay have also
    been successfully executed.  They are counted towards hfork and votes
    (see point 2 in the top-level documentation). */
 
@@ -743,72 +770,64 @@ count_vote_txn( fd_tower_tile_t * ctx,
                 fd_txn_t const *  txn,
                 uchar const *     payload ) {
 
-  /* We are a little stricter than Agave here when validating the vote
-     because we use the same validation as pack ie. is_simple_vote which
-     includes a check that there are at most two signers, whereas
-     Agave's gossip vote parser does not perform that same check (the
-     only two signers are the identity key and vote authority, which may
-     optionally be the same).
+  /* We are a little stricter than Agave here because Agave only does
+     the is_simple_vote check on replay vote txns, whereas we are doing
+     the check on both replay and gossip / TPU vote txns.
 
-     Being a little stricter here is ok because even if we drop some
-     votes with extraneous signers that Agave would consider valid
-     (unlikely), gossip votes are in general considered unreliable and
-     ultimately consensus is reached through replaying the vote txns.
+     Being a little stricter with non-replay vote txns is ok because
+     even if we drop some votes that Agave would consider valid
+     (unlikely unless they were sent by an actively malicious
+     validator), gossip votes are in general considered unreliable and
+     ultimately consensus (fork choice, tower rules, rooting, etc.) is
+     reached with vote accounts updated by replaying blocks.
 
-     The remaining checks mirror Agave as closely as possible (and are
-     documented throughout below). */
+     See: https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/runtime/src/bank_utils.rs#L54 */
 
   if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, payload ) ) ) return;
+
+  fd_pubkey_t const * vote_acc = parse_vote_txn( ctx, txn, payload );
+  if( FD_UNLIKELY( !vote_acc ) ) { ctx->metrics.bad_parse++; return; }
+
+  /* Filter any non-TowerSync vote instructions.  For gossip / TPU this
+     filters deprecated vote kinds; for replay this shouldn't happen
+     after SIMD-0138 is activated. */
+
+  /* TODO SECURITY ensure SIMD-0138 is activated */
+
+  if( FD_UNLIKELY( ctx->scratch_ix.discriminant!=fd_vote_instruction_enum_tower_sync && ctx->scratch_ix.discriminant!=fd_vote_instruction_enum_tower_sync_switch ) ) {
+    ctx->metrics.bad_kind++;
+    return;
+  }
+
+  fd_tower_sync_t * tower_sync = &ctx->scratch_ix.tower_sync; /* this is safe, because TowerSyncSwitch is the same as TowerSync except with 32-bytes appended */
+  if( FD_UNLIKELY(  tower_sync->lockouts_cnt>FD_TOWER_VOTE_MAX ) ) { ctx->metrics.bad_cnt++;   return; }
+  if( FD_UNLIKELY( !tower_sync->lockouts_cnt                   ) ) { ctx->metrics.empty_cnt++; return; }
+
+  fd_tower_vote_remove_all( ctx->scratch_tower );
+  for( ulong i = 0; i < tower_sync->lockouts_cnt; i++ ) {
+    fd_vote_lockout_t const * lockout = deq_fd_vote_lockout_t_peek_index_const( tower_sync->lockouts, i );
+    fd_tower_vote_push_tail( ctx->scratch_tower, (fd_tower_vote_t){ .slot = lockout->slot, .conf = lockout->confirmation_count } );
+  }
 
   /* TODO check the authorized voter for this vote account (from epoch
      stakes) is one of the signers. */
 
-  /* Filter any non-TowerSync vote txns. */
-
-  /* TODO SECURITY ensure SIMD-0138 is activated */
-
-  fd_txn_instr_t const * instr      = &txn->instr[0];
-  uchar const *          instr_data = payload + instr->data_off;
-  if( FD_UNLIKELY( instr->data_sz<4 ) ) { ctx->metrics.txn_bad_deser++; return; }
-
-  uint kind = fd_uint_load_4_fast( instr_data );
-  if( FD_UNLIKELY( kind!=FD_VOTE_IX_KIND_TOWER_SYNC && kind!=FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) { ctx->metrics.txn_not_tower_sync++; return; };
-
-  /* Deserialize the TowerSync out of the vote txn. */
-
-  int err = fd_compact_tower_sync_de( &ctx->compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
-  if( FD_UNLIKELY( err==-1 ) ) { ctx->metrics.txn_bad_deser++; return; }
-  ulong slot = fd_ulong_if( ctx->compact_tower_sync_serde.root==ULONG_MAX, 0, ctx->compact_tower_sync_serde.root );
-  fd_tower_vote_remove_all( ctx->scratch_tower );
-  for( ulong i = 0; i < ctx->compact_tower_sync_serde.lockouts_cnt; i++ ) {
-    if( FD_UNLIKELY( __builtin_uaddl_overflow( slot, ctx->compact_tower_sync_serde.lockouts[i].offset, &slot ) ) ) { ctx->metrics.txn_bad_deser++; return; };
-    fd_tower_vote_push_tail( ctx->scratch_tower, (fd_tower_vote_t){ .slot = slot, .conf = ctx->compact_tower_sync_serde.lockouts[i].confirmation_count } );
-  }
-
-  /* Return early if their tower is empty. */
-
-  if( FD_UNLIKELY( fd_tower_vote_empty( ctx->scratch_tower ) ) ) { ctx->metrics.txn_empty_tower++; return; };
 
   /* Validate the tower. */
 
   fd_tower_vote_t const * prev = fd_tower_vote_peek_head_const( ctx->scratch_tower );
-  if( FD_UNLIKELY( prev->conf > FD_TOWER_VOTE_MAX ) ) { ctx->metrics.txn_bad_tower++; return; }
+  if( FD_UNLIKELY( prev->conf > FD_TOWER_VOTE_MAX ) ) { ctx->metrics.bad_cnt++; return; }
 
   fd_tower_vote_iter_t iter = fd_tower_vote_iter_next( ctx->scratch_tower, fd_tower_vote_iter_init( ctx->scratch_tower ) );
   for( ; !fd_tower_vote_iter_done( ctx->scratch_tower, iter ); iter = fd_tower_vote_iter_next( ctx->scratch_tower, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele( ctx->scratch_tower, iter );
-    if( FD_UNLIKELY( vote->slot <= prev->slot        ) ) { ctx->metrics.txn_bad_tower++; return; }
-    if( FD_UNLIKELY( vote->conf >= prev->conf        ) ) { ctx->metrics.txn_bad_tower++; return; }
-    if( FD_UNLIKELY( vote->conf >  FD_TOWER_VOTE_MAX ) ) { ctx->metrics.txn_bad_tower++; return; }
+    if( FD_UNLIKELY( vote->slot <= prev->slot        ) ) { ctx->metrics.bad_cnt++; return; }
+    if( FD_UNLIKELY( vote->conf >= prev->conf        ) ) { ctx->metrics.bad_cnt++; return; }
+    if( FD_UNLIKELY( vote->conf >  FD_TOWER_VOTE_MAX ) ) { ctx->metrics.bad_cnt++; return; }
     prev = vote;
   }
 
-  if( FD_UNLIKELY( 0==memcmp( &ctx->compact_tower_sync_serde.block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { ctx->metrics.votes_unknown_block_id++; return; };
-
-  fd_pubkey_t const * accs     = (fd_pubkey_t const *)fd_type_pun_const( payload + txn->acct_addr_off );
-  fd_pubkey_t const * vote_acc = NULL;
-  if( FD_UNLIKELY( txn->signature_cnt==1 ) ) vote_acc = (fd_pubkey_t const *)fd_type_pun_const( &accs[1] ); /* identity and authority same, account idx 1 is the vote account address */
-  else                                       vote_acc = (fd_pubkey_t const *)fd_type_pun_const( &accs[2] ); /* identity and authority diff, account idx 2 is the vote account address */
+  if( FD_UNLIKELY( 0==memcmp( &tower_sync->block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { ctx->metrics.votes_unknown_block_id++; return; };
 
   /* The vote txn contains a block id and bank hash for their last vote
      slot in the tower.  Agave always counts the last vote.
@@ -816,8 +835,8 @@ count_vote_txn( fd_tower_tile_t * ctx,
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L476-L487 */
 
   fd_tower_vote_t const * their_last_vote = fd_tower_vote_peek_tail_const( ctx->scratch_tower );
-  fd_hash_t const *       their_block_id  = &ctx->compact_tower_sync_serde.block_id;
-  fd_hash_t const *       their_bank_hash = &ctx->compact_tower_sync_serde.hash;
+  fd_hash_t const *       their_block_id  = &tower_sync->block_id;
+  fd_hash_t const *       their_bank_hash = &tower_sync->hash;
 
   /* Return early if their last vote is too old. */
 
@@ -1416,7 +1435,7 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MGAUGE_SET( TOWER, VOTE_SLOT,   ctx->metrics.last_vote_slot );
   FD_MGAUGE_SET( TOWER, RESET_SLOT,  ctx->metrics.reset_slot     );
   FD_MGAUGE_SET( TOWER, ROOT_SLOT,   ctx->metrics.root_slot      );
-  FD_MGAUGE_SET( TOWER, INIT_SLOT,   ctx->metrics.init_slot   );
+  FD_MGAUGE_SET( TOWER, INIT_SLOT,   ctx->metrics.init_slot      );
 
   FD_MCNT_SET( TOWER, ANCESTOR_ROLLBACK, ctx->metrics.ancestor_rollback );
   FD_MCNT_SET( TOWER, SIBLING_CONFIRMED, ctx->metrics.sibling_confirmed );
@@ -1427,10 +1446,10 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MCNT_SET( TOWER, THRESHOLD_FAIL,    ctx->metrics.threshold_fail    );
   FD_MCNT_SET( TOWER, PROPAGATED_FAIL,   ctx->metrics.propagated_fail   );
 
-  FD_MCNT_SET( TOWER, TXN_BAD_DESER,      ctx->metrics.txn_bad_deser      );
-  FD_MCNT_SET( TOWER, TXN_BAD_TOWER,      ctx->metrics.txn_bad_tower      );
-  FD_MCNT_SET( TOWER, TXN_NOT_TOWER_SYNC, ctx->metrics.txn_not_tower_sync );
-  FD_MCNT_SET( TOWER, TXN_EMPTY_TOWER,    ctx->metrics.txn_empty_tower    );
+  FD_MCNT_SET( TOWER, BAD_PARSE, ctx->metrics.bad_parse );
+  FD_MCNT_SET( TOWER, BAD_CNT,   ctx->metrics.bad_cnt   );
+  FD_MCNT_SET( TOWER, BAD_KIND,  ctx->metrics.bad_kind  );
+  FD_MCNT_SET( TOWER, EMPTY_CNT, ctx->metrics.empty_cnt );
 
   FD_MCNT_SET( TOWER, VOTES_TOO_OLD,          ctx->metrics.votes_too_old          );
   FD_MCNT_SET( TOWER, VOTES_TOO_NEW,          ctx->metrics.votes_too_new          );
