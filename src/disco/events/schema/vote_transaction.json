@@ -1,0 +1,27 @@
+{
+    "name": "vote_transaction",
+    "id": 7,
+    "description": "A vote-program instruction observed during transaction execution.  Captures the on-the-wire vote contents (tower, bank hash being voted for, voter) at processing time, regardless of whether the transaction ultimately succeeds.",
+    "fields": {
+        "vote_account":  { "type": "String",  "description": "Vote account (instruction account[0]) (32 bytes)" },
+        "voter":         { "type": "String",  "description": "First signer of the transaction, typically the authorized voter (32 bytes)" },
+        "bank_hash":     { "type": "String",  "description": "Bank hash being voted for (32 bytes)" },
+        "block_id":      { "type": "String",  "description": "Block id being voted for (zeros if not present, e.g. legacy variants) (32 bytes)" },
+        "slot":          { "type": "UInt64", "description": "Bank slot in which this instruction is being processed" },
+        "root_slot":     { "type": "UInt64", "description": "Root slot in the vote (0 if has_root=false)" },
+        "vote_timestamp": { "type": "UInt64", "description": "Vote timestamp in unix seconds (0 if has_timestamp=false)" },
+        "has_root":      { "type": "UInt8",  "description": "1 if root_slot is meaningful, 0 otherwise" },
+        "has_timestamp": { "type": "UInt8",  "description": "1 if timestamp is meaningful, 0 otherwise" },
+        "has_block_id":  { "type": "UInt8",  "description": "1 if block_id is meaningful (tower_sync variants), 0 otherwise" },
+        "ix_variant":    { "type": "UInt8",  "description": "Vote instruction variant discriminator (fd_vote_instruction_enum_*)" },
+        "tower": {
+            "type": "Nested",
+            "description": "Tower of slots being voted on (newest at end)",
+            "fields": {
+                "slot":               { "type": "UInt64", "description": "Slot being voted on / locked out for" },
+                "confirmation_count": { "type": "UInt32", "description": "Confirmation count (higher = closer to root)" }
+            }
+        },
+        "signature":     { "type": "String",  "description": "First signature of the transaction containing this vote ix (64 bytes)" }
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "name": "vote_update",
+    "id": 6,
+    "description": "A top-votes cache update emitted during transaction commit",
+    "fields": {
+        "pubkey":              { "type": "String",  "description": "Vote account pubkey (32 bytes)" },
+        "last_vote_slot":      { "type": "UInt64", "description": "Last vote slot observed in the vote account" },
+        "last_vote_timestamp": { "type": "UInt64", "description": "Last vote timestamp observed (unix seconds, signed but stored unsigned)" },
+        "slot":                { "type": "UInt64", "description": "Bank slot in which this update occurred" },
+        "invalidated":         { "type": "UInt8",  "description": "1 if the vote account was invalidated (withdrawn / wrong size / etc), 0 otherwise" }
+    }
+}

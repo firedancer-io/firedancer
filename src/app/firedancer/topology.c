@@ -26,6 +26,7 @@
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
+#include "../../flamenco/capture/fd_capture_ctx.h"
 #include "../../funk/fd_funk.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../flamenco/runtime/fd_acc_pool.h"
@@ -765,6 +766,55 @@ fd_topo_initialize( config_t * config ) {
 
     if( FD_UNLIKELY( config->development.event.report_transactions && leader_enabled ) ) {
       fd_topob_tile_in( topo, "event", 0UL, "metric_in", "dedup_resolv", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_accounts ) ) {
+      /* Reliable: producers wait if the event tile falls behind so
+         account updates are never dropped.  Solcap used depth=32 which
+         caused validator stalls — at metadata-only ~96 B/event a deep
+         ring (65536 entries ≈ 6 MiB per link) gives the event tile
+         plenty of slack before producers ever spin. */
+      fd_topob_link( topo, "event_repl", "event", 65536UL, sizeof(fd_capture_account_event_msg_t), 1UL );
+      fd_topob_tile_out( topo, "replay", 0UL, "event_repl", 0UL );
+      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_execrp", "event", 65536UL, sizeof(fd_capture_account_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_execrp", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_execrp", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_bank_hashes ) ) {
+      /* Bank hashes are emitted once per slot (~2.5/s) so a small ring
+         is plenty.  Reliable so we never drop a hash. */
+      fd_topob_link( topo, "event_bank", "event", 1024UL, sizeof(fd_capture_bank_event_msg_t), 1UL );
+      fd_topob_tile_out( topo, "replay", 0UL, "event_bank", 0UL );
+      fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_bank", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_stake_cache_updates ) ) {
+      /* Stake-delegation cache updates: produced from execrp tiles
+         during transaction commit.  Rate is much lower than account
+         updates (~25-250/s typical); 16384 entries is ample. */
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_stake", "event", 16384UL, sizeof(fd_capture_stake_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_stake", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_stake", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_vote_cache_updates ) ) {
+      /* Top-votes cache updates: same flow as stake updates, from
+         execrp tiles. */
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_vote", "event", 16384UL, sizeof(fd_capture_vote_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_vote", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_vote", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
+
+    if( FD_UNLIKELY( config->development.event.report_cluster_votes ) ) {
+      /* Per-vote-instruction events.  Roughly ~3000/s on mainnet
+         (1 vote per validator per slot, ~1500 validators × 2.5 slots/s);
+         ~700 B per frag.  Use a deeper ring than cache updates. */
+      FOR(execrp_tile_cnt) fd_topob_link( topo, "event_cvote", "event", 32768UL, sizeof(fd_capture_vote_txn_event_msg_t), 1UL );
+      FOR(execrp_tile_cnt) fd_topob_tile_out( topo, "execrp", i, "event_cvote", i );
+      FOR(execrp_tile_cnt) fd_topob_tile_in ( topo, "event",  0UL, "metric_in", "event_cvote", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     }
 
     fd_topob_tile_in(  topo, "sign",   0UL, "metric_in", "event_sign", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );

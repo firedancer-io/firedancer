@@ -892,19 +892,32 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
   /* Update the bank hash */
   bank->f.bank_hash = *new_bank_hash;
 
-  if( capture_ctx && capture_ctx->capture_solcap &&
+  if( capture_ctx &&
+      ( capture_ctx->capture_solcap || capture_ctx->capture_bank_events ) &&
       bank->f.slot>=capture_ctx->solcap_start_slot ) {
 
     uchar lthash_hash[FD_HASH_FOOTPRINT];
     fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
-    fd_capture_link_write_bank_preimage(
-      capture_ctx,
-      bank->f.slot,
-      (fd_hash_t *)new_bank_hash->hash,
-      (fd_hash_t *)&bank->f.prev_bank_hash,
-      (fd_hash_t *)lthash_hash,
-      (fd_hash_t *)bank->f.poh.hash,
-      bank->f.signature_count );
+    if( capture_ctx->capture_solcap ) {
+      fd_capture_link_write_bank_preimage(
+        capture_ctx,
+        bank->f.slot,
+        (fd_hash_t *)new_bank_hash->hash,
+        (fd_hash_t *)&bank->f.prev_bank_hash,
+        (fd_hash_t *)lthash_hash,
+        (fd_hash_t *)bank->f.poh.hash,
+        bank->f.signature_count );
+    }
+    if( capture_ctx->capture_bank_events ) {
+      fd_capture_link_write_bank_event(
+        capture_ctx,
+        bank->f.slot,
+        (fd_hash_t *)new_bank_hash->hash,
+        (fd_hash_t *)&bank->f.prev_bank_hash,
+        (fd_hash_t *)lthash_hash,
+        (fd_hash_t *)bank->f.poh.hash,
+        bank->f.signature_count );
+    }
   }
 
   fd_bank_lthash_end_locking_query( bank );
@@ -1244,6 +1257,27 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
       if( txn_out->accounts.stake_update[i] ) {
         fd_stakes_update_stake_delegation( pubkey, account->meta, bank );
+
+        if( FD_UNLIKELY( runtime->log.capture_ctx && runtime->log.capture_ctx->capture_stake_events ) ) {
+          fd_stake_state_t const * st = fd_stakes_get_state( account->meta );
+          if( st && st->stake_type==FD_STAKE_STATE_STAKE && st->stake.stake.delegation.stake!=0UL ) {
+            fd_capture_link_write_stake_event(
+                runtime->log.capture_ctx,
+                pubkey,
+                &st->stake.stake.delegation.voter_pubkey,
+                st->stake.stake.delegation.stake,
+                st->stake.stake.delegation.activation_epoch,
+                st->stake.stake.delegation.deactivation_epoch,
+                st->stake.stake.credits_observed,
+                bank->f.slot,
+                0 /* not removed */ );
+          } else {
+            fd_capture_link_write_stake_event(
+                runtime->log.capture_ctx,
+                pubkey, NULL, 0UL, 0UL, 0UL, 0UL,
+                bank->f.slot, 1 /* removed */ );
+          }
+        }
       }
 
       if( txn_out->accounts.new_vote[i] &&
@@ -1259,12 +1293,22 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
 
       if( txn_out->accounts.vote_update[i] ) {
         fd_vote_block_timestamp_t last_vote;
-        if( FD_UNLIKELY( fd_accdb_ref_lamports( account->ro )==0UL ||
-                         !fd_vsv_is_correct_size_owner_and_init( account->meta ) ||
-                         fd_vote_account_last_timestamp( fd_account_data( account->meta ), account->meta->dlen, &last_vote ) ) ) {
+        int invalidated = ( fd_accdb_ref_lamports( account->ro )==0UL ||
+                            !fd_vsv_is_correct_size_owner_and_init( account->meta ) ||
+                            fd_vote_account_last_timestamp( fd_account_data( account->meta ), account->meta->dlen, &last_vote ) );
+        if( FD_UNLIKELY( invalidated ) ) {
           fd_top_votes_invalidate( top_votes, pubkey );
         } else {
           fd_top_votes_update( top_votes, pubkey, last_vote.slot, last_vote.timestamp );
+        }
+        if( FD_UNLIKELY( runtime->log.capture_ctx && runtime->log.capture_ctx->capture_vote_events ) ) {
+          fd_capture_link_write_vote_event(
+              runtime->log.capture_ctx,
+              pubkey,
+              invalidated ? 0UL : last_vote.slot,
+              invalidated ? 0L   : last_vote.timestamp,
+              bank->f.slot,
+              invalidated );
         }
       }
 
