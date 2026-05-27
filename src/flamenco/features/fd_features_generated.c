@@ -877,7 +877,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x7b\xe0\x6c\xe7\xf5\xe5\x27\xb5\x80\x17\x6a\xe2\x84\xd5\xd4\x17\xd6\xf8\x87\xbc\x4b\xbe\xb7\x45\x50\xeb\x91\x07\x48\x35\xe0\x12"},
                                  /* 9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK */
     .name                      = "increase_tx_account_lock_limit",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, limit_max_instruction_trace_length)>>3,
     .id                        = {"\xe4\xce\x36\xa5\xa6\x94\xc1\x2a\x9b\x4b\x9d\x19\x3e\x5e\x55\x67\x17\x67\x77\x8d\x3e\xe2\xea\x29\xe0\xa4\x04\xed\x88\x25\x26\xf7"},

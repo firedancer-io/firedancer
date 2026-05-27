@@ -217,39 +217,23 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 
 /* "Maximum number of account info structs that can be used in a single CPI
    invocation. A limit on account info structs is effectively the same as
-   limiting the number of unique accounts. 128 was chosen to match the max
-   number of locked accounts per transaction (MAX_TX_ACCOUNT_LOCKS)."
+   limiting the number of unique accounts.
 
    https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/sdk/program/src/syscalls/mod.rs#L25
    https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L1011 */
 
-#define FD_CPI_MAX_ACCOUNT_INFOS           (128UL)
-#define FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339 (255UL)
-
-/* This is just encoding what Agave says in their code comments into a
-   compile-time check, so if anyone ever inadvertently changes one of
-   the limits, they will have to take a look. */
-FD_STATIC_ASSERT( FD_CPI_MAX_ACCOUNT_INFOS==MAX_TX_ACCOUNT_LOCKS, cpi_max_account_info );
+#define FD_CPI_MAX_ACCOUNT_INFOS (255UL)
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L168-L180 */
 static inline ulong
-get_cpi_max_account_infos( fd_bank_t * bank ) {
-  if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, increase_cpi_account_info_limit ) ) ) {
-    return FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339;
-  } else if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ) ) ) {
-    return FD_CPI_MAX_ACCOUNT_INFOS;
-  } else {
-    return 64UL;
-  }
+get_cpi_max_account_infos( void ) {
+  return FD_CPI_MAX_ACCOUNT_INFOS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/execution_budget.rs#L25-L31 */
 static inline ulong
-get_cpi_invoke_unit_cost( fd_bank_t * bank ) {
-  return fd_ulong_if(
-    FD_FEATURE_ACTIVE_BANK( bank, increase_cpi_account_info_limit ),
-    FD_VM_INVOKE_UNITS_SIMD_0339,
-    FD_VM_INVOKE_UNITS );
+get_cpi_invoke_unit_cost( void ) {
+  return FD_VM_INVOKE_UNITS;
 }
 
 /* fd_vm_syscall_cpi_check_instruction contains common instruction acct

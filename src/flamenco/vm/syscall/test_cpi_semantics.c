@@ -1050,12 +1050,12 @@ test_exceed_max_account_infos( fd_svm_mini_t * mini ) {
   ulong instr_va, infos_va, n_infos;
   rust_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
   ulong ret = 0UL;
-  int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 129UL, 0UL, 0UL, &ret );
+  int got = fd_vm_syscall_cpi_rust( vm, instr_va, infos_va, 256UL, 0UL, 0UL, &ret );
   FD_TEST( got == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
 
   env_build( mini, cfg );
   c_cpi_build( vm, cfg, &instr_va, &infos_va, &n_infos );
-  got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, 129UL, 0UL, 0UL, &ret );
+  got = fd_vm_syscall_cpi_c( vm, instr_va, infos_va, 256UL, 0UL, 0UL, &ret );
   FD_TEST( got == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
 }
 

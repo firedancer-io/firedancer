@@ -306,8 +306,8 @@ fd_executor_check_transaction_age_and_compute_budget_limits( fd_bank_t *        
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.9/runtime/src/bank.rs#L3239-L3251 */
 static inline ulong
-get_transaction_account_lock_limit( fd_bank_t * bank ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( bank, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
+get_transaction_account_lock_limit( void ) {
+  return 64UL;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L61-L75 */
@@ -642,11 +642,10 @@ fd_executor_load_transaction_accounts( fd_bank_t *         bank,
 
 /* https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
 int
-fd_executor_validate_account_locks( fd_bank_t *          bank,
-                                    fd_txn_out_t const * txn_out ) {
+fd_executor_validate_account_locks( fd_txn_out_t const * txn_out ) {
   /* Ensure the number of account keys does not exceed the transaction lock limit
      https://github.com/anza-xyz/agave/blob/v2.2.17/accounts-db/src/account_locks.rs#L121 */
-  ulong tx_account_lock_limit = get_transaction_account_lock_limit( bank );
+  ulong tx_account_lock_limit = get_transaction_account_lock_limit();
   if( FD_UNLIKELY( txn_out->accounts.cnt>tx_account_lock_limit ) ) {
     return FD_RUNTIME_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS;
   }
@@ -1182,7 +1181,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
   /* Validate account locks before acquiring; the accdb acquire
      hard-asserts the lock count is within bounds. */
-  err = fd_executor_validate_account_locks( bank, txn_out );
+  err = fd_executor_validate_account_locks( txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
   /* Resolve all transaction accounts and queue them for acquisition. */
