@@ -1038,8 +1038,8 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
         txn_out->details.loaded_accounts_data_size,
         txn_out->details.compute_budget.loaded_accounts_data_size_limit );
     } else {
-      /* If define_ltds_fee_only_semantics is not enabled, we should always add
-         the dlen of the fee payer to the loaded_accounts_data_size_limit. */
+      /* If define_ltds_fee_only_semantics is not enabled, initialize
+         loaded_accounts_data_size with the dlen of the fee payer. */
       txn_out->details.loaded_accounts_data_size = fd_accdb_ref_data_sz( txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].ro );
 
       /* Special case handling for if a nonce account is present in the transaction. */
