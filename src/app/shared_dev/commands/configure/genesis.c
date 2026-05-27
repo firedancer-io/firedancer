@@ -76,12 +76,12 @@ default_enable_features( fd_features_t * features ) {
 
 /* estimate_hashes_per_tick approximates the PoH hashrate of the current
    tile.  Spins PoH hashing for estimate_dur_ns nanoseconds.  Returns
-   the hashes per tick achieved, where tick_mhz is the target tick rate
-   in ticks per microsecond (MHz).  Assumes that the estimate duration
+   the hashes per tick achieved, where tick_dur_us is the target tick
+   duration in microseconds.  Assumes that the estimate duration
    is larger than the tick duration. */
 
 static ulong
-estimate_hashes_per_tick( ulong tick_mhz,
+estimate_hashes_per_tick( ulong tick_dur_us,
                           ulong estimate_dur_ns ) {
   ulong const batch    = 1UL<<20;
   long const  deadline = fd_log_wallclock() + (long)estimate_dur_ns;
@@ -94,7 +94,7 @@ estimate_hashes_per_tick( ulong tick_mhz,
   } while( fd_log_wallclock() < deadline );
 
   double hash_cnt_dbl = (double)hash_cnt;
-  double tick_cnt_dbl = (double)estimate_dur_ns / ( (double)tick_mhz * 1000.0 );
+  double tick_cnt_dbl = (double)estimate_dur_ns / ( (double)tick_dur_us * 1000.0 );
   if( tick_cnt_dbl < 1.0 ) return 0UL;
 
   /* Apply 50% factor to the maximum machine hash rate. */
