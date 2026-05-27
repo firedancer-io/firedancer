@@ -1098,8 +1098,8 @@ publish_became_leader( fd_pohh_tile_t * ctx,
   if( FD_UNLIKELY( leader->ticks_per_slot+leader->total_skipped_ticks>=MAX_SKIPPED_TICKS ) )
     FD_LOG_ERR(( "Too many skipped ticks %lu for slot %lu, chain must halt", leader->ticks_per_slot+leader->total_skipped_ticks, slot ));
 
-  /* increment refcount for pack's  reference to the current leader bank */
-  /* increment refcount for store's reference to the current leader bank */
+  /* increment refcount once for pack's reference to the current leader bank
+     and once for store's reference. */
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) {
     ctx->pack_leader_bank = ctx->current_leader_bank;
     fd_ext_bank_acquire( ctx->pack_leader_bank );
