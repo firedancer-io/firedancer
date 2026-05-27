@@ -30,6 +30,7 @@ message AuthenticateRequest {
   uint64 instance_id = 5;
   uint64 machine_id = 6;
   uint64 boot_id = 7;
+  string action = 8;
 }
 
 message AuthenticateResponse {

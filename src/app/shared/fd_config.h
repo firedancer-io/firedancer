@@ -248,6 +248,10 @@ struct fd_config {
     fd_configf_t firedancer;
   };
 
+  /* The name of the action being executed (e.g. "run", "dev",
+     "backtest").  Populated by fd_main before topo_init runs. */
+  char action[ 16 ];
+
   struct {
     char base[ PATH_MAX ];
     char identity_key[ PATH_MAX ];
