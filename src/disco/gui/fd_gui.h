@@ -530,6 +530,41 @@ struct fd_gui_slot {
 
 typedef struct fd_gui_slot fd_gui_slot_t;
 
+struct fd_gui_boot_progress {
+  uchar phase;
+  long joining_gossip_time_nanos;
+  struct {
+    ulong  slot;
+    uint   peer_addr;
+    ushort peer_port;
+    ulong  total_bytes_compressed;
+    long   reset_time_nanos;          /* UNIX nanosecond timestamp */
+    long   sample_time_nanos;
+    ulong  reset_cnt;
+
+    ulong read_bytes_compressed;
+    char  read_path[ PATH_MAX+30UL ]; /* URL or filesystem path.  30 is fd_cstr_nlen( "https://255.255.255.255:12345/", ULONG_MAX ) */
+
+    ulong decompress_bytes_decompressed;
+    ulong decompress_bytes_compressed;
+
+    ulong insert_bytes_decompressed;
+    char  insert_path[ PATH_MAX ];
+    ulong insert_accounts_current;
+  } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
+
+  ulong wfs_total_stake;
+  ulong wfs_connected_stake;
+  ulong wfs_total_peers;
+  ulong wfs_connected_peers;
+  ulong wfs_attempt;
+
+  long  catching_up_time_nanos;
+  ulong catching_up_first_replay_slot;
+};
+
+typedef struct fd_gui_boot_progress fd_gui_boot_progress_t;
+
 struct fd_gui {
   fd_http_server_t * http;
   fd_topo_t * topo;
@@ -593,39 +628,10 @@ struct fd_gui {
         ulong startup_waiting_for_supermajority_slot;
         ulong startup_waiting_for_supermajority_stake_pct;
       } startup_progress;
-      struct { /* used in the full client */
-        uchar phase;
-        long joining_gossip_time_nanos;
-        struct {
-          ulong  slot;
-          uint   peer_addr;
-          ushort peer_port;
-          ulong  total_bytes_compressed;
-          long   reset_time_nanos;          /* UNIX nanosecond timestamp */
-          long   sample_time_nanos;
-          ulong  reset_cnt;
-
-          ulong read_bytes_compressed;
-          char  read_path[ PATH_MAX+30UL ]; /* URL or filesystem path.  30 is fd_cstr_nlen( "https://255.255.255.255:12345/", ULONG_MAX ) */
-
-          ulong decompress_bytes_decompressed;
-          ulong decompress_bytes_compressed;
-
-          ulong insert_bytes_decompressed;
-          char  insert_path[ PATH_MAX ];
-          ulong insert_accounts_current;
-        } loading_snapshot[ FD_GUI_BOOT_PROGRESS_SNAPSHOT_CNT ];
-
-        ulong wfs_total_stake;
-        ulong wfs_connected_stake;
-        ulong wfs_total_peers;
-        ulong wfs_connected_peers;
-        ulong wfs_attempt;
-
-        long  catching_up_time_nanos;
-        ulong catching_up_first_replay_slot;
-      } boot_progress;
+      fd_gui_boot_progress_t boot_progress;
     };
+
+    fd_gui_boot_progress_t prev_boot_progress;
 
     int schedule_strategy;
 

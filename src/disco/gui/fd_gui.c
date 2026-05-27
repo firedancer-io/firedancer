@@ -1089,8 +1089,11 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {
       fd_gui_run_boot_progress( gui, now );
-      fd_gui_printf_boot_progress( gui );
-      fd_http_server_ws_broadcast( gui->http );
+      if( FD_UNLIKELY( memcmp( &gui->summary.boot_progress, &gui->summary.prev_boot_progress, sizeof(fd_gui_boot_progress_t) ) ) ) {
+        gui->summary.prev_boot_progress = gui->summary.boot_progress;
+        fd_gui_printf_boot_progress( gui );
+        fd_http_server_ws_broadcast( gui->http );
+      }
     }
 
     ulong bundle_tile_idx = fd_topo_find_tile( gui->topo, "bundle", 0UL );
