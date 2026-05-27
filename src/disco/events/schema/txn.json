@@ -19,7 +19,7 @@
         "bundle_id":                { "type": "UInt64", "description": "The ID of the bundle this transaction belongs to, if any.  Zero indicates not a bundle transaction" },
         "bundle_txn_count":         { "type": "UInt8",  "description": "The total number of transactions in the bundle this transaction belongs to, if any" },
         "bundle_commission":        { "type": "UInt8",  "description": "The commission percentage for the bundle this transaction belongs to, if any" },
-        "bundle_commission_pubkey": { "type": "String", "description": "The public key of the commission recipient for the bundle this transaction belongs to, if any" },
-        "payload":                  { "type": "Bytes", "description": "The raw transaction payload bytes" }
+        "bundle_commission_pubkey": { "type": "Pubkey", "description": "The public key of the commission recipient for the bundle this transaction belongs to, if any" },
+        "payload":                  { "type": "Bytes",  "description": "The raw transaction payload bytes" }
     }
 }
