@@ -40,6 +40,10 @@ struct fd_backt_src_vt {
                  fd_backt_slot_info_t * out,
                  ulong                  slot );
 
+  void
+  (* seek)( fd_backt_src_t * this,
+            ulong            slot );
+
 };
 
 struct fd_backtest_src_opts {
@@ -92,6 +96,15 @@ fd_backtest_src_slot_info( fd_backt_src_t *       db,
                            fd_backt_slot_info_t * out,
                            ulong                  slot ) {
   return db->vt->slot_info( db, out, slot );
+}
+
+/* fd_backtest_src_seek advances the source so that the next shred
+   returned by fd_backtest_src_shred has slot>=slot. */
+
+static inline void
+fd_backtest_src_seek( fd_backt_src_t * db,
+                      ulong            slot ) {
+  if( db->vt->seek ) db->vt->seek( db, slot );
 }
 
 FD_PROTOTYPES_END

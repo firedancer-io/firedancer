@@ -281,6 +281,8 @@ returnable_frag( fd_backt_tile_t *   ctx,
                          ctx->start_slot, first->slot ));
           }
         }
+        /* Skip past any shreds in the source for slots <=start_slot so we don't replay them */
+        fd_backtest_src_seek( ctx->src, ctx->start_slot+1UL );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         ctx->snapshot_done = 1;

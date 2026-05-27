@@ -305,9 +305,29 @@ fd_backt_src_rocksdb_slot_info( fd_backt_src_t *       this,
   return out;
 }
 
+void
+fd_backt_src_rocksdb_seek( fd_backt_src_t * this,
+                           ulong            slot ) {
+  fd_backt_src_rocksdb_t * src = (fd_backt_src_rocksdb_t *)this;
+
+  char key[8]; FD_STORE( ulong, key, fd_ulong_bswap( slot ) );
+  rocksdb_iter_seek( src->root_iter,       key, sizeof(ulong) );
+  rocksdb_iter_seek( src->data_shred_iter, key, sizeof(ulong) );
+  if( src->code_shreds ) {
+    rocksdb_iter_seek( src->code_shred_iter, key, sizeof(ulong) );
+  }
+
+  src->current_slot   = ULONG_MAX;
+  src->data_slot_done = 0;
+  src->code_slot_done = !src->code_shreds;
+  src->data_iter_done = 0;
+  src->code_iter_done = !src->code_shreds;
+}
+
 fd_backt_src_vt_t const fd_backt_src_rocksdb_vt = {
   .destroy      = fd_backt_src_rocksdb_destroy,
   .first_shred  = fd_backt_src_rocksdb_first_shred,
   .shred        = fd_backt_src_rocksdb_shred,
-  .slot_info    = fd_backt_src_rocksdb_slot_info
+  .slot_info    = fd_backt_src_rocksdb_slot_info,
+  .seek         = fd_backt_src_rocksdb_seek
 };
