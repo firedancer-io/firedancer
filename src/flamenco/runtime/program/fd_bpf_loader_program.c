@@ -750,6 +750,21 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
   }
 
+  /* https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/programs/bpf_loader/src/lib.rs#L861-L883 */
+  if( FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, loader_v3_minimum_extend_program_size ) ) {
+    ulong headroom = fd_ulong_sat_sub( MAX_PERMITTED_DATA_LENGTH, old_len );
+    if( FD_UNLIKELY( additional_bytes<MINIMUM_EXTEND_PROGRAM_BYTES && additional_bytes!=headroom ) ) {
+      /* Max msg_sz: 113 - (3+2) + (5+10) = 123 < 127 => we can use printf */
+      fd_log_collector_printf_dangerous_max_127(
+        instr_ctx,
+        "ExtendProgram requires a minimum of %lu additional bytes or to extend to maximum size, but only %u were requested",
+        MINIMUM_EXTEND_PROGRAM_BYTES,
+        additional_bytes
+      );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1434-L1437 */
   fd_sol_sysvar_clock_t clock[1];
   if( FD_UNLIKELY( !fd_sysvar_cache_clock_read( instr_ctx->sysvar_cache, clock ) ) ) {

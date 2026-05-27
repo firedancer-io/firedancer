@@ -67,6 +67,10 @@
 #define FD_BPF_INSTR_MIGRATE                  (8U)
 #define FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED   (9U)
 
+/* SIMD-0431: must extend by at least 10kb
+   https://github.com/anza-xyz/solana-sdk/blob/loader-v3-interface%40v7.0.0/loader-v3-interface/src/instruction.rs#L18 */
+#define MINIMUM_EXTEND_PROGRAM_BYTES (10240UL)
+
 /* Per-variant payload structs.
 
    The `write` variant uses zero-copy for its `bytes` field: after a
