@@ -175,19 +175,21 @@ ulong
 fd_votes_footprint( ulong slot_max,
                     ulong vtr_max ) {
 
-  ulong blk_max = slot_max * vtr_max;
+  slot_max      = fd_ulong_pow2_up( slot_max );
+  vtr_max       = fd_ulong_pow2_up( vtr_max );
+  ulong blk_max = fd_ulong_pow2_up( slot_max * vtr_max );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, 128UL,              sizeof(fd_votes_t)                                       );
-  l = FD_LAYOUT_APPEND( l, slot_pool_align(),  slot_pool_footprint( slot_max )                          );
-  l = FD_LAYOUT_APPEND( l, slot_map_align(),   slot_map_footprint( slot_map_chain_cnt_est( slot_max ) ) );
-  l = FD_LAYOUT_APPEND( l, slot_dlist_align(), slot_dlist_footprint()                                   );
-  l = FD_LAYOUT_APPEND( l, blk_pool_align(),   blk_pool_footprint( blk_max )                            );
-  l = FD_LAYOUT_APPEND( l, blk_map_align(),    blk_map_footprint( blk_map_chain_cnt_est( blk_max ) )    );
-  l = FD_LAYOUT_APPEND( l, vtr_pool_align(),   vtr_pool_footprint( vtr_max )                            );
-  l = FD_LAYOUT_APPEND( l, vtr_map_align(),    vtr_map_footprint( vtr_map_chain_cnt_est( vtr_max ) )    );
-  l = FD_LAYOUT_APPEND( l, vtr_dlist_align(),  vtr_dlist_footprint()                                    );
-  l = FD_LAYOUT_APPEND( l, slot_vtrs_align(),  slot_vtrs_footprint( vtr_max )                           );
+  l = FD_LAYOUT_APPEND( l, 128UL,              sizeof(fd_votes_t)                                          );
+  l = FD_LAYOUT_APPEND( l, slot_pool_align(),  slot_pool_footprint( slot_max )                             );
+  l = FD_LAYOUT_APPEND( l, slot_map_align(),   slot_map_footprint( slot_map_chain_cnt_est( slot_max ) )    );
+  l = FD_LAYOUT_APPEND( l, slot_dlist_align(), slot_dlist_footprint()                                      );
+  l = FD_LAYOUT_APPEND( l, blk_pool_align(),   blk_pool_footprint( blk_max )                               );
+  l = FD_LAYOUT_APPEND( l, blk_map_align(),    blk_map_footprint( blk_map_chain_cnt_est( blk_max ) )       );
+  l = FD_LAYOUT_APPEND( l, vtr_pool_align(),   vtr_pool_footprint( vtr_max )                               );
+  l = FD_LAYOUT_APPEND( l, vtr_map_align(),    vtr_map_footprint( vtr_map_chain_cnt_est( vtr_max ) )       );
+  l = FD_LAYOUT_APPEND( l, vtr_dlist_align(),  vtr_dlist_footprint()                                       );
+  l = FD_LAYOUT_APPEND( l, slot_vtrs_align(),  slot_vtrs_footprint( vtr_max )                              );
   for( ulong i = 0UL; i < slot_max; i++ ) {
     l = FD_LAYOUT_APPEND( l, slot_vtrs_align(), slot_vtrs_footprint( vtr_max ) );
     l = FD_LAYOUT_APPEND( l, blk_dlist_align(), blk_dlist_footprint()          );
@@ -219,19 +221,21 @@ fd_votes_new( void * shmem,
 
   fd_memset( shmem, 0, footprint );
 
-  ulong blk_max = slot_max * vtr_max;
+  slot_max      = fd_ulong_pow2_up( slot_max );
+  vtr_max       = fd_ulong_pow2_up( vtr_max );
+  ulong blk_max = fd_ulong_pow2_up( slot_max * vtr_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_votes_t * votes      = FD_SCRATCH_ALLOC_APPEND( l, 128UL,              sizeof(fd_votes_t)                                       );
-  void *       slot_pool  = FD_SCRATCH_ALLOC_APPEND( l, slot_pool_align(),  slot_pool_footprint( slot_max )                          );
-  void *       slot_map   = FD_SCRATCH_ALLOC_APPEND( l, slot_map_align(),   slot_map_footprint( slot_map_chain_cnt_est( slot_max ) ) );
-  void *       slot_dlist = FD_SCRATCH_ALLOC_APPEND( l, slot_dlist_align(), slot_dlist_footprint()                                   );
-  void *       blk_pool   = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),   blk_pool_footprint( blk_max )                            );
-  void *       blk_map    = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),    blk_map_footprint( blk_map_chain_cnt_est( blk_max ) )    );
-  void *       vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),   vtr_pool_footprint( vtr_max )                            );
-  void *       vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),    vtr_map_footprint( vtr_map_chain_cnt_est( vtr_max ) )    );
-  void *       vtr_dlist  = FD_SCRATCH_ALLOC_APPEND( l, vtr_dlist_align(),  vtr_dlist_footprint()                                    );
-  void *       vtr_set    = FD_SCRATCH_ALLOC_APPEND( l, slot_vtrs_align(),  slot_vtrs_footprint( vtr_max )                           );
+  fd_votes_t * votes      = FD_SCRATCH_ALLOC_APPEND( l, 128UL,              sizeof(fd_votes_t)                                          );
+  void *       slot_pool  = FD_SCRATCH_ALLOC_APPEND( l, slot_pool_align(),  slot_pool_footprint( slot_max )                             );
+  void *       slot_map   = FD_SCRATCH_ALLOC_APPEND( l, slot_map_align(),   slot_map_footprint( slot_map_chain_cnt_est( slot_max ) )    );
+  void *       slot_dlist = FD_SCRATCH_ALLOC_APPEND( l, slot_dlist_align(), slot_dlist_footprint()                                      );
+  void *       blk_pool   = FD_SCRATCH_ALLOC_APPEND( l, blk_pool_align(),   blk_pool_footprint( blk_max )                               );
+  void *       blk_map    = FD_SCRATCH_ALLOC_APPEND( l, blk_map_align(),    blk_map_footprint( blk_map_chain_cnt_est( blk_max ) )       );
+  void *       vtr_pool   = FD_SCRATCH_ALLOC_APPEND( l, vtr_pool_align(),   vtr_pool_footprint( vtr_max )                               );
+  void *       vtr_map    = FD_SCRATCH_ALLOC_APPEND( l, vtr_map_align(),    vtr_map_footprint( vtr_map_chain_cnt_est( vtr_max ) )       );
+  void *       vtr_dlist  = FD_SCRATCH_ALLOC_APPEND( l, vtr_dlist_align(),  vtr_dlist_footprint()                                       );
+  void *       vtr_set    = FD_SCRATCH_ALLOC_APPEND( l, slot_vtrs_align(),  slot_vtrs_footprint( vtr_max )                              );
 
   votes->root       = ULONG_MAX;
   votes->slot_max   = slot_max;
@@ -428,32 +432,25 @@ fd_votes_update_voters( fd_votes_t *        votes,
     votes->vtr_pool[iter].next = 1; /* mark for removal */
   }
 
-  /* Build a set of kept old bit positions.  Walk voters,
-     keep/add matching voters, and update stakes.  Existing voters
-     keep their old bit positions (no compaction). */
+  /* First pass: unmark kept voters from being released.  Build a set
+     of kept old bit positions.  Existing voters keep their old bit
+     positions (no compaction). */
 
   slot_vtrs_null( votes->vtr_set );
 
   for( ulong i=0UL; i<cnt; i++ ) {
     fd_pubkey_t const * vote_acc = &vote_accs[i];
     vtr_t * vtr = vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool );
-    if( FD_UNLIKELY( !vtr ) ) {
-      vtr           = vtr_pool_ele_acquire( votes->vtr_pool );
-      vtr->vote_acc = *vote_acc;
-      vtr->bit      = ULONG_MAX;
-      vtr->stake    = 0;
-      vtr_map_ele_insert( votes->vtr_map, vtr, votes->vtr_pool );
-    } else {
+    if( FD_LIKELY( vtr ) ) {
       vtr_dlist_ele_remove( votes->vtr_dlist, vtr, votes->vtr_pool );
       slot_vtrs_insert( votes->vtr_set, vtr->bit );
+      vtr->next  = 0; /* unmark for removal */
+      vtr->stake = stakes[i];
+      vtr_dlist_ele_push_tail( votes->vtr_dlist, vtr, votes->vtr_pool );
     }
-    vtr->next = 0; /* unmark for removal */
-    vtr_dlist_ele_push_tail( votes->vtr_dlist, vtr, votes->vtr_pool );
-
-    vtr->stake = stakes[i];
   }
 
-  /* Pop unwanted voters from the head until we hit a kept voter. */
+  /* Pop and release marked voters until the first unmarked voter. */
 
   while( FD_LIKELY( !vtr_dlist_is_empty( votes->vtr_dlist, votes->vtr_pool ) ) ) {
     vtr_t * vtr = vtr_dlist_ele_pop_head( votes->vtr_dlist, votes->vtr_pool );
@@ -475,18 +472,22 @@ fd_votes_update_voters( fd_votes_t *        votes,
     slot_vtrs_intersect( votes_slot->vtrs, votes_slot->vtrs, votes->vtr_set );
   }
 
-  /* Assign bit positions to new voters from freed positions. */
+  /* Second pass: acquire and insert new voters, assigning bit positions
+     from freed positions. */
 
   ulong free_bit = 0;
-  for( vtr_dlist_iter_t iter = vtr_dlist_iter_fwd_init( votes->vtr_dlist, votes->vtr_pool );
-       !vtr_dlist_iter_done( iter, votes->vtr_dlist, votes->vtr_pool );
-       iter = vtr_dlist_iter_fwd_next( iter, votes->vtr_dlist, votes->vtr_pool ) ) {
-    vtr_t * vtr = &votes->vtr_pool[iter];
-    if( FD_UNLIKELY( vtr->bit==ULONG_MAX ) ) {
-      while( slot_vtrs_test( votes->vtr_set, free_bit ) ) free_bit++;
-      vtr->bit = free_bit;
-      slot_vtrs_insert( votes->vtr_set, free_bit );
-      free_bit++;
-    }
+  for( ulong i=0UL; i<cnt; i++ ) {
+    fd_pubkey_t const * vote_acc = &vote_accs[i];
+    if( FD_LIKELY( vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool ) ) ) continue;
+    vtr_t * vtr   = vtr_pool_ele_acquire( votes->vtr_pool );
+    vtr->vote_acc = *vote_acc;
+    vtr->stake    = stakes[i];
+    vtr->next     = 0;
+    while( slot_vtrs_test( votes->vtr_set, free_bit ) ) free_bit++;
+    vtr->bit = free_bit;
+    slot_vtrs_insert( votes->vtr_set, free_bit );
+    free_bit++;
+    vtr_map_ele_insert( votes->vtr_map, vtr, votes->vtr_pool );
+    vtr_dlist_ele_push_tail( votes->vtr_dlist, vtr, votes->vtr_pool );
   }
 }

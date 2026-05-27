@@ -1045,8 +1045,10 @@
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;chunk_&#8203;cnt</span> | counter | num_chunks != FD_EQVOC_CHUNK_CNT |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;chunk_&#8203;idx</span> | counter | chunk_index >= FD_EQVOC_CHUNK_CNT |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;chunk_&#8203;len</span> | counter | chunk_len does not match expected length for chunk_index |
-| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;ignored_&#8203;from</span> | counter | Unrecognized from address |
-| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;ignored_&#8203;slot</span> | counter | Slot older than root or unable to derive leader schedule |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;chunk_&#8203;from</span> | counter | Unrecognized from address |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;chunk_&#8203;slot</span> | counter | Slot older than root or unable to derive leader schedule |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;shred_&#8203;slot</span> | counter | Slot older than root |
+| <span class="metrics-name">tower_&#8203;eqvoc_&#8203;err_&#8203;shred_&#8203;idx</span> | counter | Shred index >= FD_SHRED_BLK_MAX |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;proof_&#8203;constructed</span> | counter | Number of duplicate proofs we constructed from shreds |
 | <span class="metrics-name">tower_&#8203;eqvoc_&#8203;proof_&#8203;verified</span> | counter | Number of duplicate proofs we verified from gossip |
 | <span class="metrics-name">tower_&#8203;ghost_&#8203;not_&#8203;voted</span> | counter | Ghost vote skipped because voter hasn't voted |

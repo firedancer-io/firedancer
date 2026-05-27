@@ -324,8 +324,11 @@ struct fd_tower_tile {
     ulong eqvoc_err_chunk_idx;
     ulong eqvoc_err_chunk_len;
 
-    ulong eqvoc_err_ignored_from;
-    ulong eqvoc_err_ignored_slot;
+    ulong eqvoc_err_chunk_from;
+    ulong eqvoc_err_chunk_slot;
+
+    ulong eqvoc_err_shred_slot;
+    ulong eqvoc_err_shred_idx;
 
     ulong eqvoc_proof_constructed;
     ulong eqvoc_proof_verified;
@@ -447,8 +450,11 @@ update_metrics_eqvoc( fd_tower_tile_t * ctx,
   case FD_EQVOC_ERR_CHUNK_IDX: ctx->metrics.eqvoc_err_chunk_idx++; break;
   case FD_EQVOC_ERR_CHUNK_LEN: ctx->metrics.eqvoc_err_chunk_len++; break;
 
-  case FD_EQVOC_ERR_IGNORED_FROM: ctx->metrics.eqvoc_err_ignored_from++; break;
-  case FD_EQVOC_ERR_IGNORED_SLOT: ctx->metrics.eqvoc_err_ignored_slot++; break;
+  case FD_EQVOC_ERR_CHUNK_FROM: ctx->metrics.eqvoc_err_chunk_from++; break;
+  case FD_EQVOC_ERR_CHUNK_SLOT: ctx->metrics.eqvoc_err_chunk_slot++; break;
+
+  case FD_EQVOC_ERR_SHRED_SLOT: ctx->metrics.eqvoc_err_shred_slot++; break;
+  case FD_EQVOC_ERR_SHRED_IDX:  ctx->metrics.eqvoc_err_shred_idx++;  break;
 
   default: FD_LOG_ERR(( "unhandled eqvoc err %d", err ));
   }
@@ -474,10 +480,11 @@ update_metrics_hfork( fd_tower_tile_t * ctx,
   case FD_HFORK_SUCCESS:
     break;
   case FD_HFORK_ERR_MISMATCHED:
+    if( FD_UNLIKELY( ctx->hard_fork_fatal ) ) {
+      FD_BASE58_ENCODE_32_BYTES( block_id->uc, _block_id );
+      FD_LOG_ERR(( "HARD FORK DETECTED for slot %lu block ID `%s`", slot, _block_id ));
+    }
     ctx->metrics.hfork_mismatched_slot = fd_ulong_max( ctx->metrics.hfork_mismatched_slot, slot );
-    FD_BASE58_ENCODE_32_BYTES( block_id->uc, _block_id );
-    if( FD_UNLIKELY( ctx->hard_fork_fatal ) ) FD_LOG_ERR    (( "HARD FORK DETECTED for slot %lu block ID `%s`", slot, _block_id ));
-    else                                      FD_LOG_WARNING(( "HARD FORK DETECTED for slot %lu block ID `%s`", slot, _block_id ));
     break;
   case FD_HFORK_ERR_UNKNOWN_VTR:
     ctx->metrics.hfork_unknown_vtr++;
@@ -517,7 +524,7 @@ publish_slot_confirmed( fd_tower_tile_t * ctx,
   for( int i = 0; i < FD_TOWER_SLOT_CONFIRMED_LEVEL_CNT; i++ ) {
     if( FD_LIKELY( fd_uchar_extract_bit( votes_blk->flags, i ) ) ) continue; /* already contiguously confirmed */
     double ratio = (double)votes_blk->stake / (double)total_stake;
-    if( FD_LIKELY( ratio < ratios[i] ) ) break; /* threshold not met */
+    if( FD_LIKELY( ratio <= ratios[i] ) ) break; /* threshold not met */
 
     /* If the ghost_blk is missing, then we know this is a forward
        confirmation (ie. we haven't replayed the block yet). */
@@ -620,10 +627,10 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   ulong       authority_idx = ULONG_MAX;
   fd_pubkey_t authority[1];
   int         found_authority = deser_auth_vtr( ctx, slot_completed->epoch, found, authority, &authority_idx );
-  if( FD_LIKELY( found_authority && !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
+  if( FD_LIKELY( out->vote_slot!=ULONG_MAX && found_authority && !fd_tower_vote_empty( ctx->tower->votes ) ) ) {
     msg->has_vote_txn = 1;
     fd_txn_p_t          txn[1];
-    fd_tower_to_vote_txn( ctx->tower, &slot_completed->bank_hash, &slot_completed->block_id, &slot_completed->block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
+    fd_tower_to_vote_txn( ctx->tower, &out->vote_bank_hash, &out->vote_block_id, &out->vote_block_hash, ctx->identity_key, authority, ctx->vote_account, txn );
     FD_TEST( !fd_tower_vote_empty( ctx->tower->votes ) );
     FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
     fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
@@ -948,6 +955,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
 
       uchar const * data = fd_accdb_ref_data_const( ro );
 
+      FD_TEST( stake > 0 );
       count_vote_acc( ctx, slot_completed, ghost_blk, vote_acc, stake, data, ro->meta->dlen );
 
       prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, vote_acc, stake, prev_voter_idx );
@@ -1055,6 +1063,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     fd_ghost_eqvoc( ctx->ghost, &eqvoc_tower_blk->replayed_block_id );
 
     eqvoc_tower_blk->parent_slot       = slot_completed->parent_slot;
+    eqvoc_tower_blk->bank_hash         = slot_completed->bank_hash;
+    eqvoc_tower_blk->block_hash        = slot_completed->block_hash;
     eqvoc_tower_blk->replayed_block_id = slot_completed->block_id;
   } else {
 
@@ -1064,6 +1074,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     fd_tower_blk_t * tower_blk   = fd_tower_blocks_insert( ctx->tower, slot_completed->slot, slot_completed->parent_slot );
     tower_blk->parent_slot       = slot_completed->parent_slot;
     tower_blk->epoch             = slot_completed->epoch;
+    tower_blk->bank_hash         = slot_completed->bank_hash;
+    tower_blk->block_hash        = slot_completed->block_hash;
     tower_blk->replayed          = 1;
     tower_blk->replayed_block_id = slot_completed->block_id;
     tower_blk->voted             = 0;
@@ -1098,6 +1110,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
         /* The forward-confirmed block_id matches what we replayed. */
 
         fd_ghost_confirm( ctx->ghost, &slot_completed->block_id );
+
       } else {
 
         /* The forward-confirmed block_id differs from what we replayed,
@@ -1108,7 +1121,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
         fd_ghost_eqvoc( ctx->ghost, &slot_completed->block_id );
       }
 
-    } else if( FD_UNLIKELY( fd_eqvoc_query( ctx->eqvoc, slot_completed->slot ) ) ) {
+    } else if( FD_UNLIKELY( fd_eqvoc_proof_verified( ctx->eqvoc, slot_completed->slot ) ) ) {
 
       /* Eqvoc already detected equivocation for this slot (via shreds
          or gossip before replay).  Mark the ghost block invalid. */
@@ -1128,8 +1141,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* Count the vote accounts and reconcile our own vote account. */
 
   ulong our_vote_acct_bal = ULONG_MAX;
-  int   found = 0;
-  ulong total_stake = QUERY_VOTE_ACCS( ctx, slot_completed, ghost_blk, &found, &our_vote_acct_bal );
+  int   found             = 0;
+  ulong total_stake       = QUERY_VOTE_ACCS( ctx, slot_completed, ghost_blk, &found, &our_vote_acct_bal );
 
   /* The first replay_slot_completed msg is used to initialize the tower
      tile's various structures. */
@@ -1153,7 +1166,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   fd_tower_out_t out = { .vote_slot = ULONG_MAX, .root_slot = ULONG_MAX };
   out.flags = fd_tower_vote_and_reset( ctx->tower, ctx->ghost, ctx->votes,
       &out.reset_slot, &out.reset_block_id,
-      &out.vote_slot,  &out.vote_block_id,
+      &out.vote_slot,  &out.vote_block_id, &out.vote_bank_hash, &out.vote_block_hash,
       &out.root_slot,  &out.root_block_id );
   if( FD_LIKELY( out.vote_slot!=ULONG_MAX ) ) {
 
@@ -1241,7 +1254,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   ctx->metrics.root_slot      = ctx->tower->root;
 
   ctx->metrics.ancestor_rollback += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK );
-  ctx->metrics.sibling_confirmed += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
+  ctx->metrics.sibling_confirmed  += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
   ctx->metrics.same_fork         += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SAME_FORK         );
   ctx->metrics.switch_pass       += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_PASS       );
   ctx->metrics.switch_fail       += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_FAIL       );
@@ -1443,8 +1456,11 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_IDX, ctx->metrics.eqvoc_err_chunk_idx );
   FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_LEN, ctx->metrics.eqvoc_err_chunk_len );
 
-  FD_MCNT_SET( TOWER, EQVOC_ERR_IGNORED_FROM, ctx->metrics.eqvoc_err_ignored_from );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_IGNORED_SLOT, ctx->metrics.eqvoc_err_ignored_slot );
+  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_FROM, ctx->metrics.eqvoc_err_chunk_from );
+  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_SLOT, ctx->metrics.eqvoc_err_chunk_slot );
+
+  FD_MCNT_SET( TOWER, EQVOC_ERR_SHRED_SLOT, ctx->metrics.eqvoc_err_shred_slot );
+  FD_MCNT_SET( TOWER, EQVOC_ERR_SHRED_IDX,  ctx->metrics.eqvoc_err_shred_idx  );
 
   FD_MCNT_SET( TOWER, EQVOC_PROOF_CONSTRUCTED, ctx->metrics.eqvoc_proof_constructed );
   FD_MCNT_SET( TOWER, EQVOC_PROOF_VERIFIED,    ctx->metrics.eqvoc_proof_verified    );
@@ -1514,6 +1530,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
       fd_gossip_duplicate_shred_t const * duplicate_shred = msg->duplicate_shred;
       fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin );
       fd_epoch_leaders_t const *          lsched          = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, duplicate_shred->slot );
+      if( FD_UNLIKELY( !lsched ) ) { ctx->metrics.not_ready++; return 0; }
       int eqvoc_err = fd_eqvoc_chunk_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, lsched, from, duplicate_shred, ctx->duplicate_chunks );
       update_metrics_eqvoc( ctx, eqvoc_err );
       if( FD_UNLIKELY( eqvoc_err>0 ) ) {
@@ -1554,9 +1571,11 @@ returnable_frag( fd_tower_tile_t *   ctx,
   case IN_KIND_SHRED: {
     if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 0; }
     if( FD_LIKELY( fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE || fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR ) ) {
-      fd_shred_base_t           * msg   = (fd_shred_base_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
-      fd_shred_t                * shred = &msg->shred;
-      int eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, shred, ctx->duplicate_chunks );
+      fd_shred_base_t            * msg    = (fd_shred_base_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      fd_shred_t                 * shred  = &msg->shred;
+      fd_epoch_leaders_t const   * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, shred->slot );
+      if( FD_UNLIKELY( !lsched ) ) { ctx->metrics.not_ready++; return 0; }
+      int eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, fd_ptr_if( fd_shred_sig_res( sig )==SHRED_SIG_RESULT_EQVOC, lsched, NULL ), shred, ctx->duplicate_chunks );
       update_metrics_eqvoc( ctx, eqvoc_err );
       if( FD_UNLIKELY( eqvoc_err>0 ) ) {
         ctx->metrics.eqvoc_proof_constructed++;

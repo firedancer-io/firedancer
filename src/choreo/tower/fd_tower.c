@@ -686,6 +686,8 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
                          fd_hash_t *  reset_block_id,
                          ulong *      vote_slot,
                          fd_hash_t *  vote_block_id,
+                         fd_hash_t *  vote_bank_hash,
+                         fd_hash_t *  vote_block_hash,
                          ulong *      root_slot,
                          fd_hash_t *  root_block_id ) {
 
@@ -694,11 +696,15 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   fd_ghost_blk_t const * reset_blk = NULL;
   fd_ghost_blk_t const * vote_blk  = NULL;
 
-  /* Case 0: if we haven't voted yet then there are two cases to consider. */
+  /* Case 0: if we haven't voted yet then there are two subcases where
+     we short-circuit. */
 
-  /* Case 0a: On snapshot boot, tower->root is set to the snapshot slot before any
-     votes are recorded. In this case, lockout_check returns  0 for slot <= root,
-     preventing a vote on the snapshot slot itself. */
+  /* Case 0a: on boot, tower->root is set to the snapshot slot before
+     any votes are recorded. In this case, lockout_check returns 0 for
+     slot <= root, preventing a vote on the snapshot slot itself. */
+
+  /* TODO refactor: 0a is a tile-concern not logic-concern */
+
   if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) && !lockout_check( tower, best_blk->slot ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
     FD_LOG_DEBUG(( "[%s] case 0a: not recent (slot %lu <= root %lu). reset_blk: (%lu, %s). vote_blk: (NULL)", __func__, best_blk->slot, tower->root, best_blk->slot, best_blk_id ));
@@ -713,18 +719,21 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
 
   /* Case 0b: if we haven't voted yet then we can always vote and reset
      to ghost_best. */
+
   if( FD_UNLIKELY( fd_tower_vote_empty( tower->votes ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( best_blk->id.uc, best_blk_id );
     FD_LOG_DEBUG(( "[%s] case 0b: empty tower. reset_blk: (%lu, %s). vote_blk: (%lu, %s)", __func__, best_blk->slot, best_blk_id, best_blk->slot, best_blk_id ));
-    fd_tower_blk_t * fork = fd_tower_blocks_query( tower, best_blk->slot );
-    fork->voted           = 1;
-    fork->voted_block_id  = best_blk->id;
-    *reset_slot     = best_blk->slot;
-    *reset_block_id = best_blk->id;
-    *vote_slot      = best_blk->slot;
-    *vote_block_id  = best_blk->id;
-    *root_slot      = push_vote( tower, best_blk->slot );
-    *root_block_id  = (fd_hash_t){0};
+    fd_tower_blk_t * tower_blk = fd_tower_blocks_query( tower, best_blk->slot );
+    tower_blk->voted           = 1;
+    tower_blk->voted_block_id  = best_blk->id;
+    *reset_slot                = best_blk->slot;
+    *reset_block_id            = best_blk->id;
+    *vote_slot                 = best_blk->slot;
+    *vote_block_id             = best_blk->id;
+    *vote_bank_hash            = tower_blk->bank_hash;
+    *vote_block_hash           = tower_blk->block_hash;
+    *root_slot                 = push_vote( tower, best_blk->slot );
+    *root_block_id             = ( fd_hash_t ){ 0 };
     return flags;
   }
 
@@ -903,7 +912,9 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
   *reset_block_id = reset_blk->id;
   *vote_slot      = ULONG_MAX;
   *vote_block_id  = (fd_hash_t){0};
-  *root_slot      = ULONG_MAX;
+  *vote_bank_hash  = (fd_hash_t){0};
+  *vote_block_hash = (fd_hash_t){0};
+  *root_slot       = ULONG_MAX;
   *root_block_id  = (fd_hash_t){0};
 
   /* Finally, if our vote passed all the checks, we actually push the
@@ -921,6 +932,8 @@ fd_tower_vote_and_reset( fd_tower_t * tower,
     fd_tower_blk_t * fork = fd_tower_blocks_query( tower, vote_blk->slot );
     fork->voted           = 1;
     fork->voted_block_id  = vote_blk->id;
+    *vote_bank_hash       = fork->bank_hash;
+    *vote_block_hash      = fork->block_hash;
 
     /* Query the root slot's block id from tower forks.  This block id
        may not necessarily be confirmed, because confirmation requires
