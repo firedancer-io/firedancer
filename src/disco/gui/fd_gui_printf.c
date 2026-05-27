@@ -2385,44 +2385,44 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
             jsonp_close_object( peers->http );
           }
 
-          long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long ref_egress_push_kbps           = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_ingress_push_kbps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long ref_ingress_push_kbps          = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_egress_pull_response_kbps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long ref_egress_pull_response_kbps  = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long cur_ingress_pull_response_kbps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long ref_ingress_pull_response_kbps = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long ref_egress_push_bps           = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long ref_ingress_push_bps          = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long ref_egress_pull_response_bps  = ref->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long ref_ingress_pull_response_bps = ref->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
 
-          if( FD_UNLIKELY( ref->valid && cur_ingress_pull_response_kbps!=ref_ingress_pull_response_kbps ) ) {
+          if( FD_UNLIKELY( ref->valid && cur_ingress_pull_response_bps!=ref_ingress_pull_response_bps ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Ingress Pull" );
-              jsonp_long  ( peers->http, "new_value", cur_ingress_pull_response_kbps );
+              jsonp_long  ( peers->http, "new_value", cur_ingress_pull_response_bps );
             jsonp_close_object( peers->http );
           }
 
-          if( FD_UNLIKELY( ref->valid && cur_ingress_push_kbps!=ref_ingress_push_kbps ) ) {
+          if( FD_UNLIKELY( ref->valid && cur_ingress_push_bps!=ref_ingress_push_bps ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Ingress Push" );
-              jsonp_long  ( peers->http, "new_value", cur_ingress_push_kbps );
+              jsonp_long  ( peers->http, "new_value", cur_ingress_push_bps );
             jsonp_close_object( peers->http );
           }
 
-          if( FD_UNLIKELY( ref->valid && cur_egress_pull_response_kbps!=ref_egress_pull_response_kbps ) ) {
+          if( FD_UNLIKELY( ref->valid && cur_egress_pull_response_bps!=ref_egress_pull_response_bps ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Egress Pull" );
-              jsonp_long  ( peers->http, "new_value", cur_egress_pull_response_kbps );
+              jsonp_long  ( peers->http, "new_value", cur_egress_pull_response_bps );
             jsonp_close_object( peers->http );
           }
 
-          if( FD_UNLIKELY( ref->valid && cur_egress_push_kbps!=ref_egress_push_kbps ) ) {
+          if( FD_UNLIKELY( ref->valid && cur_egress_push_bps!=ref_egress_push_bps ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
               jsonp_string( peers->http, "column_name", "Egress Push" );
-              jsonp_long  ( peers->http, "new_value", cur_egress_push_kbps );
+              jsonp_long  ( peers->http, "new_value", cur_egress_push_bps );
             jsonp_close_object( peers->http );
           }
 
@@ -2472,15 +2472,15 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
           FD_TEST( fd_cstr_printf_check( peer_addr, sizeof(peer_addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( ip4 ) ) );
           jsonp_string( peers->http, "IP Addr", peer_addr );
 
-          long cur_egress_push_kbps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_ingress_push_kbps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
-          long cur_egress_pull_response_kbps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
-          long cur_ingress_pull_response_kbps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_egress_push_bps           = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_ingress_push_bps          = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema;
+          long cur_egress_pull_response_bps  = cur->gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
+          long cur_ingress_pull_response_bps = cur->gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema;
 
-          jsonp_long  ( peers->http, "Ingress Pull", cur_ingress_pull_response_kbps );
-          jsonp_long  ( peers->http, "Ingress Push", cur_ingress_push_kbps );
-          jsonp_long  ( peers->http, "Egress Pull", cur_egress_pull_response_kbps );
-          jsonp_long  ( peers->http, "Egress Push", cur_egress_push_kbps );
+          jsonp_long  ( peers->http, "Ingress Pull", cur_ingress_pull_response_bps );
+          jsonp_long  ( peers->http, "Ingress Push", cur_ingress_push_bps );
+          jsonp_long  ( peers->http, "Egress Pull", cur_egress_pull_response_bps );
+          jsonp_long  ( peers->http, "Egress Push", cur_egress_push_bps );
 
         jsonp_close_object( peers->http );
       }
