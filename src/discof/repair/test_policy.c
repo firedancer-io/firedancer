@@ -1,6 +1,17 @@
 #include "fd_policy.h"
 
 void
+test_dedup_key_distinguishes_slots( void ) {
+  ulong orphan_a = fd_policy_dedup_key( FD_REPAIR_KIND_ORPHAN,        42UL, UINT_MAX );
+  ulong orphan_b = fd_policy_dedup_key( FD_REPAIR_KIND_ORPHAN,        43UL, UINT_MAX );
+  ulong highest_a = fd_policy_dedup_key( FD_REPAIR_KIND_HIGHEST_SHRED, 42UL, UINT_MAX );
+  ulong highest_b = fd_policy_dedup_key( FD_REPAIR_KIND_HIGHEST_SHRED, 43UL, UINT_MAX );
+
+  FD_TEST( orphan_a  != orphan_b  );
+  FD_TEST( highest_a != highest_b );
+}
+
+void
 test_peer_removal( fd_wksp_t * wksp ) {
   ulong peer_max  = 1024;
   ulong dedup_max = 1024;
@@ -128,6 +139,7 @@ main( int argc, char ** argv ) {
   FD_TEST( wksp );
 
   test_peer_removal( wksp );
+  test_dedup_key_distinguishes_slots();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
