@@ -527,10 +527,16 @@ after_frag( fd_event_tile_t *   ctx,
       fd_pb_push_uint32( encoder, 31U, rt->cost_programs_execution );
       fd_pb_push_uint32( encoder, 32U, rt->cost_loaded_accounts_data_size );
       fd_pb_push_uint64( encoder, 33U, rt->cost_allocated_accounts_data_size );
-      fd_pb_push_int64 ( encoder, 34U, rt->prep_start_ns );
-      fd_pb_push_int64 ( encoder, 35U, rt->load_start_ns );
-      fd_pb_push_int64 ( encoder, 36U, rt->exec_start_ns );
-      fd_pb_push_int64 ( encoder, 37U, rt->commit_start_ns );
+      /* Convert each stage's TSC ticks to wallclock ns using the tile's
+         cached reference (set at init, refreshed every housekeeping).
+         LONG_MAX means "stage not entered" — emit 0 in that case. */
+      #define _TICKS_TO_NS(_ticks) ( (_ticks)==LONG_MAX ? 0L : \
+        ( ctx->reference_wallclock + (long)( (double)( (_ticks) - ctx->reference_tickcount ) / ctx->tick_per_ns ) ) )
+      fd_pb_push_int64 ( encoder, 34U, _TICKS_TO_NS( rt->prep_start_ticks   ) );
+      fd_pb_push_int64 ( encoder, 35U, _TICKS_TO_NS( rt->load_start_ticks   ) );
+      fd_pb_push_int64 ( encoder, 36U, _TICKS_TO_NS( rt->exec_start_ticks   ) );
+      fd_pb_push_int64 ( encoder, 37U, _TICKS_TO_NS( rt->commit_start_ticks ) );
+      #undef _TICKS_TO_NS
 
       ulong diff_cnt = rt->account_diff_cnt;
       if( diff_cnt > FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNT_DIFFS ) diff_cnt = FD_CAPTURE_RUNTIME_TXN_MAX_ACCOUNT_DIFFS;

@@ -214,10 +214,13 @@ struct __attribute__((packed)) fd_capture_runtime_txn_event_msg {
   ulong priority_fee;
   ulong tips;
   ulong cost_allocated_accounts_data_size;
-  long  prep_start_ns;                    /* fd_log_wallclock at each stage */
-  long  load_start_ns;
-  long  exec_start_ns;
-  long  commit_start_ns;
+  long  prep_start_ticks;                 /* fd_tickcount() at each stage entry;
+                                             event tile converts to wallclock ns
+                                             using reference_wallclock + delta.
+                                             LONG_MAX = stage not entered. */
+  long  load_start_ticks;
+  long  exec_start_ticks;
+  long  commit_start_ticks;
 
   /* 32-bit fields (error codes are stored as the absolute value of the
      internal negative FD_RUNTIME_*_ERR_* code; 0 = success). */

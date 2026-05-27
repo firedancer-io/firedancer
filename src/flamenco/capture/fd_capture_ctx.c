@@ -328,11 +328,20 @@ fd_capture_link_write_runtime_txn( fd_capture_ctx_t *         ctx,
   msg.cost_loaded_accounts_data_size    = cost->loaded_accounts_data_size_cost;
   msg.cost_allocated_accounts_data_size = cost->allocated_accounts_data_size;
 
-  /* Per-stage timing */
-  msg.prep_start_ns   = txn_out->details.prep_start_timestamp;
-  msg.load_start_ns   = txn_out->details.load_start_timestamp;
-  msg.exec_start_ns   = txn_out->details.exec_start_timestamp;
-  msg.commit_start_ns = txn_out->details.commit_start_timestamp;
+  /* Per-stage timing.  txn_out->details fields are TSC ticks since upstream
+     renamed them; the event tile converts to wallclock ns using its cached
+     reference_wallclock/reference_tickcount/tick_per_ns.
+
+     Upstream's stages are load → check → exec → commit; our wire schema is
+     prep / load / exec / commit (no separate check column).  Map:
+       prep_start_ticks   <- load_start_ticks   (earliest visible stage)
+       load_start_ticks   <- check_start_ticks  (validation phase)
+       exec_start_ticks   <- exec_start_ticks
+       commit_start_ticks <- commit_start_ticks */
+  msg.prep_start_ticks   = txn_out->details.load_start_ticks;
+  msg.load_start_ticks   = txn_out->details.check_start_ticks;
+  msg.exec_start_ticks   = txn_out->details.exec_start_ticks;
+  msg.commit_start_ticks = txn_out->details.commit_start_ticks;
 
   /* Account diffs.  Drain ctx->current_txn_diffs[] populated during commit
      and fill in the stake/vote flags by looking up each pubkey's slot in
