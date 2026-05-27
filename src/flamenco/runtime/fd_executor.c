@@ -1147,6 +1147,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     int err = fd_bpf_loader_program_get_state( &txn_out->accounts.account[ i ], program_loader_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->accdb_fork_id, program_loader_state->inner.program.programdata_address.uc ) ) ) continue;
 
     writable[ executable_account_cnt ] = 0;
     /* Keep the derived programdata address in stable storage until
