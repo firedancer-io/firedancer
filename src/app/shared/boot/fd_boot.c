@@ -286,7 +286,7 @@ fd_main( int                        argc,
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
   int load_topo = fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs );
-  if( FD_LIKELY( action ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
+  if( FD_LIKELY( load_topo && action ) ) fd_cstr_ncpy( config.action, action->name, sizeof( config.action ) );
   if( FD_LIKELY( load_topo ) ) topo_init( &config );
 
   if( FD_UNLIKELY( !action ) ) {
