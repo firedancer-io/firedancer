@@ -42,12 +42,9 @@ rec_reclaim( fd_progcache_join_t * join,
   fd_racesan_hook( "prog_reclaim:post_unlink" );
 
   /* Drain existing users
+     Leave record in locked state (lock is reset when allocating) */
 
-     Records are removed from recm (index) before the record is selected
-     for reclamation.  Therefore, it is not necessary to acquire a lock.
-     It is fine to wait for existing users to drain. */
-
-  if( FD_UNLIKELY( FD_VOLATILE_CONST( rec->lock.value ) ) ) return 0;
+  if( FD_UNLIKELY( !fd_rwlock_trywrite( &rec->lock ) ) ) return 0;
 
   /* All users are gone, deallocate record */
 

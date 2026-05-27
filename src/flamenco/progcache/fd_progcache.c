@@ -298,9 +298,7 @@ fd_progcache_shmem_delete( fd_progcache_shmem_t * shmem ) {
   FD_TEST( !shmem->spill.lock.value );
   FD_TEST( !shmem->clock.lock.value );
   fd_progcache_txn_t * txn0 = fd_wksp_laddr_fast( wksp, shmem->txn.ele_gaddr );
-  fd_progcache_rec_t * rec0 = fd_wksp_laddr_fast( wksp, shmem->rec.ele_gaddr );
   for( ulong i=0UL; i<shmem->txn.max; i++ ) FD_TEST( !txn0[ i ].lock.value );
-  for( ulong i=0UL; i<shmem->rec.max; i++ ) FD_TEST( !rec0[ i ].lock.value );
 
   /* Free all fd_alloc allocations made, individually
      (FIXME consider walking the element pool instead of the map?) */
