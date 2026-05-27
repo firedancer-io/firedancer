@@ -199,7 +199,7 @@
 
 static inline void
 STEM_(in_update)( fd_stem_tile_in_t * in ) {
-  fd_fseq_update( in->fseq, in->seq );
+  __atomic_store_n( in->fseq, in->seq, __ATOMIC_RELEASE );
 
   volatile ulong * metrics = fd_metrics_link_in( fd_metrics_base_tl, in->idx );
 
@@ -359,7 +359,7 @@ STEM_(run1)( ulong                        in_cnt,
     cons_fseq[ cons_idx ] = _cons_fseq[ cons_idx ];
     cons_out [ cons_idx ] = _cons_out [ cons_idx ];
     cons_slow[ cons_idx ] = _cons_slow[ cons_idx ];
-    cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
+    cons_seq [ cons_idx ] = __atomic_load_n( _cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
 
     out_reliable[ cons_out[ cons_idx ] ] = 1;
     cr_max = fd_ulong_min( cr_max, out_depth[ cons_out[ cons_idx ] ] );
@@ -414,7 +414,7 @@ STEM_(run1)( ulong                        in_cnt,
         ulong cons_idx = event_idx;
 
         /* Receive flow control credits from this out. */
-        cons_seq[ cons_idx ] = fd_fseq_query( cons_fseq[ cons_idx ] );
+        cons_seq[ cons_idx ] = __atomic_load_n( cons_fseq[ cons_idx ], __ATOMIC_ACQUIRE );
 
       } else if( FD_LIKELY( event_idx>cons_cnt ) ) { /* in fctl for in in_idx */
         ulong in_idx = event_idx - cons_cnt - 1UL;
@@ -854,7 +854,7 @@ STEM_(run)( fd_topo_t *      topo,
       ulong fseq_id = tile->in_link_fseq_obj_id[ i ];
       ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, fseq_id ) );
       FD_TEST( fseq );
-      fd_fseq_update( fseq, STEM_SHUTDOWN_SEQ );
+      __atomic_store_n( fseq, STEM_SHUTDOWN_SEQ, __ATOMIC_RELEASE );
     }
   }
 }
