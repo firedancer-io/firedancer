@@ -43,6 +43,7 @@ typedef struct {
   fd_tls_test_sign_ctx_t test_signer[1];
   int              no_quic;
   fd_quic_t *      quic;
+  uint             quic_ip;
   ushort           quic_port;
   fd_quic_conn_t * quic_conn;
   ulong            no_stream;
@@ -113,6 +114,12 @@ service_quic( fd_benchs_ctx_t * ctx,
           /* set ip length */
           buf[2] = (uchar)( ip_len >> 8 );
           buf[3] = (uchar)( ip_len      );
+
+          /* set src ip addr */
+          buf[12] = (uchar)( ctx->quic_ip       );
+          buf[13] = (uchar)( ctx->quic_ip >>  8 );
+          buf[14] = (uchar)( ctx->quic_ip >> 16 );
+          buf[15] = (uchar)( ctx->quic_ip >> 24 );
 
           fd_quic_process_packet( ctx->quic, buf, ip_len, now );
         }
@@ -242,7 +249,7 @@ during_frag( fd_benchs_ctx_t * ctx,
       ctx->no_stream = 0;
 
       /* try to connect */
-      uint   dest_ip   = 0;
+      uint   dest_ip   = ctx->quic_ip;
       ushort dest_port = fd_ushort_bswap( ctx->quic_port );
 
       ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port, 0U, 12000, ctx->now );
@@ -313,6 +320,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->conn_cnt = tile->benchs.conn_cnt;
   if( !no_quic ) ctx->conn_cnt = 1;
   FD_TEST( ctx->conn_cnt <=sizeof(ctx->conn_fd)/sizeof(*ctx->conn_fd) );
+  ctx->quic_ip   = tile->benchs.send_to_ip_addr;
   ctx->quic_port = tile->benchs.send_to_port;
   for( ulong i=0UL; i<ctx->conn_cnt ; i++ ) {
     int conn_fd = socket( AF_INET, SOCK_DGRAM, 0 );
