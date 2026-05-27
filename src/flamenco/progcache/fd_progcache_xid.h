@@ -114,6 +114,8 @@ fd_progcache_xid_ld_atomic( fd_progcache_xid_t *       xd,
                             fd_progcache_xid_t const * xs ) {
 # if FD_HAS_X86
   xd->xmm[0] = FD_VOLATILE_CONST( xs->xmm[0] );
+# elif FD_HAS_ARM
+  fd_arm_ldp16( &xs->slot, xd->slot, xd->bank_seq );
 # elif FD_HAS_ATOMIC
   xd->uf[0] = __atomic_load_n( &xs->uf[0], __ATOMIC_RELAXED );
 # else
@@ -127,6 +129,8 @@ fd_progcache_xid_st_atomic( fd_progcache_xid_t *       xd,
                             fd_progcache_xid_t const * xs ) {
 # if FD_HAS_X86
   FD_VOLATILE( xd->xmm[0] ) = xs->xmm[0];
+# elif FD_HAS_ARM
+  fd_arm_stp16( &xd->slot, xs->slot, xs->bank_seq );
 # elif FD_HAS_ATOMIC
   __atomic_store_n( &xd->uf[0], xs->uf[0], __ATOMIC_RELEASE );
 # else

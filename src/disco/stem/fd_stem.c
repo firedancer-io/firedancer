@@ -613,10 +613,16 @@ STEM_(run1)( ulong                        in_cnt,
     __m128i seq_sig = fd_frag_meta_seq_sig_query( this_in_mline );
     ulong seq_found = fd_frag_meta_sse0_seq( seq_sig );
     ulong sig       = fd_frag_meta_sse0_sig( seq_sig );
+#elif FD_HAS_ARM
+    ulong seq_found, sig;
+    fd_arm_ldp16_acq_pc( this_in_mline->ul, seq_found, sig );
+    ulong ul2, ul3;
+    fd_arm_ldp16( this_in_mline->ul+2, ul2, ul3 );
 #else
-    /* Without SSE, seq and sig might be read from different frags (due
-       to overrun), which results in a before_frag and during_frag being
-       issued with incorrect arguments, but not after_frag. */
+    /* Without 128-bit atomic load, seq and sig might be read from
+       different frags (due to overrun), which results in a before_frag
+       and during_frag being issued with incorrect arguments, but not
+       after_frag. */
     ulong seq_found = FD_VOLATILE_CONST( this_in_mline->seq );
     ulong sig       = FD_VOLATILE_CONST( this_in_mline->sig );
 #endif
@@ -687,6 +693,12 @@ STEM_(run1)( ulong                        in_cnt,
     ulong ctl      = fd_frag_meta_avx_ctl   ( yline ); (void)ctl;
     ulong tsorig   = fd_frag_meta_avx_tsorig( yline ); (void)tsorig;
     ulong tspub    = fd_frag_meta_avx_tspub ( yline ); (void)tspub;
+#elif FD_HAS_ARM
+    ulong chunk    = fd_frag_meta_ul2_chunk ( ul2 ); (void)chunk;
+    ulong sz       = fd_frag_meta_ul2_sz    ( ul2 ); (void)sz;
+    ulong ctl      = fd_frag_meta_ul2_ctl   ( ul2 ); (void)ctl;
+    ulong tsorig   = fd_frag_meta_ul3_tsorig( ul3 ); (void)tsorig;
+    ulong tspub    = fd_frag_meta_ul3_tspub ( ul3 ); (void)tspub;
 #else
     ulong chunk    = (ulong)this_in_mline->chunk;  (void)chunk;
     ulong sz       = (ulong)this_in_mline->sz;     (void)sz;
@@ -695,14 +707,11 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 #endif
 
-#ifdef STEM_CALLBACK_DURING_FRAG1
-    STEM_CALLBACK_DURING_FRAG1( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, tsorig, tspub );
-#endif
 #ifdef STEM_CALLBACK_DURING_FRAG
     STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl );
 #endif
 
-    FD_COMPILER_MFENCE();
+    FD_HW_MFENCE_LD();
     ulong seq_test = FD_VOLATILE_CONST( this_in_mline->seq );
     FD_COMPILER_MFENCE();
 
