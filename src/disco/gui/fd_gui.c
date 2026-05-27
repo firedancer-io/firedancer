@@ -20,7 +20,7 @@ fd_gui_align( void ) {
   return 128UL;
 }
 
-FD_FN_CONST ulong
+ulong
 fd_gui_footprint( ulong tile_cnt ) {
   FD_TEST( tile_cnt && tile_cnt <=FD_TOPO_MAX_TILES );
 

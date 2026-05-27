@@ -808,7 +808,7 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_gui_align( void );
 
-FD_FN_CONST ulong
+ulong
 fd_gui_footprint( ulong tile_cnt );
 
 void *
