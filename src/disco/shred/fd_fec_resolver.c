@@ -122,12 +122,17 @@ struct done_ele {
      signature.  If a malicious leader equivocates and produces two FEC
      sets which have the same hash for us, a task which takes a decent
      but doable amount of effort, the only impact is that we would
-     reject the shreds with SHRED_IGNORED instead of SHRED_EQUIOC, which
-     is not a big deal.  It's documented that SHRED_EQUIVOC detection is
-     on a best-effort basis. */
+     reject the shreds with SHRED_IGNORED instead of SHRED_EQUIVOC,
+     which is not a big deal.  It's documented that SHRED_EQUIVOC
+     detection is on a best-effort basis.  If we detect an equivocation
+     for this (slot, FEC set idx), sig_hash gets set to
+     SIG_HASH_EQUIVOC, and we start returning SHRED_IGNORED for any
+     non-repair shred for that (slot, FEC set idx). */
   uint           sig_hash;
 };
 typedef struct done_ele done_ele_t;
+FD_STATIC_ASSERT( sizeof(done_ele_t)==32UL, done_ele_t );
+#define SIG_HASH_EQUIVOC UINT_MAX
 
 #define MAP_NAME              done_map
 #define MAP_KEY               key
@@ -462,7 +467,21 @@ fd_fec_resolver_advance_slot_old( fd_fec_resolver_t * resolver,
     ctx_list_ele_push_head ( free_list, min_ele, ctx_pool );
     resolver->free_list_cnt++;
   }
+}
 
+static inline void
+ensure_done_pool_free( done_ele_t  * done_pool,
+                       done_heap_t * done_heap,
+                       done_map_t  * done_map ) {
+  if( FD_UNLIKELY( !done_pool_free( done_pool ) ) ) {
+    /* Done map is full, so we'll forget about the oldest slot */
+    ulong worst_idx = done_heap_idx_peek_min( done_heap );
+    FD_TEST( worst_idx!=done_heap_idx_null() ); /* Done pool can't be empty and full at the same time */
+    done_heap_idx_remove_min( done_heap,            done_pool );
+    done_map_idx_remove_fast( done_map,  worst_idx, done_pool );
+    done_pool_idx_release( done_pool, worst_idx );
+    /* Now it's not empty */
+  }
 }
 
 
@@ -544,23 +563,38 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
   /* Is this FEC set in progress? */
   set_ctx_t * ctx = ctx_map_ele_query( ctx_map, w_sig, NULL, ctx_pool );
 
+  /* If we detect a different signature for the same (slot, FEC set
+     idx), it means either the shred is invalid, or the leader is
+     equivocating.  We can't tell which without verifying the shred
+     though. */
+  int equivoc_or_invalid = 0;
+
   /* If it's not in progress and it's repair, we will allocate a context
      for it, assuming all the other checks pass.  If it's from Turbine,
-     we'll be a little more sceptical about it: if we've already seen a
+     we'll be a little more skeptical about it: if we've already seen a
      FEC set for that same (slot, FEC set idx) pair, then we won't take
-     it. */
+     it, either rejecting it here, or setting equivoc_or_invalid to
+     reject it later. */
   if( FD_UNLIKELY( (ctx==NULL) & (!is_repair) ) ) {
     /* Most likely, it's just done. */
     slot_fec_pair_t slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
     done_ele_t * done_ele = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
     if( FD_LIKELY( done_ele ) ) {
       ulong sig_hash = fd_hash( resolver->seed, w_sig, sizeof(wrapped_sig_t) );
-      return fd_int_if( (uint)sig_hash==done_ele->sig_hash, FD_FEC_RESOLVER_SHRED_IGNORED, FD_FEC_RESOLVER_SHRED_EQUIVOC );
+      /* It's possible (with probability 2^-32, about 1/year at current
+         rates) for fd_hash to return SIG_HASH_EQUIVOC.  In this case,
+         we may miss an equivocation and just always return
+         SHRED_IGNORED for subsequent Turbine shreds for that FEC set.
+         Because the hash is validator specific, it just means we'll
+         rely on another node to produce the equivocation proof, and
+         we'll act as if we hadn't seen the equivocating shreds. */
+      if( FD_LIKELY( ((uint)sig_hash==done_ele->sig_hash) | (done_ele->sig_hash==SIG_HASH_EQUIVOC) ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+      equivoc_or_invalid = 1;
     }
 
     /* If it's not done, then check for the unlikely case we have it
        in progress with a different signature. */
-    if( FD_UNLIKELY( ctx_treap_ele_query_const( ctx_treap, slot_fec_pair, ctx_pool ) ) ) return FD_FEC_RESOLVER_SHRED_EQUIVOC;
+    if( FD_UNLIKELY( ctx_treap_ele_query_const( ctx_treap, slot_fec_pair, ctx_pool ) ) ) equivoc_or_invalid = 1;
   }
 
   /* If we've made it here, then we'll keep this shred as long as
@@ -661,6 +695,36 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
+    /* Copy the merkle root into the output arg. */
+    if( FD_LIKELY( out_merkle_root ) ) memcpy( out_merkle_root, _root, sizeof(fd_bmtree_node_t) );
+
+    if( FD_UNLIKELY( equivoc_or_invalid ) ) {
+      /* It wasn't invalid, so it must be equivoc */
+      ctx_list_ele_push_head( free_list, ctx, ctx_pool );
+      resolver->free_list_cnt++;
+      /* We want to record that we've sigverified the shred somewhere so
+         that if an attacker sends it to us again, we don't have to
+         verify it again.  We do that by inserting it into the done_map
+         with SIG_HASH_EQUIVOC. */
+      slot_fec_pair_t slot_fec_pair[1] = {{ .slot = shred->slot, .fec_idx = shred->fec_set_idx }};
+      done_ele_t * done = done_map_ele_query( done_map, slot_fec_pair, NULL, done_pool );
+      if( FD_LIKELY( done ) ) done->sig_hash = SIG_HASH_EQUIVOC;
+      else {
+        ensure_done_pool_free( done_pool, done_heap, done_map );
+
+        done = done_pool_ele_acquire( done_pool );
+
+        done->key.slot    = shred->slot;
+        done->key.fec_idx = shred->fec_set_idx;
+        done->sig_hash    = SIG_HASH_EQUIVOC;
+
+        done_heap_ele_insert( done_heap, done, done_pool );
+        done_map_ele_insert ( done_map,  done, done_pool );
+      }
+
+      return FD_FEC_RESOLVER_SHRED_EQUIVOC;
+    }
+
     /* This seems like a legitimate FEC set, so we populate the rest of
        the fields, then add it to the map and treap. */
     ctx->sig                = *w_sig;
@@ -683,9 +747,6 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
 
     ctx_map_ele_insert  ( ctx_map,   ctx, ctx_pool );
     ctx_treap_ele_insert( ctx_treap, ctx, ctx_pool );
-
-    /* Copy the merkle root into the output arg. */
-    if( FD_LIKELY( out_merkle_root ) ) memcpy( out_merkle_root, ctx->root.hash, sizeof(fd_bmtree_node_t) );
 
   } else {
     /* This is not the first shred in the set */
@@ -741,15 +802,7 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
      so we can consider it done either way. */
 
   done_ele_t * done = NULL;
-  if( FD_UNLIKELY( !done_pool_free( done_pool ) ) ) {
-    /* Done map is full, so we'll forget about the oldest slot */
-    ulong worst_idx = done_heap_idx_peek_min( done_heap );
-    FD_TEST( worst_idx!=done_heap_idx_null() ); /* Done pool can't be empty and full at the same time */
-    done_heap_idx_remove_min( done_heap,            done_pool );
-    done_map_idx_remove_fast( done_map,  worst_idx, done_pool );
-    done_pool_idx_release( done_pool, worst_idx );
-    /* Now it's not empty */
-  }
+  ensure_done_pool_free( done_pool, done_heap, done_map );
 
   /* If it's already in the done map, we don't need to re-insert it.
      It's not very clear what we should do if the sig_hashes differ, but
