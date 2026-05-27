@@ -9,7 +9,7 @@ enum TxnProtocol {
   TXN_PROTOCOL_UDP = 2;  // UDP
   TXN_PROTOCOL_GOSSIP = 3;  // Gossip
   TXN_PROTOCOL_BUNDLE = 4;  // Bundle
-  TXN_PROTOCOL_SEND = 5;  // Internal vote sender
+  TXN_PROTOCOL_TXSEND = 5;  // Internal vote sender
 }
 
 // The protocol used to send the shred
