@@ -762,11 +762,17 @@ fd_type_pun_const( void const * p ) {
    a dependent load on this core (StoreLoad barrier). */
 
 #if FD_HAS_X86
-#define FD_HW_MFENCE() __asm__ __volatile__( "lock addl $0, (%%rsp)" ::: "memory", "cc" )
+#define FD_HW_MFENCE()    __asm__ __volatile__( "lock addl $0, (%%rsp)" ::: "memory", "cc" )
+#define FD_HW_MFENCE_LD() FD_COMPILER_MFENCE()
+#define FD_HW_MFENCE_ST() FD_COMPILER_MFENCE()
 #elif FD_HAS_ARM
-#define FD_HW_MFENCE() __asm__ __volatile__( "dmb ish" ::: "memory" )
+#define FD_HW_MFENCE()    __asm__ __volatile__( "dmb ish" ::: "memory" )
+#define FD_HW_MFENCE_LD() __asm__ __volatile__( "dmb ishld" ::: "memory" )
+#define FD_HW_MFENCE_ST() __asm__ __volatile__( "dmb ishst" ::: "memory" )
 #else
-#define FD_HW_MFENCE() __sync_synchronize()
+#define FD_HW_MFENCE()    __sync_synchronize()
+#define FD_HW_MFENCE_LD() __sync_synchronize()
+#define FD_HW_MFENCE_ST() __sync_synchronize()
 #endif
 
 /* FD_SPIN_PAUSE():  Yields the logical core of the calling thread to
@@ -781,6 +787,8 @@ fd_type_pun_const( void const * p ) {
 
 #if FD_HAS_X86
 #define FD_SPIN_PAUSE() __builtin_ia32_pause()
+#elif FD_HAS_ARM
+#define FD_SPIN_PAUSE() __asm__ __volatile__( "yield" ::: "memory" )
 #else
 #define FD_SPIN_PAUSE() ((void)0)
 #endif
@@ -1367,6 +1375,47 @@ void
 fd_yield( void );
 
 #endif
+
+#if FD_HAS_ARM
+
+/* fd_arm_stp16 stores two ulongs to a 16-byte memory location.
+   If LSE2 and p is aligned, is single-copy atomic. */
+
+static inline void
+fd_arm_stp16( ulong * p,
+              ulong   a,
+              ulong   b ) {
+  __asm__(
+      "stp %x[a], %x[b], [%[p]]"
+      :
+      : [a] "r"(a), [b] "r"(b), [p] "r"(p)
+      : "memory"
+  );
+}
+
+/* fd_arm_ldp16 loads two ulongs from a 16-byte memory location.
+   If LSE2 and p is aligned, is single-copy atomic. */
+
+#define fd_arm_ldp16(p_,a_,b_)     \
+  __asm__(                         \
+      "ldp %x[a], %x[b], [%[p]]"   \
+      : [a] "=r"(a_), [b] "=r"(b_) \
+      : [p] "r"(p_)                \
+      : "memory"                   \
+  )
+
+/* fd_arm_ldp16_acq_pc is like fd_arm_ldp16, but with Load-AcquirePC
+   semantics.  Requires RCPC3. */
+
+#define fd_arm_ldp16_acq_pc(p_,a_,b_) \
+  __asm__(                            \
+      "ldiapp %x[a], %x[b], [%[p]]"   \
+      : [a] "=r"(a_), [b] "=r"(b_)    \
+      : [p] "r"(p_)                   \
+      : "memory"                      \
+  )
+
+#endif /* FD_HAS_ARM */
 
 FD_PROTOTYPES_END
 

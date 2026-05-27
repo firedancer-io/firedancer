@@ -1,9 +1,5 @@
-BUILDDIR?=linux/gcc/arm_n1
+BUILDDIR?=linux/gcc/neoverse_n2
 
-# This machine target is compatible with generic ARMv8.4-A server CPUs
-# like Neoverse V1 (ca 2020-Sep) or AWS Graviton3.
-
-# Experimental! Firedancer does not yet support Arm CPU, expect bugs.
 
 include config/extra/with-gcc-pre.mk
 include config/base.mk
@@ -15,7 +11,7 @@ include config/extra/with-debug.mk
 include config/extra/with-security.mk
 include config/extra/with-threads.mk
 
-CPPFLAGS+=-mcpu=neoverse-n1
+CPPFLAGS+=-mcpu=neoverse-n2+lse+rcpc3
 CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1
 
 FD_HAS_INT128:=1

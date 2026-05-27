@@ -42,7 +42,7 @@ jobs:
         gcc-12.4.0,linux_gcc_zen2,ALL;
         ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
-        ALL,linux_gcc_arm_n1,ALL;
+        ALL,linux_gcc_neoverse_n2,ALL;
         ALL,linux_gcc_zen3,ALL;
         ALL,linux_gcc_zen4,ALL;
         ALL,linux_gcc_zen5,ALL;

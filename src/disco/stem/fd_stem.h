@@ -41,12 +41,16 @@ fd_stem_publish( fd_stem_context_t * stem,
                  ulong               ctl,
                  ulong               tsorig,
                  ulong               tspub ) {
-  ulong * seqp = &stem->seqs[ out_idx ];
-  ulong   seq  = *seqp;
+  fd_frag_meta_t * mcache = stem->mcaches[ out_idx ];
+  ulong            depth  = stem->depths [ out_idx ];
+  ulong *          seqp   = &stem->seqs  [ out_idx ];
+  ulong            seq    = *seqp;
 # if FD_HAS_AVX
-  fd_mcache_publish_avx( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
+  fd_mcache_publish_avx( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
+# elif FD_HAS_ARM
+  fd_mcache_publish_arm( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
 # else
-  fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
+  fd_mcache_publish    ( mcache, depth, seq, sig, chunk, sz, ctl, tsorig, tspub );
 # endif
   if( FD_LIKELY( stem->out_reliable[ out_idx ] ) ) {
     if( FD_UNLIKELY( stem->cr_avail[ out_idx ]<stem->cr_decrement_amount ) ) { /* Ensure producer BURST is set correctly */

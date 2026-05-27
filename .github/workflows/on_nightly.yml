@@ -18,7 +18,7 @@ jobs:
       gcc_exceptions: |
         ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
-        ALL,linux_gcc_arm_n1,ALL;
+        ALL,linux_gcc_neoverse_n2,ALL;
         ALL,linux_gcc_icelake,ALL;
         ALL,linux_gcc_x86_64,ALL;
         ALL,linux_gcc_zen2,ALL;
