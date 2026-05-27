@@ -26,7 +26,19 @@
 
 static void
 fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
+  /* Purge the fork attached in ctx_create so the accdb fork pool slot
+     is released back for reuse.  Without this, repeated harness
+     invocations (e.g. under a fuzzer) exhaust max_live_slots and the
+     next attach_child returns NULL, causing a segfault inside accdb. */
+  fd_accdb_purge( runner->accdb, runner->bank->accdb_fork_id );
+  int charge_busy = 0;
+  fd_accdb_background( runner->accdb, &charge_busy );
+
   fd_progcache_clear( runner->progcache->join );
+
+  /* Compact the progcache allocator so empty superblocks are returned
+     to the workspace.  Required for the leak check to pass. */
+  fd_alloc_compact( runner->progcache->join->alloc );
 }
 
 /* Creates transaction execution context for a single test case.
@@ -41,7 +53,14 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Initialize bank from input txn bank */
   fd_banks_clear_bank( runner->banks, runner->bank, 64UL );
-  runner->bank->f.slot = slot;
+  runner->bank->f.slot         = slot;
+  runner->bank->accdb_fork_id  = fork_id;
+
+  /* Register a non-root progcache transaction at the bank's xid so the
+     BPF loader can insert program cache entries during execution. */
+  fd_progcache_xid_t parent_xid; fd_progcache_txn_xid_set_root( &parent_xid );
+  fd_progcache_xid_t xid = fd_bank_xid( runner->bank );
+  fd_progcache_attach_child( runner->progcache->join, &parent_xid, &xid );
 
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;
