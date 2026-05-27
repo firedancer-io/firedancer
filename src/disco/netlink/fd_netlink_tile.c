@@ -27,19 +27,19 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
                         ulong            netlnk_max_peer_routes,
                         ulong            netlnk_max_neighbors,
                         char const *     bind_interface ) {
-  fd_topo_obj_t * netdev_dbl_buf_obj = fd_topob_obj( topo, "dbl_buf",     "netbase" );
-  fd_topo_obj_t * fib4_main_obj      = fd_topob_obj( topo, "fib4",        "netbase" );
-  fd_topo_obj_t * fib4_local_obj     = fd_topob_obj( topo, "fib4",        "netbase" );
-  fd_topo_obj_t * neigh4_obj         = fd_topob_obj( topo, "neigh4_hmap", "netbase" );
+  fd_topo_obj_t * netdev_tbl_obj = fd_topob_obj( topo, "netdev_tbl",  "netbase" );
+  fd_topo_obj_t * fib4_main_obj  = fd_topob_obj( topo, "fib4",        "netbase" );
+  fd_topo_obj_t * fib4_local_obj = fd_topob_obj( topo, "fib4",        "netbase" );
+  fd_topo_obj_t * neigh4_obj     = fd_topob_obj( topo, "neigh4_hmap", "netbase" );
 
-  fd_topob_tile_uses( topo, netlink_tile, netdev_dbl_buf_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, netlink_tile, fib4_main_obj,      FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, netlink_tile, fib4_local_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, netlink_tile, neigh4_obj,         FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, netdev_tbl_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, fib4_main_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, fib4_local_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, netlink_tile, neigh4_obj,     FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  /* Configure double buffer of netdev table */
-  ulong const netdev_dbl_buf_mtu = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, netdev_dbl_buf_mtu, "obj.%lu.mtu", netdev_dbl_buf_obj->id ) );
+  /* Configure netdev table */
+  FD_TEST( fd_pod_insertf_ulong( topo->props, NETDEV_MAX,      "obj.%lu.dev_max",  netdev_tbl_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, BOND_MASTER_MAX, "obj.%lu.bond_max", netdev_tbl_obj->id ) );
 
   /* Configure route table */
   FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes,           "obj.%lu.route_max",           fib4_main_obj->id  ) );
@@ -58,17 +58,18 @@ fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
   FD_TEST( 8UL==getrandom( &neigh4_seed, sizeof(ulong), 0 ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, neigh4_seed, "obj.%lu.seed", neigh4_obj->id ) );
 
-  netlink_tile->netlink.netdev_dbl_buf_obj_id = netdev_dbl_buf_obj->id;
-  netlink_tile->netlink.fib4_main_obj_id      = fib4_main_obj->id;
-  netlink_tile->netlink.fib4_local_obj_id     = fib4_local_obj->id;
+  netlink_tile->netlink.netdev_tbl_obj_id = netdev_tbl_obj->id;
+  netlink_tile->netlink.fib4_main_obj_id  = fib4_main_obj->id;
+  netlink_tile->netlink.fib4_local_obj_id = fib4_local_obj->id;
   memcpy( netlink_tile->netlink.neigh_if, bind_interface, sizeof(netlink_tile->netlink.neigh_if) );
-  netlink_tile->netlink.neigh4_obj_id         = neigh4_obj->id;
+  netlink_tile->netlink.neigh4_obj_id     = neigh4_obj->id;
 }
 
 void
 fd_netlink_topo_join( fd_topo_t *      topo,
                       fd_topo_tile_t * netlink_tile,
                       fd_topo_tile_t * join_tile ) {
+  fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.netdev_tbl_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.neigh4_obj_id     ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_main_obj_id  ], FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topob_tile_uses( topo, join_tile, &topo->objs[ netlink_tile->netlink.fib4_local_obj_id ], FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -78,7 +79,7 @@ fd_netlink_topo_join( fd_topo_t *      topo,
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return fd_ulong_max( alignof(fd_netlink_tile_ctx_t), FD_NETDEV_TBL_ALIGN );
+  return alignof(fd_netlink_tile_ctx_t);
 }
 
 FD_FN_PURE static inline ulong
@@ -86,7 +87,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -173,18 +173,13 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_netlink_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
-  ctx->netdev_sz    = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
-  ctx->netdev_local = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_sz );
 
-  FD_TEST( tile->netlink.netdev_dbl_buf_obj_id );
-  FD_TEST( tile->netlink.neigh4_obj_id         );
-  FD_TEST( tile->netlink.fib4_local_obj_id     );
-  FD_TEST( tile->netlink.fib4_main_obj_id      );
+  FD_TEST( tile->netlink.netdev_tbl_obj_id );
+  FD_TEST( tile->netlink.neigh4_obj_id     );
+  FD_TEST( tile->netlink.fib4_local_obj_id );
+  FD_TEST( tile->netlink.fib4_main_obj_id  );
 
-  FD_TEST( fd_netdev_tbl_new( ctx->netdev_local, NETDEV_MAX, BOND_MASTER_MAX ) );
-  FD_TEST( fd_netdev_tbl_join( ctx->netdev_tbl, ctx->netdev_local ) );
-
-  FD_TEST( ctx->netdev_buf = fd_dbl_buf_join( fd_topo_obj_laddr( topo, tile->netlink.netdev_dbl_buf_obj_id ) ) );
+  FD_TEST( fd_netdev_tbl_join( ctx->netdev_tbl, fd_topo_obj_laddr( topo, tile->netlink.netdev_tbl_obj_id ) ) );
 
   ulong neigh4_obj_id = tile->netlink.neigh4_obj_id;
   ulong neigh_ele_max   = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.ele_max",   neigh4_obj_id );
@@ -281,8 +276,9 @@ during_housekeeping( fd_netlink_tile_ctx_t * ctx ) {
   if( ctx->action & FD_NET_TILE_ACTION_LINK_UPDATE ) {
     if( now < ctx->link_update_ts ) return;
     ctx->action &= ~FD_NET_TILE_ACTION_LINK_UPDATE;
+    fd_seqlock_write_lock( &ctx->netdev_tbl->hdr->seqlock );
     fd_netdev_netlink_load_table( ctx->netdev_tbl, ctx->nl_req );
-    fd_dbl_buf_insert( ctx->netdev_buf, ctx->netdev_local, ctx->netdev_sz );
+    fd_seqlock_write_unlock( &ctx->netdev_tbl->hdr->seqlock );
     ctx->link_update_ts = now+ctx->update_backoff;
     ctx->metrics.link_full_syncs++;
   }

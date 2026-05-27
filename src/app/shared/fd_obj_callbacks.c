@@ -6,7 +6,7 @@
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../tango/dcache/fd_dcache.h"
 #include "../../tango/fseq/fd_fseq.h"
-#include "../../waltz/mib/fd_dbl_buf.h"
+#include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
@@ -127,28 +127,28 @@ fd_topo_obj_callbacks_t fd_obj_cb_metrics = {
 };
 
 static ulong
-dbl_buf_footprint( fd_topo_t const *     topo,
-                   fd_topo_obj_t const * obj ) {
-  return fd_dbl_buf_footprint( VAL("mtu") );
+netdev_tbl_footprint( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  return fd_netdev_tbl_footprint( VAL("dev_max"), VAL("bond_max") );
 }
 
-static ulong
-dbl_buf_align( fd_topo_t const *     topo FD_FN_UNUSED,
-               fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_dbl_buf_align();
+static inline ulong
+netdev_tbl_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                  fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_netdev_tbl_align();
 }
 
 static void
-dbl_buf_new( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_dbl_buf_new( fd_topo_obj_laddr( topo, obj->id ), VAL("mtu"), 1UL ) );
+netdev_tbl_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_netdev_tbl_new( fd_topo_obj_laddr( topo, obj->id ), VAL("dev_max"), VAL("bond_max") ) );
 }
 
-fd_topo_obj_callbacks_t fd_obj_cb_dbl_buf = {
-  .name      = "dbl_buf",
-  .footprint = dbl_buf_footprint,
-  .align     = dbl_buf_align,
-  .new       = dbl_buf_new,
+fd_topo_obj_callbacks_t fd_obj_cb_netdev_tbl = {
+  .name      = "netdev_tbl",
+  .footprint = netdev_tbl_footprint,
+  .align     = netdev_tbl_align,
+  .new       = netdev_tbl_new,
 };
 
 static ulong

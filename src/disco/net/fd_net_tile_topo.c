@@ -45,7 +45,7 @@ setup_xdp_tile( fd_topo_t *             topo,
   fd_cstr_ncpy( tile->xdp.xdp_mode, net_cfg->xdp.xdp_mode, sizeof(tile->xdp.xdp_mode) );
 
   tile->xdp.net.umem_dcache_obj_id = umem_obj->id;
-  tile->xdp.netdev_dbl_buf_obj_id  = netlink_tile->netlink.netdev_dbl_buf_obj_id;
+  tile->xdp.netdev_tbl_obj_id      = netlink_tile->netlink.netdev_tbl_obj_id;
   tile->xdp.fib4_main_obj_id       = netlink_tile->netlink.fib4_main_obj_id;
   tile->xdp.fib4_local_obj_id      = netlink_tile->netlink.fib4_local_obj_id;
   tile->xdp.neigh4_obj_id          = netlink_tile->netlink.neigh4_obj_id;
