@@ -287,6 +287,7 @@ struct fd_topo_tile {
     struct {
       char  url[ 256 ];
       char  identity_key_path[ PATH_MAX ];
+      char  action[ 16 ];
     } event;
 
     struct {

@@ -479,6 +479,7 @@ unprivileged_init( fd_topo_t *      topo,
                                                            url_buf,
                                                            ctx->identity_pubkey,
                                                            firedancer_version_string,
+                                                           tile->event.action,
                                                            ctx->instance_id,
                                                            ctx->boot_id,
                                                            ctx->machine_id,
@@ -518,7 +519,7 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ctx->tick_per_ns   = fd_tempo_tick_per_ns( NULL );
+  ctx->tick_per_ns         = fd_tempo_tick_per_ns( NULL );
   ctx->reference_wallclock = fd_log_wallclock();
   ctx->reference_tickcount = fd_tickcount();
 
