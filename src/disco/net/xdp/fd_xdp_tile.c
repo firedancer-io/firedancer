@@ -19,7 +19,6 @@
 #include "../../../waltz/ip/fd_fib4.h"
 #include "../../../waltz/neigh/fd_neigh4_map.h"
 #include "../../../waltz/mib/fd_netdev_tbl.h"
-#include "../../../waltz/mib/fd_dbl_buf.h"
 #include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
 #include "../../../waltz/xdp/fd_xsk.h"
 #include "../../../util/log/fd_dtrace.h"
@@ -236,10 +235,8 @@ typedef struct {
   fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
   /* Netdev table */
-  fd_dbl_buf_t *       netdev_dbl_buf;    /* remote copy of device table */
-  uchar *              netdev_buf;        /* local copy of device table */
-  ulong                netdev_buf_sz;
-  fd_netdev_tbl_join_t netdev_tbl;        /* join to local copy of device table */
+  fd_netdev_tbl_join_t netdev_tbl;        /* local copy in scratch (hot path) */
+  fd_netdev_tbl_join_t netdev_shared;     /* shared table in netbase (seqlock protected) */
   uint                 gre_tunnel_ip;     /* 0 means GRE disabled */
 
   struct {
@@ -372,18 +369,6 @@ net_is_fatal_xdp_error( int err ) {
          err==EPERM;
 }
 
-/* Load the netdev table to ctx->netdev_buf. Create a join in ctx->netdev_tbl_handle  */
-
-static void
-net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
-  /* Copy netdev table from netlink tile.  This could fail briefly
-     during startup if the netlink tile is late to start up. */
-  if( FD_UNLIKELY( !fd_dbl_buf_read( ctx->netdev_dbl_buf, ctx->netdev_buf_sz, ctx->netdev_buf, NULL ) ) ) return;
-
-  /* Join local copy */
-  if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
-}
-
 /* net_gre_tunnel_ip returns the IP address of the GRE tunnel peer if an
    untagged GRE tunnel exists, returns 0 otherwise. */
 
@@ -489,7 +474,9 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
 static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_tickcount();
-  net_load_netdev_tbl( ctx );
+  if( FD_LIKELY( !fd_seqlock_locked_hint( &ctx->netdev_shared.hdr->seqlock ) ) ) {
+    fd_netdev_tbl_copy( &ctx->netdev_tbl, &ctx->netdev_shared );
+  }
   ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
 
   ctx->metrics.rx_busy_cnt = 0UL;
@@ -1385,27 +1372,13 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
-/* init_device_table joins the net tile to the netlink tile's device
-   table.  The device table is very frequently read, and rarely updated.
-   Therefore, the net tile keeps a local copy of the device table in
-   scratch memory.  This table is periodically copied over from the
-   netlink tile via a double buffer (netdev_dbl_buf).
-
-   On startup, the netlink tile might not have produced its initial
-   device table.  Therefore, initialize the local copy to an empty
-   table. */
-
 static void
 init_device_table( fd_net_ctx_t * ctx,
-                   void *         netdev_dbl_buf ) {
-
-  /* Join remote double buffer containing device table updates */
-  ctx->netdev_dbl_buf = fd_dbl_buf_join( netdev_dbl_buf );
-  if( FD_UNLIKELY( !ctx->netdev_dbl_buf ) ) FD_LOG_ERR(( "fd_dbl_buf_join failed" ));
-  ctx->netdev_buf_sz  = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
-
-  /* Create temporary empty device table during startup */
-  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, fd_netdev_tbl_new( ctx->netdev_buf, 1, 1 ) ) );
+                   void *         netdev_tbl_shm,
+                   void *         netdev_tbl_local ) {
+  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_shared, netdev_tbl_shm ) );
+  FD_TEST( fd_netdev_tbl_new( netdev_tbl_local, NETDEV_MAX, BOND_MASTER_MAX ) );
+  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, netdev_tbl_local ) );
 }
 
 FD_FN_UNUSED static void
@@ -1418,7 +1391,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->xsk_cnt!=0 );
   FD_TEST( ctx->free_tx.queue!=NULL );
   (void)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), tile->xdp.free_ring_depth * sizeof(ulong) );
-  ctx->netdev_buf              = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
+  void * netdev_tbl_local = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
 
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
@@ -1533,7 +1506,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
-  init_device_table( ctx, fd_topo_obj_laddr( topo, tile->xdp.netdev_dbl_buf_obj_id ) );
+  init_device_table( ctx, fd_topo_obj_laddr( topo, tile->xdp.netdev_tbl_obj_id ), netdev_tbl_local );
 
   /* Initialize TX free ring */
 

@@ -366,16 +366,13 @@ main( int     argc,
   fd_neigh4_hmap_t neigh4_hmap[1];
   FD_TEST( fd_neigh4_hmap_join( neigh4_hmap, neigh4_hmap_mem, neigh4_ele_max, neigh4_probe_max, 123456UL ) );
 
-  /* Netdev table double buffer setup */
-  ulong           netdev_mtu               = fd_netdev_tbl_footprint(NETDEV_MAX, BOND_MASTER_MAX);
-  fd_topo_obj_t * topo_netdev_dbl_buf_obj  = fd_topob_obj( topo, "dbl_buf", "wksp" );
-  void *          netdev_dbl_buf_mem       = fd_wksp_alloc_laddr( wksp, fd_dbl_buf_align(), fd_dbl_buf_footprint( netdev_mtu ), WKSP_TAG );
-  FD_TEST( netdev_dbl_buf_mem );
-  FD_TEST( fd_dbl_buf_new( netdev_dbl_buf_mem, netdev_mtu, 0 ) );
-  topo->workspaces[topo_netdev_dbl_buf_obj->wksp_id].wksp = wksp;
-  topo->objs[ topo_netdev_dbl_buf_obj->id ].offset = (ulong)netdev_dbl_buf_mem - (ulong)wksp;
-  FD_TEST( fd_topo_obj_laddr(topo, topo_netdev_dbl_buf_obj->id)==netdev_dbl_buf_mem );
-  topo_tile->xdp.netdev_dbl_buf_obj_id     = topo_netdev_dbl_buf_obj->id;
+  /* Netdev table shared object setup */
+  void * netdev_tbl_mem = fd_wksp_alloc_laddr( wksp, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ), WKSP_TAG );
+  FD_TEST( netdev_tbl_mem );
+  FD_TEST( fd_netdev_tbl_new( netdev_tbl_mem, NETDEV_MAX, BOND_MASTER_MAX ) );
+  fd_topo_obj_t * topo_netdev_tbl_obj = fd_topob_obj( topo, "netdev_tbl", "wksp" );
+  topo->objs[ topo_netdev_tbl_obj->id ].offset = (ulong)netdev_tbl_mem - (ulong)wksp;
+  topo_tile->xdp.netdev_tbl_obj_id = topo_netdev_tbl_obj->id;
 
   /* Attach links to tile */
   fd_topob_tile_out( topo, "net", 0UL, "net_shred", 0UL );
@@ -389,9 +386,8 @@ main( int     argc,
   ctx->net_tile_cnt = 1;
   ctx->free_tx.queue  = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), topo_tile->xdp.free_ring_depth * sizeof(ulong) );
   ctx->free_tx.depth  = topo_tile->xdp.free_ring_depth;
-  ctx->netdev_buf     = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
-
-  init_device_table( ctx, netdev_dbl_buf_mem );
+  void * netdev_tbl_local = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX ) );
+  init_device_table( ctx, netdev_tbl_mem, netdev_tbl_local );
 
   FD_TEST( fd_topo_obj_laddr( topo, topo_tile->net.umem_dcache_obj_id )==umem_dcache_mem );
   void * const umem          = fd_dcache_join( umem_dcache_mem );
@@ -490,12 +486,6 @@ main( int     argc,
   FD_TEST( fd_neigh4_hmap_join( ctx->neigh4, fd_topo_obj_laddr( topo, topo_tile->xdp.neigh4_obj_id ), neigh4_ele_max, neigh4_probe_max, 123456UL ) );
 
   /* Netdev table */
-  FD_TEST( fd_topo_obj_laddr( topo, topo_tile->xdp.netdev_dbl_buf_obj_id )==netdev_dbl_buf_mem );
-  ctx->netdev_dbl_buf = fd_dbl_buf_join( netdev_dbl_buf_mem );
-  ctx->netdev_buf_sz  = fd_netdev_tbl_footprint( NETDEV_MAX, BOND_MASTER_MAX );
-  ctx->netdev_buf     = FD_SCRATCH_ALLOC_APPEND( l, fd_netdev_tbl_align(), ctx->netdev_buf_sz );
-  fd_netdev_tbl_new( ctx->netdev_buf, NETDEV_MAX, BOND_MASTER_MAX );
-  FD_TEST( fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) );
   setup_netdev_table( ctx );
   ctx->gre_tunnel_ip = net_gre_tunnel_ip( ctx );
   FD_TEST( ctx->gre_tunnel_ip==gre0_outer_dst_ip );
