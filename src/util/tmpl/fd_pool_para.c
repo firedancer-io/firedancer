@@ -322,6 +322,10 @@
 
 /* Implementation *****************************************************/
 
+#if FD_HAS_THREADS && !FD_HAS_ATOMIC
+#error "fd_pool_para.c requires atomic compare-and-swap"
+#endif
+
 #define POOL_VER_WIDTH (64-POOL_IDX_WIDTH)
 
 #if POOL_IMPL_STYLE==0 /* local use only */
@@ -383,41 +387,56 @@ FD_FN_CONST static inline ulong POOL_(private_vidx_idx)( ulong ver_idx ) { retur
 FD_FN_CONST static inline POOL_IDX_T POOL_(private_cidx)( ulong  idx ) { return (POOL_IDX_T) idx; }
 FD_FN_CONST static inline ulong      POOL_(private_idx) ( ulong cidx ) { return (ulong)     cidx; }
 
-/* pool_private_cas does a ulong FD_ATOMIC_CAS when FD_HAS_ATOMIC
-   support is available and emulates it when not.  Similarly for
-   pool_private_fetch_and_or.  When emulated, the pool will not be safe
-   to use concurrently (but will still work). */
+/* Atomic API wrappers.  When building without threads, these use
+   non-atomic operations. */
 
-static inline ulong
+#if FD_HAS_THREADS
+
+static inline int
 POOL_(private_cas)( ulong volatile * p,
                     ulong            c,
                     ulong            s ) {
-  ulong o;
-  FD_COMPILER_MFENCE();
-# if FD_HAS_ATOMIC
-  o = FD_ATOMIC_CAS( p, c, s );
-# else
-  o = *p;
-  *p = fd_ulong_if( o==c, s, o );
-# endif
-  FD_COMPILER_MFENCE();
-  return o;
+  return __atomic_compare_exchange_n( p, &c, s, 1, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST );
 }
 
 static inline ulong
-POOL_(private_fetch_and_or)( ulong volatile * p,
-                             ulong            b ) {
-  ulong x;
-  FD_COMPILER_MFENCE();
-# if FD_HAS_ATOMIC
-  x = FD_ATOMIC_FETCH_AND_OR( p, b );
-# else
-  x = *p;
+POOL_(private_fetch_or)( ulong volatile * p,
+                         ulong            b ) {
+  return __atomic_fetch_or( p, b, __ATOMIC_SEQ_CST );
+}
+
+static inline ulong
+POOL_(private_add_release)( ulong volatile * p,
+                            ulong            b ) {
+  return __atomic_fetch_add( p, b, __ATOMIC_RELEASE );
+}
+
+#else
+
+static inline int
+POOL_(private_cas)( ulong volatile * p,
+                    ulong            c,
+                    ulong            s ) {
+  ulong o = *p;
+  *p = fd_ulong_if( o==c, s, o );
+  return o==c;
+}
+
+static inline ulong
+POOL_(private_fetch_or)( ulong volatile * p,
+                         ulong            b ) {
+  ulong x = *p;
   *p = x | b;
-# endif
-  FD_COMPILER_MFENCE();
   return x;
 }
+
+static inline void
+POOL_(private_add_release)( ulong volatile * p,
+                            ulong            b ) {
+  *p += b;
+}
+
+#endif /* FD_HAS_THREADS */
 
 FD_FN_CONST static inline ulong POOL_(ele_max_max)( void ) { return (ulong)(POOL_IDX_T)(ULONG_MAX >> POOL_VER_WIDTH); }
 
@@ -460,12 +479,10 @@ POOL_(peek_const)( POOL_(t) const * join ) {
   POOL_(shmem_t) const * pool    = join->pool;
   POOL_ELE_T     const * ele     = join->ele;
   ulong                  ele_max = join->ele_max;
-  FD_COMPILER_MFENCE();
-  ulong ver_top  = pool->ver_top;
+  ulong ver_top  = __atomic_load_n( &pool->ver_top,  __ATOMIC_RELAXED );
 # if POOL_LAZY
-  ulong ver_lazy = pool->ver_lazy;
+  ulong ver_lazy = __atomic_load_n( &pool->ver_lazy, __ATOMIC_RELAXED );
 # endif
-  FD_COMPILER_MFENCE();
   ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
 # if POOL_LAZY
   if( ele_idx<ele_max ) {
@@ -484,12 +501,10 @@ static inline POOL_ELE_T * POOL_(peek)( POOL_(t) * join ) { return (POOL_ELE_T *
 static inline void
 POOL_(unlock)( POOL_(t) * join ) {
   POOL_(shmem_t) * pool = join->pool;
-  FD_COMPILER_MFENCE();
-  pool->ver_top  += 1UL<<POOL_IDX_WIDTH;
+  POOL_(private_add_release)( &pool->ver_top, 1UL<<POOL_IDX_WIDTH );
 # if POOL_LAZY
-  pool->ver_lazy += 1UL<<POOL_IDX_WIDTH;
+  POOL_(private_add_release)( &pool->ver_lazy, 1UL<<POOL_IDX_WIDTH );
 # endif
-  FD_COMPILER_MFENCE();
 }
 
 POOL_STATIC void *     POOL_(new)   ( void *     shmem );
@@ -653,7 +668,7 @@ POOL_(acquire_lazy)( POOL_(t) * join ) {
   FD_COMPILER_MFENCE();
 
   for(;;) {
-    ulong ver_lazy = *_l;
+    ulong ver_lazy = __atomic_load_n( _l, __ATOMIC_ACQUIRE );
 
     ulong ver     = POOL_(private_vidx_ver)( ver_lazy );
     ulong ele_idx = POOL_(private_vidx_idx)( ver_lazy );
@@ -672,7 +687,7 @@ POOL_(acquire_lazy)( POOL_(t) * join ) {
       if( FD_UNLIKELY( ele_nxt>=ele_max ) ) ele_nxt = POOL_(idx_null)();
 
       ulong new_ver_lazy = POOL_(private_vidx)( ver+2UL, ele_nxt );
-      if( FD_LIKELY( POOL_(private_cas)( _l, ver_lazy, new_ver_lazy )==ver_lazy ) ) { /* opt for low contention */
+      if( FD_LIKELY( POOL_(private_cas)( _l, ver_lazy, new_ver_lazy ) ) ) { /* opt for low contention */
         ele = ele0 + ele_idx;
         break;
       }
@@ -699,7 +714,7 @@ POOL_(acquire)( POOL_(t) * join ) {
   FD_COMPILER_MFENCE();
 
   for(;;) {
-    ulong ver_top = *_v;
+    ulong ver_top = __atomic_load_n( _v, __ATOMIC_ACQUIRE );
 
     ulong ver     = POOL_(private_vidx_ver)( ver_top );
     ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
@@ -728,13 +743,13 @@ POOL_(acquire)( POOL_(t) * join ) {
            only signal ERR_CORRUPT if the version number hasn't changed
            since we read it. */
 
-        if( FD_UNLIKELY( POOL_(private_vidx_ver)( *_v )==ver ) ) {
+        if( FD_UNLIKELY( POOL_(private_vidx_ver)( __atomic_load_n( _v, __ATOMIC_RELAXED ) )==ver ) ) {
           FD_LOG_CRIT(( "corruption detected (ele_nxt=%lu ele_max=%lu)", ele_nxt, ele_max ));
         }
       } else { /* ele_nxt is valid */
         ulong new_ver_top = POOL_(private_vidx)( ver+2UL, ele_nxt );
 
-        if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) ) { /* opt for low contention */
+        if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top ) ) ) { /* opt for low contention */
           ele = ele0 + ele_idx;
           break;
         }
@@ -761,7 +776,7 @@ POOL_(release)( POOL_(t) *   join,
   FD_COMPILER_MFENCE();
 
   for(;;) {
-    ulong ver_top = *_v;
+    ulong ver_top = __atomic_load_n( _v, __ATOMIC_ACQUIRE );
 
     ulong ver     = POOL_(private_vidx_ver)( ver_top );
     ulong ele_nxt = POOL_(private_vidx_idx)( ver_top );
@@ -776,7 +791,7 @@ POOL_(release)( POOL_(t) *   join,
 
       ulong new_ver_top = POOL_(private_vidx)( ver+2UL, ele_idx );
 
-      if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) ) break; /* opt for low contention */
+      if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top ) ) ) break; /* opt for low contention */
 
     }
 
@@ -802,7 +817,7 @@ POOL_(release_chain)( POOL_(t) *   join,
   FD_COMPILER_MFENCE();
 
   for(;;) {
-    ulong ver_top = *_v;
+    ulong ver_top = __atomic_load_n( _v, __ATOMIC_ACQUIRE );
 
     ulong ver     = POOL_(private_vidx_ver)( ver_top );
     ulong ele_nxt = POOL_(private_vidx_idx)( ver_top );
@@ -817,7 +832,7 @@ POOL_(release_chain)( POOL_(t) *   join,
 
       ulong new_ver_top = POOL_(private_vidx)( ver+2UL, head_idx );
 
-      if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top )==ver_top ) ) break; /* opt for low contention */
+      if( FD_LIKELY( POOL_(private_cas)( _v, ver_top, new_ver_top ) ) ) break; /* opt for low contention */
 
     }
 
@@ -830,12 +845,10 @@ POOL_(release_chain)( POOL_(t) *   join,
 POOL_STATIC int
 POOL_(is_empty)( POOL_(t) * join ) {
   POOL_(shmem_t) const * pool = join->pool;
-  FD_COMPILER_MFENCE();
-  ulong ver_top  = pool->ver_top;
+  ulong ver_top  = __atomic_load_n( &pool->ver_top, __ATOMIC_RELAXED );
 # if POOL_LAZY
-  ulong ver_lazy = pool->ver_lazy;
+  ulong ver_lazy = __atomic_load_n( &pool->ver_lazy, __ATOMIC_RELAXED );
 # endif
-  FD_COMPILER_MFENCE();
 
   ulong top_idx = POOL_(private_vidx_idx)( ver_top );
 # if POOL_LAZY
@@ -865,9 +878,9 @@ POOL_(lock)( POOL_(t) * join,
 
     /* use a test-and-test-and-set style for reduced contention */
 
-    ver_top = *_v;
+    ver_top = __atomic_load_n( _v, __ATOMIC_RELAXED );
     if( FD_LIKELY( !(ver_top & (1UL<<POOL_IDX_WIDTH)) ) ) { /* opt for low contention */
-      ver_top = POOL_(private_fetch_and_or)( _v, 1UL<<POOL_IDX_WIDTH );
+      ver_top = POOL_(private_fetch_or)( _v, 1UL<<POOL_IDX_WIDTH );
       if( FD_LIKELY( !(ver_top & (1UL<<POOL_IDX_WIDTH)) ) ) break; /* opt for low contention */
     }
 
@@ -887,14 +900,14 @@ POOL_(lock)( POOL_(t) * join,
 
     /* use a test-and-test-and-set style for reduced contention */
 
-    ulong ver_lazy = *_l;
+    ulong ver_lazy = __atomic_load_n( _l, __ATOMIC_RELAXED );
     if( FD_LIKELY( !(ver_lazy & (1UL<<POOL_IDX_WIDTH)) ) ) { /* opt for low contention */
-      ver_lazy = POOL_(private_fetch_and_or)( _l, 1UL<<POOL_IDX_WIDTH );
+      ver_lazy = POOL_(private_fetch_or)( _l, 1UL<<POOL_IDX_WIDTH );
       if( FD_LIKELY( !(ver_lazy & (1UL<<POOL_IDX_WIDTH)) ) ) break; /* opt for low contention */
     }
 
     if( FD_UNLIKELY( !blocking ) ) { /* opt for blocking */
-      *_v = POOL_(private_vidx)( POOL_(private_vidx_ver)( ver_top )+2UL, POOL_(private_vidx_idx)( ver_top ) ); /* unlock */
+      __atomic_store_n( _v, POOL_(private_vidx)( POOL_(private_vidx_ver)( ver_top )+2UL, POOL_(private_vidx_idx)( ver_top ) ), __ATOMIC_RELEASE ); /* unlock */
       err = FD_POOL_ERR_AGAIN;
       goto fail;
     }
