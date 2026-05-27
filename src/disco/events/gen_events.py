@@ -24,6 +24,7 @@ class ClickHouseType(Enum):
     UInt8 = auto()
     UInt16 = auto()
     UInt64 = auto()
+    Pubkey = auto()
     String = auto()
     Bytes = auto()
     LowCardinalityString = auto()
@@ -34,6 +35,7 @@ class ClickHouseType(Enum):
         "UInt8": "UInt8",
         "UInt16": "UInt16",
         "UInt64": "UInt64",
+        "Pubkey": "Pubkey",
         "String": "String",
         "Bytes": "Bytes",
         "LowCardinality(String)": "LowCardinalityString",
@@ -45,6 +47,7 @@ class ClickHouseType(Enum):
         "UInt8": "uint32",
         "UInt16": "uint32",
         "UInt64": "uint64",
+        "Pubkey": "bytes",
         "String": "bytes",
         "Bytes": "bytes",
         "LowCardinalityString": "string",
