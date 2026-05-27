@@ -231,12 +231,21 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    pointer is NULL, the argument will be ignored and merkle root will
    not be written.
 
-   If the shred's Merkle root differs from the Merkle root of a
-   previously received shred with the same values for slot and FEC
-   index, and is_repair is zero, the shred may be rejected with return
-   value SHRED_EQUIVOC.  The FEC resolver has a limited memory, which is
-   why equivocation detection cannot be guaranteed.  Note that these
-   checks are bypassed if is_repair is non-zero.
+   If the shred is validly signed but has a Merkle root that differs
+   from the Merkle root of a previously received shred with the same
+   values for slot and FEC index, and is_repair is zero, the shred may
+   be rejected with return value SHRED_EQUIVOC.  In general (other than
+   if done_depth is too small), the FEC resolver will return
+   SHRED_EQUIVOC for the first equivocating shred with that slot and FEC
+   index and SHRED_IGNORED for any subsequent ones.  Additionally, the
+   FEC resolver has a limited memory and uses a probabilistic scheme
+   with (per-validator independent) probability 2^-31 of returning
+   SHRED_IGNORED instead of SHRED_EQUIVOC, which is why equivocation
+   detection cannot be guaranteed.  Note that these checks are bypassed
+   if is_repair is non-zero.  Similar to SHRED_{OKAY,COMPLETES},
+   out_merkle_root will be populated on SHRED_EQUIVOC if non-NULL.  Note
+   that there are forms of equivocation not covered by this strict
+   check.
 
    If the shred has the same slot, shred index, and signature as a shred
    that has already been successfully completed in a FEC by the FEC
@@ -254,12 +263,14 @@ typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
    populated similarly to when returning SHRED_OKAY.
 
    If the shred fails validation for any other reason, returns
-   SHRED_REJECTED and does not write to out_{fec_set,shred,merkle_root}.
+   SHRED_REJECTED and does not write to out_{fec_set,shred}. If
+   non-NULL, the contents pointed to by out_merkle_root may be
+   clobbered.
 
-   Note that only light validation is performed on a duplicate shred, so
-   a shred that is actually invalid but looks like a duplicate of a
-   previously received valid shred may be considered SHRED_IGNORED
-   instead of SHRED_REJECTED.
+   Note that only light validation is performed when returning
+   SHRED_IGNORED, so a shred that is actually invalid but meets the
+   criteria for SHRED_IGNORED may be considered SHRED_IGNORED instead of
+   SHRED_REJECTED.
 
    This function returns SHRED_COMPLETES when the received shred
    completes the FEC set.  In this case, the function populates any
