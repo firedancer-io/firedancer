@@ -176,6 +176,9 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
      other than the specified value */
   ushort expected_shred_version;
 
+  /* Test/fuzz mode: bypass Merkle+Ed25519 verification in add_shred. */
+  uchar  bypass_verify;
+
   /* ctx_pool: A flat array (not an fd_pool) of the set_ctx_t
      structures used to back ctx_map, ctx_treap, and the ctx
      freelists. */
@@ -374,6 +377,7 @@ fd_fec_resolver_new( void                    * shmem,
   resolver->complete_depth                          = complete_depth;
   resolver->done_depth                              = done_depth;
   resolver->expected_shred_version                  = 0;
+  resolver->bypass_verify                           = 0;
   resolver->free_list_cnt                           = depth+partial_depth;
   resolver->signer                                  = signer;
   resolver->sign_ctx                                = sign_ctx;
@@ -423,6 +427,12 @@ void
 fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
                                    ushort              expected_shred_version ) {
   resolver->expected_shred_version = expected_shred_version;
+}
+
+void
+fd_fec_resolver_set_bypass_verify( fd_fec_resolver_t * resolver,
+                                   int                 bypass_verify ) {
+  resolver->bypass_verify = (uchar)!!bypass_verify;
 }
 
 void
@@ -681,21 +691,23 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     tree = fd_bmtree_commit_init( ctx->_footprint, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, FD_SHRED_MERKLE_LAYER_CNT );
     FD_TEST( tree==ctx->tree );
 
-    fd_bmtree_node_t _root[1];
-    fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-    int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
-    if( FD_UNLIKELY( !rv ) ) {
-      ctx_list_ele_push_head( free_list, ctx, ctx_pool );
-      resolver->free_list_cnt++;
-      FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
-      return FD_FEC_RESOLVER_SHRED_REJECTED;
-    }
+    fd_bmtree_node_t _root[1] = {0};
+    if( FD_LIKELY( !resolver->bypass_verify ) ) {
+      fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
+      int rv = fd_bmtree_commitp_insert_with_proof( tree, shred_idx, leaf, (uchar const *)proof, tree_depth, _root );
+      if( FD_UNLIKELY( !rv ) ) {
+        ctx_list_ele_push_head( free_list, ctx, ctx_pool );
+        resolver->free_list_cnt++;
+        FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
+        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      }
 
-    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) ) ) {
-      ctx_list_ele_push_head( free_list, ctx, ctx_pool );
-      resolver->free_list_cnt++;
-      FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
-      return FD_FEC_RESOLVER_SHRED_REJECTED;
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( _root->hash, 32UL, shred->signature, leader_pubkey, sha512 ) ) ) {
+        ctx_list_ele_push_head( free_list, ctx, ctx_pool );
+        resolver->free_list_cnt++;
+        FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
+        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      }
     }
 
     /* Copy the merkle root into the output arg. */
@@ -767,9 +779,13 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
 
-    fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
-    int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
-    if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    if( FD_UNLIKELY( resolver->bypass_verify ) ) {
+      if( FD_LIKELY( out_merkle_root ) ) *out_merkle_root = ctx->root;
+    } else {
+      fd_shred_merkle_t const * proof = fd_shred_merkle_nodes( shred );
+      int rv = fd_bmtree_commitp_insert_with_proof( ctx->tree, shred_idx, leaf, (uchar const *)proof, tree_depth, out_merkle_root );
+      if( !rv ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+    }
 
     /* Check to make sure this is not a duplicate */
     int shred_dup = !!(fd_uint_if( is_data_shred, ctx->set->data_shred_rcvd, ctx->set->parity_shred_rcvd ) & (1U << in_type_idx));
@@ -868,12 +884,14 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
       if( FD_LIKELY( fd_shred_is_chained( shred_type ) ) ) {
         fd_memcpy( set->data_shreds[i].b+fd_shred_chain_off( ctx->data_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
-      fd_bmtree_hash_leaf( leaf, set->data_shreds[i].b+sizeof(fd_ed25519_sig_t), data_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
-      if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaf, NULL, 0, NULL ) ) ) {
-        ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
-        resolver->free_list_cnt++;
-        FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
-        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      if( FD_LIKELY( !resolver->bypass_verify ) ) {
+        fd_bmtree_hash_leaf( leaf, set->data_shreds[i].b+sizeof(fd_ed25519_sig_t), data_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, i, leaf, NULL, 0, NULL ) ) ) {
+          ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
+          resolver->free_list_cnt++;
+          FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+          return FD_FEC_RESOLVER_SHRED_REJECTED;
+        }
       }
     }
   }
@@ -895,18 +913,20 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
         fd_memcpy( set->parity_shreds[i].b+fd_shred_chain_off( ctx->parity_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
 
-      fd_bmtree_hash_leaf( leaf, set->parity_shreds[i].b+sizeof(fd_ed25519_sig_t), parity_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
-      if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaf, NULL, 0, NULL ) ) ) {
-        ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
-        resolver->free_list_cnt++;
-        FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
-        return FD_FEC_RESOLVER_SHRED_REJECTED;
+      if( FD_LIKELY( !resolver->bypass_verify ) ) {
+        fd_bmtree_hash_leaf( leaf, set->parity_shreds[i].b+sizeof(fd_ed25519_sig_t), parity_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+        if( FD_UNLIKELY( !fd_bmtree_commitp_insert_with_proof( tree, FD_FEC_SHRED_CNT + i, leaf, NULL, 0, NULL ) ) ) {
+          ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
+          resolver->free_list_cnt++;
+          FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
+          return FD_FEC_RESOLVER_SHRED_REJECTED;
+        }
       }
     }
   }
 
   /* Check that the whole Merkle tree is consistent. */
-  if( FD_UNLIKELY( !fd_bmtree_commitp_fini( tree, FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) ) ) {
+  if( FD_UNLIKELY( !resolver->bypass_verify && !fd_bmtree_commitp_fini( tree, FD_FEC_SHRED_CNT + FD_FEC_SHRED_CNT ) ) ) {
     ctx_list_ele_push_tail( free_list, ctx, ctx_pool );
     resolver->free_list_cnt++;
     FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );

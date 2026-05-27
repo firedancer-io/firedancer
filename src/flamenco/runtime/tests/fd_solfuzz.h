@@ -170,6 +170,20 @@ fd_solfuzz_pb_block_fixture( fd_solfuzz_runner_t * runner,
                              uchar const *         in,
                              ulong                 in_sz );
 
+/* Shred parse / FEC / replay ingestion harness */
+
+ulong
+fd_solfuzz_pb_shred_run( fd_solfuzz_runner_t * runner,
+                         void const *          input_,
+                         void **               output_,
+                         void *                output_buf,
+                         ulong                 output_bufsz );
+
+int
+fd_solfuzz_pb_shred_fixture( fd_solfuzz_runner_t * runner,
+                             uchar const *         in,
+                             ulong                 in_sz );
+
 /* SVM Program Loading */
 
 ulong
