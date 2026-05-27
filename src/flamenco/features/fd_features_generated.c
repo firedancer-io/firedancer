@@ -1881,6 +1881,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "loader_v3_minimum_extend_program_size",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, define_ltds_fee_only_semantics)>>3,
+    .id                        = {"\x04\xfb\xad\x24\xc6\x0e\x2a\x90\xb8\xa3\x51\xeb\x9a\xa6\x3b\x69\x1b\xd3\x00\x63\x95\xc3\xd8\xfb\xd8\xa5\xef\xd6\x92\xf1\x3f\xa0"},
+                                 /* LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD */
+    .name                      = "define_ltds_fee_only_semantics",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -1893,7 +1899,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_NAME      fd_feature_id_lookup
 #define MAP_PERFECT_LG_TBL_SZ 12
 #define MAP_PERFECT_T         fd_feature_id_lookup_entry_t
-#define MAP_PERFECT_HASH_C    54088U
+#define MAP_PERFECT_HASH_C    65449U
 #define MAP_PERFECT_KEY_T     ulong
 #define MAP_PERFECT_ZERO_KEY  0UL
 
@@ -2172,6 +2178,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_272 0xb0399cb49a7f7396UL, .val = &ids[272]
 #define MAP_PERFECT_273 0xd388d8dbc65e2dcbUL, .val = &ids[273]
 #define MAP_PERFECT_274 0xbe56a012b91e1808UL, .val = &ids[274]
+#define MAP_PERFECT_275 0x902a0ec624adfb04UL, .val = &ids[275]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2457,4 +2464,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_sha512_syscall                
 FD_STATIC_ASSERT( offsetof( fd_features_t, disable_sbpf_v0_v1_v2_deployment                        )>>3==272UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, commission_rate_in_basis_points                         )>>3==273UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_minimum_extend_program_size                   )>>3==274UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, define_ltds_fee_only_semantics                          )>>3==275UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

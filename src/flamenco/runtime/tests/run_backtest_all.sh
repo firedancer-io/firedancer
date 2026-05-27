@@ -133,3 +133,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l direct_account_pointers_in_
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_boundary -y 1 -m 10000 -e 950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l commission_rate_in_basis_points_snapshot -y 1 -m 10000 -e 950
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l disable_sbpf_v0_v1_v2_deployment -y 1 -m 10000 -e 625
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l define_ltds_fee_only_semantics -y 1 -m 1000 -e 330

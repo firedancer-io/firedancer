@@ -79,6 +79,8 @@ $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_ren
 $(call run-unit-test,test_deprecate_rent_exemption_threshold)
 $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_instr_acct_bounds,)
+$(call make-unit-test,test_define_ltds_fee_only_semantics,test_define_ltds_fee_only_semantics,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_define_ltds_fee_only_semantics,)
 $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_accounts_resize_delta)
 $(call make-unit-test,test_fee_reward,tests/test_fee_reward,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)

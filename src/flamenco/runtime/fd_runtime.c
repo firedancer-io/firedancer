@@ -1026,17 +1026,29 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
 
         Because the cost tracker uses the loaded account data size in block cost calculations, we need to
         make sure our calculated loaded accounts data size is conformant with Agave's.
-        https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L4116
+        https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/svm/src/account_loader.rs#L437-L449
 
-        In any case, we should always add the dlen of the fee payer. */
-    txn_out->details.loaded_accounts_data_size = fd_accdb_ref_data_sz( txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].ro );
+        These are different depending on if define_ltds_fee_only_semantics is enabled or not.
 
-    /* Special case handling for if a nonce account is present in the transaction. */
-    if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-      /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
-          be double counting the dlen of the fee payer. */
-      if( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-        txn_out->details.loaded_accounts_data_size += txn_out->accounts.rollback_nonce->dlen;
+        If define_ltds_fee_only_semantics is enabled, we use the accumulated load size so far,
+        clamped to the compute budget requested loaded_accounts_data_size_limit. */
+    if( FD_FEATURE_ACTIVE_BANK( bank, define_ltds_fee_only_semantics ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/svm/src/account_loader.rs#L495-L501 */
+      txn_out->details.loaded_accounts_data_size = fd_ulong_min(
+        txn_out->details.loaded_accounts_data_size,
+        txn_out->details.compute_budget.loaded_accounts_data_size_limit );
+    } else {
+      /* If define_ltds_fee_only_semantics is not enabled, initialize
+         loaded_accounts_data_size with the dlen of the fee payer. */
+      txn_out->details.loaded_accounts_data_size = fd_accdb_ref_data_sz( txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].ro );
+
+      /* Special case handling for if a nonce account is present in the transaction. */
+      if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+        /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
+            be double counting the dlen of the fee payer. */
+        if( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
+          txn_out->details.loaded_accounts_data_size += txn_out->accounts.rollback_nonce->dlen;
+        }
       }
     }
   }
