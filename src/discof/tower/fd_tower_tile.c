@@ -778,10 +778,10 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
   int err = fd_compact_tower_sync_de( &ctx->compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
   if( FD_UNLIKELY( err==-1 ) ) { ctx->metrics.txn_bad_deser++; return; }
-  ulong slot = ctx->compact_tower_sync_serde.root;
+  ulong slot = fd_ulong_if( ctx->compact_tower_sync_serde.root==ULONG_MAX, 0, ctx->compact_tower_sync_serde.root );
   fd_tower_vote_remove_all( ctx->scratch_tower );
   for( ulong i = 0; i < ctx->compact_tower_sync_serde.lockouts_cnt; i++ ) {
-    slot += ctx->compact_tower_sync_serde.lockouts[i].offset;
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( slot, ctx->compact_tower_sync_serde.lockouts[i].offset, &slot ) ) ) { ctx->metrics.txn_bad_deser++; return; };
     fd_tower_vote_push_tail( ctx->scratch_tower, (fd_tower_vote_t){ .slot = slot, .conf = ctx->compact_tower_sync_serde.lockouts[i].confirmation_count } );
   }
 
