@@ -1793,7 +1793,7 @@ fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
 
     /* Validate account locks before the union acquire below, bounding
        the deduped set within the accdb acquire limit. */
-    err = fd_executor_validate_account_locks( bank, txn_out );
+    err = fd_executor_validate_account_locks( txn_out );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
     for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {

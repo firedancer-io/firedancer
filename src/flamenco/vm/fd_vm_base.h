@@ -216,15 +216,8 @@ FD_PROTOTYPES_END
 
 /* FD_VM_INVOKE_UNITS is the number of compute units consumed by an
    invoke call (not including the cost incurred by the called program)
-   https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/execution_budget.rs#L20-L21 */
-
-#define FD_VM_INVOKE_UNITS                              (            1000UL)
-
-/* FD_VM_INVOKE_UNITS_SIMD_0339 is the number of compute units consumed by
-   an invoke call (not including the cost incurred by the called program)
-   with SIMD-0339 (increase_cpi_account_info_limit) active.
    https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/execution_budget.rs#L22-L23 */
-#define FD_VM_INVOKE_UNITS_SIMD_0339                    (             946UL)
+#define FD_VM_INVOKE_UNITS                              (             946UL)
 
 /* SIMD-0339 uses a fixed size (80 bytes) to bill each account info:
    - 32 bytes for account address
