@@ -467,8 +467,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
     txn_in->txn              = txn;
     txn_in->bundle.is_bundle = 1;
-    txn_in->bundle.txn_cnt   = txn_cnt;
-    txn_in->bundle.txns      = txns;
 
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 

@@ -216,9 +216,6 @@ struct fd_txn_in {
     int            is_bundle;
     fd_txn_out_t * prev_txn_outs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
     ulong          prev_txn_cnt;
-
-    fd_txn_p_t const * txns;
-    ulong              txn_cnt;
   } bundle;
 };
 typedef struct fd_txn_in fd_txn_in_t;
@@ -270,12 +267,12 @@ struct fd_txn_out {
     /* is_setup is set to 1 if account data buffer resources have been
        acquired for the transaction and 0 if they have not.  If the flag
        has been set, memory resources must be released. */
-    int is_setup;
-    ulong cnt;
+    int           is_setup;
+    ulong         cnt;
     fd_pubkey_t * keys[ MAX_TX_ACCOUNT_LOCKS ];
-    fd_acc_t * account[ MAX_TX_ACCOUNT_LOCKS ];
-    uchar is_writable[ MAX_TX_ACCOUNT_LOCKS ];       /* Per-transaction writable view for account[]. */
-    uchar account_acquired[ MAX_TX_ACCOUNT_LOCKS ];  /* This txn_out owns the accdb reference for account[]. */
+    fd_acc_t *    account[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar         is_writable[ MAX_TX_ACCOUNT_LOCKS ];       /* Per-transaction writable view for account[]. */
+    uchar         account_acquired[ MAX_TX_ACCOUNT_LOCKS ];  /* This txn_out owns the accdb reference for account[]. */
 
     ulong      executable_cnt; /* Number of BPF upgradeable loader accounts for the active txn. */
     fd_acc_t * executable;     /* Active txn row of BPF upgradeable loader program data accounts. */
