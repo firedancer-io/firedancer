@@ -30,6 +30,7 @@
 #include "../../flamenco/runtime/fd_runtime_stack.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_cache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
 #include "../../flamenco/runtime/program/fd_precompiles.h"
 #include "../../flamenco/runtime/tests/fd_dump_pb.h"
 
@@ -1187,6 +1188,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_features_restore( bank, ctx->accdb, &xid );
 
     FD_TEST( fd_sysvar_cache_restore( bank, ctx->accdb, &xid ) );
+    /* Agave zeroes manifest rent_params; reload from sysvar account */
+    FD_TEST( fd_sysvar_rent_read( ctx->accdb, &xid, &bank->f.rent ) );
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
