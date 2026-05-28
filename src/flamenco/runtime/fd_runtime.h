@@ -104,17 +104,16 @@ struct fd_runtime {
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
-    ulong      executable_cnt;
-    fd_acc_t   executable[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
-
-    ulong      account_cnt;                         /* Number of transaction accounts currently opened in account[]. */
-    ulong      refcnt[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];     /* Reference count for each account */
+    ulong    executable_cnt;
+    fd_acc_t executable[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
 
     /* fd_txn_out_t only stores pointers into this runtime-owned memory.
        Bundle txns execute before any txn_out is committed/canceled, so
        each in-flight bundle txn needs its own row. */
-    fd_pubkey_t keys   [ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
-    fd_acc_t   account[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
+    ulong       account_cnt; /* Number of transaction accounts currently opened in account[]. */
+    ulong       refcnt[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ]; /* Reference count for each account */
+    fd_pubkey_t keys[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t    account[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
   } accounts;
 
   struct {
@@ -284,10 +283,10 @@ struct fd_txn_out {
 
     /* Flags to demarcate if an account is queued up to update the vote
        or stakes caches in the commit stage of a transaction. */
-    uchar         stake_update[ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         vote_update [ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar stake_update[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar vote_update [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
 
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */
     ulong nonce_rollback_data_len;
