@@ -126,27 +126,27 @@ struct fd_gui_peers_metric_rate {
 };
 typedef struct fd_gui_peers_metric_rate fd_gui_peers_metric_rate_t;
 
-#define FD_GUI_PEERS_EMA_HALF_LIFE_NS (3000000000UL)
+#define FD_GUI_PEERS_EMA_HALF_LIFE_NS (3000000000L)
 
-static inline long
-fd_gui_peers_adaptive_ema( long last_update_time,
-                           long current_time,
-                           long current_value,
-                           long value_at_last_update ) {
-    if( FD_UNLIKELY( last_update_time==0) ) return current_value;
+/* fd_gui_ema computes an adaptive exponential moving average tick.
+   Given the previous EMA value, a new sample, timestamps, and a
+   half-life (all in nanoseconds), returns the updated EMA.  On the
+   first call (last_update_nanos==0) the new sample is returned as-is
+   to seed the series. */
 
-    long elapsed_time = current_time - last_update_time;
-    if( FD_UNLIKELY( elapsed_time<=0 ) ) return value_at_last_update;
+static inline double
+fd_gui_ema( long   last_update_nanos,
+            long   now_nanos,
+            double new_sample,
+            double prev_ema,
+            long   half_life_ns ) {
+  if( FD_UNLIKELY( last_update_nanos==0L ) ) return new_sample;
 
-    // Calculate alpha using half-life formula
-    // alpha = 1 - exp(-ln(2) * elapsed_time / half_life)
-    double decay_factor = 0.69314718055994 * ((double)elapsed_time / (double)FD_GUI_PEERS_EMA_HALF_LIFE_NS);
-    double alpha = 1.0 - exp(-decay_factor);
+  long dt = now_nanos - last_update_nanos;
+  if( FD_UNLIKELY( dt<=0L ) ) return prev_ema;
 
-    if( FD_UNLIKELY( alpha>1.0 ) ) alpha = 1.0;
-    if( FD_UNLIKELY( alpha<0.0 ) ) alpha = 0.0;
-
-    return (long)(alpha * (double)current_value + (1.0 - alpha) * (double)value_at_last_update);
+  double alpha = 1.0 - exp( -0.69314718055994 * (double)dt / (double)half_life_ns );
+  return alpha * new_sample + (1.0 - alpha) * prev_ema;
 }
 
 struct fd_gui_peers_voter {

@@ -853,6 +853,16 @@ fd_gui_printf_network_metrics( fd_gui_t *                     gui,
     jsonp_ulong( gui->http, NULL, cur->out.repair  );
     jsonp_ulong( gui->http, NULL, cur->out.metric  );
   jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "ingress_ema" );
+    for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) jsonp_double( gui->http, NULL, fd_double_if( gui->summary.net_rate_ema_ready, gui->summary.ingress_ema[ i ], 0.0 ) );
+  jsonp_close_array( gui->http );
+  jsonp_open_array( gui->http, "egress_ema" );
+    for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) jsonp_double( gui->http, NULL, fd_double_if( gui->summary.net_rate_ema_ready, gui->summary.egress_ema[ i ], 0.0 ) );
+  jsonp_close_array( gui->http );
+  fd_gui_rate_entry_t const * ingress_max_head = fd_gui_rate_deque_empty( gui->summary.ingress_maxq ) ? NULL : fd_gui_rate_deque_peek_head_const( gui->summary.ingress_maxq );
+  fd_gui_rate_entry_t const * egress_max_head  = fd_gui_rate_deque_empty( gui->summary.egress_maxq )  ? NULL : fd_gui_rate_deque_peek_head_const( gui->summary.egress_maxq );
+  jsonp_ulong( gui->http, "ingress_max_5m", ingress_max_head ? (ulong)ingress_max_head->value : 0UL );
+  jsonp_ulong( gui->http, "egress_max_5m",  egress_max_head  ? (ulong)egress_max_head->value  : 0UL );
 }
 
 void

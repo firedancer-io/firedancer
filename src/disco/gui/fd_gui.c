@@ -28,6 +28,8 @@ fd_gui_footprint( ulong tile_cnt ) {
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),                sizeof(fd_gui_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_TILE_TIMER_SNAP_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_LEADER_CNT * FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(),     fd_gui_rate_deque_footprint() ); /* ingress_maxq */
+  l = FD_LAYOUT_APPEND( l, fd_gui_rate_deque_align(),     fd_gui_rate_deque_footprint() ); /* egress_maxq  */
   return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
 
@@ -69,12 +71,23 @@ fd_gui_new( void *                shmem,
   fd_gui_t *             gui                  = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),                sizeof(fd_gui_t) );
   fd_gui_tile_timers_t * tile_timers_snap_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_TILE_TIMER_SNAP_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
   fd_gui_tile_timers_t * leader_tt_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_tile_timers_t), FD_GUI_LEADER_CNT * FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT * tile_cnt * sizeof(fd_gui_tile_timers_t) );
+  void *                 ingress_maxq_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),     fd_gui_rate_deque_footprint() );
+  void *                 egress_maxq_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_rate_deque_align(),     fd_gui_rate_deque_footprint() );
 
   gui->http     = http;
   gui->topo     = topo;
   gui->tile_cnt = tile_cnt;
 
   gui->summary.tile_timers_snap = tile_timers_snap_mem;
+  gui->summary.ingress_maxq     = fd_gui_rate_deque_join( fd_gui_rate_deque_new( ingress_maxq_mem ) );
+  gui->summary.egress_maxq      = fd_gui_rate_deque_join( fd_gui_rate_deque_new( egress_maxq_mem  ) );
+
+  gui->summary.network_stats_has_prev = 0;
+  gui->summary.net_rate_ema_ready     = 0;
+  gui->summary.net_rate_prev_ts       = 0L;
+  fd_memset( gui->summary.ingress_ema, 0, sizeof(gui->summary.ingress_ema) );
+  fd_memset( gui->summary.egress_ema,  0, sizeof(gui->summary.egress_ema)  );
+
   for( ulong i=0UL; i<FD_GUI_LEADER_CNT; i++ ) gui->leader_slots[ i ]->tile_timers = leader_tt_mem + i * FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT * tile_cnt;
 
   gui->leader_slot = ULONG_MAX;
@@ -488,6 +501,98 @@ fd_gui_network_stats_snap( fd_gui_t *               gui,
     cur->in.metric  = 0UL;
     cur->out.metric = 0UL;
   }
+}
+
+static void
+fd_gui_network_rate_max_update( fd_gui_t * gui,
+                                long       now ) {
+  fd_gui_network_stats_t * cur  = gui->summary.network_stats_current;
+  fd_gui_network_stats_t * prev = gui->summary.network_stats_prev;
+
+  /* On the first sample we have no previous value. */
+  if( FD_UNLIKELY( !gui->summary.network_stats_has_prev ) ) {
+    *prev = *cur;
+    gui->summary.network_stats_has_prev = 1;
+    gui->summary.net_rate_prev_ts       = now;
+    return;
+  }
+
+  ulong d_in[ FD_GUI_NET_PROTO_CNT ];
+  d_in[ 0 ] = fd_ulong_sat_sub( cur->in.turbine, prev->in.turbine );
+  d_in[ 1 ] = fd_ulong_sat_sub( cur->in.gossip,  prev->in.gossip  );
+  d_in[ 2 ] = fd_ulong_sat_sub( cur->in.tpu,     prev->in.tpu     );
+  d_in[ 3 ] = fd_ulong_sat_sub( cur->in.repair,  prev->in.repair  );
+  d_in[ 4 ] = fd_ulong_sat_sub( cur->in.metric,  prev->in.metric  );
+
+  ulong d_out[ FD_GUI_NET_PROTO_CNT ];
+  d_out[ 0 ] = fd_ulong_sat_sub( cur->out.turbine, prev->out.turbine );
+  d_out[ 1 ] = fd_ulong_sat_sub( cur->out.gossip,  prev->out.gossip  );
+  d_out[ 2 ] = fd_ulong_sat_sub( cur->out.tpu,     prev->out.tpu     );
+  d_out[ 3 ] = fd_ulong_sat_sub( cur->out.repair,  prev->out.repair  );
+  d_out[ 4 ] = fd_ulong_sat_sub( cur->out.metric,  prev->out.metric  );
+
+  /* Compute per-protocol instantaneous bytes/sec rate and feed the EMA. */
+  long dt_ns = now - gui->summary.net_rate_prev_ts;
+  if( FD_LIKELY( dt_ns>0L ) ) {
+    double dt_sec = (double)dt_ns / 1.0e9;
+
+    for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) {
+      double rate_in  = (double)d_in[ i ]  / dt_sec;
+      double rate_out = (double)d_out[ i ] / dt_sec;
+
+      if( FD_UNLIKELY( !gui->summary.net_rate_ema_ready ) ) {
+        gui->summary.ingress_ema[ i ] = rate_in;
+        gui->summary.egress_ema[ i ]  = rate_out;
+      } else {
+        gui->summary.ingress_ema[ i ] = fd_gui_ema( gui->summary.net_rate_prev_ts, now, rate_in,  gui->summary.ingress_ema[ i ], FD_GUI_NETWORK_EMA_HALF_LIFE_NS );
+        gui->summary.egress_ema[ i ]  = fd_gui_ema( gui->summary.net_rate_prev_ts, now, rate_out, gui->summary.egress_ema[ i ],  FD_GUI_NETWORK_EMA_HALF_LIFE_NS );
+      }
+    }
+    gui->summary.net_rate_ema_ready = 1;
+  }
+  gui->summary.net_rate_prev_ts = now;
+
+  /* Track max total EMA in a rolling 5-minute window using monotonic
+     deques.
+
+     Invariant: deque entries are strictly decreasing in value from
+     head to tail.  The head is always the current window maximum.
+
+     Insert:  pop tail entries whose value <= new value (they can
+              never become the maximum), then push the new entry.
+     Expire:  pop head entries older than 5 minutes. */
+  if( FD_LIKELY( gui->summary.net_rate_ema_ready ) ) {
+    double sum_in  = 0.0;
+    double sum_out = 0.0;
+    for( ulong i=0UL; i<FD_GUI_NET_PROTO_CNT; i++ ) {
+      sum_in  += gui->summary.ingress_ema[ i ];
+      sum_out += gui->summary.egress_ema[ i ];
+    }
+
+    while( !fd_gui_rate_deque_empty( gui->summary.ingress_maxq ) && fd_gui_rate_deque_peek_head_const( gui->summary.ingress_maxq )->ts_nanos<now-FD_GUI_NET_RATE_MAX_WINDOW_NS ) {
+      fd_gui_rate_deque_pop_head( gui->summary.ingress_maxq );
+    }
+    while( !fd_gui_rate_deque_empty( gui->summary.ingress_maxq ) && fd_gui_rate_deque_peek_tail_const( gui->summary.ingress_maxq )->value<=sum_in ) {
+      fd_gui_rate_deque_pop_tail( gui->summary.ingress_maxq );
+    }
+    if( FD_UNLIKELY( fd_gui_rate_deque_full( gui->summary.ingress_maxq ) ) ) {
+      fd_gui_rate_deque_pop_tail( gui->summary.ingress_maxq );
+    }
+    fd_gui_rate_deque_push_tail( gui->summary.ingress_maxq, (fd_gui_rate_entry_t){ .ts_nanos=now, .value=sum_in } );
+
+    while( !fd_gui_rate_deque_empty( gui->summary.egress_maxq ) && fd_gui_rate_deque_peek_head_const( gui->summary.egress_maxq )->ts_nanos<now-FD_GUI_NET_RATE_MAX_WINDOW_NS ) {
+      fd_gui_rate_deque_pop_head( gui->summary.egress_maxq );
+    }
+    while( !fd_gui_rate_deque_empty( gui->summary.egress_maxq ) && fd_gui_rate_deque_peek_tail_const( gui->summary.egress_maxq )->value<=sum_out ) {
+      fd_gui_rate_deque_pop_tail( gui->summary.egress_maxq );
+    }
+    if( FD_UNLIKELY( fd_gui_rate_deque_full( gui->summary.egress_maxq ) ) ) {
+      fd_gui_rate_deque_pop_tail( gui->summary.egress_maxq );
+    }
+    fd_gui_rate_deque_push_tail( gui->summary.egress_maxq, (fd_gui_rate_entry_t){ .ts_nanos=now, .value=sum_out } );
+  }
+
+  *prev = *cur;
 }
 
 /* Snapshot all of the data from metrics to construct a view of the
@@ -1073,6 +1178,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     fd_http_server_ws_broadcast( gui->http );
 
     fd_gui_network_stats_snap( gui, gui->summary.network_stats_current );
+    fd_gui_network_rate_max_update( gui, now );
     fd_gui_printf_live_network_metrics( gui, gui->summary.network_stats_current );
     fd_http_server_ws_broadcast( gui->http );
 

@@ -38,6 +38,24 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+#define FD_GUI_NETWORK_EMA_HALF_LIFE_NS (1000000000L) /* 1 second in nanoseconds */
+#define FD_GUI_NET_PROTO_CNT            (5UL)         /* turbine, gossip, tpu, repair, metric */
+#define FD_GUI_NET_RATE_MAX_WINDOW_NS   (300L*1000L*1000L*1000L) /* 5 minutes in nanoseconds */
+
+/* Monotonic deque element for sliding-window max tracking of
+   EMA-smoothed network throughput. */
+struct fd_gui_rate_entry {
+  long   ts_nanos;
+  double value;
+};
+typedef struct fd_gui_rate_entry fd_gui_rate_entry_t;
+
+/* At 100 ms sampling, 5 minutes = 3000 samples. */
+#define DEQUE_NAME fd_gui_rate_deque
+#define DEQUE_T    fd_gui_rate_entry_t
+#define DEQUE_MAX  4096UL
+#include "../../util/tmpl/fd_deque.c"
+
 /* frankendancer only */
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
@@ -684,6 +702,17 @@ struct fd_gui {
     } estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ];
 
     fd_gui_network_stats_t network_stats_current[ 1 ];
+    fd_gui_network_stats_t network_stats_prev[ 1 ];
+    int                    network_stats_has_prev;
+
+    /* EMA-smoothed network throughput (bytes/sec) with a 1-second
+       half-life. */
+    double                   ingress_ema[ FD_GUI_NET_PROTO_CNT ];
+    double                   egress_ema[ FD_GUI_NET_PROTO_CNT ];
+    long                     net_rate_prev_ts;
+    int                      net_rate_ema_ready;
+    fd_gui_rate_entry_t *    ingress_maxq;
+    fd_gui_rate_entry_t *    egress_maxq;
 
     fd_gui_txn_waterfall_t txn_waterfall_reference[ 1 ];
     fd_gui_txn_waterfall_t txn_waterfall_current[ 1 ];

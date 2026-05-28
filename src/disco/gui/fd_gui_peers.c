@@ -1515,7 +1515,7 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; !change && i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->gossvf_rx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = fd_gui_peers_adaptive_ema( metric->update_timestamp_ns, now, (long)new_rate, (long)metric->rate_ema );
+        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
         if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema==0L ) ) continue; /* don't update zero-bandwith peers */
         change = 1;
       }
@@ -1523,7 +1523,7 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; !change && i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->gossip_tx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = fd_gui_peers_adaptive_ema( metric->update_timestamp_ns, now, (long)new_rate, (long)metric->rate_ema );
+        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
         if( FD_LIKELY( new_rate_ema==0L && metric->rate_ema==0L ) ) continue; /* don't update zero-bandwith peers */
         change = 1;
       }
@@ -1535,7 +1535,7 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->gossvf_rx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = fd_gui_peers_adaptive_ema( metric->update_timestamp_ns, now, (long)new_rate, (long)metric->rate_ema );
+        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
         metric->rate_ema  = fd_long_if( new_rate_ema<100L, 0L, new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
         metric->ref       = metric->cur;
         metric->update_timestamp_ns = now;
@@ -1544,7 +1544,7 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
       for( ulong i=0UL; i<FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT; i++ ) {
         fd_gui_peers_metric_rate_t * metric = &peer->gossip_tx[ i ];
         long new_rate = (long)(((double)((long)metric->cur - (long)metric->ref) * 1e9 / window));
-        long new_rate_ema = fd_gui_peers_adaptive_ema( metric->update_timestamp_ns, now, new_rate, metric->rate_ema );
+        long new_rate_ema = (long)fd_gui_ema( metric->update_timestamp_ns, now, (double)new_rate, (double)metric->rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
         metric->rate_ema  = fd_long_if( new_rate_ema<100L, 0L, new_rate_ema ); /* snap near-zero ema to zero. 100 bytes/s threshold */
         metric->ref       = metric->cur;
         metric->update_timestamp_ns = now;
@@ -1553,11 +1553,11 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
 
       /* bandwidth_tracking */
       fd_gui_peers_bandwidth_tracking_ele_remove( peers->bw_tracking, peer, peers->contact_info_table );
-      peer->gossvf_rx_sum.rate_ema = fd_gui_peers_adaptive_ema( peer->gossvf_rx_sum.update_timestamp_ns, now, (long)(((double)((long)peer->gossvf_rx_sum.cur - (long)peer->gossvf_rx_sum.ref) * 1e9 / window)), peer->gossvf_rx_sum.rate_ema );
+      peer->gossvf_rx_sum.rate_ema = (long)fd_gui_ema( peer->gossvf_rx_sum.update_timestamp_ns, now, (double)((long)peer->gossvf_rx_sum.cur - (long)peer->gossvf_rx_sum.ref) * 1e9 / window, (double)peer->gossvf_rx_sum.rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
       peer->gossvf_rx_sum.ref      = peer->gossvf_rx_sum.cur;
       peer->gossvf_rx_sum.update_timestamp_ns = now;
 
-      peer->gossip_tx_sum.rate_ema = fd_gui_peers_adaptive_ema( peer->gossip_tx_sum.update_timestamp_ns, now, (long)(((double)((long)peer->gossip_tx_sum.cur - (long)peer->gossip_tx_sum.ref) * 1e9 / window)), peer->gossip_tx_sum.rate_ema );
+      peer->gossip_tx_sum.rate_ema = (long)fd_gui_ema( peer->gossip_tx_sum.update_timestamp_ns, now, (double)((long)peer->gossip_tx_sum.cur - (long)peer->gossip_tx_sum.ref) * 1e9 / window, (double)peer->gossip_tx_sum.rate_ema, FD_GUI_PEERS_EMA_HALF_LIFE_NS );
       peer->gossip_tx_sum.ref      = peer->gossip_tx_sum.cur;
       peer->gossip_tx_sum.update_timestamp_ns = now;
       fd_gui_peers_bandwidth_tracking_ele_insert( peers->bw_tracking, peer, peers->contact_info_table );
