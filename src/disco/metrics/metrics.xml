@@ -1296,7 +1296,8 @@ metric introduced.
     <int value="5" name="BadTower" label="Vote txn deserialized but tower was invalid" />
     <int value="6" name="UnknownBlockId" label="Last vote had a null block id" />
     <int value="7" name="TooOld" label="Last vote slot was behind the votes root" />
-    <int value="8" name="NotStaked" label="Voter was not staked in the current root's epoch" />
+    <int value="8" name="NotStaked" label="Unable to query stake for vote slot" />
+    <int value="9" name="BadSigner" label="Vote txn was not signed by the authorized voter for the vote account at the vote epoch" />
 </enum>
 
 <enum name="VoteSlotResult">
