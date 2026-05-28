@@ -242,10 +242,15 @@ env_build( fd_svm_mini_t *        mini,
   ulong txn_acc_cnt = 1UL + cfg->n_accts;
   FD_TEST( txn_acc_cnt <= FD_TXN_ACCT_ADDR_MAX );
   txn_out->accounts.cnt = (ushort)txn_acc_cnt;
+  fd_memset( txn_out->accounts.keys,    0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+  fd_memset( runtime->accounts.account, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
+    txn_out->accounts.account[i] = &runtime->accounts.account[ i ];
+  }
 
   /* Program account at index 0 */
   FD_TEST( sizeof(prog_data_buf) >= elf_sz );
-  fd_acc_t * prog_entry = &txn_out->accounts.account[0];
+  fd_acc_t * prog_entry = txn_out->accounts.account[0];
   memset( prog_entry, 0, sizeof(*prog_entry) );
   memcpy( prog_entry->pubkey, &callee_program_pubkey, sizeof(fd_pubkey_t) );
   memcpy( prog_entry->owner, &fd_solana_bpf_loader_program_id, sizeof(fd_pubkey_t) );
@@ -258,13 +263,13 @@ env_build( fd_svm_mini_t *        mini,
 
   /* Data accounts at indices 1..n_accts */
   for( ulong i=0UL; i<cfg->n_accts; i++ ) {
-    fd_acc_t * acc = &txn_out->accounts.account[1UL+i];
+    fd_acc_t * acc = txn_out->accounts.account[1UL+i];
     init_entry_from_spec( acc, acct_data_buf[i], sizeof(acct_data_buf[i]), &cfg->accts[i] );
     g_acct_entries[i] = acc;
     memcpy( &txn_out->accounts.keys[1UL+i], cfg->accts[i].pubkey, sizeof(fd_pubkey_t) );
   }
   for( ulong i=0UL; i<txn_acc_cnt; i++ ) {
-    fd_svm_mini_put_account_rooted( mini, &txn_out->accounts.account[i] );
+    fd_svm_mini_put_account_rooted( mini, txn_out->accounts.account[i] );
   }
   /* Reset refcnts (stale from prior env_build invocation) */
   for( ulong i=0UL; i<txn_acc_cnt; i++ ) runtime->accounts.refcnt[i] = 0UL;

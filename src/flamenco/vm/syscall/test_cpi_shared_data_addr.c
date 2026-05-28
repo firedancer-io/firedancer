@@ -116,6 +116,11 @@ test_env_setup( fd_svm_mini_t * mini ) {
   static fd_txn_out_t txn_out[1];
   memset( txn_out, 0, sizeof(fd_txn_out_t) );
   txn_out->accounts.cnt = 3;
+  fd_memset( txn_out->accounts.keys,    0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+  fd_memset( runtime->accounts.account, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
+    txn_out->accounts.account[i] = &runtime->accounts.account[ i ];
+  }
 
   /* Program account */
   static uchar prog_data[ 2048 ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
@@ -123,7 +128,7 @@ test_env_setup( fd_svm_mini_t * mini ) {
   memset( prog_data, 0, elf_sz );
   memcpy( prog_data, elf_buf, elf_sz );
   memcpy( &txn_out->accounts.keys[0], &callee_program_pubkey, sizeof(fd_pubkey_t) );
-  fd_acc_t * prog_ent = &txn_out->accounts.account[0];
+  fd_acc_t * prog_ent = txn_out->accounts.account[0];
   memset( prog_ent, 0, sizeof(fd_acc_t) );
   memcpy( prog_ent->pubkey, callee_program_pubkey.key, 32 );
   memcpy( prog_ent->owner, fd_solana_bpf_loader_program_id.key, 32 );
@@ -137,11 +142,11 @@ test_env_setup( fd_svm_mini_t * mini ) {
   static uchar acct2_data[ MAX_PERMITTED_DATA_INCREASE + 1024 ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
 
   memcpy( &txn_out->accounts.keys[1], &acct1_pubkey, sizeof(fd_pubkey_t) );
-  init_data_entry( &txn_out->accounts.account[1], acct1_pubkey.key, acct1_data, sizeof(acct1_data) );
+  init_data_entry( txn_out->accounts.account[1], acct1_pubkey.key, acct1_data, sizeof(acct1_data) );
   memcpy( &txn_out->accounts.keys[2], &acct2_pubkey, sizeof(fd_pubkey_t) );
-  init_data_entry( &txn_out->accounts.account[2], acct2_pubkey.key, acct2_data, sizeof(acct2_data) );
+  init_data_entry( txn_out->accounts.account[2], acct2_pubkey.key, acct2_data, sizeof(acct2_data) );
 
-  for( uint i=0; i<3; i++ ) fd_svm_mini_put_account_rooted( mini, &txn_out->accounts.account[i] );
+  for( uint i=0; i<3; i++ ) fd_svm_mini_put_account_rooted( mini, txn_out->accounts.account[i] );
 
   ulong exec_bank_idx = fd_svm_mini_attach_child( mini, root_bank_idx, bank->f.slot + 1UL );
   bank = fd_svm_mini_bank( mini, exec_bank_idx );
@@ -172,9 +177,9 @@ test_env_setup( fd_svm_mini_t * mini ) {
   /* VM acc_region_metas */
   static fd_vm_acc_region_meta_t arm[3];
   memset( arm, 0, sizeof(arm) );
-  arm[0].acc = &txn_out->accounts.account[0];
-  arm[1].acc = &txn_out->accounts.account[1];  arm[1].original_data_len = INIT_DLEN;
-  arm[2].acc = &txn_out->accounts.account[2];  arm[2].original_data_len = INIT_DLEN;
+  arm[0].acc = txn_out->accounts.account[0];
+  arm[1].acc = txn_out->accounts.account[1];  arm[1].original_data_len = INIT_DLEN;
+  arm[2].acc = txn_out->accounts.account[2];  arm[2].original_data_len = INIT_DLEN;
 
   /* Initialize VM */
   static uchar rodata[100];

@@ -983,19 +983,10 @@ FD_UNIT_TEST( execle_simple_fees_only ) {
   test_env_destroy( env );
 }
 
-/* FIXME(accdb): The multi-transaction bundle tests below are disabled
-   pending bundle-execution support in the new accounts database.  The
-   new accdb defers account release to commit/cancel time (see
-   fd_runtime_commit_txn / fd_runtime_cancel_txn in fd_runtime.c), so the
-   tile's handle_bundle() — which executes every bundle txn before
-   committing any — re-acquires accounts while a prior txn's acquire is
-   still open and trips the acquire_state==IDLE assertion in
-   fd_accdb_acquire_a (fd_accdb.c).  Bundle txns must commit (or at least
-   release) between executions, forwarding state through prev_txn_outs.
-   The single-transaction execle_bundle_vote_authorize test above still
-   exercises the bundle path and passes.  Re-enable once bundles are
-   reworked for the new accdb. */
-#if 0
+/* Multi-transaction bundle tests.  Bundle execution forwards account
+   state between txns through prev_txn_outs (the new accdb defers account
+   release to commit/cancel time); see handle_bundle() in the tile and
+   fd_runtime_commit_txn / fd_runtime_cancel_txn in fd_runtime.c. */
 FD_UNIT_TEST( execle_bundle_ok ) {
   /* Successful bundle */
   test_env_t * env = test_env_create();
@@ -1544,7 +1535,6 @@ FD_UNIT_TEST( execle_bundle_dup ) {
 
   test_env_destroy( env );
 }
-#endif /* multi-txn bundle tests disabled pending new-accdb bundle support */
 
 int
 main( int     argc,

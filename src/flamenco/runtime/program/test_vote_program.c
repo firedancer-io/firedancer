@@ -209,7 +209,7 @@ test_account_initialize( fd_svm_mini_t * mini ) {
   FD_TEST( txn_succeeded( env ) );
 
   /* Assert that the vote account is now populated */
-  fd_acc_t const * vote_acc = &env->txn_out->accounts.account[1];
+  fd_acc_t const * vote_acc = env->txn_out->accounts.account[1];
   FD_TEST( vote_acc->data_len>0 );
   FD_TEST( !fd_mem_iszero( vote_acc->data, vote_acc->data_len ) );
   FD_TEST( env->txn_out->accounts.new_vote[1] );
