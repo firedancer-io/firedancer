@@ -2233,11 +2233,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
 
   fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->bank );
-  fd_funk_txn_xid_t xid = fd_bank_xid( ctx->bank );
-  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
   fd_progcache_t * progcache = ctx->runtime->progcache;
   fd_progcache_rec_t * cache_entry =
-      fd_progcache_pull( progcache, &pc_xid, program_id, load_env, progdata_ro );
+      fd_progcache_pull( progcache, ctx->bank->progcache_fork_id, program_id, load_env, progdata_ro );
   if( FD_UNLIKELY( !cache_entry ) ) {
     fd_log_collector_msg_literal( ctx, "Program is not deployed" );
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

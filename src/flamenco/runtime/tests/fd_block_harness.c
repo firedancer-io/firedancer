@@ -101,7 +101,7 @@ fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   runner->bank->stake_rewards_fork_id = UCHAR_MAX;
 
   fd_accdb_v1_clear( runner->accdb_admin );
-  fd_progcache_clear( runner->progcache->join, &(fd_progcache_xid_t){0} );
+  fd_progcache_reset( runner->progcache->join );
 
   /* In order to check for leaks in the workspace, we need to compact the
      allocators. Without doing this, empty superblocks may be retained
@@ -133,9 +133,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, xid );
-  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( xid );
-  fd_progcache_attach_child( runner->progcache->join, &(fd_progcache_xid_t){0}, &pc_xid );
+  fd_accdb_attach_child( runner->accdb_admin, &parent_xid, xid );
+  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
 
   /* Initialize bank from input block bank */
   FD_TEST( test_ctx->has_bank );
@@ -301,10 +300,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = fd_bank_xid( bank );
-  fd_accdb_attach_child    ( runner->accdb_admin,     xid, &fork_xid );
-  fd_progcache_xid_t pc_xid2     = fd_progcache_xid_from_funk( xid );
-  fd_progcache_xid_t pc_fork_xid = fd_progcache_xid_from_funk( &fork_xid );
-  fd_progcache_attach_child( runner->progcache->join, &pc_xid2, &pc_fork_xid );
+  fd_accdb_attach_child( runner->accdb_admin, xid, &fork_xid );
+  bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, bank->progcache_fork_id );
   xid[0] = fork_xid;
 
   /* Set the initial lthash from the input since we're in a new Funk txn */

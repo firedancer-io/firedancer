@@ -10,10 +10,10 @@
 
 #define MAP_NAME              fd_prog_recm
 #define MAP_ELE_T             fd_progcache_rec_t
-#define MAP_KEY_T             fd_progcache_xid_key_pair_t
+#define MAP_KEY_T             fd_progcache_rec_key_t
 #define MAP_KEY               pair
-#define MAP_KEY_EQ(k0,k1)     fd_progcache_xid_key_pair_eq((k0),(k1))
-#define MAP_KEY_HASH(k0,seed) fd_progcache_rec_key_hash( (k0->key), (seed) )
+#define MAP_KEY_EQ(k0,k1)     fd_progcache_rec_key_eq((k0),(k1))
+#define MAP_KEY_HASH(k0,seed) fd_progcache_rec_key_hash( &(k0)->prog, (seed) )
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MAGIC             (0xf173da2ce77ecdb8UL)
@@ -29,10 +29,7 @@
 
 #define  MAP_NAME              fd_prog_txnm
 #define  MAP_ELE_T             fd_progcache_txn_t
-#define  MAP_KEY_T             fd_progcache_xid_t
 #define  MAP_KEY               xid
-#define  MAP_KEY_EQ(k0,k1)     fd_progcache_txn_xid_eq((k0),(k1))
-#define  MAP_KEY_HASH(k0,seed) fd_ulong_hash( (k0)->bank_seq ^ (seed) )
 #define  MAP_IDX_T             uint
 #define  MAP_NEXT              map_next
 #define  MAP_MAGIC             (0xf173da2ce77ecdb9UL)
@@ -149,7 +146,8 @@ fd_progcache_shmem_new( void * shmem,
   pc->txn.max = txn_max;
   pc->txn.child_head_idx = UINT_MAX;
   pc->txn.child_tail_idx = UINT_MAX;
-  *pc->txn.last_publish = (fd_progcache_xid_t){0};
+  pc->txn.root = fd_progcache_fork_id_initial();
+  pc->txn.seq  = fd_progcache_fork_id_initial();
   for( ulong i=0UL; i<txn_max; i++ ) {
     fd_rwlock_new( &txn_ele[ i ].lock );
   }

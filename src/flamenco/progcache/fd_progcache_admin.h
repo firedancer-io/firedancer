@@ -34,10 +34,9 @@ fd_progcache_est_rec_max( ulong wksp_footprint,
    It is assumed that less than txn_max non-root transactions exist when
    this is called. */
 
-void
-fd_progcache_attach_child( fd_progcache_join_t *      cache,
-                           fd_progcache_xid_t const * xid_parent,
-                           fd_progcache_xid_t const * xid_new );
+fd_progcache_fork_id_t
+fd_progcache_attach_child( fd_progcache_join_t *  cache,
+                           fd_progcache_fork_id_t parent_fork_id );
 
 /* fd_progcache_advance_root advances the fork graph root to the
    given xid.  (In funk terminology, this is the "last publish")
@@ -45,22 +44,20 @@ fd_progcache_attach_child( fd_progcache_join_t *      cache,
    Assumes that the xid's parent is the fork graph root. */
 
 void
-fd_progcache_advance_root( fd_progcache_join_t *      cache,
-                           fd_progcache_xid_t const * xid );
+fd_progcache_advance_root( fd_progcache_join_t *  cache,
+                           fd_progcache_fork_id_t fork_id );
 
-/* fd_progcache_cancel removes a fork graph node by XID and its
-   children (recursively). */
+/* fd_progcache_cancel_fork removes a fork graph node. */
 
 void
-fd_progcache_cancel( fd_progcache_join_t *      cache,
-                     fd_progcache_xid_t const * xid );
+fd_progcache_cancel_fork( fd_progcache_join_t *  cache,
+                          fd_progcache_fork_id_t fork_id );
 
-/* fd_progcache_clear removes all cache entries and destroys the txn
+/* fd_progcache_reset removes all cache entries and destroys the txn
    graph.  Does not support concurrent usage. */
 
 void
-fd_progcache_clear( fd_progcache_join_t *      cache,
-                    fd_progcache_xid_t const * root_xid );
+fd_progcache_reset( fd_progcache_join_t * cache );
 
 /* fd_progcache_verify checks the structural integrity of the program
    cache.  Returns 0 on success, -1 on failure.  Logs warnings

@@ -2,12 +2,24 @@
 #define HEADER_fd_src_flamenco_progcache_fd_progcache_rec_h
 
 #include "fd_progcache_base.h"
-#include "fd_progcache_xid.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../fd_flamenco_base.h"
 #include "../fd_rwlock.h"
 
 #include <stdatomic.h>
+
+struct fd_progcache_rec_key {
+  fd_progcache_fork_id_t xid;
+  fd_pubkey_t            prog;
+};
+
+typedef struct fd_progcache_rec_key fd_progcache_rec_key_t;
+
+static inline int
+fd_progcache_rec_key_eq( fd_progcache_rec_key_t const * k0,
+                         fd_progcache_rec_key_t const * k1 ) {
+  return ( (k0->xid == k1->xid) & fd_pubkey_eq( &k0->prog, &k1->prog ) );
+}
 
 /* fd_progcache_rec_t is the fixed size header of a program cache entry
    object.  Entries are either non-executable (e.g. programs that failed
@@ -17,7 +29,7 @@
    segment, control flow metadata, ...). */
 
 struct __attribute__((aligned(64))) fd_progcache_rec {
-  fd_progcache_xid_key_pair_t pair;  /* Transaction id and record key pair */
+  fd_progcache_rec_key_t pair;  /* Transaction id and record key pair */
 
   ulong feature_slot;
   ulong deploy_slot;

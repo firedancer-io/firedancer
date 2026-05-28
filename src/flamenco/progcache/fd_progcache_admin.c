@@ -4,6 +4,7 @@
 #include "fd_progcache_clock.h"
 #include "fd_progcache_rec.h"
 #include "fd_progcache_reclaim.h"
+#include "fd_progcache_xid.h"
 #include "../../util/racesan/fd_racesan_target.h"
 
 /* FIXME get rid of this thread-local */
@@ -32,19 +33,12 @@ fd_progcache_est_rec_max( ulong wksp_footprint,
    structures are not concurrently modified.  This includes txn_pool and
    txn_map. */
 
-void
-fd_progcache_attach_child( fd_progcache_join_t *      cache,
-                           fd_progcache_xid_t const * xid_parent,
-                           fd_progcache_xid_t const * xid_new ) {
-  if( FD_UNLIKELY( !cache || !xid_parent || !xid_new ) ) {
-    FD_LOG_CRIT(( "invalid arguments" ));
-  }
+fd_progcache_fork_id_t
+fd_progcache_attach_child( fd_progcache_join_t *  cache,
+                           fd_progcache_fork_id_t parent_fork_id ) {
+  if( FD_UNLIKELY( !cache ) ) FD_LOG_CRIT(( "invalid arguments" ));
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
-
-  if( FD_UNLIKELY( fd_prog_txnm_idx_query_const( cache->txn.map, xid_new, ULONG_MAX, cache->txn.pool )!=ULONG_MAX ) ) {
-    FD_LOG_ERR(( "fd_progcache_attach_child failed: xid %lu:%lu already in use", xid_new->slot, xid_new->bank_seq ));
-  }
   if( FD_UNLIKELY( fd_prog_txnp_free( cache->txn.pool )==0UL ) ) {
     FD_LOG_ERR(( "fd_progcache_attach_child failed: transaction object pool out of memory" ));
   }
@@ -54,7 +48,8 @@ fd_progcache_attach_child( fd_progcache_join_t *      cache,
   uint * _child_head_idx;
   uint * _child_tail_idx;
 
-  if( FD_UNLIKELY( fd_progcache_txn_xid_eq( xid_parent, cache->shmem->txn.last_publish ) ) ) {
+  fd_progcache_fork_id_t root = __atomic_load_n( &cache->shmem->txn.root, memory_order_relaxed );
+  if( FD_UNLIKELY( parent_fork_id == root ) ) {
 
     parent_idx = FD_PROGCACHE_TXN_IDX_NULL;
 
@@ -63,10 +58,9 @@ fd_progcache_attach_child( fd_progcache_join_t *      cache,
 
   } else {
 
-    parent_idx = fd_prog_txnm_idx_query( cache->txn.map, xid_parent, ULONG_MAX, cache->txn.pool );
+    parent_idx = fd_prog_txnm_idx_query( cache->txn.map, &parent_fork_id, ULONG_MAX, cache->txn.pool );
     if( FD_UNLIKELY( parent_idx==ULONG_MAX ) ) {
-      FD_LOG_CRIT(( "fd_progcache_attach_child failed: user provided invalid parent XID %lu:%lu",
-                    xid_parent->slot, xid_parent->bank_seq ));
+      FD_LOG_CRIT(( "fd_progcache_attach_child failed: user provided invalid parent fork_id %lu", parent_fork_id ));
     }
     if( FD_UNLIKELY( parent_idx >= txn_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (attach_child parent_idx=%lu txn_max=%lu)", parent_idx, txn_max ));
@@ -79,7 +73,7 @@ fd_progcache_attach_child( fd_progcache_join_t *      cache,
   uint txn_idx = (uint)fd_prog_txnp_idx_acquire( cache->txn.pool );
   if( FD_UNLIKELY( txn_idx==UINT_MAX ) ) FD_LOG_ERR(( "fd_progcache_attach_child failed: transaction object pool out of memory" ));
   fd_progcache_txn_t * txn = &cache->txn.pool[ txn_idx ];
-  txn->xid = *xid_new;
+  txn->xid = __atomic_add_fetch( &cache->shmem->txn.seq, 1UL, memory_order_relaxed );
 
   uint sibling_prev_idx = *_child_tail_idx;
 
@@ -105,6 +99,7 @@ fd_progcache_attach_child( fd_progcache_join_t *      cache,
   fd_prog_txnm_idx_insert( cache->txn.map, txn_idx, cache->txn.pool );
 
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
+  return txn->xid;
 }
 
 static void
@@ -117,8 +112,8 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
 
   if( FD_UNLIKELY( txn->child_head_idx!=UINT_MAX ||
                    txn->child_tail_idx!=UINT_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_cancel failed: txn at %p with xid %lu:%lu has children (data corruption?)",
-                  (void *)txn, txn->xid.slot, txn->xid.bank_seq ));
+    FD_LOG_CRIT(( "fd_progcache_cancel failed: txn at %p with fork_id %lu has children (data corruption?)",
+                  (void *)txn, txn->xid ));
   }
 
   /* Remove records */
@@ -163,8 +158,7 @@ fd_progcache_cancel_one( fd_progcache_join_t * cache,
   /* Remove transaction from index */
 
   if( FD_UNLIKELY( !fd_prog_txnm_ele_remove( cache->txn.map, &txn->xid, NULL, cache->txn.pool ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_cancel failed: fd_prog_txnm_ele_remove(%lu:%lu) failed",
-                  txn->xid.slot, txn->xid.bank_seq ));
+    FD_LOG_CRIT(( "fd_progcache_cancel failed: fd_prog_txnm_ele_remove(%lu) failed", txn->xid ));
   }
 
   /* Free transaction object */
@@ -231,12 +225,12 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 
   /* Phase 1: Mark transaction as "last published" */
 
-  fd_progcache_xid_t const xid = txn->xid;
+  fd_progcache_fork_id_t const fork_id = txn->xid;
   if( FD_UNLIKELY( txn->parent_idx!=UINT_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid.slot, xid.bank_seq ));
+    FD_LOG_CRIT(( "fd_progcache_publish failed: txn with fork_id %lu is not a child of the last published txn", fork_id ));
   }
   fd_racesan_hook( "prog_publish_one:pre_xid_store" );
-  fd_progcache_xid_st_atomic( cache->shmem->txn.last_publish, &xid );
+  __atomic_store_n( &cache->shmem->txn.root, fork_id, memory_order_release );
 
   /* Phase 2: Drain inserters from transaction */
 
@@ -271,7 +265,7 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
   /* Phase 5: Remove transaction from index */
 
   if( FD_UNLIKELY( fd_prog_txnm_idx_remove( cache->txn.map, &txn->xid, ULONG_MAX, cache->txn.pool )==ULONG_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_publish failed: fd_prog_txnm_idx_remove(%lu:%lu) failed", xid.slot, xid.bank_seq ));
+    FD_LOG_CRIT(( "fd_progcache_publish failed: fd_prog_txnm_idx_remove(%lu) failed", txn->xid ));
   }
 
   /* Phase 6: Free transaction object */
@@ -286,26 +280,24 @@ fd_progcache_txn_publish_one( fd_progcache_join_t * cache,
 }
 
 void
-fd_progcache_advance_root( fd_progcache_join_t *      cache,
-                           fd_progcache_xid_t const * xid ) {
-  if( FD_UNLIKELY( !cache || !xid ) ) {
-    FD_LOG_CRIT(( "invalid arguments" ));
-  }
+fd_progcache_advance_root( fd_progcache_join_t *  cache,
+                           fd_progcache_fork_id_t fork_id ) {
+  if( FD_UNLIKELY( !cache ) ) FD_LOG_CRIT(( "invalid arguments" ));
 
   /* Detach records from txns without acquiring record locks */
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
 
   ulong txn_max = fd_prog_txnp_max( cache->txn.pool );
-  uint txn_idx = (uint)fd_prog_txnm_idx_query( cache->txn.map, xid, UINT_MAX, cache->txn.pool );
+  uint txn_idx = (uint)fd_prog_txnm_idx_query( cache->txn.map, &fork_id, UINT_MAX, cache->txn.pool );
   if( FD_UNLIKELY( txn_idx==UINT_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_advance_root failed: invalid XID %lu:%lu", xid->slot, xid->bank_seq ));
+    FD_LOG_CRIT(( "fd_progcache_advance_root failed: invalid fork_id %lu", fork_id ));
   }
   if( FD_UNLIKELY( (ulong)txn_idx >= txn_max ) )
     FD_LOG_CRIT(( "progcache: corruption detected (advance_root txn_idx=%u txn_max=%lu)", txn_idx, txn_max ));
   fd_progcache_txn_t * txn = &cache->txn.pool[ txn_idx ];
   if( FD_UNLIKELY( txn->parent_idx!=UINT_MAX ) ) {
-    FD_LOG_CRIT(( "fd_progcache_advance_root: parent of txn %lu:%lu is not root", xid->slot, xid->bank_seq ));
+    FD_LOG_CRIT(( "fd_progcache_advance_root: parent of txn %lu is not root", fork_id ));
   }
 
   fd_progcache_cancel_prev_list( cache, txn );
@@ -324,16 +316,16 @@ fd_progcache_advance_root( fd_progcache_join_t *      cache,
 }
 
 void
-fd_progcache_cancel( fd_progcache_join_t *      cache,
-                     fd_progcache_xid_t const * xid ) {
-  if( FD_UNLIKELY( !cache || !xid ) ) {
+fd_progcache_cancel_fork( fd_progcache_join_t *  cache,
+                          fd_progcache_fork_id_t fork_id ) {
+  if( FD_UNLIKELY( !cache ) ) {
     FD_LOG_CRIT(( "invalid arguments" ));
   }
 
   fd_rwlock_write( &cache->shmem->txn.rwlock );
-  fd_progcache_txn_t * txn = fd_prog_txnm_ele_query( cache->txn.map, xid, NULL, cache->txn.pool );
+  fd_progcache_txn_t * txn = fd_prog_txnm_ele_query( cache->txn.map, &fork_id, NULL, cache->txn.pool );
   if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_cancel failed: invalid XID %lu:%lu", xid->slot, xid->bank_seq ));
+    FD_LOG_CRIT(( "fd_progcache_cancel failed: invalid fork_id %lu", fork_id ));
   }
   fd_progcache_cancel_tree( cache, txn );
   fd_rwlock_unwrite( &cache->shmem->txn.rwlock );
@@ -397,13 +389,13 @@ clear_txn_list( fd_progcache_join_t * join,
 }
 
 void
-fd_progcache_clear( fd_progcache_join_t *      cache,
-                    fd_progcache_xid_t const * root_xid ) {
+fd_progcache_reset( fd_progcache_join_t * cache ) {
   clear_txn_list( cache, cache->shmem->txn.child_head_idx );
   cache->shmem->txn.child_head_idx = UINT_MAX;
   cache->shmem->txn.child_tail_idx = UINT_MAX;
   reset_rec_map( cache );
-  *cache->shmem->txn.last_publish = *root_xid;
+  cache->shmem->txn.root = fd_progcache_fork_id_initial();
+  cache->shmem->txn.seq  = fd_progcache_fork_id_initial();
 }
 
 static int

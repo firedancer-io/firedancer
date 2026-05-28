@@ -122,11 +122,11 @@ fd_progcache_leave( fd_progcache_t *        cache,
    fd_progcache_rec_close. */
 
 fd_progcache_rec_t * /* read locked */
-fd_progcache_peek( fd_progcache_t *           cache,
-                   fd_progcache_xid_t const * xid,
-                   fd_pubkey_t const *        prog_addr,
-                   ulong                      feature_slot,
-                   ulong                      deploy_slot );
+fd_progcache_peek( fd_progcache_t *       cache,
+                   fd_progcache_fork_id_t fork_id,
+                   fd_pubkey_t const *    prog_addr,
+                   ulong                  feature_slot,
+                   ulong                  deploy_slot );
 
 /* fd_progcache_pull loads a program from cache, filling the cache if
    necessary.  The load operation can have a number of outcomes:
@@ -145,7 +145,7 @@ fd_progcache_peek( fd_progcache_t *           cache,
 
 fd_progcache_rec_t * /* read locked */
 fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_progcache_xid_t const * xid,
+                   fd_progcache_fork_id_t     fork_id,
                    fd_pubkey_t const *        prog_addr,
                    fd_prog_load_env_t const * env,
                    fd_accdb_ro_t *            progdata_ro );
