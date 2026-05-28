@@ -3,6 +3,9 @@ $(call add-objs,fd_blake3 fd_blake3_ref,fd_ballet)
 ifdef FD_HAS_SSE
 $(call add-objs,fd_blake3_sse41,fd_ballet)
 endif
+ifdef FD_HAS_NEON
+$(call add-objs,fd_blake3_neon,fd_ballet)
+endif
 ifdef FD_HAS_AVX512
 $(call add-objs,fd_blake3_avx512,fd_ballet)
 endif

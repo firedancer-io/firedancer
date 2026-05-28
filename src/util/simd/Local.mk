@@ -1,4 +1,5 @@
 $(call add-hdrs,fd_sse.h fd_sse_vc.h fd_sse_vi.h fd_sse_vu.h fd_sse_vf.h fd_sse_vl.h fd_sse_vv.h fd_sse_vd.h fd_sse_vl.h fd_sse_vb.h)
+$(call add-hdrs,fd_neon.h)
 ifdef FD_HAS_SSE
 $(call make-unit-test,test_sse_4x32,test_sse_4x32 test_sse_common,fd_util)
 $(call make-unit-test,test_sse_2x64,test_sse_2x64 test_sse_common,fd_util)

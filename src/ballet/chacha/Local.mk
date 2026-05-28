@@ -17,6 +17,9 @@ endif
 ifdef FD_HAS_AVX
 $(call add-objs,fd_chacha_rng_avx,fd_ballet)
 endif
+ifdef FD_HAS_NEON
+$(call add-objs,fd_chacha_rng_neon,fd_ballet)
+endif
 $(call make-unit-test,test_chacha_rng,test_chacha_rng,fd_ballet fd_util)
 $(call make-unit-test,test_chacha_rng_roll,test_chacha_rng_roll,fd_ballet fd_util)
 $(call run-unit-test,test_chacha_rng)

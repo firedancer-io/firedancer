@@ -585,6 +585,8 @@ fd_blake3_single_hash( fd_blake3_pos_t * s,
                       op->sz, s->layer, op->counter, op->flags ));
 #   if FD_HAS_SSE
     fd_blake3_sse_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
+#   elif FD_HAS_NEON
+    fd_blake3_neon_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
 #   else
     fd_blake3_ref_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
 #   endif
@@ -645,6 +647,8 @@ fd_blake3_fini_xof_compress( fd_blake3_t * sha,
       FD_LOG_ERR(( "fd_blake3_fini_xof_compress invariant violation: failed to prepare compression of <=1024 byte message (duplicate call to fini?)" ));
 #if FD_HAS_SSE
     fd_blake3_sse_compress1( root_msg, op->msg, op->sz, op->counter, op->flags, root_cv_pre, NULL );
+#elif FD_HAS_NEON
+    fd_blake3_neon_compress1( root_msg, op->msg, op->sz, op->counter, op->flags, root_cv_pre, NULL );
 #else
     fd_blake3_ref_compress1( root_msg, op->msg, op->sz, op->counter, op->flags, root_cv_pre, NULL );
 #endif
@@ -679,6 +683,8 @@ fd_blake3_fini_xof_compress( fd_blake3_t * sha,
       break;
 #   if FD_HAS_SSE
     fd_blake3_sse_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
+#   elif FD_HAS_NEON
+    fd_blake3_neon_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
 #   else
     fd_blake3_ref_compress1( op->out, op->msg, op->sz, op->counter, op->flags, NULL, NULL );
 #   endif
@@ -747,6 +753,8 @@ fd_blake3_fini_2048( fd_blake3_t * sha,
     fd_blake3_avx_compress8( 8UL, batch_data, batch_sz, batch_ctr, batch_flags, batch_hash, NULL, 64U, batch_cv );
 #elif FD_HAS_SSE
     fd_blake3_sse_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
+#elif FD_HAS_NEON
+    fd_blake3_neon_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
 #else
     fd_blake3_ref_compress1( (uchar *)hash+i*64, root_msg, last_block_sz, ctr0+i, last_block_flags, NULL, root_cv_pre );
 #endif

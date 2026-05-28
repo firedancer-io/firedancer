@@ -99,6 +99,19 @@ fd_blake3_sse_compress1( uchar * restrict       out, /* align==1 len==32 */
 
 #endif /* FD_HAS_SSE */
 
+#if FD_HAS_NEON
+
+void
+fd_blake3_neon_compress1( uchar * restrict       out,
+                          uchar const * restrict msg,
+                          uint                   msg_sz,
+                          ulong                  counter,
+                          uint                   flags,
+                          uchar * restrict       out_chain,
+                          uchar const * restrict in_chain );
+
+#endif /* FD_HAS_NEON */
+
 #if FD_HAS_AVX
 
 /* BLAKE3 AVX cores

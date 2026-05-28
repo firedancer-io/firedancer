@@ -447,6 +447,77 @@ test_reduced_xof2048( void ) {
   fd_rng_delete( fd_rng_leave( rng ) );
 }
 
+#if FD_HAS_NEON
+
+static void
+test_neon_compress1( void ) {
+  static uint const sz_case[] = {
+    0U, 1U, 63U, 64U, 65U, 127U, 128U, 255U, 512U, 1023U, 1024U
+  };
+  static uint const flag_case[] = {
+    0U,
+    FD_BLAKE3_FLAG_CHUNK_START,
+    FD_BLAKE3_FLAG_CHUNK_END,
+    FD_BLAKE3_FLAG_CHUNK_START | FD_BLAKE3_FLAG_CHUNK_END,
+    FD_BLAKE3_FLAG_CHUNK_START | FD_BLAKE3_FLAG_CHUNK_END | FD_BLAKE3_FLAG_ROOT,
+    FD_BLAKE3_FLAG_PARENT,
+    FD_BLAKE3_FLAG_PARENT | FD_BLAKE3_FLAG_ROOT
+  };
+
+  ulong iter = 0UL;
+  for( ulong sz_idx=0UL; sz_idx<sizeof(sz_case)/sizeof(sz_case[0]); sz_idx++ ) {
+    uint msg_sz = sz_case[ sz_idx ];
+    ulong msg_off = (iter*131UL) & ((sizeof(rand_buf)-FD_BLAKE3_CHUNK_SZ)-1UL);
+    uchar const * msg = rand_buf + msg_off;
+
+    uchar in_chain[ 32 ] __attribute__((aligned(32)));
+    fd_memcpy( in_chain, rand_buf + ((msg_off+977UL) & (sizeof(rand_buf)-32UL)), 32UL );
+
+    for( ulong flag_idx=0UL; flag_idx<sizeof(flag_case)/sizeof(flag_case[0]); flag_idx++ ) {
+      uint flags = flag_case[ flag_idx ];
+
+      for( int use_in_chain=0; use_in_chain<2; use_in_chain++ ) {
+        for( int use_xof=0; use_xof<2; use_xof++ ) {
+          uchar ref_out   [ 64 ] __attribute__((aligned(64))) = {0};
+          uchar neon_out  [ 64 ] __attribute__((aligned(64))) = {0};
+          uchar ref_chain [ 32 ] __attribute__((aligned(32))) = {0};
+          uchar neon_chain[ 32 ] __attribute__((aligned(32))) = {0};
+          ulong counter = iter*17UL + flag_idx;
+
+          fd_blake3_ref_compress1( ref_out,
+                                   msg,
+                                   msg_sz,
+                                   counter,
+                                   flags,
+                                   use_xof      ? ref_chain  : NULL,
+                                   use_in_chain ? in_chain   : NULL );
+          fd_blake3_neon_compress1( neon_out,
+                                    msg,
+                                    msg_sz,
+                                    counter,
+                                    flags,
+                                    use_xof      ? neon_chain : NULL,
+                                    use_in_chain ? in_chain   : NULL );
+
+          ulong out_sz = (ulong)( (use_xof | use_in_chain) ? 64U : 32U );
+          if( FD_UNLIKELY( memcmp( ref_out, neon_out, out_sz ) ) ) {
+            FD_LOG_ERR(( "fd_blake3_neon_compress1 output mismatch (sz=%u flags=%x use_in_chain=%d use_xof=%d ctr=%lu)",
+                         msg_sz, flags, use_in_chain, use_xof, counter ));
+          }
+          if( FD_UNLIKELY( use_xof && memcmp( ref_chain, neon_chain, 32UL ) ) ) {
+            FD_LOG_ERR(( "fd_blake3_neon_compress1 out_chain mismatch (sz=%u flags=%x use_in_chain=%d ctr=%lu)",
+                         msg_sz, flags, use_in_chain, counter ));
+          }
+
+          iter++;
+        }
+      }
+    }
+  }
+}
+
+#endif /* FD_HAS_NEON */
+
 static void
 test_lthash( void ) {
   fd_blake3_t blake_[1];
@@ -790,6 +861,9 @@ static struct test_fn const tests[] = {
   { "test avx_compress8",              test_avx_compress8 },
   { "test avx_compress8_xof2048_para", test_avx_compress8_xof2048_para },
   { "test avx_compress8_xof2048_seq",  test_avx_compress8_xof2048_seq },
+#endif
+#if FD_HAS_NEON
+  { "test neon_compress1",             test_neon_compress1 },
 #endif
 
   { "bench incremental",            bench_incremental },
