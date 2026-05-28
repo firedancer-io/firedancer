@@ -12,6 +12,7 @@
 #include "sysvar/fd_sysvar_cache.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "fd_txncache_shmem.h"
+#include "../progcache/fd_progcache_base.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -261,12 +262,13 @@ struct fd_bank {
 
   ulong refcnt; /* reference count on the bank, see replay for more details */
 
-  fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
-  ushort                vote_stakes_fork_id; /* fork id used by the vote stakes */
-  uchar                 stake_rewards_fork_id; /* fork id used by stake rewards */
-  ushort                stake_delegations_fork_id; /* fork id used by stake delegations deltas */
-  ushort                new_votes_fork_id; /* fork id used by new vote account deltas */
-  ulong                 cost_tracker_pool_idx;
+  fd_txncache_fork_id_t  txncache_fork_id;
+  fd_progcache_fork_id_t progcache_fork_id;
+  ushort                 vote_stakes_fork_id;
+  uchar                  stake_rewards_fork_id;
+  ushort                 stake_delegations_fork_id;
+  ushort                 new_votes_fork_id;
+  ulong                  cost_tracker_pool_idx;
 
   ulong banks_data_offset; /* offset from this fd_bank_t back to fd_banks_t */
 
@@ -339,10 +341,11 @@ struct fd_bank {
 typedef struct fd_bank fd_bank_t;
 
 struct fd_banks_prune_cancel_info {
-  fd_txncache_fork_id_t txncache_fork_id;
-  ulong                 slot;
-  ulong                 bank_seq;
-  ulong                 bank_idx;
+  fd_txncache_fork_id_t  txncache_fork_id;
+  fd_progcache_fork_id_t progcache_fork_id;
+  ulong                  slot;
+  ulong                  bank_seq;
+  ulong                  bank_idx;
 };
 typedef struct fd_banks_prune_cancel_info fd_banks_prune_cancel_info_t;
 

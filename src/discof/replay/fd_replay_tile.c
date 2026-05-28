@@ -268,16 +268,14 @@ replay_block_start( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", bank_idx ));
   }
   bank->f.slot = slot;
-  bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
+  bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
+  bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
 
   /* Create a new funk txn for the block. */
 
   fd_funk_txn_xid_t xid        = fd_bank_xid( bank        );
   fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank );
-  fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
-  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_attach_child( ctx->progcache,   &pc_parent_xid, &pc_xid );
+  fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
 
   /* Update required runtime state and handle potential boundary. */
 
@@ -569,14 +567,12 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   ctx->leader_bank->preparation_begin_nanos = before;
 
   ctx->leader_bank->f.slot = slot;
-  ctx->leader_bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
+  ctx->leader_bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache,  parent_bank->txncache_fork_id  );
+  ctx->leader_bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, parent_bank->progcache_fork_id );
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = fd_bank_xid( ctx->leader_bank );
   fd_funk_txn_xid_t parent_xid = fd_bank_xid( parent_bank      );
-  fd_accdb_attach_child    ( ctx->accdb_admin, &parent_xid, &xid );
-  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
-  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_attach_child( ctx->progcache,   &pc_parent_xid, &pc_xid );
+  fd_accdb_attach_child( ctx->accdb_admin, &parent_xid, &xid );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( ctx->banks, ctx->leader_bank, ctx->accdb, ctx->runtime_stack, ctx->capture_ctx, &is_epoch_boundary );
@@ -725,15 +721,6 @@ init_funk( fd_replay_tile_t * ctx,
                   "but there are incomplete database transactions leftover.\n"
                   "This is a bug in startup components."  ));
   }
-
-  /* The program cache tracks the account database's fork graph at all
-     times.  Perform initial synchronization: pivot from funk 'root' (a
-     sentinel XID) to 'last publish' (the bootstrap root slot). */
-  if( FD_UNLIKELY( !ctx->progcache->shmem ) ) {
-    FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
-  }
-  fd_funk_txn_xid_t root = fd_accdb_root_get( ctx->accdb_admin );
-  fd_progcache_clear( ctx->progcache, &(fd_progcache_xid_t){ .slot=root.ul[0], .bank_seq=root.ul[1] } );
 }
 
 static void
@@ -763,6 +750,9 @@ init_after_snapshot( fd_replay_tile_t *  ctx,
 
   fd_funk_txn_xid_t xid = fd_bank_xid( bank );
   init_funk( ctx, bank->f.slot );
+
+  fd_progcache_reset( ctx->progcache );
+  bank->progcache_fork_id = fd_progcache_fork_id_initial();
 
   bank->f.warmup_cooldown_rate_epoch = fd_slot_to_epoch( &bank->f.epoch_schedule, bank->f.features.reduce_stake_warmup_cooldown, NULL );
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
@@ -1065,8 +1055,8 @@ boot_genesis( fd_replay_tile_t *        ctx,
   fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &xid, NULL, &meta->genesis_hash, &meta->lthash, ctx->genesis, genesis_blob, ctx->runtime_stack );
   fd_accdb_advance_root( ctx->accdb_admin, &target_xid );
 
-  static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
-  bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );
+  bank->txncache_fork_id  = fd_txncache_attach_child ( ctx->txncache, (fd_txncache_fork_id_t){USHORT_MAX} );
+  bank->progcache_fork_id = fd_progcache_attach_child( ctx->progcache, fd_progcache_fork_id_initial()     );
 
   fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
   fd_txncache_finalize_fork( ctx->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
@@ -1745,8 +1735,6 @@ accdb_advance_root( fd_replay_tile_t * ctx,
   fd_histf_sample( ctx->metrics.root_slot_dur,    (ulong)root_accounts_dt );
   fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
 
-  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( xid );
-  fd_progcache_advance_root( ctx->progcache, &pc_xid );
   long t2 = fd_tickcount();
   FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
 }
@@ -1787,7 +1775,8 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_xid_t const xid = fd_bank_xid( bank );
   accdb_advance_root( ctx, &xid );
 
-  fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
+  fd_txncache_advance_root ( ctx->txncache,  bank->txncache_fork_id  );
+  fd_progcache_advance_root( ctx->progcache, bank->progcache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
 
@@ -1848,11 +1837,10 @@ after_credit( fd_replay_tile_t *  ctx,
   fd_banks_prune_cancel_info_t cancel_info[ 1 ];
   int pruned = fd_banks_prune_one_dead_bank( ctx->banks, cancel_info );
   if( FD_UNLIKELY( pruned==2 ) ) {
-    fd_txncache_cancel_fork( ctx->txncache, cancel_info->txncache_fork_id );
+    fd_txncache_cancel_fork ( ctx->txncache,  cancel_info->txncache_fork_id  );
+    fd_progcache_cancel_fork( ctx->progcache, cancel_info->progcache_fork_id );
     fd_funk_txn_xid_t xid = { .ul = { cancel_info->slot, cancel_info->bank_seq } };
     fd_accdb_cancel    ( ctx->accdb_admin, &xid );
-    fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
-    fd_progcache_cancel( ctx->progcache,   &pc_xid );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;

@@ -21,7 +21,7 @@ fd_solfuzz_bundle_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_banks_stake_delegations_evict_bank_fork( runner->banks, runner->bank );
 
   fd_accdb_v1_clear( runner->accdb_admin );
-  fd_progcache_clear( runner->progcache->join, &(fd_progcache_xid_t){0} );
+  fd_progcache_reset( runner->progcache->join );
 
   /* Keep the runner reusable across many bundle inputs. */
   fd_alloc_compact( fd_accdb_user_v1_funk( runner->accdb )->alloc );
@@ -43,9 +43,8 @@ fd_solfuzz_pb_bundle_ctx_create( fd_solfuzz_runner_t *                 runner,
 
   fd_funk_txn_xid_t xid = fd_bank_xid( runner->bank );
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_attach_child( runner->progcache->join, &(fd_progcache_xid_t){0}, &pc_xid );
+  fd_accdb_attach_child( runner->accdb_admin, &parent_xid, &xid );
+  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
 
   FD_TEST( test_ctx->has_bank );
   fd_exec_test_txn_bank_t const * txn_bank = &test_ctx->bank;

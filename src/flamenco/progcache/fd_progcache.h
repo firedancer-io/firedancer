@@ -8,7 +8,6 @@
 
 #include "fd_progcache_rec.h" /* includes fd_progcache_base.h */
 #include "fd_progcache_xid.h"
-#include "fd_progcache_clock.h"
 #include "../fd_rwlock.h"
 #include "../runtime/fd_runtime_const.h"
 
@@ -42,7 +41,8 @@ struct fd_progcache_shmem {
     ulong       ele_gaddr;
     uint        child_head_idx;
     uint        child_tail_idx;
-    fd_progcache_xid_t last_publish[1];  /* root XID (initially zero) */
+    fd_progcache_fork_id_t root;
+    fd_progcache_fork_id_t seq;
   } txn;
 
   struct {
@@ -75,10 +75,10 @@ FD_STATIC_ASSERT( FD_PROGCACHE_SPAD_MAX<=UINT_MAX, "layout" );
 
 #define MAP_NAME              fd_prog_recm
 #define MAP_ELE_T             fd_progcache_rec_t
-#define MAP_KEY_T             fd_progcache_xid_key_pair_t
+#define MAP_KEY_T             fd_progcache_rec_key_t
 #define MAP_KEY               pair
-#define MAP_KEY_EQ(k0,k1)     fd_progcache_xid_key_pair_eq((k0),(k1))
-#define MAP_KEY_HASH(k0,seed) fd_progcache_rec_key_hash( (k0->key), (seed) )
+#define MAP_KEY_EQ(k0,k1)     fd_progcache_rec_key_eq((k0),(k1))
+#define MAP_KEY_HASH(k0,seed) fd_progcache_rec_key_hash( &(k0)->prog, (seed) )
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MAGIC             (0xf173da2ce77ecdb8UL)
@@ -89,10 +89,10 @@ FD_STATIC_ASSERT( FD_PROGCACHE_SPAD_MAX<=UINT_MAX, "layout" );
    synchronized) */
 
 struct __attribute__((aligned(64))) fd_progcache_txn {
-  fd_progcache_xid_t xid;
-  uint        map_next;
-  fd_rwlock_t lock;
-  ushort      tag : 2;
+  fd_progcache_fork_id_t xid;
+  uint                   map_next;
+  fd_rwlock_t            lock;
+  ushort                 tag : 2;
 
   uint   parent_idx;
   uint   child_head_idx;
@@ -113,10 +113,7 @@ struct __attribute__((aligned(64))) fd_progcache_txn {
 
 #define  MAP_NAME              fd_prog_txnm
 #define  MAP_ELE_T             fd_progcache_txn_t
-#define  MAP_KEY_T             fd_progcache_xid_t
 #define  MAP_KEY               xid
-#define  MAP_KEY_EQ(k0,k1)     fd_progcache_txn_xid_eq((k0),(k1))
-#define  MAP_KEY_HASH(k0,seed) fd_ulong_hash( (k0)->bank_seq ^ (seed) )
 #define  MAP_IDX_T             uint
 #define  MAP_NEXT              map_next
 #define  MAP_MAGIC             (0xf173da2ce77ecdb9UL)
@@ -199,6 +196,11 @@ fd_progcache_rec_unlink( fd_progcache_rec_t * rec0,
 
   *fd_ptr_if( rec->prev_idx!=UINT_MAX, &rec0[ rec->prev_idx ].next_idx, &txn->rec_head_idx ) =
     rec->next_idx;
+}
+
+FD_FN_CONST static inline fd_progcache_fork_id_t
+fd_progcache_fork_id_initial( void ) {
+  return 0UL;
 }
 
 FD_PROTOTYPES_END

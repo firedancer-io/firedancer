@@ -1,6 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_progcache_fd_progcache_base_h
 #define HEADER_fd_src_flamenco_progcache_fd_progcache_base_h
 
+#include "../../util/fd_util_base.h"
+
+typedef ulong fd_progcache_fork_id_t;
+
 typedef struct fd_progcache fd_progcache_t;
 
 typedef struct fd_progcache_shmem fd_progcache_shmem_t;

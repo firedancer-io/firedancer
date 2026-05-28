@@ -27,9 +27,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_accdb_attach_child    ( runner->accdb_admin,     &parent_xid, xid );
-  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( xid );
-  fd_progcache_attach_child( runner->progcache->join, &(fd_progcache_xid_t){0}, &pc_xid );
+  fd_accdb_attach_child( runner->accdb_admin, &parent_xid, xid );
+  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, fd_progcache_fork_id_initial() );
 
   fd_txn_in_t *  txn_in  = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t), sizeof(fd_txn_in_t) );
   fd_txn_out_t * txn_out = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), sizeof(fd_txn_out_t) );
@@ -233,10 +232,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   runner->bank->f.slot = clock->slot;
 
   fd_funk_txn_xid_t exec_xid[1] = { fd_bank_xid( runner->bank ) };
-  fd_accdb_attach_child    ( runner->accdb_admin,     xid, exec_xid );
-  fd_progcache_xid_t pc_xid2      = fd_progcache_xid_from_funk( xid );
-  fd_progcache_xid_t pc_exec_xid = fd_progcache_xid_from_funk( exec_xid );
-  fd_progcache_attach_child( runner->progcache->join, &pc_xid2, &pc_exec_xid );
+  fd_accdb_attach_child( runner->accdb_admin, xid, exec_xid );
+  runner->bank->progcache_fork_id = fd_progcache_attach_child( runner->progcache->join, runner->bank->progcache_fork_id );
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_cache_epoch_schedule_read( ctx->sysvar_cache, epoch_schedule_ );
@@ -297,7 +294,7 @@ fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
   fd_accdb_v1_clear( runner->accdb_admin );
-  fd_progcache_clear( runner->progcache->join, &(fd_progcache_xid_t){0} );
+  fd_progcache_reset( runner->progcache->join );
 
   /* In order to check for leaks in the workspace, we need to compact the
      allocators. Without doing this, empty superblocks may be retained

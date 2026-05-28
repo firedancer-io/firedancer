@@ -62,22 +62,22 @@ fd_progcache_leave( fd_progcache_t *        cache,
    present in that list. */
 
 static void
-fd_progcache_load_fork_slow( fd_progcache_t *           cache,
-                             fd_progcache_xid_t const * xid ) {
+fd_progcache_load_fork_slow( fd_progcache_t *       cache,
+                             fd_progcache_fork_id_t fork_id ) {
   fd_progcache_lineage_t *    lineage = cache->lineage;
   fd_progcache_join_t const * ljoin   = cache->join;
   fd_rwlock_read( &ljoin->shmem->txn.rwlock );
   lineage->fork_depth  = 0UL;
   lineage->tip_txn_idx = ULONG_MAX;
+  lineage->root = __atomic_load_n( &ljoin->shmem->txn.root, memory_order_acquire );
 
   ulong txn_max = fd_prog_txnp_max( ljoin->txn.pool );
-  fd_progcache_xid_t next_xid = *xid;
   ulong i;
   for( i=0UL;; i++ ) {
     if( FD_UNLIKELY( i>=FD_PROGCACHE_DEPTH_MAX ) ) {
       FD_LOG_CRIT(( "fd_progcache_load_fork: fork depth exceeded max of %lu", (ulong)FD_PROGCACHE_DEPTH_MAX ));
     }
-    uint next_idx = (uint)fd_prog_txnm_idx_query_const( ljoin->txn.map, &next_xid, UINT_MAX, ljoin->txn.pool );
+    uint next_idx = (uint)fd_prog_txnm_idx_query_const( ljoin->txn.map, &fork_id, UINT_MAX, ljoin->txn.pool );
     if( FD_UNLIKELY( next_idx==UINT_MAX ) ) break;
     if( FD_UNLIKELY( (ulong)next_idx >= txn_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (load_fork txn_idx=%u txn_max=%lu)", next_idx, txn_max ));
@@ -85,7 +85,7 @@ fd_progcache_load_fork_slow( fd_progcache_t *           cache,
 
     uint parent_idx = candidate->parent_idx;
     FD_TEST( parent_idx!=next_idx );
-    lineage->fork   [ i ] = next_xid;
+    lineage->fork   [ i ] = fork_id;
     lineage->txn_idx[ i ] = next_idx;
     if( FD_LIKELY( !i ) ) lineage->tip_txn_idx = next_idx;
     if( parent_idx==UINT_MAX ) {
@@ -94,25 +94,23 @@ fd_progcache_load_fork_slow( fd_progcache_t *           cache,
     }
     if( FD_UNLIKELY( (ulong)parent_idx >= txn_max ) )
       FD_LOG_CRIT(( "progcache: corruption detected (load_fork parent_idx=%u txn_max=%lu)", parent_idx, txn_max ));
-    next_xid = ljoin->txn.pool[ parent_idx ].xid;
+    fork_id = ljoin->txn.pool[ parent_idx ].xid;
   }
 
   lineage->fork_depth = i;
 
   fd_rwlock_unread( &ljoin->shmem->txn.rwlock );
 
-  fd_progcache_xid_t root_xid[1];
-  fd_progcache_xid_ld_atomic( root_xid, ljoin->shmem->txn.last_publish );
-  lineage->root_slot = root_xid->slot;
+  lineage->root = __atomic_load_n( &ljoin->shmem->txn.root, memory_order_acquire );
 }
 
 static inline void
-fd_progcache_load_fork( fd_progcache_t *           cache,
-                        fd_progcache_xid_t const * xid ) {
+fd_progcache_load_fork( fd_progcache_t *       cache,
+                        fd_progcache_fork_id_t fork_id ) {
   /* Skip if already on the correct fork */
   fd_progcache_lineage_t * lineage = cache->lineage;
-  if( FD_LIKELY( (!!lineage->fork_depth) & (!!fd_progcache_txn_xid_eq( &lineage->fork[ 0 ], xid ) ) ) ) return;
-  fd_progcache_load_fork_slow( cache, xid ); /* switch fork */
+  if( FD_LIKELY( (!!lineage->fork_depth) & (lineage->fork[ 0 ]==fork_id ) ) ) return;
+  fd_progcache_load_fork_slow( cache, fork_id ); /* switch fork */
 }
 
 /* fd_progcache_query searches for a program cache entry on the current
@@ -152,15 +150,14 @@ fd_progcache_search_chain( fd_progcache_t const * cache,
     if( FD_UNLIKELY( (ulong)ele_idx >= rec_max ) ) return FD_MAP_ERR_AGAIN;
     fd_progcache_rec_t * rec = &rec_tbl[ ele_idx ];
 
-    if( FD_UNLIKELY( ( !fd_pubkey_eq( rec->pair.key, key ) ) |
+    if( FD_UNLIKELY( ( !fd_pubkey_eq( &rec->pair.prog, key ) ) |
                      ( rec->feature_slot != feature_slot   ) |
                      ( rec->deploy_slot  != deploy_slot    ) ) ) {
       continue;
     }
 
-    fd_progcache_xid_t rec_xid[1];
-    fd_progcache_xid_ld_atomic( rec_xid, rec->pair.xid );
-    if( FD_UNLIKELY( !fd_progcache_lineage_has_xid( lineage, rec_xid ) ) ) continue;
+    fd_progcache_fork_id_t rec_fork_id = __atomic_load_n( &rec->pair.xid, memory_order_relaxed );
+    if( FD_UNLIKELY( !fd_progcache_lineage_has_xid( lineage, rec_fork_id ) ) ) continue;
 
     if( FD_UNLIKELY( rec->map_next==ele_idx ) ) return FD_MAP_ERR_AGAIN;
     if( FD_UNLIKELY( rec->map_next!=UINT_MAX && rec->map_next>=rec_max ) ) return FD_MAP_ERR_AGAIN;
@@ -207,13 +204,13 @@ fd_progcache_query( fd_progcache_t *    cache,
 }
 
 fd_progcache_rec_t * /* read locked */
-fd_progcache_peek( fd_progcache_t *           cache,
-                   fd_progcache_xid_t const * xid,
-                   fd_pubkey_t const *        prog_addr,
-                   ulong                      feature_slot,
-                   ulong                      deploy_slot ) {
+fd_progcache_peek( fd_progcache_t *       cache,
+                   fd_progcache_fork_id_t fork_id,
+                   fd_pubkey_t const *    prog_addr,
+                   ulong                  feature_slot,
+                   ulong                  deploy_slot ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
-  fd_progcache_load_fork( cache, xid );
+  fd_progcache_load_fork( cache, fork_id );
   fd_progcache_rec_t * rec = fd_progcache_query( cache, prog_addr, feature_slot, deploy_slot );
   if( FD_UNLIKELY( !rec ) ) return NULL;
   return rec;
@@ -255,9 +252,9 @@ fd_progcache_push( fd_progcache_join_t * cache,
 
   rec->prev_idx = UINT_MAX;
   rec->next_idx = UINT_MAX;
-  memcpy( rec->pair.key, prog_addr, 32UL );
+  memcpy( &rec->pair.prog, prog_addr, 32UL );
   if( FD_UNLIKELY( !txn ) ) FD_LOG_CRIT(( "NULL txn" ));
-  *rec->pair.xid = txn->xid;
+  __atomic_store_n( &rec->pair.xid, txn->xid, memory_order_relaxed );
 
   /* Lock rec_map chain, entering critical section */
 
@@ -342,7 +339,6 @@ typedef struct insert_params insert_params_t;
 
 static insert_params_t *
 insert_params( insert_params_t *          p,
-               fd_progcache_xid_t const * load_xid,
                fd_pubkey_t const *        prog_addr,
                fd_prog_load_env_t const * env,
                fd_accdb_ro_t *            prog_ro,
@@ -355,9 +351,8 @@ insert_params( insert_params_t *          p,
 
   /* Pre-flight checks, determine required buffer size */
 
-  fd_features_t const * features  = env->features;
-  ulong         const   load_slot = load_xid->slot;
-  fd_prog_versions_t versions = fd_prog_versions( features, load_slot );
+  fd_features_t const * features = env->features;
+  fd_prog_versions_t versions = fd_prog_versions( features, env->feature_slot );
   fd_sbpf_elf_info_t elf_info;
   fd_sbpf_loader_config_t config = {
     .sbpf_min_version = versions.min_sbpf_version,
@@ -545,13 +540,13 @@ fd_progcache_insert( fd_progcache_t *        cache,
 
 fd_progcache_rec_t * /* read locked */
 fd_progcache_pull( fd_progcache_t *           cache,
-                   fd_progcache_xid_t const * xid,
+                   fd_progcache_fork_id_t     fork_id,
                    fd_pubkey_t const *        prog_addr,
                    fd_prog_load_env_t const * env,
                    fd_accdb_ro_t *            prog_ro ) {
   if( FD_UNLIKELY( !cache || !cache->join->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
   long dt = -fd_tickcount();
-  fd_progcache_load_fork( cache, xid );
+  fd_progcache_load_fork( cache, fork_id );
   cache->metrics->lookup_cnt++;
 
   fd_prog_info_t info[1];
@@ -560,12 +555,12 @@ fd_progcache_pull( fd_progcache_t *           cache,
   insert_params_t insert[1];
   fd_progcache_rec_t * found_rec = NULL;
   for( int attempt=0;; attempt++ ) {
-    found_rec = fd_progcache_peek( cache, xid, prog_addr, env->feature_slot, info->deploy_slot );
+    found_rec = fd_progcache_peek( cache, fork_id, prog_addr, env->feature_slot, info->deploy_slot );
     if( FD_LIKELY( found_rec ) ) {
       cache->metrics->hit_cnt++;
       break;
     }
-    if( attempt==0 ) insert_params( insert, xid, prog_addr, env, prog_ro, info );
+    if( attempt==0 ) insert_params( insert, prog_addr, env, prog_ro, info );
     found_rec = fd_progcache_insert( cache, insert );
     if( FD_LIKELY( found_rec ) ) {
       cache->metrics->miss_cnt++;

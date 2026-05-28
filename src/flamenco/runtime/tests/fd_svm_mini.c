@@ -384,7 +384,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
                    fd_svm_mini_params_t * params ) {
 
   fd_accdb_v1_clear( mini->accdb_admin );
-  fd_progcache_clear( mini->progcache->join, &(fd_progcache_xid_t){0} );
+  fd_progcache_reset( mini->progcache->join );
   fd_banks_clear( mini->banks           );
 
   fd_bank_t * bank = fd_banks_init_bank( mini->banks );
@@ -396,7 +396,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   fd_xid_t root_xid = fd_bank_xid( bank );
   fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
   fd_funk_txn_xid_copy( funk->shmem->last_publish, &root_xid );
-  *mini->progcache->join->shmem->txn.last_publish = fd_progcache_xid_from_funk( &root_xid );
+  bank->progcache_fork_id = fd_progcache_fork_id_initial();
 
   if( params->clock ) {
     bank->f.slot  = params->clock->slot;
@@ -569,10 +569,8 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
   bank->f.slot = child_slot;
   fd_xid_t xid = fd_bank_xid( bank );
 
-  fd_accdb_attach_child    ( mini->accdb_admin,     &parent_xid, &xid );
-  fd_progcache_xid_t pc_parent_xid = fd_progcache_xid_from_funk( &parent_xid );
-  fd_progcache_xid_t pc_xid        = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_attach_child( mini->progcache->join, &pc_parent_xid, &pc_xid );
+  fd_accdb_attach_child( mini->accdb_admin, &parent_xid, &xid );
+  bank->progcache_fork_id = fd_progcache_attach_child( mini->progcache->join, parent_bank->progcache_fork_id );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( mini->banks, bank, mini->accdb, mini->runtime_stack, NULL, &is_epoch_boundary );
@@ -599,9 +597,8 @@ fd_svm_mini_cancel_fork( fd_svm_mini_t * mini,
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "invalid bank_idx" ));
   fd_xid_t xid = fd_bank_xid( bank );
 
-  fd_accdb_cancel    ( mini->accdb_admin,     &xid );
-  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_cancel( mini->progcache->join, &pc_xid );
+  fd_accdb_cancel         ( mini->accdb_admin,     &xid );
+  fd_progcache_cancel_fork( mini->progcache->join, bank->progcache_fork_id );
 }
 
 void
@@ -613,8 +610,7 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
   fd_xid_t xid = fd_bank_xid( bank );
 
   fd_accdb_advance_root    ( mini->accdb_admin,     &xid );
-  fd_progcache_xid_t pc_xid = fd_progcache_xid_from_funk( &xid );
-  fd_progcache_advance_root( mini->progcache->join, &pc_xid );
+  fd_progcache_advance_root( mini->progcache->join, bank->progcache_fork_id );
   fd_banks_advance_root    ( mini->banks, bank_idx );
 }
 
