@@ -6,11 +6,12 @@ PROJECT_ROOT=../../../..
 # Set protosol version
 PROTO_VERSION="v7.3.0"
 
+PYTHON=${PYTHON:-python3}
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_NANOPB_TAG=$(cat ${PROJECT_ROOT}/src/ballet/nanopb/nanopb_tag.txt)
 
 # Create venv and install packages
-python3.11 -m venv nanopb_venv
+if [ ! -e nanopb_venv ]; then "$PYTHON" -m venv nanopb_venv; fi
 source nanopb_venv/bin/activate
 pip install protobuf grpcio-tools
 
