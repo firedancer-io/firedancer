@@ -1,5 +1,32 @@
 #include "fd_sha512.h"
 
+#if FD_HAS_ARM_SHA512
+#include <arm_neon.h>
+#endif
+
+static ulong const fd_sha512_K[80] __attribute__((unused)) = {
+  0x428a2f98d728ae22UL, 0x7137449123ef65cdUL, 0xb5c0fbcfec4d3b2fUL, 0xe9b5dba58189dbbcUL,
+  0x3956c25bf348b538UL, 0x59f111f1b605d019UL, 0x923f82a4af194f9bUL, 0xab1c5ed5da6d8118UL,
+  0xd807aa98a3030242UL, 0x12835b0145706fbeUL, 0x243185be4ee4b28cUL, 0x550c7dc3d5ffb4e2UL,
+  0x72be5d74f27b896fUL, 0x80deb1fe3b1696b1UL, 0x9bdc06a725c71235UL, 0xc19bf174cf692694UL,
+  0xe49b69c19ef14ad2UL, 0xefbe4786384f25e3UL, 0x0fc19dc68b8cd5b5UL, 0x240ca1cc77ac9c65UL,
+  0x2de92c6f592b0275UL, 0x4a7484aa6ea6e483UL, 0x5cb0a9dcbd41fbd4UL, 0x76f988da831153b5UL,
+  0x983e5152ee66dfabUL, 0xa831c66d2db43210UL, 0xb00327c898fb213fUL, 0xbf597fc7beef0ee4UL,
+  0xc6e00bf33da88fc2UL, 0xd5a79147930aa725UL, 0x06ca6351e003826fUL, 0x142929670a0e6e70UL,
+  0x27b70a8546d22ffcUL, 0x2e1b21385c26c926UL, 0x4d2c6dfc5ac42aedUL, 0x53380d139d95b3dfUL,
+  0x650a73548baf63deUL, 0x766a0abb3c77b2a8UL, 0x81c2c92e47edaee6UL, 0x92722c851482353bUL,
+  0xa2bfe8a14cf10364UL, 0xa81a664bbc423001UL, 0xc24b8b70d0f89791UL, 0xc76c51a30654be30UL,
+  0xd192e819d6ef5218UL, 0xd69906245565a910UL, 0xf40e35855771202aUL, 0x106aa07032bbd1b8UL,
+  0x19a4c116b8d2d0c8UL, 0x1e376c085141ab53UL, 0x2748774cdf8eeb99UL, 0x34b0bcb5e19b48a8UL,
+  0x391c0cb3c5c95a63UL, 0x4ed8aa4ae3418acbUL, 0x5b9cca4f7763e373UL, 0x682e6ff3d6b2b8a3UL,
+  0x748f82ee5defb2fcUL, 0x78a5636f43172f60UL, 0x84c87814a1f0ab72UL, 0x8cc702081a6439ecUL,
+  0x90befffa23631e28UL, 0xa4506cebde82bde9UL, 0xbef9a3f7b2c67915UL, 0xc67178f2e372532bUL,
+  0xca273eceea26619cUL, 0xd186b8c721c0c207UL, 0xeada7dd6cde0eb1eUL, 0xf57d4f7fee6ed178UL,
+  0x06f067aa72176fbaUL, 0x0a637dc5a2c898a6UL, 0x113f9804bef90daeUL, 0x1b710b35131c471bUL,
+  0x28db77f523047d84UL, 0x32caab7b40c72493UL, 0x3c9ebe0a15c9bebcUL, 0x431d67c49c100d4cUL,
+  0x4cc5d4becb3e42b6UL, 0x597f299cfc657e2aUL, 0x5fcb6fab3ad6faecUL, 0x6c44198c4a475817UL
+};
+
 ulong
 fd_sha512_align( void ) {
   return FD_SHA512_ALIGN;
@@ -97,7 +124,9 @@ fd_sha512_delete( void * shsha ) {
 }
 
 #ifndef FD_SHA512_CORE_IMPL
-#if FD_HAS_AVX
+#if FD_HAS_ARM_SHA512
+#define FD_SHA512_CORE_IMPL 2
+#elif FD_HAS_AVX
 #define FD_SHA512_CORE_IMPL 1
 #else
 #define FD_SHA512_CORE_IMPL 0
@@ -129,30 +158,6 @@ static void
 fd_sha512_core_ref( ulong *       state,        /* 64-byte aligned, 8 entries */
                     uchar const * block,        /* ideally 128-byte aligned (but not required), 128*block_cnt in size */
                     ulong         block_cnt ) { /* positive */
-
-  static ulong const K[80] = {
-    0x428a2f98d728ae22UL, 0x7137449123ef65cdUL, 0xb5c0fbcfec4d3b2fUL, 0xe9b5dba58189dbbcUL,
-    0x3956c25bf348b538UL, 0x59f111f1b605d019UL, 0x923f82a4af194f9bUL, 0xab1c5ed5da6d8118UL,
-    0xd807aa98a3030242UL, 0x12835b0145706fbeUL, 0x243185be4ee4b28cUL, 0x550c7dc3d5ffb4e2UL,
-    0x72be5d74f27b896fUL, 0x80deb1fe3b1696b1UL, 0x9bdc06a725c71235UL, 0xc19bf174cf692694UL,
-    0xe49b69c19ef14ad2UL, 0xefbe4786384f25e3UL, 0x0fc19dc68b8cd5b5UL, 0x240ca1cc77ac9c65UL,
-    0x2de92c6f592b0275UL, 0x4a7484aa6ea6e483UL, 0x5cb0a9dcbd41fbd4UL, 0x76f988da831153b5UL,
-    0x983e5152ee66dfabUL, 0xa831c66d2db43210UL, 0xb00327c898fb213fUL, 0xbf597fc7beef0ee4UL,
-    0xc6e00bf33da88fc2UL, 0xd5a79147930aa725UL, 0x06ca6351e003826fUL, 0x142929670a0e6e70UL,
-    0x27b70a8546d22ffcUL, 0x2e1b21385c26c926UL, 0x4d2c6dfc5ac42aedUL, 0x53380d139d95b3dfUL,
-    0x650a73548baf63deUL, 0x766a0abb3c77b2a8UL, 0x81c2c92e47edaee6UL, 0x92722c851482353bUL,
-    0xa2bfe8a14cf10364UL, 0xa81a664bbc423001UL, 0xc24b8b70d0f89791UL, 0xc76c51a30654be30UL,
-    0xd192e819d6ef5218UL, 0xd69906245565a910UL, 0xf40e35855771202aUL, 0x106aa07032bbd1b8UL,
-    0x19a4c116b8d2d0c8UL, 0x1e376c085141ab53UL, 0x2748774cdf8eeb99UL, 0x34b0bcb5e19b48a8UL,
-    0x391c0cb3c5c95a63UL, 0x4ed8aa4ae3418acbUL, 0x5b9cca4f7763e373UL, 0x682e6ff3d6b2b8a3UL,
-    0x748f82ee5defb2fcUL, 0x78a5636f43172f60UL, 0x84c87814a1f0ab72UL, 0x8cc702081a6439ecUL,
-    0x90befffa23631e28UL, 0xa4506cebde82bde9UL, 0xbef9a3f7b2c67915UL, 0xc67178f2e372532bUL,
-    0xca273eceea26619cUL, 0xd186b8c721c0c207UL, 0xeada7dd6cde0eb1eUL, 0xf57d4f7fee6ed178UL,
-    0x06f067aa72176fbaUL, 0x0a637dc5a2c898a6UL, 0x113f9804bef90daeUL, 0x1b710b35131c471bUL,
-    0x28db77f523047d84UL, 0x32caab7b40c72493UL, 0x3c9ebe0a15c9bebcUL, 0x431d67c49c100d4cUL,
-    0x4cc5d4becb3e42b6UL, 0x597f299cfc657e2aUL, 0x5fcb6fab3ad6faecUL, 0x6c44198c4a475817UL
-  };
-
 # define ROTR       fd_ulong_rotate_right
 # define Sigma0(x)  (ROTR((x),28) ^ ROTR((x),34) ^ ROTR((x),39))
 # define Sigma1(x)  (ROTR((x),14) ^ ROTR((x),18) ^ ROTR((x),41))
@@ -177,7 +182,7 @@ fd_sha512_core_ref( ulong *       state,        /* 64-byte aligned, 8 entries */
     ulong i;
     for( i=0UL; i<16UL; i++ ) {
       X[i] = fd_ulong_bswap( W[i] );
-      ulong T1 = X[i] + h + Sigma1(e) + Ch(e, f, g) + K[i];
+      ulong T1 = X[i] + h + Sigma1(e) + Ch(e, f, g) + fd_sha512_K[i];
       ulong T2 = Sigma0(a) + Maj(a, b, c);
       h = g;
       g = f;
@@ -194,7 +199,7 @@ fd_sha512_core_ref( ulong *       state,        /* 64-byte aligned, 8 entries */
       s0 = sigma0(s0);
       s1 = sigma1(s1);
       X[i & 0xfUL] += s0 + s1 + X[(i + 9UL) & 0xfUL];
-      ulong T1 = X[i & 0xfUL ] + h + Sigma1(e) + Ch(e, f, g) + K[i];
+      ulong T1 = X[i & 0xfUL ] + h + Sigma1(e) + Ch(e, f, g) + fd_sha512_K[i];
       ulong T2 = Sigma0(a) + Maj(a, b, c);
       h = g;
       g = f;
@@ -239,6 +244,157 @@ fd_sha512_core_avx2( ulong *       state,       /* 64-byte aligned, 8 entries */
                      ulong         block_cnt ); /* positive */
 
 #define fd_sha512_core fd_sha512_core_avx2
+
+#elif FD_SHA512_CORE_IMPL==2
+
+/* SHA-512 using ARMv8.2 FEAT_SHA512 Crypto Extensions. */
+
+FD_FN_PURE static inline uint64x2_t
+fd_sha512_load_input( uchar const * p ) {
+  return vreinterpretq_u64_u8( vrev64q_u8( vld1q_u8( p ) ) );
+}
+
+FD_FN_PURE static inline uint64x2_t
+fd_sha512_schedule_update( uint64x2_t m8,
+                           uint64x2_t m7,
+                           uint64x2_t m4,
+                           uint64x2_t m3,
+                           uint64x2_t m1 ) {
+  return vsha512su1q_u64( vsha512su0q_u64( m8, m7 ), m1, vextq_u64( m4, m3, 1 ) );
+}
+
+static inline void
+fd_sha512_round2( ulong       round_idx,
+                  uint64x2_t  sched,
+                  uint64x2_t * ab,
+                  uint64x2_t * cd,
+                  uint64x2_t * ef,
+                  uint64x2_t * gh ) {
+  uint64x2_t rk   = vld1q_u64( fd_sha512_K + round_idx );
+  uint64x2_t sum  = vaddq_u64( sched, rk );
+  uint64x2_t de   = vextq_u64( *cd, *ef, 1 );
+  uint64x2_t fg   = vextq_u64( *ef, *gh, 1 );
+  uint64x2_t acc  = vaddq_u64( vextq_u64( sum, sum, 1 ), *gh );
+  uint64x2_t tmp  = vsha512hq_u64( acc, fg, de );
+  *gh             = vsha512h2q_u64( tmp, *cd, *ab );
+  *cd             = vaddq_u64( *cd, tmp );
+}
+
+static void
+fd_sha512_core_arm( ulong *       state,
+                    uchar const * block,
+                    ulong         block_cnt ) {
+  do {
+    uint64x2_t s0 = fd_sha512_load_input( block      );
+    uint64x2_t s1 = fd_sha512_load_input( block+ 16  );
+    uint64x2_t s2 = fd_sha512_load_input( block+ 32  );
+    uint64x2_t s3 = fd_sha512_load_input( block+ 48  );
+    uint64x2_t s4 = fd_sha512_load_input( block+ 64  );
+    uint64x2_t s5 = fd_sha512_load_input( block+ 80  );
+    uint64x2_t s6 = fd_sha512_load_input( block+ 96  );
+    uint64x2_t s7 = fd_sha512_load_input( block+112  );
+
+    uint64x2_t ab = vld1q_u64( state    );
+    uint64x2_t cd = vld1q_u64( state+2  );
+    uint64x2_t ef = vld1q_u64( state+4  );
+    uint64x2_t gh = vld1q_u64( state+6  );
+
+    uint64x2_t ab_init = ab;
+    uint64x2_t cd_init = cd;
+    uint64x2_t ef_init = ef;
+    uint64x2_t gh_init = gh;
+
+    fd_sha512_round2(  0UL, s0, &ab, &cd, &ef, &gh );
+    fd_sha512_round2(  2UL, s1, &gh, &ab, &cd, &ef );
+    fd_sha512_round2(  4UL, s2, &ef, &gh, &ab, &cd );
+    fd_sha512_round2(  6UL, s3, &cd, &ef, &gh, &ab );
+    fd_sha512_round2(  8UL, s4, &ab, &cd, &ef, &gh );
+    fd_sha512_round2( 10UL, s5, &gh, &ab, &cd, &ef );
+    fd_sha512_round2( 12UL, s6, &ef, &gh, &ab, &cd );
+    fd_sha512_round2( 14UL, s7, &cd, &ef, &gh, &ab );
+
+    s0 = fd_sha512_schedule_update( s0, s1, s4, s5, s7 );
+    fd_sha512_round2( 16UL, s0, &ab, &cd, &ef, &gh );
+    s1 = fd_sha512_schedule_update( s1, s2, s5, s6, s0 );
+    fd_sha512_round2( 18UL, s1, &gh, &ab, &cd, &ef );
+    s2 = fd_sha512_schedule_update( s2, s3, s6, s7, s1 );
+    fd_sha512_round2( 20UL, s2, &ef, &gh, &ab, &cd );
+    s3 = fd_sha512_schedule_update( s3, s4, s7, s0, s2 );
+    fd_sha512_round2( 22UL, s3, &cd, &ef, &gh, &ab );
+    s4 = fd_sha512_schedule_update( s4, s5, s0, s1, s3 );
+    fd_sha512_round2( 24UL, s4, &ab, &cd, &ef, &gh );
+    s5 = fd_sha512_schedule_update( s5, s6, s1, s2, s4 );
+    fd_sha512_round2( 26UL, s5, &gh, &ab, &cd, &ef );
+    s6 = fd_sha512_schedule_update( s6, s7, s2, s3, s5 );
+    fd_sha512_round2( 28UL, s6, &ef, &gh, &ab, &cd );
+    s7 = fd_sha512_schedule_update( s7, s0, s3, s4, s6 );
+    fd_sha512_round2( 30UL, s7, &cd, &ef, &gh, &ab );
+
+    s0 = fd_sha512_schedule_update( s0, s1, s4, s5, s7 );
+    fd_sha512_round2( 32UL, s0, &ab, &cd, &ef, &gh );
+    s1 = fd_sha512_schedule_update( s1, s2, s5, s6, s0 );
+    fd_sha512_round2( 34UL, s1, &gh, &ab, &cd, &ef );
+    s2 = fd_sha512_schedule_update( s2, s3, s6, s7, s1 );
+    fd_sha512_round2( 36UL, s2, &ef, &gh, &ab, &cd );
+    s3 = fd_sha512_schedule_update( s3, s4, s7, s0, s2 );
+    fd_sha512_round2( 38UL, s3, &cd, &ef, &gh, &ab );
+    s4 = fd_sha512_schedule_update( s4, s5, s0, s1, s3 );
+    fd_sha512_round2( 40UL, s4, &ab, &cd, &ef, &gh );
+    s5 = fd_sha512_schedule_update( s5, s6, s1, s2, s4 );
+    fd_sha512_round2( 42UL, s5, &gh, &ab, &cd, &ef );
+    s6 = fd_sha512_schedule_update( s6, s7, s2, s3, s5 );
+    fd_sha512_round2( 44UL, s6, &ef, &gh, &ab, &cd );
+    s7 = fd_sha512_schedule_update( s7, s0, s3, s4, s6 );
+    fd_sha512_round2( 46UL, s7, &cd, &ef, &gh, &ab );
+
+    s0 = fd_sha512_schedule_update( s0, s1, s4, s5, s7 );
+    fd_sha512_round2( 48UL, s0, &ab, &cd, &ef, &gh );
+    s1 = fd_sha512_schedule_update( s1, s2, s5, s6, s0 );
+    fd_sha512_round2( 50UL, s1, &gh, &ab, &cd, &ef );
+    s2 = fd_sha512_schedule_update( s2, s3, s6, s7, s1 );
+    fd_sha512_round2( 52UL, s2, &ef, &gh, &ab, &cd );
+    s3 = fd_sha512_schedule_update( s3, s4, s7, s0, s2 );
+    fd_sha512_round2( 54UL, s3, &cd, &ef, &gh, &ab );
+    s4 = fd_sha512_schedule_update( s4, s5, s0, s1, s3 );
+    fd_sha512_round2( 56UL, s4, &ab, &cd, &ef, &gh );
+    s5 = fd_sha512_schedule_update( s5, s6, s1, s2, s4 );
+    fd_sha512_round2( 58UL, s5, &gh, &ab, &cd, &ef );
+    s6 = fd_sha512_schedule_update( s6, s7, s2, s3, s5 );
+    fd_sha512_round2( 60UL, s6, &ef, &gh, &ab, &cd );
+    s7 = fd_sha512_schedule_update( s7, s0, s3, s4, s6 );
+    fd_sha512_round2( 62UL, s7, &cd, &ef, &gh, &ab );
+
+    s0 = fd_sha512_schedule_update( s0, s1, s4, s5, s7 );
+    fd_sha512_round2( 64UL, s0, &ab, &cd, &ef, &gh );
+    s1 = fd_sha512_schedule_update( s1, s2, s5, s6, s0 );
+    fd_sha512_round2( 66UL, s1, &gh, &ab, &cd, &ef );
+    s2 = fd_sha512_schedule_update( s2, s3, s6, s7, s1 );
+    fd_sha512_round2( 68UL, s2, &ef, &gh, &ab, &cd );
+    s3 = fd_sha512_schedule_update( s3, s4, s7, s0, s2 );
+    fd_sha512_round2( 70UL, s3, &cd, &ef, &gh, &ab );
+    s4 = fd_sha512_schedule_update( s4, s5, s0, s1, s3 );
+    fd_sha512_round2( 72UL, s4, &ab, &cd, &ef, &gh );
+    s5 = fd_sha512_schedule_update( s5, s6, s1, s2, s4 );
+    fd_sha512_round2( 74UL, s5, &gh, &ab, &cd, &ef );
+    s6 = fd_sha512_schedule_update( s6, s7, s2, s3, s5 );
+    fd_sha512_round2( 76UL, s6, &ef, &gh, &ab, &cd );
+    s7 = fd_sha512_schedule_update( s7, s0, s3, s4, s6 );
+    fd_sha512_round2( 78UL, s7, &cd, &ef, &gh, &ab );
+
+    ab = vaddq_u64( ab, ab_init );
+    cd = vaddq_u64( cd, cd_init );
+    ef = vaddq_u64( ef, ef_init );
+    gh = vaddq_u64( gh, gh_init );
+    vst1q_u64( state,   ab );
+    vst1q_u64( state+2, cd );
+    vst1q_u64( state+4, ef );
+    vst1q_u64( state+6, gh );
+
+    block += FD_SHA512_BLOCK_SZ;
+  } while( --block_cnt );
+}
+
+#define fd_sha512_core fd_sha512_core_arm
 
 #else
 #error "Unsupported FD_SHA512_CORE_IMPL"

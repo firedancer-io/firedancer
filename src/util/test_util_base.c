@@ -14,6 +14,11 @@ FD_STATIC_ASSERT( !(FD_HAS_AVX    && !FD_HAS_SSE), devenv );
 FD_STATIC_ASSERT( !(FD_HAS_AVX512 && !FD_HAS_AVX), devenv );
 FD_STATIC_ASSERT( !(FD_HAS_SHANI  && !FD_HAS_AVX), devenv );
 FD_STATIC_ASSERT( !(FD_HAS_GFNI   && !FD_HAS_AVX), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_NEON         && !FD_HAS_ARM       ), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_ARM_CRYPTO   && !FD_HAS_NEON      ), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_ARM_SHA256   && !FD_HAS_NEON      ), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_ARM_SHA512   && !FD_HAS_NEON      ), devenv );
+FD_STATIC_ASSERT( !(FD_HAS_ARM_AES      && !FD_HAS_ARM_CRYPTO), devenv );
 
 /* Test size_t <> ulong, uintptr_t <> ulong, intptr_t <> long (which
    then further imply sizeof and alignof return a ulong and that

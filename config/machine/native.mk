@@ -63,6 +63,12 @@ $(call map-define,FD_HAS_AVX, __AVX2__)
 $(call map-define,FD_HAS_GFNI, __GFNI__)
 $(call map-define,FD_IS_X86_64, __x86_64__)
 $(call map-define,FD_HAS_AESNI, __AES__)
+$(call map-define,FD_HAS_ARM, __aarch64__)
+$(call map-define,FD_HAS_NEON, __ARM_NEON)
+$(call map-define,FD_HAS_ARM_CRYPTO, __ARM_FEATURE_CRYPTO)
+$(call map-define,FD_HAS_ARM_SHA256, __ARM_FEATURE_SHA2)
+$(call map-define,FD_HAS_ARM_SHA512, __ARM_FEATURE_SHA512)
+$(call map-define,FD_HAS_ARM_AES, __ARM_FEATURE_AES)
 
 # Older version of GCC (<10) don't fully support AVX512, so we disable
 # it in those cases. Older versions of Clang (<8) don't support it
@@ -83,6 +89,13 @@ ifdef FD_HAS_THREADS
 include config/extra/with-threads.mk
 endif
 
+ifdef FD_HAS_ARM_AES
+ifndef FD_HAS_ARM_CRYPTO
+CPPFLAGS+=-DFD_HAS_ARM_CRYPTO=1
+FD_HAS_ARM_CRYPTO:=1
+endif
+endif
+
 ifdef FD_IS_X86_64
 include config/extra/with-x86-64.mk
 $(info Using FD_HAS_SSE=$(FD_HAS_SSE))
@@ -91,4 +104,12 @@ $(info Using FD_HAS_AVX512=$(FD_HAS_AVX512) $(FD_HAS_AVX512_MESSAGE))
 $(info Using FD_HAS_GFNI=$(FD_HAS_GFNI))
 $(info Using FD_HAS_SHANI=$(FD_HAS_SHANI))
 $(info Using FD_HAS_AESNI=$(FD_HAS_AESNI))
+endif
+
+ifdef FD_HAS_ARM
+$(info Using FD_HAS_NEON=$(FD_HAS_NEON))
+$(info Using FD_HAS_ARM_CRYPTO=$(FD_HAS_ARM_CRYPTO))
+$(info Using FD_HAS_ARM_SHA256=$(FD_HAS_ARM_SHA256))
+$(info Using FD_HAS_ARM_SHA512=$(FD_HAS_ARM_SHA512))
+$(info Using FD_HAS_ARM_AES=$(FD_HAS_ARM_AES))
 endif

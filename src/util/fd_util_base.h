@@ -189,6 +189,43 @@
 #define FD_HAS_ARM 0
 #endif
 
+/* FD_HAS_NEON indicates the target supports Arm Advanced SIMD / NEON
+   instructions. This is the 128-bit SIMD baseline for Firedancer Arm
+   backends. Implies FD_HAS_ARM. */
+
+#ifndef FD_HAS_NEON
+#define FD_HAS_NEON 0
+#endif
+
+/* FD_HAS_ARM_CRYPTO indicates the target supports Arm cryptographic
+   instructions broadly, including AES and SHA-family acceleration.
+   Implies FD_HAS_NEON. */
+
+#ifndef FD_HAS_ARM_CRYPTO
+#define FD_HAS_ARM_CRYPTO 0
+#endif
+
+/* FD_HAS_ARM_SHA256 indicates that the target supports the Arm
+   Advanced SIMD SHA-256 instructions. Implies FD_HAS_NEON. */
+
+#ifndef FD_HAS_ARM_SHA256
+#define FD_HAS_ARM_SHA256 0
+#endif
+
+/* FD_HAS_ARM_SHA512 indicates that the target supports the Arm
+   Advanced SIMD SHA-512 instructions. Implies FD_HAS_NEON. */
+
+#ifndef FD_HAS_ARM_SHA512
+#define FD_HAS_ARM_SHA512 0
+#endif
+
+/* FD_HAS_ARM_AES indicates that the target supports the Arm Advanced
+   SIMD AES instructions. Implies FD_HAS_ARM_CRYPTO. */
+
+#ifndef FD_HAS_ARM_AES
+#define FD_HAS_ARM_AES 0
+#endif
+
 /* FD_HAS_LZ4 indicates that the target supports LZ4 compression.
    Roughly, does "#include <lz4.h>" and the APIs therein work? */
 
@@ -226,6 +263,29 @@
 
 #ifndef FD_HAS_DEEPASAN
 #define FD_HAS_DEEPASAN 0
+#endif
+
+/* ARM capability implications. Fail fast at compile time if a machine
+   config or manual CPPFLAGS override becomes inconsistent. */
+
+#if FD_HAS_NEON && !FD_HAS_ARM
+#error "FD_HAS_NEON requires FD_HAS_ARM"
+#endif
+
+#if FD_HAS_ARM_CRYPTO && !FD_HAS_NEON
+#error "FD_HAS_ARM_CRYPTO requires FD_HAS_NEON"
+#endif
+
+#if FD_HAS_ARM_SHA256 && !FD_HAS_NEON
+#error "FD_HAS_ARM_SHA256 requires FD_HAS_NEON"
+#endif
+
+#if FD_HAS_ARM_SHA512 && !FD_HAS_NEON
+#error "FD_HAS_ARM_SHA512 requires FD_HAS_NEON"
+#endif
+
+#if FD_HAS_ARM_AES && !FD_HAS_ARM_CRYPTO
+#error "FD_HAS_ARM_AES requires FD_HAS_ARM_CRYPTO"
 #endif
 
 /* Base development environment ***************************************/

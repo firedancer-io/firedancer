@@ -44,3 +44,27 @@ FD_ARCH_SUPPORTS_SANDBOX:=1
 
 CPPFLAGS+=-DFD_HAS_ARM=1
 FD_HAS_ARM:=1
+
+CPPFLAGS+=-DFD_HAS_NEON=1
+FD_HAS_NEON:=1
+
+define _arm_map_define
+  ifeq ($(shell echo | $(CC) $(CPPFLAGS) -E -dM - | grep -c $(2)),1)
+    CPPFLAGS+=-D$(1)=1
+    $(1):=1
+  endif
+endef
+
+arm-map-define = $(eval $(call _arm_map_define,$(1),$(2)))
+
+$(call arm-map-define,FD_HAS_ARM_AES,__ARM_FEATURE_AES)
+$(call arm-map-define,FD_HAS_ARM_CRYPTO,__ARM_FEATURE_CRYPTO)
+$(call arm-map-define,FD_HAS_ARM_SHA256,__ARM_FEATURE_SHA2)
+$(call arm-map-define,FD_HAS_ARM_SHA512,__ARM_FEATURE_SHA512)
+
+ifdef FD_HAS_ARM_AES
+ifndef FD_HAS_ARM_CRYPTO
+CPPFLAGS+=-DFD_HAS_ARM_CRYPTO=1
+FD_HAS_ARM_CRYPTO:=1
+endif
+endif
