@@ -371,12 +371,12 @@
 #include "../fd_choreo_base.h"
 #include "fd_tower_serdes.h"
 
-#define FD_TOWER_LOCKOS_MAX 31UL
 #include "fd_tower_stakes.h"
 #include "../ghost/fd_ghost.h"
 #include "../votes/fd_votes.h"
 #include "../../disco/pack/fd_microblock.h"
 
+#define FD_TOWER_LOCKOS_MAX 31UL
 #define FD_TOWER_VOTE_MAX (FD_TOWER_LOCKOS_MAX)
 
 /* fd_tower is a representation of a validator's "vote tower" (described

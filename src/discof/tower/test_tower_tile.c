@@ -68,7 +68,7 @@ test_count_vote_txn( void ) {
 
   /* 1. Valid tower: 3 lockouts, strictly increasing slots, strictly
         decreasing confirmation counts.  Tower validation passes, then
-        exits at null block_id check.  txn_bad_tower must stay 0. */
+        exits at null block_id check.  bad_cnt must stay 0. */
 
   {
     ulong slots[] = { 52, 57, 60 };
@@ -76,7 +76,7 @@ test_count_vote_txn( void ) {
     txn = mock_vote_txn( 42, 3, slots, confs, &block_id_null, txnp, txn_mem );
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
-    FD_TEST( ctx->metrics.txn_bad_tower==0 );
+    FD_TEST( ctx->metrics.bad_cnt==0 );
     FD_TEST( ctx->metrics.votes_unknown_block_id==1 );
   }
 
@@ -88,7 +88,7 @@ test_count_vote_txn( void ) {
     txn = mock_vote_txn( 42, 1, slots, confs, &block_id_null, txnp, txn_mem );
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
-    FD_TEST( ctx->metrics.txn_bad_tower==1 );
+    FD_TEST( ctx->metrics.bad_cnt==1 );
   }
 
   /* 3. Non-decreasing confirmation counts (equal). */
@@ -99,7 +99,7 @@ test_count_vote_txn( void ) {
     txn = mock_vote_txn( 42, 2, slots, confs, &block_id_null, txnp, txn_mem );
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
-    FD_TEST( ctx->metrics.txn_bad_tower==1 );
+    FD_TEST( ctx->metrics.bad_cnt==1 );
   }
 
   /* 4. Increasing confirmation counts. */
@@ -110,7 +110,7 @@ test_count_vote_txn( void ) {
     txn = mock_vote_txn( 42, 3, slots, confs, &block_id_null, txnp, txn_mem );
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
-    FD_TEST( ctx->metrics.txn_bad_tower==1 );
+    FD_TEST( ctx->metrics.bad_cnt==1 );
   }
 
   /* 5. Valid 1-lockout tower. */
@@ -121,7 +121,7 @@ test_count_vote_txn( void ) {
     txn = mock_vote_txn( 0, 1, slots, confs, &block_id_null, txnp, txn_mem );
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
-    FD_TEST( ctx->metrics.txn_bad_tower==0 );
+    FD_TEST( ctx->metrics.bad_cnt==0 );
   }
 
   /* 6. Single valid lockout — edge case with exactly 1 vote. */
@@ -132,19 +132,16 @@ test_count_vote_txn( void ) {
     txn = mock_vote_txn( 0, 1, slots, confs, &block_id_null, txnp, txn_mem );
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
-    FD_TEST( ctx->metrics.txn_bad_tower==0 );
+    FD_TEST( ctx->metrics.bad_cnt==0 );
   }
 
-  /* 7. Empty tower (0 lockouts) — not a bad tower, hits
-        txn_empty_tower.  Needs non-null block_id to get past the
-        hash_null check. */
+  /* 7. Empty tower (0 lockouts) — silent no-op, no metric incremented. */
 
   {
     txn = mock_vote_txn( 42, 0, NULL, NULL, &block_id_nonnull, txnp, txn_mem );
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
-    FD_TEST( ctx->metrics.txn_bad_tower==0 );
-    FD_TEST( ctx->metrics.txn_empty_tower==1 );
+    FD_TEST( ctx->metrics.bad_cnt==0 );
   }
 
   /* 8. Max lockouts (FD_TOWER_VOTE_MAX), strictly decreasing confs. */
@@ -159,7 +156,7 @@ test_count_vote_txn( void ) {
     txn = mock_vote_txn( 0, FD_TOWER_VOTE_MAX, slots, confs, &block_id_null, txnp, txn_mem );
     memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
     count_vote_txn( ctx, txn, txnp->payload );
-    FD_TEST( ctx->metrics.txn_bad_tower==0 );
+    FD_TEST( ctx->metrics.bad_cnt==0 );
   }
 
   FD_LOG_NOTICE(( "pass: test_count_vote_txn_tower_checks" ));

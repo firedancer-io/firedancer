@@ -1273,10 +1273,10 @@ metric introduced.
 
     <counter name="NotReady" summary="Frag was dropped because it arrived before tower tile was initialized" />
 
-    <counter name="TxnBadDeser" summary="Vote txn failed to deserialize" />
-    <counter name="TxnBadTower" summary="Vote txn deserialized but tower was invalid" />
-    <counter name="TxnNotTowerSync" summary="Vote txn was not a TowerSync instruction" />
-    <counter name="TxnEmptyTower" summary="Vote txn had an empty tower (validator hasn't voted)" />
+    <counter name="BadParse" summary="Vote txn failed to deserialize" />
+    <counter name="BadCnt" summary="Vote txn deserialized but tower was invalid" />
+    <counter name="BadKind" summary="Vote txn was not a TowerSync instruction" />
+    <counter name="EmptyCnt" summary="Vote txn had an empty tower (zero lockouts)" />
 
     <!-- Eqvoc -->
 
