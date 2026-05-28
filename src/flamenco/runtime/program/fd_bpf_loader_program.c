@@ -2191,7 +2191,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
 
     fd_pubkey_t * programdata_pubkey = &program_account_state->inner.program.programdata_address;
-    progdata_ro = fd_runtime_get_executable_account( ctx->runtime, ctx->txn_out, programdata_pubkey );
+    progdata_ro = fd_runtime_get_executable_account( ctx->txn_out, programdata_pubkey );
     if( FD_UNLIKELY( !progdata_ro ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not deployed" );
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

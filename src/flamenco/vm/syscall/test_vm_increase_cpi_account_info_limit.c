@@ -181,23 +181,28 @@ test_env_create( test_env_t * env,
   features->loosen_cpi_size_restriction = 0UL;
 
   env->txn_out->accounts.cnt = 3;
+  fd_memset( env->txn_out->accounts.keys,    0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+  fd_memset( env->runtime->accounts.account, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
+    env->txn_out->accounts.account[i] = &env->runtime->accounts.account[ i ];
+  }
 
   memcpy( &env->txn_out->accounts.keys[0], &fd_solana_system_program_id, sizeof(fd_pubkey_t) );
-  fd_acc_t * sysprog_ent = &env->txn_out->accounts.account[0];
+  fd_acc_t * sysprog_ent = env->txn_out->accounts.account[0];
   memset( sysprog_ent, 0, sizeof(fd_acc_t) );
   memcpy( sysprog_ent->pubkey, fd_solana_system_program_id.key, 32 );
   memcpy( sysprog_ent->owner, fd_solana_native_loader_id.key, 32 );
   sysprog_ent->executable = 1;
 
   memcpy( &env->txn_out->accounts.keys[1], &test_transfer_from_pubkey, sizeof(fd_pubkey_t) );
-  fd_acc_t * source_ent = &env->txn_out->accounts.account[1];
+  fd_acc_t * source_ent = env->txn_out->accounts.account[1];
   memset( source_ent, 0, sizeof(fd_acc_t) );
   memcpy( source_ent->pubkey, test_transfer_from_pubkey.key, 32 );
   memcpy( source_ent->owner, fd_solana_system_program_id.key, 32 );
   source_ent->lamports = 1000000UL;
 
   memcpy( &env->txn_out->accounts.keys[2], &test_transfer_to_pubkey, sizeof(fd_pubkey_t) );
-  fd_acc_t * dest_ent = &env->txn_out->accounts.account[2];
+  fd_acc_t * dest_ent = env->txn_out->accounts.account[2];
   memset( dest_ent, 0, sizeof(fd_acc_t) );
   memcpy( dest_ent->pubkey, test_transfer_to_pubkey.key, 32 );
   memcpy( dest_ent->owner, fd_solana_system_program_id.key, 32 );
@@ -218,13 +223,13 @@ test_env_create( test_env_t * env,
   memset( env->acc_region_metas, 0, sizeof(env->acc_region_metas) );
   env->acc_region_metas[0].region_idx        = 0;
   env->acc_region_metas[0].original_data_len = 0UL;
-  env->acc_region_metas[0].acc             = &env->txn_out->accounts.account[0];
+  env->acc_region_metas[0].acc             = env->txn_out->accounts.account[0];
   env->acc_region_metas[1].region_idx        = 0;
   env->acc_region_metas[1].original_data_len = 0UL;
-  env->acc_region_metas[1].acc             = &env->txn_out->accounts.account[1];
+  env->acc_region_metas[1].acc             = env->txn_out->accounts.account[1];
   env->acc_region_metas[2].region_idx        = 0;
   env->acc_region_metas[2].original_data_len = 0UL;
-  env->acc_region_metas[2].acc             = &env->txn_out->accounts.account[2];
+  env->acc_region_metas[2].acc             = env->txn_out->accounts.account[2];
 
   memset( env->rodata, 0, sizeof(env->rodata) );
   int vm_ok = !!fd_vm_init(

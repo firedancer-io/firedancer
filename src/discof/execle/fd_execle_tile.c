@@ -441,11 +441,21 @@ handle_bundle( fd_execle_tile_t *  ctx,
      These were copied in during_frag from the source fd_txn_e_t,
      resolved by fd_resolv_tile. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    writable_alt[i] = ctx->_alt_accts[i];
+    writable_alt[i]                   = ctx->_alt_accts[i];
+    ctx->txn_in[ i ].txn              = &txns[ i ];
+    ctx->txn_in[ i ].bundle.is_bundle = 1;
   }
+
 
   int   execution_success = 1;
   ulong failed_idx        = ULONG_MAX;
+
+  /* Acquire all accdb resources in order to execute the bundle. */
+  int err = fd_runtime_prepare_bundle_accounts( ctx->runtime, bank, ctx->txn_in, ctx->txn_out, txn_cnt );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    execution_success = 0;
+    failed_idx = 0;
+  }
 
   /* Every transaction in the bundle should be executed in order against
      different transaciton contexts. */
@@ -511,10 +521,10 @@ handle_bundle( fd_execle_tile_t *  ctx,
                       cost_tracker->remove_simple_vote_from_cost_model ));
       }
 
-      uint actual_execution_cus               = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
-      uint actual_acct_data_cus               = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
-      uint non_execution_cus                  = txns[ i ].pack_cu.non_execution_cus;
-      uint requested_exec_plus_acct_data_cus  = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
+      uint actual_execution_cus              = (uint)(txn_out->details.compute_budget.compute_unit_limit - txn_out->details.compute_budget.compute_meter);
+      uint actual_acct_data_cus              = (uint)(txn_out->details.txn_cost.transaction.loaded_accounts_data_size_cost);
+      uint non_execution_cus                 = txns[ i ].pack_cu.non_execution_cus;
+      uint requested_exec_plus_acct_data_cus = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus;
 
       int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload );
       if( FD_UNLIKELY( is_simple_vote && !FD_FEATURE_ACTIVE_BANK( bank, remove_simple_vote_from_cost_model ) ) ) {
@@ -578,6 +588,8 @@ handle_bundle( fd_execle_tile_t *  ctx,
       else                ctx->metrics.txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_V_BUNDLE_PEER_IDX            ]++;
     }
   }
+
+  fd_runtime_fini_bundle( ctx->runtime );
 
   if( FD_LIKELY( ctx->enable_rebates ) ) fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
@@ -740,6 +752,7 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->runtime->fuzz.enabled             = 0;
   ctx->runtime->fuzz.reclaim_accounts    = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;
+  ctx->runtime->accounts.account_cnt     = 0UL;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

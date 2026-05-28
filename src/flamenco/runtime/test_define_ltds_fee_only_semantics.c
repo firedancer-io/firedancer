@@ -123,6 +123,7 @@ build_minimal_fees_only_txn( fd_bank_t const *   bank,
                              fd_txn_in_t *       txn_in,
                              fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -156,6 +157,7 @@ build_limit_exceeded_txn( fd_bank_t const *   bank,
                           fd_txn_in_t *       txn_in,
                           fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -196,6 +198,7 @@ build_separate_nonce_txn( fd_pubkey_t const * fee_payer,
                           fd_txn_in_t *       txn_in,
                           fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -243,6 +246,7 @@ build_same_nonce_txn( fd_pubkey_t const * fee_payer,
                       fd_txn_in_t *       txn_in,
                       fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
@@ -293,6 +297,7 @@ build_separate_nonce_with_limit_txn( fd_pubkey_t const * fee_payer,
                                      fd_txn_in_t *       txn_in,
                                      fd_txn_out_t *      txn_out ) {
   fd_memset( txn_p,   0, sizeof(fd_txn_p_t)   );
+  fd_memset( txn_in,  0, sizeof(fd_txn_in_t)  );
   fd_memset( txn_out, 0, sizeof(fd_txn_out_t) );
 
   fd_txn_t * txn = TXN( txn_p );
