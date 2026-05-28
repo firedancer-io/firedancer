@@ -319,7 +319,7 @@ fd_alut_interp_next( fd_alut_interp_t * interp,
   }
 
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
-  if( FD_UNLIKELY( meta.discriminant != FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) {
+  if( FD_UNLIKELY( meta.discriminant!=FD_ALUT_STATE_DISC_LOOKUP_TABLE ) ) {
     return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
   }
 

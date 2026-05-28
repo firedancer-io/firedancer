@@ -219,6 +219,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   runtime->instr.trace_length      = 0;
   runtime->instr.current_idx       = 0;
   runtime->accounts.executable_cnt = 0;
+  runtime->accounts.account_cnt    = 0;
   fd_memset( &runtime->log,     0, sizeof(runtime->log)     );
   fd_memset( &runtime->metrics, 0, sizeof(runtime->metrics) );
   fd_memset( &runtime->fuzz,    0, sizeof(runtime->fuzz)    );

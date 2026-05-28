@@ -157,20 +157,33 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
   fd_runtime_t *       runtime      = runner->runtime;
   fd_txn_out_t *       txn_outs     = fd_spad_alloc( runner->spad, alignof(fd_txn_out_t), txn_cnt*sizeof(fd_txn_out_t) );
+  fd_txn_in_t  *       txn_ins      = fd_spad_alloc( runner->spad, alignof(fd_txn_in_t),  txn_cnt*sizeof(fd_txn_in_t)  );
   fd_log_collector_t * logs         = fd_spad_alloc( runner->spad, alignof(fd_log_collector_t), txn_cnt*sizeof(fd_log_collector_t) );
   ulong                ran_cnt      = 0UL;
   int                  saw_exec_err = 0;
 
+  /* Set up every txn_in up-front.  For bundles, acquire all of the
+     bundle's accounts in a single acquire_a/acquire_b pair before any
+     txn executes; each txn then binds to this shared pool, which is
+     released once after the bundle is committed or cancelled. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_in_t txn_in = {0};
-    txn_in.txn                 = &txns[i];
-    txn_in.bundle.is_bundle    = is_bundle;
-    txn_in.bundle.prev_txn_cnt = is_bundle ? i : 0UL;
-    for( ulong j=0UL; is_bundle && j<i; j++ ) txn_in.bundle.prev_txn_outs[j] = &txn_outs[j];
+    txn_ins[i]                     = (fd_txn_in_t){0};
+    txn_ins[i].txn                 = &txns[i];
+    txn_ins[i].bundle.is_bundle    = is_bundle;
+    txn_ins[i].bundle.prev_txn_cnt = is_bundle ? i : 0UL;
+    for( ulong j=0UL; is_bundle && j<i; j++ ) txn_ins[i].bundle.prev_txn_outs[j] = &txn_outs[j];
+  }
+  if( is_bundle ) {
+    runtime->accdb = runner->accdb;
+    fd_runtime_prepare_bundle_accounts( runtime, runner->bank, txn_ins, txn_outs, txn_cnt );
+  }
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_in_t * txn_in = &txn_ins[i];
 
     int exec_res = 0;
     runtime->log.log_collector = &logs[i];
-    fd_solfuzz_txn_ctx_exec( runner, runtime, &txn_in, &exec_res, &txn_outs[i], 1 );
+    fd_solfuzz_txn_ctx_exec( runner, runtime, txn_in, &exec_res, &txn_outs[i], 1 );
     ran_cnt = i+1UL;
 
     if( exec_res!=FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -185,7 +198,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
         &txn_result,
         (void *)_l,
         output_end - _l,
-        &txn_in,
+        txn_in,
         &txn_outs[i],
         exec_res );
     FD_TEST( txn_result_sz );
@@ -199,7 +212,7 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
         fd_memcpy( stake_delta->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
         stake_delta->delta = 0UL;
 
-        fd_stake_state_t const * stake_state = fd_stakes_get_state( &txn_outs[i].accounts.account[j] );
+        fd_stake_state_t const * stake_state = fd_stakes_get_state( txn_outs[i].accounts.account[j] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
           stake_delta->delta = stake_state->stake.stake.delegation.stake;
         }
@@ -207,8 +220,8 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
       if( txn_outs[i].accounts.vote_update[j] ) {
         fd_vote_block_timestamp_t last_vote;
-        if( !fd_vote_account_last_timestamp( txn_outs[i].accounts.account[j].data,
-                                             txn_outs[i].accounts.account[j].data_len,
+        if( !fd_vote_account_last_timestamp( txn_outs[i].accounts.account[j]->data,
+                                             txn_outs[i].accounts.account[j]->data_len,
                                              &last_vote ) ) {
           fd_exec_test_vote_update_t * vote_update = &effects->vote_updates[effects->vote_updates_count++];
           fd_memcpy( vote_update->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
@@ -226,6 +239,10 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
       fd_runtime_commit_txn( runtime, runner->bank, &txn_outs[i] );
     }
   }
+
+  /* Release the bundle's shared account pool exactly once now that all of
+     its txns have been committed or cancelled. */
+  if( is_bundle ) fd_runtime_fini_bundle( runtime );
 
   effects->has_error = saw_exec_err;
   if( saw_exec_err ) {

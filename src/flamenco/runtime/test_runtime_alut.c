@@ -9,6 +9,7 @@
 #include "../accdb/fd_accdb.h"
 #include "../../ballet/txn/fd_txn.h"
 #include <string.h>
+#include <stdlib.h>
 
 /* Test configuration */
 #define TEST_SLOT         (100000UL)
@@ -190,7 +191,7 @@ test_non_v0_transaction( fd_wksp_t * wksp ) {
 
   /* Call function - should return immediately for non-V0 */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -230,7 +231,7 @@ test_v0_no_alts( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed immediately with no ALTs */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -273,7 +274,7 @@ test_alt_not_found( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with not found error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND );
 
@@ -337,7 +338,7 @@ test_invalid_alt_owner( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid owner error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER );
 
@@ -399,7 +400,7 @@ test_alt_data_too_small( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid data error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
 
@@ -487,7 +488,7 @@ test_invalid_discriminant( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid data error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
 
@@ -535,7 +536,7 @@ test_alt_data_not_aligned( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid data error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
 
@@ -598,7 +599,7 @@ test_deactivated_alt( fd_wksp_t * wksp ) {
 
   /* Call function - should fail because ALT is deactivated */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND );
 
@@ -664,7 +665,7 @@ test_invalid_writable_index( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid index error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX );
 
@@ -716,7 +717,7 @@ test_invalid_readonly_index( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid index error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX );
 
@@ -772,7 +773,7 @@ test_valid_single_alt( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -850,7 +851,7 @@ test_multiple_alts( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -932,7 +933,7 @@ test_partial_activation( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with only first 5 addresses active */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1002,7 +1003,7 @@ test_deactivating_alt( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed because ALT is still deactivating */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1057,7 +1058,7 @@ test_bincode_decode_failure( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid data error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA );
 
@@ -1121,7 +1122,7 @@ test_alt_just_activated( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all 10 addresses active */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1199,7 +1200,7 @@ test_growing_alt( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with only first 15 addresses accessible */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1270,7 +1271,7 @@ test_alt_deactivating_current_slot( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed because ALT is still active at deactivation slot */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1339,7 +1340,7 @@ test_alt_max_addresses( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1410,7 +1411,7 @@ test_alt_no_authority( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed (authority doesn't affect loading) */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1483,7 +1484,7 @@ test_alt_future_extension( fd_wksp_t * wksp ) {
 
   /* Call function - should fail with invalid index error */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX );
 
@@ -1573,7 +1574,7 @@ test_multiple_alts_mixed_states( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all valid addresses loaded */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1630,7 +1631,7 @@ test_alt_zero_addresses( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with no addresses loaded */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1697,7 +1698,7 @@ test_alt_duplicate_indices( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with duplicates */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1760,7 +1761,7 @@ test_alt_all_writable( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all addresses in writable section */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1827,7 +1828,7 @@ test_alt_all_readonly( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all addresses in readonly section */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1902,7 +1903,7 @@ test_alt_deactivation_boundary( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed (still deactivating at boundary) */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -1975,7 +1976,7 @@ test_max_transaction_alts( fd_wksp_t * wksp ) {
 
   /* Call function - should succeed with all ALTs loaded */
   int result = fd_runtime_load_txn_address_lookup_tables(
-    NULL, txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
+    txn, payload, ctx->accdb, ctx->fork_id, TEST_SLOT, hashes, out_accts );
 
   FD_TEST( result == FD_RUNTIME_EXECUTE_SUCCESS );
 
@@ -2214,15 +2215,14 @@ main( int argc, char ** argv ) {
   test_wire_encoded_field_offsets();
 
   /* The test_setup() function uses a workspace for small allocations
-     (test_ctx_t, txn buffers, slot-hash deques). */
-  char * _page_sz = "gigantic";
-  ulong numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
-                                            16UL,
-                                            fd_shmem_cpu_idx( numa_idx ),
-                                            "test_runtime_alut_wksp",
-                                            0UL );
-  FD_TEST( wksp );
+     (test_ctx_t, txn buffers, slot-hash deques).  Back it with normal
+     pages so the test does not require pinned huge pages. */
+  ulong       wksp_footprint = fd_ulong_align_up( 16UL<<30, FD_SHMEM_NORMAL_PAGE_SZ );
+  ulong       wksp_part_max  = fd_wksp_part_max_est( wksp_footprint, 64UL<<10 );  FD_TEST( wksp_part_max );
+  ulong       wksp_data_max  = fd_wksp_data_max_est( wksp_footprint, wksp_part_max ); FD_TEST( wksp_data_max );
+  void *      wksp_mem       = aligned_alloc( FD_SHMEM_NORMAL_PAGE_SZ, wksp_footprint ); FD_TEST( wksp_mem );
+  fd_wksp_t * wksp           = fd_wksp_new( wksp_mem, "test_runtime_alut_wksp", 1U, wksp_part_max, wksp_data_max ); FD_TEST( wksp );
+  fd_shmem_join_anonymous( "test_runtime_alut_wksp", FD_SHMEM_JOIN_MODE_READ_WRITE, wksp, wksp_mem, FD_SHMEM_NORMAL_PAGE_SZ, wksp_footprint>>FD_SHMEM_NORMAL_LG_PAGE_SZ );
 
   /* Run test cases */
   test_non_v0_transaction( wksp );
