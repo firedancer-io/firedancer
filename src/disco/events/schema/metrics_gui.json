@@ -1,0 +1,15 @@
+{
+    "name": "metrics_gui",
+    "id": 1016,
+    "description": "Metrics snapshot for the gui tile",
+    "fields": {
+        "meta":                       { "type": "ref:MetricMeta" },
+        "tile":                       { "type": "ref:MetricTile" },
+        "connection_count":           { "type": "UInt64", "description": "The number of active http connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection" },
+        "websocket_connection_count": { "type": "UInt64", "description": "The number of active websocket connections to the GUI service" },
+        "websocket_frames_sent":      { "type": "UInt64", "description": "The total number of websocket frames sent to all connections to the GUI service" },
+        "websocket_frames_received":  { "type": "UInt64", "description": "The total number of websocket frames received from all connections to the GUI service" },
+        "bytes_written":              { "type": "UInt64", "description": "The total number of bytes written to all connections to the GUI service" },
+        "bytes_read":                 { "type": "UInt64", "description": "The total number of bytes read from all connections to the GUI service" }
+    }
+}

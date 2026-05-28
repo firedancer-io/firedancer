@@ -1,0 +1,34 @@
+{
+    "name": "metrics_shred",
+    "id": 1009,
+    "description": "Metrics snapshot for the shred tile",
+    "fields": {
+        "meta":                     { "type": "ref:MetricMeta" },
+        "tile":                     { "type": "ref:MetricTile" },
+        "microblocks_abandoned":    { "type": "UInt64", "description": "The number of microblocks that were abandoned because we switched slots without finishing the current slot" },
+        "invalid_block_id":         { "type": "UInt64", "description": "The number of times a block was created with unknown parent block_id" },
+        "shred_processed":          {
+            "type": "Flatten",
+            "description": "The result of processing a shred from the network",
+            "fields": {
+                "shred_processed_bad_slot":     { "type": "UInt64", "description": "Shred was for a slot for which we don't know the leader" },
+                "shred_processed_parse_failed": { "type": "UInt64", "description": "Shred parsing failed" },
+                "shred_processed_rejected":     { "type": "UInt64", "description": "Shred was invalid for one of many reasons" },
+                "shred_processed_ignored":      { "type": "UInt64", "description": "Shred was ignored because we had already received or reconstructed it" },
+                "shred_processed_okay":         { "type": "UInt64", "description": "Shred accepted to an incomplete FEC set" },
+                "shred_processed_completes":    { "type": "UInt64", "description": "Shred accepted and resulted in a valid, complete FEC set" }
+            }
+        },
+        "fec_set_spilled":          { "type": "UInt64", "description": "The number of FEC sets that were spilled because they didn't complete in time and we needed space" },
+        "shred_rejected_initial":   { "type": "UInt64", "description": "The number of shreds that were rejected before any resources were allocated for the FEC set" },
+        "shred_rejected_unchained": { "type": "UInt64", "description": "The number of shreds that were rejected because they're not chained merkle shreds" },
+        "fec_rejected_fatal":       { "type": "UInt64", "description": "The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" },
+        "force_complete_request":   { "type": "UInt64", "description": "The number of times we received a FEC force complete message" },
+        "force_complete_failure":   { "type": "UInt64", "description": "The number of times we failed to force complete a FEC set on request" },
+        "force_complete_success":   { "type": "UInt64", "description": "The number of times we successfully forced completed a FEC set on request" },
+        "shred_repair_rcv":         { "type": "UInt64", "description": "The number of times we received a repair shred" },
+        "shred_repair_rcv_bytes":   { "type": "UInt64", "description": "The number bytes received from network packets with repair shreds. Bytes include network headers" },
+        "shred_turbine_rcv":        { "type": "UInt64", "description": "The number of times we received a turbine shred" },
+        "shred_turbine_rcv_bytes":  { "type": "UInt64", "description": "The number bytes received from network packets with turbine shreds. Bytes include network headers" }
+    }
+}

@@ -1,0 +1,107 @@
+{
+    "name": "metrics_pack",
+    "id": 1006,
+    "description": "Metrics snapshot for the pack tile",
+    "fields": {
+        "meta":                               { "type": "ref:MetricMeta" },
+        "tile":                               { "type": "ref:MetricTile" },
+        "normal_transaction_received":        { "type": "UInt64", "description": "Count of transactions received via the normal TPU path" },
+        "transaction_inserted":               {
+            "type": "Flatten",
+            "description": "Result of inserting a transaction into the pack object",
+            "fields": {
+                "transaction_inserted_nonce_conflict":        { "type": "UInt64", "description": "Bundle with two conflicting durable nonce transactions" },
+                "transaction_inserted_bundle_blacklist":      { "type": "UInt64", "description": "Transaction uses an account on the bundle blacklist" },
+                "transaction_inserted_invalid_nonce":         { "type": "UInt64", "description": "Transaction is an invalid durable nonce transaction" },
+                "transaction_inserted_write_sysvar":          { "type": "UInt64", "description": "Transaction tries to write to a sysvar" },
+                "transaction_inserted_estimation_fail":       { "type": "UInt64", "description": "Estimating compute cost and/or fee failed" },
+                "transaction_inserted_duplicate_account":     { "type": "UInt64", "description": "Transaction included an account address twice" },
+                "transaction_inserted_too_many_accounts":     { "type": "UInt64", "description": "Transaction tried to load too many accounts" },
+                "transaction_inserted_too_large":             { "type": "UInt64", "description": "Transaction requests too many CUs" },
+                "transaction_inserted_expired":               { "type": "UInt64", "description": "Transaction already expired" },
+                "transaction_inserted_addr_lut":              { "type": "UInt64", "description": "Transaction loaded accounts from a lookup table" },
+                "transaction_inserted_unaffordable":          { "type": "UInt64", "description": "Fee payer's balance below transaction fee" },
+                "transaction_inserted_duplicate":             { "type": "UInt64", "description": "Pack aware of transaction with same signature" },
+                "transaction_inserted_nonce_priority":        { "type": "UInt64", "description": "Transaction's fee was too low given its compute unit requirement and another competing transactions that uses the same durable nonce" },
+                "transaction_inserted_priority":              { "type": "UInt64", "description": "Transaction's fee was too low given its compute unit requirement and other competing transactions" },
+                "transaction_inserted_nonvote_add":           { "type": "UInt64", "description": "Transaction that was not a simple vote added to pending transactions" },
+                "transaction_inserted_vote_add":              { "type": "UInt64", "description": "Simple vote transaction was added to pending transactions" },
+                "transaction_inserted_nonvote_replace":       { "type": "UInt64", "description": "Transaction that was not a simple vote replaced a lower priority transaction" },
+                "transaction_inserted_vote_replace":          { "type": "UInt64", "description": "Simple vote transaction replaced a lower priority transaction" },
+                "transaction_inserted_nonce_nonvote_add":     { "type": "UInt64", "description": "Durable nonce transaction added to pending transactions" },
+                "transaction_inserted_unused":                { "type": "UInt64", "description": "Unused because durable nonce transactions can't be simple votes" },
+                "transaction_inserted_nonce_nonvote_replace": { "type": "UInt64", "description": "Durable nonce transaction replaced a lower priority transaction, likely one that uses the same durable nonce" }
+            }
+        },
+        "metric_timing":                      {
+            "type": "Flatten",
+            "description": "Time in nanos spent in each state",
+            "fields": {
+                "metric_timing_no_txn_no_bank_no_leader_no_microblock": { "type": "UInt64", "description": "Pack had no transactions available, and wasn't leader" },
+                "metric_timing_txn_no_bank_no_leader_no_microblock":    { "type": "UInt64", "description": "Pack had transactions available, but wasn't leader or had hit a limit" },
+                "metric_timing_no_txn_bank_no_leader_no_microblock":    { "type": "UInt64", "description": "Pack had no transactions available, had banks but wasn't leader" },
+                "metric_timing_txn_bank_no_leader_no_microblock":       { "type": "UInt64", "description": "Pack had transactions available, had banks but wasn't leader" },
+                "metric_timing_no_txn_no_bank_leader_no_microblock":    { "type": "UInt64", "description": "Pack had no transactions available, and was leader but had no available banks" },
+                "metric_timing_txn_no_bank_leader_no_microblock":       { "type": "UInt64", "description": "Pack had transactions available, was leader, but had no available banks" },
+                "metric_timing_no_txn_bank_leader_no_microblock":       { "type": "UInt64", "description": "Pack had available banks but no transactions" },
+                "metric_timing_txn_bank_leader_no_microblock":          { "type": "UInt64", "description": "Pack had banks and transactions available but couldn't schedule anything non-conflicting" },
+                "metric_timing_no_txn_no_bank_no_leader_microblock":    { "type": "UInt64", "description": "Pack scheduled a non-empty microblock while not leader" },
+                "metric_timing_txn_no_bank_no_leader_microblock":       { "type": "UInt64", "description": "Pack scheduled a non-empty microblock while not leader" },
+                "metric_timing_no_txn_bank_no_leader_microblock":       { "type": "UInt64", "description": "Pack scheduled a non-empty microblock while not leader" },
+                "metric_timing_txn_bank_no_leader_microblock":          { "type": "UInt64", "description": "Pack scheduled a non-empty microblock while not leader" },
+                "metric_timing_no_txn_no_bank_leader_microblock":       { "type": "UInt64", "description": "Pack scheduled a non-empty microblock but all banks were busy" },
+                "metric_timing_txn_no_bank_leader_microblock":          { "type": "UInt64", "description": "Pack scheduled a non-empty microblock but all banks were busy" },
+                "metric_timing_no_txn_bank_leader_microblock":          { "type": "UInt64", "description": "Pack scheduled a non-empty microblock and now has no transactions" },
+                "metric_timing_txn_bank_leader_microblock":             { "type": "UInt64", "description": "Pack scheduled a non-empty microblock" }
+            }
+        },
+        "transaction_dropped_from_extra":     { "type": "UInt64", "description": "Transactions dropped from the extra transaction storage because it was full" },
+        "transaction_inserted_to_extra":      { "type": "UInt64", "description": "Transactions inserted into the extra transaction storage because pack's primary storage was full" },
+        "transaction_inserted_from_extra":    { "type": "UInt64", "description": "Transactions pulled from the extra transaction storage and inserted into pack's primary storage" },
+        "transaction_expired":                { "type": "UInt64", "description": "Transactions deleted from pack because their TTL expired" },
+        "transaction_deleted":                { "type": "UInt64", "description": "Transactions dropped from pack because they were requested to be deleted" },
+        "transaction_already_executed":       { "type": "UInt64", "description": "Transactions dropped from pack because they were already executed (in either the replay or leader pipeline)" },
+        "transaction_dropped_partial_bundle": { "type": "UInt64", "description": "Transactions dropped from pack because they were part of a partial bundle" },
+        "available_transactions":             {
+            "type": "Flatten",
+            "description": "The total number of pending transactions in pack's pool that are available to be scheduled",
+            "fields": {
+                "available_transactions_all":         { "type": "UInt64", "description": "All transactions in any treap" },
+                "available_transactions_regular":     { "type": "UInt64", "description": "Non-votes in the main treap" },
+                "available_transactions_votes":       { "type": "UInt64", "description": "Simple votes" },
+                "available_transactions_conflicting": { "type": "UInt64", "description": "Non-votes that write to a hotly-contended account" },
+                "available_transactions_bundles":     { "type": "UInt64", "description": "Transactions that are part of a bundle" }
+            }
+        },
+        "pending_transactions_heap_size":     { "type": "UInt64", "description": "The maximum number of pending transactions that pack can consider. This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions" },
+        "smallest_pending_transaction":       { "type": "UInt64", "description": "A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" },
+        "microblock_per_block_limit":         { "type": "UInt64", "description": "The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" },
+        "data_per_block_limit":               { "type": "UInt64", "description": "The number of times pack did not pack a microblock because it reached the data per block limit at the start of trying to schedule a microblock" },
+        "transaction_schedule":               {
+            "type": "Flatten",
+            "description": "Result of trying to consider a transaction for scheduling",
+            "fields": {
+                "transaction_schedule_taken":      { "type": "UInt64", "description": "Pack included the transaction in the microblock" },
+                "transaction_schedule_cu_limit":   { "type": "UInt64", "description": "Pack skipped the transaction because it would have exceeded the block CU limit" },
+                "transaction_schedule_fast_path":  { "type": "UInt64", "description": "Pack skipped the transaction because of account conflicts using the fast bitvector check" },
+                "transaction_schedule_byte_limit": { "type": "UInt64", "description": "Pack skipped the transaction because it would have exceeded the block data size limit" },
+                "transaction_schedule_write_cost": { "type": "UInt64", "description": "Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" },
+                "transaction_schedule_slow_path":  { "type": "UInt64", "description": "Pack skipped the transaction because of account conflicts using the full slow check" },
+                "transaction_schedule_defer_skip": { "type": "UInt64", "description": "Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times" }
+            }
+        },
+        "bundle_crank_status":                {
+            "type": "Flatten",
+            "description": "Result of considering whether bundle cranks are needed",
+            "fields": {
+                "bundle_crank_status_not_needed":       { "type": "UInt64", "description": "On-chain state in the correct state" },
+                "bundle_crank_status_inserted":         { "type": "UInt64", "description": "Inserted an initializer bundle to update the on-chain state" },
+                "bundle_crank_status_creation_failed":  { "type": "UInt64", "description": "Tried to insert an initializer bundle to update the on-chain state, but creation failed" },
+                "bundle_crank_status_insertion_failed": { "type": "UInt64", "description": "Tried to insert an initializer bundle to update the on-chain state, but insertion failed" }
+            }
+        },
+        "cus_consumed_in_block":              { "type": "UInt64", "description": "The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" },
+        "delete_missed":                      { "type": "UInt64", "description": "Count of attempts to delete a transaction that wasn't found" },
+        "delete_hit":                         { "type": "UInt64", "description": "Count of attempts to delete a transaction that was found and deleted" }
+    }
+}
