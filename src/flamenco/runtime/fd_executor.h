@@ -98,8 +98,7 @@ FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
 int
-fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
-                                       fd_bank_t *         bank,
+fd_executor_load_transaction_accounts( fd_bank_t *         bank,
                                        fd_txn_in_t const * txn_in,
                                        fd_txn_out_t *      txn_out );
 

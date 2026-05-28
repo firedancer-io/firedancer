@@ -667,8 +667,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *          bank,
 }
 
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
-                                           fd_txn_t const *          txn,
+fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *          txn,
                                            uchar const *             payload,
                                            fd_accdb_t *              accdb,
                                            fd_accdb_fork_id_t        fork_id,
@@ -676,7 +675,6 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
                                            fd_slot_hashes_t const *  hashes,
                                            fd_acct_addr_t *          out_accts_alt ) {
 
-  (void)txn_in;
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 
@@ -885,7 +883,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( runtime, bank, txn_in, txn_out );
+  err = fd_executor_load_transaction_accounts( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
@@ -1626,7 +1624,7 @@ fd_txn_account_is_demotion( const int        idx,
 
 uint
 fd_txn_account_has_bpf_loader_upgradeable( fd_pubkey_t * const * account_keys,
-                                           const ulong            accounts_cnt ) {
+                                           ulong                 accounts_cnt ) {
   for( ulong j=0; j<accounts_cnt; j++ ) {
     const fd_pubkey_t * acc = account_keys[j];
     if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {

@@ -2185,7 +2185,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     if( FD_LIKELY( ro.lamports ) ) {
       fd_slot_hashes_t slot_hashes_view[1];
       if( FD_LIKELY( fd_sysvar_slot_hashes_view( slot_hashes_view, ro.data, ro.data_len ) ) ) {
-        serializing = !!fd_runtime_load_txn_address_lookup_tables( NULL, txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
+        serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, payload, alut_ctx->accdb, alut_ctx->fork_id, alut_ctx->els, slot_hashes_view, sched->aluts );
         sched->metrics->alut_success_cnt += (uint)!serializing;
       } else {
         serializing = 1;

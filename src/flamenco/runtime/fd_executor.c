@@ -461,13 +461,11 @@ fd_increase_calculated_data_size( fd_txn_out_t * txn_out,
 /* This function is represented as a closure in Agave.
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L578-L640 */
 static int
-fd_collect_loaded_account( fd_runtime_t *   runtime,
-                           fd_txn_out_t *   txn_out,
+fd_collect_loaded_account( fd_txn_out_t *   txn_out,
                            fd_acc_t const * acc,
                            ulong            loaded_acc_size,
                            fd_pubkey_t *    additional_loaded_account_keys,
                            ulong *          additional_loaded_account_keys_cnt ) {
-  (void)runtime;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L586-L590 */
   int err = fd_increase_calculated_data_size( txn_out, loaded_acc_size );
@@ -561,8 +559,7 @@ fd_collect_loaded_account( fd_runtime_t *   runtime,
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L550-L689
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L518-L548 */
 int
-fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
-                                       fd_bank_t *         bank,
+fd_executor_load_transaction_accounts( fd_bank_t *         bank,
                                        fd_txn_in_t const * txn_in,
                                        fd_txn_out_t *      txn_out ) {
   /* Programdata accounts that are loaded by this transaction.
@@ -595,7 +592,6 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
       ulong loaded_acc_size = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE,
                                                 acc->data_len );
       int err = fd_collect_loaded_account(
-        runtime,
         txn_out,
         acc,
         loaded_acc_size,
@@ -611,7 +607,6 @@ fd_executor_load_transaction_accounts( fd_runtime_t *      runtime,
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
     ulong loaded_acc_size = load_transaction_account( bank, txn_in, txn_out, txn_out->accounts.keys[i], acc, unknown_acc, i );
     int err = fd_collect_loaded_account(
-      runtime,
       txn_out,
       acc,
       loaded_acc_size,
@@ -786,8 +781,7 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
     fd_acct_addr_t * accts_alt = fd_type_pun( txn_out->accounts.keys[txn_out->accounts.cnt] );
-    int err = fd_runtime_load_txn_address_lookup_tables( txn_in,
-                                                         TXN( txn_in->txn ),
+    int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
                                                          runtime->accdb,
                                                          bank->accdb_fork_id,
