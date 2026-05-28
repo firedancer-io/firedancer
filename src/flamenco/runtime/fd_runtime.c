@@ -1186,9 +1186,7 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
 
   ulong row = txn_in->bundle.is_bundle ? txn_in->bundle.prev_txn_cnt : 0UL;
   FD_TEST( row<FD_PACK_MAX_TXN_PER_BUNDLE );
-  if( FD_LIKELY( !txn_in->bundle.is_bundle || !txn_in->bundle.prev_txn_cnt ) ) {
-    runtime->accounts.account_cnt = 0UL;
-  }
+  if( FD_LIKELY( !row ) ) runtime->accounts.account_cnt = 0UL;
 
   fd_pubkey_t * keys_row = &runtime->accounts.keys[ row*MAX_TX_ACCOUNT_LOCKS ];
   fd_memset( keys_row, 0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );

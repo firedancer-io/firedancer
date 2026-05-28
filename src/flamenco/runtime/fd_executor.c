@@ -730,27 +730,8 @@ fd_executor_calculate_fee( fd_txn_out_t *   txn_out,
    https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L34-L77 */
 
 static void
-fd_executor_create_rollback_fee_payer_account( fd_txn_in_t const * txn_in,
-                                               fd_txn_out_t *      txn_out ) {
-  fd_acc_t const * fee_payer = NULL;
-  if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
-    fd_pubkey_t * fee_payer_key = txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX];
-
-    int is_found = 0;
-    for( ulong i=txn_in->bundle.prev_txn_cnt; i>0UL && !is_found; i-- ) {
-      fd_txn_out_t const * prev_txn_out = txn_in->bundle.prev_txn_outs[ i-1 ];
-      for( ushort j=0UL; j<prev_txn_out->accounts.cnt; j++ ) {
-        if( fd_pubkey_eq( prev_txn_out->accounts.keys[ j ], fee_payer_key ) && prev_txn_out->accounts.is_writable[ j ] ) {
-          fee_payer = prev_txn_out->accounts.account[ j ];
-          is_found = 1;
-          break;
-        }
-      }
-    }
-  }
-
-  if( FD_LIKELY( !fee_payer ) ) fee_payer = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
-
+fd_executor_create_rollback_fee_payer_account( fd_txn_out_t * txn_out ) {
+  fd_acc_t const * fee_payer = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
   txn_out->accounts.fee_payer_rollback_lamports = fee_payer->lamports;
 }
 
@@ -780,7 +761,7 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
 
   /* Create the rollback fee payer account
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L620-L626 */
-  fd_executor_create_rollback_fee_payer_account( txn_in, txn_out );
+  fd_executor_create_rollback_fee_payer_account( txn_out );
 
   txn_out->details.execution_fee = execution_fee;
   txn_out->details.priority_fee  = priority_fee;
