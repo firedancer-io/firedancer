@@ -289,12 +289,12 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_TEST( !memcmp( &env->txn_out[0].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
-  FD_TEST( !memcmp( &env->txn_out[0].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
-  FD_TEST( env->txn_out[0].accounts.account[0]._writable == 1 );
-  FD_TEST( env->txn_out[0].accounts.account[1]._writable == 1 );
-  FD_TEST( env->txn_out[0].accounts.account[1].lamports == 1000000UL );
-  env->txn_out[0].accounts.account[1].lamports = 2000000UL;
+  FD_TEST( !memcmp( env->txn_out[0].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( env->txn_out[0].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( env->txn_out[0].accounts.is_writable[0] == 1 );
+  FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 1000000UL );
+  env->txn_out[0].accounts.account[1]->lamports = 2000000UL;
 
   env->txn_in.txn                     = &txn_p;
   env->txn_in.bundle.is_bundle        = 1;
@@ -303,8 +303,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
   FD_TEST( env->txn_out[1].err.is_committable );
   FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_LOG_NOTICE(( "tx1 acct1 lamports = %lu", env->txn_out[1].accounts.account[1].lamports ));
-  FD_TEST( env->txn_out[1].accounts.account[1].lamports == 2000000UL );
+  FD_LOG_NOTICE(( "tx1 acct1 lamports = %lu", env->txn_out[1].accounts.account[1]->lamports ));
+  FD_TEST( env->txn_out[1].accounts.account[1] == env->txn_out[0].accounts.account[1] );
+  FD_TEST( env->txn_out[1].accounts.account[1]->lamports == 2000000UL );
 
   /* Same txn but outside of a bundle should see the original 1000000. */
   env->txn_in.txn              = &txn_p;
@@ -312,7 +313,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
   FD_TEST( env->txn_out[2].err.is_committable );
   FD_TEST( env->txn_out[2].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_TEST( env->txn_out[2].accounts.account[1].lamports == 1000000UL );
+  FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 1000000UL );
   env->txn_out[2].err.is_committable = 0;
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
 
@@ -324,7 +325,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.is_bundle = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
   FD_TEST( env->txn_out[2].err.is_committable );
-  FD_TEST( env->txn_out[2].accounts.account[1].lamports == 2000000UL );
+  FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 2000000UL );
   env->txn_out[2].err.is_committable = 0;
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
 
@@ -343,8 +344,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_cnt     = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
-  FD_TEST( env->txn_out[0].accounts.account[1]._writable == 1 );
-  env->txn_out[0].accounts.account[1].lamports = 2000001UL;
+  FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
+  env->txn_out[0].accounts.account[1]->lamports = 2000001UL;
 
   /* tx1: account becomes readonly */
   sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, account_keys, &dummy_hash );
@@ -355,8 +356,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
   FD_TEST( env->txn_out[1].err.is_committable );
-  FD_TEST( env->txn_out[1].accounts.account[1]._writable == 0 );
-  FD_TEST( env->txn_out[1].accounts.account[1].lamports == 2000001UL );
+  FD_TEST( env->txn_out[1].accounts.is_writable[1] == 0 );
+  FD_TEST( env->txn_out[1].accounts.account[1]->lamports == 2000001UL );
 
   /* tx2: account becomes writable again */
   sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
@@ -368,9 +369,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_outs[1] = &env->txn_out[1];
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
   FD_TEST( env->txn_out[2].err.is_committable );
-  FD_TEST( env->txn_out[2].accounts.account[1]._writable == 1 );
-  FD_TEST( env->txn_out[2].accounts.account[1].lamports == 2000001UL );
-  env->txn_out[2].accounts.account[1].lamports = 2000011UL;
+  FD_TEST( env->txn_out[2].accounts.is_writable[1] == 1 );
+  FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 2000001UL );
+  env->txn_out[2].accounts.account[1]->lamports = 2000011UL;
 
   /* tx3: readonly again */
   sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, account_keys, &dummy_hash );
@@ -383,8 +384,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_outs[2] = &env->txn_out[2];
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[3] );
   FD_TEST( env->txn_out[3].err.is_committable );
-  FD_TEST( env->txn_out[3].accounts.account[1]._writable == 0 );
-  FD_TEST( env->txn_out[3].accounts.account[1].lamports == 2000011UL );
+  FD_TEST( env->txn_out[3].accounts.is_writable[1] == 0 );
+  FD_TEST( env->txn_out[3].accounts.account[1]->lamports == 2000011UL );
 
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
@@ -406,8 +407,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_cnt     = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
-  FD_TEST( env->txn_out[0].accounts.account[1].lamports == 2000011UL );
-  env->txn_out[0].accounts.account[1].lamports = 2000021UL;
+  FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 2000011UL );
+  env->txn_out[0].accounts.account[1]->lamports = 2000021UL;
   env->txn_out[0].err.is_committable = 0;
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[0] );
 
@@ -426,22 +427,22 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_cnt     = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
-  FD_TEST( env->txn_out[0].accounts.account[1].lamports == 2000011UL );
-  env->txn_out[0].accounts.account[1].lamports = 2000021UL;
+  FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 2000011UL );
+  env->txn_out[0].accounts.account[1]->lamports = 2000021UL;
 
   env->txn_in.bundle.prev_txn_cnt     = 1;
   env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
   FD_TEST( env->txn_out[1].err.is_committable );
-  FD_TEST( env->txn_out[1].accounts.account[1].lamports == 2000021UL );
-  env->txn_out[1].accounts.account[1].lamports = 2000031UL;
+  FD_TEST( env->txn_out[1].accounts.account[1]->lamports == 2000021UL );
+  env->txn_out[1].accounts.account[1]->lamports = 2000031UL;
 
   env->txn_in.bundle.prev_txn_cnt     = 2;
   env->txn_in.bundle.prev_txn_outs[1] = &env->txn_out[1];
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
   FD_TEST( env->txn_out[2].err.is_committable );
-  FD_TEST( env->txn_out[2].accounts.account[1].lamports == 2000031UL );
-  env->txn_out[2].accounts.account[1].lamports = 2000041UL;
+  FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 2000031UL );
+  env->txn_out[2].accounts.account[1]->lamports = 2000041UL;
 
   /* tx3: readonly */
   sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, account_keys, &dummy_hash );
@@ -452,8 +453,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_outs[2] = &env->txn_out[2];
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[3] );
   FD_TEST( env->txn_out[3].err.is_committable );
-  FD_TEST( env->txn_out[3].accounts.account[1]._writable == 0 );
-  FD_TEST( env->txn_out[3].accounts.account[1].lamports == 2000041UL );
+  FD_TEST( env->txn_out[3].accounts.is_writable[1] == 0 );
+  FD_TEST( env->txn_out[3].accounts.account[1]->lamports == 2000041UL );
 
   /* tx4: writable, simulated failure */
   sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, account_keys, &dummy_hash );
@@ -464,7 +465,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_outs[3] = &env->txn_out[3];
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[4] );
   FD_TEST( env->txn_out[4].err.is_committable );
-  FD_TEST( env->txn_out[4].accounts.account[1].lamports == 2000041UL );
+  FD_TEST( env->txn_out[4].accounts.account[1]->lamports == 2000041UL );
   env->txn_out[4].err.txn_err = FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
 
   for( int i=0; i<5; i++ ) env->txn_out[i].err.is_committable = 0;
@@ -492,12 +493,12 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.prev_txn_cnt = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
-  FD_TEST( env->txn_out[0].accounts.account[1].lamports == 500000UL );
-  FD_TEST( env->txn_out[0].accounts.account[1].data_len == 64UL );
-  FD_TEST( !memcmp( env->txn_out[0].accounts.account[1].owner, &some_program, 32UL ) );
+  FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 500000UL );
+  FD_TEST( env->txn_out[0].accounts.account[1]->data_len == 64UL );
+  FD_TEST( !memcmp( env->txn_out[0].accounts.account[1]->owner, &some_program, 32UL ) );
 
   /* Simulate SBF program draining lamports to 0. */
-  env->txn_out[0].accounts.account[1].lamports = 0UL;
+  env->txn_out[0].accounts.account[1]->lamports = 0UL;
 
   env->txn_in.bundle.prev_txn_cnt     = 1;
   env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
@@ -505,9 +506,9 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[1].err.is_committable );
 
   /* In bundle mode, tx1 must not see un-reclaimed state from tx0. */
-  FD_TEST( env->txn_out[1].accounts.account[1].lamports == 0UL );
-  FD_TEST( env->txn_out[1].accounts.account[1].data_len != 64UL );
-  FD_TEST( memcmp( env->txn_out[1].accounts.account[1].owner, &some_program, 32UL ) );
+  FD_TEST( env->txn_out[1].accounts.account[1]->lamports == 0UL );
+  FD_TEST( env->txn_out[1].accounts.account[1]->data_len != 64UL );
+  FD_TEST( memcmp( env->txn_out[1].accounts.account[1]->owner, &some_program, 32UL ) );
 
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
@@ -517,10 +518,10 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   env->txn_in.bundle.is_bundle = 0;
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
   FD_TEST( env->txn_out[2].err.is_committable );
-  FD_TEST( env->txn_out[2].accounts.account[1].lamports == 0UL );
-  FD_TEST( env->txn_out[2].accounts.account[1].data_len == 0UL );
+  FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 0UL );
+  FD_TEST( env->txn_out[2].accounts.account[1]->data_len == 0UL );
   fd_pubkey_t zero_owner = {0};
-  FD_TEST( !memcmp( env->txn_out[2].accounts.account[1].owner, &zero_owner, 32UL ) );
+  FD_TEST( !memcmp( env->txn_out[2].accounts.account[1]->owner, &zero_owner, 32UL ) );
   env->txn_out[2].err.is_committable = 0;
   fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
 
@@ -589,16 +590,16 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
     FD_TEST( env->txn_out[0].err.is_committable );
     FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-    FD_TEST( env->txn_out[0].accounts.account[1]._writable );
+    FD_TEST( env->txn_out[0].accounts.is_writable[1] );
     FD_TEST( env->txn_out[0].accounts.stake_update[1] );
 
     /* Simulate the post-close reclaimed state after txn_check had already
        queued stake_update for tx0.  This is the state tx1 carries
        forward in the vulnerable bundle path. */
-    env->txn_out[0].accounts.account[1].lamports   = 0UL;
-    env->txn_out[0].accounts.account[1].data_len   = 0UL;
-    env->txn_out[0].accounts.account[1].executable = 0;
-    fd_memset( env->txn_out[0].accounts.account[1].owner, 0, 32UL );
+    env->txn_out[0].accounts.account[1]->lamports   = 0UL;
+    env->txn_out[0].accounts.account[1]->data_len   = 0UL;
+    env->txn_out[0].accounts.account[1]->executable = 0;
+    fd_memset( env->txn_out[0].accounts.account[1]->owner, 0, 32UL );
 
     env->txn_in.txn                     = &txn_p;
     env->txn_in.bundle.is_bundle        = 1;
@@ -607,8 +608,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
     FD_TEST( env->txn_out[1].err.is_committable );
     FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-    FD_TEST( env->txn_out[1].accounts.account[1]._writable );
-    FD_TEST( env->txn_out[1].accounts.account[1].lamports==0UL );
+    FD_TEST( env->txn_out[1].accounts.is_writable[1] );
+    FD_TEST( env->txn_out[1].accounts.account[1]->lamports==0UL );
 
     fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
     fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
@@ -680,15 +681,15 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
   int pd_idx = -1;
   for( ushort i = 0; i < env->txn_out[0].accounts.cnt; i++ ) {
-    if( fd_pubkey_eq( &env->txn_out[0].accounts.keys[i], &programdata_key ) ) {
+    if( fd_pubkey_eq( env->txn_out[0].accounts.keys[i], &programdata_key ) ) {
       pd_idx = i;
       break;
     }
   }
   FD_TEST( pd_idx >= 0 );
-  FD_TEST( env->txn_out[0].accounts.account[ pd_idx ]._writable );
+  FD_TEST( env->txn_out[0].accounts.is_writable[ pd_idx ] );
 
-  uchar * pd_out_data = env->txn_out[0].accounts.account[ pd_idx ].data;
+  uchar * pd_out_data = env->txn_out[0].accounts.account[ pd_idx ]->data;
   {
     fd_bpf_state_t upgraded;
     fd_memset( &upgraded, 0, sizeof(upgraded) );
@@ -712,11 +713,11 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
   FD_TEST( env->txn_out[1].err.is_committable );
 
-  /* Locate the loaded programdata in runtime->accounts.executable[]
+  /* Locate the loaded programdata in txn_out->accounts.executable[]
      (now an array of fd_acc_t, no fd_accdb_ro_t indirection). */
   int found_programdata = 0;
-  for( ulong i = 0; i < env->runtime->accounts.executable_cnt; i++ ) {
-    fd_acc_t const * acc = &env->runtime->accounts.executable[i];
+  for( ulong i = 0; i < env->txn_out[1].accounts.executable_cnt; i++ ) {
+    fd_acc_t const * acc = &env->txn_out[1].accounts.executable[i];
     if( memcmp( acc->pubkey, programdata_key.uc, 32UL ) ) continue;
 
     fd_bpf_state_t pd_state[1];
@@ -798,15 +799,15 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
     int alut_idx = -1;
     for( ushort i = 0; i < env->txn_out[0].accounts.cnt; i++ ) {
-      if( fd_pubkey_eq( &env->txn_out[0].accounts.keys[i], &alut_key ) ) {
+      if( fd_pubkey_eq( env->txn_out[0].accounts.keys[i], &alut_key ) ) {
         alut_idx = i;
         break;
       }
     }
     FD_TEST( alut_idx >= 0 );
-    FD_TEST( env->txn_out[0].accounts.account[ alut_idx ]._writable );
+    FD_TEST( env->txn_out[0].accounts.is_writable[ alut_idx ] );
 
-    uchar * alut_out_data = env->txn_out[0].accounts.account[ alut_idx ].data;
+    uchar * alut_out_data = env->txn_out[0].accounts.account[ alut_idx ]->data;
     fd_alut_meta_t extended_meta = alut_meta;
     extended_meta.last_extended_slot_start_index = 4;
     FD_TEST( fd_alut_state_encode( &extended_meta, alut_out_data, FD_LOOKUP_TABLE_META_SIZE ) == 0 );
@@ -887,7 +888,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_pubkey_t expected_addr = {{0}};
     expected_addr.uc[0] = 0xE3;
     expected_addr.uc[1] = 0xF3;
-    FD_TEST( fd_pubkey_eq( &env->txn_out[1].accounts.keys[1], &expected_addr ) );
+    FD_TEST( fd_pubkey_eq( env->txn_out[1].accounts.keys[1], &expected_addr ) );
 
     if( env->txn_out[1].err.is_committable ) {
       fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
@@ -937,10 +938,10 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
     FD_TEST( env->txn_out[0].err.is_committable );
     FD_TEST( env->txn_out[0].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
-    FD_TEST( fd_pubkey_eq( &env->txn_out[0].accounts.keys[1], &nonce_key ) );
-    FD_TEST( env->txn_out[0].accounts.account[1]._writable );
-    write_nonce_state_into( env->txn_out[0].accounts.account[1].data,
-                            env->txn_out[0].accounts.account[1].data_len,
+    FD_TEST( fd_pubkey_eq( env->txn_out[0].accounts.keys[1], &nonce_key ) );
+    FD_TEST( env->txn_out[0].accounts.is_writable[1] );
+    write_nonce_state_into( env->txn_out[0].accounts.account[1]->data,
+                            env->txn_out[0].accounts.account[1]->data_len,
                             &nonce_fee_payer,
                             &bundle_nonce );
 
@@ -1002,7 +1003,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
     FD_TEST( env->txn_out[i].err.is_committable );
     FD_TEST( env->txn_out[i].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-    FD_TEST( fd_pubkey_eq( &env->txn_out[i].accounts.keys[1], &pubkey2 ) );
+    FD_TEST( fd_pubkey_eq( env->txn_out[i].accounts.keys[1], &pubkey2 ) );
     FD_TEST( env->txn_out[i].accounts.is_writable[1] );
   }
 

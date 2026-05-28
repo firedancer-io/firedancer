@@ -39,7 +39,7 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
   ulong            serialized_sz = instructions_serialized_size( txn );
   FD_TEST( serialized_sz<=FD_SYSVAR_INSTRUCTIONS_FOOTPRINT );
 
-  fd_acc_t * acc = &txn_out->accounts.account[ txn_idx ];
+  fd_acc_t * acc = txn_out->accounts.account[ txn_idx ];
   /* Agave sets up the borrowed account for the instructions sysvar to contain
      default values except for the data which is serialized into the account.
      The accdb returns data=NULL for the sysvar instructions account because
@@ -88,12 +88,12 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
       offset += sizeof(uchar);
 
       // pubkey
-      FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.keys[ idx_in_txn ] );
+      FD_STORE( fd_pubkey_t, serialized_instructions + offset, *txn_out->accounts.keys[ idx_in_txn ] );
       offset += sizeof(fd_pubkey_t);
     }
 
     // program_id_pubkey
-    FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_out->accounts.keys[ instr->program_id ] );
+    FD_STORE( fd_pubkey_t, serialized_instructions + offset, *txn_out->accounts.keys[ instr->program_id ] );
     offset += sizeof(fd_pubkey_t);
 
     // instr_data_len

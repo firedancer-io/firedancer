@@ -36,7 +36,15 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   ctx->txn_out = txn_out;
   ctx->txn_in  = txn_in;
 
-  memset( txn_out->accounts.account, 0, sizeof(fd_acc_t) * MAX_TX_ACCOUNT_LOCKS );
+  fd_memset( runtime->accounts.keys,    0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+  fd_memset( runtime->accounts.account, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  for( ulong j=0UL; j<MAX_TX_ACCOUNT_LOCKS; j++ ) {
+    txn_out->accounts.keys[ j ]    = &runtime->accounts.keys[ j ];
+    txn_out->accounts.account[ j ] = &runtime->accounts.account[ j ];
+  }
+  fd_memset( runtime->accounts.executable, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  txn_out->accounts.executable     = runtime->accounts.executable;
+  txn_out->accounts.executable_cnt = 0UL;
 
   /* Bank manager */
   fd_banks_clear_bank( runner->banks, runner->bank, 4UL );
@@ -78,7 +86,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_compute_budget_details_new( &txn_out->details.compute_budget );
   runtime->instr.stack_sz            = 0;
   txn_out->accounts.cnt     = 0UL;
-  runtime->accounts.executable_cnt   = 0UL;
+  txn_out->accounts.executable_cnt   = 0UL;
 
   txn_out->details.loaded_accounts_data_size = 0UL;
   txn_out->details.accounts_resize_delta     = 0L;
@@ -133,7 +141,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
-    memcpy( &(txn_out->accounts.keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
+    memcpy( txn_out->accounts.keys[j], test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
     runtime->accounts.refcnt[j] = 0UL;
 
     uint dlen = test_ctx->accounts[j].data ? test_ctx->accounts[j].data->size : 0U;
@@ -143,7 +151,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
 
     /* Initialize entry with in-memory account data (no DB backing) */
-    fd_acc_t * acc = &txn_out->accounts.account[j];
+    fd_acc_t * acc = txn_out->accounts.account[j];
     memcpy( acc->pubkey, acc_key->key, 32 );
     memcpy( acc->owner, test_ctx->accounts[j].owner, 32 );
     acc->lamports   = test_ctx->accounts[j].lamports;
@@ -151,8 +159,9 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     acc->data_len   = dlen;
     acc->data       = data_buf;
     acc->_writable  = 1;
+    txn_out->accounts.is_writable[j] = 1U;
     acc->commit     = 0;
-    txn_out->accounts.keys[j] = *acc_key;
+    *txn_out->accounts.keys[j] = *acc_key;
 
     if( !memcmp( acc_key, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
       has_program_id   = 1;
@@ -166,7 +175,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
 
-    fd_acc_t * acc            = &txn_out->accounts.account[i];
+    fd_acc_t * acc            = txn_out->accounts.account[i];
     fd_pubkey_t const * owner = fd_type_pun_const( acc->owner );
 
     if( !fd_executor_pubkey_is_bpf_loader( owner ) ) {
@@ -189,7 +198,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       fd_acc_t * pd_ent = NULL;
       for( ulong j=0UL; j<test_ctx->accounts_count; j++ ) {
         if( !memcmp( test_ctx->accounts[j].address, programdata_acc, sizeof(fd_pubkey_t) ) ) {
-          pd_ent = &txn_out->accounts.account[j];
+          pd_ent = txn_out->accounts.account[j];
           break;
         }
       }
@@ -197,15 +206,15 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
         continue;
       }
 
-      FD_TEST( runtime->accounts.executable_cnt < MAX_TX_ACCOUNT_LOCKS );
-      fd_acc_t * exe = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
+      FD_TEST( txn_out->accounts.executable_cnt < MAX_TX_ACCOUNT_LOCKS );
+      fd_acc_t * exe = &txn_out->accounts.executable[ txn_out->accounts.executable_cnt ];
       memcpy( exe->pubkey, programdata_acc->key, 32 );
       memcpy( exe->owner,  pd_ent->owner, 32 );
       exe->lamports   = pd_ent->lamports;
       exe->executable = pd_ent->executable;
       exe->data_len   = pd_ent->data_len;
       exe->data       = pd_ent->data;
-      runtime->accounts.executable_cnt++;
+      txn_out->accounts.executable_cnt++;
     }
   }
 
@@ -220,7 +229,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sysvar_cache_t * sysvar_cache = &runner->bank->f.sysvar_cache;
   ctx->sysvar_cache = sysvar_cache;
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    fd_sysvar_cache_restore_from_ref( sysvar_cache, &txn_out->accounts.account[i] );
+    fd_sysvar_cache_restore_from_ref( sysvar_cache, txn_out->accounts.account[i] );
   }
 
   ctx->runtime = runtime;
@@ -283,7 +292,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   runtime->log.enable_log_collector = 0;
 
   fd_log_collector_init( ctx->runtime->log.log_collector, 1 );
-  fd_base58_encode_32( txn_out->accounts.keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
+  fd_base58_encode_32( txn_out->accounts.keys[ ctx->instr->program_id ]->uc, NULL, ctx->program_id_base58 );
 }
 
 void
@@ -345,7 +354,7 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   if( FD_LIKELY( effects->result ) ) {
     int program_id_idx = ctx->instr[ 0UL ].program_id;
     if( exec_result==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-        fd_executor_lookup_native_precompile_program( &ctx->txn_out->accounts.keys[ program_id_idx ] )==NULL ) {
+        fd_executor_lookup_native_precompile_program( ctx->txn_out->accounts.keys[ program_id_idx ] )==NULL ) {
       effects->custom_err = ctx->txn_out->err.custom_err;
     }
   }
@@ -366,8 +375,8 @@ fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
   /* Capture borrowed accounts */
 
   for( ulong j=0UL; j < ctx->txn_out->accounts.cnt; j++ ) {
-    fd_pubkey_t * acc_key = &ctx->txn_out->accounts.keys[j];
-    fd_acc_t * acc = &ctx->txn_out->accounts.account[j];
+    fd_pubkey_t * acc_key = ctx->txn_out->accounts.keys[j];
+    fd_acc_t * acc = ctx->txn_out->accounts.account[j];
     if( !acc->data ) {
       continue;
     }

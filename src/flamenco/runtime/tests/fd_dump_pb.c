@@ -812,7 +812,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     dump_account_if_not_already_dumped(
       runtime->accdb,
       bank->accdb_fork_id,
-      &txn_out->accounts.keys[i],
+      txn_out->accounts.keys[i],
       spad,
       txn_context_msg->account_shared_data,
       &txn_context_msg->account_shared_data_count,
@@ -923,15 +923,15 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
                                                  fd_instr_info_t const *        instr,
                                                  fd_spad_t *                    spad ) {
   /* Program ID */
-  fd_memcpy( instr_context->program_id, txn_out->accounts.keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
+  fd_memcpy( instr_context->program_id, txn_out->accounts.keys[ instr->program_id ]->uc, sizeof(fd_pubkey_t) );
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_out->accounts.cnt;
-  instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + runtime->accounts.executable_cnt) * sizeof(fd_exec_test_acct_state_t));
+  instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_out->accounts.executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_out->accounts.cnt; i++ ) {
     // Copy account information over
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
-    dump_account_state( &txn_out->accounts.account[ i ], output_account, spad );
+    dump_account_state( txn_out->accounts.account[ i ], output_account, spad );
   }
 
   /* Add sysvar cache variables */
@@ -942,7 +942,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Make sure the account doesn't exist in the output accounts yet
     int account_exists = 0;
     for( ulong j = 0; j < txn_out->accounts.cnt; j++ ) {
-      if( fd_pubkey_eq( &txn_out->accounts.keys[j], fd_dump_sysvar_ids[i] ) ) {
+      if( fd_pubkey_eq( txn_out->accounts.keys[j], fd_dump_sysvar_ids[i] ) ) {
         account_exists = true;
         break;
       }
@@ -957,9 +957,9 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   }
 
   /* Add executable accounts */
-  for( ulong i = 0; i < runtime->accounts.executable_cnt; i++ ) {
+  for( ulong i = 0; i < txn_out->accounts.executable_cnt; i++ ) {
     // Make sure the account doesn't exist in the output accounts yet
-    fd_acc_t const * ro = &runtime->accounts.executable[i];
+    fd_acc_t const * ro = &txn_out->accounts.executable[i];
     bool account_exists = false;
     for( ulong j = 0; j < instr_context->accounts_count; j++ ) {
       if( 0 == memcmp( instr_context->accounts[j].address, ro->pubkey, sizeof(fd_pubkey_t) ) ) {
@@ -1009,7 +1009,7 @@ fd_dump_instr_to_protobuf( fd_runtime_t *      runtime,
                            ushort              instruction_idx ) {
   /* Check program ID filter, if it exists */
   if( runtime->log.dump_proto_ctx->has_dump_instr_program_id_filter &&
-      memcmp( txn_out->accounts.keys[ instr->program_id ].uc, runtime->log.dump_proto_ctx->dump_instr_program_id_filter, sizeof(fd_pubkey_t) ) ) {
+      memcmp( txn_out->accounts.keys[ instr->program_id ]->uc, runtime->log.dump_proto_ctx->dump_instr_program_id_filter, sizeof(fd_pubkey_t) ) ) {
     return;
   }
 
@@ -1165,7 +1165,7 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
     txn_result->instruction_error_index = (uint32_t) instr_err_idx;
 
     if( txn_out->err.exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-        fd_executor_lookup_native_precompile_program( &txn_out->accounts.keys[ program_id_idx ] )==NULL ) {
+        fd_executor_lookup_native_precompile_program( txn_out->accounts.keys[ program_id_idx ] )==NULL ) {
       txn_result->custom_error = txn_out->err.custom_err;
     }
   }
@@ -1193,12 +1193,12 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
     /* If the transaction errored, capture the rollback accounts (fee payer and nonce). */
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
       write_account_to_result1(
-        txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX].uc,
+        txn_out->accounts.keys[FD_FEE_PAYER_TXN_IDX]->uc,
         txn_out->accounts.fee_payer_rollback_lamports,
-        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].prior_owner,
-        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].prior_data_len,
-        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].prior_data,
-        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].prior_executable,
+        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ]->prior_owner,
+        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ]->prior_data_len,
+        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ]->prior_data,
+        txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ]->prior_executable,
         txn_result->rollback_accounts,
         &txn_result->rollback_accounts_count,
         &_l,
@@ -1208,12 +1208,12 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
 
     if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
       write_account_to_result1(
-        txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn].uc,
-        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ].prior_lamports,
-        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ].prior_owner,
+        txn_out->accounts.keys[txn_out->accounts.nonce_idx_in_txn]->uc,
+        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_lamports,
+        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_owner,
         txn_out->accounts.nonce_rollback_data_len,
         txn_out->accounts.nonce_rollback_data,
-        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ].prior_executable,
+        txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->prior_executable,
         txn_result->rollback_accounts,
         &txn_result->rollback_accounts_count,
         &_l,
@@ -1231,7 +1231,7 @@ create_txn_result_protobuf_from_txn( fd_exec_test_txn_result_t ** txn_result_out
       }
 
       write_account_to_result(
-        &txn_out->accounts.account[j],
+        txn_out->accounts.account[j],
         txn_result->modified_accounts,
         &txn_result->modified_accounts_count,
         &_l,
