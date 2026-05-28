@@ -676,6 +676,8 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
                                            fd_slot_hashes_t const *  hashes,
                                            fd_acct_addr_t *          out_accts_alt ) {
 
+  (void)txn_in;
+
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 
   fd_alut_interp_t interp[1];
@@ -685,23 +687,6 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
   for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
     fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
     fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
-
-    if( FD_UNLIKELY( txn_in && txn_in->bundle.is_bundle ) ) {
-      for( ulong j=txn_in->bundle.prev_txn_cnt; j>0UL; j-- ) {
-        fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ j-1 ];
-        for( ushort k=0; k<prev_txn_out->accounts.cnt; k++ ) {
-          int writable = fd_runtime_account_is_writable_idx( txn_in, prev_txn_out, k );
-          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ k ], &addr_lut_acc ) && writable  ) {
-            fd_acc_t * acc = &prev_txn_out->accounts.account[ k ];
-            if( FD_UNLIKELY( !acc->lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-
-            int err = fd_alut_interp_next( interp, &addr_lut_acc, acc->owner, acc->data, acc->data_len );
-            if( FD_UNLIKELY( err ) ) return err;
-            return FD_RUNTIME_EXECUTE_SUCCESS;
-          }
-        }
-      }
-    }
 
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, addr_lut_acc.uc );
     if( FD_UNLIKELY( !acc.lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
@@ -916,27 +901,15 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
         make sure our calculated loaded accounts data size is conformant with Agave's.
         https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/svm/src/account_loader.rs#L437-L449
 
-        These are different depending on if define_ltds_fee_only_semantics is enabled or not.
+        In any case, we should always add the dlen of the fee payer. */
+    txn_out->details.loaded_accounts_data_size = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ]->data_len;
 
-        If define_ltds_fee_only_semantics is enabled, we use the accumulated load size so far,
-        clamped to the compute budget requested loaded_accounts_data_size_limit. */
-    if( FD_FEATURE_ACTIVE_BANK( bank, define_ltds_fee_only_semantics ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/svm/src/account_loader.rs#L495-L501 */
-      txn_out->details.loaded_accounts_data_size = fd_ulong_min(
-        txn_out->details.loaded_accounts_data_size,
-        txn_out->details.compute_budget.loaded_accounts_data_size_limit );
-    } else {
-      /* If define_ltds_fee_only_semantics is not enabled, initialize
-         loaded_accounts_data_size with the dlen of the fee payer. */
-      txn_out->details.loaded_accounts_data_size = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].data_len;
-
-      /* Special case handling for if a nonce account is present in the transaction. */
-      if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
-        /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
-            be double counting the dlen of the fee payer. */
-        if( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-          txn_out->details.loaded_accounts_data_size += txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ].data_len;
-        }
+    /* Special case handling for if a nonce account is present in the transaction. */
+    if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
+      /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
+          be double counting the dlen of the fee payer. */
+      if( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
+        txn_out->details.loaded_accounts_data_size += txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->data_len;
       }
     }
   }
@@ -997,10 +970,10 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
-      if( FD_UNLIKELY( !txn_out->accounts.account[ i ]._writable ) ) continue;
+      if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
-      fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[ i ];
-      fd_acc_t *  account = &txn_out->accounts.account[ i ];
+      fd_pubkey_t const * pubkey  = txn_out->accounts.keys[ i ];
+      fd_acc_t *  account = txn_out->accounts.account[ i ];
 
       account->commit = 1;
 
@@ -1077,7 +1050,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
        We should always rollback the nonce account first.  Note that the
        nonce account may be the fee payer (case 2). */
     if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) ) {
-      fd_acc_t * nonce_account = &txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ];
+      fd_acc_t * nonce_account = txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ];
       fd_memcpy( nonce_account->data, txn_out->accounts.nonce_rollback_data, txn_out->accounts.nonce_rollback_data_len );
       nonce_account->data_len = txn_out->accounts.nonce_rollback_data_len;
       fd_memcpy( nonce_account->owner, nonce_account->prior_owner, 32UL );
@@ -1088,13 +1061,13 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       }
       nonce_account->executable = nonce_account->prior_executable;
       nonce_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( bank, txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not
        the fee payer (because that was already saved above). */
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_acc_t * fee_payer_account = &txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
+      fd_acc_t * fee_payer_account = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
       fd_memcpy( fee_payer_account->data, fee_payer_account->prior_data, fee_payer_account->prior_data_len );
       fee_payer_account->data_len = fee_payer_account->prior_data_len;
       fd_memcpy( fee_payer_account->owner, fee_payer_account->prior_owner, 32UL );
@@ -1102,14 +1075,22 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       fee_payer_account->executable = fee_payer_account->prior_executable;
 
       fee_payer_account->commit = 1;
-      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( bank, txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
     }
   }
 
-  fd_accdb_release( runtime->accdb, txn_out->accounts.cnt, txn_out->accounts.account );
-  if( FD_LIKELY( runtime->accounts.executable_cnt ) ) {
-    fd_accdb_release( runtime->accdb, runtime->accounts.executable_cnt, runtime->accounts.executable );
-    runtime->accounts.executable_cnt = 0UL;
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    if( FD_LIKELY( !txn_out->accounts.account_acquired[ i ] ) ) continue;
+    fd_accdb_release( runtime->accdb, 1UL, txn_out->accounts.account[ i ] );
+    txn_out->accounts.account_acquired[ i ] = 0U;
+  }
+  if( FD_LIKELY( txn_out->accounts.executable_cnt ) ) {
+    for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
+      if( FD_LIKELY( !txn_out->accounts.executable_acquired[ i ] ) ) continue;
+      fd_accdb_release( runtime->accdb, 1UL, &txn_out->accounts.executable[ i ] );
+      txn_out->accounts.executable_acquired[ i ] = 0U;
+    }
+    txn_out->accounts.executable_cnt = 0UL;
   }
 }
 
@@ -1119,10 +1100,18 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
   FD_TEST( !txn_out->err.is_committable );
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
-  fd_accdb_release( runtime->accdb, txn_out->accounts.cnt, txn_out->accounts.account );
-  if( FD_LIKELY( runtime->accounts.executable_cnt ) ) {
-    fd_accdb_release( runtime->accdb, runtime->accounts.executable_cnt, runtime->accounts.executable );
-    runtime->accounts.executable_cnt = 0UL;
+  for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
+    if( FD_LIKELY( !txn_out->accounts.account_acquired[ i ] ) ) continue;
+    fd_accdb_release( runtime->accdb, 1UL, txn_out->accounts.account[ i ] );
+    txn_out->accounts.account_acquired[ i ] = 0U;
+  }
+  if( FD_LIKELY( txn_out->accounts.executable_cnt ) ) {
+    for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
+      if( FD_LIKELY( !txn_out->accounts.executable_acquired[ i ] ) ) continue;
+      fd_accdb_release( runtime->accdb, 1UL, &txn_out->accounts.executable[ i ] );
+      txn_out->accounts.executable_acquired[ i ] = 0U;
+    }
+    txn_out->accounts.executable_cnt = 0UL;
   }
 }
 static inline void
@@ -1166,6 +1155,9 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
 
   txn_out->accounts.is_setup           = 0;
   txn_out->accounts.cnt                = 0UL;
+  memset( txn_out->accounts.is_writable, 0, sizeof(txn_out->accounts.is_writable) );
+  memset( txn_out->accounts.account_acquired, 0, sizeof(txn_out->accounts.account_acquired) );
+  memset( txn_out->accounts.executable_acquired, 0, sizeof(txn_out->accounts.executable_acquired) );
   memset( txn_out->accounts.stake_update, 0, sizeof(txn_out->accounts.stake_update) );
   memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
   memset( txn_out->accounts.new_vote, 0, sizeof(txn_out->accounts.new_vote) );
@@ -1182,7 +1174,7 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->accounts.cnt = (uchar)TXN( txn_in->txn )->acct_addr_cnt;
   fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->acct_addr_off);
 
-  for( ulong i=0UL; i<TXN( txn_in->txn )->acct_addr_cnt; i++ ) txn_out->accounts.keys[ i ] = tx_accs[ i ];
+  for( ulong i=0UL; i<TXN( txn_in->txn )->acct_addr_cnt; i++ ) *txn_out->accounts.keys[ i ] = tx_accs[ i ];
 }
 
 void
@@ -1191,6 +1183,23 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
   fd_runtime_reset_runtime( runtime );
+
+  ulong row = txn_in->bundle.is_bundle ? txn_in->bundle.prev_txn_cnt : 0UL;
+  FD_TEST( row<FD_PACK_MAX_TXN_PER_BUNDLE );
+  if( FD_LIKELY( !row ) ) runtime->accounts.account_cnt = 0UL;
+
+  fd_pubkey_t * keys_row = &runtime->accounts.keys[ row*MAX_TX_ACCOUNT_LOCKS ];
+  fd_memset( keys_row, 0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
+    txn_out->accounts.keys[ i ]    = &keys_row[ i ];
+    txn_out->accounts.account[ i ] = NULL;
+  }
+
+  fd_acc_t * executable_row = &runtime->accounts.executable[ row*MAX_TX_ACCOUNT_LOCKS ];
+  fd_memset( executable_row, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  txn_out->accounts.executable     = executable_row;
+  txn_out->accounts.executable_cnt = 0UL;
+
   fd_runtime_new_txn_out( txn_in, txn_out );
 
   uchar dump_txn = !!( runtime->log.dump_proto_ctx &&
@@ -1531,7 +1540,7 @@ ulong
 fd_runtime_find_index_of_account( fd_txn_out_t const * txn_out,
                                   fd_pubkey_t const *  pubkey ) {
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    if( FD_UNLIKELY( !memcmp( pubkey, &txn_out->accounts.keys[ txn_out->accounts.cnt-1UL-i ], sizeof(fd_pubkey_t) ) ) ) return txn_out->accounts.cnt-1UL-i;
+    if( FD_UNLIKELY( !memcmp( pubkey, txn_out->accounts.keys[ txn_out->accounts.cnt-1UL-i ], sizeof(fd_pubkey_t) ) ) ) return txn_out->accounts.cnt-1UL-i;
   }
   return ULONG_MAX;
 }
@@ -1543,13 +1552,14 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_account_condition_fn_t * condition ) {
   if( FD_UNLIKELY( idx>=txn_out->accounts.cnt ) ) return NULL;
   if( FD_LIKELY( condition && !condition( txn_in, txn_out, idx ) ) ) return NULL;
-  return &txn_out->accounts.account[ idx ];
+  return txn_out->accounts.account[ idx ];
 }
 
 fd_acc_t *
 fd_runtime_get_executable_account( fd_runtime_t *      runtime,
                                    fd_txn_out_t *      txn_out,
                                    fd_pubkey_t const * pubkey ) {
+  (void)runtime;
   /* First try to fetch the executable account from the existing
      borrowed accounts.  If the pubkey is in the account keys, then we
      want to re-use that borrowed account since it reflects changes from
@@ -1559,10 +1569,10 @@ fd_runtime_get_executable_account( fd_runtime_t *      runtime,
      same txn) */
 
   ulong account_idx = fd_runtime_find_index_of_account( txn_out, pubkey );
-  if( FD_LIKELY( account_idx!=ULONG_MAX && txn_out->accounts.account[ account_idx ].lamports ) ) return &txn_out->accounts.account[ account_idx ];
+  if( FD_LIKELY( account_idx!=ULONG_MAX && txn_out->accounts.account[ account_idx ]->lamports ) ) return txn_out->accounts.account[ account_idx ];
 
-  for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
-    fd_acc_t * ro = &runtime->accounts.executable[ i ];
+  for( ushort i=0; i<txn_out->accounts.executable_cnt; i++ ) {
+    fd_acc_t * ro = &txn_out->accounts.executable[ i ];
     if( FD_UNLIKELY( !memcmp( pubkey->uc, ro->pubkey, 32UL ) ) ) {
       if( FD_UNLIKELY( !ro->lamports ) ) return NULL;
       return ro;
@@ -1582,7 +1592,7 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
-  *key = &txn_out->accounts.keys[ idx ];
+  *key = txn_out->accounts.keys[ idx ];
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -1603,10 +1613,10 @@ fd_txn_account_is_demotion( const int        idx,
 }
 
 uint
-fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
-                                           const ulong         accounts_cnt ) {
+fd_txn_account_has_bpf_loader_upgradeable( fd_pubkey_t * const * account_keys,
+                                           const ulong            accounts_cnt ) {
   for( ulong j=0; j<accounts_cnt; j++ ) {
-    const fd_pubkey_t * acc = &account_keys[j];
+    const fd_pubkey_t * acc = account_keys[j];
     if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
       return 1U;
     }
@@ -1650,7 +1660,7 @@ fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     ushort               idx ) {
   uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.keys, txn_out->accounts.cnt );
   return fd_runtime_account_is_writable_idx_flat( idx,
-                                                   &txn_out->accounts.keys[idx],
+                                                   txn_out->accounts.keys[idx],
                                                    TXN( txn_in->txn ),
                                                    bpf_upgradeable );
 }
@@ -1662,7 +1672,7 @@ fd_runtime_account_check_exists( fd_txn_in_t const * txn_in,
                                  fd_txn_out_t *      txn_out,
                                  ushort              idx ) {
   (void) txn_in;
-  return txn_out->accounts.account[ idx ].lamports!=0UL;
+  return txn_out->accounts.account[ idx ]->lamports!=0UL;
 }
 
 int

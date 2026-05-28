@@ -7,7 +7,7 @@ fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
                                              fd_pubkey_t const *         pubkey ) {
   for( ulong i=0UL; i<ctx->instr->acct_cnt; i++ ) {
     ushort idx_in_txn = ctx->instr->accounts[ i ].index_in_transaction;
-    if( memcmp( pubkey->uc, ctx->txn_out->accounts.keys[ idx_in_txn ].uc, sizeof(fd_pubkey_t) )==0 ) {
+    if( memcmp( pubkey->uc, ctx->txn_out->accounts.keys[ idx_in_txn ]->uc, sizeof(fd_pubkey_t) )==0 ) {
       return i;
     }
   }
@@ -134,7 +134,7 @@ fd_exec_instr_ctx_any_signed( fd_exec_instr_ctx_t const * ctx,
     ushort idx_in_txn = ctx->instr->accounts[ j ].index_in_transaction;
     is_signer |=
         ( ( !!fd_instr_acc_is_signer_idx( ctx->instr, j, NULL ) ) &
-        ( 0==memcmp( pubkey->key, ctx->txn_out->accounts.keys[ idx_in_txn ].key, sizeof(fd_pubkey_t) ) ) );
+        ( 0==memcmp( pubkey->key, ctx->txn_out->accounts.keys[ idx_in_txn ]->key, sizeof(fd_pubkey_t) ) ) );
   }
   return is_signer;
 }
