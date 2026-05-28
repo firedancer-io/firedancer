@@ -389,6 +389,11 @@ setup_instr_ctx( fixture_input_t const * in,
   fd_memset( g_txn_in,  0, sizeof(g_txn_in)  );
   fd_memset( g_txn_out, 0, sizeof(g_txn_out) );
   fd_memset( g_info,    0, sizeof(g_info)    );
+  fd_memset( g_txn_out->accounts.keys,  0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+  fd_memset( runtime->accounts.account, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
+    g_txn_out->accounts.account[i] = &runtime->accounts.account[ i ];
+  }
 
   g_txn_out->accounts.cnt = in->num_accounts;
 
@@ -399,7 +404,7 @@ setup_instr_ctx( fixture_input_t const * in,
     if( dlen ) fd_memcpy( data_buf, in->accounts[i].data, dlen );
     storage[i] = data_buf;
 
-    fd_acc_t * acc = &g_txn_out->accounts.account[i];
+    fd_acc_t * acc = g_txn_out->accounts.account[i];
     fd_memset( acc, 0, sizeof(*acc) );
     memcpy( acc->pubkey, in->accounts[i].pubkey.key, 32 );
     memcpy( acc->owner,  in->accounts[i].owner.key,  32 );
@@ -408,6 +413,7 @@ setup_instr_ctx( fixture_input_t const * in,
     acc->data_len   = (uint)dlen;
     acc->data       = data_buf;
     acc->_writable  = 1;
+    g_txn_out->accounts.is_writable[i] = 1U;
     acc->commit     = 0;
 
     memcpy( g_txn_out->accounts.keys[i].key, in->accounts[i].pubkey.key, 32 );

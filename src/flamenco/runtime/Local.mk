@@ -46,12 +46,8 @@ $(call add-objs,fd_borrowed_account,fd_flamenco)
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
 ifdef FD_HAS_HOSTED
-# TODO(accdb v4): bundle forwarding semantics changed — general-account
-# in-memory forwarding via prev_txn_outs is no longer supported (only
-# fee_payer + ALT lookups still forward).  These tests need to be
-# reframed around accdb commits between bundle txns.
-# $(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco_test fd_flamenco fd_ballet fd_util)
-# $(call run-unit-test,test_bundle_exec)
+$(call make-unit-test,test_bundle_exec,test_bundle_exec,fd_flamenco_test fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_bundle_exec)
 endif
 $(call make-unit-test,test_runtime_alut,test_runtime_alut,fd_flamenco_test fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_runtime_alut)
