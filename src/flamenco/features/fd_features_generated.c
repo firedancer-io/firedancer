@@ -1150,10 +1150,11 @@ fd_feature_id_t const ids[] = {
     .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_loader_v4)>>3,
-    .id                        = {"\x17\x6a\x33\xb1\x19\x20\x80\x12\xaa\xff\x40\xb3\x2e\xc5\x22\x69\xbd\x38\x2a\x54\x46\xc6\xdb\x97\xd7\x85\x0c\x5f\x30\x02\x2d\x12"},
-                                 /* 2aQJYqER2aKyb3cZw22v4SL2xMX7vwXBRWfvS4pTrtED */
+    .id                        = {"\x05\x12\xb4\x11\x51\x51\xf4\x22\xf9\xc1\x28\xc3\xa4\x38\x28\x6e\x89\x34\x57\xb5\x28\xa4\x90\x1b\x1b\xc5\xb0\x51\x79\x00\x00\x00"},
+                                 /* LoaderV4WasAbandoned11111111111111111111111 */
     .name                      = "enable_loader_v4",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, require_rent_exempt_split_destination)>>3,
     .id                        = {"\xb2\xb3\xf3\xc6\xb4\x1c\x24\x4b\xbf\x84\xd9\x21\x6e\x67\x6e\x0b\x45\x16\xb4\xd6\x0c\x48\xe9\x7a\x45\x26\x74\xbc\x9d\x61\x72\xe0"},
@@ -1899,7 +1900,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_NAME      fd_feature_id_lookup
 #define MAP_PERFECT_LG_TBL_SZ 12
 #define MAP_PERFECT_T         fd_feature_id_lookup_entry_t
-#define MAP_PERFECT_HASH_C    65449U
+#define MAP_PERFECT_HASH_C    50724U
 #define MAP_PERFECT_KEY_T     ulong
 #define MAP_PERFECT_ZERO_KEY  0UL
 
@@ -2068,7 +2069,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_162 0x3cbf822ccb2eebd4UL, .val = &ids[162]
 #define MAP_PERFECT_163 0xe9d32123513c4d0dUL, .val = &ids[163]
 #define MAP_PERFECT_164 0x64205286d7935342UL, .val = &ids[164]
-#define MAP_PERFECT_165 0x12802019b1336a17UL, .val = &ids[165]
+#define MAP_PERFECT_165 0x22f4515111b41205UL, .val = &ids[165]
 #define MAP_PERFECT_166 0x4b241cb4c6f3b3b2UL, .val = &ids[166]
 #define MAP_PERFECT_167 0x21746beaa849f9d9UL, .val = &ids[167]
 #define MAP_PERFECT_168 0x9bb55b5df1c396c5UL, .val = &ids[168]
