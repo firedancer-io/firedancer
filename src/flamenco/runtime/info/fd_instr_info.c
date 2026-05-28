@@ -50,7 +50,7 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
   *total_lamports_l = 0UL;
   for( ulong i=0UL; i<instr->acct_cnt; ++i ) {
     ushort idx_in_txn = instr->accounts[i].index_in_transaction;
-    fd_acc_t const * ref = &txn_out->accounts.account[ idx_in_txn ];
+    fd_acc_t const * ref = txn_out->accounts.account[ idx_in_txn ];
 
     if( instr->is_duplicate[i] ) {
       continue;

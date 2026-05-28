@@ -852,7 +852,7 @@ fd_check_transaction_age( fd_bank_t *         bank,
 
   /* The transaction accounts were set up before this check, including
      forwarding writable bundle accounts into the current txn_out. */
-  fd_acc_t * nonce_entry = &txn_out->accounts.account[ nonce_idx ];
+  fd_acc_t * nonce_entry = txn_out->accounts.account[ nonce_idx ];
   if( FD_UNLIKELY( !nonce_entry->lamports ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
@@ -890,7 +890,7 @@ fd_check_transaction_age( fd_bank_t *         bank,
      successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( TXN( txn_in->txn ), (int)instr_accts[i] ) ) {
-      if( fd_pubkey_eq( &txn_out->accounts.keys[ instr_accts[i] ], &state->authority ) ) {
+      if( fd_pubkey_eq( txn_out->accounts.keys[ instr_accts[i] ], &state->authority ) ) {
         /* Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
            successfully. */

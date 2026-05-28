@@ -468,6 +468,8 @@ handle_bundle( fd_execle_tile_t *  ctx,
 
     txn_in->txn              = txn;
     txn_in->bundle.is_bundle = 1;
+    txn_in->bundle.txn_cnt   = txn_cnt;
+    txn_in->bundle.txns      = txns;
 
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
 
@@ -739,6 +741,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->fuzz.enabled             = 0;
   ctx->runtime->fuzz.reclaim_accounts    = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;
+  ctx->runtime->accounts.account_cnt     = 0UL;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

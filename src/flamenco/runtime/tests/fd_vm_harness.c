@@ -158,7 +158,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   int                     direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
   uchar      program_id_idx = ctx->instr->program_id;
-  fd_acc_t * program_acc    = &ctx->txn_out->accounts.account[program_id_idx];
+  fd_acc_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx];
   uchar      is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
                               ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
@@ -409,7 +409,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
   int direct_account_pointers_in_program_input = FD_FEATURE_ACTIVE_BANK( ctx->bank, direct_account_pointers_in_program_input );
 
   uchar      program_id_idx = ctx->instr->program_id;
-  fd_acc_t * program_acc    = &ctx->txn_out->accounts.account[program_id_idx];
+  fd_acc_t * program_acc    = ctx->txn_out->accounts.account[program_id_idx];
   uchar      is_deprecated  = ( program_id_idx < ctx->txn_out->accounts.cnt ) &&
                               ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 

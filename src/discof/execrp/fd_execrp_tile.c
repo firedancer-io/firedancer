@@ -440,6 +440,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->fuzz.enabled             = 0;
   ctx->runtime->fuzz.reclaim_accounts    = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;
+  ctx->runtime->accounts.account_cnt     = 0UL;
 
   memset( &ctx->metrics,          0, sizeof(ctx->metrics)          );
   memset( &ctx->runtime->metrics, 0, sizeof(ctx->runtime->metrics) );

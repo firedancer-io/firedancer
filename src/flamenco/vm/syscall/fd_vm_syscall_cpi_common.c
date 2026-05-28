@@ -752,7 +752,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
      Note that we don't need any ABI-specific logic here, because the two ABIs are actually identical for the seeds.*/
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
-  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_out->accounts.keys[ vm->instr_ctx->instr->program_id ];
+  fd_pubkey_t * caller_program_id = vm->instr_ctx->txn_out->accounts.keys[ vm->instr_ctx->instr->program_id ];
   if( FD_LIKELY( signers_seeds_cnt > 0UL ) ) {
     fd_vm_vec_t const * signers_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, signers_seeds_va, FD_VM_ALIGN_RUST_SLICE_U8_REF, fd_ulong_sat_mul( signers_seeds_cnt, FD_VM_VEC_SIZE ) );
     if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {

@@ -190,10 +190,10 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
     for( ulong j=0UL; j<txn_outs[i].accounts.cnt; j++ ) {
       if( txn_outs[i].accounts.stake_update[j] ) {
         fd_exec_test_stake_delta_t * stake_delta = &effects->stake_deltas[effects->stake_deltas_count++];
-        fd_memcpy( stake_delta->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
+        fd_memcpy( stake_delta->address, txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
         stake_delta->delta = 0UL;
 
-        fd_stake_state_t const * stake_state = fd_stakes_get_state( &txn_outs[i].accounts.account[j] );
+        fd_stake_state_t const * stake_state = fd_stakes_get_state( txn_outs[i].accounts.account[j] );
         if( stake_state && stake_state->stake_type==FD_STAKE_STATE_STAKE ) {
           stake_delta->delta = stake_state->stake.stake.delegation.stake;
         }
@@ -201,11 +201,11 @@ fd_solfuzz_bundle_execute( fd_solfuzz_runner_t *                 runner,
 
       if( txn_outs[i].accounts.vote_update[j] ) {
         fd_vote_block_timestamp_t last_vote;
-        if( !fd_vote_account_last_timestamp( txn_outs[i].accounts.account[j].data,
-                                             txn_outs[i].accounts.account[j].data_len,
+        if( !fd_vote_account_last_timestamp( txn_outs[i].accounts.account[j]->data,
+                                             txn_outs[i].accounts.account[j]->data_len,
                                              &last_vote ) ) {
           fd_exec_test_vote_update_t * vote_update = &effects->vote_updates[effects->vote_updates_count++];
-          fd_memcpy( vote_update->address, &txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
+          fd_memcpy( vote_update->address, txn_outs[i].accounts.keys[j], sizeof(fd_pubkey_t) );
           vote_update->last_vote_slot      = last_vote.slot;
           vote_update->last_vote_timestamp = (ulong)last_vote.timestamp;
         }
