@@ -10,6 +10,7 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "generated/fd_gossvf_tile_seccomp.h"
+#include "../../util/math/fd_stat.h"
 
 #define DEBUG_PEERS (0)
 
@@ -18,6 +19,22 @@
 #define IN_KIND_EPOCH         (2)
 #define IN_KIND_PINGS         (3)
 #define IN_KIND_GOSSIP        (4)
+
+/* Priority queue bucketing.  One bucket for unstaked traffic, the rest
+   for staked traffic with boundaries derived from epoch stake data. */
+#define GOSSVF_BUCKET_CNT        (32UL)
+#define GOSSVF_STAKED_BUCKET_CNT (GOSSVF_BUCKET_CNT-1UL) /* 31 */
+#define GOSSVF_UNSTAKED_BUCKET   (0UL)
+
+/* Drain schedule: out of every GOSSVF_DRAIN_TOTAL_CYCLES drain cycles,
+   GOSSVF_DRAIN_UNSTAKED_CYCLES are reserved for the unstaked bucket
+   and the remaining are round-robined across staked buckets.  This
+   gives unstaked traffic ~30% of the output bandwidth. */
+#define GOSSVF_DRAIN_TOTAL_CYCLES   (10UL)
+#define GOSSVF_DRAIN_UNSTAKED_CYCLES (3UL)
+
+/* Per-bucket queue depth.  Sized so total memory is bounded. */
+#define GOSSVF_BUCKET_DEPTH (512UL)
 
 struct peer {
   fd_pubkey_t pubkey;
@@ -118,6 +135,20 @@ typedef struct stake stake_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* Queue element for buffered outgoing messages.  Stores everything
+   needed to reconstruct the fd_stem_publish call during drain. */
+struct gossvf_queue_ele {
+  uchar data[ sizeof(fd_gossip_message_t) + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_NET_MTU ];
+  ulong sz;
+  ulong sig;
+  ulong tsorig;
+};
+typedef struct gossvf_queue_ele gossvf_queue_ele_t;
+
+#define QUEUE_NAME gossvf_queue
+#define QUEUE_T    gossvf_queue_ele_t
+#include "../../util/tmpl/fd_queue_dynamic.c"
+
 struct fd_gossvf_tile_ctx {
   long instance_creation_wallclock_nanos;
   ushort shred_version;
@@ -197,6 +228,19 @@ struct fd_gossvf_tile_ctx {
     ulong crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_CNT ];
     ulong crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_CNT ];
   } metrics;
+
+  /* Stake-bucketed priority queues for outgoing messages. */
+  struct {
+    gossvf_queue_ele_t * buckets[ GOSSVF_BUCKET_CNT ];
+    ulong                drain_counter;     /* mod GOSSVF_DRAIN_TOTAL_CYCLES */
+    ulong                staked_drain_idx;  /* round-robin across staked buckets [1, GOSSVF_BUCKET_CNT) */
+    /* Bucket boundaries: boundaries[i] is the minimum stake (in
+       lamports) for staked bucket i+1.  Computed from epoch data. */
+    ulong                boundaries[ GOSSVF_STAKED_BUCKET_CNT ];
+    /* Scratch buffer for sorting stakes during epoch boundary
+       recomputation.  Sized for MAX_SHRED_DESTS entries. */
+    ulong *              sort_buf;
+  } prio;
 };
 
 typedef struct fd_gossvf_tile_ctx fd_gossvf_tile_ctx_t;
@@ -217,6 +261,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_SHRED_DESTS )                           );
   l = FD_LAYOUT_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   l = FD_LAYOUT_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
+  for( ulong i=0UL; i<GOSSVF_BUCKET_CNT; i++ ) {
+    l = FD_LAYOUT_APPEND( l, gossvf_queue_align(), gossvf_queue_footprint( GOSSVF_BUCKET_DEPTH ) );
+  }
+  l = FD_LAYOUT_APPEND( l, alignof(ulong), MAX_SHRED_DESTS*sizeof(ulong) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -318,6 +366,23 @@ handle_epoch( fd_gossvf_tile_ctx_t *      ctx,
     stake_map_ele_insert( ctx->stake.map, entry, ctx->stake.pool );
   }
   ctx->stake.count = stake_pool_used( ctx->stake.pool );
+
+  /* Recompute bucket boundaries by partitioning the staked validators
+     into GOSSVF_STAKED_BUCKET_CNT groups of roughly equal count.
+     boundaries[i] is the minimum stake for bucket i+1. */
+  ulong n = msg->staked_id_cnt;
+  if( FD_LIKELY( n>0UL ) ) {
+    ulong * sorted = ctx->prio.sort_buf;
+    for( ulong i=0UL; i<n; i++ ) sorted[ i ] = id_weights[ i ].stake;
+    fd_sort_up_ulong_inplace( sorted, n );
+
+    for( ulong i=0UL; i<GOSSVF_STAKED_BUCKET_CNT; i++ ) {
+      ulong idx = (i * n) / GOSSVF_STAKED_BUCKET_CNT;
+      ctx->prio.boundaries[ i ] = sorted[ idx ];
+    }
+  } else {
+    for( ulong i=0UL; i<GOSSVF_STAKED_BUCKET_CNT; i++ ) ctx->prio.boundaries[ i ] = ULONG_MAX;
+  }
 }
 
 static int
@@ -574,13 +639,16 @@ is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
 static int
 ping_if_unponged( fd_gossvf_tile_ctx_t * ctx,
                   fd_ip4_port_t          addr,
-                  uchar const *          origin,
-                  fd_stem_context_t *    stem ) {
+                  uchar const *          origin ) {
   if( FD_UNLIKELY( !is_ping_active( ctx, addr, fd_type_pun_const( origin ) ) ) ) {
-    fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
+    gossvf_queue_ele_t * bucket = ctx->prio.buckets[ GOSSVF_UNSTAKED_BUCKET ];
+    if( FD_UNLIKELY( gossvf_queue_full( bucket ) ) ) return 1; /* tail-drop */
+    gossvf_queue_ele_t * ele = gossvf_queue_peek_insert( gossvf_queue_insert( bucket ) );
+    fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t *)ele->data;
     fd_memcpy( pingreq->pubkey.uc, origin, 32UL );
-    fd_stem_publish( stem, 0UL, fd_gossvf_sig( addr.addr, addr.port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
-    ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
+    ele->sz     = sizeof(fd_gossip_pingreq_t);
+    ele->sig    = fd_gossvf_sig( addr.addr, addr.port, 1 );
+    ele->tsorig = 0UL;
 
 #if DEBUG_PEERS
     char base58[ FD_BASE58_ENCODED_32_SZ ];
@@ -603,8 +671,7 @@ check_addr( fd_ip4_port_t addr,
 static int
 verify_addresses( fd_gossvf_tile_ctx_t * ctx,
                   fd_gossip_message_t *  view,
-                  uchar *                failed,
-                  fd_stem_context_t *    stem ) {
+                  uchar *                failed ) {
   ulong values_len;
   fd_gossip_value_t * values;
   switch( view->tag ) {
@@ -614,7 +681,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       return 0;
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       if( FD_UNLIKELY( !check_addr( ctx->peer, ctx->allow_private_address ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
-      if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+      if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH:
       values_len = view->push->values_len;
@@ -638,7 +705,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
       .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
     };
-    int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
+    int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin );
 
     /* Sanitize sockets: zero out any with a multicast address.
        Matches Agave, which omits bad sockets from the cache but
@@ -751,11 +818,73 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
   }
 }
 
+/* Compute the bucket index for a message based on average origin
+   stake in a gossip message.  For PUSH/PULL_RESPONSE, averages across
+   non-failed CRDS values.  For other types, uses the single sender
+   pubkey. */
+static ulong
+gossvf_compute_bucket( fd_gossvf_tile_ctx_t const * ctx,
+                       fd_gossip_message_t  const * message,
+                       uchar                const * failed ) {
+  ulong total_stake = 0UL;
+  ulong cnt         = 0UL;
+
+  switch( message->tag ) {
+    case FD_GOSSIP_MESSAGE_PUSH:
+      for( ulong i=0UL; i<message->push->values_len; i++ ) {
+        if( FD_UNLIKELY( failed[ i ] ) ) continue;
+        stake_t const * entry = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t const *)message->push->values[ i ].origin, NULL, ctx->stake.pool );
+        total_stake += entry ? entry->stake : 0UL;
+        cnt++;
+      }
+      break;
+    case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
+      for( ulong i=0UL; i<message->pull_response->values_len; i++ ) {
+        if( FD_UNLIKELY( failed[ i ] ) ) continue;
+        stake_t const * entry = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t const *)message->pull_response->values[ i ].origin, NULL, ctx->stake.pool );
+        total_stake += entry ? entry->stake : 0UL;
+        cnt++;
+      }
+      break;
+    case FD_GOSSIP_MESSAGE_PULL_REQUEST: {
+      stake_t const * entry = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t const *)message->pull_request->contact_info->origin, NULL, ctx->stake.pool );
+      total_stake = entry ? entry->stake : 0UL;
+      cnt = 1UL;
+      break;
+    }
+    case FD_GOSSIP_MESSAGE_PRUNE: {
+      stake_t const * entry = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t const *)message->prune->pubkey, NULL, ctx->stake.pool );
+      total_stake = entry ? entry->stake : 0UL;
+      cnt = 1UL;
+      break;
+    }
+    case FD_GOSSIP_MESSAGE_PING: {
+      stake_t const * entry = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t const *)message->ping->from, NULL, ctx->stake.pool );
+      total_stake = entry ? entry->stake : 0UL;
+      cnt = 1UL;
+      break;
+    }
+    case FD_GOSSIP_MESSAGE_PONG: {
+      stake_t const * entry = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t const *)message->pong->from, NULL, ctx->stake.pool );
+      total_stake = entry ? entry->stake : 0UL;
+      cnt = 1UL;
+      break;
+    }
+    default:
+      return GOSSVF_UNSTAKED_BUCKET;
+  }
+
+  if( FD_UNLIKELY( !cnt || !total_stake ) ) return GOSSVF_UNSTAKED_BUCKET;
+  ulong avg_stake = total_stake / cnt;
+  ulong lo = fd_sort_up_ulong_split( ctx->prio.boundaries, GOSSVF_STAKED_BUCKET_CNT, avg_stake+1UL );
+  if( FD_UNLIKELY( !lo ) ) return GOSSVF_UNSTAKED_BUCKET;
+  return lo; /* already in [1, GOSSVF_STAKED_BUCKET_CNT] */
+}
+
 static int
 handle_net( fd_gossvf_tile_ctx_t * ctx,
             ulong                  sz,
-            ulong                  tsorig,
-            fd_stem_context_t *    stem ) {
+            ulong                  tsorig ) {
   uchar * payload;
   ulong payload_sz;
   fd_ip4_hdr_t * ip4_hdr;
@@ -850,10 +979,12 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   int result = filter_shred_version( ctx, message, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_addresses( ctx, message, failed, stem );
+  /* Signature verification MUST run before address verification so
+     that unauthenticated messages cannot trigger ping side-effects. */
+  result = verify_signatures( ctx, message, payload, ctx->sha, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_signatures( ctx, message, payload, ctx->sha, failed );
+  result = verify_addresses( ctx, message, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
   check_duplicate_instance( ctx, message );
@@ -912,39 +1043,89 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
       break;
   }
 
-  uchar * dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
-  fd_memcpy( dst, message, sizeof(fd_gossip_message_t ) );
-  fd_memcpy( dst+sizeof(fd_gossip_message_t), failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
-  fd_memcpy( dst+sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS, payload, payload_sz );
+  ulong bucket_idx = gossvf_compute_bucket( ctx, message, failed );
+  gossvf_queue_ele_t * bucket = ctx->prio.buckets[ bucket_idx ];
+  if( FD_UNLIKELY( gossvf_queue_full( bucket ) ) ) return result; /* tail-drop */
 
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ulong out_sz = sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS+payload_sz;
-  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, out_sz, 0UL, tsorig, tspub );
-  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, out_sz, ctx->out->chunk0, ctx->out->wmark );
+  gossvf_queue_ele_t * ele = gossvf_queue_peek_insert( gossvf_queue_insert( bucket ) );
+  fd_memcpy( ele->data, message, sizeof(fd_gossip_message_t) );
+  fd_memcpy( ele->data+sizeof(fd_gossip_message_t), failed, FD_GOSSIP_MESSAGE_MAX_CRDS );
+  fd_memcpy( ele->data+sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS, payload, payload_sz );
+  ele->sz     = out_sz;
+  ele->sig    = fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 );
+  ele->tsorig = tsorig;
 
   return result;
 }
 
 static inline void
+after_credit( fd_gossvf_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem,
+              int *                  opt_poll_in,
+              int *                  charge_busy ) {
+  int any_data = 0;
+  for( ulong i=0UL; i<GOSSVF_BUCKET_CNT; i++ ) {
+    if( FD_UNLIKELY( !gossvf_queue_empty( ctx->prio.buckets[ i ] ) ) ) { any_data = 1; break; }
+  }
+  if( FD_LIKELY( !any_data ) ) return;
+
+  ulong counter = ctx->prio.drain_counter;
+  ctx->prio.drain_counter = (counter + 1UL) % GOSSVF_DRAIN_TOTAL_CYCLES;
+  gossvf_queue_ele_t * src_bucket = NULL;
+
+  /* Drain one message from the priority queues onto the output link.
+     GOSSVF_DRAIN_UNSTAKED_CYCLES out of every GOSSVF_DRAIN_TOTAL_CYCLES
+     iterations drain from bucket 0 (unstaked). Drain from the remaining
+     buckets via regular round-robin. */
+  if( FD_UNLIKELY( counter < GOSSVF_DRAIN_UNSTAKED_CYCLES && !gossvf_queue_empty( ctx->prio.buckets[ GOSSVF_UNSTAKED_BUCKET ] ) ) ) {
+    src_bucket = ctx->prio.buckets[ GOSSVF_UNSTAKED_BUCKET ];
+  } else {
+    for( ulong attempt=0UL; attempt<GOSSVF_STAKED_BUCKET_CNT; attempt++ ) {
+      ulong idx = 1UL + ctx->prio.staked_drain_idx;
+      ctx->prio.staked_drain_idx = (ctx->prio.staked_drain_idx + 1UL) % GOSSVF_STAKED_BUCKET_CNT;
+      if( FD_UNLIKELY( !gossvf_queue_empty( ctx->prio.buckets[ idx ] ) ) ) {
+        src_bucket = ctx->prio.buckets[ idx ];
+        break;
+      }
+    }
+  }
+  FD_TEST( src_bucket );
+
+  gossvf_queue_ele_t ele = gossvf_queue_pop( src_bucket );
+  uchar * dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
+  fd_memcpy( dst, ele.data, ele.sz );
+
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, 0UL, ele.sig, ctx->out->chunk, ele.sz, 0UL, ele.tsorig, tspub );
+  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, ele.sz, ctx->out->chunk0, ctx->out->wmark );
+  *charge_busy = 1;
+
+  /* Drain queues before ingesting */
+  for( ulong i=0UL; i<GOSSVF_BUCKET_CNT; i++ ) {
+    if( FD_UNLIKELY( !gossvf_queue_empty( ctx->prio.buckets[ i ] ) ) ) {
+      *opt_poll_in = 0;
+      return;
+    }
+  }
+}
+
+static inline void
 after_frag( fd_gossvf_tile_ctx_t * ctx,
             ulong                  in_idx,
-            ulong                  seq,
-            ulong                  sig,
+            ulong                  seq FD_PARAM_UNUSED,
+            ulong                  sig FD_PARAM_UNUSED,
             ulong                  sz,
             ulong                  tsorig,
-            ulong                  _tspub,
-            fd_stem_context_t *    stem ) {
-  (void)seq;
-  (void)sig;
-  (void)_tspub;
-
+            ulong                  tspub FD_PARAM_UNUSED,
+            fd_stem_context_t *    stem FD_PARAM_UNUSED ) {
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: break;
     case IN_KIND_PINGS:  handle_ping_update( ctx, ctx->_ping_update ); break;
     case IN_KIND_GOSSIP: handle_peer_update( ctx, ctx->_gossip_update ); break;
     case IN_KIND_EPOCH: handle_epoch( ctx, (fd_epoch_info_msg_t const *) ctx->stake.msg_buf ); break;
     case IN_KIND_NET: {
-      int result = handle_net( ctx, sz, tsorig, stem );
+      int result = handle_net( ctx, sz, tsorig );
       ctx->metrics.message_rx[ result ]++;
       ctx->metrics.message_rx_bytes[ result ] += sz;
       break;
@@ -981,6 +1162,11 @@ unprivileged_init( fd_topo_t *      topo,
   void * _stake_pool         = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),              stake_pool_footprint( MAX_SHRED_DESTS )                           );
   void * _stake_map          = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),               stake_map_footprint( stake_map_chain_cnt_est( MAX_SHRED_DESTS ) ) );
   void * _tcache             = FD_SCRATCH_ALLOC_APPEND( l, fd_tcache_align(),               fd_tcache_footprint( tile->gossvf.tcache_depth, 0UL )             );
+  void * _buckets[ GOSSVF_BUCKET_CNT ];
+  for( ulong i=0UL; i<GOSSVF_BUCKET_CNT; i++ ) {
+    _buckets[ i ] = FD_SCRATCH_ALLOC_APPEND( l, gossvf_queue_align(), gossvf_queue_footprint( GOSSVF_BUCKET_DEPTH ) );
+  }
+  void * _sort_buf = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), MAX_SHRED_DESTS*sizeof(ulong) );
 
   ctx->peers = peer_pool_join( peer_pool_new( _peer_pool, FD_CONTACT_INFO_TABLE_SIZE ) );
   FD_TEST( ctx->peers );
@@ -1044,6 +1230,18 @@ unprivileged_init( fd_topo_t *      topo,
 #endif
 
   memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
+
+  for( ulong i=0UL; i<GOSSVF_BUCKET_CNT; i++ ) {
+    ctx->prio.buckets[ i ] = gossvf_queue_join( gossvf_queue_new( _buckets[ i ], GOSSVF_BUCKET_DEPTH ) );
+    FD_TEST( ctx->prio.buckets[ i ] );
+  }
+  ctx->prio.drain_counter    = 0UL;
+  ctx->prio.staked_drain_idx = 0UL;
+  ctx->prio.sort_buf         = (ulong *)_sort_buf;
+  /* Initialize boundaries to ULONG_MAX until first epoch data. */
+  for( ulong i=0UL; i<GOSSVF_STAKED_BUCKET_CNT; i++ ) {
+    ctx->prio.boundaries[ i ] = ULONG_MAX;
+  }
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -1112,7 +1310,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (17UL/*FD_GOSSIP_MSG_MAX_CRDS*/+1UL)
+/* after_credit drains at most 1 message per iteration. */
+#define STEM_BURST (1UL)
 
 #define STEM_LAZY  (128L*3000L)
 
@@ -1121,6 +1320,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
