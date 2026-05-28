@@ -36,6 +36,11 @@
 /* FD_TXN_V0: The second transaction format.  Includes a version number and
    potentially some address lookup tables */
 #define FD_TXN_V0      ((uchar)0x00)
+/* FD_TXN_V1: The third transaction format (SIMD-0385). Note that this
+   is the first transaction format which supports larger transaction
+   sizes (up to 4096 bytes), and removes support for address lookup
+   tables.*/
+#define FD_TXN_V1      ((uchar)0x01)
 
 /* FD_TXN_SIGNATURE_SZ: The size (in bytes) of an Ed25519 signature. */
 #define FD_TXN_SIGNATURE_SZ (64UL)
