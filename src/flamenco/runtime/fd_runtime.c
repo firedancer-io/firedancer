@@ -666,14 +666,13 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *          bank,
 }
 
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
-                                           fd_txn_t const *          txn,
-                                           uchar const *             payload,
-                                           fd_accdb_t *              accdb,
-                                           fd_accdb_fork_id_t        fork_id,
-                                           ulong                     slot,
-                                           fd_slot_hashes_t const *  hashes,
-                                           fd_acct_addr_t *          out_accts_alt ) {
+fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
+                                           uchar const *            payload,
+                                           fd_accdb_t *             accdb,
+                                           fd_accdb_fork_id_t       fork_id,
+                                           ulong                    slot,
+                                           fd_slot_hashes_t const * hashes,
+                                           fd_acct_addr_t *         out_accts_alt ) {
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 
@@ -684,23 +683,6 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
   for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
     fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
     fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
-
-    if( FD_UNLIKELY( txn_in && txn_in->bundle.is_bundle ) ) {
-      for( ulong j=txn_in->bundle.prev_txn_cnt; j>0UL; j-- ) {
-        fd_txn_out_t * prev_txn_out = txn_in->bundle.prev_txn_outs[ j-1 ];
-        for( ushort k=0; k<prev_txn_out->accounts.cnt; k++ ) {
-          int writable = fd_runtime_account_is_writable_idx( txn_in, prev_txn_out, k );
-          if( fd_pubkey_eq( &prev_txn_out->accounts.keys[ k ], &addr_lut_acc ) && writable  ) {
-            fd_acc_t * acc = &prev_txn_out->accounts.account[ k ];
-            if( FD_UNLIKELY( !acc->lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-
-            int err = fd_alut_interp_next( interp, &addr_lut_acc, acc->owner, acc->data, acc->data_len );
-            if( FD_UNLIKELY( err ) ) return err;
-            return FD_RUNTIME_EXECUTE_SUCCESS;
-          }
-        }
-      }
-    }
 
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, addr_lut_acc.uc );
     if( FD_UNLIKELY( !acc.lamports ) ) {
@@ -862,15 +844,19 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     return err;
   }
 
-  /* Resolve and verify ALUT-referenced account keys, if applicable */
-  err = fd_executor_setup_txn_alut_account_keys( runtime, bank, txn_in, txn_out );
+  /* Set up the transaction accounts and other txn ctx metadata. This
+     also resolves ALUT-referenced account keys before accounts are
+     acquired.  Bundle txns bind to the pool acquired once for the whole
+     bundle by fd_runtime_prepare_bundle_accounts and never acquire. */
+  if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
+    fd_executor_setup_accounts_for_txn_bundle( runtime, txn_in, txn_out );
+  } else {
+    err = fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
+  }
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
     return err;
   }
-
-  /* Set up the transaction accounts and other txn ctx metadata */
-  fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
 
   txn_out->details.check_start_ticks = fd_tickcount();
 
@@ -902,7 +888,7 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( runtime, bank, txn_in, txn_out );
+  err = fd_executor_load_transaction_accounts( bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
@@ -930,14 +916,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     } else {
       /* If define_ltds_fee_only_semantics is not enabled, initialize
          loaded_accounts_data_size with the dlen of the fee payer. */
-      txn_out->details.loaded_accounts_data_size = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ].data_len;
+      txn_out->details.loaded_accounts_data_size = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ]->data_len;
 
       /* Special case handling for if a nonce account is present in the transaction. */
       if( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) {
         /* If the nonce account is not the fee payer, then we separately add the dlen of the nonce account. Otherwise, we would
             be double counting the dlen of the fee payer. */
         if( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) {
-          txn_out->details.loaded_accounts_data_size += txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ].data_len;
+          txn_out->details.loaded_accounts_data_size += txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ]->data_len;
         }
       }
     }
@@ -999,25 +985,44 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
-      if( FD_UNLIKELY( !txn_out->accounts.account[ i ]._writable ) ) continue;
+      if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
-      fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[ i ];
-      fd_acc_t *  account = &txn_out->accounts.account[ i ];
+      fd_pubkey_t const * pubkey = &txn_out->accounts.keys[ i ];
 
+      /* new_vote/rm_vote feed an ordered op-log (fd_new_votes), not a
+         net-state cache, so they must fire per writable txn before the
+         account_acquired gate below.  In a bundle the accdb ref is
+         owned by a single (last writable) txn, but every writable txn
+         that created/closed a vote account must contribute its op in
+         order so create->delete->recreate replays identically to a
+         per-txn commit.  These flags are left on the txn that set them
+         (not carried), so each fires exactly where the vote program
+         recorded it. */
+      if( FD_UNLIKELY( txn_out->accounts.new_vote[ i ] &&
+                       !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
+        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+        fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
+      }
+      if( FD_UNLIKELY( txn_out->accounts.rm_vote[i] &&
+                       !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
+        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+        fd_new_votes_remove( new_votes, bank->new_votes_fork_id, pubkey );
+      }
+
+      /* Only the txn that owns the accdb reference commits the account
+         state.  In a bundle, an account is owned by its last writable
+         user (account_acquired==1); every other txn referencing it has
+         account_acquired==0 and skips here, so the final shared state is
+         lthashed exactly once and not double-counted.  stake_update/
+         vote_update are recomputed from the final state and were moved
+         onto this owner, so they also fire here exactly once. */
+      if( FD_UNLIKELY( !txn_out->accounts.account_acquired[ i ] ) ) continue;
+
+      fd_acc_t * account = txn_out->accounts.account[ i ];
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
         fd_stakes_update_stake_delegation( pubkey, account, bank );
-      }
-
-      if( FD_UNLIKELY( txn_out->accounts.new_vote[ i ] && !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
-        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-        fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
-      }
-      if( txn_out->accounts.rm_vote[i] &&
-          !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-        fd_new_votes_remove( new_votes, bank->new_votes_fork_id, pubkey );
       }
 
       if( txn_out->accounts.vote_update[i] ) {
@@ -1079,7 +1084,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
        We should always rollback the nonce account first.  Note that the
        nonce account may be the fee payer (case 2). */
     if( FD_UNLIKELY( txn_out->accounts.nonce_idx_in_txn!=ULONG_MAX ) ) {
-      fd_acc_t * nonce_account = &txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ];
+      fd_acc_t * nonce_account = txn_out->accounts.account[ txn_out->accounts.nonce_idx_in_txn ];
       fd_memcpy( nonce_account->data, txn_out->accounts.nonce_rollback_data, txn_out->accounts.nonce_rollback_data_len );
       nonce_account->data_len = txn_out->accounts.nonce_rollback_data_len;
       fd_memcpy( nonce_account->owner, nonce_account->prior_owner, 32UL );
@@ -1096,7 +1101,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     /* Now, we must only save the fee payer if the nonce account was not
        the fee payer (because that was already saved above). */
     if( FD_LIKELY( txn_out->accounts.nonce_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_acc_t * fee_payer_account = &txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
+      fd_acc_t * fee_payer_account = txn_out->accounts.account[ FD_FEE_PAYER_TXN_IDX ];
       fd_memcpy( fee_payer_account->data, fee_payer_account->prior_data, fee_payer_account->prior_data_len );
       fee_payer_account->data_len = fee_payer_account->prior_data_len;
       fd_memcpy( fee_payer_account->owner, fee_payer_account->prior_owner, 32UL );
@@ -1108,10 +1113,12 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   }
 
-  fd_accdb_release_ab( runtime->accdb,
-                       txn_out->accounts.cnt, txn_out->accounts.account,
-                       runtime->accounts.executable_cnt, runtime->accounts.executable );
-  runtime->accounts.executable_cnt = 0UL;
+  if( FD_LIKELY( !txn_out->accounts.is_bundle ) ) {
+    fd_accdb_release_ab( runtime->accdb,
+                         txn_out->accounts.cnt, runtime->accounts.account,
+                         runtime->accounts.executable_cnt, runtime->accounts.executable );
+    runtime->accounts.executable_cnt = 0UL;
+  }
 }
 
 void
@@ -1121,10 +1128,20 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
   fd_accdb_release_ab( runtime->accdb,
-                       txn_out->accounts.cnt, txn_out->accounts.account,
+                       txn_out->accounts.cnt, runtime->accounts.account,
                        runtime->accounts.executable_cnt, runtime->accounts.executable );
   runtime->accounts.executable_cnt = 0UL;
 }
+
+void
+fd_runtime_fini_bundle( fd_runtime_t * runtime ) {
+  fd_accdb_release_ab( runtime->accdb,
+    runtime->accounts.account_cnt, runtime->accounts.account,
+    runtime->accounts.executable_cnt, runtime->accounts.executable );
+  runtime->accounts.account_cnt    = 0UL;
+  runtime->accounts.executable_cnt = 0UL;
+}
+
 static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
   runtime->instr.stack_sz     = 0;
@@ -1165,11 +1182,26 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   memcpy( txn_out->details.blockhash.uc, blockhash->hash, sizeof(fd_hash_t) );
 
   txn_out->accounts.is_setup           = 0;
-  txn_out->accounts.cnt                = 0UL;
+  txn_out->accounts.is_bundle          = txn_in->bundle.is_bundle;
+  if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) txn_out->accounts.cnt= 0UL;
+  memset( txn_out->accounts.is_writable, 0, sizeof(txn_out->accounts.is_writable) );
+  memset( txn_out->accounts.account_acquired, 0, sizeof(txn_out->accounts.account_acquired) );
   memset( txn_out->accounts.stake_update, 0, sizeof(txn_out->accounts.stake_update) );
   memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
   memset( txn_out->accounts.new_vote, 0, sizeof(txn_out->accounts.new_vote) );
   memset( txn_out->accounts.rm_vote, 0, sizeof(txn_out->accounts.rm_vote) );
+  txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
+
+  /* For bundle txns the resolved key list and executable list are bound
+     once up-front by fd_runtime_prepare_bundle_accounts (before this
+     runs per-txn), so preserve them here.  For a non-bundle txn they are
+     rebuilt in fd_executor_setup_accounts_for_txn, so reset them. */
+  if( FD_LIKELY( !txn_in->bundle.is_bundle ) ) {
+    memset( txn_out->accounts.executable_acquired, 0, sizeof(txn_out->accounts.executable_acquired) );
+    txn_out->accounts.executable_cnt            = 0UL;
+  }
+  txn_out->accounts.nonce_rollback_data_len     = 0UL;
+  txn_out->accounts.fee_payer_rollback_lamports = 0UL;
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
@@ -1178,11 +1210,6 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   txn_out->err.exec_err_idx   = INT_MAX;
   txn_out->err.custom_err     = 0;
-
-  txn_out->accounts.cnt = (uchar)TXN( txn_in->txn )->acct_addr_cnt;
-  fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->acct_addr_off);
-
-  for( ulong i=0UL; i<TXN( txn_in->txn )->acct_addr_cnt; i++ ) txn_out->accounts.keys[ i ] = tx_accs[ i ];
 }
 
 void
@@ -1191,11 +1218,12 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
   fd_runtime_reset_runtime( runtime );
+
   fd_runtime_new_txn_out( txn_in, txn_out );
 
-  uchar dump_txn = !!( runtime->log.dump_proto_ctx &&
-                       bank->f.slot >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
-                       runtime->log.dump_proto_ctx->dump_txn_to_pb );
+  uchar dump_txn = !!(runtime->log.dump_proto_ctx &&
+                      bank->f.slot >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                      runtime->log.dump_proto_ctx->dump_txn_to_pb);
 
   /* Phase 1: Capture TxnContext before execution. */
   if( FD_UNLIKELY( dump_txn ) ) {
@@ -1565,12 +1593,11 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
                                  fd_txn_account_condition_fn_t * condition ) {
   if( FD_UNLIKELY( idx>=txn_out->accounts.cnt ) ) return NULL;
   if( FD_LIKELY( condition && !condition( txn_in, txn_out, idx ) ) ) return NULL;
-  return &txn_out->accounts.account[ idx ];
+  return txn_out->accounts.account[ idx ];
 }
 
 fd_acc_t *
-fd_runtime_get_executable_account( fd_runtime_t *      runtime,
-                                   fd_txn_out_t *      txn_out,
+fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
                                    fd_pubkey_t const * pubkey ) {
   /* First try to fetch the executable account from the existing
      borrowed accounts.  If the pubkey is in the account keys, then we
@@ -1581,10 +1608,10 @@ fd_runtime_get_executable_account( fd_runtime_t *      runtime,
      same txn) */
 
   ulong account_idx = fd_runtime_find_index_of_account( txn_out, pubkey );
-  if( FD_LIKELY( account_idx!=ULONG_MAX && txn_out->accounts.account[ account_idx ].lamports ) ) return &txn_out->accounts.account[ account_idx ];
+  if( FD_LIKELY( account_idx!=ULONG_MAX && txn_out->accounts.account[ account_idx ]->lamports ) ) return txn_out->accounts.account[ account_idx ];
 
-  for( ushort i=0; i<runtime->accounts.executable_cnt; i++ ) {
-    fd_acc_t * ro = &runtime->accounts.executable[ i ];
+  for( ushort i=0; i<txn_out->accounts.executable_cnt; i++ ) {
+    fd_acc_t * ro = txn_out->accounts.executable[ i ];
     if( FD_UNLIKELY( !memcmp( pubkey->uc, ro->pubkey, 32UL ) ) ) {
       if( FD_UNLIKELY( !ro->lamports ) ) return NULL;
       return ro;
@@ -1625,8 +1652,8 @@ fd_txn_account_is_demotion( const int        idx,
 }
 
 uint
-fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
-                                           const ulong         accounts_cnt ) {
+fd_txn_account_has_bpf_loader_upgradeable( fd_pubkey_t const * account_keys,
+                                           ulong               accounts_cnt ) {
   for( ulong j=0; j<accounts_cnt; j++ ) {
     const fd_pubkey_t * acc = &account_keys[j];
     if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
@@ -1684,7 +1711,7 @@ fd_runtime_account_check_exists( fd_txn_in_t const * txn_in,
                                  fd_txn_out_t *      txn_out,
                                  ushort              idx ) {
   (void) txn_in;
-  return txn_out->accounts.account[ idx ].lamports!=0UL;
+  return txn_out->accounts.account[ idx ]->lamports!=0UL;
 }
 
 int
@@ -1705,4 +1732,172 @@ fd_account_meta_checked_sub_lamports( fd_acc_t * acc,
 
   acc->lamports = balance_post;
   return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+/* fd_executor_reuse_bundle_executable scans the runtime's deduplicated
+   account pools for a programdata account matching programdata_key that
+   was already opened by an earlier transaction in the bundle (either as
+   a regular transaction account or as a programdata account).  Returns
+   the existing fd_acc_t so it can be reused instead of re-acquiring it,
+   or NULL if none is found.  Must only be called for bundle txns. */
+
+static fd_acc_t *
+reuse_bundle_executable( fd_runtime_t *      runtime,
+                         fd_pubkey_t const * programdata_key ) {
+  for( ulong j=0UL; j<runtime->accounts.account_cnt; j++ ) {
+    if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &runtime->accounts.account[ j ].pubkey ), programdata_key ) ) ) continue;
+    return &runtime->accounts.account[ j ];
+  }
+  for( ulong j=0UL; j<runtime->accounts.executable_cnt; j++ ) {
+    if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &runtime->accounts.executable[ j ].pubkey ), programdata_key ) ) ) continue;
+    return &runtime->accounts.executable[ j ];
+  }
+  return NULL;
+}
+
+int
+fd_runtime_prepare_bundle_accounts( fd_runtime_t *      runtime,
+                                    fd_bank_t *         bank,
+                                    fd_txn_in_t const * txn_ins,
+                                    fd_txn_out_t *      txn_outs,
+                                    ulong               txn_cnt ) {
+
+# define FD_BUNDLE_ACCT_MAX (FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS)
+
+  runtime->accounts.account_cnt    = 0UL;
+  runtime->accounts.executable_cnt = 0UL;
+
+  uchar const * acquire_pubkeys[ FD_BUNDLE_ACCT_MAX ];
+  int           acquire_writable[ FD_BUNDLE_ACCT_MAX ];
+  ulong         acquire_cnt = 0UL;
+
+  /* First resolve a deduped set of account keys for all txns in the
+    bundle.  This includes static account keys as well as ALUT resolved
+    addresses. */
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_in_t const * txn_in  = &txn_ins [ i ];
+    fd_txn_out_t *      txn_out = &txn_outs[ i ];
+
+    txn_out->accounts.cnt = (uchar)TXN( txn_in->txn )->acct_addr_cnt;
+    fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->acct_addr_off);
+    for( ulong j=0UL; j<TXN( txn_in->txn )->acct_addr_cnt; j++ ) {
+      txn_out->accounts.keys[ j ]             = tx_accs[ j ];
+      txn_out->accounts.account[ j ]          = NULL;
+      txn_out->accounts.account_acquired[ j ] = 0U;
+    }
+
+    int err = fd_executor_setup_txn_alut_account_keys( runtime, bank, txn_in, txn_out );
+    for( ulong j=TXN( txn_in->txn )->acct_addr_cnt; j<txn_out->accounts.cnt; j++ ) {
+      txn_out->accounts.account[ j ]          = NULL;
+      txn_out->accounts.account_acquired[ j ] = 0U;
+    }
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+
+    for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {
+      fd_pubkey_t const * key = &txn_out->accounts.keys[ j ];
+      int dup = 0;
+      for( ulong k=0UL; k<acquire_cnt; k++ ) if( FD_UNLIKELY( !memcmp( acquire_pubkeys[ k ], key->uc, 32UL ) ) ) { dup = 1; break; }
+      if( FD_UNLIKELY( dup ) ) continue;
+      FD_TEST( acquire_cnt<FD_BUNDLE_ACCT_MAX );
+      acquire_pubkeys [ acquire_cnt ] = key->uc;
+      /* Bundle accounts are always acquired writable so that a later
+        txn can cleanly upgrade a read permission to a write. */
+      acquire_writable[ acquire_cnt ] = 1;
+      acquire_cnt++;
+    }
+  }
+
+  if( FD_LIKELY( acquire_cnt ) ) {
+    fd_accdb_acquire_a( runtime->accdb, bank->accdb_fork_id, acquire_cnt, acquire_pubkeys, acquire_writable, runtime->accounts.account );
+    runtime->accounts.account_cnt = acquire_cnt;
+  }
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_out_t * txn_out = &txn_outs[ i ];
+    for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {
+      txn_out->accounts.account[ j ] = NULL;
+      for( ulong k=0UL; k<runtime->accounts.account_cnt; k++ ) {
+        fd_acc_t * acc = &runtime->accounts.account[ k ];
+        if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &acc->pubkey ), &txn_out->accounts.keys[ j ] ) ) ) continue;
+        txn_out->accounts.account[ j ]           = acc;
+        txn_out->accounts.starting_lamports[ j ] = acc->prior_lamports;
+        txn_out->accounts.starting_data_len[ j ] = acc->prior_data_len;
+        break;
+      }
+    }
+  }
+
+  /* Do the same for executable accounts (programdata accounts).  Dedup
+    against all other executable-only accounts as well as ones that
+    were already included. */
+
+  fd_pubkey_t   programdata_keys[ FD_BUNDLE_ACCT_MAX ];
+  uchar const * pd_pubkeys      [ FD_BUNDLE_ACCT_MAX ];
+  int           pd_writable     [ FD_BUNDLE_ACCT_MAX ];
+  ulong         pd_cnt = 0UL;
+
+  for( ulong i=0UL; i<runtime->accounts.account_cnt; i++ ) {
+    fd_acc_t * acc = &runtime->accounts.account[ i ];
+    if( FD_LIKELY( memcmp( acc->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
+    fd_bpf_state_t program_loader_state[1];
+    if( FD_UNLIKELY( fd_bpf_loader_program_get_state( acc, program_loader_state )!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
+    if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
+
+    fd_pubkey_t const * programdata_key = &program_loader_state->inner.program.programdata_address;
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->accdb_fork_id, programdata_key->uc ) ) ) continue;
+
+    /* Already part of the transaction account pool, or already queued. */
+    if( reuse_bundle_executable( runtime, programdata_key ) ) continue;
+    int dup = 0;
+    for( ulong u=0UL; u<pd_cnt; u++ ) if( FD_UNLIKELY( !memcmp( programdata_keys[ u ].uc, programdata_key->uc, 32UL ) ) ) { dup = 1; break; }
+    if( dup ) continue;
+
+    FD_TEST( pd_cnt<FD_BUNDLE_ACCT_MAX );
+    programdata_keys[ pd_cnt ] = *programdata_key;
+    pd_pubkeys[ pd_cnt ]       = programdata_keys[ pd_cnt ].uc;
+    pd_writable[ pd_cnt ]      = 0;
+    pd_cnt++;
+  }
+
+  /* acquire_b refunds the per-class reservations acquire_a made for the
+    union (reserved_cnt==acquire_cnt) that did not turn out to be
+    programdata.  Skip it entirely for an empty bundle (nothing was
+    reserved and nothing is executable). */
+  if( FD_LIKELY( acquire_cnt || pd_cnt ) ) {
+    fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, acquire_cnt, pd_cnt, pd_pubkeys, pd_writable, runtime->accounts.executable );
+  }
+  runtime->accounts.executable_cnt = pd_cnt;
+
+  /* Bind each txn's BPF-upgradeable programdata accounts to the shared
+    pre-acquired pool, once and for all here.  This is the per-txn
+    executable list consumed during execution; computing it up-front
+    (instead of per-txn in fd_executor_setup_accounts_for_txn_bundle)
+    avoids redoing the program-state inspection on every txn.  The
+    accounts are looked up in the shared pool by key, since per-txn
+    account[] pointers are not bound until setup.  fd_runtime_new_txn_out
+    preserves these fields for bundle txns. */
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    fd_txn_out_t * txn_out = &txn_outs[ i ];
+    ushort         exe_cnt = 0;
+    for( ushort j=0; j<txn_out->accounts.cnt; j++ ) {
+      fd_acc_t * acc = reuse_bundle_executable( runtime, &txn_out->accounts.keys[ j ] );
+      if( FD_UNLIKELY( !acc ) ) continue;
+      if( FD_UNLIKELY( memcmp( acc->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
+      fd_bpf_state_t program_loader_state[1];
+      if( FD_UNLIKELY( fd_bpf_loader_program_get_state( acc, program_loader_state )!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
+      if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
+
+      fd_acc_t * programdata = reuse_bundle_executable( runtime, &program_loader_state->inner.program.programdata_address );
+      if( FD_UNLIKELY( !programdata ) ) continue;
+      txn_out->accounts.executable[ exe_cnt ]          = programdata;
+      txn_out->accounts.executable_acquired[ exe_cnt ] = 0U;
+      exe_cnt++;
+    }
+    txn_out->accounts.executable_cnt = exe_cnt;
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+
+# undef FD_BUNDLE_ACCT_MAX
 }

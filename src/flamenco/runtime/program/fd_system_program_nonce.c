@@ -852,7 +852,7 @@ fd_check_transaction_age( fd_bank_t *         bank,
 
   /* The transaction accounts were set up before this check, including
      forwarding writable bundle accounts into the current txn_out. */
-  fd_acc_t * nonce_entry = &txn_out->accounts.account[ nonce_idx ];
+  fd_acc_t * nonce_entry = txn_out->accounts.account[ nonce_idx ];
   if( FD_UNLIKELY( !nonce_entry->lamports ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
   }
