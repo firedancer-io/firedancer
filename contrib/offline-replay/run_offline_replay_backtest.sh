@@ -5,12 +5,10 @@ OBJDIR=${OBJDIR:-build/native/gcc}
 source $NETWORK_PARAMETERS_FILE $NETWORK
 echo "Updated network parameters"
 
-CLUSTER_LETTER=${NETWORK:0:1}
-AGAVE_VERSION_OUTPUT=$(solana cluster-version -u${CLUSTER_LETTER} 2>/dev/null)
-if [ -n "$AGAVE_VERSION_OUTPUT" ]; then
-    export AGAVE_TAG="v${AGAVE_VERSION_OUTPUT}"
-fi
-echo "Using AGAVE_TAG=$AGAVE_TAG (from cluster-version -u${CLUSTER_LETTER})"
+# AGAVE_TAG is determined per-ledger from each ledger's version.txt inside the
+# loop below. Whatever is exported here is only used as a fallback if a given
+# ledger's version.txt cannot be read.
+echo "Initial AGAVE_TAG=$AGAVE_TAG (will be overridden per-ledger from version.txt)"
 
 send_slack_message() {
     MESSAGE=$1
@@ -56,13 +54,6 @@ while true; do
     source $NETWORK_PARAMETERS_FILE $NETWORK
     echo "Updated network parameters"
 
-    CLUSTER_LETTER=${NETWORK:0:1}
-    AGAVE_VERSION_OUTPUT=$(solana cluster-version -u${CLUSTER_LETTER} 2>/dev/null)
-    if [ -n "$AGAVE_VERSION_OUTPUT" ]; then
-        export AGAVE_TAG="v${AGAVE_VERSION_OUTPUT}"
-    fi
-    echo "Using AGAVE_TAG=$AGAVE_TAG (from cluster-version -u${CLUSTER_LETTER})"
-
     NEWEST_BUCKET=$(gcloud storage ls $BUCKET_ENDPOINT --billing-project=$BILLING_PROJECT | sort -n -t / -k 4 | tail -n 1)
     NEWEST_BUCKET_SLOT=$(echo $NEWEST_BUCKET | awk -F'/' '{print $(NF-1)}')
     LATEST_RUN_BUCKET_SLOT=$(cat $LATEST_RUN_BUCKET_SLOT_FILE)
@@ -72,6 +63,21 @@ while true; do
     if [ "$NEWEST_BUCKET_SLOT" -gt "$LATEST_RUN_BUCKET_SLOT" ]; then
         CURRENT_MISMATCH_COUNT=0
         CURRENT_FAILURE_COUNT=0
+
+        # Determine the agave-ledger-tool version that produced this ledger from
+        # the version.txt that lives alongside the ledger in its bucket, e.g.
+        #   gs://testnet-ledger-us-sv15/410883856/version.txt
+        #   -> "agave-ledger-tool 4.1.0-beta.1 (src:8e81e22a; feat:3b4f0ba8, client:Agave)"
+        VERSION_TXT=$(gcloud storage cat ${BUCKET_ENDPOINT}/${NEWEST_BUCKET_SLOT}/version.txt --billing-project=$BILLING_PROJECT 2>/dev/null)
+        AGAVE_VERSION_OUTPUT=$(echo "$VERSION_TXT" | awk '{print $2}')
+        if [ -n "$AGAVE_VERSION_OUTPUT" ]; then
+            export AGAVE_TAG="v${AGAVE_VERSION_OUTPUT}"
+            echo "Using AGAVE_TAG=$AGAVE_TAG (from ${BUCKET_ENDPOINT}/${NEWEST_BUCKET_SLOT}/version.txt)"
+        else
+            echo "Could not read version.txt for slot $NEWEST_BUCKET_SLOT; falling back to AGAVE_TAG=$AGAVE_TAG"
+        fi
+        send_slack_message "Using agave tag \`$AGAVE_TAG\` for ledger \`$NEWEST_BUCKET_SLOT\` (from version.txt)"
+
         cd $AGAVE_REPO
         git pull
         git checkout $AGAVE_TAG
