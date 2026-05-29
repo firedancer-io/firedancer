@@ -363,7 +363,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "gossip_crds_count{instance=\"$instance\"}",
+          "expr": "gossip_crds_occupied{instance=\"$instance\"}",
           "hide": false,
           "instant": false,
           "legendFormat": "{{crds_value}}",
@@ -432,7 +432,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "sum(max(gossip_crds_count{instance=\"$instance\"}) by (crds_value))",
+          "expr": "sum(max(gossip_crds_occupied{instance=\"$instance\"}) by (crds_value))",
           "hide": false,
           "instant": false,
           "legendFormat": "{{crds_value}}",
@@ -501,7 +501,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "sum(gossip_crds_purged_count{instance=\"$instance\"})",
+          "expr": "sum(gossip_crds_purged_occupied{instance=\"$instance\"})",
           "hide": false,
           "instant": false,
           "legendFormat": "{{crds_value}}",
@@ -711,7 +711,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "8 * sum(rate(gossip_message_tx_bytes{instance=\"$instance\"}[$__rate_interval])) by (gossip_message)",
+          "expr": "8 * sum(rate(gossip_message_tx_bytes_total{instance=\"$instance\"}[$__rate_interval])) by (gossip_message)",
           "instant": false,
           "legendFormat": "{{gossip_message}}",
           "range": true,
@@ -907,7 +907,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "8 * sum(rate(gossip_crds_tx_pull_response_bytes{instance=\"$instance\"}[$__rate_interval])) by (crds_value)",
+          "expr": "8 * sum(rate(gossip_crds_tx_pull_response_bytes_total{instance=\"$instance\"}[$__rate_interval])) by (crds_value)",
           "instant": false,
           "legendFormat": "{{crds_value}}",
           "range": true,
@@ -1111,7 +1111,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "8 * sum(rate(gossip_crds_tx_push_bytes{instance=\"$instance\"}[$__rate_interval])) by (crds_value)",
+          "expr": "8 * sum(rate(gossip_crds_tx_push_bytes_total{instance=\"$instance\"}[$__rate_interval])) by (crds_value)",
           "instant": false,
           "legendFormat": "{{crds_value}}",
           "range": true,
@@ -1328,7 +1328,7 @@
             "uid": "becngladj4cn4d"
           },
           "editorMode": "code",
-          "expr": "8 * sum(rate(gossvf_message_rx_bytes{instance=\"$instance\"}[$__rate_interval])) by (gossvf_message_outcome)",
+          "expr": "8 * sum(rate(gossvf_message_rx_bytes_total{instance=\"$instance\"}[$__rate_interval])) by (gossvf_message_outcome)",
           "instant": false,
           "legendFormat": "{{gossvf_message_outcome}}",
           "range": true,
@@ -1456,7 +1456,7 @@
           "type": "prometheus",
           "uid": "becngladj4cn4d"
         },
-        "definition": "label_values(gossip_message_tx_count,instance)",
+        "definition": "label_values(gossip_message_tx_total,instance)",
         "hide": 0,
         "includeAll": false,
         "multi": false,
@@ -1464,7 +1464,7 @@
         "options": [],
         "query": {
           "qryType": 1,
-          "query": "label_values(gossip_message_tx_count,instance)",
+          "query": "label_values(gossip_message_tx_total,instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

@@ -173,10 +173,10 @@
 
 /* static map from request type to metric array index */
 static uint metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
-  [FD_REPAIR_KIND_PONG]          = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_PONG_IDX,
-  [FD_REPAIR_KIND_SHRED]         = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX,
-  [FD_REPAIR_KIND_HIGHEST_SHRED] = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX,
-  [FD_REPAIR_KIND_ORPHAN]        = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX,
+  [FD_REPAIR_KIND_PONG]          = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_V_PONG_IDX,
+  [FD_REPAIR_KIND_SHRED]         = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_V_NEEDED_WINDOW_IDX,
+  [FD_REPAIR_KIND_HIGHEST_SHRED] = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_V_NEEDED_HIGHEST_WINDOW_IDX,
+  [FD_REPAIR_KIND_ORPHAN]        = FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_V_NEEDED_ORPHAN_IDX,
 };
 
 typedef union {
@@ -387,7 +387,7 @@ struct ctx {
   ulong manifest_slot;
   struct {
     ulong send_pkt_cnt;
-    ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
+    ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPE_CNT];
     ulong repaired_slots;
     ulong current_slot;
     ulong old_shred;
@@ -1393,10 +1393,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_TIME ),
-                                                              FD_MHIST_SECONDS_MAX( REPAIR, SLOT_COMPLETE_TIME ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( REPAIR, RESPONSE_LATENCY ),
-                                                               FD_MHIST_MAX( REPAIR, RESPONSE_LATENCY ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_DURATION_SECONDS ),
+                                                              FD_MHIST_SECONDS_MAX( REPAIR, SLOT_COMPLETE_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( REPAIR, RESPONSE_LATENCY_NANOS ),
+                                                               FD_MHIST_MAX( REPAIR, RESPONSE_LATENCY_NANOS ) ) );
 
   ctx->tsdebug = fd_log_wallclock();
   ctx->pending_key_next = 0;
@@ -1427,35 +1427,35 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 static inline void
 metrics_write( ctx_t * ctx ) {
-  FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
-  FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
-  FD_MCNT_SET( REPAIR, OLD_SHRED,         ctx->metrics->old_shred );
-  FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_policy_peer_pool_used( ctx->policy->peers.pool ) );
-  FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL, ctx->metrics->sign_tile_unavail );
-  FD_MCNT_SET( REPAIR, REREQUEST_QUEUE,   ctx->metrics->rerequest );
+  FD_MGAUGE_SET( REPAIR, SLOT_CURRENT,          ctx->metrics->current_slot );
+  FD_MGAUGE_SET( REPAIR, SLOT_HIGHEST_REPAIRED, ctx->metrics->repaired_slots );
+  FD_MCNT_SET( REPAIR, SHRED_OLD,             ctx->metrics->old_shred );
+  FD_MCNT_SET( REPAIR, PEER_REQUESTED,        fd_policy_peer_pool_used( ctx->policy->peers.pool ) );
+  FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAILABLE, ctx->metrics->sign_tile_unavail );
+  FD_MCNT_SET( REPAIR, SHRED_REREQUESTED,     ctx->metrics->rerequest );
 
-  FD_MGAUGE_SET( REPAIR, LAST_REQUESTED_SLOT,   ctx->metrics->last_requested_slot );
-  FD_MGAUGE_SET( REPAIR, LAST_REQUESTED_ORPHAN, ctx->metrics->last_requested_orphan );
-  FD_MGAUGE_SET( REPAIR, INFLIGHT_REQUESTS,     fd_inflight_pool_used( ctx->inflights->pool ) - ctx->inflights->popped_cnt );
+  FD_MGAUGE_SET( REPAIR, SLOT_LAST_REQUESTED,   ctx->metrics->last_requested_slot );
+  FD_MGAUGE_SET( REPAIR, ORPHAN_LAST_REQUESTED, ctx->metrics->last_requested_orphan );
+  FD_MGAUGE_SET( REPAIR, REQUEST_INFLIGHT,      fd_inflight_pool_used( ctx->inflights->pool ) - ctx->inflights->popped_cnt );
 
-  FD_MCNT_SET      ( REPAIR, TOTAL_PKT_COUNT, ctx->metrics->send_pkt_cnt   );
-  FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES,  ctx->metrics->sent_pkt_types );
+  FD_MCNT_SET      ( REPAIR, PKT_TX,      ctx->metrics->send_pkt_cnt   );
+  FD_MCNT_ENUM_COPY( REPAIR, PKT_TX_TYPE, ctx->metrics->sent_pkt_types );
 
-  FD_MHIST_COPY( REPAIR, SLOT_COMPLETE_TIME, ctx->metrics->slot_compl_time );
-  FD_MHIST_COPY( REPAIR, RESPONSE_LATENCY,   ctx->metrics->response_latency );
+  FD_MHIST_COPY( REPAIR, SLOT_COMPLETE_DURATION_SECONDS, ctx->metrics->slot_compl_time );
+  FD_MHIST_COPY( REPAIR, RESPONSE_LATENCY_NANOS,         ctx->metrics->response_latency );
 
-  FD_MCNT_SET  ( REPAIR, BLK_EVICTED,        ctx->metrics->blk_evicted );
-  FD_MCNT_SET  ( REPAIR, BLK_FAILED_INSERT,  ctx->metrics->blk_failed_insert );
-  FD_MGAUGE_SET( REPAIR, SLOT_EVICTED,       ctx->metrics->slot_evicted );
-  FD_MGAUGE_SET( REPAIR, SLOT_EVICTED_BY,    ctx->metrics->slot_evicted_by );
-  FD_MGAUGE_SET( REPAIR, SLOT_FAILED_INSERT, ctx->metrics->slot_failed_insert );
+  FD_MCNT_SET  ( REPAIR, BLOCK_EVICTED,       ctx->metrics->blk_evicted );
+  FD_MCNT_SET  ( REPAIR, BLOCK_INSERT_FAILED, ctx->metrics->blk_failed_insert );
+  FD_MGAUGE_SET( REPAIR, SLOT_LAST_EVICTED,        ctx->metrics->slot_evicted );
+  FD_MGAUGE_SET( REPAIR, SLOT_LAST_EVICTION_CAUSE, ctx->metrics->slot_evicted_by );
+  FD_MGAUGE_SET( REPAIR, SLOT_LAST_INSERT_FAILED,  ctx->metrics->slot_failed_insert );
 
-  FD_MCNT_SET  ( REPAIR, FAILED_CHAIN_VERIFY_CNT,  ctx->metrics->failed_chain_verify_cnt );
-  FD_MGAUGE_SET( REPAIR, FAILED_CHAIN_VERIFY_SLOT, ctx->metrics->failed_chain_verify_slot );
+  FD_MCNT_SET  ( REPAIR, CHAIN_VERIFY_FAILED,           ctx->metrics->failed_chain_verify_cnt );
+  FD_MGAUGE_SET( REPAIR, SLOT_LAST_CHAIN_VERIFY_FAILED, ctx->metrics->failed_chain_verify_slot );
 
-  FD_MCNT_SET( REPAIR, UNKNOWN_PEER_PING,     ctx->metrics->unknown_peer_ping );
-  FD_MCNT_SET( REPAIR, MALFORMED_PING,        ctx->metrics->malformed_ping );
-  FD_MCNT_SET( REPAIR, FAILED_SIGVERIFY_PING, ctx->metrics->fail_sigverify_ping );
+  FD_MCNT_SET( REPAIR, PING_UNKNOWN_PEER,     ctx->metrics->unknown_peer_ping );
+  FD_MCNT_SET( REPAIR, PING_MALFORMED,        ctx->metrics->malformed_ping );
+  FD_MCNT_SET( REPAIR, PING_SIGVERIFY_FAILED, ctx->metrics->fail_sigverify_ping );
 }
 
 #undef DEBUG_LOGGING

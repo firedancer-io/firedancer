@@ -428,9 +428,9 @@ STEM_(run1)( ulong                        in_cnt,
 
         /* Update metrics counters to external viewers */
         FD_COMPILER_MFENCE();
-        FD_MGAUGE_SET( TILE, HEARTBEAT,                 (ulong)fd_log_wallclock() );
+        FD_MGAUGE_SET( TILE, HEARTBEAT_NANOS,           (ulong)fd_log_wallclock() );
         FD_MGAUGE_SET( TILE, IN_BACKPRESSURE,           metric_in_backp );
-        FD_MCNT_INC  ( TILE, BACKPRESSURE_COUNT,        metric_backp_cnt );
+        FD_MCNT_INC  ( TILE, BACKPRESSURE,              metric_backp_cnt );
         FD_MCNT_ENUM_COPY( TILE, REGIME_DURATION_NANOS, metric_regime_ticks );
 #ifdef STEM_CALLBACK_METRICS_WRITE
         STEM_CALLBACK_METRICS_WRITE( ctx );
@@ -638,8 +638,8 @@ STEM_(run1)( ulong                        in_cnt,
         housekeeping_regime = &metric_regime_ticks[1];
         prefrag_regime = &metric_regime_ticks[4];
         finish_regime = &metric_regime_ticks[7];
-        this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
-        this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] += (uint)(-diff);
+        this_in->accum[ FD_METRICS_COUNTER_LINK_LINK_POLLING_OVERRUN_OFF ]++;
+        this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] += (uint)(-diff);
 
 #ifdef STEM_CALLBACK_AFTER_POLL_OVERRUN
         STEM_CALLBACK_AFTER_POLL_OVERRUN( ctx );
@@ -665,8 +665,8 @@ STEM_(run1)( ulong                        in_cnt,
       now = next;
       continue;
     } else if( FD_UNLIKELY( filter>0 ) ) {
-      this_in->accum[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ]++;
-      this_in->accum[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
+      this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ]++;
+      this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_BYTES_OFF ] += (uint)this_in_mline->sz; /* TODO: This might be overrun ... ? Not loaded atomically */
 
       this_in_seq    = fd_seq_inc( this_in_seq, 1UL );
       this_in->seq   = this_in_seq;
@@ -717,8 +717,8 @@ STEM_(run1)( ulong                        in_cnt,
 
     if( FD_UNLIKELY( fd_seq_ne( seq_test, seq_found ) ) ) { /* Overrun while reading (impossible if this_in honoring our fctl) */
       this_in->seq = seq_test; /* Resume from here (probably reasonably current, could query in mcache sync instead) */
-      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
-      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
+      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_LINK_READING_OVERRUN_OFF ]++; /* No local accum since extremely rare, faster to use smaller cache line */
+      fd_metrics_link_in( fd_metrics_base_tl, this_in->idx )[ FD_METRICS_COUNTER_LINK_FRAG_READING_OVERRUN_OFF ] += (uint)fd_seq_diff( seq_test, seq_found ); /* No local accum since extremely rare, faster to use smaller cache line */
       /* Don't bother with spin as polling multiple locations */
       metric_regime_ticks[1] += housekeeping_ticks;
       metric_regime_ticks[4] += prefrag_ticks;
@@ -749,8 +749,8 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->seq   = this_in_seq;
     this_in->mline = this_in->mcache + fd_mcache_line_idx( this_in_seq, this_in->depth );
 
-    this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
-    this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
+    this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_OFF ]++;
+    this_in->accum[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ] += (uint)sz;
 
     metric_regime_ticks[1] += housekeeping_ticks;
     metric_regime_ticks[4] += prefrag_ticks;
@@ -797,7 +797,7 @@ STEM_(run)( fd_topo_t *      topo,
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
-          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF;
+          cons_slow[ reliable_cons_cnt ] = fd_metrics_link_in( consumer_tile->metrics, polled_in_idx ) + FD_METRICS_COUNTER_LINK_CONSUMER_SLOW_OFF;
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
              you could construct a topology which has more than this

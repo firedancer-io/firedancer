@@ -1734,20 +1734,20 @@ fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx ) {
 
 void
 fd_sched_metrics_write( fd_sched_t * sched ) {
-  FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_IDX, sched->active_bank_idx );
-  FD_MGAUGE_SET( REPLAY, SCHED_LAST_DISPATCH_BANK_IDX, sched->next_ready_last_bank_idx );
+  FD_MGAUGE_SET( REPLAY, SCHED_ACTIVE_BANK_INDEX, sched->active_bank_idx );
+  FD_MGAUGE_SET( REPLAY, SCHED_LAST_DISPATCH_BANK_INDEX, sched->next_ready_last_bank_idx );
   FD_MGAUGE_SET( REPLAY, SCHED_LAST_DISPATCH_TIME_NANOS, fd_ulong_if( sched->next_ready_last_tick!=LONG_MAX, (ulong)sched->next_ready_last_tick, ULONG_MAX ) );
-  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_POPCNT, (ulong)fd_ulong_popcnt( sched->staged_bitset ) );
-  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_POPCNT_WMK, sched->staged_popcnt_wmk );
-  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_IDX0, fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, 0 ), sched->staged_head_bank_idx[ 0 ], ULONG_MAX ) );
-  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_IDX1, fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, 1 ), sched->staged_head_bank_idx[ 1 ], ULONG_MAX ) );
-  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_IDX2, fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, 2 ), sched->staged_head_bank_idx[ 2 ], ULONG_MAX ) );
-  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_IDX3, fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, 3 ), sched->staged_head_bank_idx[ 3 ], ULONG_MAX ) );
-  FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_POPCNT, sched->depth-sched->txn_pool_free_cnt-1UL );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_OCCUPIED, (ulong)fd_ulong_popcnt( sched->staged_bitset ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_OCCUPIED_WATERMARK, sched->staged_popcnt_wmk );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_INDEX0, fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, 0 ), sched->staged_head_bank_idx[ 0 ], ULONG_MAX ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_INDEX1, fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, 1 ), sched->staged_head_bank_idx[ 1 ], ULONG_MAX ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_INDEX2, fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, 2 ), sched->staged_head_bank_idx[ 2 ], ULONG_MAX ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_STAGING_LANE_HEAD_BANK_INDEX3, fd_ulong_if( fd_ulong_extract_bit( sched->staged_bitset, 3 ), sched->staged_head_bank_idx[ 3 ], ULONG_MAX ) );
+  FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_OCCUPIED, sched->depth-sched->txn_pool_free_cnt-1UL );
   FD_MGAUGE_SET( REPLAY, SCHED_TXN_POOL_SIZE, sched->depth-1UL );
-  FD_MGAUGE_SET( REPLAY, SCHED_MBLK_POOL_POPCNT, sched->depth-sched->mblk_pool_free_cnt );
-  FD_MGAUGE_SET( REPLAY, SCHED_MBLK_POOL_SIZE, sched->depth );
-  FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_POPCNT, sched->block_pool_popcnt );
+  FD_MGAUGE_SET( REPLAY, SCHED_MICROBLOCK_POOL_OCCUPIED, sched->depth-sched->mblk_pool_free_cnt );
+  FD_MGAUGE_SET( REPLAY, SCHED_MICROBLOCK_POOL_SIZE, sched->depth );
+  FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_OCCUPIED, sched->block_pool_popcnt );
   FD_MGAUGE_SET( REPLAY, SCHED_BLOCK_POOL_SIZE, sched->block_cnt_max );
 
   FD_MCNT_SET( REPLAY, SCHED_BLOCK_ADDED_STAGED, sched->metrics->block_added_staged_cnt );
@@ -1766,21 +1766,21 @@ fd_sched_metrics_write( fd_sched_t * sched ) {
   FD_MCNT_SET( REPLAY, SCHED_LANE_DEMOTE, sched->metrics->lane_demoted_cnt );
   FD_MCNT_SET( REPLAY, SCHED_FORK_OBSERVED, sched->metrics->fork_observed_cnt );
   FD_MCNT_SET( REPLAY, SCHED_ALUT_SUCCESS, sched->metrics->alut_success_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_ALUT_FAILURE, sched->metrics->alut_serializing_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_ALUT_FAILED, sched->metrics->alut_serializing_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_ABANDONED_PARSED, sched->metrics->txn_abandoned_parsed_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_ABANDONED_EXEC, sched->metrics->txn_abandoned_exec_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_ABANDONED_DONE, sched->metrics->txn_abandoned_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT, sched->metrics->txn_weighted_in_flight_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT_DURATION, sched->metrics->txn_weighted_in_flight_tickcount );
-  FD_MCNT_SET( REPLAY, SCHED_NONE_IN_FLIGHT_DURATION, sched->metrics->txn_none_in_flight_tickcount );
+  FD_MCNT_SET( REPLAY, SCHED_WEIGHTED_IN_FLIGHT_DURATION_NANOS, sched->metrics->txn_weighted_in_flight_tickcount );
+  FD_MCNT_SET( REPLAY, SCHED_NONE_IN_FLIGHT_DURATION_NANOS, sched->metrics->txn_none_in_flight_tickcount );
   FD_MCNT_SET( REPLAY, SCHED_TXN_PARSED, sched->metrics->txn_parsed_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_EXEC, sched->metrics->txn_exec_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_SIGVERIFY, sched->metrics->txn_sigverify_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_MIXIN, sched->metrics->txn_mixin_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_TXN_DONE, sched->metrics->txn_done_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_MBLK_PARSED, sched->metrics->mblk_parsed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_MBLK_HASHED, sched->metrics->mblk_poh_hashed_cnt );
-  FD_MCNT_SET( REPLAY, SCHED_MBLK_DONE, sched->metrics->mblk_poh_done_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_PARSED, sched->metrics->mblk_parsed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_HASHED, sched->metrics->mblk_poh_hashed_cnt );
+  FD_MCNT_SET( REPLAY, SCHED_MICROBLOCK_DONE, sched->metrics->mblk_poh_done_cnt );
   FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED, sched->metrics->bytes_ingested_cnt );
   FD_MCNT_SET( REPLAY, SCHED_BYTES_INGESTED_PADDING, sched->metrics->bytes_ingested_unparsed_cnt );
   FD_MCNT_SET( REPLAY, SCHED_BYTES_DROPPED, sched->metrics->bytes_dropped_cnt );

@@ -88,9 +88,9 @@ metrics_write( fd_snapin_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPIN, STATE,                  (ulong)ctx->state );
   FD_MGAUGE_SET( SNAPIN, FULL_BYTES_READ,        ctx->metrics.full_bytes_read );
   FD_MGAUGE_SET( SNAPIN, INCREMENTAL_BYTES_READ, ctx->metrics.incremental_bytes_read );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_LOADED,        ctx->metrics.accounts_loaded );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_REPLACED,      ctx->metrics.accounts_replaced );
-  FD_MGAUGE_SET( SNAPIN, ACCOUNTS_IGNORED,       ctx->metrics.accounts_ignored );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_LOADED,         ctx->metrics.accounts_loaded );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_REPLACED,      ctx->metrics.accounts_replaced );
+  FD_MGAUGE_SET( SNAPIN, ACCOUNT_IGNORED,       ctx->metrics.accounts_ignored );
 }
 
 /* verify_slot_deltas_with_slot_history verifies the 'SlotHistory'

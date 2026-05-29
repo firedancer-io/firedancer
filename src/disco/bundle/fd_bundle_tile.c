@@ -100,24 +100,24 @@ fd_bundle_tile_maybe_sleep( fd_bundle_tile_t * ctx, long now_ns ) {
 
 static inline void
 metrics_write( fd_bundle_tile_t * ctx ) {
-  FD_MCNT_SET( BUNDLE, TRANSACTION_RECEIVED,   ctx->metrics.txn_received_cnt          );
-  FD_MCNT_SET( BUNDLE, BUNDLE_RECEIVED,        ctx->metrics.bundle_received_cnt       );
-  FD_MCNT_SET( BUNDLE, PACKET_RECEIVED,        ctx->metrics.packet_received_cnt       );
-  FD_MCNT_SET( BUNDLE, PROTO_RECEIVED_BYTES,   ctx->metrics.proto_received_bytes      );
-  FD_MCNT_SET( BUNDLE, SHREDSTREAM_HEARTBEATS, ctx->metrics.shredstream_heartbeat_cnt );
-  FD_MCNT_SET( BUNDLE, KEEPALIVES,             ctx->metrics.ping_ack_cnt              );
-  FD_MCNT_SET( BUNDLE, ERRORS_PROTOBUF,        ctx->metrics.decode_fail_cnt           );
-  FD_MCNT_SET( BUNDLE, ERRORS_TRANSPORT,       ctx->metrics.transport_fail_cnt        );
-  FD_MCNT_SET( BUNDLE, ERRORS_NO_FEE_INFO,     ctx->metrics.missing_builder_info_fail_cnt );
-  FD_MGAUGE_SET( BUNDLE, PENDING_TRANSACTIONS, pending_txn_cnt( ctx->pending_txns )   );
-  FD_MCNT_SET  ( BUNDLE, TRANSACTION_DROPPED_BACKPRESSURE, ctx->metrics.backpressure_drop_cnt );
+  FD_MCNT_SET( BUNDLE, TXN_RX,                 ctx->metrics.txn_received_cnt          );
+  FD_MCNT_SET( BUNDLE, BUNDLE_RX,              ctx->metrics.bundle_received_cnt       );
+  FD_MCNT_SET( BUNDLE, PKT_RX,                 ctx->metrics.packet_received_cnt       );
+  FD_MCNT_SET( BUNDLE, PROTO_RX_BYTES,         ctx->metrics.proto_received_bytes      );
+  FD_MCNT_SET( BUNDLE, SHREDSTREAM_HEARTBEAT_SENT, ctx->metrics.shredstream_heartbeat_cnt );
+  FD_MCNT_SET( BUNDLE, KEEPALIVE_ACKED,        ctx->metrics.ping_ack_cnt              );
+  FD_MCNT_SET( BUNDLE, ERROR_PROTOBUF,         ctx->metrics.decode_fail_cnt           );
+  FD_MCNT_SET( BUNDLE, ERROR_TRANSPORT,        ctx->metrics.transport_fail_cnt        );
+  FD_MCNT_SET( BUNDLE, ERROR_NO_FEE_INFO,      ctx->metrics.missing_builder_info_fail_cnt );
+  FD_MGAUGE_SET( BUNDLE, TXN_PENDING,          pending_txn_cnt( ctx->pending_txns )   );
+  FD_MCNT_SET  ( BUNDLE, TXN_BACKPRESSURE,     ctx->metrics.backpressure_drop_cnt );
 #if FD_HAS_OPENSSL
-  FD_MCNT_SET( BUNDLE, ERRORS_SSL_ALLOC,       fd_ossl_alloc_errors                 );
+  FD_MCNT_SET( BUNDLE, ERROR_SSL_ALLOC,        fd_ossl_alloc_errors                 );
 #endif
 
-  FD_MGAUGE_SET( BUNDLE, RTT_SAMPLE,   (ulong)ctx->rtt->latest_rtt   );
-  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED, (ulong)ctx->rtt->smoothed_rtt );
-  FD_MGAUGE_SET( BUNDLE, RTT_VAR,      (ulong)ctx->rtt->var_rtt      );
+  FD_MGAUGE_SET( BUNDLE, RTT_SAMPLE_NANOS,   (ulong)ctx->rtt->latest_rtt   );
+  FD_MGAUGE_SET( BUNDLE, RTT_SMOOTHED_NANOS, (ulong)ctx->rtt->smoothed_rtt );
+  FD_MGAUGE_SET( BUNDLE, RTT_VARIANCE_NANOS, (ulong)ctx->rtt->var_rtt      );
 
   FD_MHIST_COPY( BUNDLE, MESSAGE_RX_DELAY_NANOS, ctx->metrics.msg_rx_delay );
 
@@ -127,7 +127,7 @@ metrics_write( fd_bundle_tile_t * ctx ) {
   if( FD_UNLIKELY( !fd_wksp_usage( wksp, &free_tag, 1UL, usage ) ) ) {
     FD_LOG_ERR(( "fd_wksp_usage failed" )); /* unreachable */
   }
-  FD_MGAUGE_SET( BUNDLE, HEAP_SIZE,       usage->total_sz );
+  FD_MGAUGE_SET( BUNDLE, HEAP_SIZE_BYTES, usage->total_sz );
   FD_MGAUGE_SET( BUNDLE, HEAP_FREE_BYTES, usage->free_sz  );
 
   int status = fd_bundle_client_status( ctx );

@@ -210,8 +210,8 @@ log_metrics( dump_ctx_t * ctx ) {
   ulong overrun_frags = 0UL;
   for( ulong i=0UL; i<ctx->link_cnt; i++) {
     volatile ulong const * link_metrics = fd_metrics_link_in( ctx->metrics_base, i );
-    overrun_frags += link_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ];
-    overrun_frags += link_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ];
+    overrun_frags += link_metrics[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ];
+    overrun_frags += link_metrics[ FD_METRICS_COUNTER_LINK_FRAG_READING_OVERRUN_OFF ];
   }
   if( FD_UNLIKELY( overrun_frags != ctx->last_overrun_frags ) ) {
     /* Note: We expect overruns at startup because we have no way to
@@ -343,8 +343,8 @@ dump_cmd_fn( args_t      * args,
     for( ulong i=0UL; i<ctx.link_cnt; i++ ) {
       struct link const * link = &ctx.links[ i ];
       volatile ulong const * link_metrics = fd_metrics_link_in( ctx.metrics_base, i );
-      ulong frags = link_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ];
-      ulong bytes = link_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
+      ulong frags = link_metrics[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_OFF ];
+      ulong bytes = link_metrics[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
       FD_LOG_NOTICE(( "dumped %lu frags, %lu bytes in total from %s:%lu. Link hash: 0x%x",
                       frags, bytes, link->topo->name, link->topo->kind_id, link->link_hash ));
     }

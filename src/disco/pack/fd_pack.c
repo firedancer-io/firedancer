@@ -817,19 +817,19 @@ fd_pack_new( void                   * mem,
     pack->use_by_bank_txn[i] = NULL;
   }
 
-  fd_histf_new( pack->txn_per_microblock,  FD_MHIST_MIN( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT ),
-                                           FD_MHIST_MAX( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT ) );
-  fd_histf_new( pack->vote_per_microblock, FD_MHIST_MIN( PACK, VOTES_PER_MICROBLOCK_COUNT ),
-                                           FD_MHIST_MAX( PACK, VOTES_PER_MICROBLOCK_COUNT ) );
+  fd_histf_new( pack->txn_per_microblock,  FD_MHIST_MIN( PACK, TXN_PER_MICROBLOCK ),
+                                           FD_MHIST_MAX( PACK, TXN_PER_MICROBLOCK ) );
+  fd_histf_new( pack->vote_per_microblock, FD_MHIST_MIN( PACK, VOTE_PER_MICROBLOCK ),
+                                           FD_MHIST_MAX( PACK, VOTE_PER_MICROBLOCK ) );
 
-  fd_histf_new( pack->scheduled_cus_per_block, FD_MHIST_MIN( PACK, CUS_SCHEDULED ),
-                                               FD_MHIST_MAX( PACK, CUS_SCHEDULED ) );
-  fd_histf_new( pack->rebated_cus_per_block,   FD_MHIST_MIN( PACK, CUS_REBATED   ),
-                                               FD_MHIST_MAX( PACK, CUS_REBATED   ) );
-  fd_histf_new( pack->net_cus_per_block,       FD_MHIST_MIN( PACK, CUS_NET       ),
-                                               FD_MHIST_MAX( PACK, CUS_NET       ) );
-  fd_histf_new( pack->pct_cus_per_block,       FD_MHIST_MIN( PACK, CUS_PCT       ),
-                                               FD_MHIST_MAX( PACK, CUS_PCT       ) );
+  fd_histf_new( pack->scheduled_cus_per_block, FD_MHIST_MIN( PACK, CU_SCHEDULED_PER_BLOCK ),
+                                               FD_MHIST_MAX( PACK, CU_SCHEDULED_PER_BLOCK ) );
+  fd_histf_new( pack->rebated_cus_per_block,   FD_MHIST_MIN( PACK, CU_REBATED_PER_BLOCK   ),
+                                               FD_MHIST_MAX( PACK, CU_REBATED_PER_BLOCK   ) );
+  fd_histf_new( pack->net_cus_per_block,       FD_MHIST_MIN( PACK, CU_NET_PER_BLOCK       ),
+                                               FD_MHIST_MAX( PACK, CU_NET_PER_BLOCK       ) );
+  fd_histf_new( pack->pct_cus_per_block,       FD_MHIST_MIN( PACK, CU_PCT       ),
+                                               FD_MHIST_MAX( PACK, CU_PCT       ) );
 
   pack->compressed_slot_number = (ushort)(FD_PACK_SKIP_CNT+1);
 
@@ -889,7 +889,7 @@ fd_pack_join( void * mem ) {
   pack->acct_to_bitset= bitset_map_join( FD_SCRATCH_ALLOC_APPEND( l, bitset_map_align(), bitset_map_footprint( lg_acct_in_trp           ) ) );
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 64UL,               (pack_depth+extra_depth)*pack->bundle_meta_sz      );
 
-  FD_MGAUGE_SET( PACK, PENDING_TRANSACTIONS_HEAP_SIZE, pack->pack_depth );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_HEAP_SIZE, pack->pack_depth );
   memset( pack->top_writers, 0, sizeof(pack->top_writers) );
 
   return pack;
@@ -1738,14 +1738,14 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
   ulong pending_votes  = treap_ele_cnt( pack->pending_votes   );
   ulong pending_bundle = treap_ele_cnt( pack->pending_bundles );
   ulong conflicting    = pack->pending_txn_cnt - pending_votes - pending_bundle - treap_ele_cnt( pack->pending );
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_ALL,         pack->pending_txn_cnt       );
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_REGULAR,     pending_regular             );
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_VOTES,       pending_votes               );
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_CONFLICTING, conflicting                 );
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_BUNDLES,     pending_bundle              );
-  FD_MGAUGE_SET( PACK, SMALLEST_PENDING_TRANSACTION,       pack->pending_smallest->cus );
+  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_ALL,         pack->pending_txn_cnt       );
+  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_REGULAR,     pending_regular             );
+  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_VOTES,       pending_votes               );
+  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_CONFLICTING, conflicting                 );
+  FD_MGAUGE_SET( PACK, TXN_AVAILABLE_BUNDLES,     pending_bundle              );
+  FD_MGAUGE_SET( PACK, TXN_PENDING_SMALLEST,      pack->pending_smallest->cus );
 
-  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_SCHEDULE, pack->sched_results );
+  FD_MCNT_ENUM_COPY( PACK, TXN_SCHEDULE, pack->sched_results );
 }
 
 void
@@ -2641,7 +2641,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   /* Update metrics counters */
   fd_pack_metrics_write( pack );
-  FD_MGAUGE_SET( PACK, CUS_CONSUMED_IN_BLOCK,         pack->cumulative_block_cost          );
+  FD_MGAUGE_SET( PACK, CU_CONSUMED_IN_BLOCK, pack->cumulative_block_cost );
 
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
@@ -2823,14 +2823,14 @@ fd_pack_end_block( fd_pack_t * pack ) {
      infrequent to do anything related to metrics.  However, we only
      update the histograms when we are leader, so this is actually a
      good place to copy them. */
-  FD_MHIST_COPY( PACK, TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT, pack->txn_per_microblock  );
-  FD_MHIST_COPY( PACK, VOTES_PER_MICROBLOCK_COUNT,              pack->vote_per_microblock );
+  FD_MHIST_COPY( PACK, TXN_PER_MICROBLOCK,  pack->txn_per_microblock  );
+  FD_MHIST_COPY( PACK, VOTE_PER_MICROBLOCK, pack->vote_per_microblock );
 
-  FD_MGAUGE_SET( PACK, CUS_CONSUMED_IN_BLOCK, 0UL                           );
-  FD_MHIST_COPY( PACK, CUS_SCHEDULED,         pack->scheduled_cus_per_block );
-  FD_MHIST_COPY( PACK, CUS_REBATED,           pack->rebated_cus_per_block   );
-  FD_MHIST_COPY( PACK, CUS_NET,               pack->net_cus_per_block       );
-  FD_MHIST_COPY( PACK, CUS_PCT,               pack->pct_cus_per_block       );
+  FD_MGAUGE_SET( PACK, CU_CONSUMED_IN_BLOCK, 0UL                           );
+  FD_MHIST_COPY( PACK, CU_SCHEDULED_PER_BLOCK, pack->scheduled_cus_per_block );
+  FD_MHIST_COPY( PACK, CU_REBATED_PER_BLOCK,   pack->rebated_cus_per_block   );
+  FD_MHIST_COPY( PACK, CU_NET_PER_BLOCK,       pack->net_cus_per_block       );
+  FD_MHIST_COPY( PACK, CU_PCT,                 pack->pct_cus_per_block       );
 }
 
 static void

@@ -241,17 +241,17 @@ metrics_write( fd_snapct_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_READ,               ctx->metrics.full.bytes_read );
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_WRITTEN,            ctx->metrics.full.bytes_written );
   FD_MGAUGE_SET( SNAPCT, FULL_BYTES_TOTAL,              ctx->metrics.full.bytes_total );
-  FD_MGAUGE_SET( SNAPCT, FULL_DOWNLOAD_RETRIES,         ctx->metrics.full.num_retries );
+  FD_MGAUGE_SET( SNAPCT, FULL_DOWNLOAD_RETRY,          ctx->metrics.full.num_retries );
 
   FD_MGAUGE_SET( SNAPCT, INCREMENTAL_BYTES_READ,        ctx->metrics.incremental.bytes_read );
   FD_MGAUGE_SET( SNAPCT, INCREMENTAL_BYTES_WRITTEN,     ctx->metrics.incremental.bytes_written );
   FD_MGAUGE_SET( SNAPCT, INCREMENTAL_BYTES_TOTAL,       ctx->metrics.incremental.bytes_total );
-  FD_MGAUGE_SET( SNAPCT, INCREMENTAL_DOWNLOAD_RETRIES,  ctx->metrics.incremental.num_retries );
+  FD_MGAUGE_SET( SNAPCT, INCREMENTAL_DOWNLOAD_RETRY,   ctx->metrics.incremental.num_retries );
 
   FD_MGAUGE_SET( SNAPCT, PREDICTED_SLOT,                ctx->predicted_incremental.slot );
 
 #if FD_HAS_OPENSSL
-  FD_MCNT_SET(   SNAPCT, SSL_ALLOC_ERRORS,                fd_ossl_alloc_errors );
+  FD_MCNT_SET(   SNAPCT, SSL_ALLOC_FAILED,                fd_ossl_alloc_errors );
 #endif
 
   FD_MGAUGE_SET( SNAPCT, STATE, (ulong)ctx->state );

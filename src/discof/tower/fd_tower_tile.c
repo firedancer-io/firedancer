@@ -288,60 +288,19 @@ struct fd_tower_tile {
     ulong root_slot;
     ulong init_slot;
 
-    ulong ancestor_rollback;
-    ulong sibling_confirmed;
-    ulong same_fork;
-    ulong switch_pass;
-    ulong switch_fail;
-    ulong lockout_fail;
-    ulong threshold_fail;
-    ulong propagated_fail;
+    ulong txn_not_tower_sync;
+    ulong txn_bad_tower;    /* TxnTowerInvalid */
+    ulong txn_empty_tower;
+    ulong txn_bad_deser;    /* TxnDeserializeFailed */
 
-    ulong bad_parse;
-    ulong bad_cnt;
-    ulong bad_kind;
-    ulong empty_cnt;
-
-    ulong votes_too_old;
-    ulong votes_too_new;
-    ulong votes_unknown_vtr;
-    ulong votes_already_voted;
-    ulong votes_unknown_slot;
-    ulong votes_unknown_block_id;
-
-    ulong eqvoc_success_merkle;
-    ulong eqvoc_success_meta;
-    ulong eqvoc_success_last;
-    ulong eqvoc_success_overlap;
-    ulong eqvoc_success_chained;
-
-    ulong eqvoc_err_serde;
-    ulong eqvoc_err_slot;
-    ulong eqvoc_err_version;
-    ulong eqvoc_err_type;
-    ulong eqvoc_err_merkle;
-    ulong eqvoc_err_signature;
-
-    ulong eqvoc_err_chunk_cnt;
-    ulong eqvoc_err_chunk_idx;
-    ulong eqvoc_err_chunk_len;
-
-    ulong eqvoc_err_chunk_from;
-    ulong eqvoc_err_chunk_slot;
-
-    ulong eqvoc_err_shred_slot;
-    ulong eqvoc_err_shred_idx;
+    ulong vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_CNT ];
+    ulong vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_CNT ];
+    ulong proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_CNT ];
+    ulong ghost_vote_dropped[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_CNT ];
+    ulong hard_fork_vote_dropped[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_CNT ];
 
     ulong eqvoc_proof_constructed;
     ulong eqvoc_proof_verified;
-
-    ulong ghost_not_voted;
-    ulong ghost_too_old;
-    ulong ghost_already_voted;
-
-    ulong hfork_unknown_vtr;
-    ulong hfork_already_voted;
-    ulong hfork_too_old;
 
     ulong hfork_matched_slot;
     ulong hfork_mismatched_slot;
@@ -435,28 +394,28 @@ update_metrics_eqvoc( fd_tower_tile_t * ctx,
 
   case FD_EQVOC_SUCCESS: break;
 
-  case FD_EQVOC_SUCCESS_MERKLE:  ctx->metrics.eqvoc_success_merkle++;  break;
-  case FD_EQVOC_SUCCESS_META:    ctx->metrics.eqvoc_success_meta++;    break;
-  case FD_EQVOC_SUCCESS_LAST:    ctx->metrics.eqvoc_success_last++;    break;
-  case FD_EQVOC_SUCCESS_OVERLAP: ctx->metrics.eqvoc_success_overlap++; break;
-  case FD_EQVOC_SUCCESS_CHAINED: ctx->metrics.eqvoc_success_chained++; break;
+  case FD_EQVOC_SUCCESS_MERKLE:  ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_CONFLICT_MERKLE_IDX  ]++; break;
+  case FD_EQVOC_SUCCESS_META:    ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_CONFLICT_META_IDX    ]++; break;
+  case FD_EQVOC_SUCCESS_LAST:    ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_CONFLICT_LAST_IDX    ]++; break;
+  case FD_EQVOC_SUCCESS_OVERLAP: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_CONFLICT_OVERLAP_IDX ]++; break;
+  case FD_EQVOC_SUCCESS_CHAINED: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_CONFLICT_CHAINED_IDX ]++; break;
 
-  case FD_EQVOC_ERR_SERDE:   ctx->metrics.eqvoc_err_serde++;     break;
-  case FD_EQVOC_ERR_SLOT:    ctx->metrics.eqvoc_err_slot++;      break;
-  case FD_EQVOC_ERR_VERSION: ctx->metrics.eqvoc_err_version++;   break;
-  case FD_EQVOC_ERR_TYPE:    ctx->metrics.eqvoc_err_type++;      break;
-  case FD_EQVOC_ERR_MERKLE:  ctx->metrics.eqvoc_err_merkle++;    break;
-  case FD_EQVOC_ERR_SIG:     ctx->metrics.eqvoc_err_signature++; break;
+  case FD_EQVOC_ERR_SERDE:   ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_SERDE_IDX     ]++; break;
+  case FD_EQVOC_ERR_SLOT:    ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_SLOT_IDX      ]++; break;
+  case FD_EQVOC_ERR_VERSION: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_VERSION_IDX   ]++; break;
+  case FD_EQVOC_ERR_TYPE:    ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_TYPE_IDX      ]++; break;
+  case FD_EQVOC_ERR_MERKLE:  ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_MERKLE_IDX    ]++; break;
+  case FD_EQVOC_ERR_SIG:     ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_SIGNATURE_IDX ]++; break;
 
-  case FD_EQVOC_ERR_CHUNK_CNT: ctx->metrics.eqvoc_err_chunk_cnt++; break;
-  case FD_EQVOC_ERR_CHUNK_IDX: ctx->metrics.eqvoc_err_chunk_idx++; break;
-  case FD_EQVOC_ERR_CHUNK_LEN: ctx->metrics.eqvoc_err_chunk_len++; break;
+  case FD_EQVOC_ERR_CHUNK_CNT: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_CHUNK_COUNT_IDX  ]++; break;
+  case FD_EQVOC_ERR_CHUNK_IDX: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_CHUNK_INDEX_IDX  ]++; break;
+  case FD_EQVOC_ERR_CHUNK_LEN: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_CHUNK_LENGTH_IDX ]++; break;
 
-  case FD_EQVOC_ERR_CHUNK_FROM: ctx->metrics.eqvoc_err_chunk_from++; break;
-  case FD_EQVOC_ERR_CHUNK_SLOT: ctx->metrics.eqvoc_err_chunk_slot++; break;
+  case FD_EQVOC_ERR_CHUNK_FROM: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_CHUNK_FROM_IDX ]++; break;
+  case FD_EQVOC_ERR_CHUNK_SLOT: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_CHUNK_SLOT_IDX ]++; break;
 
-  case FD_EQVOC_ERR_SHRED_SLOT: ctx->metrics.eqvoc_err_shred_slot++; break;
-  case FD_EQVOC_ERR_SHRED_IDX:  ctx->metrics.eqvoc_err_shred_idx++;  break;
+  case FD_EQVOC_ERR_SHRED_SLOT: ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_SHRED_SLOT_IDX  ]++; break;
+  case FD_EQVOC_ERR_SHRED_IDX:  ctx->metrics.proof_checked[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERROR_SHRED_INDEX_IDX ]++; break;
 
   default: FD_LOG_ERR(( "unhandled eqvoc err %d", err ));
   }
@@ -465,9 +424,9 @@ update_metrics_eqvoc( fd_tower_tile_t * ctx,
 static void
 update_metrics_ghost( fd_tower_tile_t * ctx,
                       int               err ) {
-  ctx->metrics.ghost_not_voted     += (ulong)(err==FD_GHOST_ERR_NOT_VOTED);
-  ctx->metrics.ghost_too_old       += (ulong)(err==FD_GHOST_ERR_VOTE_TOO_OLD);
-  ctx->metrics.ghost_already_voted += (ulong)(err==FD_GHOST_ERR_ALREADY_VOTED);
+  ctx->metrics.ghost_vote_dropped[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_V_NOT_VOTED_IDX     ] += (ulong)(err==FD_GHOST_ERR_NOT_VOTED);
+  ctx->metrics.ghost_vote_dropped[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_V_TOO_OLD_IDX       ] += (ulong)(err==FD_GHOST_ERR_VOTE_TOO_OLD);
+  ctx->metrics.ghost_vote_dropped[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_V_ALREADY_VOTED_IDX ] += (ulong)(err==FD_GHOST_ERR_ALREADY_VOTED);
 }
 
 static void
@@ -489,13 +448,13 @@ update_metrics_hfork( fd_tower_tile_t * ctx,
     ctx->metrics.hfork_mismatched_slot = fd_ulong_max( ctx->metrics.hfork_mismatched_slot, slot );
     break;
   case FD_HFORK_ERR_UNKNOWN_VTR:
-    ctx->metrics.hfork_unknown_vtr++;
+    ctx->metrics.hard_fork_vote_dropped[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_UNKNOWN_VOTER_IDX ]++;
     break;
   case FD_HFORK_ERR_ALREADY_VOTED:
-    ctx->metrics.hfork_already_voted++;
+    ctx->metrics.hard_fork_vote_dropped[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_ALREADY_VOTED_IDX ]++;
     break;
   case FD_HFORK_ERR_VOTE_TOO_OLD:
-    ctx->metrics.hfork_too_old++;
+    ctx->metrics.hard_fork_vote_dropped[ FD_METRICS_ENUM_HARD_FORK_VOTE_RESULT_V_TOO_OLD_IDX ]++;
     break;
   default:
     FD_LOG_ERR(( "unhandled hfork_err %d", hfork_err ));
@@ -505,9 +464,9 @@ update_metrics_hfork( fd_tower_tile_t * ctx,
 static void
 update_metrics_votes( fd_tower_tile_t * ctx,
                       int               err ) {
-  ctx->metrics.votes_too_new       += (ulong)(err==FD_VOTES_ERR_VOTE_TOO_NEW);
-  ctx->metrics.votes_unknown_vtr   += (ulong)(err==FD_VOTES_ERR_UNKNOWN_VTR);
-  ctx->metrics.votes_already_voted += (ulong)(err==FD_VOTES_ERR_ALREADY_VOTED);
+  ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_TOO_NEW_IDX       ] += (ulong)(err==FD_VOTES_ERR_VOTE_TOO_NEW);
+  ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_UNKNOWN_VOTER_IDX ] += (ulong)(err==FD_VOTES_ERR_UNKNOWN_VTR);
+  ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_ALREADY_VOTED_IDX ] += (ulong)(err==FD_VOTES_ERR_ALREADY_VOTED);
 }
 
 static void
@@ -786,7 +745,7 @@ count_vote_txn( fd_tower_tile_t * ctx,
   if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, payload ) ) ) return;
 
   fd_pubkey_t const * vote_acc = parse_vote_txn( ctx, txn, payload );
-  if( FD_UNLIKELY( !vote_acc ) ) { ctx->metrics.bad_parse++; return; }
+  if( FD_UNLIKELY( !vote_acc ) ) { ctx->metrics.txn_bad_deser++; return; }
 
   /* Filter any non-TowerSync vote instructions.  For gossip / TPU this
      filters deprecated vote kinds; for replay this shouldn't happen
@@ -795,13 +754,13 @@ count_vote_txn( fd_tower_tile_t * ctx,
   /* TODO SECURITY ensure SIMD-0138 is activated */
 
   if( FD_UNLIKELY( ctx->scratch_ix.discriminant!=fd_vote_instruction_enum_tower_sync && ctx->scratch_ix.discriminant!=fd_vote_instruction_enum_tower_sync_switch ) ) {
-    ctx->metrics.bad_kind++;
+    ctx->metrics.txn_not_tower_sync++;
     return;
   }
 
   fd_tower_sync_t * tower_sync = &ctx->scratch_ix.tower_sync; /* this is safe, because TowerSyncSwitch is the same as TowerSync except with 32-bytes appended */
-  if( FD_UNLIKELY(  tower_sync->lockouts_cnt>FD_TOWER_VOTE_MAX ) ) { ctx->metrics.bad_cnt++;   return; }
-  if( FD_UNLIKELY( !tower_sync->lockouts_cnt                   ) ) { ctx->metrics.empty_cnt++; return; }
+  if( FD_UNLIKELY(  tower_sync->lockouts_cnt>FD_TOWER_VOTE_MAX ) ) { ctx->metrics.txn_bad_tower++;   return; }
+  if( FD_UNLIKELY( !tower_sync->lockouts_cnt                   ) ) { ctx->metrics.txn_empty_tower++; return; }
 
   fd_tower_vote_remove_all( ctx->scratch_tower );
   for( ulong i = 0; i < tower_sync->lockouts_cnt; i++ ) {
@@ -816,18 +775,18 @@ count_vote_txn( fd_tower_tile_t * ctx,
   /* Validate the tower. */
 
   fd_tower_vote_t const * prev = fd_tower_vote_peek_head_const( ctx->scratch_tower );
-  if( FD_UNLIKELY( prev->conf > FD_TOWER_VOTE_MAX ) ) { ctx->metrics.bad_cnt++; return; }
+  if( FD_UNLIKELY( prev->conf > FD_TOWER_VOTE_MAX ) ) { ctx->metrics.txn_bad_tower++; return; }
 
   fd_tower_vote_iter_t iter = fd_tower_vote_iter_next( ctx->scratch_tower, fd_tower_vote_iter_init( ctx->scratch_tower ) );
   for( ; !fd_tower_vote_iter_done( ctx->scratch_tower, iter ); iter = fd_tower_vote_iter_next( ctx->scratch_tower, iter ) ) {
     fd_tower_vote_t const * vote = fd_tower_vote_iter_ele( ctx->scratch_tower, iter );
-    if( FD_UNLIKELY( vote->slot <= prev->slot        ) ) { ctx->metrics.bad_cnt++; return; }
-    if( FD_UNLIKELY( vote->conf >= prev->conf        ) ) { ctx->metrics.bad_cnt++; return; }
-    if( FD_UNLIKELY( vote->conf >  FD_TOWER_VOTE_MAX ) ) { ctx->metrics.bad_cnt++; return; }
+    if( FD_UNLIKELY( vote->slot <= prev->slot        ) ) { ctx->metrics.txn_bad_tower++; return; }
+    if( FD_UNLIKELY( vote->conf >= prev->conf        ) ) { ctx->metrics.txn_bad_tower++; return; }
+    if( FD_UNLIKELY( vote->conf >  FD_TOWER_VOTE_MAX ) ) { ctx->metrics.txn_bad_tower++; return; }
     prev = vote;
   }
 
-  if( FD_UNLIKELY( 0==memcmp( &tower_sync->block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { ctx->metrics.votes_unknown_block_id++; return; };
+  if( FD_UNLIKELY( 0==memcmp( &tower_sync->block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_UNKNOWN_BLOCK_ID_IDX ]++; return; };
 
   /* The vote txn contains a block id and bank hash for their last vote
      slot in the tower.  Agave always counts the last vote.
@@ -840,7 +799,7 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
   /* Return early if their last vote is too old. */
 
-  if( FD_UNLIKELY( their_last_vote->slot <= ctx->tower->root ) ) { ctx->metrics.votes_too_old++; return; }
+  if( FD_UNLIKELY( their_last_vote->slot <= ctx->tower->root ) ) { ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_TOO_OLD_IDX ]++; return; }
 
   /* Similar to what Agave does in cluster_info_vote_listener, we use
      the stake associated with a vote account as of our current root's
@@ -872,9 +831,9 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
      https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L483-L487 */
 
-  if( FD_UNLIKELY( !fd_tower_blocks_query( ctx->tower, their_last_vote->slot ) ) ) { ctx->metrics.votes_unknown_slot++; return; }; /* we haven't replayed this block yet */
+  if( FD_UNLIKELY( !fd_tower_blocks_query( ctx->tower, their_last_vote->slot ) ) ) { ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_UNKNOWN_SLOT_IDX ]++; return; }; /* we haven't replayed this block yet */
   fd_hash_t const * our_block_id = fd_tower_blocks_canonical_block_id( ctx->tower, their_last_vote->slot );
-  if( FD_UNLIKELY( 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) { ctx->metrics.votes_unknown_block_id++; return; } /* we don't recognize this block id */
+  if( FD_UNLIKELY( 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) { ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_UNKNOWN_BLOCK_ID_IDX ]++; return; } /* we don't recognize this block id */
 
   /* At this point, we know we have replayed the same slot and also have
      a matching block id, so we can count the intermediate votes. */
@@ -905,10 +864,10 @@ count_vote_txn( fd_tower_tile_t * ctx,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L513-L518 */
 
-    if( FD_UNLIKELY( their_intermediate_vote->slot <= ctx->tower->root ) ) { ctx->metrics.votes_too_old++; continue; }
+    if( FD_UNLIKELY( their_intermediate_vote->slot <= ctx->tower->root ) ) { ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_TOO_OLD_IDX ]++; continue; }
 
     fd_tower_blk_t * tower_blk = fd_tower_blocks_query( ctx->tower, their_intermediate_vote->slot );
-    if( FD_UNLIKELY( !tower_blk ) ) { ctx->metrics.votes_unknown_slot++; continue; }
+    if( FD_UNLIKELY( !tower_blk ) ) { ctx->metrics.vote_txn_dropped[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_UNKNOWN_SLOT_IDX ]++; continue; }
 
     /* Otherwise, we count the vote using our own block id for that slot
        (again, mirroring what Agave does albeit with bank hashes).
@@ -1272,14 +1231,14 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   ctx->metrics.reset_slot     = out.reset_slot; /* always set */
   ctx->metrics.root_slot      = ctx->tower->root;
 
-  ctx->metrics.ancestor_rollback += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK );
-  ctx->metrics.sibling_confirmed  += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
-  ctx->metrics.same_fork         += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SAME_FORK         );
-  ctx->metrics.switch_pass       += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_PASS       );
-  ctx->metrics.switch_fail       += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_FAIL       );
-  ctx->metrics.lockout_fail      += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_LOCKOUT_FAIL      );
-  ctx->metrics.threshold_fail    += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_THRESHOLD_FAIL    );
-  ctx->metrics.propagated_fail   += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_PROPAGATED_FAIL   );
+  ctx->metrics.vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_V_ANCESTOR_ROLLBACK_IDX ] += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_ANCESTOR_ROLLBACK );
+  ctx->metrics.vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_V_SIBLING_CONFIRMED_IDX ] += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SIBLING_CONFIRMED );
+  ctx->metrics.vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_V_SAME_FORK_IDX         ] += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SAME_FORK         );
+  ctx->metrics.vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_V_SWITCH_ALLOWED_IDX    ] += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_PASS       );
+  ctx->metrics.vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_V_SWITCH_DENIED_IDX     ] += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_SWITCH_FAIL       );
+  ctx->metrics.vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_V_LOCKOUT_IDX           ] += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_LOCKOUT_FAIL      );
+  ctx->metrics.vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_V_THRESHOLD_IDX         ] += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_THRESHOLD_FAIL    );
+  ctx->metrics.vote_considered[ FD_METRICS_ENUM_TOWER_VOTE_DECISION_V_NOT_PROPAGATED_IDX    ] += (ulong)fd_uchar_extract_bit( out.flags, FD_TOWER_FLAG_PROPAGATED_FAIL   );
 
   /* Log out structures. */
 
@@ -1426,10 +1385,13 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
 
 static inline void
 metrics_write( fd_tower_tile_t * ctx ) {
-  FD_MCNT_SET( TOWER, NOT_READY, ctx->metrics.not_ready );
+  FD_MCNT_SET( TOWER, FRAG_NOT_READY_DROPPED, ctx->metrics.not_ready );
 
-  FD_MCNT_SET  ( TOWER, IGNORED_CNT,  ctx->metrics.ignored_cnt  );
-  FD_MGAUGE_SET( TOWER, IGNORED_SLOT, ctx->metrics.ignored_slot );
+  FD_MCNT_SET  ( TOWER, FRAG_IGNORED,      ctx->metrics.ignored_cnt  );
+  FD_MGAUGE_SET( TOWER, SLOT_LAST_IGNORED, ctx->metrics.ignored_slot );
+
+  FD_MCNT_SET  ( TOWER, FRAG_EQVOC_DETECTED, ctx->metrics.eqvoc_cnt  );
+  FD_MGAUGE_SET( TOWER, SLOT_LAST_EQVOC,     ctx->metrics.eqvoc_slot );
 
   FD_MGAUGE_SET( TOWER, REPLAY_SLOT, ctx->metrics.replay_slot    );
   FD_MGAUGE_SET( TOWER, VOTE_SLOT,   ctx->metrics.last_vote_slot );
@@ -1437,63 +1399,23 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MGAUGE_SET( TOWER, ROOT_SLOT,   ctx->metrics.root_slot      );
   FD_MGAUGE_SET( TOWER, INIT_SLOT,   ctx->metrics.init_slot      );
 
-  FD_MCNT_SET( TOWER, ANCESTOR_ROLLBACK, ctx->metrics.ancestor_rollback );
-  FD_MCNT_SET( TOWER, SIBLING_CONFIRMED, ctx->metrics.sibling_confirmed );
-  FD_MCNT_SET( TOWER, SAME_FORK,         ctx->metrics.same_fork         );
-  FD_MCNT_SET( TOWER, SWITCH_PASS,       ctx->metrics.switch_pass       );
-  FD_MCNT_SET( TOWER, SWITCH_FAIL,       ctx->metrics.switch_fail       );
-  FD_MCNT_SET( TOWER, LOCKOUT_FAIL,      ctx->metrics.lockout_fail      );
-  FD_MCNT_SET( TOWER, THRESHOLD_FAIL,    ctx->metrics.threshold_fail    );
-  FD_MCNT_SET( TOWER, PROPAGATED_FAIL,   ctx->metrics.propagated_fail   );
+  FD_MCNT_ENUM_COPY( TOWER, VOTE_CONSIDERED, ctx->metrics.vote_considered );
 
-  FD_MCNT_SET( TOWER, BAD_PARSE, ctx->metrics.bad_parse );
-  FD_MCNT_SET( TOWER, BAD_CNT,   ctx->metrics.bad_cnt   );
-  FD_MCNT_SET( TOWER, BAD_KIND,  ctx->metrics.bad_kind  );
-  FD_MCNT_SET( TOWER, EMPTY_CNT, ctx->metrics.empty_cnt );
+  FD_MCNT_SET( TOWER, TXN_DESERIALIZE_FAILED, ctx->metrics.txn_bad_deser      );
+  FD_MCNT_SET( TOWER, TXN_TOWER_INVALID,      ctx->metrics.txn_bad_tower      );
+  FD_MCNT_SET( TOWER, TXN_NOT_TOWER_SYNC,     ctx->metrics.txn_not_tower_sync );
+  FD_MCNT_SET( TOWER, TXN_TOWER_EMPTY,        ctx->metrics.txn_empty_tower    );
 
-  FD_MCNT_SET( TOWER, VOTES_TOO_OLD,          ctx->metrics.votes_too_old          );
-  FD_MCNT_SET( TOWER, VOTES_TOO_NEW,          ctx->metrics.votes_too_new          );
-  FD_MCNT_SET( TOWER, VOTES_UNKNOWN_VTR,      ctx->metrics.votes_unknown_vtr      );
-  FD_MCNT_SET( TOWER, VOTES_ALREADY_VOTED,    ctx->metrics.votes_already_voted    );
-  FD_MCNT_SET( TOWER, VOTES_UNKNOWN_SLOT,     ctx->metrics.votes_unknown_slot     );
-  FD_MCNT_SET( TOWER, VOTES_UNKNOWN_BLOCK_ID, ctx->metrics.votes_unknown_block_id );
+  FD_MCNT_ENUM_COPY( TOWER, VOTE_TXN_DROPPED,       ctx->metrics.vote_txn_dropped       );
+  FD_MCNT_ENUM_COPY( TOWER, PROOF_CHECKED,          ctx->metrics.proof_checked          );
+  FD_MCNT_ENUM_COPY( TOWER, GHOST_VOTE_DROPPED,     ctx->metrics.ghost_vote_dropped     );
+  FD_MCNT_ENUM_COPY( TOWER, HARD_FORK_VOTE_DROPPED, ctx->metrics.hard_fork_vote_dropped );
 
-  FD_MCNT_SET( TOWER, EQVOC_SUCCESS_MERKLE,  ctx->metrics.eqvoc_success_merkle  );
-  FD_MCNT_SET( TOWER, EQVOC_SUCCESS_META,    ctx->metrics.eqvoc_success_meta    );
-  FD_MCNT_SET( TOWER, EQVOC_SUCCESS_LAST,    ctx->metrics.eqvoc_success_last    );
-  FD_MCNT_SET( TOWER, EQVOC_SUCCESS_OVERLAP, ctx->metrics.eqvoc_success_overlap );
-  FD_MCNT_SET( TOWER, EQVOC_SUCCESS_CHAINED, ctx->metrics.eqvoc_success_chained );
+  FD_MCNT_SET( TOWER, PROOF_CONSTRUCTED, ctx->metrics.eqvoc_proof_constructed );
+  FD_MCNT_SET( TOWER, PROOF_VERIFIED,    ctx->metrics.eqvoc_proof_verified    );
 
-  FD_MCNT_SET( TOWER, EQVOC_ERR_SERDE,     ctx->metrics.eqvoc_err_serde     );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_SLOT,      ctx->metrics.eqvoc_err_slot      );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_VERSION,   ctx->metrics.eqvoc_err_version   );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_TYPE,      ctx->metrics.eqvoc_err_type      );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_MERKLE,    ctx->metrics.eqvoc_err_merkle    );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_SIGNATURE, ctx->metrics.eqvoc_err_signature );
-
-  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_CNT, ctx->metrics.eqvoc_err_chunk_cnt );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_IDX, ctx->metrics.eqvoc_err_chunk_idx );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_LEN, ctx->metrics.eqvoc_err_chunk_len );
-
-  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_FROM, ctx->metrics.eqvoc_err_chunk_from );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_CHUNK_SLOT, ctx->metrics.eqvoc_err_chunk_slot );
-
-  FD_MCNT_SET( TOWER, EQVOC_ERR_SHRED_SLOT, ctx->metrics.eqvoc_err_shred_slot );
-  FD_MCNT_SET( TOWER, EQVOC_ERR_SHRED_IDX,  ctx->metrics.eqvoc_err_shred_idx  );
-
-  FD_MCNT_SET( TOWER, EQVOC_PROOF_CONSTRUCTED, ctx->metrics.eqvoc_proof_constructed );
-  FD_MCNT_SET( TOWER, EQVOC_PROOF_VERIFIED,    ctx->metrics.eqvoc_proof_verified    );
-
-  FD_MCNT_SET( TOWER, GHOST_NOT_VOTED,     ctx->metrics.ghost_not_voted     );
-  FD_MCNT_SET( TOWER, GHOST_TOO_OLD,       ctx->metrics.ghost_too_old       );
-  FD_MCNT_SET( TOWER, GHOST_ALREADY_VOTED, ctx->metrics.ghost_already_voted );
-
-  FD_MCNT_SET( TOWER, HFORK_UNKNOWN_VTR,   ctx->metrics.hfork_unknown_vtr   );
-  FD_MCNT_SET( TOWER, HFORK_ALREADY_VOTED, ctx->metrics.hfork_already_voted );
-  FD_MCNT_SET( TOWER, HFORK_TOO_OLD,       ctx->metrics.hfork_too_old       );
-
-  FD_MGAUGE_SET( TOWER, HFORK_MATCHED_SLOT,    ctx->metrics.hfork_matched_slot    );
-  FD_MGAUGE_SET( TOWER, HFORK_MISMATCHED_SLOT, ctx->metrics.hfork_mismatched_slot );
+  FD_MGAUGE_SET( TOWER, HARD_FORK_MATCHED_SLOT,    ctx->metrics.hfork_matched_slot    );
+  FD_MGAUGE_SET( TOWER, HARD_FORK_MISMATCHED_SLOT, ctx->metrics.hfork_mismatched_slot );
 }
 
 static inline void

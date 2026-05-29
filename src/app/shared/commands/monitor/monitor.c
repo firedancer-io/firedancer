@@ -105,17 +105,17 @@ tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,til
     tile_snap_t * snap = &snap_cur[ tile_idx ];
 
     fd_topo_tile_t const * tile = &topo->tiles[ tile_idx ];
-    snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_OFF ];
+    snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_NANOS_OFF ];
     snap->status    = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_STATUS_OFF    ];
 
     fd_metrics_register( tile->metrics );
 
     FD_COMPILER_MFENCE();
     snap->pid       = FD_MGAUGE_GET( TILE, PID );
-    snap->nvcsw     = FD_MCNT_GET( TILE, CONTEXT_SWITCH_VOLUNTARY_COUNT );
-    snap->nivcsw    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY_COUNT );
+    snap->nvcsw     = FD_MCNT_GET( TILE, CONTEXT_SWITCH_VOLUNTARY );
+    snap->nivcsw    = FD_MCNT_GET( TILE, CONTEXT_SWITCH_INVOLUNTARY );
     snap->in_backp  = FD_MGAUGE_GET( TILE, IN_BACKPRESSURE );
-    snap->backp_cnt = FD_MCNT_GET( TILE, BACKPRESSURE_COUNT );
+    snap->backp_cnt = FD_MCNT_GET( TILE, BACKPRESSURE );
     for( ulong i=0UL; i<9UL; i++ ) {
       snap->regime_ticks[ i ] = fd_metrics_tl[ MIDX(COUNTER, TILE, REGIME_DURATION_NANOS)+i ];
     }
@@ -144,13 +144,13 @@ link_snap( link_snap_t *     snap_cur,
 
       FD_COMPILER_MFENCE();
       if( FD_LIKELY( in_metrics ) ) {
-        snap->fseq_diag_tot_cnt   = in_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ];
-        snap->fseq_diag_tot_sz    = in_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
-        snap->fseq_diag_filt_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
-        snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FILTERED_SIZE_BYTES_OFF ];
-        snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ];
-        snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_COUNT_OFF ];
-        snap->fseq_diag_slow_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF ];
+        snap->fseq_diag_tot_cnt   = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_OFF ];
+        snap->fseq_diag_tot_sz    = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_CONSUMED_BYTES_OFF ];
+        snap->fseq_diag_filt_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ];
+        snap->fseq_diag_filt_sz   = in_metrics[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_BYTES_OFF ];
+        snap->fseq_diag_ovrnp_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_LINK_POLLING_OVERRUN_OFF ];
+        snap->fseq_diag_ovrnr_cnt = in_metrics[ FD_METRICS_COUNTER_LINK_LINK_READING_OVERRUN_OFF ];
+        snap->fseq_diag_slow_cnt  = in_metrics[ FD_METRICS_COUNTER_LINK_CONSUMER_SLOW_OFF ];
       } else {
         snap->fseq_diag_tot_cnt   = 0UL;
         snap->fseq_diag_tot_sz    = 0UL;
@@ -430,33 +430,33 @@ run_monitor( config_t const * config,
       ulong verify_overrun = 0UL;
       for( ulong i=0UL; i<config->layout.verify_tile_count; i++ ) {
         fd_topo_tile_t const * verify = &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ];
-        verify_overrun += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] / config->layout.verify_tile_count;
-        verify_failed += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+        verify_overrun += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FRAG_POLLING_OVERRUN_OFF ] / config->layout.verify_tile_count;
+        verify_failed += fd_metrics_link_in( verify->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ];
         verify_sent += fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ verify->out_link_id[ 0 ] ].mcache ) );
       }
 
       fd_topo_tile_t const * dedup = &topo->tiles[ fd_topo_find_tile( topo, "dedup", 0UL ) ];
       ulong dedup_failed = 0UL;
       for( ulong i=0UL; i<config->layout.verify_tile_count; i++) {
-        dedup_failed += fd_metrics_link_in( dedup->metrics, i )[ FD_METRICS_COUNTER_LINK_FILTERED_COUNT_OFF ];
+        dedup_failed += fd_metrics_link_in( dedup->metrics, i )[ FD_METRICS_COUNTER_LINK_FRAG_FILTERED_OFF ];
       }
       ulong dedup_sent = fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ dedup->out_link_id[ 0 ] ].mcache ) );
 
       fd_topo_tile_t const * pack = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
       volatile ulong * pack_metrics = fd_metrics_tile( pack->metrics );
-      ulong pack_invalid = pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_INSTR_ACCT_CNT_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_WRITE_SYSVAR_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_ESTIMATION_FAIL_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_TOO_LARGE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_EXPIRED_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_ADDR_LUT_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_UNAFFORDABLE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_DUPLICATE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_PRIORITY_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_NONVOTE_REPLACE_OFF ] +
-                           pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_INSERTED_VOTE_REPLACE_OFF ];
-      ulong pack_overrun = pack_metrics[ FD_METRICS_COUNTER_PACK_TRANSACTION_DROPPED_FROM_EXTRA_OFF ];
-      ulong pack_sent = pack_metrics[ FD_METRICS_HISTOGRAM_PACK_TOTAL_TRANSACTIONS_PER_MICROBLOCK_COUNT_OFF + FD_HISTF_BUCKET_CNT ];
+      ulong pack_invalid = pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_INSTR_ACCT_CNT_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_WRITE_SYSVAR_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_ESTIMATION_FAIL_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_TOO_LARGE_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_EXPIRED_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_ADDR_LUT_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_UNAFFORDABLE_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_DUPLICATE_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_PRIORITY_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_NONVOTE_REPLACE_OFF ] +
+                           pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_INSERTED_VOTE_REPLACE_OFF ];
+      ulong pack_overrun = pack_metrics[ FD_METRICS_COUNTER_PACK_TXN_EXTRA_DROPPED_OFF ];
+      ulong pack_sent = pack_metrics[ FD_METRICS_HISTOGRAM_PACK_TXN_PER_MICROBLOCK_OFF + FD_HISTF_BUCKET_CNT ];
 
       static ulong last_fseq_sum;
       static ulong last_net_sent;

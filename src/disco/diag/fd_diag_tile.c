@@ -103,12 +103,12 @@ read_stat_file( int              fd,
       char * endptr;
       ulong minflt = strtoul( token, &endptr, 10 );
       if( FD_UNLIKELY( *endptr!='\0' || minflt==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for minflt" ));
-      metrics[ FD_METRICS_COUNTER_TILE_PAGE_FAULT_MINOR_COUNT_OFF ] = minflt;
+      metrics[ FD_METRICS_COUNTER_TILE_PAGE_FAULT_MINOR_OFF ] = minflt;
     } else if( FD_UNLIKELY( 11UL==field_idx ) ) {
       char * endptr;
       ulong majflt = strtoul( token, &endptr, 10 );
       if( FD_UNLIKELY( *endptr!='\0' || majflt==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul failed for majflt" ));
-      metrics[ FD_METRICS_COUNTER_TILE_PAGE_FAULT_MAJOR_COUNT_OFF ] = majflt;
+      metrics[ FD_METRICS_COUNTER_TILE_PAGE_FAULT_MAJOR_OFF ] = majflt;
     } else if( FD_UNLIKELY( 13UL==field_idx ) ) {
       char * endptr;
       ulong utime_ticks = strtoul( token, &endptr, 10 );
@@ -191,7 +191,7 @@ read_sched_file( int              fd,
         ulong voluntary_switches = strtoul( value, &endptr, 10 );
         if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after nr_voluntary_switches" ));
         if( FD_UNLIKELY( voluntary_switches==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for nr_voluntary_switches" ));
-        metrics[ FD_METRICS_COUNTER_TILE_CONTEXT_SWITCH_VOLUNTARY_COUNT_OFF ] = voluntary_switches;
+        metrics[ FD_METRICS_COUNTER_TILE_CONTEXT_SWITCH_VOLUNTARY_OFF ] = voluntary_switches;
         found_voluntary = 1;
       }
     } else if( FD_UNLIKELY( !strncmp( line, "nr_involuntary_switches", 23UL ) ) ) {
@@ -203,7 +203,7 @@ read_sched_file( int              fd,
         ulong involuntary_switches = strtoul( value, &endptr, 10 );
         if( FD_UNLIKELY( '\0'!=*endptr ) ) FD_LOG_ERR(( "unexpected char after nr_involuntary_switches" ));
         if( FD_UNLIKELY( involuntary_switches==ULONG_MAX ) ) FD_LOG_ERR(( "strtoul overflow for nr_involuntary_switches" ));
-        metrics[ FD_METRICS_COUNTER_TILE_CONTEXT_SWITCH_INVOLUNTARY_COUNT_OFF ] = involuntary_switches;
+        metrics[ FD_METRICS_COUNTER_TILE_CONTEXT_SWITCH_INVOLUNTARY_OFF ] = involuntary_switches;
         found_involuntary = 1;
       }
     }
@@ -267,7 +267,7 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
   ulong replay_health  = fd_ulong_if( replay_idx!=ULONG_MAX, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
   if( FD_LIKELY( replay_running ) ) {
     volatile ulong * m = ctx->metrics[ replay_idx ];
-    ulong turbine_slot = m[ FD_METRICS_GAUGE_REPLAY_REASM_LATEST_SLOT_OFF ];
+    ulong turbine_slot = m[ FD_METRICS_GAUGE_REPLAY_REASSEMBLY_LATEST_SLOT_OFF ];
     ulong reset_slot   = m[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
     if( FD_UNLIKELY( reset_slot!=ctx->check_engine.prev_reset_slot ) ) {
       ctx->check_engine.prev_reset_slot       = reset_slot;
@@ -284,15 +284,15 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
     ulong cur_turbine_bytes = 0UL, cur_repair_bytes = 0UL;
     for( ulong i=0UL; i<shred_cnt; i++ ) {
       volatile ulong * sm = ctx->metrics[ ctx->tiles.shred_tile_idx[ i ] ];
-      cur_turbine_bytes += sm[ FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_OFF ];
-      cur_repair_bytes  += sm[ FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_OFF ];
+      cur_turbine_bytes += sm[ FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RX_BYTES_OFF ];
+      cur_repair_bytes  += sm[ FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RX_BYTES_OFF ];
       if( FD_UNLIKELY( sm[ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
         all_shred_running = 0;
         break;
       }
     }
     if( FD_LIKELY( all_shred_running ) ) {
-      ulong turbine_slot = ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_REPLAY_REASM_LATEST_SLOT_OFF ];
+      ulong turbine_slot = ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_REPLAY_REASSEMBLY_LATEST_SLOT_OFF ];
       if( FD_UNLIKELY( turbine_slot!=ctx->check_engine.prev_turbine_slot ) ) {
         ctx->check_engine.prev_turbine_slot       = turbine_slot;
         ctx->check_engine.turbine_slot_changed_ns = now;

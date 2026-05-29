@@ -131,46 +131,46 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static void
 metrics_write( fd_execrp_tile_t * ctx ) {
-  FD_MCNT_SET      ( EXECRP, SIGVERIFY_COUNT,    ctx->metrics.sigverify_cnt );
-  FD_MCNT_SET      ( EXECRP, POH_HASH_COUNT,     ctx->metrics.poh_hash_cnt  );
-  FD_MCNT_ENUM_COPY( EXECRP, TRANSACTION_RESULT, ctx->metrics.txn_result    );
+  FD_MCNT_SET      ( EXECRP, SIGVERIFY,    ctx->metrics.sigverify_cnt );
+  FD_MCNT_SET      ( EXECRP, POH_HASH,     ctx->metrics.poh_hash_cnt  );
+  FD_MCNT_ENUM_COPY( EXECRP, TXN_RESULT,   ctx->metrics.txn_result    );
 
   fd_progcache_metrics_t * pm = ctx->progcache->metrics;
-  FD_MCNT_SET( EXECRP, PROGCACHE_LOOKUPS,                pm->lookup_cnt     );
-  FD_MCNT_SET( EXECRP, PROGCACHE_HITS,                   pm->hit_cnt        );
-  FD_MCNT_SET( EXECRP, PROGCACHE_MISSES,                 pm->miss_cnt       );
+  FD_MCNT_SET( EXECRP, PROGCACHE_LOOKUP,                 pm->lookup_cnt     );
+  FD_MCNT_SET( EXECRP, PROGCACHE_HIT,                    pm->hit_cnt        );
+  FD_MCNT_SET( EXECRP, PROGCACHE_MISS,                   pm->miss_cnt       );
   FD_MCNT_SET( EXECRP, PROGCACHE_OOM_HEAP,               pm->oom_heap_cnt   );
   FD_MCNT_SET( EXECRP, PROGCACHE_OOM_DESC,               pm->oom_desc_cnt   );
-  FD_MCNT_SET( EXECRP, PROGCACHE_FILLS,                  pm->fill_cnt       );
+  FD_MCNT_SET( EXECRP, PROGCACHE_FILL,                   pm->fill_cnt       );
   FD_MCNT_SET( EXECRP, PROGCACHE_FILL_BYTES,             pm->fill_tot_sz    );
-  FD_MCNT_SET( EXECRP, PROGCACHE_SPILLS,                 pm->spill_cnt      );
+  FD_MCNT_SET( EXECRP, PROGCACHE_SPILL,                  pm->spill_cnt      );
   FD_MCNT_SET( EXECRP, PROGCACHE_SPILL_BYTES,            pm->spill_tot_sz   );
-  FD_MCNT_SET( EXECRP, PROGCACHE_EVICTIONS,              pm->evict_cnt      );
+  FD_MCNT_SET( EXECRP, PROGCACHE_EVICTION,               pm->evict_cnt      );
   FD_MCNT_SET( EXECRP, PROGCACHE_EVICTION_BYTES,         pm->evict_tot_sz   );
-  FD_MCNT_SET( EXECRP, PROGCACHE_DURATION_TOTAL_SECONDS, pm->cum_pull_ticks );
-  FD_MCNT_SET( EXECRP, PROGCACHE_DURATION_LOAD_SECONDS,  pm->cum_load_ticks );
+  FD_MCNT_SET( EXECRP, PROGCACHE_DURATION_SECONDS,       pm->cum_pull_ticks );
+  FD_MCNT_SET( EXECRP, PROGCACHE_LOAD_DURATION_SECONDS,  pm->cum_load_ticks );
 
-  FD_MCNT_SET( EXECRP, TXN_REGIME_SETUP,  ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
-  FD_MCNT_SET( EXECRP, TXN_REGIME_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
-  FD_MCNT_SET( EXECRP, TXN_REGIME_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_SETUP,  ctx->metrics.txn_load_cum_ticks+ctx->metrics.txn_check_cum_ticks );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_EXEC,   ctx->metrics.txn_exec_cum_ticks    );
+  FD_MCNT_SET( EXECRP, TXN_REGIME_DURATION_NANOS_COMMIT, ctx->metrics.txn_commit_cum_ticks  );
 
   fd_runtime_t const * runtime = ctx->runtime;
   ulong cpi_ticks  = runtime->metrics.cpi_setup_cum_ticks +
                      runtime->metrics.cpi_commit_cum_ticks;
   ulong exec_ticks = fd_ulong_sat_sub( runtime->metrics.vm_exec_cum_ticks, cpi_ticks );
-  FD_MCNT_SET( EXECRP, VM_REGIME_SETUP,       runtime->metrics.vm_setup_cum_ticks   );
-  FD_MCNT_SET( EXECRP, VM_REGIME_COMMIT,      runtime->metrics.vm_commit_cum_ticks  );
-  FD_MCNT_SET( EXECRP, VM_REGIME_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
-  FD_MCNT_SET( EXECRP, VM_REGIME_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
-  FD_MCNT_SET( EXECRP, VM_REGIME_INTERPRETER, exec_ticks                            );
+  FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_SETUP,       runtime->metrics.vm_setup_cum_ticks   );
+  FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_COMMIT,      runtime->metrics.vm_commit_cum_ticks  );
+  FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_SETUP_CPI,   runtime->metrics.cpi_setup_cum_ticks  );
+  FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_COMMIT_CPI,  runtime->metrics.cpi_commit_cum_ticks );
+  FD_MCNT_SET( EXECRP, VM_REGIME_DURATION_NANOS_INTERPRETER, exec_ticks                            );
 
   fd_accdb_user_t * accdb = ctx->accdb;
   FD_MCNT_SET( EXECRP, ACCDB_CREATED, accdb->base.created_cnt );
 
   FD_STATIC_ASSERT( sizeof(runtime->metrics.txn_account_save)/sizeof(ulong)==FD_METRICS_ENUM_ACCOUNT_CHANGE_CNT, enum );
-  FD_MCNT_ENUM_COPY( EXECRP, TXN_ACCOUNT_CHANGES, runtime->metrics.txn_account_save );
+  FD_MCNT_ENUM_COPY( EXECRP, TXN_ACCOUNT_CHANGE, runtime->metrics.txn_account_save );
 
-  FD_MCNT_SET( EXECRP, COMPUTE_UNITS_TOTAL, runtime->metrics.cu_cum );
+  FD_MCNT_SET( EXECRP, CU_EXECUTED, runtime->metrics.cu_cum );
 }
 
 static void

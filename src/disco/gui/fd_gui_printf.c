@@ -1128,11 +1128,11 @@ fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
     fd_topo_tile_t const * execrp = &topo->tiles[ fd_topo_find_tile( topo, "execrp", i ) ];
     volatile ulong const * metrics = fd_metrics_tile( execrp->metrics );
 
-    insertions      += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILLS          ) ];
+    insertions      += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILL          ) ];
     insertion_bytes += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_FILL_BYTES     ) ];
-    evictions       += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTIONS      ) ];
+    evictions       += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTION      ) ];
     eviction_bytes  += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_EVICTION_BYTES ) ];
-    spills          += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILLS         ) ];
+    spills          += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILL         ) ];
     spill_bytes     += metrics[ MIDX( COUNTER, EXECRP, PROGCACHE_SPILL_BYTES    ) ];
   }
 
@@ -1946,10 +1946,10 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
             default: FD_LOG_ERR(( "unreachable" ));
           }
           jsonp_open_array( gui->http, "slot_schedule_counts" );
-            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->block_results[ i ] );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->block_results[ i ] );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "end_slot_schedule_counts" );
-            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->end_block_results[ i ] );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TXN_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->end_block_results[ i ] );
           jsonp_close_array( gui->http );
 
           if( FD_LIKELY( lslot->scheduler_stats->pending_smallest->cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_cost", lslot->scheduler_stats->pending_smallest->cus );

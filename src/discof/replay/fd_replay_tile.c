@@ -128,12 +128,12 @@ static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_ACQUIRE,      ctx->metrics.store_query_acquire      );
   FD_MCNT_SET  ( REPLAY, STORE_QUERY_RELEASE,      ctx->metrics.store_query_release      );
-  FD_MHIST_COPY( REPLAY, STORE_QUERY_WAIT,         ctx->metrics.store_query_wait         );
-  FD_MHIST_COPY( REPLAY, STORE_QUERY_WORK,         ctx->metrics.store_query_work         );
-  FD_MCNT_SET  ( REPLAY, STORE_QUERY_CNT,          ctx->metrics.store_query_cnt          );
-  FD_MCNT_SET  ( REPLAY, STORE_QUERY_MISSING_CNT,  ctx->metrics.store_query_missing_cnt  );
-  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MR,           ctx->metrics.store_query_mr           );
-  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MR,   ctx->metrics.store_query_missing_mr   );
+  FD_MHIST_COPY( REPLAY, STORE_QUERY_WAIT_SECONDS, ctx->metrics.store_query_wait         );
+  FD_MHIST_COPY( REPLAY, STORE_QUERY_WORK_SECONDS, ctx->metrics.store_query_work         );
+  FD_MCNT_SET  ( REPLAY, STORE_QUERY,              ctx->metrics.store_query_cnt          );
+  FD_MCNT_SET  ( REPLAY, STORE_QUERY_MISSING,      ctx->metrics.store_query_missing_cnt  );
+  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MERKLE_ROOT,         ctx->metrics.store_query_mr           );
+  FD_MGAUGE_SET( REPLAY, STORE_QUERY_MISSING_MERKLE_ROOT, ctx->metrics.store_query_missing_mr   );
 
   FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot==ULONG_MAX ? 0UL : ctx->consensus_root_slot );
   ulong leader_slot = ctx->leader_bank ? ctx->leader_bank->f.slot : 0UL;
@@ -147,54 +147,54 @@ metrics_write( fd_replay_tile_t * ctx ) {
   }
   FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
 
-  FD_MGAUGE_SET( REPLAY, LIVE_BANKS, fd_banks_pool_used_cnt( ctx->banks ) );
+  FD_MGAUGE_SET( REPLAY, BANK_LIVE, fd_banks_pool_used_cnt( ctx->banks ) );
 
   ulong reasm_free = fd_reasm_free( ctx->reasm );
-  FD_MGAUGE_SET( REPLAY, REASM_FREE, reasm_free );
+  FD_MGAUGE_SET( REPLAY, REASSEMBLY_FREE, reasm_free );
 
-  FD_MCNT_SET( REPLAY, SLOTS_TOTAL, ctx->metrics.slots_total );
-  FD_MCNT_SET( REPLAY, TRANSACTIONS_TOTAL, ctx->metrics.transactions_total );
+  FD_MCNT_SET( REPLAY, SLOT_REPLAYED, ctx->metrics.slots_total );
+  FD_MCNT_SET( REPLAY, TXN_PROCESSED, ctx->metrics.transactions_total );
 
-  FD_MGAUGE_SET( REPLAY, REASM_LATEST_SLOT,    ctx->metrics.reasm_latest_slot );
-  FD_MGAUGE_SET( REPLAY, REASM_LATEST_FEC_IDX, ctx->metrics.reasm_latest_fec_idx );
+  FD_MGAUGE_SET( REPLAY, REASSEMBLY_LATEST_SLOT,      ctx->metrics.reasm_latest_slot );
+  FD_MGAUGE_SET( REPLAY, REASSEMBLY_LATEST_FEC_INDEX, ctx->metrics.reasm_latest_fec_idx );
 
   fd_sched_metrics_write( ctx->sched );
 
   FD_MCNT_SET( REPLAY, SCHED_FULL,          ctx->metrics.sched_full );
-  FD_MCNT_SET( REPLAY, REASM_EMPTY,         ctx->metrics.reasm_empty );
+  FD_MCNT_SET( REPLAY, REASSEMBLY_EMPTY,    ctx->metrics.reasm_empty );
   FD_MCNT_SET( REPLAY, LEADER_BID_WAIT,     ctx->metrics.leader_bid_wait );
-  FD_MCNT_SET( REPLAY, BANKS_FULL,          ctx->metrics.banks_full );
+  FD_MCNT_SET( REPLAY, BANK_FULL,           ctx->metrics.banks_full );
   FD_MCNT_SET( REPLAY, STORAGE_ROOT_BEHIND, ctx->metrics.storage_root_behind );
 
   FD_MCNT_SET( REPLAY, ACCDB_CREATED,      ctx->accdb->base.created_cnt       );
   FD_MCNT_SET( REPLAY, ACCDB_REVERTED,     ctx->accdb_admin->base.revert_cnt  );
   FD_MCNT_SET( REPLAY, ACCDB_ROOTED,       ctx->accdb_admin->base.root_cnt    );
   FD_MCNT_SET( REPLAY, ACCDB_ROOTED_BYTES, ctx->accdb_admin->base.root_tot_sz );
-  FD_MCNT_SET( REPLAY, ACCDB_GC_ROOT,      ctx->accdb_admin->base.gc_root_cnt );
+  FD_MCNT_SET( REPLAY, ACCDB_GARBAGE_COLLECTED, ctx->accdb_admin->base.gc_root_cnt );
   FD_MCNT_SET( REPLAY, ACCDB_RECLAIMED,    ctx->accdb_admin->base.reclaim_cnt );
   FD_MHIST_COPY( REPLAY, ROOT_SLOT_DURATION_SECONDS,    ctx->metrics.root_slot_dur    );
   FD_MHIST_COPY( REPLAY, ROOT_ACCOUNT_DURATION_SECONDS, ctx->metrics.root_account_dur );
-  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_COPY, (ulong)ctx->accdb_admin->base.dt_copy  );
-  FD_MCNT_SET( REPLAY, ROOT_ELAPSED_SECONDS_GC,   (ulong)ctx->accdb_admin->base.dt_gc    );
+  FD_MCNT_SET( REPLAY, ROOT_DURATION_SECONDS_COPY,            (ulong)ctx->accdb_admin->base.dt_copy  );
+  FD_MCNT_SET( REPLAY, ROOT_DURATION_SECONDS_GARBAGE_COLLECT, (ulong)ctx->accdb_admin->base.dt_gc    );
 
   fd_progcache_admin_metrics_t const * pcm = &fd_progcache_admin_metrics_g;
   FD_MCNT_SET( REPLAY, PROGCACHE_ROOTED, pcm->root_cnt );
 
   fd_wksp_mon_t * wm = fd_wksp_mon_tick( ctx->progcache_wksp_mon, fd_tickcount() );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTS,             wm->free_cnt       );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_BYTES,             wm->free_sz        );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_SIZE_BYTES,             wm->wksp->data_max );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PART_MAX_BYTES,    wm->free_max_sz    );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PART_MEDIAN_BYTES, wm->part_median_sz );
-  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PART_MEAN_BYTES,   wm->part_mean_sz   );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTITION,             wm->free_cnt       );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_BYTES,                 wm->free_sz        );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_SIZE_BYTES,                 wm->wksp->data_max );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_FREE_PARTITION_MAX_BYTES,   wm->free_max_sz    );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PARTITION_MEDIAN_BYTES, wm->part_median_sz );
+  FD_MGAUGE_SET( REPLAY, PROGCACHE_USED_PARTITION_MEAN_BYTES,   wm->part_mean_sz   );
 
   fd_wksp_mon_t * am = fd_wksp_mon_tick( ctx->accdb_cache_wksp_mon, fd_tickcount() );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_PARTS,             am->free_cnt       );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_BYTES,             am->free_sz        );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_SIZE_BYTES,             am->wksp->data_max );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_PART_MAX_BYTES,    am->free_max_sz    );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_USED_PART_MEDIAN_BYTES, am->part_median_sz );
-  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_USED_PART_MEAN_BYTES,   am->part_mean_sz   );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_PARTITION,             am->free_cnt       );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_BYTES,                 am->free_sz        );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_SIZE_BYTES,                 am->wksp->data_max );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_FREE_PARTITION_MAX_BYTES,   am->free_max_sz    );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_USED_PARTITION_MEDIAN_BYTES, am->part_median_sz );
+  FD_MGAUGE_SET( REPLAY, ACCDB_CACHE_USED_PARTITION_MEAN_BYTES,   am->part_mean_sz   );
 }
 
 static void
@@ -1739,7 +1739,7 @@ accdb_advance_root( fd_replay_tile_t * ctx,
   fd_histf_sample( ctx->metrics.root_account_dur, (ulong)root_accounts_dt / (ulong)fd_long_max( rooted_accounts, 1L ) );
 
   long t2 = fd_tickcount();
-  FD_MCNT_INC( REPLAY, PROGCACHE_TIME_SECONDS, (ulong)( t2-t1 ) );
+  FD_MCNT_INC( REPLAY, PROGCACHE_DURATION_SECONDS, (ulong)( t2-t1 ) );
 }
 
 static int
@@ -2504,7 +2504,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
 
-  FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max_cnt( ctx->banks ) );
+  FD_MGAUGE_SET( REPLAY, BANK_LIVE_MAX, fd_banks_pool_max_cnt( ctx->banks ) );
 
   ctx->frontier_cnt = 0UL;
 
@@ -2718,10 +2718,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  fd_histf_join( fd_histf_new( ctx->metrics.store_query_wait,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WAIT ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics.store_query_work,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WORK ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_query_wait,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WAIT_SECONDS ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WAIT_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_query_work,   FD_MHIST_SECONDS_MIN( REPLAY, STORE_QUERY_WORK_SECONDS ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_QUERY_WORK_SECONDS ) ) );
 
   fd_histf_join( fd_histf_new( ctx->metrics.root_slot_dur,      FD_MHIST_SECONDS_MIN( REPLAY, ROOT_SLOT_DURATION_SECONDS ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, ROOT_SLOT_DURATION_SECONDS ) ) );

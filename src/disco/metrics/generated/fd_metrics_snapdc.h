@@ -16,27 +16,27 @@ enum {
 
 #define FD_METRICS_GAUGE_SNAPDC_STATE_NAME "snapdc_state"
 #define FD_METRICS_GAUGE_SNAPDC_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPDC_STATE_DESC "State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN"
+#define FD_METRICS_GAUGE_SNAPDC_STATE_DESC "0=idle, 1=processing, 2=finishing, 3=error, 4=shutdown"
 #define FD_METRICS_GAUGE_SNAPDC_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPDC_FULL_COMPRESSED_BYTES_READ_NAME "snapdc_full_compressed_bytes_read"
 #define FD_METRICS_GAUGE_SNAPDC_FULL_COMPRESSED_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPDC_FULL_COMPRESSED_BYTES_READ_DESC "Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPDC_FULL_COMPRESSED_BYTES_READ_DESC "Bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPDC_FULL_COMPRESSED_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPDC_FULL_DECOMPRESSED_BYTES_WRITTEN_NAME "snapdc_full_decompressed_bytes_written"
 #define FD_METRICS_GAUGE_SNAPDC_FULL_DECOMPRESSED_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPDC_FULL_DECOMPRESSED_BYTES_WRITTEN_DESC "Number of bytes decompressed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPDC_FULL_DECOMPRESSED_BYTES_WRITTEN_DESC "Bytes decompressed so far from the full snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPDC_FULL_DECOMPRESSED_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_COMPRESSED_BYTES_READ_NAME "snapdc_incremental_compressed_bytes_read"
 #define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_COMPRESSED_BYTES_READ_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_COMPRESSED_BYTES_READ_DESC "Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_COMPRESSED_BYTES_READ_DESC "Bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_COMPRESSED_BYTES_READ_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN_NAME "snapdc_incremental_decompressed_bytes_written"
 #define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN_DESC "Number of bytes decompressed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN_DESC "Bytes decompressed so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted"
 #define FD_METRICS_GAUGE_SNAPDC_INCREMENTAL_DECOMPRESSED_BYTES_WRITTEN_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_SNAPDC_TOTAL (5UL)

@@ -15,7 +15,7 @@ enum {
 
 #define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_NAME "diag_bundle_health"
 #define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently zhas an active connection to the block engine server"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently has an active connection to the block engine server"
 #define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_NAME "diag_vote_health"

@@ -53,11 +53,11 @@ static inline void
 metrics_write( fd_ipecho_tile_ctx_t * ctx ) {
   fd_ipecho_server_metrics_t * metrics = fd_ipecho_server_metrics( ctx->server );
 
-  FD_MGAUGE_SET( IPECHO, CONNECTION_COUNT,         metrics->connection_cnt           );
+  FD_MGAUGE_SET( IPECHO, CONN_ACTIVE,         metrics->connection_cnt           );
   FD_MCNT_SET(   IPECHO, BYTES_READ,               metrics->bytes_read               );
   FD_MCNT_SET(   IPECHO, BYTES_WRITTEN,            metrics->bytes_written            );
-  FD_MCNT_SET(   IPECHO, CONNECTIONS_CLOSED_OK,    metrics->connections_closed_ok    );
-  FD_MCNT_SET(   IPECHO, CONNECTIONS_CLOSED_ERROR, metrics->connections_closed_error );
+  FD_MCNT_SET(   IPECHO, CONN_CLOSED_OK,    metrics->connections_closed_ok    );
+  FD_MCNT_SET(   IPECHO, CONN_CLOSED_ERROR, metrics->connections_closed_error );
 }
 
 static inline void

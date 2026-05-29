@@ -89,7 +89,7 @@ static void
 metrics_write( fd_metric_ctx_t * ctx ) {
   FD_MGAUGE_SET( METRIC, BOOT_TIMESTAMP_NANOS, (ulong)ctx->boot_ts );
 
-  FD_MGAUGE_SET( METRIC, CONNECTION_COUNT, ctx->metrics_server->metrics.connection_cnt );
+  FD_MGAUGE_SET( METRIC, CONN_ACTIVE, ctx->metrics_server->metrics.connection_cnt );
 
   FD_MCNT_SET( METRIC, BYTES_WRITTEN, ctx->metrics_server->metrics.bytes_written );
   FD_MCNT_SET( METRIC, BYTES_READ,    ctx->metrics_server->metrics.bytes_read );

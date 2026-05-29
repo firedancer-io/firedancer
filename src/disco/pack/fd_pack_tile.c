@@ -357,7 +357,7 @@ remove_ib( fd_pack_ctx_t * ctx ) {
      try deleting it just in case. */
   if( FD_UNLIKELY( ctx->crank->enabled & ctx->crank->ib_inserted ) ) {
     ulong deleted = fd_pack_delete_transaction( ctx->pack, (fd_ed25519_sig_t const *)ctx->crank->last_sig );
-    FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+    FD_MCNT_INC( PACK, TXN_DELETED, deleted );
   }
   ctx->crank->ib_inserted = 0;
 }
@@ -398,15 +398,15 @@ log_end_block_metrics( fd_pack_ctx_t * ctx,
                        long            now,
                        char const    * reason,
                        ulong           cus_consumed_in_block ) {
-#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->last_sched_metrics->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
-#define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, AVAILABLE_TRANSACTIONS_##m) ])
+#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULE_##m) ] - ctx->last_sched_metrics->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
+#define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_AVAILABLE_##m) ])
     FD_LOG_INFO(( "pack_end_block(slot=%lu,%s,%lx,ticks_since_last_schedule=%ld,reasons=%lu,%lu,%lu,%lu,%lu,%lu,%lu;remaining=%lu+%lu+%lu+%lu;smallest=%lu;cus=%lu->%lu)",
           ctx->leader_slot, reason, ctx->execle_idle_bitset, now-ctx->last_sched_metrics->time,
           DELTA( TAKEN ), DELTA( CU_LIMIT ), DELTA( FAST_PATH ), DELTA( BYTE_LIMIT ), DELTA( WRITE_COST ), DELTA( SLOW_PATH ), DELTA( DEFER_SKIP ),
           AVAIL(REGULAR), AVAIL(VOTES), AVAIL(BUNDLES), AVAIL(CONFLICTING),
-          (fd_metrics_tl[ MIDX(GAUGE, PACK, SMALLEST_PENDING_TRANSACTION) ]),
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, TXN_PENDING_SMALLEST) ]),
           (cus_consumed_in_block),
-          (fd_metrics_tl[ MIDX(GAUGE, PACK, CUS_CONSUMED_IN_BLOCK) ])
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, CU_CONSUMED_IN_BLOCK) ])
     ));
 #undef AVAIL
 #undef DELTA
@@ -418,7 +418,7 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
     done_packing->end_slot_reason = reason;
     fd_pack_get_block_limits( ctx->pack, done_packing->limits_usage, done_packing->limits );
 
-#define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
+#define DELTA( mem, m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TXN_SCHEDULE_##m) ] - ctx->mem->sched_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_##m##_IDX ])
     done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_TAKEN_IDX      ] = DELTA( start_block_sched_metrics, TAKEN      );
     done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_CU_LIMIT_IDX   ] = DELTA( start_block_sched_metrics, CU_LIMIT   );
     done_packing->block_results[ FD_METRICS_ENUM_PACK_TXN_SCHEDULE_V_FAST_PATH_IDX  ] = DELTA( start_block_sched_metrics, FAST_PATH  );
@@ -441,8 +441,8 @@ get_done_packing( fd_pack_ctx_t * ctx, fd_done_packing_t * done_packing, int rea
 
 static inline void
 metrics_write( fd_pack_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
-  FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
+  FD_MCNT_ENUM_COPY( PACK, TXN_INSERTED,          ctx->insert_result  );
+  FD_MCNT_ENUM_COPY( PACK, STATE_DURATION_NANOS,        ((ulong*)ctx->metric_timing) );
   FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_STATUS,           ctx->crank->metrics );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
   FD_MHIST_COPY( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
@@ -577,10 +577,10 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot, &deleted );
   insert_duration      += fd_tickcount();
 
-  FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+  FD_MCNT_INC( PACK, TXN_DELETED, deleted );
   ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
   fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
-  FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, 1UL );
+  FD_MCNT_INC( PACK, TXN_EXTRA_RETRIEVED, 1UL );
   return result;
 }
 #endif
@@ -768,7 +768,7 @@ after_credit( fd_pack_ctx_t *     ctx,
         ctx->crank->ib_inserted = 1;
         ulong deleted;
         int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL, &deleted );
-        FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+        FD_MCNT_INC( PACK, TXN_DELETED, deleted );
         ctx->insert_result[ retval + FD_PACK_INSERT_RETVAL_OFF ]++;
         if( FD_UNLIKELY( retval<0 ) ) {
           ctx->crank->metrics[ 3 ]++; /* BUNDLE_CRANK_STATUS_INSERTION_FAILED */
@@ -1009,7 +1009,7 @@ during_frag( fd_pack_ctx_t * ctx,
          happen if we are getting transactions. */
       ctx->highest_observed_slot = sig;
       ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-      FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+      FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );
     }
 
 
@@ -1018,7 +1018,7 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->is_bundle = 1;
       if( FD_LIKELY( bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
+          FD_MCNT_INC( PACK, TXN_PARTIAL_BUNDLE_DROPPED, ctx->current_bundle->txn_received );
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
         ctx->current_bundle->id                 = bundle_id;
@@ -1027,7 +1027,7 @@ during_frag( fd_pack_ctx_t * ctx,
         ctx->current_bundle->txn_received       = 0UL;
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, 1UL );
+          FD_MCNT_INC( PACK, TXN_PARTIAL_BUNDLE_DROPPED, 1UL );
           ctx->current_bundle->id = 0UL;
           return;
         }
@@ -1047,7 +1047,7 @@ during_frag( fd_pack_ctx_t * ctx,
       } else {
         if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) {
           extra_txn_deq_remove_head( ctx->extra_txn_deq );
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
+          FD_MCNT_INC( PACK, TXN_EXTRA_DROPPED, 1UL );
         }
         ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
         /* We want to store the current time in cur_spot so that we can
@@ -1055,7 +1055,7 @@ during_frag( fd_pack_ctx_t * ctx,
            fields, since those aren't important right now. */
         ctx->cur_spot->txnp->blockhash_slot = sig;
         ctx->insert_to_extra                = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
+        FD_MCNT_INC( PACK, TXN_EXTRA_INSERTED, 1UL );
       }
 #else
       ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
@@ -1064,7 +1064,7 @@ during_frag( fd_pack_ctx_t * ctx,
 
     /* We get transactions from the resolv tile.
        The transactions should have been parsed and verified. */
-    FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
+    FD_MCNT_INC( PACK, NORMAL_TXN_RX, 1UL );
 
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
@@ -1110,7 +1110,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     case IN_KIND_REPLAY:
       if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED && ctx->txn_committed ) ) {
         ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
-        FD_MCNT_INC( PACK, TRANSACTION_ALREADY_EXECUTED, deleted );
+        FD_MCNT_INC( PACK, TXN_ALREADY_EXECUTED_DROPPED, deleted );
       }
       if( FD_UNLIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
       leader_slot = ctx->_became_leader->slot;
@@ -1152,7 +1152,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->leader_slot = leader_slot;
 
     ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+    FD_MCNT_INC( PACK, TXN_EXPIRED, exp_cnt );
 
     ctx->leader_bank          = ctx->_became_leader->bank;
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
@@ -1226,7 +1226,7 @@ after_frag( fd_pack_ctx_t *     ctx,
         long insert_duration = -fd_tickcount();
         int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg, &deleted );
         insert_duration      += fd_tickcount();
-        FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+        FD_MCNT_INC( PACK, TXN_DELETED, deleted );
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
         ctx->current_bundle->bundle = NULL;
@@ -1237,7 +1237,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       long insert_duration = -fd_tickcount();
       int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot, &deleted );
       insert_duration      += fd_tickcount();
-      FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+      FD_MCNT_INC( PACK, TXN_DELETED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
       if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
@@ -1249,7 +1249,7 @@ after_frag( fd_pack_ctx_t *     ctx,
   }
   case IN_KIND_EXECUTED_TXN: {
     ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
-    FD_MCNT_INC( PACK, TRANSACTION_ALREADY_EXECUTED, deleted );
+    FD_MCNT_INC( PACK, TXN_ALREADY_EXECUTED_DROPPED, deleted );
     break;
   }
   }

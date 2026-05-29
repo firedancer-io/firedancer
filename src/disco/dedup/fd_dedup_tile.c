@@ -72,7 +72,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_dedup_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( DEDUP, TRANSACTION_RESULT, ctx->metrics.dedup_tile_result );
+  FD_MCNT_ENUM_COPY( DEDUP, TXN_RESULT, ctx->metrics.dedup_tile_result );
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -187,7 +187,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
     txnm->txn_t_sz = (ushort)fd_txn_parse( fd_txn_m_payload( txnm ), txnm->payload_sz, txn, NULL );
     if( FD_UNLIKELY( !txnm->txn_t_sz ) ) FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
 
-    FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL );
+    FD_MCNT_INC( DEDUP, VOTE_RX_GOSSIP, 1UL );
   }
 
   int is_dup = 0;
