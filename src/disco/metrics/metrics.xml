@@ -911,8 +911,8 @@ metric introduced.
 <tile name="repair">
     <counter name="TotalPktCount" summary="How many network packets we have sent, including reqs, pings, pongs, etc" />
     <counter name="SentPktTypes" enum="RepairSentRequestTypes" summary="What types of client messages are we sending" />
-    <counter name="RepairedSlots" summary="Until which slots have we fully repaired" />
-    <counter name="CurrentSlot" summary="Our view of the current cluster slot, max slot received" />
+    <gauge name="RepairedSlots" summary="Until which slots have we fully repaired" />
+    <gauge name="CurrentSlot" summary="Our view of the current cluster slot, max slot received" />
     <counter name="OldShred" summary="How many times we received a shred older than the root" />
     <gauge name="LastRequestedSlot" summary="The last slot we requested a single shred for" />
     <gauge name="LastRequestedOrphan" summary="The last slot we requested an orphan for" />
@@ -1252,6 +1252,120 @@ metric introduced.
     <counter name="TransactionsSent" summary="Number of benchmark packets sent" />
 </tile>
 
+<enum name="EqvocShredResult">
+    <!-- Result of checking one of our own incoming shreds (turbine/repair) against
+         previously seen shreds for the same slot.  FD_EQVOC_SUCCESS here means
+         "no equivocation detected" (the common case). -->
+
+    <!-- No conflict (the common case: the shred does not equivocate) -->
+    <int value="0" name="NoConflict" label="Shred does not equivocate" />
+
+    <!-- Conflict types (proof successfully constructed) -->
+    <int value="1" name="SuccessMerkle" label="Merkle root conflict" />
+    <int value="2" name="SuccessLast" label="Last shred index conflict" />
+    <int value="3" name="SuccessChained" label="Chained merkle root conflict" />
+
+    <!-- Failure reasons (proof could not be constructed) -->
+    <int value="4" name="ErrSlot" label="Shreds were for different slots" />
+    <int value="5" name="ErrVersion" label="Either shred had wrong shred version" />
+    <int value="6" name="ErrType" label="Wrong shred type (must be chained merkle)" />
+    <int value="7" name="ErrMerkle" label="Failed to derive merkle root" />
+    <int value="8" name="ErrSignature" label="Failed to sig verify" />
+    <int value="9" name="ErrShredSlot" label="Slot older than root" />
+    <int value="10" name="ErrShredIdx" label="Shred index >= FD_SHRED_BLK_MAX" />
+</enum>
+
+<enum name="EqvocProofResult">
+    <!-- Result of inserting one chunk of a DuplicateShred gossip proof.  Most
+         chunks just get buffered, so FD_EQVOC_SUCCESS here means "chunk accepted,
+         proof not yet complete" - NOT "no conflict".  A complete proof is only
+         verified on the final chunk. -->
+
+    <!-- Chunk accepted, proof not yet complete (the common case) -->
+    <int value="0" name="InProgress" label="Chunk accepted, proof not yet complete" />
+
+    <!-- Conflict types (complete proof reassembled and verified) -->
+    <int value="1" name="SuccessMerkle" label="Merkle root conflict" />
+    <int value="2" name="SuccessLast" label="Last shred index conflict" />
+    <int value="3" name="SuccessChained" label="Chained merkle root conflict" />
+
+    <!-- Chunk-level failures -->
+    <int value="4" name="ErrChunkSlot" label="Slot older than root or unable to derive leader schedule" />
+    <int value="5" name="ErrChunkFrom" label="Unrecognized from address" />
+    <int value="6" name="ErrChunkCnt" label="num_chunks != FD_EQVOC_CHUNK_CNT" />
+    <int value="7" name="ErrChunkIdx" label="chunk_index >= FD_EQVOC_CHUNK_CNT" />
+    <int value="8" name="ErrChunkLen" label="chunk_len does not match expected length for chunk_index" />
+
+    <!-- Reassembled-proof failures (final chunk only) -->
+    <int value="9" name="ErrSerde" label="Invalid serialization of reassembled shreds" />
+    <int value="10" name="ErrSlot" label="Reassembled shreds were for different slots" />
+    <int value="11" name="ErrVersion" label="Either reassembled shred had wrong shred version" />
+    <int value="12" name="ErrType" label="Wrong shred type (must be chained merkle)" />
+    <int value="13" name="ErrMerkle" label="Failed to derive merkle root" />
+    <int value="14" name="ErrSignature" label="Failed to sig verify" />
+</enum>
+
+<enum name="GhostVoteResult">
+    <int value="0" name="Success" label="Vote was counted towards ghost" />
+    <int value="1" name="NotVoted" label="Skipped because voter hasn't voted" />
+    <int value="2" name="TooOld" label="Slot was behind the root" />
+    <int value="3" name="AlreadyVoted" label="Slot was not newer than previous vote" />
+</enum>
+
+<enum name="HardForkVoteResult">
+    <int value="0" name="Success" label="Vote was counted, no hard fork agreement reached" />
+    <int value="1" name="SuccessMatched" label="52%+ of stake agreed on our bank hash" />
+    <int value="2" name="Mismatched" label="52%+ of stake agreed on a different bank hash than ours (we hard forked)" />
+    <int value="3" name="UnknownVtr" label="Voter not in voter set" />
+    <int value="4" name="AlreadyVoted" label="Voter already voted for this block_id" />
+    <int value="5" name="TooOld" label="Slot not newer than previous" />
+</enum>
+
+<enum name="TowerForkDecision">
+    <int value="0" name="NoVoteNotRecent" label="Haven't voted yet and best block is not recent enough to vote (can't vote)" />
+    <int value="1" name="EmptyTowerVote" label="Haven't voted yet, voting for best block (can vote)" />
+    <int value="2" name="AncestorRollback" label="Rollback to an ancestor of our prev vote (can't vote)" />
+    <int value="3" name="SiblingConfirmed" label="Duplicate sibling got confirmed (can vote)" />
+    <int value="4" name="SameFork" label="Same fork as prev vote (can vote)" />
+    <int value="5" name="SwitchPass" label="Prev vote was on a different fork, but we are allowed to switch (can vote)" />
+    <int value="6" name="SwitchFail" label="Prev vote was on a different fork, and we are not allowed to switch (can't vote)" />
+</enum>
+
+<enum name="TowerVoteGate">
+    <int value="0" name="Voted" label="Passed all vote checks and cast a vote" />
+    <int value="1" name="LockoutFail" label="Locked out (can't vote)" />
+    <int value="2" name="ThresholdFail" label="Did not pass threshold check (can't vote)" />
+    <int value="3" name="PropagatedFail" label="Prev leader block did not propagate (can't vote)" />
+    <int value="4" name="NoCandidate" label="Fork decision did not produce a votable block" />
+</enum>
+
+<enum name="VoteTxnResult">
+    <int value="0" name="Success" label="Vote txn passed per-txn validation and reached slot counting (per-slot outcomes tracked by VoteSlotResult)" />
+    <int value="1" name="NotSimpleVote" label="Txn was not a simple vote transaction" />
+    <int value="2" name="BadDeser" label="Vote txn failed to deserialize" />
+    <int value="3" name="NotTowerSync" label="Vote txn was not a TowerSync instruction" />
+    <int value="4" name="EmptyTower" label="Vote txn had an empty tower (validator hasn't voted)" />
+    <int value="5" name="BadTower" label="Vote txn deserialized but tower was invalid" />
+    <int value="6" name="UnknownBlockId" label="Last vote had a null block id" />
+    <int value="7" name="TooOld" label="Last vote slot was behind the votes root" />
+    <int value="8" name="NotStaked" label="Voter was not staked in the current root's epoch" />
+</enum>
+
+<enum name="VoteSlotResult">
+    <int value="0" name="Success" label="Vote slot was counted" />
+    <int value="1" name="TooNew" label="Vote slot was too far ahead of the votes root" />
+    <int value="2" name="UnknownVtr" label="Vote account was not in the voter set" />
+    <int value="3" name="AlreadyVoted" label="Voter already voted for this slot" />
+    <int value="4" name="TooOld" label="Vote slot was behind the votes root" />
+    <int value="5" name="UnknownSlot" label="Vote slot was for a slot we haven't replayed" />
+</enum>
+
+<enum name="VoteIntermediateGate">
+    <int value="0" name="Proceed" label="Last vote slot was replayed and matched, intermediate vote slots will be counted" />
+    <int value="1" name="UnknownSlot" label="Last vote slot was not replayed, intermediate vote slots skipped" />
+    <int value="2" name="UnknownBlockId" label="Last vote slot block id did not match, intermediate vote slots skipped" />
+</enum>
+
 <tile name="tower">
 
     <!-- Replay slot completed -->
@@ -1273,72 +1387,34 @@ metric introduced.
 
     <counter name="NotReady" summary="Frag was dropped because it arrived before tower tile was initialized" />
 
-    <counter name="BadParse" summary="Vote txn failed to deserialize" />
-    <counter name="BadCnt" summary="Vote txn deserialized but tower was invalid" />
-    <counter name="BadKind" summary="Vote txn was not a TowerSync instruction" />
-    <counter name="EmptyCnt" summary="Vote txn had an empty tower (zero lockouts)" />
-
     <!-- Eqvoc -->
 
-    <counter name="EqvocSuccessMerkle" summary="Merkle root conflict" />
-    <counter name="EqvocSuccessMeta" summary="Coding metadata conflict" />
-    <counter name="EqvocSuccessLast" summary="Last shred index conflict" />
-    <counter name="EqvocSuccessOverlap" summary="Overlapping FEC set conflict" />
-    <counter name="EqvocSuccessChained" summary="Chained merkle root conflict" />
-
-    <counter name="EqvocErrSerde" summary="Invalid serialization" />
-    <counter name="EqvocErrSlot" summary="Shreds were for different slots" />
-    <counter name="EqvocErrVersion" summary="Either shred had wrong shred version" />
-    <counter name="EqvocErrType" summary="Wrong shred type (must be chained merkle)" />
-    <counter name="EqvocErrMerkle" summary="Failed to derive merkle root" />
-    <counter name="EqvocErrSignature" summary="Failed to sig verify" />
-
-    <counter name="EqvocErrChunkCnt" summary="num_chunks != FD_EQVOC_CHUNK_CNT" />
-    <counter name="EqvocErrChunkIdx" summary="chunk_index >= FD_EQVOC_CHUNK_CNT" />
-    <counter name="EqvocErrChunkLen" summary="chunk_len does not match expected length for chunk_index" />
-
-    <counter name="EqvocErrChunkFrom" summary="Unrecognized from address" />
-    <counter name="EqvocErrChunkSlot" summary="Slot older than root or unable to derive leader schedule" />
-
-    <counter name="EqvocErrShredSlot" summary="Slot older than root" />
-    <counter name="EqvocErrShredIdx" summary="Shred index >= FD_SHRED_BLK_MAX" />
+    <counter name="EqvocShred" enum="EqvocShredResult" summary="Result of checking one of our own incoming shreds for equivocation (per shred)" />
+    <counter name="EqvocProof" enum="EqvocProofResult" summary="Result of inserting one chunk of a DuplicateShred gossip proof (per chunk)" />
 
     <counter name="EqvocProofConstructed" summary="Number of duplicate proofs we constructed from shreds" />
     <counter name="EqvocProofVerified"    summary="Number of duplicate proofs we verified from gossip" />
 
     <!-- Ghost -->
 
-    <counter name="GhostNotVoted" summary="Ghost vote skipped because voter hasn't voted" />
-    <counter name="GhostTooOld" summary="Ghost vote slot was behind the root" />
-    <counter name="GhostAlreadyVoted" summary="Ghost vote slot was not newer than previous vote" />
+    <counter name="Ghost" enum="GhostVoteResult" summary="Result of counting a vote towards ghost" />
 
     <!-- Hfork -->
 
-    <counter name="HforkUnknownVtr" summary="Hfork voter not in voter set" />
-    <counter name="HforkAlreadyVoted" summary="Hfork voter already voted for this block_id" />
-    <counter name="HforkTooOld" summary="Hfork vote slot not newer than previous" />
+    <counter name="Hfork" enum="HardForkVoteResult" summary="Result of counting a vote towards hard fork detection" />
     <gauge name="HforkMatchedSlot" summary="Highest slot where 52%+ of stake agreed on our bank hash" />
     <gauge name="HforkMismatchedSlot" summary="Highest slot where 52%+ of stake agreed on a different bank hash than ours (we hard forked)" />
 
     <!-- Tower -->
 
-    <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
-    <counter name="SiblingConfirmed" summary="Duplicate sibling got confirmed (can't vote)" />
-    <counter name="SameFork" summary="Same fork as prev vote (can vote)" />
-    <counter name="SwitchPass" summary="Prev vote was on a different fork, but we are allowed to switch (can vote)" />
-    <counter name="SwitchFail" summary="Prev vote was on a different fork, and we are not allowed to switch (can't vote)" />
-    <counter name="LockoutFail" summary="Locked out (can't vote)" />
-    <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
-    <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
+    <counter name="ForkDecision" enum="TowerForkDecision" summary="Result of deciding which fork to vote/reset on" />
+    <counter name="VoteGate" enum="TowerVoteGate" summary="Result of the vote gating checks after a fork was selected" />
 
     <!-- Votes -->
 
-    <counter name="VotesTooOld" summary="Vote slot was behind the votes root" />
-    <counter name="VotesTooNew" summary="Vote slot was too far ahead of the votes root" />
-    <counter name="VotesUnknownVtr" summary="Vote account was not in the voter set" />
-    <counter name="VotesAlreadyVoted" summary="Voter already voted for this slot" />
-    <counter name="VotesUnknownSlot" summary="Vote txn was for a slot we haven't replayed" />
-    <counter name="VotesUnknownBlockId" summary="Vote txn was for a block id we don't recognize" />
+    <counter name="Votes" enum="VoteTxnResult" summary="Result of processing a vote txn (per txn)" />
+    <counter name="VoteSlots" enum="VoteSlotResult" summary="Result of counting an individual vote slot from a vote txn (per slot)" />
+    <counter name="VoteIntermediateGate" enum="VoteIntermediateGate" summary="Whether the last vote slot's replay state allowed counting the intermediate vote slots (per txn that reached slot counting)" />
 
 </tile>
 
