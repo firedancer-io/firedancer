@@ -516,7 +516,7 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   (void)opt_poll_in;
 
@@ -632,6 +632,8 @@ after_credit( fd_pack_ctx_t *     ctx,
          TODO: This is only needed for Frankendancer, not Firedancer,
          which manages bank lifetime different. */
       fd_stem_publish( stem, 1UL, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      *charge_busy = 1;
+      return;
     } else {
       return;
     }
@@ -832,6 +834,8 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     remove_ib( ctx );
+
+    return;
   }
 }
 
@@ -1436,7 +1440,25 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+/* Pack can publish a frag in the following scenarios:
+
+   after_credit:
+     A. TIMED_OUT. Sets ctx->leader_slot=ULONG_MAX. return.
+     B. DONE_DRAINING. *after* DONE_PACKING. return.
+     C. REDUCE_MB_BOUND. return.
+     D. SCHEDULE_MB. *doesn't* return.
+     E. EXHAUST_MICROBLOCKS. Sets ctx->leader_slot=ULONG_MAX. return.
+   after_frag:
+   	 F. LEADER_SWITCH. Requires ctx->leader_slot!=ULONG_MAX
+
+     It isn't possible to get a burst of 3, but a burst of 2 is possible
+     in these situations.
+
+     C -> F
+     D -> F
+     D -> E
+ */
+#define STEM_BURST (2UL)
 
 /* We want lazy (measured in ns) to be small enough that the producer
     and the consumer never have to wait for credits.  For most tango
