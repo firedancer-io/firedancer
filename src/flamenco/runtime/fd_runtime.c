@@ -867,15 +867,14 @@ fd_runtime_pre_execute_check( fd_runtime_t *      runtime,
     return err;
   }
 
-  /* Resolve and verify ALUT-referenced account keys, if applicable */
-  err = fd_executor_setup_txn_alut_account_keys( runtime, bank, txn_in, txn_out );
+  /* Set up the transaction accounts and other txn ctx metadata. This
+     also resolves ALUT-referenced account keys before accounts are
+     acquired. */
+  err = fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     txn_out->err.is_committable = 0;
     return err;
   }
-
-  /* Set up the transaction accounts and other txn ctx metadata */
-  fd_executor_setup_accounts_for_txn( runtime, bank, txn_in, txn_out );
 
   txn_out->details.check_start_ticks = fd_tickcount();
 
@@ -1193,6 +1192,10 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   memset( txn_out->accounts.vote_update, 0, sizeof(txn_out->accounts.vote_update) );
   memset( txn_out->accounts.new_vote, 0, sizeof(txn_out->accounts.new_vote) );
   memset( txn_out->accounts.rm_vote, 0, sizeof(txn_out->accounts.rm_vote) );
+  txn_out->accounts.executable_cnt              = 0UL;
+  txn_out->accounts.nonce_idx_in_txn            = ULONG_MAX;
+  txn_out->accounts.nonce_rollback_data_len     = 0UL;
+  txn_out->accounts.fee_payer_rollback_lamports = 0UL;
 
   txn_out->err.is_committable = 1;
   txn_out->err.is_fees_only   = 0;
@@ -1201,11 +1204,6 @@ fd_runtime_new_txn_out( fd_txn_in_t const * txn_in,
   txn_out->err.exec_err_kind  = FD_EXECUTOR_ERR_KIND_NONE;
   txn_out->err.exec_err_idx   = INT_MAX;
   txn_out->err.custom_err     = 0;
-
-  txn_out->accounts.cnt = (uchar)TXN( txn_in->txn )->acct_addr_cnt;
-  fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->acct_addr_off);
-
-  for( ulong i=0UL; i<TXN( txn_in->txn )->acct_addr_cnt; i++ ) *txn_out->accounts.keys[ i ] = tx_accs[ i ];
 }
 
 void
@@ -1214,22 +1212,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
                                     fd_txn_in_t const * txn_in,
                                     fd_txn_out_t *      txn_out ) {
   fd_runtime_reset_runtime( runtime );
-
-  ulong row = txn_in->bundle.is_bundle ? txn_in->bundle.prev_txn_cnt : 0UL;
-  FD_TEST( row<FD_PACK_MAX_TXN_PER_BUNDLE );
-  if( FD_LIKELY( !row ) ) runtime->accounts.account_cnt = 0UL;
-
-  fd_pubkey_t * keys_row = &runtime->accounts.keys[ row*MAX_TX_ACCOUNT_LOCKS ];
-  fd_memset( keys_row, 0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
-  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
-    txn_out->accounts.keys[ i ]    = &keys_row[ i ];
-    txn_out->accounts.account[ i ] = NULL;
-  }
-
-  fd_acc_t * executable_row = &runtime->accounts.executable[ row*MAX_TX_ACCOUNT_LOCKS ];
-  fd_memset( executable_row, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
-  txn_out->accounts.executable     = executable_row;
-  txn_out->accounts.executable_cnt = 0UL;
 
   fd_runtime_new_txn_out( txn_in, txn_out );
 

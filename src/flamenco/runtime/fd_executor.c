@@ -1085,7 +1085,33 @@ fd_execute_instr( fd_runtime_t *      runtime,
   return fd_execute_instr_end( ctx, instr, instr_exec_result );
 }
 
-void
+static void
+fd_executor_setup_txn_account_keys( fd_runtime_t *      runtime,
+                                    fd_txn_in_t const * txn_in,
+                                    fd_txn_out_t *      txn_out ) {
+  ulong row = txn_in->bundle.is_bundle ? txn_in->bundle.prev_txn_cnt : 0UL;
+  FD_TEST( row<FD_PACK_MAX_TXN_PER_BUNDLE );
+  if( FD_LIKELY( !row ) ) runtime->accounts.account_cnt = 0UL;
+
+  fd_pubkey_t * keys_row = &runtime->accounts.keys[ row*MAX_TX_ACCOUNT_LOCKS ];
+  fd_memset( keys_row, 0, sizeof(fd_pubkey_t)*MAX_TX_ACCOUNT_LOCKS );
+  for( ulong i=0UL; i<MAX_TX_ACCOUNT_LOCKS; i++ ) {
+    txn_out->accounts.keys[ i ]    = &keys_row[ i ];
+    txn_out->accounts.account[ i ] = NULL;
+  }
+
+  fd_acc_t * executable_row = &runtime->accounts.executable[ row*MAX_TX_ACCOUNT_LOCKS ];
+  fd_memset( executable_row, 0, sizeof(fd_acc_t)*MAX_TX_ACCOUNT_LOCKS );
+  txn_out->accounts.executable     = executable_row;
+  txn_out->accounts.executable_cnt = 0UL;
+
+  txn_out->accounts.cnt = (uchar)TXN( txn_in->txn )->acct_addr_cnt;
+  fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_in->txn->payload + TXN( txn_in->txn )->acct_addr_off);
+
+  for( ulong i=0UL; i<TXN( txn_in->txn )->acct_addr_cnt; i++ ) *txn_out->accounts.keys[ i ] = tx_accs[ i ];
+}
+
+int
 fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_bank_t *         bank,
                                     fd_txn_in_t const * txn_in,
@@ -1094,6 +1120,11 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   int   acquire_writable[ MAX_TX_ACCOUNT_LOCKS ];
   uchar const * acquire_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
   ulong acquire_cnt = 0UL;
+
+  fd_executor_setup_txn_account_keys( runtime, txn_in, txn_out );
+
+  int err = fd_executor_setup_txn_alut_account_keys( runtime, bank, txn_in, txn_out );
+  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
@@ -1161,7 +1192,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     fd_acc_t * acc = txn_out->accounts.account[ i ];
     if( FD_UNLIKELY( memcmp( acc->owner, fd_solana_bpf_loader_upgradeable_program_id.key, 32UL ) ) ) continue;
     fd_bpf_state_t program_loader_state[1];
-    int err = fd_bpf_loader_program_get_state( txn_out->accounts.account[ i ], program_loader_state );
+    err = fd_bpf_loader_program_get_state( txn_out->accounts.account[ i ], program_loader_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
     if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->accdb_fork_id, program_loader_state->inner.program.programdata_address.uc ) ) ) continue;
@@ -1209,6 +1240,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   txn_out->accounts.is_setup         = 1;
   txn_out->accounts.nonce_idx_in_txn = ULONG_MAX;
   txn_out->accounts.executable_cnt   = executable_account_cnt;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 int

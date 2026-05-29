@@ -795,6 +795,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                       fd_spad_t *                  spad ) {
   fd_txn_t const * txn_descriptor = TXN( txn_in->txn );
   uchar const *    txn_payload    = (uchar const *) txn_in->txn->payload;
+  (void)txn_out;
 
   /* Transaction Context -> account_shared_data
      Contains:
@@ -808,11 +809,12 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
 
   /* Dump regular accounts first */
-  for( ulong i = 0; i < txn_out->accounts.cnt; ++i ) {
+  fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( txn_descriptor, txn_payload );
+  for( ushort i=0; i<txn_descriptor->acct_addr_cnt; i++ ) {
     dump_account_if_not_already_dumped(
       runtime->accdb,
       bank->accdb_fork_id,
-      txn_out->accounts.keys[i],
+      fd_type_pun_const( &account_keys[i] ),
       spad,
       txn_context_msg->account_shared_data,
       &txn_context_msg->account_shared_data_count,

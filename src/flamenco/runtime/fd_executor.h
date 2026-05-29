@@ -77,7 +77,7 @@ fd_executor_validate_transaction_fee_payer( fd_bank_t *         bank,
                                             fd_txn_in_t const * txn_in,
                                             fd_txn_out_t *      txn_out );
 
-void
+int
 fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
                                     fd_bank_t *         bank,
                                     fd_txn_in_t const * txn_in,
