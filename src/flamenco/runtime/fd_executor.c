@@ -781,14 +781,14 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
     fd_acct_addr_t * accts_alt = fd_type_pun( txn_out->accounts.keys[txn_out->accounts.cnt] );
-    int err = fd_runtime_load_txn_address_lookup_tables( txn_in->bundle.is_bundle ? runtime : NULL,
-                                                         TXN( txn_in->txn ),
+    int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
                                                          runtime->accdb,
                                                          bank->accdb_fork_id,
                                                          bank->f.slot,
                                                          slot_hashes_view,
-                                                         accts_alt );
+                                                         accts_alt,
+                                                         txn_in->bundle.is_bundle ? runtime : NULL );
     txn_out->accounts.cnt += TXN( txn_in->txn )->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 

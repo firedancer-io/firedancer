@@ -667,14 +667,14 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *          bank,
 }
 
 int
-fd_runtime_load_txn_address_lookup_tables( fd_runtime_t const *      runtime,
-                                           fd_txn_t const *          txn,
-                                           uchar const *             payload,
-                                           fd_accdb_t *              accdb,
-                                           fd_accdb_fork_id_t        fork_id,
-                                           ulong                     slot,
-                                           fd_slot_hashes_t const *  hashes,
-                                           fd_acct_addr_t *          out_accts_alt ) {
+fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
+                                           uchar const *            payload,
+                                           fd_accdb_t *             accdb,
+                                           fd_accdb_fork_id_t       fork_id,
+                                           ulong                    slot,
+                                           fd_slot_hashes_t const * hashes,
+                                           fd_acct_addr_t *         out_accts_alt,
+                                           fd_runtime_t const *     runtime_opt ) {
 
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -687,20 +687,24 @@ fd_runtime_load_txn_address_lookup_tables( fd_runtime_t const *      runtime,
     fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
     fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
 
+    /* If the runtime_opt is provided this means the current transaction
+       is part of a bundle and this means we should prioritize trying to
+       reuse an existing accdb reference to an account before reading
+       from the accdb. */
     fd_acc_t const * bundle_acc = NULL;
-    if( FD_UNLIKELY( runtime ) ) {
-      for( ulong j=0UL; j<runtime->accounts.account_cnt; j++ ) {
-        fd_acc_t const * acc = &runtime->accounts.account[ j ];
+    if( FD_UNLIKELY( runtime_opt ) ) {
+      for( ulong j=0UL; j<runtime_opt->accounts.account_cnt; j++ ) {
+        fd_acc_t const * acc = &runtime_opt->accounts.account[ j ];
         if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( acc->pubkey ), &addr_lut_acc ) ) ) continue;
         bundle_acc = acc;
         break;
       }
-    }
-    if( FD_UNLIKELY( bundle_acc ) ) {
-      if( FD_UNLIKELY( !bundle_acc->lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-      int err = fd_alut_interp_next( interp, &addr_lut_acc, bundle_acc->owner, bundle_acc->data, bundle_acc->data_len );
-      if( FD_UNLIKELY( err ) ) return err;
-      continue;
+      if( FD_UNLIKELY( bundle_acc ) ) {
+        if( FD_UNLIKELY( !bundle_acc->lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+        int err = fd_alut_interp_next( interp, &addr_lut_acc, bundle_acc->owner, bundle_acc->data, bundle_acc->data_len );
+        if( FD_UNLIKELY( err ) ) return err;
+        continue;
+      }
     }
 
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, addr_lut_acc.uc );
@@ -1114,14 +1118,12 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     fd_accdb_release( runtime->accdb, 1UL, txn_out->accounts.account[ i ] );
     txn_out->accounts.account_acquired[ i ] = 0U;
   }
-  if( FD_LIKELY( txn_out->accounts.executable_cnt ) ) {
-    for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
-      if( FD_LIKELY( !txn_out->accounts.executable_acquired[ i ] ) ) continue;
-      fd_accdb_release( runtime->accdb, 1UL, &txn_out->accounts.executable[ i ] );
-      txn_out->accounts.executable_acquired[ i ] = 0U;
-    }
-    txn_out->accounts.executable_cnt = 0UL;
+  for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
+    if( FD_LIKELY( !txn_out->accounts.executable_acquired[ i ] ) ) continue;
+    fd_accdb_release( runtime->accdb, 1UL, &txn_out->accounts.executable[ i ] );
+    txn_out->accounts.executable_acquired[ i ] = 0U;
   }
+  txn_out->accounts.executable_cnt = 0UL;
 }
 
 void
@@ -1135,15 +1137,14 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
     fd_accdb_release( runtime->accdb, 1UL, txn_out->accounts.account[ i ] );
     txn_out->accounts.account_acquired[ i ] = 0U;
   }
-  if( FD_LIKELY( txn_out->accounts.executable_cnt ) ) {
-    for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
-      if( FD_LIKELY( !txn_out->accounts.executable_acquired[ i ] ) ) continue;
-      fd_accdb_release( runtime->accdb, 1UL, &txn_out->accounts.executable[ i ] );
-      txn_out->accounts.executable_acquired[ i ] = 0U;
-    }
-    txn_out->accounts.executable_cnt = 0UL;
+  for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
+    if( FD_LIKELY( !txn_out->accounts.executable_acquired[ i ] ) ) continue;
+    fd_accdb_release( runtime->accdb, 1UL, &txn_out->accounts.executable[ i ] );
+    txn_out->accounts.executable_acquired[ i ] = 0U;
   }
+  txn_out->accounts.executable_cnt = 0UL;
 }
+
 static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {
   runtime->instr.stack_sz     = 0;
