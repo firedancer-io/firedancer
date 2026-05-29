@@ -5,7 +5,7 @@
 #include <linux/if_link.h>
 
 #if !defined(__linux__)
-#error "fd_fib4_netlink.c requires a Linux system with kernel headers"
+#error "fd_netdev_netlink.c requires a Linux system with kernel headers"
 #endif
 
 #include <errno.h>
