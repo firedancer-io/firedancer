@@ -106,7 +106,7 @@
    ALTs are not allowed in V1 transactions:
      sizeof(fd_txn_t)                    =  22
      64 × sizeof(fd_txn_instr_t)         = 640 +
-     = 662
+                                         = 662
 
    So the worst-case parsed transaction size is the V0 transaction
    case. */
@@ -289,8 +289,22 @@ struct fd_txn {
      [0, FD_TXN_ADDT_ADDR_MAX - acct_addr_cnt]. Since acct_addr_cnt > 0,
      addr_table_adtl_cnt < 256. */
   uchar      addr_table_adtl_cnt;
-  uchar      _padding_reserved_1; /* explicit padding the compiler would have
-                                     inserted anyways */
+
+  /* v1_txn_config_mask: For V1 transactions, the validated
+     Transaction Config Mask. Only bits 0-4 are valid (priority fee uses
+     bits 0,1; CU limit bit 2; loaded-acct-data-size bit 3; heap size
+     bit 4).
+
+     Zeroed out for legacy/V0 transactions. */
+  uchar      v1_txn_config_mask;
+
+  /* v1_txn_config_values_off: For V1 transactions, the offset (relative
+     to the start of the transaction) of the ConfigValues region. This,
+     together with the v1_txn_config_mask, is used to set the compute
+     budget values for V1 transactions.
+
+     Zeroed for legacy/V0 transactions. */
+  ushort     v1_txn_config_values_off;
 
   /* From the address table lookups, we can add the following to the above table
                                                 Index Range                                         |   Signer?    |  Writeable?
@@ -701,7 +715,8 @@ static inline ulong              FD_FN_CONST fd_txn_acct_iter_idx( fd_txn_acct_i
    payload+payload_sz.  payload_sz <= FD_TXN_MTU.
 
    out_buf is the memory where the parsed transaction will be stored.
-   out_buf must have room for at least FD_TXN_MAX_SZ bytes.
+   out_buf must be non-NULL and have room for at least FD_TXN_MAX_SZ
+   bytes.
 
    Returns the total size of the resulting fd_txn struct on success and
    0 on failure.  On failure, the contents of out_buf are undefined,
