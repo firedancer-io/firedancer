@@ -518,6 +518,9 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
     if( FD_UNLIKELY( shred->code.idx>=FD_FEC_SHRED_CNT            ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
     if( FD_UNLIKELY( shred->code.idx!=shred->idx%FD_FEC_SHRED_CNT ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   } else {
+    /* if the shred's parent is for a slot we've already pruned, ignore it. */
+    if( FD_UNLIKELY( shred->slot-shred->data.parent_off<resolver->slot_old ) ) return FD_FEC_RESOLVER_SHRED_IGNORED;
+
     /* if it has slot complete, it must be the last one in the FEC. */
     if( FD_UNLIKELY( (shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE) && ((1UL+shred->idx) % FD_FEC_SHRED_CNT) ) ) {
       return FD_FEC_RESOLVER_SHRED_REJECTED;
