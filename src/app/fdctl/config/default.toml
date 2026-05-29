@@ -929,6 +929,12 @@ dynamic_port_range = "8900-9000"
     # with the `--bind-address` argument.
     bind_address = ""
 
+    # Reverse path filter mode.  Possible values:
+    #   0: Disabled (default)
+    #   1: Strict: packets whose source address is not reachable via any
+    #      unicast route are dropped
+    rp_filter = 0
+
     # The maximum number of packets in-flight between a net tile and
     # downstream consumers, after which additional packets begin to
     # replace older ones, which will be dropped.  Smaller values use
