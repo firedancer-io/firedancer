@@ -38,6 +38,9 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
+void
+resolve_gossip_entrypoints( config_t * config );
+
 struct {
   char gossip_file[256];
   char stake_file[256];
@@ -76,7 +79,10 @@ send_test_topo( config_t * config ) {
   int use_live_gossip = !strcmp( send_test_args.gossip_file, "live" );
 
   fd_core_subtopo( config, tile_to_cpu );
-  if( use_live_gossip ) fd_gossip_subtopo( config, tile_to_cpu );
+  if( use_live_gossip ) {
+    resolve_gossip_entrypoints( config );
+    fd_gossip_subtopo( config, tile_to_cpu );
+  }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
