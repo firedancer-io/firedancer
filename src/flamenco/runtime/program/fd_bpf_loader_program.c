@@ -1561,7 +1561,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
         }
         if( FD_UNLIKELY( !programdata_state->inner.program_data.has_upgrade_authority_address ) ) {
-          fd_log_collector_msg_literal( instr_ctx, "Prrogram not upgradeable" );
+          fd_log_collector_msg_literal( instr_ctx, "Program not upgradeable" );
           return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
         }
         if( FD_UNLIKELY( !fd_pubkey_eq( &programdata_state->inner.program_data.upgrade_authority_address, authority_key ) ) ) {
@@ -2017,7 +2017,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         if( program_state->discriminant==FD_BPF_STATE_PROGRAM ) {
           if( FD_UNLIKELY( memcmp( &program_state->inner.program.programdata_address, close_key, sizeof(fd_pubkey_t) ) ) ) {
-            fd_log_collector_msg_literal( instr_ctx,"Program account does not match ProgramData account" );
+            fd_log_collector_msg_literal( instr_ctx,"ProgramData account does not match ProgramData account" );
             return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
           }
 
