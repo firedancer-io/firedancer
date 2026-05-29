@@ -38,12 +38,17 @@ struct fd_crds_contact_info_entry {
   } fresh_15s_dlist;
 
   /* The contact info side table has a separate size limit, so
-     we maintain a separate evict list to make space for new
-     entries */
+     we maintain a separate evict treap sorted by
+     (stake ASC, wallclock ASC) to evict the lowest-stake
+     (and oldest among equally-staked) contact info first. */
   struct {
-    ulong prev;
+    ulong parent;
+    ulong left;
+    ulong right;
+    ulong prio;
     ulong next;
-  } evict_dlist;
+    ulong prev;
+  } ci_evict_treap;
 
   struct {
     ulong next;
@@ -225,11 +230,30 @@ struct fd_crds_entry_private {
 #define DLIST_NEXT  fresh_dlist.next
 #include "../../util/tmpl/fd_dlist.c"
 
-#define DLIST_NAME  crds_contact_info_evict_dlist
-#define DLIST_ELE_T fd_crds_contact_info_entry_t
-#define DLIST_PREV  evict_dlist.prev
-#define DLIST_NEXT  evict_dlist.next
-#include "../../util/tmpl/fd_dlist.c"
+#define TREAP_NAME      ci_evict_treap
+#define TREAP_T         fd_crds_contact_info_entry_t
+#define TREAP_QUERY_T   void *
+#define TREAP_CMP(q,e)  (__extension__({ (void)(q); (void)(e); -1; }))
+#define TREAP_IDX_T     ulong
+
+#if FD_GOSSIP_USE_HANDHOLDING
+#define TREAP_LT(a,b)   (__extension__({ \
+  FD_TEST( (a)->crds_entry ); \
+  FD_TEST( (b)->crds_entry ); \
+  ((a)->crds_entry->stake<(b)->crds_entry->stake) | (((a)->crds_entry->stake==(b)->crds_entry->stake) & ((a)->crds_entry->expire.wallclock_nanos<(b)->crds_entry->expire.wallclock_nanos)); \
+}))
+#else
+#define TREAP_LT(a,b) ((a)->crds_entry->stake<(b)->crds_entry->stake) | (((a)->crds_entry->stake==(b)->crds_entry->stake) & ((a)->crds_entry->expire.wallclock_nanos<(b)->crds_entry->expire.wallclock_nanos))
+#endif
+
+#define TREAP_PARENT    ci_evict_treap.parent
+#define TREAP_LEFT      ci_evict_treap.left
+#define TREAP_RIGHT     ci_evict_treap.right
+#define TREAP_PRIO      ci_evict_treap.prio
+#define TREAP_OPTIMIZE_ITERATION 1
+#define TREAP_NEXT      ci_evict_treap.next
+#define TREAP_PREV      ci_evict_treap.prev
+#include "../../util/tmpl/fd_treap.c"
 
 #define TREAP_NAME      hash_treap
 #define TREAP_T         fd_crds_entry_t
@@ -323,7 +347,7 @@ struct fd_crds_private {
   fd_gossip_purged_t *      purged;
 
   crds_contact_info_fresh_list_t *  ci_fresh_dlist;
-  crds_contact_info_evict_dlist_t * ci_evict_dlist;
+  ci_evict_treap_t *                ci_evict_treap;
 
   fd_gossip_wsample_t *    wsample;
   fd_active_set_t *        active_set;
@@ -352,7 +376,7 @@ fd_crds_footprint( ulong ele_max ) {
   l = FD_LAYOUT_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint()                       );
-  l = FD_LAYOUT_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint()                      );
+  l = FD_LAYOUT_APPEND( l, ci_evict_treap_align(),                ci_evict_treap_footprint( FD_CONTACT_INFO_TABLE_SIZE )         );
   return FD_LAYOUT_FINI( l, FD_CRDS_ALIGN );
 }
 
@@ -409,7 +433,7 @@ fd_crds_new( void *                       shmem,
   void * _lookup_map            = FD_SCRATCH_ALLOC_APPEND( l, lookup_map_align(),                    lookup_map_footprint( ele_max )                                );
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint()                       );
-  void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint()                      );
+  void * _ci_evict_treap        = FD_SCRATCH_ALLOC_APPEND( l, ci_evict_treap_align(),                ci_evict_treap_footprint( FD_CONTACT_INFO_TABLE_SIZE )         );
 
   crds->activity_update_fn = activity_update_fn;
   FD_TEST( crds->activity_update_fn );
@@ -447,8 +471,9 @@ fd_crds_new( void *                       shmem,
   crds->ci_fresh_dlist = crds_contact_info_fresh_list_join( crds_contact_info_fresh_list_new( _ci_dlist ) );
   FD_TEST( crds->ci_fresh_dlist );
 
-  crds->ci_evict_dlist = crds_contact_info_evict_dlist_join( crds_contact_info_evict_dlist_new( _ci_evict_dlist ) );
-  FD_TEST( crds->ci_evict_dlist );
+  crds->ci_evict_treap = ci_evict_treap_join( ci_evict_treap_new( _ci_evict_treap, FD_CONTACT_INFO_TABLE_SIZE ) );
+  FD_TEST( crds->ci_evict_treap );
+  ci_evict_treap_seed( crds->ci_pool, FD_CONTACT_INFO_TABLE_SIZE, fd_rng_ulong( rng ) );
 
   FD_TEST( fd_sha256_join( fd_sha256_new( crds->sha256 ) ) );
 
@@ -523,7 +548,7 @@ crds_unindex( fd_crds_t *       crds,
       ci_fresh_15s_dlist_ele_remove( crds->ci_fresh_15s_dlist, entry->ci, crds->ci_pool );
       crds->activity_update_fn( crds->activity_update_fn_ctx, (fd_pubkey_t const *)entry->key.pubkey, entry->ci->contact_info, FD_GOSSIP_ACTIVITY_CHANGE_TYPE_INACTIVE );
     }
-    crds_contact_info_evict_dlist_ele_remove( crds->ci_evict_dlist, entry->ci, crds->ci_pool );
+    ci_evict_treap_ele_remove( crds->ci_evict_treap, entry->ci, crds->ci_pool );
   }
 
   crds->metrics->count[ entry->key.tag ]--;
@@ -544,7 +569,7 @@ crds_index( fd_crds_t *       crds,
     else                            crds->metrics->peer_unstaked_cnt++;
     crds->metrics->peer_visible_stake += entry->stake;
 
-    crds_contact_info_evict_dlist_ele_push_tail( crds->ci_evict_dlist, entry->ci, crds->ci_pool );
+    ci_evict_treap_ele_insert( crds->ci_evict_treap, entry->ci, crds->ci_pool );
     crds_contact_info_fresh_list_ele_push_tail( crds->ci_fresh_dlist, entry->ci, crds->ci_pool );
     ci_fresh_15s_dlist_ele_push_tail( crds->ci_fresh_15s_dlist, entry->ci, crds->ci_pool );
     entry->ci->fresh_dlist.in_list = 1;
@@ -593,10 +618,10 @@ crds_acquire( fd_crds_t *         crds,
               long                now,
               fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( is_contact_info ) ) {
-    /* TODO: Should evict lowest stake CI first, or oldest if equally
-       low stake. */
     if( FD_UNLIKELY( !crds_contact_info_pool_free( crds->ci_pool ) ) ) {
-      fd_crds_contact_info_entry_t * ci_evict = crds_contact_info_evict_dlist_ele_peek_head( crds->ci_evict_dlist, crds->ci_pool );
+      ci_evict_treap_fwd_iter_t ci_it = ci_evict_treap_fwd_iter_init( crds->ci_evict_treap, crds->ci_pool );
+      FD_TEST( !ci_evict_treap_fwd_iter_done( ci_it ) );
+      fd_crds_contact_info_entry_t * ci_evict = ci_evict_treap_fwd_iter_ele( ci_it, crds->ci_pool );
       crds_release( crds, ci_evict->crds_entry, now, 1, stem );
     } else if( FD_UNLIKELY( !crds_pool_free( crds->pool ) ) ) {
       evict_treap_fwd_iter_t it = evict_treap_fwd_iter_init( crds->evict_treap, crds->pool );
