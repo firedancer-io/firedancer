@@ -109,86 +109,6 @@
 #define FD_HAS_ALLOCA 0
 #endif
 
-/* FD_HAS_X86:  If the build target supports x86 specific features and
-   can benefit from x86 specific optimizations, define FD_HAS_X86.  Code
-   needing more specific target features (Intel / AMD / SSE / AVX2 /
-   AVX512 / etc) can specialize further as necessary with even more
-   precise capabilities (that in turn imply FD_HAS_X86). */
-
-#ifndef FD_HAS_X86
-#define FD_HAS_X86 0
-#endif
-
-/* These allow even more precise targeting for X86. */
-
-/* FD_HAS_SSE indicates the target supports Intel SSE4 style SIMD
-   (basically do the 128-bit wide parts of "x86intrin.h" work).
-   Recommend using the simd/fd_sse.h APIs instead of raw Intel
-   intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_X86. */
-
-#ifndef FD_HAS_SSE
-#define FD_HAS_SSE 0
-#endif
-
-/* FD_HAS_AVX indicates the target supports Intel AVX2 style SIMD
-   (basically do the 256-bit wide parts of "x86intrin.h" work).
-   Recommend using the simd/fd_avx.h APIs instead of raw Intel
-   intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_SSE. */
-
-#ifndef FD_HAS_AVX
-#define FD_HAS_AVX 0
-#endif
-
-/* FD_HAS_AVX512 indicates the target supports Intel AVX-512 style SIMD
-   (basically do the 512-bit wide parts of "x86intrin.h" work).
-   Recommend using the simd/fd_avx512.h APIs instead of raw Intel
-   intrinsics for readability and to facilitate portability to non-x86
-   platforms.  Implies FD_HAS_AVX. */
-
-#ifndef FD_HAS_AVX512
-#define FD_HAS_AVX512 0
-#endif
-
-/* FD_HAS_SHANI indicates that the target supports Intel SHA extensions
-   which accelerate SHA-1 and SHA-256 computation.  This extension is
-   also called SHA-NI or SHA_NI (Secure Hash Algorithm New
-   Instructions).  Although proposed in 2013, they're only supported on
-   Intel Ice Lake and AMD Zen CPUs and newer.  Implies FD_HAS_AVX. */
-
-#ifndef FD_HAS_SHANI
-#define FD_HAS_SHANI 0
-#endif
-
-/* FD_HAS_GFNI indicates that the target supports Intel Galois Field
-   extensions, which accelerate operations over binary extension fields,
-   especially GF(2^8).  These instructions are supported on Intel Ice
-   Lake and newer and AMD Zen4 and newer CPUs.  Implies FD_HAS_AVX. */
-
-#ifndef FD_HAS_GFNI
-#define FD_HAS_GFNI 0
-#endif
-
-/* FD_HAS_AESNI indicates that the target supports AES-NI extensions,
-   which accelerate AES encryption and decryption.  While AVX predates
-   the original AES-NI extension, the combination of AES-NI+AVX adds
-   additional opcodes (such as vaesenc, a more flexible variant of
-   aesenc).  Thus, implies FD_HAS_AVX.  A conservative estimate for
-   minimum platform support is Intel Haswell or AMD Zen. */
-
-#ifndef FD_HAS_AESNI
-#define FD_HAS_AESNI 0
-#endif
-
-/* FD_HAS_ARM:  If the build target supports armv8-a specific features
-   and can benefit from aarch64 specific optimizations, define
-   FD_HAS_ARM. */
-
-#ifndef FD_HAS_ARM
-#define FD_HAS_ARM 0
-#endif
-
 /* FD_HAS_LZ4 indicates that the target supports LZ4 compression.
    Roughly, does "#include <lz4.h>" and the APIs therein work? */
 
@@ -761,19 +681,9 @@ fd_type_pun_const( void const * p ) {
    reclamation where a store must be visible to another core before
    a dependent load on this core (StoreLoad barrier). */
 
-#if FD_HAS_X86
-#define FD_HW_MFENCE()    __asm__ __volatile__( "lock addl $0, (%%rsp)" ::: "memory", "cc" )
-#define FD_HW_MFENCE_LD() FD_COMPILER_MFENCE()
-#define FD_HW_MFENCE_ST() FD_COMPILER_MFENCE()
-#elif FD_HAS_ARM
-#define FD_HW_MFENCE()    __asm__ __volatile__( "dmb ish" ::: "memory" )
-#define FD_HW_MFENCE_LD() __asm__ __volatile__( "dmb ishld" ::: "memory" )
-#define FD_HW_MFENCE_ST() __asm__ __volatile__( "dmb ishst" ::: "memory" )
-#else
-#define FD_HW_MFENCE()    __sync_synchronize()
-#define FD_HW_MFENCE_LD() __sync_synchronize()
-#define FD_HW_MFENCE_ST() __sync_synchronize()
-#endif
+//#define FD_HW_MFENCE()    ... platform specific ...
+//#define FD_HW_MFENCE_LD() ... platform specific ...
+//#define FD_HW_MFENCE_ST() ... platform specific ...
 
 /* FD_SPIN_PAUSE():  Yields the logical core of the calling thread to
    the other logical cores sharing the same underlying physical core for
@@ -785,13 +695,7 @@ fd_type_pun_const( void const * p ) {
    memory) but this should not be relied upon for portable code
    (consider making this a compiler memory fence on all platforms?) */
 
-#if FD_HAS_X86
-#define FD_SPIN_PAUSE() __builtin_ia32_pause()
-#elif FD_HAS_ARM
-#define FD_SPIN_PAUSE() __asm__ __volatile__( "yield" ::: "memory" )
-#else
-#define FD_SPIN_PAUSE() ((void)0)
-#endif
+//#define FD_SPIN_PAUSE() ... arch specific ...
 
 /* FD_YIELD():  Yields the logical core of the calling thread to the
    operating system scheduler if a hosted target and does a spin pause
@@ -879,31 +783,7 @@ fd_type_pun_const( void const * p ) {
    exchange functionality (forcing us to emulate atomic exchange more
    slowly via CAS there).  Sigh ... we do what we can to fix this up. */
 
-#ifndef FD_ATOMIC_XCHG_STYLE
-#if FD_HAS_X86 && !__cplusplus
-#define FD_ATOMIC_XCHG_STYLE 1
-#else
-#define FD_ATOMIC_XCHG_STYLE 0
-#endif
-#endif
-
-#if FD_ATOMIC_XCHG_STYLE==0
-#define FD_ATOMIC_XCHG(p,v) (__extension__({                                                                            \
-    __typeof__(*(p)) * _fd_atomic_xchg_p = (p);                                                                         \
-    __typeof__(*(p))   _fd_atomic_xchg_v = (v);                                                                         \
-    __typeof__(*(p))   _fd_atomic_xchg_t;                                                                               \
-    for(;;) {                                                                                                           \
-      _fd_atomic_xchg_t = FD_VOLATILE_CONST( *_fd_atomic_xchg_p );                                                      \
-      if( FD_LIKELY( __sync_bool_compare_and_swap( _fd_atomic_xchg_p, _fd_atomic_xchg_t, _fd_atomic_xchg_v ) ) ) break; \
-      FD_SPIN_PAUSE();                                                                                                  \
-    }                                                                                                                   \
-    _fd_atomic_xchg_t;                                                                                                  \
-  }))
-#elif FD_ATOMIC_XCHG_STYLE==1
-#define FD_ATOMIC_XCHG(p,v) __sync_lock_test_and_set( (p), (v) )
-#else
-#error "Unknown FD_ATOMIC_XCHG_STYLE"
-#endif
+//#define FD_ATOMIC_XCHG(p,v) ... arch specific ...
 
 #endif /* FD_HAS_ATOMIC */
 
@@ -1125,6 +1005,10 @@ fd_type_pun_const( void const * p ) {
 
 typedef long (*fd_clock_func_t)( void const * args );
 
+#include "fd_util_base_x86.h"
+#include "fd_util_base_arm.h"
+#include "fd_util_base_noarch.h"
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_memcpy(d,s,sz):  On modern x86 in some circumstances, rep mov will
@@ -1144,19 +1028,9 @@ FD_PROTOTYPES_BEGIN
 #define FD_USE_ARCH_MEMCPY 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
-
-static inline void *
-fd_memcpy( void       * FD_RESTRICT d,
-           void const * FD_RESTRICT s,
-           ulong                    sz ) {
-  void * p = d;
-  __asm__ __volatile__( "rep movsb" : "+D" (p), "+S" (s), "+c" (sz) :: "memory" );
-  return d;
-}
-
+#if FD_USE_ARCH_MEMCPY && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
+#define fd_memcpy fd_memcpy_arch
 #elif FD_HAS_MSAN
-
 void * __msan_memcpy( void * dest, void const * src, ulong n );
 
 static inline void *
@@ -1165,9 +1039,7 @@ fd_memcpy( void       * FD_RESTRICT d,
            ulong                    sz ) {
   return __msan_memcpy( d, s, sz );
 }
-
 #else
-
 static inline void *
 fd_memcpy( void       * FD_RESTRICT d,
            void const * FD_RESTRICT s,
@@ -1177,7 +1049,6 @@ fd_memcpy( void       * FD_RESTRICT d,
 #endif
   return memcpy( d, s, sz );
 }
-
 #endif
 
 /* fd_memset(d,c,sz): architecturally optimized memset.  See fd_memcpy
@@ -1189,19 +1060,9 @@ fd_memcpy( void       * FD_RESTRICT d,
 #define FD_USE_ARCH_MEMSET 0
 #endif
 
-#if FD_HAS_X86 && FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
-
-static inline void *
-fd_memset( void  * d,
-           int     c,
-           ulong   sz ) {
-  void * p = d;
-  __asm__ __volatile__( "rep stosb" : "+D" (p), "+c" (sz) : "a" (c) : "memory" );
-  return d;
-}
-
+#if FD_USE_ARCH_MEMSET && !defined(CBMC) && !FD_HAS_DEEPASAN && !FD_HAS_MSAN
+#define fd_memset fd_memset_arch
 #else
-
 static inline void *
 fd_memset( void  * d,
            int     c,
@@ -1211,7 +1072,6 @@ fd_memset( void  * d,
 # endif
   return memset( d, c, sz );
 }
-
 #endif
 
 /* Calling fd_memzero_explicit will fill the provided region with zeroes.
@@ -1229,32 +1089,7 @@ fd_memzero_explicit( void * d,
 
 /* fd_memeq(s0,s1,sz):  Compares two blocks of memory.  Returns 1 if
    equal or sz is zero and 0 otherwise.  No memory accesses made if sz
-   is zero (pointers may be invalid).  On x86, uses repe cmpsb which is
-   preferable to __builtin_memcmp in some cases. */
-
-#ifndef FD_USE_ARCH_MEMEQ
-#define FD_USE_ARCH_MEMEQ 0
-#endif
-
-#if FD_HAS_X86 && FD_USE_ARCH_MEMEQ && defined(__GCC_ASM_FLAG_OUTPUTS__) && __STDC_VERSION__>=199901L
-
-FD_FN_PURE static inline int
-fd_memeq( void const * s0,
-          void const * s1,
-          ulong        sz ) {
-  /* ZF flag is set and exported in two cases:
-      a) size is zero (via test)
-      b) buffer is equal (via repe cmpsb) */
-  int r;
-  __asm__( "test %3, %3;"
-           "repe cmpsb"
-         : "=@cce" (r), "+S" (s0), "+D" (s1), "+c" (sz)
-         : "m" (*(char const (*)[sz]) s0), "m" (*(char const (*)[sz]) s1)
-         : "cc" );
-  return r;
-}
-
-#else
+   is zero (pointers may be invalid).. */
 
 FD_FN_PURE static inline int
 fd_memeq( void const * s1,
@@ -1262,8 +1097,6 @@ fd_memeq( void const * s1,
           ulong        sz ) {
   return 0==memcmp( s1, s2, sz );
 }
-
-#endif
 
 /* Returns 1 if all sz bytes starting at s are zero, 0 otherwise. */
 FD_FN_PURE static inline int
@@ -1293,22 +1126,6 @@ fd_hash_memcpy( ulong                    seed,
                 void       * FD_RESTRICT d,
                 void const * FD_RESTRICT s,
                 ulong                    sz );
-
-#ifndef FD_TICKCOUNT_STYLE
-#if FD_HAS_X86 /* Use RDTSC */
-#define FD_TICKCOUNT_STYLE 1
-#elif FD_HAS_ARM /* Use CNTVCT_EL0 */
-#define FD_TICKCOUNT_STYLE 2
-#else /* Use portable fallback */
-#define FD_TICKCOUNT_STYLE 0
-#endif
-#endif
-
-#if FD_TICKCOUNT_STYLE==0 /* Portable fallback (slow).  Ticks at 1 ns / tick */
-
-#define fd_tickcount() fd_log_wallclock() /* TODO: fix ugly pre-log usage */
-
-#elif FD_TICKCOUNT_STYLE==1 /* RTDSC (fast) */
 
 /* fd_tickcount:  Reads the hardware invariant tickcounter ("RDTSC").
    This monotonically increases at an approximately constant rate
@@ -1342,80 +1159,17 @@ fd_hash_memcpy( ulong                    seed,
    and/or when the developer is confident that applications using this
    will have appropriate permissions when deployed. */
 
-#define fd_tickcount() ((long)__builtin_ia32_rdtsc())
-
-#elif FD_TICKCOUNT_STYLE==2 /* armv8 (fast) */
-
-/* fd_tickcount (ARM): https://developer.arm.com/documentation/ddi0601/2021-12/AArch64-Registers/CNTVCT-EL0--Counter-timer-Virtual-Count-register
-   Approx 24 MHz on Apple M1. */
-
-static inline long
-fd_tickcount( void ) {
-  /* consider using 'isb' */
-  ulong value;
-  __asm__ __volatile__ (
-    "isb\n"
-    "mrs %0, cntvct_el0\n"
-    "nop"
-    : "=r" (value) );
-  return (long)value;
-}
-
-#else
-#error "Unknown FD_TICKCOUNT_STYLE"
-#endif
+//static inline long
+//fd_tickcount( void ) { ... }
 
 long _fd_tickcount( void const * _ ); /* fd_clock_func_t compat */
 
-#if FD_HAS_HOSTED
-
 /* fd_yield yields the calling thread to the operating system scheduler. */
 
+#if FD_HAS_HOSTED
 void
 fd_yield( void );
-
 #endif
-
-#if FD_HAS_ARM
-
-/* fd_arm_stp16 stores two ulongs to a 16-byte memory location.
-   If LSE2 and p is aligned, is single-copy atomic. */
-
-static inline void
-fd_arm_stp16( ulong * p,
-              ulong   a,
-              ulong   b ) {
-  __asm__(
-      "stp %x[a], %x[b], [%[p]]"
-      :
-      : [a] "r"(a), [b] "r"(b), [p] "r"(p)
-      : "memory"
-  );
-}
-
-/* fd_arm_ldp16 loads two ulongs from a 16-byte memory location.
-   If LSE2 and p is aligned, is single-copy atomic. */
-
-#define fd_arm_ldp16(p_,a_,b_)     \
-  __asm__(                         \
-      "ldp %x[a], %x[b], [%[p]]"   \
-      : [a] "=r"(a_), [b] "=r"(b_) \
-      : [p] "r"(p_)                \
-      : "memory"                   \
-  )
-
-/* fd_arm_ldp16_acq_pc is like fd_arm_ldp16, but with Load-AcquirePC
-   semantics.  Requires RCPC3. */
-
-#define fd_arm_ldp16_acq_pc(p_,a_,b_) \
-  __asm__(                            \
-      "ldiapp %x[a], %x[b], [%[p]]"   \
-      : [a] "=r"(a_), [b] "=r"(b_)    \
-      : [p] "r"(p_)                   \
-      : "memory"                      \
-  )
-
-#endif /* FD_HAS_ARM */
 
 FD_PROTOTYPES_END
 
