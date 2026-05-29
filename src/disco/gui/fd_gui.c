@@ -278,7 +278,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_live_tile_metrics,
     fd_gui_printf_catch_up_history,
     fd_gui_printf_vote_latency_history,
-    fd_gui_printf_late_votes_history
+    fd_gui_printf_late_votes_history,
+    fd_gui_printf_health
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
@@ -1106,6 +1107,9 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
         fd_http_server_ws_broadcast( gui->http );
       }
     }
+
+    fd_gui_printf_health( gui );
+    fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_100millis += 100L*1000L*1000L;
     return 1;

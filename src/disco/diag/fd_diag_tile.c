@@ -1,3 +1,5 @@
+#include "fd_diag_tile.h"
+
 #include "../bundle/fd_bundle_tile.h"
 #include "../metrics/fd_metrics.h"
 #include "../stem/fd_stem.h"
@@ -13,10 +15,6 @@
 #include "generated/fd_diag_tile_seccomp.h"
 
 #define REPORT_INTERVAL_MILLIS (100L)
-
-#define FD_DIAG_HEALTH_UNHEALTHY (0UL)
-#define FD_DIAG_HEALTH_HEALTHY   (1UL)
-#define FD_DIAG_HEALTH_DISABLED  (2UL)
 
 struct fd_diag_tile {
   long next_report_nanos;
@@ -230,89 +228,125 @@ check_engine_metric( fd_diag_tile_t * ctx, long now ) {
   static long  const turbine_byte_cmp_window_ns = 12L*1000L*1000L*1000L;
 
   ulong bundle_cnt    = ctx->tiles.bundle_cnt;
-  ulong bundle_health = fd_ulong_if( bundle_cnt>0UL, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
+  ulong bundle_status = FD_DIAG_BUNDLE_STATUS_DISABLED;
   if( FD_LIKELY( bundle_cnt ) ) {
-    int any_ok = 0;
+    /* Find the best state across all bundle tiles.
+       Priority: connected > sleeping > connecting > disconnected */
+    int any_connected  = 0;
+    int any_sleeping   = 0;
+    int any_connecting = 0;
     for( ulong i=0UL; i<bundle_cnt; i++ ) {
       volatile ulong * m = ctx->metrics[ ctx->tiles.bundle_tile_idx[ i ] ];
       ulong state = m[ FD_METRICS_GAUGE_BUNDLE_STATE_OFF ];
-      /* Healthy if connected OR deliberately sleeping */
-      if( FD_LIKELY( state==FD_BUNDLE_STATE_CONNECTED || state==FD_BUNDLE_STATE_SLEEPING ) ) any_ok = 1;
+      if( FD_LIKELY( state==FD_BUNDLE_STATE_CONNECTED ) ) any_connected  = 1;
+      else if( state==FD_BUNDLE_STATE_SLEEPING )          any_sleeping   = 1;
+      else if( state==FD_BUNDLE_STATE_CONNECTING )        any_connecting = 1;
     }
-    bundle_health = fd_ulong_if( any_ok, FD_DIAG_HEALTH_HEALTHY, FD_DIAG_HEALTH_UNHEALTHY );
+    if(      any_connected  ) bundle_status = FD_DIAG_BUNDLE_STATUS_CONNECTED;
+    else if( any_sleeping   ) bundle_status = FD_DIAG_BUNDLE_STATUS_SLEEPING;
+    else if( any_connecting ) bundle_status = FD_DIAG_BUNDLE_STATUS_CONNECTING;
+    else                      bundle_status = FD_DIAG_BUNDLE_STATUS_DISCONNECTED;
   }
 
   ulong tower_idx   = ctx->tiles.tower_idx;
-  ulong vote_health = fd_ulong_if( ctx->is_voting && tower_idx!=ULONG_MAX, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
-  if( FD_LIKELY( ctx->is_voting && tower_idx!=ULONG_MAX && ctx->metrics[ tower_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]==1UL ) ) {
-    volatile ulong * m = ctx->metrics[ tower_idx ];
-    ulong vote_slot    = m[ FD_METRICS_GAUGE_TOWER_VOTE_SLOT_OFF ];
-    ulong replay_slot  = m[ FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_OFF ];
-    int bad;
-    if( FD_UNLIKELY( vote_slot==ULONG_MAX || replay_slot==0UL ) ) {
-      bad = 1;
+  ulong vote_status = FD_DIAG_VOTE_STATUS_DISABLED;
+  if( FD_LIKELY( ctx->is_voting && tower_idx!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( ctx->metrics[ tower_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
+      vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
     } else {
-      if( FD_UNLIKELY( vote_slot!=ctx->check_engine.prev_vote_slot ) ) {
-        ctx->check_engine.prev_vote_slot       = vote_slot;
-        ctx->check_engine.vote_slot_changed_ns = now;
+      volatile ulong * m = ctx->metrics[ tower_idx ];
+      ulong vote_slot    = m[ FD_METRICS_GAUGE_TOWER_VOTE_SLOT_OFF ];
+      ulong replay_slot  = m[ FD_METRICS_GAUGE_TOWER_REPLAY_SLOT_OFF ];
+      if( FD_UNLIKELY( vote_slot==ULONG_MAX || replay_slot==0UL ) ) {
+        vote_status = FD_DIAG_VOTE_STATUS_NOT_STARTED;
+      } else {
+        if( FD_UNLIKELY( vote_slot!=ctx->check_engine.prev_vote_slot ) ) {
+          ctx->check_engine.prev_vote_slot       = vote_slot;
+          ctx->check_engine.vote_slot_changed_ns = now;
+        }
+        int delinquent = (replay_slot>vote_slot && replay_slot-vote_slot>vote_distance_threshold) ||
+                         (now-ctx->check_engine.vote_slot_changed_ns>vote_stall_threshold_ns);
+        vote_status = fd_ulong_if( delinquent,
+                                   FD_DIAG_VOTE_STATUS_DELINQUENT,
+                                   FD_DIAG_VOTE_STATUS_VOTING );
       }
-      bad = (replay_slot>vote_slot && replay_slot-vote_slot>vote_distance_threshold) ||
-            (now-ctx->check_engine.vote_slot_changed_ns>vote_stall_threshold_ns);
     }
-    vote_health = fd_ulong_if( bad, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_HEALTHY );
   }
 
   ulong replay_idx     = ctx->tiles.replay_idx;
   int   replay_running = replay_idx!=ULONG_MAX && ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ]==1UL;
-  ulong replay_health  = fd_ulong_if( replay_idx!=ULONG_MAX, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
-  if( FD_LIKELY( replay_running ) ) {
-    volatile ulong * m = ctx->metrics[ replay_idx ];
-    ulong turbine_slot = m[ FD_METRICS_GAUGE_REPLAY_REASM_LATEST_SLOT_OFF ];
-    ulong reset_slot   = m[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
-    if( FD_UNLIKELY( reset_slot!=ctx->check_engine.prev_reset_slot ) ) {
-      ctx->check_engine.prev_reset_slot       = reset_slot;
-      ctx->check_engine.reset_slot_changed_ns = now;
+  ulong replay_status  = FD_DIAG_REPLAY_STATUS_DISABLED;
+  if( FD_LIKELY( replay_idx!=ULONG_MAX ) ) {
+    if( FD_UNLIKELY( !replay_running ) ) {
+      replay_status = FD_DIAG_REPLAY_STATUS_NOT_STARTED;
+    } else {
+      volatile ulong * m = ctx->metrics[ replay_idx ];
+      ulong turbine_slot = m[ FD_METRICS_GAUGE_REPLAY_REASM_LATEST_SLOT_OFF ];
+      ulong reset_slot   = m[ FD_METRICS_GAUGE_REPLAY_RESET_SLOT_OFF ];
+      if( FD_UNLIKELY( reset_slot!=ctx->check_engine.prev_reset_slot ) ) {
+        ctx->check_engine.prev_reset_slot       = reset_slot;
+        ctx->check_engine.reset_slot_changed_ns = now;
+      }
+      if( FD_UNLIKELY( (turbine_slot==0UL) || (reset_slot==0UL) ) ) {
+        replay_status = FD_DIAG_REPLAY_STATUS_NOT_STARTED;
+      } else if( FD_UNLIKELY( ((turbine_slot>reset_slot) && (turbine_slot-reset_slot>replay_distance_threshold)) ||
+                               (now-ctx->check_engine.reset_slot_changed_ns>replay_stall_threshold_ns) ) ) {
+        replay_status = FD_DIAG_REPLAY_STATUS_BEHIND;
+      } else {
+        replay_status = FD_DIAG_REPLAY_STATUS_RUNNING;
+      }
     }
-    int bad = (turbine_slot==0UL) || (reset_slot==0UL) || ((turbine_slot>reset_slot) && (turbine_slot-reset_slot>replay_distance_threshold)) || (now-ctx->check_engine.reset_slot_changed_ns>replay_stall_threshold_ns);
-    replay_health = fd_ulong_if( bad, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_HEALTHY );
   }
 
   ulong shred_cnt      = ctx->tiles.shred_cnt;
-  ulong turbine_health = fd_ulong_if( replay_idx!=ULONG_MAX && shred_cnt>0UL, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_DISABLED );
-  if( FD_LIKELY( replay_running && shred_cnt ) ) {
-    int all_shred_running = 1;
-    ulong cur_turbine_bytes = 0UL, cur_repair_bytes = 0UL;
-    for( ulong i=0UL; i<shred_cnt; i++ ) {
-      volatile ulong * sm = ctx->metrics[ ctx->tiles.shred_tile_idx[ i ] ];
-      cur_turbine_bytes += sm[ FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_OFF ];
-      cur_repair_bytes  += sm[ FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_OFF ];
-      if( FD_UNLIKELY( sm[ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
-        all_shred_running = 0;
-        break;
+  ulong turbine_status = FD_DIAG_TURBINE_STATUS_DISABLED;
+  if( FD_LIKELY( replay_idx!=ULONG_MAX && shred_cnt>0UL ) ) {
+    if( FD_UNLIKELY( !replay_running ) ) {
+      turbine_status = FD_DIAG_TURBINE_STATUS_NOT_STARTED;
+    } else {
+      int all_shred_running = 1;
+      ulong cur_turbine_bytes = 0UL, cur_repair_bytes = 0UL;
+      for( ulong i=0UL; i<shred_cnt; i++ ) {
+        volatile ulong * sm = ctx->metrics[ ctx->tiles.shred_tile_idx[ i ] ];
+        cur_turbine_bytes += sm[ FD_METRICS_COUNTER_SHRED_SHRED_TURBINE_RCV_BYTES_OFF ];
+        cur_repair_bytes  += sm[ FD_METRICS_COUNTER_SHRED_SHRED_REPAIR_RCV_BYTES_OFF ];
+        if( FD_UNLIKELY( sm[ FD_METRICS_GAUGE_TILE_STATUS_OFF ]!=1UL ) ) {
+          all_shred_running = 0;
+          break;
+        }
       }
-    }
-    if( FD_LIKELY( all_shred_running ) ) {
-      ulong turbine_slot = ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_REPLAY_REASM_LATEST_SLOT_OFF ];
-      if( FD_UNLIKELY( turbine_slot!=ctx->check_engine.prev_turbine_slot ) ) {
-        ctx->check_engine.prev_turbine_slot       = turbine_slot;
-        ctx->check_engine.turbine_slot_changed_ns = now;
-      }
-      if( FD_UNLIKELY( now-ctx->check_engine.byte_snapshot_ns>=turbine_byte_cmp_window_ns ) ) {
-        ctx->check_engine.repair_outpacing       = (cur_repair_bytes-ctx->check_engine.snapshot_repair_bytes)>(cur_turbine_bytes-ctx->check_engine.snapshot_turbine_bytes);
-        ctx->check_engine.snapshot_turbine_bytes = cur_turbine_bytes;
-        ctx->check_engine.snapshot_repair_bytes  = cur_repair_bytes;
-        ctx->check_engine.byte_snapshot_ns       = now;
-      }
+      if( FD_UNLIKELY( !all_shred_running ) ) {
+        turbine_status = FD_DIAG_TURBINE_STATUS_NOT_STARTED;
+      } else {
+        ulong turbine_slot = ctx->metrics[ replay_idx ][ FD_METRICS_GAUGE_REPLAY_REASM_LATEST_SLOT_OFF ];
+        if( FD_UNLIKELY( turbine_slot!=ctx->check_engine.prev_turbine_slot ) ) {
+          ctx->check_engine.prev_turbine_slot       = turbine_slot;
+          ctx->check_engine.turbine_slot_changed_ns = now;
+        }
+        if( FD_UNLIKELY( now-ctx->check_engine.byte_snapshot_ns>=turbine_byte_cmp_window_ns ) ) {
+          ctx->check_engine.repair_outpacing       = (cur_repair_bytes-ctx->check_engine.snapshot_repair_bytes)>(cur_turbine_bytes-ctx->check_engine.snapshot_turbine_bytes);
+          ctx->check_engine.snapshot_turbine_bytes = cur_turbine_bytes;
+          ctx->check_engine.snapshot_repair_bytes  = cur_repair_bytes;
+          ctx->check_engine.byte_snapshot_ns       = now;
+        }
 
-      int bad = (turbine_slot==0UL) || (now-ctx->check_engine.turbine_slot_changed_ns>turbine_stall_threshold_ns) || ctx->check_engine.repair_outpacing;
-      turbine_health = fd_ulong_if( bad, FD_DIAG_HEALTH_UNHEALTHY, FD_DIAG_HEALTH_HEALTHY );
+        if( FD_UNLIKELY( turbine_slot==0UL ) ) {
+          turbine_status = FD_DIAG_TURBINE_STATUS_NOT_STARTED;
+        } else if( FD_UNLIKELY( now-ctx->check_engine.turbine_slot_changed_ns>turbine_stall_threshold_ns ) ) {
+          turbine_status = FD_DIAG_TURBINE_STATUS_STALLED;
+        } else if( FD_UNLIKELY( ctx->check_engine.repair_outpacing ) ) {
+          turbine_status = FD_DIAG_TURBINE_STATUS_REPAIR_OUTPACING;
+        } else {
+          turbine_status = FD_DIAG_TURBINE_STATUS_RUNNING;
+        }
+      }
     }
   }
 
-  FD_MGAUGE_SET( DIAG, BUNDLE_HEALTH,  bundle_health  );
-  FD_MGAUGE_SET( DIAG, VOTE_HEALTH,    vote_health    );
-  FD_MGAUGE_SET( DIAG, REPLAY_HEALTH,  replay_health  );
-  FD_MGAUGE_SET( DIAG, TURBINE_HEALTH, turbine_health );
+  FD_MGAUGE_SET( DIAG, BUNDLE_STATUS,  bundle_status  );
+  FD_MGAUGE_SET( DIAG, VOTE_STATUS,    vote_status    );
+  FD_MGAUGE_SET( DIAG, REPLAY_STATUS,  replay_status  );
+  FD_MGAUGE_SET( DIAG, TURBINE_STATUS, turbine_status );
 }
 
 static void

@@ -1360,6 +1360,81 @@ The hit rate can be derived as `hits / lookups`. Heap utilization can be
 derived as `1 - (free_bytes / size_bytes)`. A healthy validator should
 have a high hit rate (close to 1.0) and low spill counts.
 
+#### `summary.health`
+| frequency        | type     | example |
+|------------------|----------|---------|
+| *Once* + *100ms* | `Health` | below   |
+
+Provides precise status information for the major validator
+subsystems. The status is computed by the diagnostics tile (diag),
+which periodically reads metrics from the relevant tiles and
+evaluates liveness conditions.
+
+Each subsystem reports a specific state string describing its
+current operational status. All subsystems share the `"disabled"`
+state, which indicates that the relevant tiles are not present in
+the topology or the feature is not configured. The remaining states
+are subsystem-specific and described below.
+
+::: details Example
+
+```json
+{
+    "topic": "summary",
+    "key": "health",
+    "value": {
+        "vote": "voting",
+        "bundle": "connected",
+        "replay": "running",
+        "turbine": "running"
+    }
+}
+```
+
+:::
+
+**`Health`**
+| Field   | Type     | Description |
+|---------|----------|-------------|
+| vote    | `string` | Vote subsystem status |
+| bundle  | `string` | Bundle subsystem status |
+| replay  | `string` | Replay subsystem status |
+| turbine | `string` | Turbine subsystem status |
+
+**`vote`** states:
+| State          | Description |
+|----------------|-------------|
+| `disabled`     | The validator is non-voting, or the tower tile is not present in the topology |
+| `not_started`  | The tower tile exists but is not yet running, or the validator has not yet produced a vote (vote slot unset or replay slot is zero) |
+| `delinquent`   | The validator is voting but the vote distance exceeds 150 slots behind the replay slot, or the vote slot has not advanced in over 60 seconds |
+| `voting`       | The validator is voting and the vote distance is within threshold |
+
+**`bundle`** states:
+| State          | Description |
+|----------------|-------------|
+| `disabled`     | No bundle tiles are configured in the topology |
+| `disconnected` | All bundle tiles are disconnected from their block engine |
+| `connecting`   | At least one bundle tile is attempting to connect, but none are connected or sleeping |
+| `connected`    | At least one bundle tile has an active connection to its block engine |
+| `sleeping`     | At least one bundle tile is deliberately sleeping (backing off before reconnecting), but none are connected |
+
+**`replay`** states:
+| State          | Description |
+|----------------|-------------|
+| `disabled`     | The replay tile is not present in the topology |
+| `not_started`  | The replay tile exists but is not yet running, or the turbine slot or reset slot is zero (replay has not yet begun) |
+| `behind`       | The gap between the turbine slot and the reset slot exceeds 12 slots, or the reset slot has not advanced in over 12 seconds |
+| `running`      | The replay tile is keeping up with incoming turbine data |
+
+**`turbine`** states:
+| State              | Description |
+|--------------------|-------------|
+| `disabled`         | No shred tiles or no replay tile are present in the topology |
+| `not_started`      | The relevant tiles exist but are not yet all running, or the turbine slot is zero |
+| `stalled`          | The turbine slot has not advanced in over 12 seconds |
+| `repair_outpacing` | Turbine slot is advancing, but repair byte throughput has exceeded turbine byte throughput over the last 12-second window, indicating degraded turbine connectivity |
+| `running`          | Turbine is receiving shreds and its throughput exceeds repair |
+
 ### block_engine
 Block engines are providers of additional transactions to the validator,
 which are configurable by the operator. The validator may not be
