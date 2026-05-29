@@ -22,7 +22,6 @@ union __attribute__((aligned(16))) fd_neigh4_entry {
 
     #define FD_NEIGH4_PROBE_SUPPRESS_UNTIL_SET(entry, deadline) \
       ulong udead = ((ulong)(deadline))>>FD_NEIGH4_PROBE_SUPPRESS_SHIFT; \
-      udead >>= FD_NEIGH4_PROBE_SUPPRESS_SHIFT; \
       (entry)->probe_suppress_until = udead & FD_NEIGH4_PROBE_SUPPRESS_MASK;
     #define FD_NEIGH4_PROBE_SUPPRESS_UNTIL_GET(entry) \
       (long)(((entry)->probe_suppress_until)<<FD_NEIGH4_PROBE_SUPPRESS_SHIFT)
