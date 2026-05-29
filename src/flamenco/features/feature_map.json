@@ -274,5 +274,6 @@
   {"name":"disable_sbpf_v0_v1_v2_deployment","pubkey":"B8JJXCy5amZyWG9r7EnUYLwzXSXTxG7GZ1qZ1qggo83g"},
   {"name":"commission_rate_in_basis_points","pubkey":"Eg7tXEwMZzS98xaZ1YHUbdRHsaYZiCsSaR6sKgxreoaj"},
   {"name":"loader_v3_minimum_extend_program_size","pubkey":"YbbRLkvenrocjGPGyoQE4wjnvYzTgfsk38NFmcYK7a5"},
-  {"name":"define_ltds_fee_only_semantics","pubkey":"LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD"}
+  {"name":"define_ltds_fee_only_semantics","pubkey":"LTDSzjZKFJMKHYpNycG1FrWwGGTaFFwqEFjB5GGLNVD"},
+  {"name":"enable_tx_v1","pubkey":"txv1hPU76QFBVeq3942jJ65e9Em2xbdbCJrzX8sM4U4"}
 ]
