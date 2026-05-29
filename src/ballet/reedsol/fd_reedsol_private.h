@@ -12,13 +12,10 @@
 
      0 - unaccelerated
      1 - AVX accelerated
-     2 - GFNI accelerated with AVX2
-     3 - GFNI accelerated with AVX512 */
+     2 - GFNI accelerated with AVX512 */
 
 #ifndef FD_REEDSOL_ARITH_IMPL
 #if FD_HAS_GFNI && FD_HAS_AVX512
-#define FD_REEDSOL_ARITH_IMPL 3
-#elif FD_HAS_GFNI
 #define FD_REEDSOL_ARITH_IMPL 2
 #elif FD_HAS_AVX
 #define FD_REEDSOL_ARITH_IMPL 1
@@ -31,7 +28,7 @@
 #include "fd_reedsol_arith_none.h"
 #elif FD_REEDSOL_ARITH_IMPL==1
 #include "fd_reedsol_arith_avx2.h"
-#elif FD_REEDSOL_ARITH_IMPL==2 || FD_REEDSOL_ARITH_IMPL==3
+#elif FD_REEDSOL_ARITH_IMPL==2
 #include "fd_reedsol_arith_gfni.h"
 #else
 #error "Unsupported FD_REEDSOL_ARITH_IMPL"
@@ -77,12 +74,11 @@ fd_reedsol_private_encode_128( ulong                 shred_sz,
                                uchar       * const * parity_shred,
                                ulong                 parity_shred_cnt );
 
-#if FD_HAS_GFNI
+#if FD_REEDSOL_ARITH_IMPL==2
 void
 fd_reedsol_private_encode_32_32( ulong                 shred_sz,
                                  uchar const * const * data_shred,
-                                 uchar       * const * parity_shred,
-                                 uchar       *         _scratch );
+                                 uchar       * const * parity_shred );
 #endif
 
 /* fd_reedsol_private_recover_var_{n}: Verifies the consistency
