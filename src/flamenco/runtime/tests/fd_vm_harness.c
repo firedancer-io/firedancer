@@ -326,20 +326,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
 
   effects->frame_count = vm->frame_cnt;
 
-  fd_log_collector_t * log = vm->instr_ctx->runtime->log.log_collector;
-  /* Only collect log on valid errors (i.e., != -1). Follows
-     https://github.com/firedancer-io/solfuzz-agave/blob/99758d3c4f3a342d56e2906936458d82326ae9a8/src/utils/err_map.rs#L148 */
-  if( effects->error != -1 && log->buf_sz ) {
-    effects->log = FD_SCRATCH_ALLOC_APPEND(
-      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
-    if( FD_UNLIKELY( _l > output_end ) ) {
-      goto error;
-    }
-    effects->log->size = (uint)fd_log_collector_debug_sprintf( log, (char *)effects->log->bytes, 0 );
-  } else {
-    effects->log = NULL;
-  }
-
   /* Capture input regions */
   ulong tmp_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
 

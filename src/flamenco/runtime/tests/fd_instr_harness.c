@@ -285,7 +285,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   runtime->log.enable_log_collector = 0;
 
-  fd_log_collector_init( ctx->runtime->log.log_collector, 1 );
+  fd_log_collector_init( ctx->runtime->log.log_collector, 0 );
   fd_base58_encode_32( txn_out->accounts.keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
 }
 
