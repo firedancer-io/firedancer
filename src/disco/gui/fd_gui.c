@@ -1126,7 +1126,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
     if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
       fd_topo_tile_t * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
       volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-      ulong slot = repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ];
+      ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, REPAIRED_SLOTS ) ];
       fd_gui_handle_repair_slot( gui, slot, now );
     }
 
@@ -3078,7 +3078,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
   if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
     fd_topo_tile_t * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
     volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
-    ulong slot = repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ];
+    ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, REPAIRED_SLOTS ) ];
     fd_gui_handle_repair_slot( gui, slot, now );
   }
 }

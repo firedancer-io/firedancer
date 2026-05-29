@@ -1427,8 +1427,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 static inline void
 metrics_write( ctx_t * ctx ) {
-  FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
-  FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
+  FD_MGAUGE_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
+  FD_MGAUGE_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
   FD_MCNT_SET( REPAIR, OLD_SHRED,         ctx->metrics->old_shred );
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_policy_peer_pool_used( ctx->policy->peers.pool ) );
   FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL, ctx->metrics->sign_tile_unavail );

@@ -487,8 +487,8 @@ write_repair( config_t const * config,
               ulong const *    prev_link ) {
   ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
   if( repair_tile_idx==ULONG_MAX ) return 0U;
-  ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ];
-  ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
+  ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, REPAIRED_SLOTS ) ];
+  ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, CURRENT_SLOT ) ];
   PRINT( "🧱 " BOLD RED "REPAIR......" RESET UNBOLD
          " " BOLD "RX"            UNBOLD " %s"
          " " BOLD "TX"            UNBOLD " %s"
@@ -516,7 +516,7 @@ write_replay( config_t const * config,
 
   ulong turbine_slot;
   if( repair_tile_idx!=ULONG_MAX ) {
-    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
+    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPAIR, CURRENT_SLOT ) ];
   } else {
     turbine_slot = reset_slot;
   }
