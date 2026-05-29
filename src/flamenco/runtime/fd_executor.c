@@ -781,7 +781,8 @@ fd_executor_setup_txn_alut_account_keys( fd_runtime_t *      runtime,
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
     fd_acct_addr_t * accts_alt = fd_type_pun( txn_out->accounts.keys[txn_out->accounts.cnt] );
-    int err = fd_runtime_load_txn_address_lookup_tables( TXN( txn_in->txn ),
+    int err = fd_runtime_load_txn_address_lookup_tables( txn_in->bundle.is_bundle ? runtime : NULL,
+                                                         TXN( txn_in->txn ),
                                                          txn_in->txn->payload,
                                                          runtime->accdb,
                                                          bank->accdb_fork_id,

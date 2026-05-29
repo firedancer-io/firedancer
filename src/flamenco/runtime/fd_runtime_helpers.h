@@ -37,7 +37,8 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
 /* Load the accounts in the address lookup tables of txn into out_accts_alt */
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
+fd_runtime_load_txn_address_lookup_tables( fd_runtime_t const *     runtime,
+                                           fd_txn_t const *         txn,
                                            uchar const *            payload,
                                            fd_accdb_t *             accdb,
                                            fd_accdb_fork_id_t       fork_id,
