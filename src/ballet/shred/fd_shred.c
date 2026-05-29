@@ -118,6 +118,7 @@ fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_nod
   ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
 
   ulong tree_depth           = fd_shred_merkle_cnt( shred->variant ); /* In [0, 15] */
+  if( FD_UNLIKELY( tree_depth!=FD_SHRED_MERKLE_LAYER_CNT-1UL ) ) return 0;
   ulong reedsol_protected_sz = 1115UL + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ - FD_SHRED_MERKLE_NODE_SZ*tree_depth
                                       - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
                                       - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/
