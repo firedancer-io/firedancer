@@ -542,16 +542,20 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   int has_replay_in = 0;
+  ulong polled_in_idx = 0UL;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
+
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     if( !strcmp( link->name, "replay_out" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;
+      ctx->in_kind[ polled_in_idx ] = IN_KIND_REPLAY_OUT;
       fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
       ctx->replay_in.mem    = link_wksp->wksp;
       ctx->replay_in.chunk0 = fd_dcache_compact_chunk0( ctx->replay_in.mem, link->dcache );
       ctx->replay_in.wmark  = fd_dcache_compact_wmark ( ctx->replay_in.mem, link->dcache, link->mtu );
       has_replay_in = 1;
     }
+    polled_in_idx++;
   }
 
   ctx->next_leader_slot = ULONG_MAX;
