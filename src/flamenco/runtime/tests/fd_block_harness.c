@@ -48,8 +48,10 @@ fd_solfuzz_block_update_prev_epoch_stakes( fd_bank_t const *                  ba
     ushort commission;
     if( FD_FEATURE_ACTIVE_BANK( bank, commission_rate_in_basis_points ) && vote_accounts[i].version == FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4 ) {
       commission = (ushort)vote_accounts[i].commission_bps;
-    } else {
+    } else if( vote_accounts[i].version == FD_EXEC_TEST_VOTE_ACCOUNT_VERSION_V4 ) {
       commission = (ushort)( ( vote_accounts[i].commission_bps / 100U ) * 100U );
+    } else {
+      commission = (ushort)( (uchar)( vote_accounts[i].commission_bps / 100U ) * 100U );
     }
 
     if( is_t_1 ) {
