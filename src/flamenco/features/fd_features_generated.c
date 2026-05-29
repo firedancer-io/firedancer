@@ -629,8 +629,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = 0 },
 
   { .index                     = offsetof(fd_features_t, stake_minimum_delegation_for_rewards)>>3,
-    .id                        = {"\xe0\x31\xcd\xc7\x1c\xf7\x58\x54\x9d\x9f\x58\x3b\xa5\xe4\x94\xf7\xc8\x74\xb1\xab\xcf\xed\xe9\x3b\x3b\xce\x1c\xc0\xeb\x2d\xda\xe1"},
-                                 /* G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ */
+    .id                        = {"\x05\x4e\xdd\xc8\x7d\x10\x7d\x4d\x65\x06\x36\xbb\x7e\x5e\xfb\x25\xa3\x04\x98\x22\x4e\xb5\x28\x1a\x44\x36\xa9\x4c\xc9\x97\x68\x10"},
+                                 /* MinimumDe1egat1onForRewardsWi11BeDe1eted111 */
     .name                      = "stake_minimum_delegation_for_rewards",
     .cleaned_up                = 0,
     .reverted                  = 1 },
@@ -1646,10 +1646,11 @@ fd_feature_id_t const ids[] = {
     .hardcode_for_fuzzing      = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_extend_program_checked)>>3,
-    .id                        = {"\x1a\xbb\x7f\x36\x84\xcf\x70\x71\xd5\x7a\xb1\x1e\x63\x2b\xf9\xaf\x28\x4d\x99\x50\x39\x5d\xe9\x70\x11\x8c\x88\x96\xc7\x32\x90\x49"},
-                                 /* 2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz */
+    .id                        = {"\xcf\x79\x46\xee\x3c\xf5\x25\x54\x0a\x0d\xdf\x28\xaa\x38\x78\x29\x49\x4a\xbe\x6c\x15\x31\x49\x8d\xa0\xaa\x4d\x7e\xf0\x72\x80\x00"},
+                                 /* ExtendProgCheckedWi11BeDe1eted11111111111111 */
     .name                      = "enable_extend_program_checked",
-    .cleaned_up                = 0 },
+    .cleaned_up                = 0,
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, require_static_nonce_account)>>3,
     .id                        = {"\x60\x72\xd6\xf8\xba\xbf\xe3\xa9\x21\x5b\x69\xfe\xc0\xa5\x38\xd5\xb2\xf6\xdf\x47\xd8\xa8\x64\xfe\x01\x57\x49\x68\xd3\xf6\xb9\x84"},
@@ -1900,7 +1901,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_NAME      fd_feature_id_lookup
 #define MAP_PERFECT_LG_TBL_SZ 12
 #define MAP_PERFECT_T         fd_feature_id_lookup_entry_t
-#define MAP_PERFECT_HASH_C    50724U
+#define MAP_PERFECT_HASH_C    13394U
 #define MAP_PERFECT_KEY_T     ulong
 #define MAP_PERFECT_ZERO_KEY  0UL
 
@@ -1994,7 +1995,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_87  0xf3ee1d3b0fcfec0cUL, .val = &ids[87]
 #define MAP_PERFECT_88  0xfc0fb9c317b6c16bUL, .val = &ids[88]
 #define MAP_PERFECT_89  0x562011e7dbadd982UL, .val = &ids[89]
-#define MAP_PERFECT_90  0x5458f71cc7cd31e0UL, .val = &ids[90]
+#define MAP_PERFECT_90  0x4d7d107dc8dd4e05UL, .val = &ids[90]
 #define MAP_PERFECT_91  0x606490c1431ae278UL, .val = &ids[91]
 #define MAP_PERFECT_92  0xd151c2100e71455bUL, .val = &ids[92]
 #define MAP_PERFECT_93  0x2fdc300bd0720815UL, .val = &ids[93]
@@ -2142,7 +2143,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_235 0xec3a4c069e71cb0eUL, .val = &ids[235]
 #define MAP_PERFECT_236 0x2e9fa2046b77cb0eUL, .val = &ids[236]
 #define MAP_PERFECT_237 0xe72f76507222e3bbUL, .val = &ids[237]
-#define MAP_PERFECT_238 0x7170cf84367fbb1aUL, .val = &ids[238]
+#define MAP_PERFECT_238 0x5425f53cee4679cfUL, .val = &ids[238]
 #define MAP_PERFECT_239 0xa9e3bfbaf8d67260UL, .val = &ids[239]
 #define MAP_PERFECT_240 0x3711b30f40730240UL, .val = &ids[240]
 #define MAP_PERFECT_241 0xc1309d1b0ae3e80cUL, .val = &ids[241]
