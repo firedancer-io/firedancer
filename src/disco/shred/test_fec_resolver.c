@@ -730,7 +730,7 @@ test_slot_old( void ) {
   /* Insert depth more (without spilling) which shows that it was actually
      evicted. Repeat 4 times to fill the done_map. */
   meta->parent_offset = 1UL;
-  fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 1UL, meta );
+  fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 2UL, meta );
   for( ulong j=0UL; j<4UL; j++ ) {
     fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set+2*j,   chained_merkle_root );
     fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+2*j+1, chained_merkle_root );
