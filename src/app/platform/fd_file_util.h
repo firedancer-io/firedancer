@@ -87,4 +87,10 @@ char *
 fd_file_util_read_all( char const * path,
                        ulong *      out_sz );
 
+char *
+fd_file_util_read_cstr( char const * path,
+                        char *       dst,
+                        ulong        dst_max,
+                        ulong *      dst_len );
+
 #endif /* HEADER_fd_src_app_platform_fd_file_util_h */
