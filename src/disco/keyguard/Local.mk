@@ -2,6 +2,8 @@ ifdef FD_HAS_HOSTED
 ifdef FD_HAS_LINUX
 $(call add-hdrs,fd_keyguard.h)
 $(call add-objs,fd_keyguard_authorize fd_keyguard_match,fd_disco)
+$(call make-unit-test,test_keyguard,test_keyguard,fd_disco fd_flamenco fd_tls fd_ballet fd_util)
+$(call run-unit-test,test_keyguard)
 
 $(call add-hdrs,fd_keyguard_client.h)
 $(call add-objs,fd_keyguard_client,fd_disco)
