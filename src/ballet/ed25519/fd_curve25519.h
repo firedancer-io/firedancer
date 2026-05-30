@@ -35,6 +35,22 @@ fd_ed25519_point_add( fd_ed25519_point_t *       r,
                       fd_ed25519_point_t const * a,
                       fd_ed25519_point_t const * b );
 
+/* fd_ed25519_point_add_precomputed computes r = a + b, and returns r,
+   assuming that b is in the precomputed form returned by
+   fd_curve25519_into_precomputed */
+fd_ed25519_point_t *
+fd_ed25519_point_add_precomputed( fd_ed25519_point_t *       r,
+                                  fd_ed25519_point_t const * a,
+                                  fd_ed25519_point_t const * b );
+
+/* fd_ed25519_point_sub_precomputed computes r = a - b, and returns r,
+   assuming that b is in the precomputed form returned by
+   fd_curve25519_into_precomputed */
+fd_ed25519_point_t *
+fd_ed25519_point_sub_precomputed( fd_ed25519_point_t *       r,
+                                  fd_ed25519_point_t const * a,
+                                  fd_ed25519_point_t const * b );
+
 /* fd_ed25519_point_dbln computes r = 2^n a, and returns r.
    More efficient than n fd_ed25519_point_add. */
 fd_ed25519_point_t *
@@ -125,7 +141,7 @@ fd_ed25519_point_eq( fd_ed25519_point_t const * a,
 /* fd_ed25519_point_eq returns 1 if a == b, 0 otherwise.
    b is a point with Z==1, e.g. a decompressed point. */
 int
-fd_ed25519_point_eq_z1( fd_ed25519_point_t const * a,
+fd_ed25519_point_affine_eq( fd_ed25519_point_t const * a,
                         fd_ed25519_point_t const * b ); /* b.Z == 1, e.g. a decompressed point */
 
 /* fd_ed25519_scalar_validate is an alias of fd_curve25519_scalar_validate

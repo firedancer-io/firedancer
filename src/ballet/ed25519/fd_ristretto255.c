@@ -1,5 +1,10 @@
 #include "fd_ristretto255.h"
 
+#define FD_RISTRETTO255_PIPPENGER_THRESHOLD (128UL)
+#define FD_RISTRETTO255_PIPPENGER_BATCH_SZ  (1024UL)
+#define FD_RISTRETTO255_PIPPENGER_DIGITS    (65UL)
+#define FD_RISTRETTO255_PIPPENGER_BUCKETS   (128UL)
+
 fd_ristretto255_point_t *
 fd_ristretto255_point_frombytes( fd_ristretto255_point_t * h,
                                  uchar const              buf[ 32 ] ) {
@@ -151,85 +156,112 @@ fd_ristretto255_point_tobytes( uchar                           buf[ 32 ],
   return buf;
 }
 
-/* Elligator2 map to ristretto group:
-   https://ristretto.group/formulas/elligator.html
-   This follows closely the golang implementation:
-   https://github.com/gtank/ristretto255/blob/v0.1.2/ristretto255.go#L88 */
-fd_ristretto255_point_t *
-fd_ristretto255_map_to_curve( fd_ristretto255_point_t * h,
-                              uchar const               buf[ 32 ] ) {
-  /* r = SQRT_M1 * t^2 */
-  fd_f25519_t r0[1];
-  fd_f25519_t r[1];
-  fd_f25519_frombytes( r0, buf );
-  fd_f25519_mul( r, fd_f25519_sqrtm1, fd_f25519_sqr( r, r0 ) );
+static void
+fd_ristretto255_scalar_radix_2w( schar       digits[ FD_RISTRETTO255_PIPPENGER_DIGITS ],
+                                 uchar const s     [ 32 ],
+                                 uint        w ) {
+  for( ulong i=0UL; i<FD_RISTRETTO255_PIPPENGER_DIGITS; i++ ) digits[i] = (schar)0;
 
-  /* u = (r + 1) * ONE_MINUS_D_SQ */
-  fd_f25519_t u[1];
-  fd_f25519_add( u, r, fd_f25519_one );
-  fd_f25519_mul( u, u, fd_f25519_one_minus_d_sq ); //-> using mul2
+  ulong scalar[4];
+  memcpy( scalar, s, 32UL );
 
-  /* c = -1 */
-  fd_f25519_t c[1];
-  fd_f25519_set( c, fd_f25519_minus_one );
+  ulong const radix       = 1UL << w;
+  ulong const window_mask = radix - 1UL;
+  ulong       carry       = 0UL;
+  ulong const digit_cnt   = (256UL + (ulong)w - 1UL) / (ulong)w;
 
-  /* v = (c - r*D) * (r + D) */
-  fd_f25519_t v[1], r_plus_d[1];
-  fd_f25519_add( r_plus_d, r, fd_f25519_d );
-  fd_f25519_mul( v, r, fd_f25519_d ); //-> using mul2
-  // fd_f25519_mul2( v, r, fd_f25519_d,
-  //                 u, u, fd_f25519_one_minus_d_sq );
-  fd_f25519_sub( v, c, v );
-  fd_f25519_mul( v, v, r_plus_d );
+  /* Signed radix-2^w: s = sum_i digits[i] 2^(wi), with digits centered near 0. */
+  for( ulong i=0UL; i<digit_cnt; i++ ) {
+    ulong const bit_off = i * (ulong)w;
+    ulong const limb    = bit_off >> 6;
+    uint  const bit_idx = (uint)(bit_off & 63UL);
 
-  /* (was_square, s) = SQRT_RATIO_M1(u, v) */
-  fd_f25519_t s[1];
-  uchar was_square = (uchar)fd_f25519_sqrt_ratio( s, u, v );
+    ulong buffer = scalar[limb] >> bit_idx;
+    if( FD_UNLIKELY( (bit_idx + w > 64U) & (limb < 3UL) ) ) {
+      buffer |= scalar[limb+1UL] << (64U - bit_idx);
+    }
 
-  /* s_prime = -CT_ABS(s*r0) */
-  fd_f25519_t s_prime[1];
-  fd_f25519_neg_abs( s_prime, fd_f25519_mul( s_prime, s, r0 ) );
+    ulong const coef       = carry + (buffer & window_mask);
+    ulong const next_carry = (coef + (radix >> 1)) >> w;
+    digits[i] = (schar)((long)coef - (long)(next_carry << w));
+    carry = next_carry;
+  }
 
-	/* s = CT_SELECT(s IF was_square ELSE s_prime) */
-  fd_f25519_if( s, was_square, s, s_prime );
-	/* c = CT_SELECT(c IF was_square ELSE r) */
-  fd_f25519_if( c, was_square, c, r );
+  digits[digit_cnt] = (schar)carry;
+}
 
-  /* N = c * (r - 1) * D_MINUS_ONE_SQ - v */
-  fd_f25519_t n[1];
-  fd_f25519_mul( n, c, fd_f25519_sub( n, r, fd_f25519_one ) );
-  fd_f25519_sub( n, fd_f25519_mul( n, n, fd_f25519_d_minus_one_sq ), v );
+static fd_ristretto255_point_t *
+fd_ristretto255_multi_scalar_mul_pippenger( fd_ristretto255_point_t *      r,
+                                            uchar const                    n[], /* sz * 32 */
+                                            fd_ristretto255_point_t const  a[], /* sz */
+                                            ulong                          sz ) {
+  schar digits[ FD_RISTRETTO255_PIPPENGER_BATCH_SZ ][ FD_RISTRETTO255_PIPPENGER_DIGITS ];
 
-  /* w0 = 2 * s * v
-     w1 = N * SQRT_AD_MINUS_ONE
-     w2 = 1 - s^2
-     w3 = 1 + s^2 */
-  fd_f25519_t s2[1];
-  fd_f25519_sqr( s2, s );
-  fd_f25519_t w0[1], w1[1], w2[1], w3[1];
-  fd_f25519_mul2( w0,s,v, w1,n,fd_f25519_sqrt_ad_minus_one );
-  fd_f25519_add( w0, w0, w0 );
-  // fd_f25519_mul( w1, n, sqrt_ad_minus_one );
-  fd_f25519_sub( w2, fd_f25519_one, s2 );
-  fd_f25519_add( w3, fd_f25519_one, s2 );
+  uint const w = (uint)( (sz<700UL) ? 6U : (sz<800UL) ? 7U : 8U );
+  ulong const digit_cnt  = ((256UL + (ulong)w - 1UL) / (ulong)w) + 1UL;
+  ulong const bucket_cnt = 1UL << (w-1U);
 
-  // fd_f25519_mul( h->X, w0, w3 );
-  // fd_f25519_mul( h->Y, w2, w1 );
-  // fd_f25519_mul( h->Z, w1, w3 );
-  // fd_f25519_mul( h->T, w0, w2 );
-  fd_f25519_t x[1], y[1], z[1], t[1];
-  fd_f25519_mul4( x,w0,w3, y,w2,w1, z,w1,w3, t,w0,w2 );
-  return fd_ed25519_point_from( h, x, y, z, t );
+  for( ulong j=0UL; j<sz; j++ ) fd_ristretto255_scalar_radix_2w( digits[j], &n[32UL*j], w );
+
+  fd_ristretto255_point_t buckets[ FD_RISTRETTO255_PIPPENGER_BUCKETS ];
+  fd_ristretto255_point_t running[1];
+  fd_ristretto255_point_t column [1];
+
+  fd_ristretto255_point_set_zero( r );
+  for( ulong fwd=0UL; fwd<digit_cnt; fwd++ ) {
+    ulong const digit_idx = digit_cnt - 1UL - fwd;
+
+    /* Horner form over radix 2^w: acc = 2^w acc + current_column. */
+    if( fwd ) fd_ed25519_point_dbln( r, r, (int)w );
+
+    for( ulong i=0UL; i<bucket_cnt; i++ ) fd_ristretto255_point_set_zero( &buckets[i] );
+
+    /* Bucket k holds the signed sum of points whose digit has magnitude k+1. */
+    for( ulong j=0UL; j<sz; j++ ) {
+      int digit = (int)digits[j][digit_idx];
+      if( digit>0 ) {
+        ulong bucket_idx = (ulong)( digit - 1 );
+        fd_ristretto255_point_add( &buckets[ bucket_idx ], &buckets[ bucket_idx ], &a[j] );
+      } else if( digit<0 ) {
+        ulong bucket_idx = (ulong)( -digit - 1 );
+        fd_ristretto255_point_sub( &buckets[ bucket_idx ], &buckets[ bucket_idx ], &a[j] );
+      }
+    }
+
+    fd_ristretto255_point_set_zero( running );
+    fd_ristretto255_point_set_zero( column  );
+    /* Summation by parts: sum_k (k+1)B_k from descending running sums. */
+    for( ulong i=bucket_cnt; i; i-- ) {
+      fd_ristretto255_point_add( running, running, &buckets[i-1UL] );
+      fd_ristretto255_point_add( column,  column,  running          );
+    }
+
+    fd_ristretto255_point_add( r, r, column );
+  }
+
+  return r;
 }
 
 fd_ristretto255_point_t *
-fd_ristretto255_hash_to_curve( fd_ristretto255_point_t * h,
-                               uchar const               s[ 64 ] ) {
-  fd_ristretto255_point_t p1[1];
-  fd_ristretto255_point_t p2[1];
+fd_ristretto255_multi_scalar_mul( fd_ristretto255_point_t *      r,
+                                  uchar const                    n[], /* sz * 32 */
+                                  fd_ristretto255_point_t const  a[], /* sz */
+                                  ulong                          sz ) {
+  if( FD_LIKELY( sz<=FD_RISTRETTO255_PIPPENGER_THRESHOLD ) ) {
+    return fd_ed25519_multi_scalar_mul( r, n, a, sz );
+  }
 
-  fd_ristretto255_map_to_curve( p1, s    );
-  fd_ristretto255_map_to_curve( p2, s+32 );
+  fd_ristretto255_point_set_zero( r );
+  for( ulong off=0UL; off<sz; off+=FD_RISTRETTO255_PIPPENGER_BATCH_SZ ) {
+    ulong const batch_sz = fd_ulong_min( sz-off, FD_RISTRETTO255_PIPPENGER_BATCH_SZ );
+    fd_ristretto255_point_t tmp[1];
+    if( batch_sz<=FD_RISTRETTO255_PIPPENGER_THRESHOLD ) {
+      fd_ed25519_multi_scalar_mul( tmp, &n[32UL*off], &a[off], batch_sz );
+    } else {
+      fd_ristretto255_multi_scalar_mul_pippenger( tmp, &n[32UL*off], &a[off], batch_sz );
+    }
+    fd_ristretto255_point_add( r, r, tmp );
+  }
 
-  return fd_ristretto255_point_add(h, p1, p2);
+  return r;
 }
