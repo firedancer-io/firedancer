@@ -84,6 +84,7 @@ tmp_key_file1( uchar const content[ 64 ] ) {
   static char path[ 28 ];
   strcpy( path, "/tmp/fd_keyload_test_XXXXXX" );
   int fd = mkstemp( path );
+  FD_TEST( fd>=0 );
   FILE * f = fdopen( fd, "wb" );
   FD_TEST( f );
   FD_TEST( fwrite( json, 1, len, f )==len );
@@ -146,7 +147,7 @@ test_madvise( void ) {
      VmFlags: rd mr mw me sd */
 
   char const * path = tmp_key_file();
-  uchar * key = fd_keyload_load( path, 0 );
+  uchar const * key = fd_keyload_load( path, 0 );
   FD_TEST( key );
   FD_TEST( !unlink( path ) );
 
@@ -173,8 +174,8 @@ test_madvise( void ) {
     char * tokens[ 16 ];
     ulong flag_cnt = fd_cstr_tokenize( tokens, 16, line+9, ' ' );
     for( ulong i=0UL; i<flag_cnt; i++ ) {
-      if( strcmp( tokens[ i ], "dd" )==0 ) flags.dd = 1;
-      if( strcmp( tokens[ i ], "wf" )==0 ) flags.wf = 1;
+      if( strncmp( tokens[ i ], "dd", 2 )==0 ) flags.dd = 1;
+      if( strncmp( tokens[ i ], "wf", 2 )==0 ) flags.wf = 1;
     }
     break;
   }
@@ -182,6 +183,7 @@ test_madvise( void ) {
   if( FD_UNLIKELY( !flags.wf ) ) FD_LOG_ERR(( "key page missing MADV_WIPEONFORK" ));
 
   fd_keyload_unload( key, 0 );
+  FD_TEST( !fclose( maps ) );
 }
 
 int
