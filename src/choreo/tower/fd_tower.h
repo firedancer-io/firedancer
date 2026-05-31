@@ -644,8 +644,8 @@ fd_tower_blocks_canonical_block_id( fd_tower_t * tower,
 
 void
 fd_tower_from_vote_acc( fd_tower_vote_t * votes,
-                        ulong           * root,
-                        uchar const     * vote_acc );
+                        ulong *           root,
+                        uchar const       data[ static FD_VOTE_STATE_DATA_MAX ] );
 
 /* fd_tower_with_lat_from_vote_acc deserializes the vote account into
    tower, including slot latency (when available) for tower votes.
@@ -655,7 +655,7 @@ fd_tower_from_vote_acc( fd_tower_vote_t * votes,
 
 ulong
 fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_MAX ],
-                                 uchar const *      vote_acc );
+                                 uchar const        data [ static FD_VOTE_STATE_DATA_MAX ] );
 
 /* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
    instruction and serializes it into a Solana transaction.  Assumes

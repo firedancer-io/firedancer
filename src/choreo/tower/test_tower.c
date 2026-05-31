@@ -207,19 +207,15 @@ test_tower_from_vote_acc_data_current( void ) {
 
 void
 mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_vtr_t * out, fd_tower_vote_t * votes_mem ) {
-  fd_vote_acc_t voter = {
-    .kind = FD_VOTE_ACC_V3,
-    .v3 = {
-      .node_pubkey = *pubkey,
-      .votes_cnt = 1,
-      .votes = {
-        { .slot = vote, .conf = conf },
-      },
-    }
-  };
+  uchar data[ FD_VOTE_STATE_DATA_MAX ] = {0};
+  fd_vote_acc_t * voter = (fd_vote_acc_t *)fd_type_pun( data );
+  voter->kind           = FD_VOTE_ACC_V3;
+  voter->v3.node_pubkey = *pubkey;
+  voter->v3.votes_cnt   = 1;
+  voter->v3.votes[0]    = (fd_vote_acc_vote_t){ .slot = vote, .conf = conf };
 
   fd_tower_vote_remove_all( votes_mem );
-  fd_tower_from_vote_acc( votes_mem, &out->root, (uchar const *)&voter );
+  fd_tower_from_vote_acc( votes_mem, &out->root, data );
   out->votes    = votes_mem;
   out->stake    = stake;
   out->vote_acc = *pubkey;

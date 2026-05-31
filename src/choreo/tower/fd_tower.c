@@ -247,7 +247,7 @@ fd_tower_delete( void * shtower ) {
 
 static fd_vote_acc_vote_t const *
 v4_off( fd_vote_acc_t const * voter ) {
-  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
+  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + !!voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
 }
 
 /* expiration calculates the expiration slot of vote given a slot and
@@ -1150,35 +1150,37 @@ fd_tower_reconcile( fd_tower_t      * tower,
 void
 fd_tower_from_vote_acc( fd_tower_vote_t * votes,
                         ulong           * root,
-                        uchar  const    * vote_acc ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
-  uint                  kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
+                        uchar const data[ static FD_VOTE_STATE_DATA_MAX ] ) {
+  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( data );
+  uint                  kind  = fd_uint_load_4_fast( data );
+  ulong                 cnt   = fd_vote_acc_vote_cnt( data );
+  for( ulong i=0; i<cnt; i++ ) {
     switch( kind ) {
     case FD_VOTE_ACC_V4: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
     case FD_VOTE_ACC_V3: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
     case FD_VOTE_ACC_V2: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
-    default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
+    default: *root = ULONG_MAX; return;
     }
   }
-  *root = fd_vote_acc_root_slot( vote_acc );
+  *root = fd_vote_acc_root_slot( data );
 }
 
 ulong
 fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_MAX ],
-                                 uchar const *      vote_acc ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
-  uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
+                                 uchar const        data [ static FD_VOTE_STATE_DATA_MAX ] ) {
+  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( data );
+  uint               kind  = fd_uint_load_4_fast( data );
+  ulong              cnt   = fd_vote_acc_vote_cnt( data );
+  for( ulong i=0; i<cnt; i++ ) {
     switch( kind ) {
     case FD_VOTE_ACC_V4: tower[ i ] = (fd_vote_acc_vote_t){ .latency = v4_off( voter )[i].latency, .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf }; break;
     case FD_VOTE_ACC_V3: tower[ i ] = (fd_vote_acc_vote_t){ .latency = voter->v3.votes[i].latency, .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf }; break;
     case FD_VOTE_ACC_V2: tower[ i ] = (fd_vote_acc_vote_t){ .latency = UCHAR_MAX,                  .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf }; break;
-    default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
+    default: return 0UL;
     }
   }
 
-  return fd_vote_acc_vote_cnt( vote_acc );
+  return cnt;
 }
 
 void
@@ -1394,7 +1396,7 @@ void
 fd_tower_count_vote( fd_tower_t *        tower,
                      fd_pubkey_t const * vote_acc,
                      ulong               stake,
-                     uchar const         data[static FD_VOTE_STATE_DATA_MAX] ) {
+                     uchar const         data[ static FD_VOTE_STATE_DATA_MAX ] ) {
   fd_tower_vtr_t * vtr = fd_tower_vtr_push_tail_nocopy( tower->vtrs );
   vtr->vote_acc        = *vote_acc;
   vtr->stake           = stake;

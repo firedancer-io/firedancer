@@ -1,9 +1,16 @@
 #ifndef HEADER_fd_src_choreo_tower_fd_tower_serdes_h
 #define HEADER_fd_src_choreo_tower_fd_tower_serdes_h
 
+/* fd_tower_serdes.h provides APIs for serializing and deserializing
+   vote accounts and instructions. */
+
 #include "../fd_choreo_base.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
+
+/* FD_VOTE_IX_KIND_* give vote program instruction discriminants (first
+   four bytes of instruction data).  Older instruction types are ignored
+   by tower. */
 
 #define FD_VOTE_IX_KIND_TOWER_SYNC        (14)
 #define FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH (15)
@@ -57,7 +64,12 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           uchar const *                   buf,
                           ulong                           buf_sz );
 
-#define FD_VOTE_STATE_DATA_MAX 3762UL
+/* A buffer with capacity FD_VOTE_STATE_DATA_MAX can fit any valid vote
+   account supported by tower (v2, v3, and v4). */
+
+#define FD_VOTE_STATE_DATA_MAX (3762UL)
+
+/* FD_VOTE_ACC_V* give vote account/state versions. */
 
 #define FD_VOTE_ACC_V2 (1)
 #define FD_VOTE_ACC_V3 (2)
@@ -137,21 +149,22 @@ struct __attribute__((packed)) fd_vote_acc {
 };
 typedef struct fd_vote_acc fd_vote_acc_t;
 
+FD_PROTOTYPES_BEGIN
+
+/* fd_vote_acc_vote_cnt peeks the number of votes from a vote account's
+   data region.  Returns 0UL if data is obviously invalid.  Might return
+   an impossible count (exceeding FD_VOTE_STATE_DATA_MAX) if data
+   contains a corrupt vote state. */
+
 ulong
-fd_vote_acc_vote_cnt( uchar const * buf );
+fd_vote_acc_vote_cnt( uchar const data[ static FD_VOTE_STATE_DATA_MAX ] );
 
-/* fd_vote_acc_vote_slot takes a voter's vote account data and returns
-   the voter's most recent vote slot in the tower.  Returns ULONG_MAX if
-   they have an empty tower. */
-
-FD_FN_PURE ulong
-fd_vote_acc_vote_slot( uchar const * buf );
-
-/* fd_vote_acc_root_slot takes a voter's vote account data and returns
-   the voter's root slot.  Returns ULONG_MAX if they don't have one. */
+/* fd_vote_acc_root_slot peeks a voter's root slot from a vote account's
+   data region.  Returns ULONG_MAX if there is no root slot, or data is
+   invalid. */
 
 FD_FN_PURE ulong
-fd_vote_acc_root_slot( uchar const * buf );
+fd_vote_acc_root_slot( uchar const data[ static FD_VOTE_STATE_DATA_MAX ] );
 
 /* fd_txn_parse_simple_vote optionally extracts the vote account pubkey,
    identity pubkey, and largest voted-for slot from a vote transaction. */
@@ -162,5 +175,7 @@ fd_txn_parse_simple_vote( fd_txn_t const * txn,
                           fd_pubkey_t *    opt_identity,
                           fd_pubkey_t *    opt_vote_acct,
                           ulong *          opt_vote_slot );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_serdes_h */
