@@ -104,7 +104,7 @@ test_tower_from_vote_acc_data_v1_14_11( void ) {
   fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch, 2, 2, 0 ) );
   FD_TEST( tower );
 
-  fd_tower_from_vote_acc( tower->votes, &tower->root,vote_acc_v2 );
+  fd_tower_from_vote_acc( tower->votes, &tower->root, vote_acc_v2, vote_acc_v2_sz );
 
   fd_tower_vote_t expected_votes[31] = {
     { 159175525, 31 },
@@ -157,7 +157,7 @@ test_tower_from_vote_acc_data_current( void ) {
   fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch, 2, 2, 0 ) );
   FD_TEST( tower );
 
-  fd_tower_from_vote_acc( tower->votes, &tower->root,vote_acc_v3 );
+  fd_tower_from_vote_acc( tower->votes, &tower->root, vote_acc_v3, vote_acc_v3_sz );
 
   fd_tower_vote_t expected_votes[31] = {
     { 285373759, 31 },
@@ -219,7 +219,7 @@ mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_
   };
 
   fd_tower_vote_remove_all( votes_mem );
-  fd_tower_from_vote_acc( votes_mem, &out->root, (uchar const *)&voter );
+  fd_tower_from_vote_acc( votes_mem, &out->root, (uchar const *)&voter, sizeof(fd_vote_acc_t) );
   out->votes    = votes_mem;
   out->stake    = stake;
   out->vote_acc = *pubkey;
@@ -897,7 +897,7 @@ test_vtr_valid_join( fd_wksp_t * wksp ) {
     voter->v3.node_pubkey = pks[i];
     voter->v3.votes_cnt   = 1;
     voter->v3.votes[0]    = (fd_vote_acc_vote_t){ .slot = i + 1, .conf = 1 };
-    fd_tower_count_vote( tower, &pks[i], 100, data );
+    fd_tower_count_vote( tower, &pks[i], 100, data, sizeof(data) );
   }
 
   /* Every vtr in the deque must have a valid (non-NULL) votes join. */

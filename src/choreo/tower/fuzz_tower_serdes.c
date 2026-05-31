@@ -8,6 +8,7 @@
 
 #include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
+#include "fd_tower.h"
 #include "fd_tower_serdes.h"
 
 int
@@ -25,6 +26,8 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         data_sz ) {
+
+  /* Decode/encode round-trip for vote instruction data */
 
   fd_compact_tower_sync_serde_t serde[1];
   memset( serde, 0, sizeof(fd_compact_tower_sync_serde_t) );
@@ -65,5 +68,18 @@ LLVMFuzzerTestOneInput( uchar const * data,
   assert( !memcmp( &serde->block_id, &serde2->block_id, sizeof(fd_hash_t) ) );
 
   FD_FUZZ_MUST_BE_COVERED;
+
+  /* Also interpret input as vote account */
+
+  fd_vote_acc_desc_t desc[1];
+  if( fd_vote_acc_desc( desc, data, data_sz ) ) {
+    assert( desc->kind>=FD_VOTE_ACC_V2 && desc->kind<=FD_VOTE_ACC_V4 );
+    assert( desc->vote_cnt <= FD_TOWER_VOTE_MAX );
+    assert( desc->vote_stride );
+    ulong vote0 = (ulong)fd_vote_acc_desc_vote( desc, data, 0UL );
+    ulong vote1 = vote0 + ( (ulong)desc->vote_cnt * (ulong)desc->vote_stride );
+    assert( vote0>=(ulong)data && vote1<=(ulong)data+data_sz );
+  }
+
   return 0;
 }

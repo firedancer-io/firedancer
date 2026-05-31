@@ -1,9 +1,16 @@
 #ifndef HEADER_fd_src_choreo_tower_fd_tower_serdes_h
 #define HEADER_fd_src_choreo_tower_fd_tower_serdes_h
 
+/* fd_tower_serdes.h provides APIs for serializing and deserializing
+   vote accounts and instructions. */
+
 #include "../fd_choreo_base.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../flamenco/runtime/program/vote/fd_vote_codec.h"
+
+/* FD_VOTE_IX_KIND_* give vote program instruction discriminants (first
+   four bytes of instruction data).  Older instruction types are ignored
+   by tower. */
 
 #define FD_VOTE_IX_KIND_TOWER_SYNC        (14)
 #define FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH (15)
@@ -57,7 +64,12 @@ fd_compact_tower_sync_de( fd_compact_tower_sync_serde_t * serde,
                           uchar const *                   buf,
                           ulong                           buf_sz );
 
-#define FD_VOTE_STATE_DATA_MAX 3762UL
+/* A buffer with capacity FD_VOTE_STATE_DATA_MAX can fit any valid vote
+   account supported by tower (v2, v3, and v4). */
+
+#define FD_VOTE_STATE_DATA_MAX (3762UL)
+
+/* FD_VOTE_ACC_V* give vote account/state versions. */
 
 #define FD_VOTE_ACC_V2 (1)
 #define FD_VOTE_ACC_V3 (2)
@@ -92,6 +104,12 @@ struct __attribute__((packed)) fd_vote_acc_vote {
 };
 typedef struct fd_vote_acc_vote fd_vote_acc_vote_t;
 
+struct __attribute__((packed)) fd_vote_acc_vote_v2 {
+  ulong slot;
+  uint  conf;
+};
+typedef struct fd_vote_acc_vote_v2 fd_vote_acc_vote_v2_t;
+
 struct __attribute__((packed)) fd_vote_acc {
   uint kind;
   union __attribute__((packed)) {
@@ -100,10 +118,7 @@ struct __attribute__((packed)) fd_vote_acc {
       fd_pubkey_t authorized_withdrawer;
       uchar       commission;
       ulong       votes_cnt;
-      struct __attribute__((packed)) {
-        ulong slot;
-        uint  conf;
-      } votes[31]; /* variable-length */
+      fd_vote_acc_vote_v2_t votes[31]; /* variable-length */
       /* uchar root_option */
       /* ulong root */
     } v2;
@@ -113,7 +128,7 @@ struct __attribute__((packed)) fd_vote_acc {
       fd_pubkey_t        authorized_withdrawer;
       uchar              commission;
       ulong              votes_cnt;
-      fd_vote_acc_vote_t    votes[31]; /* variable-length */
+      fd_vote_acc_vote_t votes[31]; /* variable-length */
       /* uchar root_option */
       /* ulong root */
     } v3;
@@ -137,21 +152,42 @@ struct __attribute__((packed)) fd_vote_acc {
 };
 typedef struct fd_vote_acc fd_vote_acc_t;
 
-ulong
-fd_vote_acc_vote_cnt( uchar const * buf );
+/* fd_vote_acc_desc is a lightweight vote account descriptor for zero-
+   copy inspection of a vote account. */
 
-/* fd_vote_acc_vote_slot takes a voter's vote account data and returns
-   the voter's most recent vote slot in the tower.  Returns ULONG_MAX if
-   they have an empty tower. */
+struct fd_vote_acc_desc {
+  int    kind;        /* FD_VOTE_ACC_* */
+  ushort votes_off;   /* offset to vote array */
+  uchar  vote_cnt;    /* number of votes (max FD_TOWER_VOTE_MAX) */
+  uchar  vote_stride; /* byte stride between votes */
+  ulong  root_slot;   /* ULONG_MAX if not set */
+};
+typedef struct fd_vote_acc_desc fd_vote_acc_desc_t;
 
-FD_FN_PURE ulong
-fd_vote_acc_vote_slot( uchar const * buf );
+FD_PROTOTYPES_BEGIN
 
-/* fd_vote_acc_root_slot takes a voter's vote account data and returns
-   the voter's root slot.  Returns ULONG_MAX if they don't have one. */
+/* fd_vote_acc_desc recovers offsets to vote account bits given
+   serialized data.  Does minimal input validation.  Initializes *desc
+   and returns desc on success, or NULL on failure (invalid or
+   unsupported vote account data). */
 
-FD_FN_PURE ulong
-fd_vote_acc_root_slot( uchar const * buf );
+fd_vote_acc_desc_t *
+fd_vote_acc_desc( fd_vote_acc_desc_t * desc,
+                  uchar const *        data,
+                  ulong                data_sz );
+
+/* fd_vote_acc_desc_vote returns a pointer to a vote in a serialized
+   vote account.  The return type depends on desc->kind:
+   - FD_VOTE_ACC_V2 -> fd_vote_acc_vote_v2_t
+   - FD_VOTE_ACC_V3 -> fd_vote_acc_vote_t
+   - FD_VOTE_ACC_V4 -> fd_vote_acc_vote_t */
+
+FD_FN_PURE static inline void const *
+fd_vote_acc_desc_vote( fd_vote_acc_desc_t const * desc,
+                       uchar const *              data,
+                       ulong                      idx ) {
+  return data + desc->votes_off + idx*desc->vote_stride;
+}
 
 /* fd_txn_parse_simple_vote optionally extracts the vote account pubkey,
    identity pubkey, and largest voted-for slot from a vote transaction. */
@@ -162,5 +198,7 @@ fd_txn_parse_simple_vote( fd_txn_t const * txn,
                           fd_pubkey_t *    opt_identity,
                           fd_pubkey_t *    opt_vote_acct,
                           ulong *          opt_vote_slot );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_serdes_h */

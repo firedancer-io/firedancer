@@ -1,8 +1,6 @@
 #include "fd_tower_serdes.h"
 #include "fd_tower.h"
 
-#define SHORTVEC 0
-
 #define DE( T, name ) do {                                \
     if( FD_UNLIKELY( buf_sz<sizeof(T) ) ) return -1;      \
     serde->name = *(T const *)fd_type_pun_const( buf );   \
@@ -139,51 +137,56 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
   return 0;
 }
 
-static fd_vote_acc_vote_t const *
-v4_off( fd_vote_acc_t const * voter ) {
-  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
-}
-
-ulong
-fd_vote_acc_vote_cnt( uchar const * vote_account_data ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  switch( voter->kind ) {
-  case FD_VOTE_ACC_V4: return fd_ulong_load_8( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) );
-  case FD_VOTE_ACC_V3: return voter->v3.votes_cnt;
-  case FD_VOTE_ACC_V2: return voter->v2.votes_cnt;
-  default: FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
+fd_vote_acc_desc_t *
+fd_vote_acc_desc( fd_vote_acc_desc_t * desc,
+                  uchar const *        data,
+                  ulong                data_sz ) {
+  if( FD_UNLIKELY( data_sz < sizeof(uint) ) ) return NULL;
+  uint kind = FD_LOAD( uint, data );
+  fd_vote_acc_t const * voter = fd_type_pun_const( data );
+  void const *  vote_cnt_p;
+  ulong         vote_stride;
+  switch( kind ) {
+  case FD_VOTE_ACC_V2:
+    vote_cnt_p  = &voter->v2.votes_cnt;
+    vote_stride = sizeof(fd_vote_acc_vote_v2_t);
+    break;
+  case FD_VOTE_ACC_V3:
+    vote_cnt_p  = &voter->v3.votes_cnt;
+    vote_stride = sizeof(fd_vote_acc_vote_t);
+    break;
+  case FD_VOTE_ACC_V4:
+    if( FD_UNLIKELY( (ulong)&voter->v4.has_bls_pubkey_compressed >= (ulong)data+data_sz ) ) return NULL;
+    vote_cnt_p  = voter->v4.bls_pubkey_compressed + (!!voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed));
+    vote_stride = sizeof(fd_vote_acc_vote_t);
+    break;
+  default:
+    return NULL;
   }
-}
-
-/* fd_vote_acc_vote_slot takes a voter's vote account data and returns the
-   voter's most recent vote slot in the tower.  Returns ULONG_MAX if
-   they have an empty tower. */
-
-ulong
-fd_vote_acc_vote_slot( uchar const * vote_account_data ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  ulong              cnt   = fd_vote_acc_vote_cnt( vote_account_data );
-  switch( voter->kind ) {
-  case FD_VOTE_ACC_V4: return cnt ? v4_off( voter )[cnt-1].slot : ULONG_MAX;
-  case FD_VOTE_ACC_V3: return cnt ? voter->v3.votes[cnt-1].slot : ULONG_MAX;
-  case FD_VOTE_ACC_V2: return cnt ? voter->v2.votes[cnt-1].slot : ULONG_MAX;
-  default: FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
+  if( FD_UNLIKELY( (ulong)vote_cnt_p+sizeof(ulong) > (ulong)data+data_sz ) ) return NULL;
+  ulong vote_cnt = FD_LOAD( ulong, vote_cnt_p );
+  /* FIXME silent truncation is questionable behavior */
+  vote_cnt = fd_ulong_min( vote_cnt, FD_TOWER_VOTE_MAX );
+  ulong vote_hi_p = (ulong)vote_cnt_p + sizeof(ulong) + vote_cnt*vote_stride;
+  if( FD_UNLIKELY( vote_hi_p > (ulong)data+data_sz ) ) return NULL;
+  /* Option<ulong> "root_slot" follows vote array */
+  ulong root_slot = ULONG_MAX;
+  if( FD_UNLIKELY( vote_hi_p+1UL > (ulong)data+data_sz ) ) return NULL;
+  int root_opt = FD_LOAD( uchar, (void const *)vote_hi_p );
+  if( root_opt==1 ) {
+    if( FD_UNLIKELY( vote_hi_p+9UL > (ulong)data+data_sz ) ) return NULL;
+    root_slot = FD_LOAD( ulong, (void const *)(vote_hi_p+1UL) );
+  } else if( FD_UNLIKELY( root_opt!=0 ) ) {
+    return NULL;
   }
-}
-
-/* fd_vote_acc_root_slot takes a voter's vote account data and returns the
-   voter's root slot.  Returns ULONG_MAX if they don't have a root. */
-
-ulong
-fd_vote_acc_root_slot( uchar const * vote_account_data ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
-  ulong              cnt   = fd_vote_acc_vote_cnt( vote_account_data );
-  switch( voter->kind ) {
-  case FD_VOTE_ACC_V4: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&v4_off( voter )[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&v4_off( voter )[cnt] + 1UL ) : ULONG_MAX; }
-  case FD_VOTE_ACC_V3: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->v3.votes[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->v3.votes[cnt] + 1UL ) : ULONG_MAX; }
-  case FD_VOTE_ACC_V2: { uchar root_option = fd_uchar_load_1_fast( (uchar *)&voter->v2.votes[cnt] ); return root_option ? fd_ulong_load_8_fast( (uchar *)&voter->v2.votes[cnt] + 1UL ) : ULONG_MAX; }
-  default:          FD_LOG_CRIT(( "unhandled kind %u", voter->kind ));
-  }
+  *desc = (fd_vote_acc_desc_t){
+    .kind        = (int)kind,
+    .votes_off   = (ushort)( (ulong)vote_cnt_p + sizeof(ulong) - (ulong)data ),
+    .vote_cnt    = (uchar)vote_cnt,
+    .vote_stride = (uchar)vote_stride,
+    .root_slot   = root_slot
+  };
+  return desc;
 }
 
 int
@@ -222,3 +225,6 @@ fd_txn_parse_simple_vote( fd_txn_t const * txn,
   }
   return 0;
 }
+
+#undef DE
+#undef SER

@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -243,11 +244,6 @@ fd_tower_delete( void * shtower ) {
   }
 
   return shtower;
-}
-
-static fd_vote_acc_vote_t const *
-v4_off( fd_vote_acc_t const * voter ) {
-  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
 }
 
 /* expiration calculates the expiration slot of vote given a slot and
@@ -1149,36 +1145,61 @@ fd_tower_reconcile( fd_tower_t      * tower,
 
 void
 fd_tower_from_vote_acc( fd_tower_vote_t * votes,
-                        ulong           * root,
-                        uchar  const    * vote_acc ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
-  uint                  kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
-    switch( kind ) {
-    case FD_VOTE_ACC_V4: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf } ); break;
-    case FD_VOTE_ACC_V3: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf } ); break;
-    case FD_VOTE_ACC_V2: fd_tower_vote_push_tail( votes, (fd_tower_vote_t){ .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf } ); break;
-    default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
-    }
+                        ulong *           root,
+                        uchar const *     data,
+                        ulong             data_sz ) {
+  fd_vote_acc_desc_t desc[1];
+  if( FD_UNLIKELY( !fd_vote_acc_desc( desc, data, data_sz ) ) ) {
+    *root = ULONG_MAX;
+    return;
   }
-  *root = fd_vote_acc_root_slot( vote_acc );
+  *root = desc->root_slot;
+  for( ulong i=0UL; i<desc->vote_cnt; i++ ) {
+    fd_tower_vote_t vote = {0};
+    switch( desc->kind ) {
+    case FD_VOTE_ACC_V2: {
+      fd_vote_acc_vote_v2_t const * v = fd_vote_acc_desc_vote( desc, data, i );
+      vote.slot = v->slot;
+      vote.conf = v->conf;
+      break;
+    }
+    case FD_VOTE_ACC_V3:
+    case FD_VOTE_ACC_V4: {
+      fd_vote_acc_vote_t const * v = fd_vote_acc_desc_vote( desc, data, i );
+      vote.slot = v->slot;
+      vote.conf = v->conf;
+      break;
+    }
+    }
+    fd_tower_vote_push_tail( votes, vote );
+  }
 }
 
 ulong
 fd_tower_with_lat_from_vote_acc( fd_vote_acc_vote_t tower[ static FD_TOWER_VOTE_MAX ],
-                                 uchar const *      vote_acc ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc );
-  uint               kind  = fd_uint_load_4_fast( vote_acc ); /* skip node_pubkey */
-  for( ulong i=0; i<fd_vote_acc_vote_cnt( vote_acc ); i++ ) {
-    switch( kind ) {
-    case FD_VOTE_ACC_V4: tower[ i ] = (fd_vote_acc_vote_t){ .latency = v4_off( voter )[i].latency, .slot = v4_off( voter )[i].slot, .conf = v4_off( voter )[i].conf }; break;
-    case FD_VOTE_ACC_V3: tower[ i ] = (fd_vote_acc_vote_t){ .latency = voter->v3.votes[i].latency, .slot = voter->v3.votes[i].slot, .conf = voter->v3.votes[i].conf }; break;
-    case FD_VOTE_ACC_V2: tower[ i ] = (fd_vote_acc_vote_t){ .latency = UCHAR_MAX,                  .slot = voter->v2.votes[i].slot, .conf = voter->v2.votes[i].conf }; break;
-    default:          FD_LOG_ERR(( "unsupported voter account version: %u", kind ));
+                                 uchar const *      data,
+                                 ulong              data_sz ) {
+  fd_vote_acc_desc_t desc[1];
+  if( FD_UNLIKELY( !fd_vote_acc_desc( desc, data, data_sz ) ) ) return 0UL;
+  assert( desc->vote_cnt <= FD_TOWER_VOTE_MAX );
+  switch( desc->kind ) {
+  case FD_VOTE_ACC_V2: {
+    for( ulong i=0UL; i<desc->vote_cnt; i++ ) {
+      fd_vote_acc_vote_v2_t const * v = fd_vote_acc_desc_vote( desc, data, i );
+      tower[ i ] = (fd_vote_acc_vote_t){
+        .slot    = v->slot,
+        .conf    = v->conf,
+        .latency = UCHAR_MAX
+      };
     }
+    break;
   }
-
-  return fd_vote_acc_vote_cnt( vote_acc );
+  case FD_VOTE_ACC_V3:
+  case FD_VOTE_ACC_V4:
+    fd_memcpy( tower, fd_vote_acc_desc_vote( desc, data, 0UL ), desc->vote_cnt * sizeof(fd_vote_acc_vote_t) );
+    break;
+  }
+  return desc->vote_cnt;
 }
 
 void
@@ -1394,12 +1415,13 @@ void
 fd_tower_count_vote( fd_tower_t *        tower,
                      fd_pubkey_t const * vote_acc,
                      ulong               stake,
-                     uchar const         data[static FD_VOTE_STATE_DATA_MAX] ) {
+                     uchar const *       data,
+                     ulong               data_sz ) {
   fd_tower_vtr_t * vtr = fd_tower_vtr_push_tail_nocopy( tower->vtrs );
   vtr->vote_acc        = *vote_acc;
   vtr->stake           = stake;
   fd_tower_vote_remove_all( vtr->votes );
-  fd_tower_from_vote_acc( vtr->votes, &vtr->root, data );
+  fd_tower_from_vote_acc( vtr->votes, &vtr->root, data, data_sz );
 }
 
 /* Block functions ********************************************************/

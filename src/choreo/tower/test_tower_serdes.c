@@ -8,21 +8,30 @@ FD_IMPORT_BINARY( vote_acc_v3, "src/choreo/tower/fixtures/vote_acc_v3.bin" );
 FD_IMPORT_BINARY( vote_acc_v4, "src/choreo/tower/fixtures/vote_acc_v4.bin" );
 
 void
-test_voter_v1_14_11( void ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc_v2 );
-  FD_TEST( voter->kind == FD_VOTE_ACC_V2 );
-  FD_TEST( fd_vote_acc_vote_cnt( vote_acc_v2 ) == 31 );
-  FD_TEST( fd_vote_acc_vote_slot( vote_acc_v2 ) != ULONG_MAX );
-  FD_TEST( fd_vote_acc_root_slot( vote_acc_v2 ) != ULONG_MAX );
+test_voter_v2( void ) {
+  fd_vote_acc_desc_t desc[1];
+  FD_TEST( fd_vote_acc_desc( desc, vote_acc_v2, vote_acc_v2_sz ) );
+  FD_TEST( desc->kind == FD_VOTE_ACC_V2 );
+  FD_TEST( desc->vote_cnt == 31 );
+  FD_TEST( desc->root_slot != ULONG_MAX );
 }
 
 void
-test_voter_current( void ) {
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc_v3 );
-  FD_TEST( voter->kind == FD_VOTE_ACC_V3 );
-  FD_TEST( fd_vote_acc_vote_cnt( vote_acc_v3 ) == 31 );
-  FD_TEST( fd_vote_acc_vote_slot( vote_acc_v3 ) != ULONG_MAX );
-  FD_TEST( fd_vote_acc_root_slot( vote_acc_v3 ) != ULONG_MAX );
+test_voter_v3( void ) {
+  fd_vote_acc_desc_t desc[1];
+  FD_TEST( fd_vote_acc_desc( desc, vote_acc_v3, vote_acc_v3_sz ) );
+  FD_TEST( desc->kind == FD_VOTE_ACC_V3 );
+  FD_TEST( desc->vote_cnt == 31 );
+  FD_TEST( desc->root_slot != ULONG_MAX );
+}
+
+void
+test_voter_v4( void ) {
+  fd_vote_acc_desc_t desc[1];
+  FD_TEST( fd_vote_acc_desc( desc, vote_acc_v4, vote_acc_v4_sz ) );
+  FD_TEST( desc->kind == FD_VOTE_ACC_V4 );
+  FD_TEST( desc->vote_cnt == 31 );
+  FD_TEST( desc->root_slot == 668 );
 }
 
 /* Helper: serialize a valid CompactTowerSync into buf.  Returns the
@@ -282,17 +291,15 @@ test_de_attacker( void ) {
 }
 
 int
-main( int argc, char ** argv ) {
+main( int     argc,
+      char ** argv ) {
   fd_boot( &argc, &argv );
 
-  fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_acc_v4 );
-  FD_TEST( voter );
-  FD_TEST( voter->kind==FD_VOTE_ACC_V4 );
-  FD_TEST( fd_vote_acc_vote_slot( vote_acc_v4 )==699 );
-  FD_TEST( fd_vote_acc_root_slot( vote_acc_v4 )==668 );
-
-  test_voter_v1_14_11();
-  test_voter_current();
+  test_voter_v2();
+  test_voter_v3();
+  test_voter_v4();
   test_de_attacker();
+
+  FD_LOG_NOTICE(( "pass" ));
   fd_halt();
 }

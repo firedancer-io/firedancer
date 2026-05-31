@@ -14,7 +14,7 @@ mock_vote_acc( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_
   };
 
   fd_tower_vote_remove_all( votes_mem );
-  fd_tower_from_vote_acc( votes_mem, &out->root, (uchar const *)&voter );
+  fd_tower_from_vote_acc( votes_mem, &out->root, (uchar const *)&voter, sizeof(fd_vote_acc_t) );
   out->votes    = votes_mem;
   out->stake    = stake;
   out->vote_acc = *pubkey;
