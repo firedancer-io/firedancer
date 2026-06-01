@@ -286,7 +286,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
      https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L540-L570 */
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     uchar         acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
-    fd_pubkey_t * acc     = ctx->txn_out->accounts.keys[acc_idx];
+    fd_pubkey_t * acc     = &ctx->txn_out->accounts.keys[acc_idx];
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       /* Duplicate. Store 8 byte buffer to maintain alignment but store the
@@ -412,7 +412,7 @@ fd_bpf_loader_input_serialize_for_abiv1( fd_exec_instr_ctx_t *     ctx,
   serialized_params += instr_data_len;
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.3/program-runtime/src/serialization.rs#L400 */
-  FD_STORE( fd_pubkey_t, serialized_params, *ctx->txn_out->accounts.keys[ctx->instr->program_id] );
+  FD_STORE( fd_pubkey_t, serialized_params, ctx->txn_out->accounts.keys[ctx->instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
 
   /* https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/program-runtime/src/serialization.rs#L522-L529 */
@@ -594,7 +594,7 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
 
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     uchar               acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
-    fd_pubkey_t const * acc     = ctx->txn_out->accounts.keys[acc_idx];
+    fd_pubkey_t const * acc     = &ctx->txn_out->accounts.keys[acc_idx];
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
       // Duplicate
@@ -685,7 +685,7 @@ fd_bpf_loader_input_serialize_for_abiv0( fd_exec_instr_ctx_t *     ctx,
   fd_memcpy( serialized_params, ctx->instr->data, instr_data_len );
   serialized_params += instr_data_len;
 
-  FD_STORE( fd_pubkey_t, serialized_params, *ctx->txn_out->accounts.keys[ctx->instr->program_id] );
+  FD_STORE( fd_pubkey_t, serialized_params, ctx->txn_out->accounts.keys[ctx->instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
 
   *serialized_bytes_written = (ulong)(serialized_params - serialized_params_start);

@@ -890,7 +890,7 @@ fd_check_transaction_age( fd_bank_t *         bank,
      successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( TXN( txn_in->txn ), (int)instr_accts[i] ) ) {
-      if( fd_pubkey_eq( txn_out->accounts.keys[ instr_accts[i] ], &state->authority ) ) {
+      if( fd_pubkey_eq( &txn_out->accounts.keys[ instr_accts[i] ], &state->authority ) ) {
         /* Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
            successfully. */

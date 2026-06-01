@@ -676,7 +676,6 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
                                            fd_acct_addr_t *         out_accts_alt,
                                            fd_runtime_t const *     runtime_opt ) {
 
-
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 
   fd_alut_interp_t interp[1];
@@ -1005,7 +1004,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
          payer account. */
       if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
-      fd_pubkey_t const * pubkey  = txn_out->accounts.keys[ i ];
+      fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[ i ];
       fd_acc_t *  account = txn_out->accounts.account[ i ];
 
       account->commit = 1;
@@ -1094,7 +1093,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       }
       nonce_account->executable = nonce_account->prior_executable;
       nonce_account->commit = 1;
-      fd_runtime_lthash_account( bank, txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ txn_out->accounts.nonce_idx_in_txn ], nonce_account, runtime->log.capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not
@@ -1108,7 +1107,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
       fee_payer_account->executable = fee_payer_account->prior_executable;
 
       fee_payer_account->commit = 1;
-      fd_runtime_lthash_account( bank, txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
+      fd_runtime_lthash_account( bank, &txn_out->accounts.keys[ FD_FEE_PAYER_TXN_IDX ], fee_payer_account, runtime->log.capture_ctx );
     }
   }
 
@@ -1119,7 +1118,7 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
   }
   for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
     if( FD_LIKELY( !txn_out->accounts.executable_acquired[ i ] ) ) continue;
-    fd_accdb_release( runtime->accdb, 1UL, &txn_out->accounts.executable[ i ] );
+    fd_accdb_release( runtime->accdb, 1UL, txn_out->accounts.executable[ i ] );
     txn_out->accounts.executable_acquired[ i ] = 0U;
   }
   txn_out->accounts.executable_cnt = 0UL;
@@ -1138,7 +1137,7 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
   }
   for( ulong i=0UL; i<txn_out->accounts.executable_cnt; i++ ) {
     if( FD_LIKELY( !txn_out->accounts.executable_acquired[ i ] ) ) continue;
-    fd_accdb_release( runtime->accdb, 1UL, &txn_out->accounts.executable[ i ] );
+    fd_accdb_release( runtime->accdb, 1UL, txn_out->accounts.executable[ i ] );
     txn_out->accounts.executable_acquired[ i ] = 0U;
   }
   txn_out->accounts.executable_cnt = 0UL;
@@ -1215,9 +1214,9 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
 
   fd_runtime_new_txn_out( txn_in, txn_out );
 
-  uchar dump_txn = !!( runtime->log.dump_proto_ctx &&
-                       bank->f.slot >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
-                       runtime->log.dump_proto_ctx->dump_txn_to_pb );
+  uchar dump_txn = !!(runtime->log.dump_proto_ctx &&
+                      bank->f.slot >= runtime->log.dump_proto_ctx->dump_proto_start_slot &&
+                      runtime->log.dump_proto_ctx->dump_txn_to_pb);
 
   /* Phase 1: Capture TxnContext before execution. */
   if( FD_UNLIKELY( dump_txn ) ) {
@@ -1553,7 +1552,7 @@ ulong
 fd_runtime_find_index_of_account( fd_txn_out_t const * txn_out,
                                   fd_pubkey_t const *  pubkey ) {
   for( ulong i=0UL; i<txn_out->accounts.cnt; i++ ) {
-    if( FD_UNLIKELY( !memcmp( pubkey, txn_out->accounts.keys[ txn_out->accounts.cnt-1UL-i ], sizeof(fd_pubkey_t) ) ) ) return txn_out->accounts.cnt-1UL-i;
+    if( FD_UNLIKELY( !memcmp( pubkey, &txn_out->accounts.keys[ txn_out->accounts.cnt-1UL-i ], sizeof(fd_pubkey_t) ) ) ) return txn_out->accounts.cnt-1UL-i;
   }
   return ULONG_MAX;
 }
@@ -1585,7 +1584,7 @@ fd_runtime_get_executable_account( fd_runtime_t *      runtime,
   if( FD_LIKELY( account_idx!=ULONG_MAX && txn_out->accounts.account[ account_idx ]->lamports ) ) return txn_out->accounts.account[ account_idx ];
 
   for( ushort i=0; i<txn_out->accounts.executable_cnt; i++ ) {
-    fd_acc_t * ro = &txn_out->accounts.executable[ i ];
+    fd_acc_t * ro = txn_out->accounts.executable[ i ];
     if( FD_UNLIKELY( !memcmp( pubkey->uc, ro->pubkey, 32UL ) ) ) {
       if( FD_UNLIKELY( !ro->lamports ) ) return NULL;
       return ro;
@@ -1605,7 +1604,7 @@ fd_runtime_get_key_of_account_at_index( fd_txn_out_t *        txn_out,
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
-  *key = txn_out->accounts.keys[ idx ];
+  *key = &txn_out->accounts.keys[ idx ];
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -1626,10 +1625,10 @@ fd_txn_account_is_demotion( const int        idx,
 }
 
 uint
-fd_txn_account_has_bpf_loader_upgradeable( fd_pubkey_t * const * account_keys,
-                                           ulong                 accounts_cnt ) {
+fd_txn_account_has_bpf_loader_upgradeable( fd_pubkey_t const * account_keys,
+                                           ulong               accounts_cnt ) {
   for( ulong j=0; j<accounts_cnt; j++ ) {
-    const fd_pubkey_t * acc = account_keys[j];
+    const fd_pubkey_t * acc = &account_keys[j];
     if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
       return 1U;
     }
@@ -1673,7 +1672,7 @@ fd_runtime_account_is_writable_idx( fd_txn_in_t const *  txn_in,
                                     ushort               idx ) {
   uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_out->accounts.keys, txn_out->accounts.cnt );
   return fd_runtime_account_is_writable_idx_flat( idx,
-                                                   txn_out->accounts.keys[idx],
+                                                   &txn_out->accounts.keys[idx],
                                                    TXN( txn_in->txn ),
                                                    bpf_upgradeable );
 }

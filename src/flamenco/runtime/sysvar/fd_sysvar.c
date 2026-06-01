@@ -28,7 +28,7 @@ fd_sysvar_instr_acct_check( fd_exec_instr_ctx_t const * ctx,
   if( FD_UNLIKELY( idx>=ctx->instr->acct_cnt ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   ushort idx_in_txn = ctx->instr->accounts[ idx ].index_in_transaction;
-  uchar const * addr_have = ctx->txn_out->accounts.keys[ idx_in_txn ]->uc;
+  uchar const * addr_have = ctx->txn_out->accounts.keys[ idx_in_txn ].uc;
   if( FD_UNLIKELY( memcmp( addr_have, addr_want, 32UL ) ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   return FD_EXECUTOR_INSTR_SUCCESS;

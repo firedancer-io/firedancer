@@ -289,8 +289,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
   FD_TEST( env->txn_out[0].err.is_committable );
   FD_TEST( env->txn_out[0].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_TEST( !memcmp( env->txn_out[0].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
-  FD_TEST( !memcmp( env->txn_out[0].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &env->txn_out[0].accounts.keys[0], &pubkey1, sizeof(fd_pubkey_t) ) );
+  FD_TEST( !memcmp( &env->txn_out[0].accounts.keys[1], &pubkey2, sizeof(fd_pubkey_t) ) );
   FD_TEST( env->txn_out[0].accounts.is_writable[0] == 1 );
   FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
   FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 1000000UL );
@@ -681,7 +681,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
   int pd_idx = -1;
   for( ushort i = 0; i < env->txn_out[0].accounts.cnt; i++ ) {
-    if( fd_pubkey_eq( env->txn_out[0].accounts.keys[i], &programdata_key ) ) {
+    if( fd_pubkey_eq( &env->txn_out[0].accounts.keys[i], &programdata_key ) ) {
       pd_idx = i;
       break;
     }
@@ -714,10 +714,10 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_TEST( env->txn_out[1].err.is_committable );
 
   /* Locate the loaded programdata in txn_out->accounts.executable[]
-     (now an array of fd_acc_t, no fd_accdb_ro_t indirection). */
+     (an array of pointers into runtime-owned storage). */
   int found_programdata = 0;
   for( ulong i = 0; i < env->txn_out[1].accounts.executable_cnt; i++ ) {
-    fd_acc_t const * acc = &env->txn_out[1].accounts.executable[i];
+    fd_acc_t const * acc = env->txn_out[1].accounts.executable[i];
     if( memcmp( acc->pubkey, programdata_key.uc, 32UL ) ) continue;
 
     fd_bpf_state_t pd_state[1];
@@ -799,7 +799,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
     int alut_idx = -1;
     for( ushort i = 0; i < env->txn_out[0].accounts.cnt; i++ ) {
-      if( fd_pubkey_eq( env->txn_out[0].accounts.keys[i], &alut_key ) ) {
+      if( fd_pubkey_eq( &env->txn_out[0].accounts.keys[i], &alut_key ) ) {
         alut_idx = i;
         break;
       }
@@ -888,7 +888,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_pubkey_t expected_addr = {{0}};
     expected_addr.uc[0] = 0xE3;
     expected_addr.uc[1] = 0xF3;
-    FD_TEST( fd_pubkey_eq( env->txn_out[1].accounts.keys[1], &expected_addr ) );
+    FD_TEST( fd_pubkey_eq( &env->txn_out[1].accounts.keys[1], &expected_addr ) );
 
     if( env->txn_out[1].err.is_committable ) {
       fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
@@ -938,7 +938,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
     FD_TEST( env->txn_out[0].err.is_committable );
     FD_TEST( env->txn_out[0].err.txn_err == FD_RUNTIME_EXECUTE_SUCCESS );
-    FD_TEST( fd_pubkey_eq( env->txn_out[0].accounts.keys[1], &nonce_key ) );
+    FD_TEST( fd_pubkey_eq( &env->txn_out[0].accounts.keys[1], &nonce_key ) );
     FD_TEST( env->txn_out[0].accounts.is_writable[1] );
     write_nonce_state_into( env->txn_out[0].accounts.account[1]->data,
                             env->txn_out[0].accounts.account[1]->data_len,
@@ -1003,7 +1003,7 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
     FD_TEST( env->txn_out[i].err.is_committable );
     FD_TEST( env->txn_out[i].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-    FD_TEST( fd_pubkey_eq( env->txn_out[i].accounts.keys[1], &pubkey2 ) );
+    FD_TEST( fd_pubkey_eq( &env->txn_out[i].accounts.keys[1], &pubkey2 ) );
     FD_TEST( env->txn_out[i].accounts.is_writable[1] );
   }
 

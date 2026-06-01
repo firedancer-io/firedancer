@@ -101,19 +101,20 @@ struct fd_runtime {
   } instr;
 
   struct {
+    /* fd_txn_out_t only stores pointers into this runtime-owned memory.
+       Bundle txns execute before any txn_out is committed/canceled, so
+       the whole bundle's accounts are kept opened (deduplicated) in
+       these flat arrays until commit/cancel. */
+
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
-    ulong    executable_cnt;
+    ulong    executable_cnt; /* Number of programdata accounts currently opened in executable[]. */
     fd_acc_t executable[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
 
-    /* fd_txn_out_t only stores pointers into this runtime-owned memory.
-       Bundle txns execute before any txn_out is committed/canceled, so
-       each in-flight bundle txn needs its own row. */
-    ulong       account_cnt; /* Number of transaction accounts currently opened in account[]. */
-    ulong       refcnt[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ]; /* Reference count for each account */
-    fd_pubkey_t keys[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
-    fd_acc_t    account[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
+    ulong    account_cnt; /* Number of transaction accounts currently opened in account[]. */
+    ulong    refcnt[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ]; /* Reference count for each account */
+    fd_acc_t account[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
   } accounts;
 
   struct {
@@ -269,13 +270,13 @@ struct fd_txn_out {
        has been set, memory resources must be released. */
     int           is_setup;
     ulong         cnt;
-    fd_pubkey_t * keys[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_pubkey_t   keys[ MAX_TX_ACCOUNT_LOCKS ];
     fd_acc_t *    account[ MAX_TX_ACCOUNT_LOCKS ];
     uchar         is_writable[ MAX_TX_ACCOUNT_LOCKS ];       /* Per-transaction writable view for account[]. */
     uchar         account_acquired[ MAX_TX_ACCOUNT_LOCKS ];  /* This txn_out owns the accdb reference for account[]. */
 
-    ulong      executable_cnt; /* Number of BPF upgradeable loader accounts for the active txn. */
-    fd_acc_t * executable;     /* Active txn row of BPF upgradeable loader program data accounts. */
+    ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
+    fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
     uchar      executable_acquired[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* Flags to demarcate if an account is queued up to update the vote

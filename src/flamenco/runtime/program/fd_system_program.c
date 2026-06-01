@@ -130,7 +130,7 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_acct_idx ].index_in_transaction;
-    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ]->uc, key_b58 );
+    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ].uc, key_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Transfer: `from` account %s must sign", key_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -646,7 +646,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *        ctx,
     if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_base_idx ].index_in_transaction;
-    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ]->uc, key_b58 );
+    FD_BASE58_ENCODE_32_BYTES( ctx->txn_out->accounts.keys[ idx_in_txn ].uc, key_b58 );
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Transfer: 'from' account %s must sign", key_b58 );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
