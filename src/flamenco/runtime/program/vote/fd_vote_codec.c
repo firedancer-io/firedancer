@@ -571,6 +571,7 @@ seek_epoch_credits( uchar const *                    data,
 
   *out_ptr = (fd_vote_epoch_credits_t const *)ptr;
   *out_cnt = epoch_credits_len;
+  if( epoch_credits_len>MAX_EPOCH_CREDITS_HISTORY ) return 1;
   return 0;
 }
 

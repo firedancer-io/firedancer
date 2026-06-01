@@ -141,18 +141,20 @@ fd_compact_tower_sync_ser( fd_compact_tower_sync_serde_t const * serde,
 
 static fd_vote_acc_vote_t const *
 v4_off( fd_vote_acc_t const * voter ) {
-  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
+  return (fd_vote_acc_vote_t const *)( voter->v4.bls_pubkey_compressed + (!!voter->v4.has_bls_pubkey_compressed) * sizeof(voter->v4.bls_pubkey_compressed) + sizeof(ulong) );
 }
 
 ulong
 fd_vote_acc_vote_cnt( uchar const * vote_account_data ) {
   fd_vote_acc_t const * voter = (fd_vote_acc_t const *)fd_type_pun_const( vote_account_data );
+  ulong cnt;
   switch( voter->kind ) {
-  case FD_VOTE_ACC_V4: return fd_ulong_load_8( voter->v4.bls_pubkey_compressed + voter->v4.has_bls_pubkey_compressed * sizeof(voter->v4.bls_pubkey_compressed) );
-  case FD_VOTE_ACC_V3: return voter->v3.votes_cnt;
-  case FD_VOTE_ACC_V2: return voter->v2.votes_cnt;
+  case FD_VOTE_ACC_V4: cnt = fd_ulong_load_8( voter->v4.bls_pubkey_compressed + (!!voter->v4.has_bls_pubkey_compressed) * sizeof(voter->v4.bls_pubkey_compressed) ); break;
+  case FD_VOTE_ACC_V3: cnt = voter->v3.votes_cnt; break;
+  case FD_VOTE_ACC_V2: cnt = voter->v2.votes_cnt; break;
   default: FD_LOG_HEXDUMP_CRIT(( "bad voter", vote_account_data, 3762 ));
   }
+  return fd_ulong_min( cnt, MAX_LOCKOUT_HISTORY );
 }
 
 /* fd_vote_acc_vote_slot takes a voter's vote account data and returns the

@@ -331,7 +331,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
   if( FD_UNLIKELY( !vote_acc_found ) ) return 0;
 
   fd_vote_state_versioned_t vsv[1];
-  FD_CRIT( fd_vote_state_versioned_deserialize( vsv, ctx->our_vote_acct, ctx->our_vote_acct_sz ), "unable to decode vote state versioned" );
+  FD_TEST( fd_vote_state_versioned_deserialize( vsv, ctx->our_vote_acct, ctx->our_vote_acct_sz ) );
 
   fd_pubkey_t const * auth_vtr_addr = NULL;
   switch( vsv->kind ) {
@@ -372,7 +372,7 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
       FD_LOG_CRIT(( "unsupported vote state versioned discriminant: %u", vsv->kind ));
   }
 
-  FD_CRIT( auth_vtr_addr, "unable to find authorized voter, likely corrupt vote account state" );
+  FD_TEST( auth_vtr_addr );
 
   if( fd_pubkey_eq( auth_vtr_addr, ctx->identity_key ) ) {
     *authority_idx_out = ULONG_MAX;
@@ -1423,7 +1423,7 @@ during_housekeeping( fd_tower_tile_t * ctx ) {
 
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->identity_keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
     FD_LOG_DEBUG(( "keyswitch: unhalting signing" ));
-    FD_CRIT( ctx->halt_signing, "state machine corruption" );
+    FD_TEST( ctx->halt_signing );
     ctx->halt_signing = 0;
     fd_keyswitch_state( ctx->identity_keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }
