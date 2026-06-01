@@ -220,7 +220,10 @@ after_frag( fd_dedup_ctx_t *    ctx,
   } else {
     ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, 0UL, 0, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
+    /* Mark bundle transactions with sig==1 so that downstream resolv
+       tiles can route all bundle traffic to resolv:0. */
+    ulong out_sig = !!txnm->block_engine.bundle_id;
+    fd_stem_publish( stem, 0UL, out_sig, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
 
     ctx->metrics.dedup_tile_result[ FD_METRICS_ENUM_DEDUP_TILE_RESULT_V_SUCCESS_IDX ]++;
