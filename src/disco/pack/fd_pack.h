@@ -382,7 +382,7 @@ void fd_pack_get_pending_smallest( fd_pack_t * pack, fd_pack_smallest_t * opt_pe
     * INVALID_NONCE: the transaction looks like a durable nonce
       transaction, but the nonce authority did not sign the transaction.
     * BUNDLE_BLACKLIST: bundles are enabled and the transaction uses an
-      account in the bundle blacklist.
+      account in the bundle blacklist, or the bundle contains a vote.
     * NONCE_CONFLICT: bundle with two transactions that attempt to lock
       the exact same durable nonce (nonce account, authority, and block
       hash).
