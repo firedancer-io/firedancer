@@ -1245,10 +1245,17 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     executable_account_cnt++;
   }
 
+  /* acquire_b must refund exactly what acquire_a reserved.  acquire_a
+     ran over acquire_cnt pubkeys (the freshly-acquired accounts, not the
+     ones reused from earlier bundle txns), so the reserved count is
+     acquire_cnt - NOT txn_out->accounts.cnt.  Passing the full account
+     count here over-refunds the per-class cache reservation by the
+     number of reused accounts, eventually underflowing cache_class_used
+     and wedging fd_accdb's reservation loop. */
   if( FD_LIKELY( executable_acquire_cnt ) ) {
     FD_TEST( runtime->accounts.executable_cnt+executable_acquire_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
     fd_acc_t * acquire_base = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
-    fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.cnt, executable_acquire_cnt, pubkeys, writable, acquire_base );
+    fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, acquire_cnt, executable_acquire_cnt, pubkeys, writable, acquire_base );
     for( ushort i=0; i<executable_acquire_cnt; i++ ) {
       ushort exe_idx = executable_acquire_idx[ i ];
       txn_out->accounts.executable[ exe_idx ]          = &acquire_base[ i ];
@@ -1256,7 +1263,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     }
     runtime->accounts.executable_cnt += executable_acquire_cnt;
   } else {
-    fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, txn_out->accounts.cnt, 0UL, pubkeys, writable, &runtime->accounts.executable[ runtime->accounts.executable_cnt ] );
+    fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, acquire_cnt, 0UL, pubkeys, writable, &runtime->accounts.executable[ runtime->accounts.executable_cnt ] );
   }
 
 
