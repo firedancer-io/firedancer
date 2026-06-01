@@ -326,6 +326,120 @@ fd_forest_verify( fd_forest_t const * forest ) {
     if( !fd_forest_requests_ele_query_const( requests, &ele->idx, NULL, reqspool ) ) FAIL( "element in request list not in the request map" );
   }
 
+  /* Orphan request map + list invariants.  The orphan request map and
+     list share the same reqspool with the main request map and list, so
+     in addition to being internally consistent, a block must never be in
+     both the main request map and the orphan request map - that would
+     leave duplicate references to the same pool idx and corrupt the
+     shared pool when one of them is removed. */
+
+  fd_forest_requests_t const * orphreqs = fd_forest_orphreqs_const( forest );
+  fd_forest_reqslist_t const * orphlist = fd_forest_orphlist_const( forest );
+
+  if( forest->orphiter.ele_idx != fd_forest_pool_idx_null( pool ) &&
+      forest->orphiter.ele_idx != fd_forest_reqslist_ele_peek_head_const( orphlist, reqspool )->idx ) {
+    FAIL( "orphan iterator is not at the head of the orphan request list" );
+  }
+
+  for( fd_forest_reqslist_iter_t iter = fd_forest_reqslist_iter_fwd_init( orphlist, reqspool ); !fd_forest_reqslist_iter_done( iter, orphlist, reqspool ); iter = fd_forest_reqslist_iter_fwd_next( iter, orphlist, reqspool ) ) {
+    fd_forest_ref_t const * ele = fd_forest_reqslist_iter_ele_const( iter, orphlist, reqspool );
+    fd_forest_blk_t const * ele_ = fd_forest_pool_ele_const( pool, ele->idx );
+    if( !fd_forest_subtrees_ele_query_const( subtrees, &ele_->slot, NULL, pool ) && !fd_forest_orphaned_ele_query_const( orphaned, &ele_->slot, NULL, pool ) ) {
+      FAIL( "element in orphan request list not in the subtrees or orphaned map" );
+    }
+    if( !fd_forest_requests_ele_query_const( orphreqs, &ele->idx, NULL, reqspool ) ) FAIL( "element in orphan request list not in the orphan request map" );
+    if( fd_forest_requests_ele_query_const( requests, &ele->idx, NULL, reqspool ) ) FAIL( "element in both the main request map and the orphan request map" );
+  }
+
+  /* Tree structure invariants.  Walk every element in every map and
+     verify the left-child / right-sibling / parent links are mutually
+     consistent, that slots strictly increase from parent to child, that
+     there are no cycles, and that each element lives in the correct map
+     for its position in the tree. */
+
+  ulong null = fd_forest_pool_idx_null( pool );
+  ulong max  = fd_forest_pool_max( pool );
+
+  /* Root must exist, be parentless, and live in ancestry or frontier. */
+
+  if( FD_UNLIKELY( forest->root == null ) ) FAIL( "root is null" );
+  {
+    fd_forest_blk_t const * root = fd_forest_pool_ele_const( pool, forest->root );
+    if( FD_UNLIKELY( root->parent != null ) ) FAIL( "root has a parent" );
+    if( FD_UNLIKELY( !fd_forest_ancestry_ele_query_const( ancestry, &root->slot, NULL, pool ) &&
+                     !fd_forest_frontier_ele_query_const( frontier, &root->slot, NULL, pool ) ) ) {
+      FAIL( "root not in ancestry or frontier" );
+    }
+  }
+
+  /* Per-element parent/child/sibling link checks, applied to every
+     element regardless of which map it lives in. */
+
+# define CHECK_TREE_ELE( ele ) do {                                                                 \
+    ulong ele_idx = fd_forest_pool_idx( pool, (ele) );                                              \
+    if( (ele)->parent != null ) {                                                                   \
+      fd_forest_blk_t const * p = fd_forest_pool_ele_const( pool, (ele)->parent );                  \
+      if( FD_UNLIKELY( (ele)->parent_slot != p->slot ) ) FAIL( "parent_slot != parent ele slot" );  \
+      if( FD_UNLIKELY( (ele)->slot       <= p->slot ) ) FAIL( "child slot <= parent slot" );        \
+    }                                                                                               \
+    ulong steps = 0;                                                                                \
+    ulong child_idx = (ele)->child;                                                                 \
+    while( child_idx != null ) {                                                                    \
+      if( FD_UNLIKELY( ++steps > max ) ) FAIL( "sibling chain longer than pool (cycle)" );          \
+      fd_forest_blk_t const * c = fd_forest_pool_ele_const( pool, child_idx );                      \
+      if( FD_UNLIKELY( c->parent != ele_idx ) ) FAIL( "child->parent does not point back to ele" ); \
+      if( FD_UNLIKELY( c->parent_slot != (ele)->slot ) ) FAIL( "child->parent_slot mismatch" );     \
+      if( FD_UNLIKELY( c->slot <= (ele)->slot ) ) FAIL( "child slot <= parent slot" );              \
+      child_idx = c->sibling;                                                                       \
+    }                                                                                               \
+  } while(0)
+
+  /* ancestry: connected interior nodes - must have at least one child,
+     and may only be parentless if it is the root. */
+
+  for( fd_forest_ancestry_iter_t iter = fd_forest_ancestry_iter_init( ancestry, pool ); !fd_forest_ancestry_iter_done( iter, ancestry, pool ); iter = fd_forest_ancestry_iter_next( iter, ancestry, pool ) ) {
+    fd_forest_blk_t const * ele = fd_forest_ancestry_iter_ele_const( iter, ancestry, pool );
+    CHECK_TREE_ELE( ele );
+    if( FD_UNLIKELY( ele->child == null ) ) FAIL( "ancestry element has no child" );
+    if( FD_UNLIKELY( ele->parent == null && fd_forest_pool_idx( pool, ele ) != forest->root ) ) FAIL( "ancestry element parentless but not root" );
+  }
+
+  /* frontier: tips of the connected tree - must be childless, and may
+     only be parentless if it is the root. */
+
+  for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool ); !fd_forest_frontier_iter_done( iter, frontier, pool ); iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
+    fd_forest_blk_t const * ele = fd_forest_frontier_iter_ele_const( iter, frontier, pool );
+    CHECK_TREE_ELE( ele );
+    if( FD_UNLIKELY( ele->child != null ) ) FAIL( "frontier element has a child" );
+    if( FD_UNLIKELY( ele->parent == null && fd_forest_pool_idx( pool, ele ) != forest->root ) ) FAIL( "frontier element parentless but not root" );
+  }
+
+  /* subtrees: heads of orphan trees - must be parentless. */
+
+  for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool ); !fd_forest_subtrees_iter_done( iter, subtrees, pool ); iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
+    fd_forest_blk_t const * ele = fd_forest_subtrees_iter_ele_const( iter, subtrees, pool );
+    CHECK_TREE_ELE( ele );
+    if( FD_UNLIKELY( ele->parent != null ) ) FAIL( "subtree head has a parent" );
+  }
+
+  /* orphaned: interior orphan nodes - must have a parent, and walking
+     up the parent chain must terminate at a subtree head. */
+
+  for( fd_forest_orphaned_iter_t iter = fd_forest_orphaned_iter_init( orphaned, pool ); !fd_forest_orphaned_iter_done( iter, orphaned, pool ); iter = fd_forest_orphaned_iter_next( iter, orphaned, pool ) ) {
+    fd_forest_blk_t const * ele = fd_forest_orphaned_iter_ele_const( iter, orphaned, pool );
+    CHECK_TREE_ELE( ele );
+    if( FD_UNLIKELY( ele->parent == null ) ) FAIL( "orphaned element has no parent" );
+    fd_forest_blk_t const * cur   = ele;
+    ulong                   steps = 0;
+    while( cur->parent != null ) {
+      if( FD_UNLIKELY( ++steps > max ) ) FAIL( "orphan parent chain longer than pool (cycle)" );
+      cur = fd_forest_pool_ele_const( pool, cur->parent );
+    }
+    if( FD_UNLIKELY( !fd_forest_subtrees_ele_query_const( subtrees, &cur->slot, NULL, pool ) ) ) FAIL( "orphan tree head not in subtrees map" );
+  }
+
+# undef CHECK_TREE_ELE
+
   return 0;
 }
 #undef FAIL
@@ -898,6 +1012,15 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, ulong
       ele->parent_slot = parent_slot;
       FD_TEST( fd_forest_subtrees_ele_query( subtrees, &slot, NULL, pool ) || fd_forest_orphaned_ele_query( orphaned, &slot, NULL, pool ) );
       subtrees_orphaned_remove( forest, slot ); // if this is a sentinel block, then it must be orphaned
+      /* The sentinel was an orphan subtree head, so it is in the orphan
+         requests list.  Now that its parent is known it will be re-linked
+         below and may join the main tree (frontier) or become an interior
+         orphan, neither of which belongs in the orphan requests list.  Drop
+         the orphan request entry now; if it ends up a subtree head again the
+         subtrees branch below will re-add it.  Failing to remove it here
+         leaves the same pool idx in both the orphan and main request maps
+         (which share a single reqspool), corrupting both lists. */
+      requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, ele ) );
     } else {
       return ele;
     }
