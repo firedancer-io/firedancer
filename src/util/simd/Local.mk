@@ -16,7 +16,7 @@ $(call make-unit-test,test_avx_16x16,test_avx_16x16 test_avx_common,fd_util)
 $(call make-unit-test,test_avx_32x8,test_avx_32x8 test_avx_common,fd_util)
 $(call run-unit-test,test_avx_8x32)
 $(call run-unit-test,test_avx_4x64)
-$(call run-unit,test-test_avx_16x16)
+$(call run-unit-test,test_avx_16x16)
 $(call run-unit-test,test_avx_32x8)
 endif
 
