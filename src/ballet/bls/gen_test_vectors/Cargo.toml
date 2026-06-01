@@ -1,0 +1,12 @@
+[package]
+name = "gen-test-vectors"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solana-bls-signatures = { version = "3.3.0", features = ["serde", "solana-signer-derive", "parallel", "std"] }
+solana-keypair = "3.1.2"
+solana-signer = "3.0.0"
+solana-signature = "3.4.0"
+hex = "0.4"
+zeroize = "1.8"

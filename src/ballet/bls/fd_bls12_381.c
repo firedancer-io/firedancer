@@ -430,11 +430,218 @@ fd_bls12_381_pairing_syscall( uchar       _r[ 48*12 ],
   return 0;
 }
 
-/* Proof of possession */
 
 #define FD_BLS_LITERAL(STR) ("" STR), (sizeof(STR)-1)
 #define FD_BLS_SIG_DOMAIN_H2P "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_POP_"
+#define FD_BLS_SIG_DOMAIN_SIG "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
 #define FD_BLS_SIG_DOMAIN_POP "BLS_POP_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_"
+
+int
+fd_bls12_381_aggregate_signature( uchar       r[ 192 ],
+                                  uchar const sigs[],
+                                  ulong       n ) {
+  if( FD_UNLIKELY( n==0UL ) ) return -1;
+
+  fd_bls12_381_g2aff_t aff[1];
+  if( FD_UNLIKELY( blst_p2_deserialize( aff, sigs )!=BLST_SUCCESS ) ) return -1;
+  if( FD_UNLIKELY( !blst_p2_affine_in_g2( aff ) ) )                   return -1;
+
+  fd_bls12_381_g2_t acc[1];
+  blst_p2_from_affine( acc, aff );
+
+  for( ulong i=1UL; i<n; i++ ) {
+    if( FD_UNLIKELY( blst_p2_deserialize( aff, sigs+192*i )!=BLST_SUCCESS ) ) return -1;
+    if( FD_UNLIKELY( !blst_p2_affine_in_g2( aff ) ) )                         return -1;
+    blst_p2_add_or_double_affine( acc, acc, aff );
+  }
+
+  blst_p2_serialize( r, acc );
+  return 0;
+}
+
+int
+fd_bls12_381_aggregate_pubkey( uchar       r[ 96 ],
+                               uchar const pks[],
+                               ulong       n ) {
+  if( FD_UNLIKELY( n==0UL ) ) return -1;
+
+  /* Inputs/output are uncompressed affine G1 points (96 bytes each).
+     This avoids decompression cost on the hot path. */
+
+  fd_bls12_381_g1aff_t aff[1];
+  if( FD_UNLIKELY( blst_p1_deserialize( aff, pks )!=BLST_SUCCESS ) ) return -1;
+  if( FD_UNLIKELY( !blst_p1_affine_in_g1( aff ) ) )                  return -1;
+  if( FD_UNLIKELY( blst_p1_affine_is_inf( aff ) ) )                  return -1;
+
+  fd_bls12_381_g1_t acc[1];
+  blst_p1_from_affine( acc, aff );
+
+  for( ulong i=1UL; i<n; i++ ) {
+    if( FD_UNLIKELY( blst_p1_deserialize( aff, pks+96*i )!=BLST_SUCCESS ) ) return -1;
+    if( FD_UNLIKELY( !blst_p1_affine_in_g1( aff ) ) )                       return -1;
+    if( FD_UNLIKELY( blst_p1_affine_is_inf( aff ) ) )                       return -1;
+    blst_p1_add_or_double_affine( acc, acc, aff );
+  }
+
+  fd_bls12_381_g1aff_t result_aff[1];
+  blst_p1_to_affine( result_aff, acc );
+  blst_p1_affine_serialize( r, result_aff );
+  return 0;
+}
+
+int
+fd_bls12_381_batch_verify( uchar const msgs[],
+                           ulong const msg_lens[],
+                           uchar const pks[],
+                           uchar const sigs[],
+                           ulong       n ) {
+  if( FD_UNLIKELY( n==0UL ) ) return -1;
+  if( FD_UNLIKELY( n>FD_BLS12_381_INDIVIDUAL_VERIFY_MAX ) ) return -1;
+
+  /* 1. Aggregate all signatures (uncompressed affine G2, 192 bytes each) */
+  fd_bls12_381_g2_t agg_sig[1];
+  {
+    fd_bls12_381_g2aff_t aff[1];
+    if( FD_UNLIKELY( blst_p2_deserialize( aff, sigs )!=BLST_SUCCESS ) ) return -1;
+    if( FD_UNLIKELY( !blst_p2_affine_in_g2( aff ) ) )                   return -1;
+    blst_p2_from_affine( agg_sig, aff );
+    for( ulong i=1UL; i<n; i++ ) {
+      if( FD_UNLIKELY( blst_p2_deserialize( aff, sigs+192*i )!=BLST_SUCCESS ) ) return -1;
+      if( FD_UNLIKELY( !blst_p2_affine_in_g2( aff ) ) )                         return -1;
+      blst_p2_add_or_double_affine( agg_sig, agg_sig, aff );
+    }
+  }
+
+  /* 2. Deserialize all pubkeys (uncompressed affine G1, 96 bytes each) */
+  fd_bls12_381_g1aff_t pk_aff[ n ]; /* VLA */
+  ulong msg_off = 0UL;
+  for( ulong i=0UL; i<n; i++ ) {
+    if( FD_UNLIKELY( blst_p1_deserialize( &pk_aff[ i ], pks+96*i )!=BLST_SUCCESS ) ) return -1;
+    if( FD_UNLIKELY( !blst_p1_affine_in_g1( &pk_aff[ i ] ) ) )                       return -1;
+    if( FD_UNLIKELY( blst_p1_affine_is_inf( &pk_aff[ i ] ) ) )                       return -1;
+    msg_off += msg_lens[ i ];
+  }
+
+  /* 3. Hash each message to G2 */
+  fd_bls12_381_g2aff_t h_aff[ n ]; /* VLA */
+  msg_off = 0UL;
+  for( ulong i=0UL; i<n; i++ ) {
+    fd_bls12_381_g2_t h[1];
+    blst_hash_to_g2( h, msgs+msg_off, msg_lens[ i ],
+                     (uchar const *)FD_BLS_SIG_DOMAIN_SIG,
+                     sizeof(FD_BLS_SIG_DOMAIN_SIG)-1,
+                     NULL, 0UL );
+    blst_p2_to_affine( &h_aff[ i ], h );
+    msg_off += msg_lens[ i ];
+  }
+
+  /* 4. Build pairing: for each (pk_i, H(msg_i)), plus (-g1, agg_sig).
+     Process in batches of (FD_BLS12_381_PAIRING_BATCH_SZ-1) to respect
+     the blst batch limit of 8. */
+
+  fd_bls12_381_g2aff_t agg_sig_aff[1];
+  blst_p2_to_affine( agg_sig_aff, agg_sig );
+
+  blst_fp12 acc_result[1];
+  memcpy( acc_result, blst_fp12_one(), sizeof(blst_fp12) );
+
+  ulong batch_max = FD_BLS12_381_PAIRING_BATCH_SZ - 1UL; /* reserve 1 slot for -g1/sig */
+  for( ulong start=0UL; start<n; start+=batch_max ) {
+    ulong batch_n = n - start;
+    if( batch_n > batch_max ) batch_n = batch_max;
+
+    /* We need batch_n (pk, H(msg)) pairs in this batch.
+       On the last batch, we also include the (-g1, agg_sig) pair. */
+    int is_last = ( start + batch_n >= n );
+    ulong total = batch_n + (ulong)is_last;
+
+    fd_bls12_381_g1aff_t const * aptr[ FD_BLS12_381_PAIRING_BATCH_SZ ];
+    fd_bls12_381_g2aff_t const * bptr[ FD_BLS12_381_PAIRING_BATCH_SZ ];
+
+    for( ulong j=0UL; j<batch_n; j++ ) {
+      aptr[ j ] = &pk_aff[ start + j ];
+      bptr[ j ] = &h_aff[ start + j ];
+    }
+
+    if( is_last ) {
+      aptr[ batch_n ] = &BLS12_381_NEG_G1;
+      bptr[ batch_n ] = agg_sig_aff;
+    }
+
+    blst_fp12 partial[1];
+    memcpy( partial, blst_fp12_one(), sizeof(blst_fp12) );
+    blst_miller_loop_n( partial, bptr, aptr, total );
+
+    /* Multiply into the accumulator */
+    blst_fp12_mul( acc_result, acc_result, partial );
+  }
+
+  if( FD_LIKELY( blst_fp12_finalverify( acc_result, blst_fp12_one() ) ) ) {
+    return 0; /* success */
+  }
+  return -1;
+}
+
+ulong
+fd_bls12_381_individual_verify( uchar const msgs[],
+                                ulong const msg_lens[],
+                                uchar const pks[],
+                                uchar const sigs[],
+                                ulong       n,
+                                ulong       fail_bitset[ FD_BLS12_381_INDIVIDUAL_VERIFY_BITSET_LONGS ] ) {
+
+  /* Zero out the full bitset. */
+  fd_memset( fail_bitset, 0, FD_BLS12_381_INDIVIDUAL_VERIFY_BITSET_LONGS * sizeof(ulong) );
+
+  ulong fail_cnt = 0UL;
+  ulong msg_off  = 0UL;
+
+  for( ulong i=0UL; i<n; i++ ) {
+    ulong msg_len = msg_lens[ i ];
+    int   ok      = 0;
+
+    /* Deserialize pubkey (uncompressed affine G1, 96 bytes). */
+    fd_bls12_381_g1aff_t pk_aff[1];
+    if( FD_LIKELY( blst_p1_deserialize( pk_aff, pks+96*i )==BLST_SUCCESS ) )
+    if( FD_LIKELY( blst_p1_affine_in_g1( pk_aff ) ) )
+    if( FD_LIKELY( !blst_p1_affine_is_inf( pk_aff ) ) ) {
+
+      /* Deserialize signature (uncompressed affine G2, 192 bytes). */
+      fd_bls12_381_g2aff_t sig_aff[1];
+      if( FD_LIKELY( blst_p2_deserialize( sig_aff, sigs+192*i )==BLST_SUCCESS ) )
+      if( FD_LIKELY( blst_p2_affine_in_g2( sig_aff ) ) ) {
+
+        /* Hash message to G2. */
+        fd_bls12_381_g2_t h[1];
+        blst_hash_to_g2( h, msgs+msg_off, msg_len,
+                         (uchar const *)FD_BLS_SIG_DOMAIN_SIG,
+                         sizeof(FD_BLS_SIG_DOMAIN_SIG)-1,
+                         NULL, 0UL );
+        fd_bls12_381_g2aff_t h_aff[1];
+        blst_p2_to_affine( h_aff, h );
+
+        /* Pairing check: e(pk, H(msg)) * e(-g1, sig) == 1 */
+        fd_bls12_381_g1aff_t const * aptr[2] = { pk_aff, &BLS12_381_NEG_G1 };
+        fd_bls12_381_g2aff_t const * bptr[2] = { h_aff,  sig_aff           };
+        blst_fp12 r[1];
+        memcpy( r, blst_fp12_one(), sizeof(blst_fp12) );
+        blst_miller_loop_n( r, bptr, aptr, 2 );
+        ok = blst_fp12_finalverify( r, blst_fp12_one() );
+      }
+    }
+
+    if( FD_UNLIKELY( !ok ) ) {
+      fail_bitset[ i>>6 ] |= (1UL << (i & 63UL));
+      fail_cnt++;
+    }
+
+    msg_off += msg_len;
+  }
+
+  return fail_cnt;
+}
+
+/* Proof of possession */
 
 /* fd_bls12_381_core_verify verifies a BLS signature in the mathematical
    sense, i.e. computes a pairing to check that the signature is correct.
