@@ -137,7 +137,17 @@ struct fd_gui_peers_voter {
 };
 typedef struct fd_gui_peers_voter fd_gui_peers_voter_t;
 
-struct fd_gui_peers_node {
+struct fd_gui_peers_voter_idx {
+  fd_pubkey_t key;
+  ulong       idx;
+};
+typedef struct fd_gui_peers_voter_idx fd_gui_peers_voter_idx_t;
+
+
+/* fd_gui_peers_row_t holds all of the per-peer state that is read when
+   formatting websocket viewport messages snapshotted into a client's
+   viewport. */
+struct fd_gui_peers_row {
   int valid;
   long update_time_nanos;
   fd_pubkey_t pubkey;
@@ -157,6 +167,11 @@ struct fd_gui_peers_node {
 
   uchar       country_code_idx;
   uint        city_name_idx;
+};
+typedef struct fd_gui_peers_row fd_gui_peers_row_t;
+
+struct fd_gui_peers_node {
+  fd_gui_peers_row_t row;
 
   struct {
     ulong next;
@@ -266,7 +281,7 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_NAME  fd_gui_peers_node_pubkey_map
 #define MAP_ELE_T fd_gui_peers_node_t
 #define MAP_KEY_T fd_pubkey_t
-#define MAP_KEY   pubkey
+#define MAP_KEY   row.pubkey
 #define MAP_IDX_T ulong
 #define MAP_NEXT  pubkey_map.next
 #define MAP_PREV  pubkey_map.prev
@@ -278,7 +293,7 @@ typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 #define MAP_NAME  fd_gui_peers_node_sock_map
 #define MAP_ELE_T fd_gui_peers_node_t
 #define MAP_KEY_T fd_gossip_socket_t
-#define MAP_KEY   contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ]
+#define MAP_KEY   row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ]
 #define MAP_IDX_T ulong
 #define MAP_NEXT  sock_map.next
 #define MAP_PREV  sock_map.prev
@@ -303,15 +318,15 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_MAX_SORT_KEY_CNT FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Stake",        stake,                                                                    live_table_col_stake_lt  ), \
-  LIVE_TABLE_COL_ENTRY( "Pubkey",       pubkey,                                                                   live_table_col_pubkey_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Name",         name,                                                                     live_table_col_name_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Country",      country_code_idx,                                                         live_table_col_uchar_lt  ), \
-  LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Push", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Pull", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Push",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Pull",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
+  LIVE_TABLE_COL_ENTRY( "Stake",        row.stake,                                                                    live_table_col_stake_lt  ), \
+  LIVE_TABLE_COL_ENTRY( "Pubkey",       row.pubkey,                                                                   live_table_col_pubkey_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Name",         row.name,                                                                     live_table_col_name_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Country",      row.country_code_idx,                                                         live_table_col_uchar_lt  ), \
+  LIVE_TABLE_COL_ENTRY( "IP Addr",      row.contact_info.sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,         live_table_col_ipv4_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Push", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Pull", row.gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Push",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Pull",  row.gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }, .dir = { -1, -1, -1, -1, -1, -1, -1, -1, -1 } })
@@ -324,8 +339,8 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_MAX_SORT_KEY_CNT (2UL)
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Ingress Total", gossvf_rx_sum.rate_ema, live_table_col_long_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Total",  gossip_tx_sum.rate_ema, live_table_col_long_lt )  )
+  LIVE_TABLE_COL_ENTRY( "Ingress Total", row.gossvf_rx_sum.rate_ema, live_table_col_long_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Total",  row.gossip_tx_sum.rate_ema, live_table_col_long_lt )  )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY ((fd_gui_peers_bandwidth_tracking_sort_key_t){ .col = { 0, 1 }, .dir = { -1, 0 } })
@@ -337,7 +352,7 @@ struct fd_gui_peers_ws_conn {
 
   ulong start_row;
   ulong row_cnt;
-  fd_gui_peers_node_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
+  fd_gui_peers_row_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
   fd_gui_peers_live_table_sort_key_t sort_key;
 };
 
