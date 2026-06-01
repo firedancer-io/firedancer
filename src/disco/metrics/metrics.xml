@@ -1252,58 +1252,6 @@ metric introduced.
     <counter name="TransactionsSent" summary="Number of benchmark packets sent" />
 </tile>
 
-<enum name="EqvocShredResult">
-    <!-- Result of checking one of our own incoming shreds (turbine/repair) against
-         previously seen shreds for the same slot.  FD_EQVOC_SUCCESS here means
-         "no equivocation detected" (the common case). -->
-
-    <!-- No conflict (the common case: the shred does not equivocate) -->
-    <int value="0" name="NoConflict" label="Shred does not equivocate" />
-
-    <!-- Conflict types (proof successfully constructed) -->
-    <int value="1" name="SuccessMerkle" label="Merkle root conflict" />
-    <int value="2" name="SuccessLast" label="Last shred index conflict" />
-    <int value="3" name="SuccessChained" label="Chained merkle root conflict" />
-
-    <!-- Failure reasons (proof could not be constructed) -->
-    <int value="4" name="ErrSlot" label="Shreds were for different slots" />
-    <int value="5" name="ErrVersion" label="Either shred had wrong shred version" />
-    <int value="6" name="ErrType" label="Wrong shred type (must be chained merkle)" />
-    <int value="7" name="ErrMerkle" label="Failed to derive merkle root" />
-    <int value="8" name="ErrSignature" label="Failed to sig verify" />
-    <int value="9" name="ErrShredSlot" label="Slot older than root" />
-    <int value="10" name="ErrShredIdx" label="Shred index >= FD_SHRED_BLK_MAX" />
-</enum>
-
-<enum name="EqvocProofResult">
-    <!-- Result of inserting one chunk of a DuplicateShred gossip proof.  Most
-         chunks just get buffered, so FD_EQVOC_SUCCESS here means "chunk accepted,
-         proof not yet complete" - NOT "no conflict".  A complete proof is only
-         verified on the final chunk. -->
-
-    <!-- Chunk accepted, proof not yet complete (the common case) -->
-    <int value="0" name="InProgress" label="Chunk accepted, proof not yet complete" />
-
-    <!-- Conflict types (complete proof reassembled and verified) -->
-    <int value="1" name="SuccessMerkle" label="Merkle root conflict" />
-    <int value="2" name="SuccessLast" label="Last shred index conflict" />
-    <int value="3" name="SuccessChained" label="Chained merkle root conflict" />
-
-    <!-- Chunk-level failures -->
-    <int value="4" name="ErrChunkSlot" label="Slot older than root or unable to derive leader schedule" />
-    <int value="5" name="ErrChunkFrom" label="Unrecognized from address" />
-    <int value="6" name="ErrChunkCnt" label="num_chunks != FD_EQVOC_CHUNK_CNT" />
-    <int value="7" name="ErrChunkIdx" label="chunk_index >= FD_EQVOC_CHUNK_CNT" />
-    <int value="8" name="ErrChunkLen" label="chunk_len does not match expected length for chunk_index" />
-
-    <!-- Reassembled-proof failures (final chunk only) -->
-    <int value="9" name="ErrSerde" label="Invalid serialization of reassembled shreds" />
-    <int value="10" name="ErrSlot" label="Reassembled shreds were for different slots" />
-    <int value="11" name="ErrVersion" label="Either reassembled shred had wrong shred version" />
-    <int value="12" name="ErrType" label="Wrong shred type (must be chained merkle)" />
-    <int value="13" name="ErrMerkle" label="Failed to derive merkle root" />
-    <int value="14" name="ErrSignature" label="Failed to sig verify" />
-</enum>
 
 <enum name="GhostVoteResult">
     <int value="0" name="Success" label="Vote was counted towards ghost" />
@@ -1389,11 +1337,8 @@ metric introduced.
 
     <!-- Eqvoc -->
 
-    <counter name="EqvocShred" enum="EqvocShredResult" summary="Result of checking one of our own incoming shreds for equivocation (per shred)" />
-    <counter name="EqvocProof" enum="EqvocProofResult" summary="Result of inserting one chunk of a DuplicateShred gossip proof (per chunk)" />
-
-    <counter name="EqvocProofConstructed" summary="Number of duplicate proofs we constructed from shreds" />
-    <counter name="EqvocProofVerified"    summary="Number of duplicate proofs we verified from gossip" />
+    <counter name="EqvocSuccess" summary="Number of success proofs" />
+    <counter name="EqvocErr"     summary="Number of proofs that failed validation (gossip-only)" />
 
     <!-- Ghost -->
 
