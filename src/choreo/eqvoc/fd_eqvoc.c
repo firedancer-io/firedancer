@@ -92,7 +92,6 @@ typedef struct {
     ulong prev;
     ulong next;
   } dlist;
-  int err; /* positive error code (FD_EQVOC_SUCCESS_{...}) if inserted */
 } dup_t;
 
 #define POOL_NAME dup_pool
@@ -125,8 +124,8 @@ typedef struct {
     ulong next;
   } dlist;
   union {
-    fd_shred_t shred;
-    uchar      bytes[FD_SHRED_MAX_SZ]; /* entire shred, both header and payload */
+    fd_shred_t sample_shred;                  /* highest shred seen so far, by index */
+    uchar      sample_bytes[FD_SHRED_MAX_SZ]; /* entire shred, both header and payload */
   };
 } fec_t;
 
@@ -598,15 +597,15 @@ construct_proof( fd_shred_t const *          shred1,
 }
 
 /* verify_proof verifies that the two shreds contained in `proof` do in
-   fact equivocate.  If leader_schedule is NULL, then both shreds have
-   already been sig-verified to have originated from the correct leader
-   for that slot.
+   fact equivocate.  The two shreds came from untrusted gossip msgs, so
+   it needs validation.
 
-   Returns: FD_EQVOC_SUCCESS if no effect
-            FD_EQVOC_SUCCESS_{...} if they do
-            FD_EQVOC_ERR_{...} if the shreds were not valid inputs
+   Returns: FD_EQVOC_SUCCESS (1) if equivocation detected,
+            FD_EQVOC_IGNORED (0) if not, or FD_EQVOC_ERR_{...} (<0) if
+            the shreds were not valid inputs (untrusted path only).
 
-   The implementation mirrors the Agave version very closely. See: https://github.com/anza-xyz/agave/blob/v3.1/gossip/src/duplicate_shred.rs#L137-L142
+   The implementation mirrors the Agave version very closely. See:
+   https://github.com/anza-xyz/agave/blob/v3.1/gossip/src/duplicate_shred.rs#L137-L142
 
    Two shreds equivocate if they satisfy any of the following:
 
@@ -624,10 +623,11 @@ construct_proof( fd_shred_t const *          shred1,
    6. The shreds are data shreds with different indices and the shred
       with the lower index has the LAST_SHRED_IN_SLOT flag set.
 
-   Ref: https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0204-slashable-event-verification.md#proof-verification
+   Ref:
+   https://github.com/solana-foundation/solana-improvement-documents/blob/main/proposals/0204-slashable-event-verification.md#proof-verification
 
-   Note: two shreds are in the same FEC set if they have the same verified
-   and FEC set index.
+   Note: two shreds are in the same FEC set if they have the same
+   verified and FEC set index.
 
    To prevent false positives, this function also performs the following
    input validation on the shreds:
@@ -640,196 +640,124 @@ construct_proof( fd_shred_t const *          shred1,
       producer pubkey.
 
    If any of the above input validation fails, this function returns
-   FD_EQVOC_ERR_{...}.
-
-   The validation does duplicate some of what's in the shred tile, but
-   because this proof is sourced from gossip (which doesn't go through
-   shred) we have to also do it. */
+   FD_EQVOC_ERR_{...}. */
 
 static int
-verify_proof( fd_eqvoc_t const *         eqvoc,
+verify_proof( fd_eqvoc_t *               eqvoc,
               ushort                     shred_version,
               fd_epoch_leaders_t const * leader_schedule,
               fd_shred_t const *         shred1,
               fd_shred_t const *         shred2 ) {
 
-  /* A valid duplicate proof must have shreds for the same slot. */
+  /* Must be same slot. */
 
   if( FD_UNLIKELY( shred1->slot != shred2->slot ) ) return FD_EQVOC_ERR_SLOT;
 
-  /* We only process proofs for the current shred version. */
+  /* Must be same shred version. */
 
   if( FD_UNLIKELY( shred1->version != shred_version ) ) return FD_EQVOC_ERR_VERSION;
   if( FD_UNLIKELY( shred2->version != shred_version ) ) return FD_EQVOC_ERR_VERSION;
 
-  /* Dropping non-CMR shreds has been activated on mainnet, so we ignore
-     any proofs containing non-CMR shreds. Currently Agave does not have
-     an equivalent check. */
+  /* Must be chained merkle shreds. */
 
-  if( FD_UNLIKELY( !fd_shred_is_chained ( fd_shred_type( shred1->variant ) ) &&
-                   !fd_shred_is_resigned( fd_shred_type( shred1->variant ) ) ) ) {
-    return FD_EQVOC_ERR_TYPE;
-  }
-  if( FD_UNLIKELY( !fd_shred_is_chained ( fd_shred_type( shred2->variant ) ) &&
-                   !fd_shred_is_resigned( fd_shred_type( shred2->variant ) ) ) ) {
-    return FD_EQVOC_ERR_TYPE;
-  }
+  if( FD_UNLIKELY( !fd_shred_is_chained ( fd_shred_type( shred1->variant ) ) ) ) return FD_EQVOC_ERR_TYPE;
+  if( FD_UNLIKELY( !fd_shred_is_chained ( fd_shred_type( shred2->variant ) ) ) ) return FD_EQVOC_ERR_TYPE;
 
-  /* Check both shreds contain valid signatures from the assigned leader
-     to that verified. This requires deriving the merkle root and
-     sig-verifying it, because the leader signs the merkle root for
-     merkle shreds. */
+  /* Must have valid merkle roots. */
 
-  fd_bmtree_node_t root1;
-  if( FD_UNLIKELY( !fd_shred_merkle_root( shred1, eqvoc->bmtree_mem, &root1 ) ) ) return FD_EQVOC_ERR_MERKLE;
+  fd_bmtree_node_t mr1;
+  fd_bmtree_node_t mr2;
+  if( FD_UNLIKELY( !fd_shred_merkle_root( shred1, eqvoc->bmtree_mem, &mr1 ) ) ) return FD_EQVOC_ERR_MERKLE;
+  if( FD_UNLIKELY( !fd_shred_merkle_root( shred2, eqvoc->bmtree_mem, &mr2 ) ) ) return FD_EQVOC_ERR_MERKLE;
 
-  fd_bmtree_node_t root2;
-  if( FD_UNLIKELY( !fd_shred_merkle_root( shred2, eqvoc->bmtree_mem, &root2 ) ) ) return FD_EQVOC_ERR_MERKLE;
+  /* Must sigverify (if leader_schedule provided). */
 
-  if( FD_UNLIKELY( leader_schedule ) ) {
+  if( FD_LIKELY( leader_schedule ) ) {
     fd_pubkey_t const * leader = fd_epoch_leaders_get( leader_schedule, shred1->slot );
     if( FD_UNLIKELY( !leader ) ) return FD_EQVOC_ERR_SIG;
-
     fd_sha512_t  _sha512[1];
     fd_sha512_t * sha512 = fd_sha512_join( fd_sha512_new( _sha512 ) );
-    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( root1.hash, 32UL, shred1->signature, leader->uc, sha512 ) ||
-                     FD_ED25519_SUCCESS != fd_ed25519_verify( root2.hash, 32UL, shred2->signature, leader->uc, sha512 ) ) ) {
+    if( FD_UNLIKELY( FD_ED25519_SUCCESS != fd_ed25519_verify( mr1.hash, 32UL, shred1->signature, leader->uc, sha512 ) ||
+                     FD_ED25519_SUCCESS != fd_ed25519_verify( mr2.hash, 32UL, shred2->signature, leader->uc, sha512 ) ) ) {
       return FD_EQVOC_ERR_SIG;
     }
   }
 
-  /* If both are data shreds, then check if one is marked the last shred
-     in the verified and the other is a higher shred idx than that one. */
+  /* If both are data shreds, then check for last shred conflicts. */
 
   if( FD_LIKELY( fd_shred_is_data( fd_shred_type( shred1->variant ) ) && fd_shred_is_data( fd_shred_type( shred2->variant ) ) ) ) {
     if( FD_LIKELY( ( shred1->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE && shred2->idx > shred1->idx ) ||
                    ( shred2->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE && shred1->idx > shred2->idx ) ) ) {
-      return FD_EQVOC_SUCCESS_LAST;
+      return FD_EQVOC_SUCCESS;
     }
   }
 
-  if( FD_UNLIKELY( shred1->fec_set_idx != shred2->fec_set_idx ) ) {
+  /* If both shreds are in the same FEC set, then check for merkle root
+     conflicts. */
 
-    /* Different FEC set index checks. Lower FEC set index shred must be a
-      coding shred. */
-
-    fd_shred_t const * lo = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx, shred1, shred2 );
-    fd_shred_t const * hi = fd_ptr_if( shred1->fec_set_idx > shred2->fec_set_idx, shred1, shred2 );
-
-    /* Test for conflicting chained merkle roots when shred1 and shred2
-       are in adjacent FEC sets. We know the FEC sets are adjacent if
-       the lower FEC set index + FD_FEC_SHRED_CNT is the higher FEC set
-       index. */
-
-    if( FD_UNLIKELY( lo->fec_set_idx+FD_FEC_SHRED_CNT == hi->fec_set_idx ) ) {
-      uchar * merkle_hash  = fd_ptr_if( shred1->fec_set_idx < shred2->fec_set_idx,
-                                        (uchar *)root1.hash,
-                                        (uchar *)root2.hash );
-      uchar * chained_hash = fd_ptr_if( shred1->fec_set_idx > shred2->fec_set_idx,
-                                        (uchar *)shred1 + fd_shred_chain_off( shred1->variant ),
-                                        (uchar *)shred2 + fd_shred_chain_off( shred2->variant ) );
-      if( FD_LIKELY( 0!=memcmp( merkle_hash, chained_hash, FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
-        return FD_EQVOC_SUCCESS_CHAINED;
-      }
+  if( FD_UNLIKELY( shred1->fec_set_idx == shred2->fec_set_idx ) ) {
+    if( FD_LIKELY( 0!=memcmp( mr1.hash, mr2.hash, sizeof(mr1.hash)) ) ) {
+      return FD_EQVOC_SUCCESS;
     }
-    return FD_EQVOC_SUCCESS; /* these shreds in different FEC sets do not prove equivocation */
   }
 
-  /* At this point, the two shreds are in the same FEC set. */
-
-  /* If two shreds in the same FEC set have different merkle roots, they
-     equivocate. */
-
-  if( FD_LIKELY( 0!=memcmp( root1.hash, root2.hash, sizeof(root1.hash)) ) ) {
-    return FD_EQVOC_SUCCESS_MERKLE;
-  }
-
-  /* Remaining checks require the two shreds to be the same type. */
-
-  if( FD_UNLIKELY( fd_shred_type( shred1->variant )!=fd_shred_type( shred2->variant ) ) ) {
-    return FD_EQVOC_SUCCESS;
-  }
-
-  /* Agave does a payload comparison if two shreds have the same index,
-     but it's not necessary for us to do the same because we only
-     process merkle shreds (see first conditional in this function).
-     You can't generate the same merkle root from different payloads for
-     the same leaf in the tree. */
-
-  if( FD_UNLIKELY( shred1->idx==shred2->idx ) ) {
-    return FD_EQVOC_SUCCESS;
-  }
-
-  /* Shreds do not prove equivocation. */
-
-  return FD_EQVOC_SUCCESS;
+  return FD_EQVOC_IGNORED;
 }
 
 int
 fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
-                       ushort                      shred_version,
-                       ulong                       root,
-                       fd_epoch_leaders_t const *  leader_schedule,
+                       int                         shred_hint,
                        fd_shred_t const *          shred,
                        fd_gossip_duplicate_shred_t chunks_out[static FD_EQVOC_CHUNK_CNT] ) {
 
-  if( FD_UNLIKELY( shred->slot <= root             ) ) return FD_EQVOC_ERR_SHRED_SLOT;
-  if( FD_UNLIKELY( shred->idx  >= FD_SHRED_BLK_MAX ) ) return FD_EQVOC_ERR_SHRED_IDX;
-
-  /* Short-circuit if we already know this shred equivocates. */
-
   ulong   slot = shred->slot;
   dup_t * dup  = dup_query( eqvoc, slot );
-  if( FD_UNLIKELY( dup && dup->err > FD_EQVOC_SUCCESS ) ) return FD_EQVOC_SUCCESS; /* already verified this slot equivocates */
+  if( FD_UNLIKELY( dup ) ) return 0; /* no proof constructed */
 
-  /* For FD_EQVOC_SUCCESS_LAST we specially index a key for the last
-     shred in a slot.  If we get two shreds for the same slot but
-     different index that are both marked last, that is a conflict. */
+  if( FD_UNLIKELY( shred_hint ) ) {
 
-  if( FD_UNLIKELY( is_last_shred( shred ) ) ) {
-    fec_t * last = fec_query( eqvoc, shred->slot, UINT_MAX );
-    if( FD_LIKELY( !last ) ) {
-      last = fec_insert( eqvoc, slot, UINT_MAX );
-      fd_memcpy( &last->shred, shred, fd_shred_sz( shred ) ); /* shred is already validated */
-    }
-    if( FD_UNLIKELY( shred->idx!=last->shred.idx ) ) {
-      construct_proof( shred, &last->shred, chunks_out );
-      dup_t * dup = dup_insert( eqvoc, slot );
-      dup->err    = FD_EQVOC_SUCCESS_LAST;
-      return FD_EQVOC_SUCCESS_LAST;
-    }
-  }
+    /* shred tile has hinted to us that this shred equivocates */
 
-  /* Every other equivocation check except FD_EQVOC_SUCCESS_LAST above
-     is based on conflicts between two shreds within the same FEC set,
-     so we index shreds by a composite key of 32 msb slot and 32 lsb
-     fec_set_idx to compare sibling shreds in the same FEC set. */
-
-  fec_t * fec = fec_query( eqvoc, shred->slot, shred->fec_set_idx );
-  if( FD_UNLIKELY( !fec ) ) { /* no sibling yet, so nothing more to do */
-    fec = fec_insert( eqvoc, shred->slot, shred->fec_set_idx );
-    fd_memcpy( &fec->shred, shred, fd_shred_sz( shred ) ); /* shred is already validated */
-    return FD_EQVOC_SUCCESS;
-  }
-
-  /* Verify if the shred equivocates and construct a proof if so. */
-
-  int err = verify_proof( eqvoc, shred_version, leader_schedule, &fec->shred, shred );
-  if( FD_UNLIKELY( err>FD_EQVOC_SUCCESS ) ) {
-    construct_proof( &fec->shred, shred, chunks_out );
-    dup_t * dup = dup_insert( eqvoc, slot );
-    dup->err    = err;
+    fec_t * fec = fec_query( eqvoc, shred->slot, shred->fec_set_idx );
+    if( FD_UNLIKELY( !fec ) ) return 0; /* it's possible we already evicted this FEC set */
+    construct_proof( &fec->sample_shred, shred, chunks_out );
+    dup_insert( eqvoc, slot );
     fec_dlist_ele_remove( eqvoc->fec_dlist, fec, eqvoc->fec_pool );
     fec_map_ele_remove_fast( eqvoc->fec_map, fec, eqvoc->fec_pool );
     fec_pool_ele_release( eqvoc->fec_pool, fec );
+    return 1; /* proof constructed */
+
+  } else {
+
+    /* last index conflicts are not hinted by shred */
+
+    fec_t * last = fec_query( eqvoc, shred->slot, UINT_MAX );
+    if( FD_UNLIKELY( !last ) ) {
+      last = fec_insert( eqvoc, slot, UINT_MAX );  /* specially index the last shred in a slot */
+      fd_memcpy( &last->sample_shred, shred, fd_shred_sz( shred ) );
+    } else if( FD_UNLIKELY( ( is_last_shred( shred               ) && shred->idx < last->sample_shred.idx ) ||
+                            ( is_last_shred( &last->sample_shred ) && shred->idx > last->sample_shred.idx ) ) ) {
+      construct_proof( shred, &last->sample_shred, chunks_out );
+      dup_insert( eqvoc, slot );
+      return 1;
+    } else if( FD_UNLIKELY( shred->idx > last->sample_shred.idx ) ) {
+      fd_memcpy( &last->sample_shred, shred, fd_shred_sz( shred ) );
+    }
+
+    fec_t * fec = fec_query( eqvoc, shred->slot, shred->fec_set_idx );
+    if( FD_UNLIKELY( !fec ) ) {
+      fec = fec_insert( eqvoc, shred->slot, shred->fec_set_idx );
+      fd_memcpy( &fec->sample_shred, shred, fd_shred_sz( shred ) );
+    }
+
+    return 0;
   }
-  return err;
 }
 
 int
 fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
-                       ushort                              shred_version,
                        ulong                               root,
+                       ushort                              shred_version,
                        fd_epoch_leaders_t const          * leader_schedule,
                        fd_pubkey_t const                 * from,
                        fd_gossip_duplicate_shred_t const * chunk,
@@ -850,16 +778,15 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
                                             chunk->chunk_len!=FD_EQVOC_CHUNK2_LEN_DC &&
                                             chunk->chunk_len!=FD_EQVOC_CHUNK2_LEN_CD ) ) return FD_EQVOC_ERR_CHUNK_LEN;
 
-  dup_t * dup = dup_query( eqvoc, chunk->slot );
-  if( FD_UNLIKELY( dup && dup->err > FD_EQVOC_SUCCESS ) ) return FD_EQVOC_SUCCESS; /* already verified an equivocation proof for this slot */
+  if( FD_UNLIKELY( dup_query( eqvoc, chunk->slot ) ) ) return FD_EQVOC_IGNORED; /* already verified an equivocation proof for this slot */
 
   prf_t * prf = prf_query( eqvoc, vtr, chunk->slot );
   if( FD_UNLIKELY( !prf ) ) prf = prf_insert( eqvoc, chunk->slot, from );
-  if( FD_UNLIKELY( fd_uchar_extract_bit( prf->idxs, chunk->chunk_index ) ) ) return FD_EQVOC_SUCCESS;
+  if( FD_UNLIKELY( fd_uchar_extract_bit( prf->idxs, chunk->chunk_index ) ) ) return FD_EQVOC_IGNORED;
   fd_memcpy( prf->buf + chunk->chunk_index * FD_EQVOC_CHUNK_SZ, chunk->chunk, chunk->chunk_len );
   prf->buf_sz += chunk->chunk_len;
   prf->idxs = fd_uchar_set_bit( prf->idxs, chunk->chunk_index );
-  if( FD_UNLIKELY( prf->idxs!=(1 << FD_EQVOC_CHUNK_CNT) - 1 ) ) return FD_EQVOC_SUCCESS; /* not all chunks received yet */
+  if( FD_UNLIKELY( prf->idxs!=(1 << FD_EQVOC_CHUNK_CNT) - 1 ) ) return FD_EQVOC_IGNORED; /* not all chunks received yet */
 
   int err = FD_EQVOC_ERR_SERDE; ulong off = 0;
 
@@ -886,10 +813,9 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
   if( FD_UNLIKELY( shred1->slot != chunk->slot || shred2->slot != chunk->slot ) ) goto cleanup;
 
   err = verify_proof( eqvoc, shred_version, leader_schedule, shred1, shred2 );
-  if( FD_UNLIKELY( err > FD_EQVOC_SUCCESS ) ) {
+  if( FD_UNLIKELY( err==FD_EQVOC_SUCCESS ) ) {
     construct_proof( shred1, shred2, chunks_out );
-    dup_t * dup = dup_insert( eqvoc, chunk->slot );
-    dup->err    = err;
+    dup_insert( eqvoc, chunk->slot );
   }
 
 cleanup:;

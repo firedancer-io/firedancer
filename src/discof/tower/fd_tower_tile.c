@@ -295,11 +295,8 @@ struct fd_tower_tile {
     ulong vote_slots[ FD_METRICS_ENUM_VOTE_SLOT_RESULT_CNT        ];
     ulong gate_int  [ FD_METRICS_ENUM_VOTE_INTERMEDIATE_GATE_CNT  ];
 
-    ulong eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_CNT ];
-    ulong eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_CNT ];
-
-    ulong eqvoc_proof_constructed;
-    ulong eqvoc_proof_verified;
+    ulong eqvoc_success;
+    ulong eqvoc_err;
 
     ulong ghost[ FD_METRICS_ENUM_GHOST_VOTE_RESULT_CNT ];
 
@@ -390,63 +387,11 @@ deser_auth_vtr( fd_tower_tile_t * ctx,
   return 0;
 }
 
-/* Result of fd_eqvoc_shred_insert (per incoming turbine/repair shred).
-   FD_EQVOC_SUCCESS here means "no equivocation detected". */
-
 static void
-update_metrics_eqvoc_shred( fd_tower_tile_t * ctx,
-                            int               err ) {
-  switch( err ) {
-
-  case FD_EQVOC_SUCCESS: ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_NO_CONFLICT_IDX ]++; break;
-
-  case FD_EQVOC_SUCCESS_MERKLE:  ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_SUCCESS_MERKLE_IDX  ]++; break;
-  case FD_EQVOC_SUCCESS_LAST:    ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_SUCCESS_LAST_IDX    ]++; break;
-  case FD_EQVOC_SUCCESS_CHAINED: ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_SUCCESS_CHAINED_IDX ]++; break;
-
-  case FD_EQVOC_ERR_SLOT:    ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_ERR_SLOT_IDX      ]++; break;
-  case FD_EQVOC_ERR_VERSION: ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_ERR_VERSION_IDX   ]++; break;
-  case FD_EQVOC_ERR_TYPE:    ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_ERR_TYPE_IDX      ]++; break;
-  case FD_EQVOC_ERR_MERKLE:  ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_ERR_MERKLE_IDX    ]++; break;
-  case FD_EQVOC_ERR_SIG:     ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_ERR_SIGNATURE_IDX ]++; break;
-
-  case FD_EQVOC_ERR_SHRED_SLOT: ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_ERR_SHRED_SLOT_IDX ]++; break;
-  case FD_EQVOC_ERR_SHRED_IDX:  ctx->metrics.eqvoc_shred[ FD_METRICS_ENUM_EQVOC_SHRED_RESULT_V_ERR_SHRED_IDX_IDX  ]++; break;
-
-  default: FD_LOG_ERR(( "unhandled eqvoc shred err %d", err ));
-  }
-}
-
-/* Result of fd_eqvoc_chunk_insert (per DuplicateShred gossip proof chunk).
-   FD_EQVOC_SUCCESS here means "chunk accepted, proof not yet complete" -
-   NOT "no conflict". */
-
-static void
-update_metrics_eqvoc_proof( fd_tower_tile_t * ctx,
-                            int               err ) {
-  switch( err ) {
-
-  case FD_EQVOC_SUCCESS: ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_IN_PROGRESS_IDX ]++; break;
-
-  case FD_EQVOC_SUCCESS_MERKLE:  ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_SUCCESS_MERKLE_IDX  ]++; break;
-  case FD_EQVOC_SUCCESS_LAST:    ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_SUCCESS_LAST_IDX    ]++; break;
-  case FD_EQVOC_SUCCESS_CHAINED: ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_SUCCESS_CHAINED_IDX ]++; break;
-
-  case FD_EQVOC_ERR_CHUNK_SLOT: ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_CHUNK_SLOT_IDX ]++; break;
-  case FD_EQVOC_ERR_CHUNK_FROM: ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_CHUNK_FROM_IDX ]++; break;
-  case FD_EQVOC_ERR_CHUNK_CNT:  ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_CHUNK_CNT_IDX  ]++; break;
-  case FD_EQVOC_ERR_CHUNK_IDX:  ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_CHUNK_IDX_IDX  ]++; break;
-  case FD_EQVOC_ERR_CHUNK_LEN:  ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_CHUNK_LEN_IDX  ]++; break;
-
-  case FD_EQVOC_ERR_SERDE:   ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_SERDE_IDX     ]++; break;
-  case FD_EQVOC_ERR_SLOT:    ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_SLOT_IDX      ]++; break;
-  case FD_EQVOC_ERR_VERSION: ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_VERSION_IDX   ]++; break;
-  case FD_EQVOC_ERR_TYPE:    ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_TYPE_IDX      ]++; break;
-  case FD_EQVOC_ERR_MERKLE:  ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_MERKLE_IDX    ]++; break;
-  case FD_EQVOC_ERR_SIG:     ctx->metrics.eqvoc_proof[ FD_METRICS_ENUM_EQVOC_PROOF_RESULT_V_ERR_SIGNATURE_IDX ]++; break;
-
-  default: FD_LOG_ERR(( "unhandled eqvoc proof err %d", err ));
-  }
+update_metrics_eqvoc( fd_tower_tile_t * ctx,
+                      int               err ) {
+  ctx->metrics.eqvoc_success += (ulong)(err==FD_EQVOC_SUCCESS);
+  ctx->metrics.eqvoc_err     += (ulong)(err<0);
 }
 
 static void
@@ -1456,11 +1401,8 @@ metrics_write( fd_tower_tile_t * ctx ) {
   FD_MCNT_ENUM_COPY( TOWER, VOTES,                 ctx->metrics.votes       );
   FD_MCNT_ENUM_COPY( TOWER, VOTE_SLOTS,            ctx->metrics.vote_slots  );
   FD_MCNT_ENUM_COPY( TOWER, VOTE_INTERMEDIATE_GATE, ctx->metrics.gate_int   );
-  FD_MCNT_ENUM_COPY( TOWER, EQVOC_SHRED,           ctx->metrics.eqvoc_shred );
-  FD_MCNT_ENUM_COPY( TOWER, EQVOC_PROOF,           ctx->metrics.eqvoc_proof );
-
-  FD_MCNT_SET( TOWER, EQVOC_PROOF_CONSTRUCTED, ctx->metrics.eqvoc_proof_constructed );
-  FD_MCNT_SET( TOWER, EQVOC_PROOF_VERIFIED,    ctx->metrics.eqvoc_proof_verified    );
+  FD_MCNT_SET( TOWER, EQVOC_SUCCESS, ctx->metrics.eqvoc_success );
+  FD_MCNT_SET( TOWER, EQVOC_ERR,     ctx->metrics.eqvoc_err     );
 
   FD_MCNT_ENUM_COPY( TOWER, GHOST, ctx->metrics.ghost );
 
@@ -1503,7 +1445,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_DEDUP:{
-    if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 0; }
+    if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 1; } /* backpressure vote txns on boot until we're ready */
     fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
     count_vote_txn( ctx, fd_txn_m_txn_t_const( txnm ), fd_txn_m_payload_const( txnm ) );
     return 0;
@@ -1517,17 +1459,16 @@ returnable_frag( fd_tower_tile_t *   ctx,
     return 0;
   }
   case IN_KIND_GOSSIP: {
-    if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 0; }
+    if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 0; } /* don't backpressure gossip on boot */
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED ) ) {
       fd_gossip_update_message_t const  * msg             = (fd_gossip_update_message_t const *)fd_type_pun_const( fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) );
       fd_gossip_duplicate_shred_t const * duplicate_shred = msg->duplicate_shred;
       fd_pubkey_t const                 * from            = (fd_pubkey_t const *)fd_type_pun_const( msg->origin );
       fd_epoch_leaders_t const *          lsched          = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, duplicate_shred->slot );
       if( FD_UNLIKELY( !lsched ) ) { ctx->metrics.not_ready++; return 0; }
-      int eqvoc_err = fd_eqvoc_chunk_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, lsched, from, duplicate_shred, ctx->duplicate_chunks );
-      update_metrics_eqvoc_proof( ctx, eqvoc_err );
-      if( FD_UNLIKELY( eqvoc_err>0 ) ) {
-        ctx->metrics.eqvoc_proof_verified++;
+      int eqvoc_err = fd_eqvoc_chunk_insert( ctx->eqvoc, ctx->tower->root, ctx->shred_version, lsched, from, duplicate_shred, ctx->duplicate_chunks );
+      update_metrics_eqvoc( ctx, eqvoc_err );
+      if( FD_UNLIKELY( eqvoc_err==FD_EQVOC_SUCCESS ) ) {
         publish_slot_duplicate( ctx, ctx->duplicate_chunks, duplicate_shred->slot );
       }
     }
@@ -1541,7 +1482,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
   case IN_KIND_REPLAY: {
     switch( sig ) {
     case REPLAY_SIG_SLOT_COMPLETED:;
-      if( FD_UNLIKELY( ctx->halt_signing ) ) return 1; /* don't process replay_slot_completed during halt_signing. */
+      if( FD_UNLIKELY( ctx->halt_signing ) ) return 1; /* backpressure replay_slot_completed during halt_signing. */
       fd_replay_slot_completed_t * slot_completed = (fd_replay_slot_completed_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       replay_slot_completed( ctx, slot_completed, tsorig, stem );
       break;
@@ -1562,18 +1503,12 @@ returnable_frag( fd_tower_tile_t *   ctx,
     return 0;
   }
   case IN_KIND_SHRED: {
-    if( FD_UNLIKELY( !ctx->init ) ) { ctx->metrics.not_ready++; return 0; }
     if( FD_LIKELY( fd_shred_sig_src( sig )==SHRED_SIG_SRC_TURBINE || fd_shred_sig_src( sig )==SHRED_SIG_SRC_REPAIR ) ) {
-      fd_shred_base_t            * msg    = (fd_shred_base_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
-      fd_shred_t                 * shred  = &msg->shred;
-      fd_epoch_leaders_t const   * lsched = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->mleaders, shred->slot );
-      if( FD_UNLIKELY( !lsched ) ) { ctx->metrics.not_ready++; return 0; }
-      int eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, ctx->shred_version, ctx->tower->root, fd_ptr_if( fd_shred_sig_res( sig )==SHRED_SIG_RESULT_EQVOC, lsched, NULL ), shred, ctx->duplicate_chunks );
-      update_metrics_eqvoc_shred( ctx, eqvoc_err );
-      if( FD_UNLIKELY( eqvoc_err>0 ) ) {
-        ctx->metrics.eqvoc_proof_constructed++;
-        publish_slot_duplicate( ctx, ctx->duplicate_chunks, shred->slot );
-      }
+      fd_shred_base_t * msg       = (fd_shred_base_t *)fd_type_pun( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      fd_shred_t      * shred     = &msg->shred;
+      int               eqvoc_err = fd_eqvoc_shred_insert( ctx->eqvoc, fd_shred_sig_res( sig )==SHRED_SIG_RESULT_EQVOC, shred, ctx->duplicate_chunks );
+      update_metrics_eqvoc( ctx, eqvoc_err );
+      if( FD_UNLIKELY( eqvoc_err==FD_EQVOC_SUCCESS ) ) publish_slot_duplicate( ctx, ctx->duplicate_chunks, shred->slot );
     }
     return 0;
   }
