@@ -158,6 +158,32 @@ metrics_write( fd_execrp_tile_t * ctx ) {
   FD_ACCDB_METRICS_WRITE( EXECRP, fd_accdb_metrics( ctx->accdb ) );
 }
 
+/* log_acct_data hex-dumps `len` bytes of `data` to the log under `label`,
+   splitting the dump across multiple lines so each line fits within the log
+   buffer.  Used to print full pre/post account data for failed transactions
+   during replay debugging. */
+static void FD_FN_UNUSED
+log_acct_data( char const *  label,
+               uchar const * data,
+               ulong         len ) {
+  static char const hexc[] = "0123456789abcdef";
+  ulong const CHUNK = 16384UL; /* bytes per log line */
+  if( FD_UNLIKELY( !len || !data ) ) {
+    FD_LOG_INFO(( "      %s data (len=%lu)", label, len ));
+    return;
+  }
+  char buf[ 2UL*16384UL + 1UL ];
+  for( ulong off=0UL; off<len; off+=CHUNK ) {
+    ulong n = fd_ulong_min( CHUNK, len-off );
+    for( ulong j=0UL; j<n; j++ ) {
+      buf[ 2UL*j     ] = hexc[ (data[off+j]>>4)&0xF ];
+      buf[ 2UL*j+1UL ] = hexc[  data[off+j]    &0xF ];
+    }
+    buf[ 2UL*n ] = '\0';
+    FD_LOG_INFO(( "      %s data[%lu..%lu] %s", label, off, off+n, buf ));
+  }
+}
+
 static void
 publish_txn_finalized_msg( fd_execrp_tile_t *  ctx,
                            fd_stem_context_t * stem ) {
@@ -220,6 +246,37 @@ returnable_frag( fd_execrp_tile_t *  ctx,
         }
 
         fd_runtime_prepare_and_execute_txn( ctx->runtime, ctx->bank, &ctx->txn_in, &ctx->txn_out );
+
+        /* Print the signature, error info, and pre/post account data for
+           failed non-vote transactions. */
+        if( FD_UNLIKELY( ctx->txn_out.err.txn_err && !ctx->txn_out.details.is_simple_vote ) ) {
+          uchar * signature = (uchar *)ctx->txn_in.txn->payload + TXN( ctx->txn_in.txn )->signature_off;
+          FD_BASE58_ENCODE_64_BYTES( signature, signature_b58 );
+          FD_LOG_INFO(( "txn (slot=%lu) signature=%s txn_err=%d is_committable=%d is_fees_only=%d exec_err=%d exec_err_kind=%d exec_err_idx=%d custom_err=%u",
+                          ctx->bank->f.slot, signature_b58,
+                          ctx->txn_out.err.txn_err,
+                          ctx->txn_out.err.is_committable,
+                          ctx->txn_out.err.is_fees_only,
+                          ctx->txn_out.err.exec_err,
+                          ctx->txn_out.err.exec_err_kind,
+                          ctx->txn_out.err.exec_err_idx,
+                          ctx->txn_out.err.custom_err ));
+
+          /* Dump pre/post state of every writable account in the txn. */
+          for( ushort i=0; i<ctx->txn_out.accounts.cnt; i++ ) {
+            fd_acc_t const * a = &ctx->txn_out.accounts.account[ i ];
+            if( !a->_writable ) continue;
+            FD_BASE58_ENCODE_32_BYTES( ctx->txn_out.accounts.keys[ i ].uc, acct_b58 );
+            FD_BASE58_ENCODE_32_BYTES( a->prior_owner, pre_owner_b58  );
+            FD_BASE58_ENCODE_32_BYTES( a->owner,       post_owner_b58 );
+            FD_LOG_INFO(( "  writable acct[%u] %s | PRE  lamports=%lu owner=%s exec=%d data_len=%lu | POST lamports=%lu owner=%s exec=%d data_len=%lu",
+                          i, acct_b58,
+                          a->prior_lamports, pre_owner_b58,  a->prior_executable, a->prior_data_len,
+                          a->lamports,       post_owner_b58, a->executable,       a->data_len ));
+            // log_acct_data( "PRE ", a->prior_data, a->prior_data_len );
+            // log_acct_data( "POST", a->data,       a->data_len       );
+          }
+        }
 
         ctx->metrics.txn_result[ fd_execle_err_from_runtime_err( ctx->txn_out.err.txn_err ) ]++;
 
