@@ -288,6 +288,7 @@ struct fd_topo_tile {
       char  url[ 256 ];
       char  identity_key_path[ PATH_MAX ];
       char  action[ 16 ];
+      uchar tls_cert_verify : 1;
     } event;
 
     struct {

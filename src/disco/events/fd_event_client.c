@@ -79,6 +79,7 @@ struct fd_event_client {
 
   SSL_CTX * ssl_ctx;
   SSL     * ssl;
+  int       tls_cert_verify;
 
   /* wallclock deadline for hello handshake, LONG_MAX if not
      authenticating. */
@@ -124,7 +125,8 @@ fd_event_client_new( void *                 shmem,
                      ulong                  boot_id,
                      ulong                  machine_id,
                      ulong                  buf_max,
-                     void *                 ssl_ctx ) {
+                     void *                 ssl_ctx,
+                     int                    tls_cert_verify ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -176,6 +178,7 @@ fd_event_client_new( void *                 shmem,
   client->ssl_ctx = (SSL_CTX *)ssl_ctx;
   client->ssl = NULL;
   client->hello_deadline = LONG_MAX;
+  client->tls_cert_verify = !!tls_cert_verify;
   client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
   client->disconnected.reconnect_deadline = 0L;
 
@@ -406,7 +409,7 @@ reconnect( fd_event_client_t * client,
     disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
     return;
   }
-  if( FD_UNLIKELY( !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
+  if( FD_UNLIKELY( client->tls_cert_verify && !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
     FD_LOG_WARNING(( "SSL_set1_host failed" ));
     SSL_free( ssl );
     disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );

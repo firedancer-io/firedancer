@@ -50,7 +50,8 @@ fd_event_client_new( void *                 shmem,
                      ulong                  boot_id,
                      ulong                  machine_id,
                      ulong                  buf_max,
-                     void *                 ssl_ctx );
+                     void *                 ssl_ctx,
+                     int                    tls_cert_verify );
 
 fd_event_client_t *
 fd_event_client_join( void * shec );

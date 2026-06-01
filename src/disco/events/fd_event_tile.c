@@ -393,7 +393,11 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( 0!=SSL_CTX_set_alpn_protos( ssl_ctx, (uchar const *)"\x02h2", 3 ) ) )
     FD_LOG_ERR(( "SSL_CTX_set_alpn_protos failed" ));
 
-  fd_ossl_load_certs( ssl_ctx ); /* also sets SSL_VERIFY_PEER */
+  if( tile->event.tls_cert_verify ) {
+    fd_ossl_load_certs( ssl_ctx ); /* also sets SSL_VERIFY_PEER */
+  } else {
+    SSL_CTX_set_verify( ssl_ctx, SSL_VERIFY_NONE, NULL );
+  }
 
   ctx->ssl_ctx = ssl_ctx;
 }
@@ -460,7 +464,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                            ctx->boot_id,
                                                            ctx->machine_id,
                                                            GRPC_BUF_MAX,
-                                                           ssl_ctx_ptr ) );
+                                                           ssl_ctx_ptr,
+                                                           tile->event.tls_cert_verify ) );
   FD_TEST( ctx->client );
 
   ctx->topo = topo;

@@ -1465,6 +1465,11 @@ telemetry = true
         # `telemetry` to false to disable event reporting.
         url = "https://events-in.firedancer.io"
 
+        # By default, the TLS certificate of the event server is
+        # verified against the CA certs in /etc/ssl/certs.  To disable
+        # certificate verification, set this option to 'false'.
+        tls_cert_verify = true
+
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
     [tiles.gui]

@@ -1123,6 +1123,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->event.identity_key_path, config->paths.identity_key, sizeof(tile->event.identity_key_path) );
     fd_cstr_ncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
     fd_cstr_ncpy( tile->event.action, config->action, sizeof(tile->event.action) );
+    tile->event.tls_cert_verify = !!config->tiles.event.tls_cert_verify;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
 
