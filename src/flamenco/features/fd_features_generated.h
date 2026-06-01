@@ -106,7 +106,7 @@ union fd_features {
     /* 0xf3ee1d3b0fcfec0c */ ulong stake_allow_zero_undelegated_amount;
     /* 0xfc0fb9c317b6c16b */ ulong require_static_program_ids_in_transaction;
     /* 0x562011e7dbadd982 */ ulong stake_raise_minimum_delegation_to_1_sol;
-    /* 0x5458f71cc7cd31e0 */ ulong stake_minimum_delegation_for_rewards;
+    /* 0x4d7d107dc8dd4e05 */ ulong stake_minimum_delegation_for_rewards;
     /* 0x606490c1431ae278 */ ulong add_set_compute_unit_price_ix;
     /* 0xd151c2100e71455b */ ulong disable_deploy_of_alloc_free_syscall;
     /* 0x2fdc300bd0720815 */ ulong include_account_index_in_rent_error;
@@ -254,7 +254,7 @@ union fd_features {
     /* 0xec3a4c069e71cb0e */ ulong disable_zk_elgamal_proof_program;
     /* 0x2e9fa2046b77cb0e */ ulong reenable_zk_elgamal_proof_program;
     /* 0xe72f76507222e3bb */ ulong formalize_loaded_transaction_data_size;
-    /* 0x7170cf84367fbb1a */ ulong enable_extend_program_checked;
+    /* 0x5425f53cee4679cf */ ulong enable_extend_program_checked;
     /* 0xa9e3bfbaf8d67260 */ ulong require_static_nonce_account;
     /* 0x3711b30f40730240 */ ulong enable_vote_address_leader_schedule;
     /* 0xc1309d1b0ae3e80c */ ulong enshrine_slashing_program;
