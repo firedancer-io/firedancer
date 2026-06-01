@@ -8,7 +8,7 @@
 
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-unsigned int logfile_fd
+uint logfile_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -37,7 +37,7 @@ fsync: (eq (arg 0) logfile_fd)
 # grandchildren and the parent process, rather than just direct
 # children.  The third parameter to poll(), timeout, is an int, and we
 # pass -1.  The BPF program treats all args as ulongs though.
-poll: (and (eq (arg 2) "(unsigned int)-1"))
+poll: (and (eq (arg 2) "(int)-1"))
 
 # supervisor: get exited process exit status
 #

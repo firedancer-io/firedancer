@@ -8,7 +8,7 @@
 #                  cleanly interleave log messages with monitoring
 #                  output, it will read from a pipe that it gave to
 #                  Firedancer to write log messages to.
-unsigned int logfile_fd, unsigned int drain_output_fd
+uint logfile_fd, uint drain_output_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -70,9 +70,3 @@ read: (or (eq (arg 0) drain_output_fd)
 ioctl: (and (eq (arg 0) 0)
             (or (eq (arg 1) TCGETS)
                 (eq (arg 1) TCSETS)))
-
-# monitor: check if stdin has data
-# The monitor must not be blocked when reading stdin. This syscall allows
-# the monitor to know if new data is available to be read from STDIN.
-pselect6: (and (eq (arg 0) 1)
-               (eq (arg 2) 0))
