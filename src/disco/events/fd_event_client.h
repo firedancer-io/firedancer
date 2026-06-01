@@ -4,10 +4,7 @@
 #include "fd_circq.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
-
-#if FD_HAS_OPENSSL
 #include <openssl/ssl.h>
-#endif
 
 #define FD_EVENT_CLIENT_STATE_DISCONNECTED (0)
 #define FD_EVENT_CLIENT_STATE_CONNECTING   (1)
@@ -53,7 +50,6 @@ fd_event_client_new( void *                 shmem,
                      ulong                  boot_id,
                      ulong                  machine_id,
                      ulong                  buf_max,
-                     int                    use_tls,
                      void *                 ssl_ctx );
 
 fd_event_client_t *

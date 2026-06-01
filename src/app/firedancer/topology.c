@@ -746,6 +746,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "tower_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_net",     i                                                  );
 
+# if FD_HAS_OPENSSL
   if( FD_LIKELY( telemetry_enabled ) ) {
     fd_topob_wksp( topo, "event"      );
     fd_topob_wksp( topo, "event_sign" );
@@ -772,6 +773,9 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "sign_event", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     fd_topob_tile_out( topo, "sign",   0UL,              "sign_event", 0UL                                         );
   }
+# else /* no OpenSSL */
+  if( telemetry_enabled ) FD_LOG_WARNING(( "ignoring [telemetry] = true: this build of Firedancer is missing OpenSSL" ));
+# endif /* FD_HAS_OPENSSL */
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
     fd_topob_wksp( topo, "bundle_verif" );

@@ -1,6 +1,10 @@
 #define _GNU_SOURCE
 #include "fd_event_client.h"
 
+#if !FD_HAS_OPENSSL
+#error "Building fd_event_client requires FD_HAS_OPENSSL"
+#endif
+
 #include "../../waltz/resolv/fd_netdb.h"
 #include "../../waltz/http/fd_url.h"
 #include "../../waltz/grpc/fd_grpc_client.h"
@@ -10,12 +14,9 @@
 #include "../../util/net/fd_ip4.h"
 #include "../../util/log/fd_log.h"
 #include "../keyguard/fd_keyguard.h"
-
-#if FD_HAS_OPENSSL
 #include "../../waltz/openssl/fd_openssl.h"
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#endif
 
 #include <netinet/tcp.h>
 #include <unistd.h>
@@ -77,11 +78,8 @@ struct fd_event_client {
   int so_sndbuf;
   int sockfd;
 
-  int    use_tls;
-#if FD_HAS_OPENSSL
   SSL_CTX * ssl_ctx;
   SSL     * ssl;
-#endif
 
   /* wallclock deadline for hello handshake, LONG_MAX if not
      authenticating. */
@@ -127,7 +125,6 @@ fd_event_client_new( void *                 shmem,
                      ulong                  boot_id,
                      ulong                  machine_id,
                      ulong                  buf_max,
-                     int                    use_tls,
                      void *                 ssl_ctx ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -177,17 +174,8 @@ fd_event_client_new( void *                 shmem,
 
   client->so_sndbuf = so_sndbuf;
   client->sockfd = -1;
-  client->use_tls = use_tls;
-#if FD_HAS_OPENSSL
   client->ssl_ctx = (SSL_CTX *)ssl_ctx;
   client->ssl = NULL;
-#else
-  (void)ssl_ctx;
-  if( FD_UNLIKELY( use_tls ) ) {
-    FD_LOG_ERR(( "TLS requested for event service but this build does not include OpenSSL. "
-                 "To install OpenSSL, re-run ./deps.sh and do a clean rebuild." ));
-  }
-#endif
   client->hello_deadline = LONG_MAX;
   client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
   client->disconnected.reconnect_deadline = 0L;
@@ -276,12 +264,10 @@ disconnect( fd_event_client_t * client,
             int                 err,
             int                 _backoff ) {
   client->event_stream = NULL;
-#if FD_HAS_OPENSSL
   if( FD_UNLIKELY( client->ssl ) ) {
     SSL_free( client->ssl );
     client->ssl = NULL;
   }
-#endif
   if( FD_LIKELY( -1!=client->sockfd ) ) {
     if( FD_UNLIKELY( -1==close( client->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     client->sockfd = -1;
@@ -349,7 +335,7 @@ reconnect( fd_event_client_t * client,
   *charge_busy = 1;
   client->metrics.connect_attempt_cnt++;
 
-  FD_LOG_INFO(( "connecting to event server %s://%.*s:%u", client->use_tls ? "https" : "http", (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port ));
+  FD_LOG_INFO(( "connecting to event server https://%.*s:%u", (int)client->server_fqdn_len, client->server_fqdn, client->server_tcp_port ));
 
   /* FIXME IPv6 support */
   fd_addrinfo_t hints = {0};
@@ -389,43 +375,39 @@ reconnect( fd_event_client_t * client,
     return;
   }
 
-# if FD_HAS_OPENSSL
-  if( client->use_tls ) {
-    BIO * bio = fd_openssl_bio_new_socket( client->sockfd, BIO_NOCLOSE );
-    if( FD_UNLIKELY( !bio ) ) {
-      FD_LOG_WARNING(( "fd_openssl_bio_new_socket failed" ));
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    SSL * ssl = SSL_new( client->ssl_ctx );
-    if( FD_UNLIKELY( !ssl ) ) {
-      FD_LOG_WARNING(( "SSL_new failed" ));
-      BIO_free( bio );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
-    SSL_set_connect_state( ssl );
-
-    /* SNI and hostname verification */
-    if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, client->server_fqdn ) ) ) {
-      FD_LOG_WARNING(( "SSL_set_tlsext_host_name failed" ));
-      SSL_free( ssl );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-    if( FD_UNLIKELY( !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
-      FD_LOG_WARNING(( "SSL_set1_host failed" ));
-      SSL_free( ssl );
-      disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
-      return;
-    }
-
-    client->ssl = ssl;
+  BIO * bio = fd_openssl_bio_new_socket( client->sockfd, BIO_NOCLOSE );
+  if( FD_UNLIKELY( !bio ) ) {
+    FD_LOG_WARNING(( "fd_openssl_bio_new_socket failed" ));
+    disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+    return;
   }
-# endif /* FD_HAS_OPENSSL */
+
+  SSL * ssl = SSL_new( client->ssl_ctx );
+  if( FD_UNLIKELY( !ssl ) ) {
+    FD_LOG_WARNING(( "SSL_new failed" ));
+    BIO_free( bio );
+    disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+    return;
+  }
+
+  SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
+  SSL_set_connect_state( ssl );
+
+  /* SNI and hostname verification */
+  if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, client->server_fqdn ) ) ) {
+    FD_LOG_WARNING(( "SSL_set_tlsext_host_name failed" ));
+    SSL_free( ssl );
+    disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+    return;
+  }
+  if( FD_UNLIKELY( !SSL_set1_host( ssl, client->server_fqdn ) ) ) {
+    FD_LOG_WARNING(( "SSL_set1_host failed" ));
+    SSL_free( ssl );
+    disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+    return;
+  }
+
+  client->ssl = ssl;
 
   fd_grpc_client_reset( client->grpc_client );
 
@@ -686,13 +668,7 @@ fd_event_client_poll( fd_event_client_t * client,
     return;
   }
   if( FD_LIKELY( client->state!=FD_EVENT_CLIENT_STATE_DISCONNECTED ) ) {
-    int rxtx_err;
-#   if FD_HAS_OPENSSL
-    if( client->use_tls )
-      rxtx_err = fd_grpc_client_rxtx_ossl( client->grpc_client, client->ssl, charge_busy );
-    else
-#   endif
-      rxtx_err = fd_grpc_client_rxtx_socket( client->grpc_client, client->sockfd, charge_busy );
+    int rxtx_err = fd_grpc_client_rxtx_ossl( client->grpc_client, client->ssl, charge_busy );
     if( FD_UNLIKELY( -1==rxtx_err ) ) {
       disconnect( client, DISCONNECT_REASON_TRANSPORT_FAILED, errno, 1 );
       return;
