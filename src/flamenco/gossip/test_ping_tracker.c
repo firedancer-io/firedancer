@@ -94,23 +94,22 @@ test_basic( void ) {
   FD_TEST( out_address->port==p.address.port );
 
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(10), &out_pubkey, &out_address, &out_token ) );
-  FD_TEST ( fd_ping_tracker_pop_request( ping_tracker, now+seconds(11), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(29), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( fd_ping_tracker_pop_request ( ping_tracker, now+seconds(30), &out_pubkey, &out_address, &out_token ) );
   /* Peer should still be in invalid state, so no invocations to change fn */
   FD_TEST( !change_ctx->invoke_cnt );
 
-  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(11), &out_pubkey, &out_address, &out_token ) );
-  FD_TEST ( fd_ping_tracker_pop_request( ping_tracker, now+seconds(14), &out_pubkey, &out_address, &out_token ) );
-  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(14), &out_pubkey, &out_address, &out_token ) );
-  FD_TEST ( fd_ping_tracker_pop_request( ping_tracker, now+seconds(16), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(30), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(49), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( fd_ping_tracker_pop_request ( ping_tracker, now+seconds(50), &out_pubkey, &out_address, &out_token ) );
   FD_TEST( !change_ctx->invoke_cnt );
   FD_TEST( !memcmp( out_pubkey, p.pubkey, 32UL ) );
   FD_TEST( out_address->addr==p.address.addr );
   FD_TEST( out_address->port==p.address.port );
   FD_TEST( !change_ctx->invoke_cnt );
-  FD_TEST ( fd_ping_tracker_pop_request( ping_tracker, now+seconds(20), &out_pubkey, &out_address, &out_token ) );
-  /* Peer should get dropped after 20s if no pong */
-  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(22), &out_pubkey, &out_address, &out_token ) );
-  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(24), &out_pubkey, &out_address, &out_token ) );
+  /* Peer should get dropped after 60s of no rx (last rx was at now). */
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(61), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(62), &out_pubkey, &out_address, &out_token ) );
   /* Peer was never valid, so no invocations to change fn */
   FD_TEST( !change_ctx->invoke_cnt );
 
@@ -418,17 +417,17 @@ test_invalid_transitions( void ) {
   FD_TEST( memcmp( change_ctx->last.pubkey, p.pubkey, 32UL )==0 );
   FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
 
-  /* pop */
-  fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+4), &out_pubkey, &out_address, &out_token );
+  /* pop (next ping is due 20s after the transition to invalid above) */
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+23), &out_pubkey, &out_address, &out_token ) );
   FD_TEST( !memcmp( out_pubkey, p.pubkey, 32UL ) );
   FD_TEST( out_address->addr==p.address.addr );
   FD_TEST( out_address->port==p.address.port );
 
 
 
-  /* Invalid to dropped after 20s no rx */
-  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+24), &out_pubkey, &out_address, &out_token ) );
-  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+25), &out_pubkey, &out_address, &out_token ) );
+  /* Invalid to dropped after 60s no rx */
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+61), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+62), &out_pubkey, &out_address, &out_token ) );
 
   free( bytes );
 }
