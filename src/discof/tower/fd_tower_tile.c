@@ -635,7 +635,7 @@ publish_slot_done( fd_tower_tile_t *            ctx,
   }
 
   msg->tower_cnt = 0UL; /* FIXME */
-  if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct );
+  if( FD_LIKELY( found ) ) msg->tower_cnt = fd_tower_with_lat_from_vote_acc( msg->tower, ctx->our_vote_acct, ctx->our_vote_acct_sz );
 }
 
 static void
@@ -695,7 +695,7 @@ count_vote_acc( fd_tower_tile_t *            ctx,
                 uchar const *                data,
                 ulong                        data_sz ) {
 
-  fd_tower_count_vote( ctx->tower, vote_acc, stake, data );
+  fd_tower_count_vote( ctx->tower, vote_acc, stake, data, data_sz );
 
   fd_tower_vtr_t const * vtr = fd_tower_vtr_peek_tail_const( ctx->tower->vtrs );
 
@@ -1000,7 +1000,9 @@ query_vote_accs( fd_tower_tile_t *            ctx,
     fd_accdb_close_ro( ctx->accdb, reconcile_ro );
     int skip_reconcile = !ctx->init && ctx->wfs;
     if( FD_LIKELY( !skip_reconcile ) ) {
-      ulong root; fd_tower_vote_remove_all( ctx->scratch_tower ); fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct );
+      ulong root;
+      fd_tower_vote_remove_all( ctx->scratch_tower );
+      fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct, ctx->our_vote_acct_sz );
       fd_tower_reconcile( ctx->tower, ctx->scratch_tower, root );
     } else {
       FD_LOG_NOTICE(( "wait_for_supermajority: skipping tower reconcile on init slot %lu", slot_completed->slot ));
