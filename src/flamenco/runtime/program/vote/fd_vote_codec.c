@@ -566,6 +566,7 @@ seek_epoch_credits( uchar const *                    data,
   /* Now at epoch_credits deque */
   ulong epoch_credits_len;
   READ_U64( epoch_credits_len, &ptr, &remaining );
+  CHECK( epoch_credits_len<=MAX_EPOCH_CREDITS_HISTORY );
   CHECK_U64_MUL_OVERFLOW( epoch_credits_len, sizeof(fd_vote_epoch_credits_t) );
   CHECK( epoch_credits_len*sizeof(fd_vote_epoch_credits_t)<=remaining );
 

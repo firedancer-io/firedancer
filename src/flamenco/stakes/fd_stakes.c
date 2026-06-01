@@ -344,6 +344,7 @@ get_vote_credits( uchar const *        account_data,
 
   fd_vote_epoch_credits_t const * vote_epoch_credits = fd_vote_account_epoch_credits( account_data, account_data_len, &epoch_credits->cnt );
   FD_TEST( vote_epoch_credits );
+  FD_TEST( epoch_credits->cnt<=FD_EPOCH_CREDITS_MAX );
 
   ulong base = epoch_credits->cnt ? vote_epoch_credits[0].prev_credits : 0UL;
   for( ulong i=0UL; i<epoch_credits->cnt; i++ ) {
