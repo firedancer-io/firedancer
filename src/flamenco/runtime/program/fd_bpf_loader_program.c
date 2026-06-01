@@ -2059,10 +2059,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     }
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1158-L1170 */
     case FD_BPF_INSTR_EXTEND_PROGRAM: {
-      if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_extend_program_checked ) ) ) {
-        fd_log_collector_msg_literal( instr_ctx, "ExtendProgram was superseded by ExtendProgramChecked" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-      }
       err = common_extend_program( instr_ctx, instruction->inner.extend_program.additional_bytes, 0 );
       if( FD_UNLIKELY( err ) ) {
         return err;
@@ -2072,15 +2068,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     }
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1171-L1179 */
     case FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED: {
-      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE_BANK( instr_ctx->bank, enable_extend_program_checked ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
-      }
-      err = common_extend_program( instr_ctx, instruction->inner.extend_program_checked.additional_bytes, 1 );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
-
-      break;
+      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1338-L1508 */
     case FD_BPF_INSTR_MIGRATE: {

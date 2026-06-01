@@ -360,8 +360,6 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const * program_id,
                ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_SET_AUTHORITY ) ||
                ( FD_FEATURE_ACTIVE_BANK( bank, enable_bpf_loader_set_authority_checked_ix ) &&
                  ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_SET_AUTHORITY_CHECKED )) ||
-               ( FD_FEATURE_ACTIVE_BANK( bank, enable_extend_program_checked ) &&
-                 ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_EXTEND_PROGRAM_CHECKED )) ||
                ( instruction_data_len != 0 && instruction_data[0] == FD_BPF_INSTR_CLOSE ))) ||
            fd_vm_syscall_cpi_is_precompile( program_id ) );
 }
