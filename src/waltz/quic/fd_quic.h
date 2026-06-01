@@ -535,6 +535,14 @@ FD_QUIC_API void
 fd_quic_conn_close( fd_quic_conn_t * conn,
                     uint             reason );
 
+/* fd_quic_conn_free instantly frees the given conn object without
+   issuing a conn_final callback.  Does not send a CONNECTION_CLOSE
+   frame. */
+
+FD_QUIC_API void
+fd_quic_conn_free( fd_quic_t *      quic,
+                   fd_quic_conn_t * conn );
+
 /* fd_quic_conn_let_die stops keeping a conn alive after
    'keep_alive_duration_ns'. No-op if keep-alive is not configured.
    Safe to call on a connection in any state.

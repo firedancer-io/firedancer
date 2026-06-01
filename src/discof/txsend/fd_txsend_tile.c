@@ -1,3 +1,21 @@
+/* The txsend tile relays new transactions to the current leader.
+
+   To recap, every ~1.6 seconds, a new validator is elected by the
+   protocol to receive all transactions, and pack them into blocks.
+   To submit a transaction to Solana, one has to track the "leader
+   schedule" and get the timing right to submit a transaction early
+   enough.
+
+   The txsend tile supports the TPU-UDP (connectionless) and TPU-QUIC
+   transports.  This tile has the following jobs:
+   - decide who to connect to (continually monitor gossip, leader schedule)
+   - manage a pool of QUIC connections
+   - actually send transactions
+
+   An important quirk is that txsend tolerates temporary gossip outages
+   by indefinitely caching old endpoint info (until the gossip feed is
+   revived). */
+
 #include "fd_txsend_tile.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -34,7 +52,6 @@ fd_quic_limits_t quic_limits = {
 #define MAP_KEY                pubkey
 #define MAP_ELE_T              peer_entry_t
 #define MAP_KEY_T              fd_pubkey_t
-#define MAP_PREV               map.prev
 #define MAP_NEXT               map.next
 #define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
 #define MAP_KEY_HASH(key,seed) fd_funk_rec_key_hash1( (key)->uc, (seed) )
@@ -195,26 +212,51 @@ quic_tx_aio_send( void *                    _ctx,
   return FD_AIO_SUCCESS;
 }
 
+/* quic_conn_deregister removes references to a quic_conn object from
+   txsend state. */
+
+static void
+quic_conn_deregister( fd_txsend_tile_t * tile,
+                      fd_quic_conn_t *   conn ) {
+  for( ulong i=0UL; i<tile->conns_len; i++ ) {
+    if( FD_LIKELY( tile->conns[ i ].conn!=conn ) ) continue;
+    peer_entry_t * peer = peer_map_ele_query( tile->peer_map, &tile->conns[ i ].pubkey, NULL, tile->peers );
+    if( FD_LIKELY( peer ) ) {
+      for( ulong j=0UL; j<2UL; j++ ) {
+        if( peer->quic_conns[ j ].quic_conn==conn ) {
+          peer->quic_conns[ j ].quic_conn = NULL;
+        }
+      }
+    }
+    if( FD_UNLIKELY( i!=tile->conns_len-1UL ) ) tile->conns[ i ] = tile->conns[ tile->conns_len-1UL ];
+    tile->conns_len--;
+    return;
+  }
+}
+
+/* quic_conn_final is invoked by fd_quic just before a conn object is
+   deallocated.  Here, we must remove all references to this conn. */
+
 static void
 quic_conn_final( fd_quic_conn_t * conn,
                  void *           ctx ) {
   fd_txsend_tile_t * tile = ctx;
+  quic_conn_deregister( tile, conn );
+}
 
-  for( ulong i=0UL; i<tile->conns_len; i++ ) {
-    if( FD_UNLIKELY( tile->conns[ i ].conn==conn ) ) {
-      peer_entry_t * peer = peer_map_ele_query( tile->peer_map, &tile->conns[ i ].pubkey, NULL, tile->peers );
-      if( FD_LIKELY( peer ) ) {
-        for( ulong j=0UL; j<2UL; j++ ) {
-          if( peer->quic_conns[ j ]==conn ) peer->quic_conns[ j ] = NULL;
-        }
-      }
-      if( FD_UNLIKELY( i!=tile->conns_len-1UL ) ) tile->conns[ i ] = tile->conns[ tile->conns_len-1UL ];
-      tile->conns_len--;
-      return;
-    }
-  }
+/* quic_conn_close instructs fd_quic to deallocate the given conn and
+   say goodbye (CONNECTION_CLOSE) to the peer. */
 
-  FD_LOG_ERR(( "unknown connection finalized" ));
+static void
+quic_conn_close( fd_txsend_tile_t * tile,
+                 fd_quic_conn_t *   conn,
+                 uint               reason ) {
+  if( FD_UNLIKELY( !conn ) ) return;
+  /* Defer a conn close operation */
+  fd_quic_conn_close( conn, reason );
+  quic_conn_deregister( tile, conn );
+  /* Send out a packet and invoke quic_conn_final */
+  fd_quic_service( tile->quic, fd_log_wallclock() );
 }
 
 /* This QUIC servicing is very precarious. Recall a few facts,
@@ -263,7 +305,8 @@ after_credit( fd_txsend_tile_t *  ctx,
 
   /* Disconnect any QUIC connection to a leader that does not have a
      rotation coming up in the next 7 slots. */
-  for( ulong i=0UL; i<ctx->conns_len; i++ ) {
+  ulong conn_cnt = ctx->conns_len;
+  for( ulong i=0UL; i<conn_cnt; ) {
     int keep_conn = 0;
     for( ulong j=0UL; j<7UL; j++ ) {
       if( fd_pubkey_eq( &ctx->conns[ i ].pubkey, leaders[ j ] ) ) {
@@ -272,7 +315,9 @@ after_credit( fd_txsend_tile_t *  ctx,
       }
     }
 
-    if( FD_UNLIKELY( !keep_conn ) ) fd_quic_conn_close( ctx->conns[ i ].conn, 0U );
+    if( FD_UNLIKELY( !keep_conn ) ) quic_conn_close( ctx, ctx->conns[ i ].conn, 0 );
+    if( ctx->conns_len==conn_cnt ) i++;
+    conn_cnt = ctx->conns_len;
   }
 
   /* Connect to any leader that does not have a connection yet. */
@@ -283,8 +328,9 @@ after_credit( fd_txsend_tile_t *  ctx,
 
     for( ulong j=0UL; j<2UL; j++ ) {
       if( FD_UNLIKELY( ctx->conns_len==128UL ) ) break; /* connection limit reached */
-      if( FD_LIKELY( peer->quic_conns[ j ] ) ) continue; /* already connected */
-      if( FD_UNLIKELY( !peer->quic_ip_addrs[ j ] || !peer->quic_ports[ j ] ) ) continue;
+      txsend_conn_t * conn = &peer->quic_conns[ j ];
+      if( FD_LIKELY( conn->quic_conn ) ) continue; /* already connected */
+      if( FD_UNLIKELY( !conn->quic_ip_addr || !conn->quic_port ) ) continue;
 
       /* Don't try to reconnect more than once every two seconds ...
          Basically Agave limits us to 8 connections per minute, so if we
@@ -297,19 +343,23 @@ after_credit( fd_txsend_tile_t *  ctx,
          attempt if a leader slot is imminent, even if we recently tried
          to connect).  For now the dumb logic seems to work well enough. */
       long now = fd_log_wallclock();
-      if( FD_UNLIKELY( peer->quic_last_connected[ j ]+2e9L>now ) ) continue;
+      if( FD_UNLIKELY( conn->quic_last_connected+2e9L>now ) ) continue;
 
-      fd_quic_conn_t * conn = fd_quic_connect( ctx->quic,
-                                               peer->quic_ip_addrs[ j ],
-                                               peer->quic_ports[ j ],
-                                               ctx->src_ip_addr,
-                                               ctx->src_port,
-                                               now );
-      FD_TEST( conn ); /* never out of connection objects, per above check */
-      ctx->conns[ ctx->conns_len ].conn   = conn;
+      fd_quic_conn_t * quic_conn =
+          fd_quic_connect( ctx->quic,
+                           conn->quic_ip_addr,
+                           conn->quic_port,
+                           ctx->src_ip_addr,
+                           ctx->src_port,
+                           now );
+      if( FD_UNLIKELY( !quic_conn ) ) {
+        /* Should never happen, but handle it gracefully */
+        return;
+      }
+      ctx->conns[ ctx->conns_len ].conn   = quic_conn;
       ctx->conns[ ctx->conns_len ].pubkey = *leader;
-      peer->quic_conns[ j ] = conn;
-      peer->quic_last_connected[ j ] = now;
+      conn->quic_conn = quic_conn;
+      conn->quic_last_connected = now;
       ctx->conns_len++;
     }
   }
@@ -341,7 +391,7 @@ send_vote_to_leader( fd_txsend_tile_t *  ctx,
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
-    fd_quic_conn_t * conn = peer->quic_conns[ i ];
+    fd_quic_conn_t * conn = peer->quic_conns[ i ].quic_conn;
     if( FD_UNLIKELY( !conn ) ) continue;
 
     fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
@@ -351,42 +401,73 @@ send_vote_to_leader( fd_txsend_tile_t *  ctx,
   }
 }
 
+/* gossip -> txsend peer synchronization
+
+   The gossip update stream can be replayed to perfectly replicate the
+   ContactInfo table.  The stream is laid out so there are no duplicate
+   pubkeys.
+
+   However, the txsend tile wants to retain pubkeys past deletion.
+   Gossip evicts ContactInfos without updates quickly, but txsend should
+   continue sending to staked leaders even if there is a temporary
+   gossip outage.
+
+   Therefore, the txsend tile only tombstones entries when the gossip
+   stream instructs to remove them, instead of deleting.  The tombstone
+   handling is then resolved downstream during ContactInfo updates. */
+
 static inline void
+handle_contact_info_remove( fd_txsend_tile_t *                 ctx,
+                            fd_gossip_update_message_t const * msg ) {
+  FD_TEST( msg->contact_info_remove->idx < FD_CONTACT_INFO_TABLE_SIZE );
+  peer_entry_t * entry = &ctx->peers[ msg->contact_info_remove->idx ];
+  entry->tombstoned = 1;
+}
+
+static void
 handle_contact_info_update( fd_txsend_tile_t *                 ctx,
                             fd_gossip_update_message_t const * msg ) {
+  FD_TEST( msg->contact_info->idx < FD_CONTACT_INFO_TABLE_SIZE );
+
+  /* Key updated by the gossip event */
+  fd_pubkey_t key = FD_LOAD( fd_pubkey_t, msg->origin );
+
+  /* Storage entry updated by the gossip event */
   peer_entry_t * entry = &ctx->peers[ msg->contact_info->idx ];
-  if( FD_UNLIKELY( entry->tombstoned ) ) {
-    FD_TEST( peer_map_ele_remove( ctx->peer_map, &entry->pubkey, NULL, ctx->peers ) );
-    entry->quic_last_connected[ 0 ] = 0L;
-    entry->quic_last_connected[ 1 ] = 0L;
+
+  /* At this point, entry contains an arbitrary old tombstoned entry or
+     a previous version of this key. */
+
+  if( FD_UNLIKELY( !fd_pubkey_eq( &entry->pubkey, &key ) ) ) {
+    /* Overwriting an unrelated (tombstoned) entry, free it */
+    quic_conn_close( ctx, entry->quic_conns[ 0 ].quic_conn, 0 );
+    quic_conn_close( ctx, entry->quic_conns[ 1 ].quic_conn, 0 );
+    peer_map_ele_remove( ctx->peer_map, &entry->pubkey, NULL, ctx->peers );
+    memset( entry, 0, sizeof(peer_entry_t) );
+  }
+
+  /* At this point, entry contains a stale version of the same key or is
+     empty. */
+
+  peer_entry_t * stale = peer_map_ele_query( ctx->peer_map, &key, NULL, ctx->peers );
+  if( FD_UNLIKELY( stale && stale!=entry ) ) {
+    /* The key exists at another entry location, drop that and migrate
+       it to this slot. */
     for( ulong i=0UL; i<2UL; i++ ) {
-      entry->quic_ip_addrs[ i ] = 0U;
-      entry->quic_ports   [ i ] = 0U;
-      entry->udp_ip_addrs [ i ] = 0U;
-      entry->udp_ports    [ i ] = 0U;
+      entry->quic_conns  [ i ] = stale->quic_conns  [ i ];
+      entry->udp_ip_addrs[ i ] = stale->udp_ip_addrs[ i ];
+      entry->udp_ports   [ i ] = stale->udp_ports   [ i ];
     }
+    peer_map_ele_remove( ctx->peer_map, &stale->pubkey, NULL, ctx->peers );
+    memset( stale, 0, sizeof(peer_entry_t) );
+    fd_memcpy( entry->pubkey.uc, msg->origin, 32UL );
+    FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
+  } else if( !stale ) {
+    fd_memcpy( entry->pubkey.uc, msg->origin, 32UL );
+    FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
   }
 
   entry->tombstoned = 0;
-  fd_memcpy( entry->pubkey.uc, msg->origin, 32UL );
-
-  /* The new pubkey might already exist in the map via a stale
-     tombstoned entry at a different idx, if a validator's pubkey
-     migrated between contact info table slots.  Evict the stale entry
-     to prevent duplicate keys in the map. */
-  peer_entry_t * stale = peer_map_ele_query( ctx->peer_map, &entry->pubkey, NULL, ctx->peers );
-  if( FD_UNLIKELY( stale ) ) {
-    peer_map_ele_remove( ctx->peer_map, &stale->pubkey, NULL, ctx->peers );
-    entry->quic_last_connected[ 0 ] = 0L;
-    entry->quic_last_connected[ 1 ] = 0L;
-    for( ulong i=0UL; i<2UL; i++ ) {
-      entry->quic_ip_addrs[ i ] = 0U;
-      entry->quic_ports   [ i ] = 0U;
-      entry->udp_ip_addrs [ i ] = 0U;
-      entry->udp_ports    [ i ] = 0U;
-    }
-    stale->tombstoned = 0;
-  }
 
   static ulong const quic_socket_idx[ 2UL ] = {
     FD_GOSSIP_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC,
@@ -398,16 +479,17 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
     FD_GOSSIP_CONTACT_INFO_SOCKET_TPU,
   };
 
-  /* If an IP address or port is updated via. gossip to be 0, it's no
-     longer reachable and we just ignore the update, since there's a
-     chance the old one is still valid. */
+  /* At this point, entry is not in a map and *entry might still contain
+     stale endpoint info (from a previous update).  Only overwrite it if
+     update actually contains endpoint info. */
 
   for( ulong i=0UL; i<2UL; i++ ) {
     if( FD_LIKELY( !msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].is_ipv6 && msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].ip4 ) ) {
-      entry->quic_ip_addrs[ i ] = msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].ip4;
+      entry->quic_conns[ i ].quic_ip_addr = msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].ip4;
     }
-    if( FD_LIKELY( fd_ushort_bswap( msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].port ) ) ) {
-      entry->quic_ports   [ i ] = fd_ushort_bswap( msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].port );
+    ushort port = fd_ushort_bswap( msg->contact_info->value->sockets[ quic_socket_idx[ i ] ].port );
+    if( FD_LIKELY( port ) ) {
+      entry->quic_conns[ i ].quic_port = port;
     }
   }
 
@@ -419,15 +501,6 @@ handle_contact_info_update( fd_txsend_tile_t *                 ctx,
       entry->udp_ports   [ i ] = fd_ushort_bswap( msg->contact_info->value->sockets[ udp_socket_idx[ i ] ].port );
     }
   }
-
-  FD_TEST( peer_map_ele_insert( ctx->peer_map, entry, ctx->peers ) );
-}
-
-static inline void
-handle_contact_info_remove( fd_txsend_tile_t *                 ctx,
-                            fd_gossip_update_message_t const * msg ) {
-  peer_entry_t * entry = &ctx->peers[ msg->contact_info_remove->idx ];
-  entry->tombstoned = 1;
 }
 
 static void
@@ -624,15 +697,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_quic_init( ctx->quic ));
 
   for( ulong i=0UL; i<FD_CONTACT_INFO_TABLE_SIZE; i++ ) {
-    ctx->peers[ i ].tombstoned = 0;
-    for( ulong j=0UL; j<2UL; j++ ) {
-      ctx->peers[ i ].quic_ip_addrs[ j ] = 0;
-      ctx->peers[ i ].quic_ports   [ j ] = 0;
-      ctx->peers[ i ].udp_ip_addrs [ j ] = 0;
-      ctx->peers[ i ].udp_ports    [ j ] = 0;
-      ctx->peers[ i ].quic_last_connected[ j ] = 0L;
-      ctx->peers[ i ].quic_conns[ j ]    = NULL;
-    }
+    ctx->peers[ i ] = (peer_entry_t){0};
   }
 
   ctx->conns_len  = 0UL;

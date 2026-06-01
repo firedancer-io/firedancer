@@ -174,12 +174,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      ushort                    self_udp_port,
                      int                       server );
 
-/* fd_quic_conn_free frees up resources related to the connection and
-   returns it to the connection free list. */
-void
-fd_quic_conn_free( fd_quic_t *      quic,
-                   fd_quic_conn_t * conn );
-
 void
 fd_quic_tx_stream_free( fd_quic_t *        quic,
                         fd_quic_conn_t *   conn,
