@@ -8,6 +8,7 @@ endif
 $(call make-unit-test,test_vinyl_base,test_vinyl_base,fd_vinyl fd_tango fd_util)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_vinyl_req,test_vinyl_req,fd_vinyl fd_tango fd_util)
+$(call run-unit-test,test_vinyl_req)
 endif
 $(call run-unit-test,test_vinyl_base)
 endif
