@@ -924,15 +924,23 @@ Prometheus metrics endpoint
     "value": {
         "ingress": [12345432, 5431234, 92345, ...],
         "egress": [12345432, 5431234, 92345, ...],
+        "ingress_ema": [1234543.00, 543123.00, 9234.00, ...],
+        "egress_ema": [1234543.00, 543123.00, 9234.00, ...],
+        "ingress_max_5m": 15000000,
+        "egress_max_5m": 14500000,
     }
 }
 ```
 
 **`NetworkMetrics`**
-| Field   | Type       | Description |
-|---------|------------|-------------|
-| ingress | `number[]` | `ingress[i]` is the total number of ingress network bytes for `protocols[i]` |
-| egress  | `number[]` | `egress[i]` is the total number of egress network bytes for `protocols[i]` |
+| Field          | Type       | Description |
+|----------------|------------|-------------|
+| ingress        | `number[]` | `ingress[i]` is the total number of ingress network bytes for `protocols[i]` |
+| egress         | `number[]` | `egress[i]` is the total number of egress network bytes for `protocols[i]` |
+| ingress_ema    | `number[]` | `ingress_ema[i]` is the EMA-smoothed (1-second half-life) ingress throughput in bytes per second for `protocols[i]`, sampled every ~100 ms |
+| egress_ema     | `number[]` | `egress_ema[i]` is the EMA-smoothed (1-second half-life) egress throughput in bytes per second for `protocols[i]`, sampled every ~100 ms |
+| ingress_max_5m | `number`   | peak total EMA-smoothed (1-second half-life) ingress throughput in bytes per second across all protocols, rolling 5-minute window |
+| egress_max_5m  | `number`   | peak total EMA-smoothed (1-second half-life) egress throughput in bytes per second across all protocols, rolling 5-minute window |
 
 #### `summary.live_txn_waterfall`
 | frequency        | type               | example |
