@@ -4,5 +4,6 @@ $(OBJDIR)/lib/libfd_ballet.a: $(patsubst %,$(OBJDIR)/obj/ballet/bzip2/%.o,$(BZ2_
 CFLAGS_NOWARN:=$(filter-out -W%,$(filter-out -Werror,$(CPPFLAGS) $(CFLAGS)))
 
 $(OBJDIR)/obj/ballet/bzip2/%.o : src/ballet/bzip2/%.c
-	$(MKDIR) $(dir $@) && \
+	@echo -e "CC\t$(notdir $@)"
+	$(Q)$(MKDIR) $(dir $@) && \
 $(CC) $(CFLAGS_NOWARN) -c $< -o $@

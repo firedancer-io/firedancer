@@ -1,5 +1,6 @@
 BASEDIR?=build
 
+VERBOSE?=0
 OPT?=opt
 SHELL:=bash
 CPPFLAGS:=-isystem ./$(OPT)/include
@@ -10,13 +11,13 @@ LDFLAGS:=-lm -ldl -L./$(OPT)/lib
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared
 AR:=ar
-ARFLAGS:=rv
+ARFLAGS:=r
 RANLIB:=ranlib
-CP:=cp -pv
-RM:=rm -fv
+CP:=cp -p
+RM:=rm -f
 PATCH:=patch
-MKDIR:=mkdir -pv
-RMDIR:=rm -rfv
+MKDIR:=mkdir -p
+RMDIR:=rm -rf
 TOUCH:=touch
 AWK:=awk
 GREP:=grep
