@@ -4,7 +4,7 @@ $(call make-unit-test,test_circq,test_circq,fd_disco fd_flamenco fd_tango fd_uti
 $(call run-unit-test,test_circq)
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_OPENSSL
-$(call add-objs,fd_event_client,fd_disco)
+$(call add-objs,fd_event_auth fd_event_client,fd_disco)
 ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_event_tile,fd_disco)
 endif # FD_HAS_ALLOCA

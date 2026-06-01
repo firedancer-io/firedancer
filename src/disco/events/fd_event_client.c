@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "fd_event_client.h"
+#include "fd_event_auth.h"
 
 #if !FD_HAS_OPENSSL
 #error "Building fd_event_client requires FD_HAS_OPENSSL"
@@ -13,10 +14,8 @@
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/log/fd_log.h"
-#include "../keyguard/fd_keyguard.h"
 #include "../../waltz/openssl/fd_openssl.h"
 #include <openssl/ssl.h>
-#include <openssl/err.h>
 
 #include <netinet/tcp.h>
 #include <unistd.h>
@@ -392,6 +391,13 @@ reconnect( fd_event_client_t * client,
 
   SSL_set_bio( ssl, bio, bio ); /* moves ownership of bio */
   SSL_set_connect_state( ssl );
+
+  if( FD_UNLIKELY( !fd_event_auth_set_identity( ssl, client->identity_pubkey, client->keyguard_client ) ) ) {
+    FD_LOG_WARNING(( "fd_event_auth_set_identity failed" ));
+    SSL_free( ssl );
+    disconnect( client, DISCONNECT_REASON_CONNECT_FAILED, 0, 1 );
+    return;
+  }
 
   /* SNI and hostname verification */
   if( FD_UNLIKELY( !SSL_set_tlsext_host_name( ssl, client->server_fqdn ) ) ) {
