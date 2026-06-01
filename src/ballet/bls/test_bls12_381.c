@@ -1,5 +1,6 @@
 #include "../fd_ballet.h"
 #include "fd_bls12_381.h"
+#include "fd_bls12_381_kdf.h"
 #include "../hex/fd_hex.h"
 
 void
@@ -1221,6 +1222,350 @@ test_reject_flags( FD_FN_UNUSED fd_rng_t * rng ) {
 
 /**********************************************************************/
 
+static void
+test_aggregate_signature( FD_FN_UNUSED fd_rng_t * rng ) {
+  /* Test vectors generated from Agave's solana-bls-signatures 3.3.0.
+     Signatures are uncompressed affine G2 points (192 bytes each). */
+
+  uchar sig1[192], sig2[192], sig3[192];
+  fd_hex_decode( sig1, "089ca952272beff60a380a0cce265f0aa7935b168bf284a0931a829f685b75ad83f3a6831b9cb8e110e46c50d66e544a0e9173522a85ebe57d21b49ecb1b34c93292d83a14eb9db8b176f39eacff4c65b4d8ba752eada6cbd10d1133cbf2b08209ecaa7c4b9fcd9dd3d55cfd5a93b05b0b394f1ca317119f03eb0694c16287a5617fca763150d6f73ee0a4bcde9795b9165d5da2f8c93ce05458413b6af0ef7e2ea76a057d0a9782c85a1eeeb44b5325d8c22ce8f307dfd213a7b259e6e90111", 192 );
+  fd_hex_decode( sig2, "070f97759bdb8d5965b26b9928e1a0c64704a29dacf4ac87ee184af7f483422b0e932051997e69a8526ec498212300300694162b58f51d31384e2b80fbc62cfb3d359043e7823fd07d6777b8e7592b1a91eb61cdfeba33f0f78041f035b8d341175396ee06ae73c53c8f534b7e36e67dbf07532131fe8347ba8f155698da8388cd6b927bd484decd2ba0b21e625066b516547133a74e9874c8e27c8459d47a0b6fe01eebf2fa5c23dfae8aa173659b63b83abb60d3f0ef7f21286f621416b492", 192 );
+  fd_hex_decode( sig3, "08a29fcd2b394eabfedcc2261376ced2463404ce423136345497bc77dcdfe04b5138364fe0080167d096ea21d14aa27e0e59b6ef1de04718637d1cc547ddb8c0028991f34ad1284993318ab12868ddc05426e0cfeae6917914eee9b943f76b69036e9df0c2c1381ee119451817d664cf73bdbf967f3ec2341012217b2435fa60a21ebb4bf0474839cb1fbffbfd2f68540ddfcd793d9e06146b42db10a2565eaddc3a87c344ed3ebb9b8fce208e7ca9413c85fa240f3c1e775164375e99b98a7c", 192 );
+
+  uchar expected_agg[192];
+  fd_hex_decode( expected_agg, "153b7b930a4f4d6401d69461a1d8c46bc94228a7d075dda83cd1fd46b3e7df1bb557be790db79c04191ce92c7eca9670032222f7ca7c49df1049dcdfe149f0d5b01ede55a8fa3b635ca480a70c1b0c1841f69d1864d3e8bbf7edd0edfe258dc00c95c9d7395baeec3251bf6d1b87e24393836e67d6cc13d19d1758fc88a207ff980959df6e101fd3e5172225e51cc67600d4ca40acce8aa0985f6237e587d6aa0c3396d1dbb603c764bc5cdf98c9a7065354dc19f0913aeae5ae91dffe909b43", 192 );
+
+  uchar sigs[192*3];
+  fd_memcpy( sigs,       sig1, 192 );
+  fd_memcpy( sigs+192,   sig2, 192 );
+  fd_memcpy( sigs+192*2, sig3, 192 );
+
+  uchar result[192];
+  FD_TEST( fd_bls12_381_aggregate_signature( result, sigs, 3 )==0 );
+  if( !fd_memeq( result, expected_agg, 192 ) ) {
+    FD_LOG_HEXDUMP_WARNING(( "res", result, 192 ));
+    FD_LOG_HEXDUMP_WARNING(( "exp", expected_agg, 192 ));
+    FD_LOG_ERR(( "FAIL: aggregate_signature 3 sigs" ));
+  }
+
+  /* Aggregate 1 signature should return the same signature */
+  FD_TEST( fd_bls12_381_aggregate_signature( result, sig1, 1 )==0 );
+  FD_TEST( fd_memeq( result, sig1, 192 ) );
+
+  /* n==0 should fail */
+  FD_TEST( fd_bls12_381_aggregate_signature( result, sigs, 0 )==-1 );
+
+  /* Invalid signature should fail */
+  uchar bad_sig[192];
+  fd_memset( bad_sig, 0xFF, 192 );
+  FD_TEST( fd_bls12_381_aggregate_signature( result, bad_sig, 1 )==-1 );
+
+  FD_LOG_NOTICE(( "test_aggregate_signature: pass" ));
+
+  {
+    ulong iter = 100UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_bls12_381_aggregate_signature( result, sigs, 3 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_bls12_381_aggregate_signature(3)", iter, dt );
+  }
+}
+
+static void
+test_aggregate_pubkey( FD_FN_UNUSED fd_rng_t * rng ) {
+  /* Pubkeys are uncompressed affine G1 points (96 bytes each). */
+  uchar pk1[96], pk2[96], pk3[96];
+  fd_hex_decode( pk1, "086765f037b75341dd4f93229d7563187d9a3ae2f549d957f934d2f9c452b9068e8e4c1b23415fcc13ef10c1af0be0ab153994df883b8220857d62047e30a1721440255e26cd7a3f0b7a0dbc7681f4320aca9be91ff10f425f928c9e029c1523", 96 );
+  fd_hex_decode( pk2, "0dd2390e44ec804adb1c7c531c19b28a190a5230767daed3415e8c3540a5bec06a4b1c44bd2197fa6248ed13e4d5498b047b53f1937eb112e8bdf5e08968b5f043ca837c1e8e00e8bf0cbaabc87d32a955ba7b22076175a61df8f01b57a7a96e", 96 );
+  fd_hex_decode( pk3, "0627402447a934c447ce1756f05b086e76a42f74c9599eeaf8516273a6f4d41deacdffa426a74a1397ae0cc742db96410eaad20ea1931a8c964442869648dcaf0007ae46410698e9cab2c4f32fb405c13774e538986fa109d707230a7718c2e0", 96 );
+
+  uchar expected_agg[96];
+  fd_hex_decode( expected_agg, "0191634eaf1c82c98ccd258887709b6dc716c10467f67d44f713be52c71d75ec11c3e30a2e8b2ccd666332e97098a1a103b8b79bd1d842f99a6de48d990302ad9d5d6369c5000975ebe5d271426218b985cc220230511d8b1b0f5df5544f644a", 96 );
+
+  uchar pks[96*3];
+  fd_memcpy( pks,      pk1, 96 );
+  fd_memcpy( pks+96,   pk2, 96 );
+  fd_memcpy( pks+96*2, pk3, 96 );
+
+  uchar result[96];
+  FD_TEST( fd_bls12_381_aggregate_pubkey( result, pks, 3 )==0 );
+  if( !fd_memeq( result, expected_agg, 96 ) ) {
+    FD_LOG_HEXDUMP_WARNING(( "res", result, 96 ));
+    FD_LOG_HEXDUMP_WARNING(( "exp", expected_agg, 96 ));
+    FD_LOG_ERR(( "FAIL: aggregate_pubkey 3 pks" ));
+  }
+
+  /* Aggregate 1 pubkey should return the same pubkey */
+  FD_TEST( fd_bls12_381_aggregate_pubkey( result, pk1, 1 )==0 );
+  FD_TEST( fd_memeq( result, pk1, 96 ) );
+
+  /* n==0 should fail */
+  FD_TEST( fd_bls12_381_aggregate_pubkey( result, pks, 0 )==-1 );
+
+  /* Identity (infinity) pubkey should fail (96 bytes of zero =
+     uncompressed infinity in big-endian serialization) */
+  uchar inf_pk[96];
+  fd_memset( inf_pk, 0, 96 );
+  inf_pk[0] = 0x40; /* infinity flag for uncompressed */
+  FD_TEST( fd_bls12_381_aggregate_pubkey( result, inf_pk, 1 )==-1 );
+
+  /* Invalid pubkey should fail */
+  uchar bad_pk[96];
+  fd_memset( bad_pk, 0xFF, 96 );
+  FD_TEST( fd_bls12_381_aggregate_pubkey( result, bad_pk, 1 )==-1 );
+
+  FD_LOG_NOTICE(( "test_aggregate_pubkey: pass" ));
+
+  {
+    ulong iter = 100UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_bls12_381_aggregate_pubkey( result, pks, 3 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_bls12_381_aggregate_pubkey(3)", iter, dt );
+  }
+}
+
+static void
+test_batch_verify( FD_FN_UNUSED fd_rng_t * rng ) {
+  /* Test vectors: 3 keypairs sign distinct messages.
+     Pubkeys = uncompressed affine G1 (96 bytes each).
+     Signatures = uncompressed affine G2 (192 bytes each). */
+  uchar pk1[96], pk2[96], pk3[96];
+  fd_hex_decode( pk1, "086765f037b75341dd4f93229d7563187d9a3ae2f549d957f934d2f9c452b9068e8e4c1b23415fcc13ef10c1af0be0ab153994df883b8220857d62047e30a1721440255e26cd7a3f0b7a0dbc7681f4320aca9be91ff10f425f928c9e029c1523", 96 );
+  fd_hex_decode( pk2, "0dd2390e44ec804adb1c7c531c19b28a190a5230767daed3415e8c3540a5bec06a4b1c44bd2197fa6248ed13e4d5498b047b53f1937eb112e8bdf5e08968b5f043ca837c1e8e00e8bf0cbaabc87d32a955ba7b22076175a61df8f01b57a7a96e", 96 );
+  fd_hex_decode( pk3, "0627402447a934c447ce1756f05b086e76a42f74c9599eeaf8516273a6f4d41deacdffa426a74a1397ae0cc742db96410eaad20ea1931a8c964442869648dcaf0007ae46410698e9cab2c4f32fb405c13774e538986fa109d707230a7718c2e0", 96 );
+
+  uchar sig1[192], sig2[192], sig3[192];
+  fd_hex_decode( sig1, "089ca952272beff60a380a0cce265f0aa7935b168bf284a0931a829f685b75ad83f3a6831b9cb8e110e46c50d66e544a0e9173522a85ebe57d21b49ecb1b34c93292d83a14eb9db8b176f39eacff4c65b4d8ba752eada6cbd10d1133cbf2b08209ecaa7c4b9fcd9dd3d55cfd5a93b05b0b394f1ca317119f03eb0694c16287a5617fca763150d6f73ee0a4bcde9795b9165d5da2f8c93ce05458413b6af0ef7e2ea76a057d0a9782c85a1eeeb44b5325d8c22ce8f307dfd213a7b259e6e90111", 192 );
+  fd_hex_decode( sig2, "070f97759bdb8d5965b26b9928e1a0c64704a29dacf4ac87ee184af7f483422b0e932051997e69a8526ec498212300300694162b58f51d31384e2b80fbc62cfb3d359043e7823fd07d6777b8e7592b1a91eb61cdfeba33f0f78041f035b8d341175396ee06ae73c53c8f534b7e36e67dbf07532131fe8347ba8f155698da8388cd6b927bd484decd2ba0b21e625066b516547133a74e9874c8e27c8459d47a0b6fe01eebf2fa5c23dfae8aa173659b63b83abb60d3f0ef7f21286f621416b492", 192 );
+  fd_hex_decode( sig3, "08a29fcd2b394eabfedcc2261376ced2463404ce423136345497bc77dcdfe04b5138364fe0080167d096ea21d14aa27e0e59b6ef1de04718637d1cc547ddb8c0028991f34ad1284993318ab12868ddc05426e0cfeae6917914eee9b943f76b69036e9df0c2c1381ee119451817d664cf73bdbf967f3ec2341012217b2435fa60a21ebb4bf0474839cb1fbffbfd2f68540ddfcd793d9e06146b42db10a2565eaddc3a87c344ed3ebb9b8fce208e7ca9413c85fa240f3c1e775164375e99b98a7c", 192 );
+
+  uchar msg1[] = "message_one";
+  uchar msg2[] = "message_two";
+  uchar msg3[] = "message_three";
+
+  uchar msgs[64];
+  ulong msg_lens[3];
+  msg_lens[0] = sizeof(msg1)-1;
+  msg_lens[1] = sizeof(msg2)-1;
+  msg_lens[2] = sizeof(msg3)-1;
+  fd_memcpy( msgs,                           msg1, msg_lens[0] );
+  fd_memcpy( msgs+msg_lens[0],               msg2, msg_lens[1] );
+  fd_memcpy( msgs+msg_lens[0]+msg_lens[1],   msg3, msg_lens[2] );
+
+  uchar pks[96*3];
+  fd_memcpy( pks,      pk1, 96 );
+  fd_memcpy( pks+96,   pk2, 96 );
+  fd_memcpy( pks+96*2, pk3, 96 );
+
+  uchar sigs[192*3];
+  fd_memcpy( sigs,       sig1, 192 );
+  fd_memcpy( sigs+192,   sig2, 192 );
+  fd_memcpy( sigs+192*2, sig3, 192 );
+
+  /* Batch verify should succeed */
+  FD_TEST( fd_bls12_381_batch_verify( msgs, msg_lens, pks, sigs, 3 )==0 );
+
+  /* Single triple should succeed */
+  FD_TEST( fd_bls12_381_batch_verify( msg1, msg_lens, pk1, sig1, 1 )==0 );
+
+  /* Tamper with one signature → should fail */
+  uchar bad_sigs[192*3];
+  fd_memcpy( bad_sigs, sigs, 192*3 );
+  bad_sigs[192*2] ^= 0x01;
+  FD_TEST( fd_bls12_381_batch_verify( msgs, msg_lens, pks, bad_sigs, 3 )==-1 );
+
+  /* n==0 should fail */
+  FD_TEST( fd_bls12_381_batch_verify( msgs, msg_lens, pks, sigs, 0 )==-1 );
+
+  /* Same message, 3 signers */
+  uchar common_msg[] = "common_message_for_batch_verify";
+  uchar bsig1[192], bsig2[192], bsig3[192];
+  fd_hex_decode( bsig1, "05e0792ee2b0297caf0e6c9ab435b05dd450ad9e44e37e5fd312dac334af5c339a8d67e9a4fd84b936195ca81b2276020735a3f5f9358e5dd62d039b9df516d35690a799b96ce0b95482eef273eca34c447a28cc95db356c8bfa043b945ccafe182f73ba2963026feaab82453b58a0739d03a2f2f68ec3f4398bade0b9cac4ef53547b92a8156b7a6c7fee25561e8ef112e8fffb5cc4686a96cd3c310b50fd35281e7d47c41b19b2903f9fead4308169d62156deef45d2338413e4c40fe95015", 192 );
+  fd_hex_decode( bsig2, "1441f88e1623d5dc2ce4d34e66598af626ab03fc62a2fb9d1836a0effe6e14cafdd96b6d5d1baf572dfb8be59a76b864178096e97c60011b79b9442f6e883f08b13a3688330f470f0ccafa2c08cde7a776f5b477cb5bdc05ed66044e27eb13c418d5e9b46a2209f4eb2d6d2fa41c1daaf8ef8b2943e3da9141b37aea8b81b28017b02cd767491410c37d0b443100cd0309a9e5cfa7a006b16e9e3a92980a2ef7fab9b00daae19b082199e943546392afadce15203012bed7a1d1107eae814218", 192 );
+  fd_hex_decode( bsig3, "0fe9170877242831e0066b8b0551d057053a722754900d216c34cae03d8e69b46dea0f273c77c11082fea57d74adecde061b68fed77b2ad71bfa3ddbec741970c9e70ed021eb5daaaa3987e9dfd28f9df64a688a4571e36400140b1e89fd256306af68edf763abf2e49c9b86247df6535b8933e5c265d0284be3d3ebbb17f60d68fbadcf876dc9ef30b41444c81130830c460c740d69362b8379bb5e182aec6ea462153675300fa2c40a838f759adf9a86a81620a11748251e4ed1c12be9a0bd", 192 );
+
+  uchar bsigs[192*3];
+  fd_memcpy( bsigs,       bsig1, 192 );
+  fd_memcpy( bsigs+192,   bsig2, 192 );
+  fd_memcpy( bsigs+192*2, bsig3, 192 );
+
+  ulong common_msg_lens[3] = { sizeof(common_msg)-1, sizeof(common_msg)-1, sizeof(common_msg)-1 };
+  uchar common_msgs[128];
+  fd_memcpy( common_msgs,                                        common_msg, common_msg_lens[0] );
+  fd_memcpy( common_msgs+common_msg_lens[0],                     common_msg, common_msg_lens[1] );
+  fd_memcpy( common_msgs+common_msg_lens[0]+common_msg_lens[1],  common_msg, common_msg_lens[2] );
+
+  FD_TEST( fd_bls12_381_batch_verify( common_msgs, common_msg_lens, pks, bsigs, 3 )==0 );
+
+  FD_LOG_NOTICE(( "test_batch_verify: pass" ));
+
+  {
+    ulong iter = 100UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_bls12_381_batch_verify( msgs, msg_lens, pks, sigs, 3 );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_bls12_381_batch_verify(3)", iter, dt );
+  }
+}
+
+static void
+test_individual_verify( FD_FN_UNUSED fd_rng_t * rng ) {
+  /* Reuse the same test vectors as batch_verify.
+     Pubkeys = uncompressed affine G1 (96 bytes each).
+     Signatures = uncompressed affine G2 (192 bytes each). */
+  uchar pk1[96], pk2[96], pk3[96];
+  fd_hex_decode( pk1, "086765f037b75341dd4f93229d7563187d9a3ae2f549d957f934d2f9c452b9068e8e4c1b23415fcc13ef10c1af0be0ab153994df883b8220857d62047e30a1721440255e26cd7a3f0b7a0dbc7681f4320aca9be91ff10f425f928c9e029c1523", 96 );
+  fd_hex_decode( pk2, "0dd2390e44ec804adb1c7c531c19b28a190a5230767daed3415e8c3540a5bec06a4b1c44bd2197fa6248ed13e4d5498b047b53f1937eb112e8bdf5e08968b5f043ca837c1e8e00e8bf0cbaabc87d32a955ba7b22076175a61df8f01b57a7a96e", 96 );
+  fd_hex_decode( pk3, "0627402447a934c447ce1756f05b086e76a42f74c9599eeaf8516273a6f4d41deacdffa426a74a1397ae0cc742db96410eaad20ea1931a8c964442869648dcaf0007ae46410698e9cab2c4f32fb405c13774e538986fa109d707230a7718c2e0", 96 );
+
+  uchar sig1[192], sig2[192], sig3[192];
+  fd_hex_decode( sig1, "089ca952272beff60a380a0cce265f0aa7935b168bf284a0931a829f685b75ad83f3a6831b9cb8e110e46c50d66e544a0e9173522a85ebe57d21b49ecb1b34c93292d83a14eb9db8b176f39eacff4c65b4d8ba752eada6cbd10d1133cbf2b08209ecaa7c4b9fcd9dd3d55cfd5a93b05b0b394f1ca317119f03eb0694c16287a5617fca763150d6f73ee0a4bcde9795b9165d5da2f8c93ce05458413b6af0ef7e2ea76a057d0a9782c85a1eeeb44b5325d8c22ce8f307dfd213a7b259e6e90111", 192 );
+  fd_hex_decode( sig2, "070f97759bdb8d5965b26b9928e1a0c64704a29dacf4ac87ee184af7f483422b0e932051997e69a8526ec498212300300694162b58f51d31384e2b80fbc62cfb3d359043e7823fd07d6777b8e7592b1a91eb61cdfeba33f0f78041f035b8d341175396ee06ae73c53c8f534b7e36e67dbf07532131fe8347ba8f155698da8388cd6b927bd484decd2ba0b21e625066b516547133a74e9874c8e27c8459d47a0b6fe01eebf2fa5c23dfae8aa173659b63b83abb60d3f0ef7f21286f621416b492", 192 );
+  fd_hex_decode( sig3, "08a29fcd2b394eabfedcc2261376ced2463404ce423136345497bc77dcdfe04b5138364fe0080167d096ea21d14aa27e0e59b6ef1de04718637d1cc547ddb8c0028991f34ad1284993318ab12868ddc05426e0cfeae6917914eee9b943f76b69036e9df0c2c1381ee119451817d664cf73bdbf967f3ec2341012217b2435fa60a21ebb4bf0474839cb1fbffbfd2f68540ddfcd793d9e06146b42db10a2565eaddc3a87c344ed3ebb9b8fce208e7ca9413c85fa240f3c1e775164375e99b98a7c", 192 );
+
+  uchar msg1[] = "message_one";
+  uchar msg2[] = "message_two";
+  uchar msg3[] = "message_three";
+
+  uchar msgs[64];
+  ulong msg_lens[3];
+  msg_lens[0] = sizeof(msg1)-1;
+  msg_lens[1] = sizeof(msg2)-1;
+  msg_lens[2] = sizeof(msg3)-1;
+  fd_memcpy( msgs,                           msg1, msg_lens[0] );
+  fd_memcpy( msgs+msg_lens[0],               msg2, msg_lens[1] );
+  fd_memcpy( msgs+msg_lens[0]+msg_lens[1],   msg3, msg_lens[2] );
+
+  uchar pks[96*3];
+  fd_memcpy( pks,      pk1, 96 );
+  fd_memcpy( pks+96,   pk2, 96 );
+  fd_memcpy( pks+96*2, pk3, 96 );
+
+  uchar sigs[192*3];
+  fd_memcpy( sigs,       sig1, 192 );
+  fd_memcpy( sigs+192,   sig2, 192 );
+  fd_memcpy( sigs+192*2, sig3, 192 );
+
+  ulong fail_bitset[ FD_BLS12_381_INDIVIDUAL_VERIFY_BITSET_LONGS ];
+
+  /* All 3 valid → 0 failures, bitset all zero */
+  FD_TEST( fd_bls12_381_individual_verify( msgs, msg_lens, pks, sigs, 3, fail_bitset )==0 );
+  for( ulong w=0; w<FD_BLS12_381_INDIVIDUAL_VERIFY_BITSET_LONGS; w++ ) {
+    FD_TEST( fail_bitset[ w ]==0UL );
+  }
+
+  /* Tamper with sig3 (index 2) → 1 failure, bit 2 set */
+  uchar bad_sigs[192*3];
+  fd_memcpy( bad_sigs, sigs, 192*3 );
+  bad_sigs[192*2] ^= 0x01;
+  FD_TEST( fd_bls12_381_individual_verify( msgs, msg_lens, pks, bad_sigs, 3, fail_bitset )==1 );
+  FD_TEST( fail_bitset[0]==(1UL<<2) );
+  for( ulong w=1; w<FD_BLS12_381_INDIVIDUAL_VERIFY_BITSET_LONGS; w++ ) {
+    FD_TEST( fail_bitset[ w ]==0UL );
+  }
+
+  /* Tamper with sig1 (index 0) and sig2 (index 1) → 2 failures */
+  fd_memcpy( bad_sigs, sigs, 192*3 );
+  bad_sigs[0]   ^= 0x01;
+  bad_sigs[192] ^= 0x01;
+  FD_TEST( fd_bls12_381_individual_verify( msgs, msg_lens, pks, bad_sigs, 3, fail_bitset )==2 );
+  FD_TEST( fail_bitset[0]==((1UL<<0)|(1UL<<1)) );
+
+  /* Single valid triple */
+  FD_TEST( fd_bls12_381_individual_verify( msg1, msg_lens, pk1, sig1, 1, fail_bitset )==0 );
+  FD_TEST( fail_bitset[0]==0UL );
+
+  /* Wrong pk/sig pairing → should fail */
+  FD_TEST( fd_bls12_381_individual_verify( msg1, msg_lens, pk2, sig1, 1, fail_bitset )==1 );
+  FD_TEST( fail_bitset[0]==(1UL<<0) );
+
+  FD_LOG_NOTICE(( "test_individual_verify: pass" ));
+
+  {
+    ulong iter = 100UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_bls12_381_individual_verify( msgs, msg_lens, pks, sigs, 3, fail_bitset );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_bls12_381_individual_verify(3)", iter, dt );
+  }
+}
+
+static void
+test_kdf( FD_FN_UNUSED fd_rng_t * rng ) {
+  /* Test vectors from Agave:
+     Ed25519 keypair with private key 0x01..0x20, seed "alpenglow" */
+  uchar ed25519_private[32];
+  uchar ed25519_public[32];
+  fd_hex_decode( ed25519_private, "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20", 32 );
+  fd_hex_decode( ed25519_public,  "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664", 32 );
+
+  uchar expected_bls_pk[48];
+  uchar expected_bls_sk[32];
+  fd_hex_decode( expected_bls_pk, "8b97b5f90e81f80a27b862db2e7e4ef7bc61d52f946424a415d0a7811adcf109aa7dd82dbfc9caaa2ba01356f5a1ab26", 48 );
+  fd_hex_decode( expected_bls_sk, "b348e36115216f3a6264ae0241830c728065456500bb78b639520c665fdcf10a", 32 );
+
+  fd_sha512_t sha[1];
+  uchar bls_pk[48], bls_sk[32];
+  FD_TEST( fd_bls12_381_kdf( bls_pk, bls_sk, ed25519_public, ed25519_private, sha )==0 );
+
+  if( !fd_memeq( bls_pk, expected_bls_pk, 48 ) ) {
+    FD_LOG_HEXDUMP_WARNING(( "res_pk", bls_pk, 48 ));
+    FD_LOG_HEXDUMP_WARNING(( "exp_pk", expected_bls_pk, 48 ));
+    FD_LOG_ERR(( "FAIL: kdf bls_pk mismatch" ));
+  }
+  if( !fd_memeq( bls_sk, expected_bls_sk, 32 ) ) {
+    FD_LOG_HEXDUMP_WARNING(( "res_sk", bls_sk, 32 ));
+    FD_LOG_HEXDUMP_WARNING(( "exp_sk", expected_bls_sk, 32 ));
+    FD_LOG_ERR(( "FAIL: kdf bls_sk mismatch" ));
+  }
+
+  /* Round-trip: derive key → generate PoP → verify PoP.
+     PoP payload = "ALPENGLOW" || vote_account_pubkey || bls_pk_compressed
+     where vote_account_pubkey = 0x0123456789abcdef repeated. */
+
+  uchar vote_account_pubkey[32];
+  fd_hex_decode( vote_account_pubkey, "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", 32 );
+
+  uchar pop_payload[9+32+48]; /* "ALPENGLOW" + vote_pubkey + bls_pk */
+  fd_memcpy( pop_payload,      "ALPENGLOW", 9 );
+  fd_memcpy( pop_payload+9,    vote_account_pubkey, 32 );
+  fd_memcpy( pop_payload+9+32, bls_pk, 48 );
+
+  uchar expected_pop[96];
+  fd_hex_decode( expected_pop, "9357923c1c98c6f3431b5e7a4396e128b681b009e3a9d052f5adfcc33357b54617f7bbae1690757492c90e821a807884085d41fa209df54658a49e8d6a58fe1d61c95485133e89f1e1b736856bce98130235412b99b017252849253535774fa3", 96 );
+
+  /* Verify the PoP generated by Agave matches.
+     Note: fd_bls12_381_proof_of_possession_verify requires that the full
+     message (including the BLS public key bytes) is passed as msg.  Agave's
+     verify_proof_of_possession internally appends the pubkey to the payload,
+     but the C function requires the caller to do this. */
+  FD_TEST( fd_bls12_381_proof_of_possession_verify( pop_payload, sizeof(pop_payload),
+                                                     expected_pop, bls_pk )==0 );
+
+  FD_LOG_NOTICE(( "test_kdf: pass" ));
+
+  {
+    ulong iter = 100UL;
+    long dt = fd_log_wallclock();
+    for( ulong rem=iter; rem; rem-- ) {
+      fd_bls12_381_kdf( bls_pk, bls_sk, ed25519_public, ed25519_private, sha );
+    }
+    dt = fd_log_wallclock() - dt;
+    log_bench( "fd_bls12_381_kdf", iter, dt );
+  }
+}
+
+/**********************************************************************/
+
 int
 main( int     argc,
       char ** argv ) {
@@ -1244,6 +1589,12 @@ main( int     argc,
   test_proof_of_possession( rng );
 
   test_reject_flags( rng );
+
+  test_aggregate_signature( rng );
+  test_aggregate_pubkey( rng );
+  test_batch_verify( rng );
+  test_individual_verify( rng );
+  test_kdf( rng );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

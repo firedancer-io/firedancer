@@ -151,7 +151,89 @@ fd_bls12_381_pairing_syscall( uchar       r[ 48*12 ], /* GT element */
                               ulong const n,
                               int         big_endian );
 
-/* Alpenglow */
+/* fd_bls12_381_aggregate_signature aggregates N BLS signatures into a
+   single G2 signature by summing them.
+
+   sigs points to an array of n uncompressed G2 points (192 bytes each).
+   The result is written into r.
+
+   Each input signature is checked to be on-curve and in the prime-order
+   subgroup G2.
+
+   Returns 0 on success, -1 on failure (n==0, or any invalid signature).
+
+   TODO: When Alpenglow integration, we may want to not serialize and then
+   deserialize afterwards, instead just return the blst type. */
+int
+fd_bls12_381_aggregate_signature( uchar       r[ 192 ],          /* G2 out */
+                                  uchar const sigs[],            /* 192*n bytes for G2 points */
+                                  ulong       n );
+
+/* fd_bls12_381_aggregate_pubkey aggregates N BLS public keys
+   into a single uncompressed affine G1 public key by summing
+   them.
+
+   pks points to an array of n uncompressed G1 points (96 bytes each).
+   The result is written into r (96 bytes).
+
+   Each input public key is checked to be on-curve and in the prime-order
+   subgroup G1, and rejected if it is the identity.
+
+   Callers must ensure that each input public key has a verified PoP
+   before calling this function, otherwise aggregating the keys
+   exposes a rogue-key attack. This matches the guarantees provided by
+   Agave's PopVerified<BlsPubkeyAffine>.
+
+   Returns 0 on success, -1 on failure. */
+int
+fd_bls12_381_aggregate_pubkey( uchar       r[ 96 ],           /* G1 affine out */
+                               uchar const pks[],             /* 96*n G1 affine */
+                               ulong       n );
+
+/* fd_bls12_381_batch_verify verifies N BLS signature triples
+   (message, public key, signature) using multi-pairing.
+
+   msgs points to a concatenated buffer of all messages.
+   msg_lens is an array of n message lengths.
+   pks points to n uncompressed affine G1 public keys (96*n bytes).
+   sigs points to n uncompressed affine G2 signatures (192*n bytes).
+
+   Returns 0 if all triples verify, -1 otherwise.
+
+   To determine which indices in the input were invalid, use
+   fd_bls12_381_individual_verify. */
+int
+fd_bls12_381_batch_verify( uchar const msgs[],             /* concatenated messages */
+                           ulong const msg_lens[],         /* n message lengths */
+                           uchar const pks[],              /* 96*n G1 affine */
+                           uchar const sigs[],             /* 192*n G2 affine */
+                           ulong       n );
+
+/* Max number of triples that individual_verify can handle.
+   We use 2048 as the first power-of-2 above the VAT voting validator
+   count. */
+#define FD_BLS12_381_INDIVIDUAL_VERIFY_MAX (2048UL)
+#define FD_BLS12_381_INDIVIDUAL_VERIFY_BITSET_LONGS (FD_BLS12_381_INDIVIDUAL_VERIFY_MAX / 64UL)
+
+/* fd_bls12_381_individual_verify verifies N BLS signature triples
+   individually and reports which ones failed.  This is the fallback
+   for fd_bls12_381_batch_verify as it identifies which specific
+   triples are invalid so they can be added to the banlist.
+
+   The input format is the same as for batch_verify, with the addition
+   of a bitset that is populated.
+
+   On return, bit i in fail_bitset is set if triple i failed verification
+   or had a malformed input.  Bits [n, 2048) are cleared.
+
+   Returns the number of failed triples (0 meaning all passed). */
+ulong
+fd_bls12_381_individual_verify( uchar const msgs[],
+                                ulong const msg_lens[],
+                                uchar const pks[],
+                                uchar const sigs[],
+                                ulong       n,
+                                ulong       fail_bitset[ FD_BLS12_381_INDIVIDUAL_VERIFY_BITSET_LONGS ] );
 
 /* fd_bls12_381_proof_of_possession_verify verifies proof of possession
    `proof` for the public key `public_key` against a message `msg` of
