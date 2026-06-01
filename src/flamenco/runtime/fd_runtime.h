@@ -274,6 +274,8 @@ struct fd_txn_out {
     fd_acc_t *  account[ MAX_TX_ACCOUNT_LOCKS ];
     uchar       is_writable[ MAX_TX_ACCOUNT_LOCKS ];       /* Per-transaction writable view for account[]. */
     uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];  /* This txn_out owns the accdb reference for account[]. */
+    ulong       starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Per-txn lamports at the start of this txn (lockstep with account[]).
+                                                              Decoupled from acc->prior_lamports so bundle reuse does not perturb the lthash. */
 
     ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
     fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */

@@ -1147,14 +1147,13 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
           memset( reuse->owner, 0, 32UL );
         }
 
-        /* The carried-forward state from the prior bundle txn becomes
-           this txn's "before" state, so re-baseline the prior_* fields
-           that the balance and rent checks compare against. */
-        reuse->prior_lamports   = reuse->lamports;
-        reuse->prior_data_len   = reuse->data_len;
-        reuse->prior_executable = reuse->executable;
-        memcpy( reuse->prior_owner, reuse->owner, 32UL );
-        txn_out->accounts.account[ i ] = reuse;
+        /* This txn's starting balance is the carried-forward state from
+           the prior bundle txn.  We do NOT touch reuse->prior_* (those
+           stay anchored to the on-chain pre-image so the commit lthash
+           stays correct); the per-txn balance check uses
+           starting_lamports[] instead. */
+        txn_out->accounts.starting_lamports[ i ] = reuse->lamports;
+        txn_out->accounts.account[ i ]           = reuse;
         break;
       }
     }
@@ -1190,6 +1189,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
       ulong txn_idx = acquire_idx[ i ];
       txn_out->accounts.account[ txn_idx ] = &acquire_base[ i ];
       txn_out->accounts.account_acquired[ txn_idx ] = 1U;
+      txn_out->accounts.starting_lamports[ txn_idx ] = acquire_base[ i ].prior_lamports;
     }
     runtime->accounts.account_cnt += acquire_cnt;
   }
@@ -1310,7 +1310,7 @@ fd_executor_txn_check( fd_bank_t *    bank,
     }
 
     fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, acc->lamports );
-    if( i!=0 ) fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, acc->prior_lamports );
+    if( i!=0 ) fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, txn_out->accounts.starting_lamports[ i ] );
     else       fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, starting_lamports_h, starting_lamports_l, txn_out->accounts.fee_payer_rollback_lamports );
 
     /* Rent states are defined as followed:

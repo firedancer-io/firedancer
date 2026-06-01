@@ -1004,6 +1004,13 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
          payer account. */
       if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
+      /* Only the txn that owns the accdb reference commits the account.
+         In a bundle, accounts reused from an earlier txn (account_acquired
+         == 0) are committed once by their owner against the true on-chain
+         pre-image, so the incremental lthash stays correct and the
+         account is not double-counted. */
+      if( FD_UNLIKELY( !txn_out->accounts.account_acquired[ i ] ) ) continue;
+
       fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[ i ];
       fd_acc_t *  account = txn_out->accounts.account[ i ];
 
