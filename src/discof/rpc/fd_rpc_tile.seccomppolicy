@@ -4,7 +4,7 @@
 # rpc_socket_fd: The RPC tile serves over HTTP, which is over TCP and
 #                does not use our XDP program.  It uses regular kernel
 #                sockets, so this is the socket file descriptor.
-unsigned int logfile_fd, unsigned int rpc_socket_fd
+uint logfile_fd, uint rpc_socket_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
