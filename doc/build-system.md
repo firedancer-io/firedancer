@@ -63,16 +63,14 @@ Firedancer depends on the GNU C Library (glibc) and the C++ standard library.
 Both are linked dynamically.
 
 ```
-$ ldd build/native/gcc/bin/fdctl
-        linux-vdso.so.1 (0x00007ffce652e000)
-        librt.so.1 => /lib64/librt.so.1 (0x00007f0d0398c000)
-        libdl.so.2 => /lib64/libdl.so.2 (0x00007f0d03788000)
-        libstdc++.so.6 => /lib64/libstdc++.so.6 (0x00007f0d033f3000)
-        libm.so.6 => /lib64/libm.so.6 (0x00007f0d03071000)
-        libgcc_s.so.1 => /lib64/libgcc_s.so.1 (0x00007f0d02e59000)
-        libpthread.so.0 => /lib64/libpthread.so.0 (0x00007f0d02c39000)
-        libc.so.6 => /lib64/libc.so.6 (0x00007f0d02874000)
-        /lib64/ld-linux-x86-64.so.2 (0x00007f0d097e0000)
+$ ldd build/native/gcc/bin/firedancer
+        linux-vdso.so.1 (0x00007ffff7fc3000)
+        libstdc++.so.6 => /lib64/libstdc++.so.6 (0x00007fffecc00000)
+        libm.so.6 => /lib64/libm.so.6 (0x00007ffff7ed7000)
+        libmvec.so.1 => /lib64/libmvec.so.1 (0x00007ffff7eab000)
+        libc.so.6 => /lib64/libc.so.6 (0x00007fffec800000)
+        /lib64/ld-linux-x86-64.so.2 (0x00007ffff7fc5000)
+        libgcc_s.so.1 => /lib64/libgcc_s.so.1 (0x00007ffff7e8f000)
 ```
 
 ### ABI stability
