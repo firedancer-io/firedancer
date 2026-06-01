@@ -415,7 +415,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     unpinged->state           = FD_PING_TRACKER_STATE_INVALID;
     ping_tracker->metrics->unpinged_cnt--;
     ping_tracker->metrics->invalid_cnt++;
-    unpinged->next_ping_nanos = now+1L*1000L*1000L*1000L;
+    unpinged->next_ping_nanos = now+20L*1000L*1000L*1000L;
     *out_peer_pubkey          = unpinged->identity_pubkey.b;
     *out_peer_address         = &unpinged->address;
     *out_token                = unpinged->ping_token;
@@ -440,7 +440,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     if( FD_LIKELY( next->state!=FD_PING_TRACKER_STATE_INVALID ) ) FD_TEST( next->valid_until_nanos );
     else                                                          FD_TEST( !next->valid_until_nanos );
 
-    if( FD_UNLIKELY( next->last_rx_nanos<now-20L*1000L*1000L*1000L ) ) {
+    if( FD_UNLIKELY( next->last_rx_nanos<now-60L*1000L*1000L*1000L ) ) {
       /* The peer is no longer sending us contact information, no need
          to ping it and instead remove it from the table. */
       remove_peer( ping_tracker, next, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
@@ -456,7 +456,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     else                                       FD_LOG_CRIT(( "impossible" ));
 
     /* Push the element to the back of the refreshing list now, so it
-       starts getting pinged every second. */
+       starts getting pinged every 20 seconds. */
     refreshing_list_ele_push_tail( ping_tracker->refreshing, next, ping_tracker->pool );
     if( FD_LIKELY( next->state==FD_PING_TRACKER_STATE_VALID ) ) {
       next->state = FD_PING_TRACKER_STATE_VALID_REFRESHING;
@@ -475,7 +475,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
       next->valid_until_nanos = 0L;
       ping_tracker->metrics->invalid_cnt++;
     }
-    next->next_ping_nanos = now+1L*1000L*1000L*1000L;
+    next->next_ping_nanos = now+20L*1000L*1000L*1000L;
     *out_peer_pubkey      = next->identity_pubkey.b;
     *out_peer_address     = &next->address;
     *out_token            = next->ping_token;

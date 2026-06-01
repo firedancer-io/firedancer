@@ -15,13 +15,13 @@
    not.
 
    Any peer which has tried to send us a gossip message within the last
-   two minutes is eligible to be pinged, except nodes with at least one
-   SOL of stake which are exempt from ping requirements.
+   sixty seconds is eligible to be pinged, except nodes with at least
+   one SOL of stake which are exempt from ping requirements.
 
    Once a peer has been pinged, we wait up to twenty seconds for a
    response before trying again.  We repeatedly retry pinging the peer
-   until the peer responds, or their most recent message becomes older
-   than two minutes.
+   every 20s for a minute until the peer responds, or their most recent
+   message becomes older than sixty seconds.
 
    Once a peer is validated by responding to a ping with a valid pong,
    it is considered valid for 20 minutes.  After 18 minutes, we will
