@@ -268,12 +268,12 @@ struct fd_txn_out {
     /* is_setup is set to 1 if account data buffer resources have been
        acquired for the transaction and 0 if they have not.  If the flag
        has been set, memory resources must be released. */
-    int           is_setup;
-    ulong         cnt;
-    fd_pubkey_t   keys[ MAX_TX_ACCOUNT_LOCKS ];
-    fd_acc_t *    account[ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         is_writable[ MAX_TX_ACCOUNT_LOCKS ];       /* Per-transaction writable view for account[]. */
-    uchar         account_acquired[ MAX_TX_ACCOUNT_LOCKS ];  /* This txn_out owns the accdb reference for account[]. */
+    int         is_setup;
+    ulong       cnt;
+    fd_pubkey_t keys[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t *  account[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar       is_writable[ MAX_TX_ACCOUNT_LOCKS ];       /* Per-transaction writable view for account[]. */
+    uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];  /* This txn_out owns the accdb reference for account[]. */
 
     ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
     fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
