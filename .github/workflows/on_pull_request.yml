@@ -77,3 +77,6 @@ jobs:
       build_arm: false
       check_run: true
       no_optimization: true
+  lint:
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/lint.yml

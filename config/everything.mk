@@ -1,6 +1,6 @@
 .PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps proof
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
-.PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean
+.PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean lint
 
 OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
@@ -16,7 +16,7 @@ CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
 
 # Auxiliary rules that should not set up dependencies
-AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend
+AUX_RULES:=clean distclean help run-unit-test run-integration-test cov-report dist-cov-report seccomp-policies frontend lint
 
 # Dry rules that should set up dependency targets, but not generate them
 DRY_RULES:=check show-deps proof
@@ -75,6 +75,7 @@ help:
 	# "make rust" makes all binaries for the current platform that require the Rust toolchain
 	# "make run-unit-test" runs all unit-tests for the current platform. NOTE: this will not (re)build the test executables
 	# "make run-integration-test" runs all integration-tests for the current platform. NOTE: this will not (re)build the test executables
+	# "make lint" checks Local.mk files for unknown $(call ...) macros and unit tests that are built but never run
 	# "make help" prints this message
 	# "make clean" removes editor temp files and the current platform build
 	# "make distclean" removes editor temp files and all platform builds
@@ -416,6 +417,9 @@ run-solcap-tests: bin unit-test
 
 seccomp-policies:
 	$(FIND) . -name '*.seccomppolicy' -exec $(PYTHON) contrib/codegen/generate_filters.py {} \;
+
+lint:
+	$(PYTHON) contrib/lint/check_makefiles.py
 
 ##############################
 # LLVM Coverage
