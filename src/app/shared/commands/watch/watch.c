@@ -608,12 +608,11 @@ write_event( config_t const * config,
   ulong connection_state = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, CONNECTION_STATE ) ];
   char const * connection_state_str;
   switch( connection_state ) {
-    case 0UL: connection_state_str = "disconnected";    break;
-    case 1UL: connection_state_str = "connecting";      break;
-    case 2UL: connection_state_str = "authenticating";  break;
-    case 3UL: connection_state_str = "confirming_auth"; break;
-    case 4UL: connection_state_str = "connected";       break;
-    default:  connection_state_str = "unknown";         break;
+    case 0UL: connection_state_str = "disconnected"; break;
+    case 1UL: connection_state_str = "connecting";   break;
+    case 2UL: connection_state_str = "registering";  break;
+    case 3UL: connection_state_str = "connected";    break;
+    default:  connection_state_str = "unknown";      break;
   }
 
   ulong event_queue_count = cur_tile[ event_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, EVENT, EVENT_QUEUE_COUNT ) ];

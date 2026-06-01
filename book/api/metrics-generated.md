@@ -1219,10 +1219,9 @@
 | <span class="metrics-name">event_&#8203;events_&#8203;acked</span> | counter | The total number of events acknowledged by the event service |
 | <span class="metrics-name">event_&#8203;bytes_&#8203;written</span> | counter | The total number of bytes written to the event service |
 | <span class="metrics-name">event_&#8203;bytes_&#8203;read</span> | counter | The total number of bytes read from the event service |
-| <span class="metrics-name">event_&#8203;auth_&#8203;fail</span> | counter | The total number of authentication failures with the event service |
 | <span class="metrics-name">event_&#8203;invalid_&#8203;msg</span> | counter | The total number of malformed messages received from the event service |
 | <span class="metrics-name">event_&#8203;connect_&#8203;attempts</span> | counter | The total number of connection attempts to the event service |
-| <span class="metrics-name">event_&#8203;handshake_&#8203;timeouts</span> | counter | The total number of authentication handshake timeouts with the event service |
+| <span class="metrics-name">event_&#8203;handshake_&#8203;timeouts</span> | counter | The total number of handshake timeouts with the event service |
 
 </div>
 

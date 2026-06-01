@@ -385,14 +385,6 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     /* no further restrictions on bundle */
     return 1;
 
-  case FD_KEYGUARD_ROLE_EVENT:
-    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_EVENT ) ) {
-      FD_LOG_WARNING(( "unauthorized payload type for event (mask=%#lx)", payload_mask ));
-      return 0;
-    }
-    /* no further restrictions on event */
-    return 1;
-
   case FD_KEYGUARD_ROLE_BUNDLE_CRANK:
     if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_TXN ) ) {
       FD_LOG_WARNING(( "unauthorized payload type for event (mask=%#lx)", payload_mask ));

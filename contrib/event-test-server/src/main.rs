@@ -6,13 +6,9 @@ pub mod events {
     tonic::include_proto!("events.v1");
 }
 
-use events::event_service_server::{EventService, EventServiceServer};
-use events::{
-    StreamEventsRequest, StreamEventsResponse,
-    AuthenticateRequest, AuthenticateResponse,
-    ConfirmAuthChallengeRequest, ConfirmAuthChallengeResponse,
-};
 use events::event::Event;
+use events::event_service_server::{EventService, EventServiceServer};
+use events::{HelloRequest, HelloResponse, StreamEventsRequest, StreamEventsResponse};
 
 fn event_kind_name(event: &Option<events::Event>) -> &'static str {
     match event.as_ref().and_then(|e| e.event.as_ref()) {
@@ -29,23 +25,12 @@ pub struct MyEventService;
 impl EventService for MyEventService {
     type StreamEventsStream = ReceiverStream<Result<StreamEventsResponse, Status>>;
 
-    async fn authenticate(
+    async fn hello(
         &self,
-        request: Request<AuthenticateRequest>,
-    ) -> Result<Response<AuthenticateResponse>, Status> {
-        println!("Received authenticate request from identity: {:?}",
-            hex::encode(&request.get_ref().identity_pubkey));
-        let challenge = vec![0u8; 32];
-        Ok(Response::new(AuthenticateResponse { challenge }))
-    }
-
-    async fn confirm_auth_challenge(
-        &self,
-        request: Request<ConfirmAuthChallengeRequest>,
-    ) -> Result<Response<ConfirmAuthChallengeResponse>, Status> {
-        println!("Received confirm_auth_challenge with signed challenge: {:?}",
-            hex::encode(&request.get_ref().signed_challenge));
-        Ok(Response::new(ConfirmAuthChallengeResponse {}))
+        _request: Request<HelloRequest>,
+    ) -> Result<Response<HelloResponse>, Status> {
+        println!("Received hello request");
+        Ok(Response::new(HelloResponse {}))
     }
 
     async fn stream_events(
@@ -61,9 +46,15 @@ impl EventService for MyEventService {
             loop {
                 match stream.message().await {
                     Ok(Some(event_tx)) => {
-                        println!("Received event: nonce={}, event_id={}, kind={}",
-                            event_tx.nonce, event_tx.event_id, event_kind_name(&event_tx.event));
-                        let ack = StreamEventsResponse { nonce: event_tx.nonce };
+                        println!(
+                            "Received event: nonce={}, event_id={}, kind={}",
+                            event_tx.nonce,
+                            event_tx.event_id,
+                            event_kind_name(&event_tx.event)
+                        );
+                        let ack = StreamEventsResponse {
+                            nonce: event_tx.nonce,
+                        };
                         if tx.send(Ok(ack)).await.is_err() {
                             eprintln!("Failed to send ack, client disconnected");
                             break;
@@ -85,7 +76,7 @@ impl EventService for MyEventService {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "127.0.0.1:7878".parse()?;
     println!("Listening on {}", addr);

@@ -144,16 +144,15 @@ metrics_write( fd_event_tile_t * ctx ) {
   FD_MGAUGE_SET( EVENT, EVENT_QUEUE_BYTES_CAPACITY, ctx->circq->size );
 
   fd_event_client_metrics_t const * metrics = fd_event_client_metrics( ctx->client );
-  FD_MCNT_SET( EVENT, EVENTS_SENT,         metrics->events_sent );
-  FD_MCNT_SET( EVENT, EVENTS_ACKED,        metrics->events_acked );
-  FD_MCNT_SET( EVENT, BYTES_WRITTEN,       metrics->bytes_written );
-  FD_MCNT_SET( EVENT, BYTES_READ,          metrics->bytes_read );
-  FD_MCNT_SET( EVENT, AUTH_FAIL,           metrics->auth_fail_cnt );
-  FD_MCNT_SET( EVENT, INVALID_MSG,         metrics->invalid_msg_cnt );
-  FD_MCNT_SET( EVENT, CONNECT_ATTEMPTS,    metrics->connect_attempt_cnt );
-  FD_MCNT_SET( EVENT, HANDSHAKE_TIMEOUTS,  metrics->handshake_timeout_cnt );
+  FD_MCNT_SET( EVENT, EVENTS_SENT,        metrics->events_sent );
+  FD_MCNT_SET( EVENT, EVENTS_ACKED,       metrics->events_acked );
+  FD_MCNT_SET( EVENT, BYTES_WRITTEN,      metrics->bytes_written );
+  FD_MCNT_SET( EVENT, BYTES_READ,         metrics->bytes_read );
+  FD_MCNT_SET( EVENT, INVALID_MSG,        metrics->invalid_msg_cnt );
+  FD_MCNT_SET( EVENT, CONNECT_ATTEMPTS,   metrics->connect_attempt_cnt );
+  FD_MCNT_SET( EVENT, HANDSHAKE_TIMEOUTS, metrics->handshake_timeout_cnt );
 
-  FD_MGAUGE_SET( EVENT, CONNECTION_STATE,  fd_event_client_state( ctx->client ) );
+  FD_MGAUGE_SET( EVENT, CONNECTION_STATE, fd_event_client_state( ctx->client ) );
 }
 
 static void
