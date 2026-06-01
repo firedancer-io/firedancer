@@ -230,10 +230,10 @@ after_frag( fd_event_tile_t *   ctx,
       int protocol;
       switch( fd_disco_netmux_sig_proto( sig ) ) {
         case DST_PROTO_SHRED:
-          protocol = 0;
+          protocol = 1;
           break;
         case DST_PROTO_REPAIR:
-          protocol = 1;
+          protocol = 2;
           break;
         default:
           // TODO: Leader shreds?
