@@ -2,6 +2,7 @@
 #include "fd_gui_config_parse.h"
 
 #include "../bundle/fd_bundle_tile.h"
+#include "../diag/fd_diag_tile.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
 #include "../../disco/fd_txn_m.h"
@@ -1167,6 +1168,74 @@ fd_gui_printf_live_program_cache( fd_gui_t * gui ) {
       jsonp_ulong( gui->http, "spill_bytes",     spill_bytes     );
       jsonp_ulong( gui->http, "free_bytes",      free_bytes      );
       jsonp_ulong( gui->http, "size_bytes",      size_bytes      );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+void
+fd_gui_printf_health( fd_gui_t * gui ) {
+  fd_topo_t const * topo = gui->topo;
+
+  ulong diag_tile_idx = fd_topo_find_tile( topo, "diag", 0UL );
+
+  /* Default to disabled if no diag tile */
+  ulong bundle_status  = FD_DIAG_BUNDLE_STATUS_DISABLED;
+  ulong vote_status    = FD_DIAG_VOTE_STATUS_DISABLED;
+  ulong replay_status  = FD_DIAG_REPLAY_STATUS_DISABLED;
+  ulong turbine_status = FD_DIAG_TURBINE_STATUS_DISABLED;
+
+  if( FD_LIKELY( diag_tile_idx!=ULONG_MAX ) ) {
+    volatile ulong const * metrics = fd_metrics_tile( topo->tiles[ diag_tile_idx ].metrics );
+    bundle_status  = metrics[ MIDX( GAUGE, DIAG, BUNDLE_STATUS  ) ];
+    vote_status    = metrics[ MIDX( GAUGE, DIAG, VOTE_STATUS    ) ];
+    replay_status  = metrics[ MIDX( GAUGE, DIAG, REPLAY_STATUS  ) ];
+    turbine_status = metrics[ MIDX( GAUGE, DIAG, TURBINE_STATUS ) ];
+  }
+
+  /* Map bundle status to string */
+  char const * bundle_str;
+  switch( bundle_status ) {
+    case FD_DIAG_BUNDLE_STATUS_DISCONNECTED: bundle_str = "disconnected"; break;
+    case FD_DIAG_BUNDLE_STATUS_CONNECTING:   bundle_str = "connecting";   break;
+    case FD_DIAG_BUNDLE_STATUS_CONNECTED:    bundle_str = "connected";    break;
+    case FD_DIAG_BUNDLE_STATUS_SLEEPING:     bundle_str = "sleeping";     break;
+    default:                                 bundle_str = "disabled";     break;
+  }
+
+  /* Map vote status to string */
+  char const * vote_str;
+  switch( vote_status ) {
+    case FD_DIAG_VOTE_STATUS_NOT_STARTED: vote_str = "not_started"; break;
+    case FD_DIAG_VOTE_STATUS_DELINQUENT:  vote_str = "delinquent";  break;
+    case FD_DIAG_VOTE_STATUS_VOTING:      vote_str = "voting";      break;
+    default:                              vote_str = "disabled";    break;
+  }
+
+  /* Map replay status to string */
+  char const * replay_str;
+  switch( replay_status ) {
+    case FD_DIAG_REPLAY_STATUS_NOT_STARTED: replay_str = "not_started"; break;
+    case FD_DIAG_REPLAY_STATUS_BEHIND:      replay_str = "behind";      break;
+    case FD_DIAG_REPLAY_STATUS_RUNNING:     replay_str = "running";     break;
+    default:                                replay_str = "disabled";    break;
+  }
+
+  /* Map turbine status to string */
+  char const * turbine_str;
+  switch( turbine_status ) {
+    case FD_DIAG_TURBINE_STATUS_NOT_STARTED:      turbine_str = "not_started";      break;
+    case FD_DIAG_TURBINE_STATUS_STALLED:          turbine_str = "stalled";          break;
+    case FD_DIAG_TURBINE_STATUS_REPAIR_OUTPACING: turbine_str = "repair_outpacing"; break;
+    case FD_DIAG_TURBINE_STATUS_RUNNING:          turbine_str = "running";          break;
+    default:                                      turbine_str = "disabled";         break;
+  }
+
+  jsonp_open_envelope( gui->http, "summary", "health" );
+    jsonp_open_object( gui->http, "value" );
+      jsonp_string( gui->http, "vote",    vote_str    );
+      jsonp_string( gui->http, "bundle",  bundle_str  );
+      jsonp_string( gui->http, "replay",  replay_str  );
+      jsonp_string( gui->http, "turbine", turbine_str );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
 }

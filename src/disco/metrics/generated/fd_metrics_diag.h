@@ -7,31 +7,31 @@
 #include "fd_metrics_enums.h"
 
 enum {
-  FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_OFF = 23,
-  FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_OFF,
-  FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_OFF,
-  FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_OFF,
+  FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_OFF = 23,
+  FD_METRICS_GAUGE_DIAG_VOTE_STATUS_OFF,
+  FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_OFF,
+  FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_OFF,
 };
 
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_NAME "diag_bundle_health"
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently zhas an active connection to the block engine server"
-#define FD_METRICS_GAUGE_DIAG_BUNDLE_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_NAME "diag_bundle_status"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_DESC "Precise status of the bundle subsystem: 0=disabled (no bundle tiles configured), 1=disconnected (all bundle tiles disconnected), 2=connecting (at least one bundle tile connecting, none connected or sleeping), 3=connected (at least one bundle tile connected), 4=sleeping (at least one bundle tile sleeping, none connected)"
+#define FD_METRICS_GAUGE_DIAG_BUNDLE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_NAME "diag_vote_health"
-#define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy vote subsystem means the client has cast at least one vote in both the last 60 seconds and last 150 slots (before the currently replay slot)"
-#define FD_METRICS_GAUGE_DIAG_VOTE_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_NAME "diag_vote_status"
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_DESC "Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally)"
+#define FD_METRICS_GAUGE_DIAG_VOTE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_NAME "diag_replay_health"
-#define FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy replay subsystem means that the largest fully-processed replay slot on the chosen consensus fork is within 12 slots of the current turbine slot"
-#define FD_METRICS_GAUGE_DIAG_REPLAY_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_NAME "diag_replay_status"
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_DESC "Precise status of the replay subsystem: 0=disabled (no replay tile), 1=not started (replay tile not running or slots are zero), 2=behind (replay lagging behind turbine or reset slot stalled), 3=running (replay keeping up)"
+#define FD_METRICS_GAUGE_DIAG_REPLAY_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_NAME "diag_turbine_health"
-#define FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_DESC "0=unhealthy, 1=healthy, 2=disabled. A healthy turbine subsystem means that the largest slot associated with received turbine shreds has not stalled for 12 seconds, and also that the average replay ingress traffic exceeds the average ingress repair traffic over the past 12 seconds"
-#define FD_METRICS_GAUGE_DIAG_TURBINE_HEALTH_CVT  (FD_METRICS_CONVERTER_NONE)
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_NAME "diag_turbine_status"
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_DESC "Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally)"
+#define FD_METRICS_GAUGE_DIAG_TURBINE_STATUS_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_DIAG_TOTAL (4UL)
 extern const fd_metrics_meta_t FD_METRICS_DIAG[FD_METRICS_DIAG_TOTAL];

@@ -1173,10 +1173,10 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">diag_&#8203;bundle_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently zhas an active connection to the block engine server |
-| <span class="metrics-name">diag_&#8203;vote_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy vote subsystem means the client has cast at least one vote in both the last 60 seconds and last 150 slots (before the currently replay slot) |
-| <span class="metrics-name">diag_&#8203;replay_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy replay subsystem means that the largest fully-processed replay slot on the chosen consensus fork is within 12 slots of the current turbine slot |
-| <span class="metrics-name">diag_&#8203;turbine_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy turbine subsystem means that the largest slot associated with received turbine shreds has not stalled for 12 seconds, and also that the average replay ingress traffic exceeds the average ingress repair traffic over the past 12 seconds |
+| <span class="metrics-name">diag_&#8203;bundle_&#8203;status</span> | gauge | Precise status of the bundle subsystem: 0=disabled (no bundle tiles configured), 1=disconnected (all bundle tiles disconnected), 2=connecting (at least one bundle tile connecting, none connected or sleeping), 3=connected (at least one bundle tile connected), 4=sleeping (at least one bundle tile sleeping, none connected) |
+| <span class="metrics-name">diag_&#8203;vote_&#8203;status</span> | gauge | Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally) |
+| <span class="metrics-name">diag_&#8203;replay_&#8203;status</span> | gauge | Precise status of the replay subsystem: 0=disabled (no replay tile), 1=not started (replay tile not running or slots are zero), 2=behind (replay lagging behind turbine or reset slot stalled), 3=running (replay keeping up) |
+| <span class="metrics-name">diag_&#8203;turbine_&#8203;status</span> | gauge | Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally) |
 
 </div>
 
