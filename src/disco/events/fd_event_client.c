@@ -145,6 +145,8 @@ fd_event_client_new( void *                 shmem,
   fd_event_client_t * client = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_client_t), sizeof(fd_event_client_t)          );
   void * grpc_client_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_grpc_client_align(),     fd_grpc_client_footprint( buf_max ) );
 
+  memset( client, 0, sizeof(fd_event_client_t) );
+
   fd_url_t url[1];
   _Bool _is_ssl = 0;
   if( FD_UNLIKELY( fd_url_parse_endpoint( url,
@@ -275,6 +277,7 @@ disconnect( fd_event_client_t * client,
             int                 reason,
             int                 err,
             int                 _backoff ) {
+  client->event_stream = NULL;
 #if FD_HAS_OPENSSL
   if( FD_UNLIKELY( client->ssl ) ) {
     SSL_free( client->ssl );
@@ -284,10 +287,10 @@ disconnect( fd_event_client_t * client,
   if( FD_LIKELY( -1!=client->sockfd ) ) {
     if( FD_UNLIKELY( -1==close( client->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     client->sockfd = -1;
-    client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
-    fd_circq_reset_cursor( client->circq );
   }
   client->auth_deadline = LONG_MAX;
+  client->state = FD_EVENT_CLIENT_STATE_DISCONNECTED;
+  fd_circq_reset_cursor( client->circq );
 
   switch( reason ) {
     case DISCONNECT_REASON_IDENTITY_CHANGED:
@@ -719,7 +722,7 @@ fd_event_client_grpc_rx_timeout( void * app_ctx,
 static void
 fd_event_client_grpc_ping_ack( void * app_ctx ) {
   (void)app_ctx;
-  FD_LOG_WARNING(( "Event gRPC ping ack" ));
+  FD_LOG_DEBUG(( "Event gRPC ping ack" ));
 }
 
 static void
