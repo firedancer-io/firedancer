@@ -5,4 +5,5 @@ else
 $(call add-objs,fd_tpool,fd_util)
 endif
 $(call make-unit-test,test_tpool,test_tpool,fd_util)
+$(call run-unit-test,test_tpool)
 

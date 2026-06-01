@@ -12,3 +12,4 @@ endif
 endif
 endif
 $(call make-unit-test,test_aes,test_aes,fd_ballet fd_util)
+$(call run-unit-test,test_aes)
