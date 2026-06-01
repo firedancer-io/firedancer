@@ -934,6 +934,163 @@ test_partial_exec_evict( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "pass: test_partial_exec_evict" ));
 }
 
+/* Mid-slot equivocation where the FIRST-delivered version gets evicted:
+   slot 1 receives FECs 0, 32, 64 (none slot_complete) and we replay
+   through them — all sharing bank 1.  Then an equivocating version
+   arrives: 32' and 64' (64' slot_complete), chaining off the shared
+   FEC 0.  reasm marks both 32/64 and 32'/64' as eqvoc and gates the
+   prime version's delivery until it is confirmed.
+
+   The originals 32 and 64 then get evicted (fd_reasm_remove walks up
+   from the original leaf 64, stopping at 32 because FEC 0 now has two
+   children — 32 and 32'), leaving:
+
+       root(b0) ── 0(b1) ── 32'(eqvoc) ── 64'(eqvoc, slot_complete)
+
+   After confirming the prime version, popping and delivering 32'
+   triggers eqvoc_detected in process_fec_set (32'.eqvoc &&
+   !FEC0.eqvoc), so it backfills the slot: FEC 0 is re-inserted as a
+   fec_set_idx==0, which allocates a NEW bank (bank 2), and 32' inherits
+   it.  64' then inherits the same fresh bank. */
+
+static void
+test_eqvoc_evict_original_realloc( fd_wksp_t * wksp ) {
+
+  static fd_replay_tile_t ctx[ 1 ];
+  setup_ctx( ctx, wksp );
+  fd_reasm_t * reasm = ctx->reasm;
+
+  /* Merkle roots — arbitrary unique hashes. */
+
+  fd_hash_t mr_root      = { .ul = { 100 } };
+  fd_hash_t mr1_0        = { .ul = { 200 } };
+  fd_hash_t mr1_32       = { .ul = { 300 } };
+  fd_hash_t mr1_64       = { .ul = { 400 } };
+  fd_hash_t mr1_32_prime = { .ul = { 500 } };
+  fd_hash_t mr1_64_prime = { .ul = { 600 } };
+
+  fd_reasm_fec_t * ev[ 1 ];
+
+  /* 1. Root FEC (slot 0). */
+
+  fd_reasm_fec_t * f_root = fd_reasm_init( reasm, &mr_root, 0 );
+  FD_TEST( f_root );
+  f_root->bank_idx = 0;
+  f_root->bank_seq = 0;
+
+  /* 2. Insert slot 1 version A: FECs 0, 32, 64, none slot_complete. */
+
+  fd_reasm_fec_t * f1_0 = fd_reasm_insert( reasm, &mr1_0, &mr_root,
+      1, 0, 1, 32, 1, 0, 0, NULL, ev );
+  FD_TEST( f1_0 && !*ev );
+
+  fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, &mr1_32, &mr1_0,
+      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  FD_TEST( f1_32 && !*ev );
+
+  fd_reasm_fec_t * f1_64 = fd_reasm_insert( reasm, &mr1_64, &mr1_32,
+      1, 64, 1, 32, 1, 0, 0, NULL, ev );
+  FD_TEST( f1_64 && !*ev );
+
+  /* 3. Replay through all 3 FECs.  No slot_complete flag yet, so they
+     all share bank 1 (allocated when FEC 0 is processed). */
+
+  fd_reasm_fec_t * fec;
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==0 );
+  process_fec_set( ctx, NULL, fec );
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
+  process_fec_set( ctx, NULL, fec );
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==64 );
+  process_fec_set( ctx, NULL, fec );
+  FD_TEST( fec->bank_idx==1 );
+  FD_TEST( mock_banks_next==2UL );
+
+  FD_TEST( fd_reasm_peek( reasm )==NULL );
+
+  /* 4. Receive the equivocating version: 32' and 64' (64' is
+     slot_complete).  Both chain off the shared FEC 0.  reasm detects
+     equivocation on the (slot, fec_set_idx) xids, marking the originals
+     32/64 and the new 32'/64' as eqvoc. */
+
+  fd_reasm_fec_t * f1_32p = fd_reasm_insert( reasm, &mr1_32_prime, &mr1_0,
+      1, 32, 1, 32, 1, 0, 0, NULL, ev );
+  FD_TEST( f1_32p && !*ev );
+  FD_TEST( f1_32p->eqvoc );
+  FD_TEST( f1_32->eqvoc );
+
+  fd_reasm_fec_t * f1_64p = fd_reasm_insert( reasm, &mr1_64_prime, &mr1_32_prime,
+      1, 64, 1, 32, 1, 1, 0, NULL, ev );
+  FD_TEST( f1_64p && !*ev );
+  FD_TEST( f1_64p->eqvoc );
+  FD_TEST( f1_64->eqvoc );
+
+  /* The prime version is gated: eqvoc && !confirmed, so it is neither
+     peeked nor popped. */
+
+  FD_TEST( fd_reasm_peek( reasm )==NULL );
+  FD_TEST( fd_reasm_pop ( reasm )==NULL );
+
+  /* 5. Evict the original 32 and 64.  fd_reasm_remove walks up from the
+     original leaf (FEC 64) and stops at FEC 32, because FEC 0 has two
+     children (32 and 32') — i.e. 32 has a sibling.  So FECs 32 and 64
+     are evicted; the shared FEC 0 and the prime branch remain. */
+
+  fd_reasm_fec_t * evicted = fd_reasm_remove( reasm, f1_64, NULL );
+  FD_TEST( evicted );
+  while( evicted ) {
+    fd_reasm_fec_t * next = fd_reasm_child( reasm, evicted );
+    fd_reasm_pool_release( reasm, evicted );
+    evicted = next;
+  }
+
+  /* Originals gone; shared FEC 0 and prime branch remain. */
+
+  FD_TEST(  fd_reasm_query( reasm, &mr1_0        ) );
+  FD_TEST( !fd_reasm_query( reasm, &mr1_32       ) );
+  FD_TEST( !fd_reasm_query( reasm, &mr1_64       ) );
+  FD_TEST(  fd_reasm_query( reasm, &mr1_32_prime ) );
+  FD_TEST(  fd_reasm_query( reasm, &mr1_64_prime ) );
+
+  /* 6. Confirm the prime version (slot_complete block id is 64').  This
+     ungates 32' and 64' for delivery. */
+
+  fd_reasm_confirm( reasm, &mr1_64_prime );
+
+  /* 7. Pop and deliver 32'.  process_fec_set sees eqvoc_detected
+     (32'.eqvoc && !FEC0.eqvoc), so it backfills the slot starting from
+     FEC 0.  FEC 0 re-inserts as a fec_set_idx==0, allocating a NEW bank
+     (bank 2), and 32' inherits it. */
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==32 );
+  FD_TEST( fec==f1_32p );
+  process_fec_set( ctx, NULL, fec );
+
+  FD_TEST( fec->bank_idx==2 );                            /* 32' got the fresh bank */
+  FD_TEST( fd_reasm_query( reasm, &mr1_0 )->bank_idx==2 ); /* reallocated from FEC 0 */
+  FD_TEST( mock_banks_next==3UL );                        /* exactly one new bank */
+
+  /* 8. Pop and deliver 64'.  It inherits the same fresh bank (bank 2);
+     no further bank is allocated. */
+
+  fec = fd_reasm_pop( reasm );
+  FD_TEST( fec && fec->slot==1 && fec->fec_set_idx==64 );
+  FD_TEST( fec==f1_64p );
+  process_fec_set( ctx, NULL, fec );
+  FD_TEST( fec->bank_idx==2 );
+  FD_TEST( mock_banks_next==3UL );
+
+  FD_TEST( fd_reasm_peek( reasm )==NULL );
+
+  FD_LOG_NOTICE(( "pass: test_eqvoc_evict_original_realloc" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -948,6 +1105,7 @@ main( int     argc,
   test_banks_evict_backfill( wksp );
   test_partial_exec_evict( wksp );
   test_eqvoc_mid_slot_evicted( wksp );
+  test_eqvoc_evict_original_realloc( wksp );
   test_confirm( wksp );
   test_eqvoc_last_fec( wksp );
   test_eqvoc_first_fec( wksp );
