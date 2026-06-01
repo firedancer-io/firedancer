@@ -2090,6 +2090,69 @@ test_fec_insert_dup_confirm_larger_complete_idx( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
 }
 
+
+
+static void
+test_sentinel_parent_update_orphreqs_leak( fd_wksp_t * wksp ) {
+  /* test_sentinel_parent_update_orphreqs_leak
+
+   Regression test for a stale orphan-request entry left behind when a
+   sentinel block's parent is updated.
+
+   A sentinel block (blk_insert with parent_slot == ULONG_MAX) is created
+   as the head of an orphan subtree and therefore lives in the orphan
+   request list (orphreqs / orphlist).  When a later blk_insert supplies
+   the real parent slot, forest removes the block from the subtrees /
+   orphaned maps and re-links it - here into the main tree as a frontier
+   child of the root.  Previously the block was NOT removed from the
+   orphan request list during this transition.
+
+   Because the main request list and the orphan request list share a
+   single reqspool, the block then ended up referenced by both the main
+   request map and the orphan request map (dual membership).  The first
+   removal from either list releases the shared pool ref and corrupts the
+   other list - which only surfaces much later (e.g. during a publish) as
+   a request-list entry pointing at a freed / reused pool slot. */
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 0UL ) );
+  fd_forest_init( forest, 0 );
+
+  fd_forest_blk_t      * pool     = fd_forest_pool( forest );
+  fd_forest_requests_t * requests = fd_forest_requests( forest );
+  fd_forest_requests_t * orphreqs = fd_forest_orphreqs( forest );
+  fd_forest_ref_t      * reqspool = fd_forest_reqspool( forest );
+
+  /* Create slot 10 as a sentinel orphan (unknown parent).  It becomes a
+     subtree head and is added to the orphan request list. */
+  ulong evicted = ULONG_MAX;
+  FD_TEST( fd_forest_blk_insert( forest, 10, ULONG_MAX, &evicted ) );
+  ulong idx10 = slot_idx( forest, 10 );
+  FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), (ulong[]){10}, NULL, pool ) );
+  FD_TEST(  fd_forest_requests_ele_query( orphreqs, &idx10, NULL, reqspool ) ); /* in orphan reqs   */
+  FD_TEST( !fd_forest_requests_ele_query( requests, &idx10, NULL, reqspool ) ); /* not in main reqs */
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* Now supply slot 10's real parent (0, the root).  This takes the
+     sentinel parent-update path: slot 10 is removed from subtrees and
+     re-linked into the main tree as a frontier child of the root, and
+     gets added to the main request list. */
+  FD_TEST( fd_forest_blk_insert( forest, 10, 0, &evicted ) );
+  FD_TEST( idx10 == slot_idx( forest, 10 ) ); /* same pool element */
+
+  /* Slot 10 is now a main-tree node: it must be in the main request map
+     and must NOT remain in the orphan request map. */
+  FD_TEST(  fd_forest_frontier_ele_query( fd_forest_frontier( forest ), (ulong[]){10}, NULL, pool ) );
+  FD_TEST(  fd_forest_requests_ele_query( requests, &idx10, NULL, reqspool ) ); /* in main reqs   */
+  FD_TEST( !fd_forest_requests_ele_query( orphreqs, &idx10, NULL, reqspool ) ); /* NOT in orphreqs */
+
+  /* And the structure as a whole must be consistent. */
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  fd_wksp_free_laddr( fd_forest_delete( fd_forest_leave( forest ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -2131,6 +2194,7 @@ main( int argc, char ** argv ) {
   test_fec_complete_no_poison_verified( wksp );
   test_fec_insert_reject_oob_after_verify( wksp );
   test_fec_insert_dup_confirm_larger_complete_idx( wksp );
+  test_sentinel_parent_update_orphreqs_leak( wksp );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
