@@ -181,7 +181,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolh_tile_cnt) fd_topob_tile_in(  topo, "resolh",  i,            "metric_in", "dedup_resolh", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolh_tile_cnt) fd_topob_tile_in(  topo, "resolh",  i,            "metric_in", "replay_resol", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolh_tile_cnt) fd_topob_tile_out( topo, "resolh",  i,                         "resolh_pack",  i                                                  );
-  /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolh_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(resolh_tile_cnt) fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolh_pack",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /* The PoH to pack link is reliable, and must be.  The fragments going
      across here are "you became leader" which pack must respond to
      by publishing microblocks, otherwise the leader TPU will hang

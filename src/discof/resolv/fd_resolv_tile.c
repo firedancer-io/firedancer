@@ -177,7 +177,7 @@ typedef struct {
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return alignof( fd_resolv_ctx_t );
+  return fd_ulong_max( fd_ulong_max( alignof( fd_resolv_ctx_t ), pool_align() ), fd_ulong_max( map_chain_align(), map_align() ) );
 }
 
 FD_FN_PURE static inline ulong
@@ -204,9 +204,11 @@ before_frag( fd_resolv_ctx_t * ctx,
              ulong             in_idx,
              ulong             seq,
              ulong             sig ) {
-  (void)sig;
-
   if( FD_UNLIKELY( ctx->in[in_idx].kind==IN_KIND_REPLAY ) ) return 0;
+
+  /* Bundle transactions (sig==1) must arrive at pack in order.  Route
+     all bundle traffic to resolv:0. */
+  if( FD_UNLIKELY( sig ) ) return ctx->round_robin_idx!=0UL;
 
   return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
 }
