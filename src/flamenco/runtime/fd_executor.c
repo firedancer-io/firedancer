@@ -1134,7 +1134,27 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
       for( ulong j=0UL; j<runtime->accounts.account_cnt; j++ ) {
         if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &runtime->accounts.account[ j ].pubkey ), key ) ) ) continue;
-        txn_out->accounts.account[ i ] = &runtime->accounts.account[ j ];
+        fd_acc_t * reuse = &runtime->accounts.account[ j ];
+
+        /* If the prior bundle txn drained the account to zero lamports,
+           the next txn must observe the reclaimed account, matching the
+           tombstone reset the accdb applies on a fresh acquire: empty
+           data, non-executable, system (zero) owner.
+           https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
+        if( FD_UNLIKELY( !reuse->lamports ) ) {
+          reuse->data_len   = 0UL;
+          reuse->executable = 0;
+          memset( reuse->owner, 0, 32UL );
+        }
+
+        /* The carried-forward state from the prior bundle txn becomes
+           this txn's "before" state, so re-baseline the prior_* fields
+           that the balance and rent checks compare against. */
+        reuse->prior_lamports   = reuse->lamports;
+        reuse->prior_data_len   = reuse->data_len;
+        reuse->prior_executable = reuse->executable;
+        memcpy( reuse->prior_owner, reuse->owner, 32UL );
+        txn_out->accounts.account[ i ] = reuse;
         break;
       }
     }

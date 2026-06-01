@@ -1248,12 +1248,6 @@ fd_runtime_prepare_and_execute_txn( fd_runtime_t *      runtime,
     fd_dump_txn_result_to_protobuf( runtime->log.txn_dump_ctx, txn_in, txn_out, txn_out->err.txn_err );
     fd_dump_txn_fixture_to_file( runtime->log.txn_dump_ctx, runtime->log.dump_proto_ctx, txn_in );
   }
-
-  FD_LOG_NOTICE(( "txn execute: bundle=%d %s txn_err=%d (fees_only=%d)",
-                  txn_in->bundle.is_bundle,
-                  txn_out->err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS ? "SUCCESS" : "FAIL",
-                  txn_out->err.txn_err,
-                  txn_out->err.is_fees_only ));
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble

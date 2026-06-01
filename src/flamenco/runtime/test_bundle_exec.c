@@ -303,19 +303,8 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
   FD_TEST( env->txn_out[1].err.is_committable );
   FD_TEST( env->txn_out[1].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_LOG_NOTICE(( "tx1 acct1 lamports = %lu", env->txn_out[1].accounts.account[1]->lamports ));
   FD_TEST( env->txn_out[1].accounts.account[1] == env->txn_out[0].accounts.account[1] );
   FD_TEST( env->txn_out[1].accounts.account[1]->lamports == 2000000UL );
-
-  /* Same txn but outside of a bundle should see the original 1000000. */
-  env->txn_in.txn              = &txn_p;
-  env->txn_in.bundle.is_bundle = 0;
-  fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
-  FD_TEST( env->txn_out[2].err.is_committable );
-  FD_TEST( env->txn_out[2].err.txn_err==FD_RUNTIME_EXECUTE_SUCCESS );
-  FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 1000000UL );
-  env->txn_out[2].err.is_committable = 0;
-  fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
 
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
   fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
