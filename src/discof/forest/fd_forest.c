@@ -1661,6 +1661,8 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, head ) );
     fd_forest_pool_ele_release( pool, head ); /* free head */
   }
+
+  new_root_ele->sibling = null; /* unlink new root from siblings, just in case */
   return new_root_ele;
 }
 
