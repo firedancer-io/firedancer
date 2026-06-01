@@ -1438,8 +1438,15 @@ test_reject( void ) {
   make_transaction( i, 1000001U, 500U, 11.0, "A", "A", NULL, NULL );
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE_ACCT );
 
+  fd_txn_e_t * _bundle[1];
+  ulong _deleted;
+  fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( pack, _bundle, 1UL );
+  make_vote_transaction1( bundle[0]->txnp, 0UL );
+  int result = fd_pack_insert_bundle_fini( pack, bundle, 1UL, 1000UL, 0, NULL, &_deleted );
+  FD_TEST( result==FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST );
 
-  for( ulong j=0UL; j<=i; j++ ) fd_memset( TXN( &txnp_scratch[ i ] ), (uchar)0, FD_TXN_MAX_SZ );
+
+  for( ulong j=0UL; j<=i; j++ ) fd_memset( TXN( &txnp_scratch[ j ] ), (uchar)0, FD_TXN_MAX_SZ );
 }
 
 static inline void
@@ -1518,7 +1525,7 @@ test_bundle_nonce_conflict_detect( fd_pack_t * pack,
 
   /* Try again, but other transactions are non-nonce */
   bundle = fd_pack_insert_bundle_init( pack, _bundle, txn_cnt );
-  for( ulong i=0UL; i<txn_cnt; i++ ) make_vote_transaction1( bundle[ i ]->txnp, i );
+  for( ulong i=0UL; i<txn_cnt; i++ ) make_transaction1( bundle[ i ]->txnp, i, 1000U, 100U, 12.0-(double)i, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[ dup_idx_0 ]->txnp, dup_idx_0, 11.0, 4, 0, 'D' );
   make_nonce_transaction1( bundle[ dup_idx_1 ]->txnp, dup_idx_1, 11.0, 4, 0, 'D' );
   result = fd_pack_insert_bundle_fini( pack, bundle, txn_cnt, 1000UL, 0, NULL, &_deleted );
@@ -1526,7 +1533,7 @@ test_bundle_nonce_conflict_detect( fd_pack_t * pack,
 
   /* Rule out false positive */
   bundle = fd_pack_insert_bundle_init( pack, _bundle, txn_cnt );
-  for( ulong i=0UL; i<txn_cnt; i++ ) make_vote_transaction1( bundle[ i ]->txnp, i );
+  for( ulong i=0UL; i<txn_cnt; i++ ) make_transaction1( bundle[ i ]->txnp, i, 1000U, 100U, 12.0-(double)i, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[ dup_idx_0 ]->txnp, dup_idx_0, 11.0, 4, 0, 'D' );
   make_nonce_transaction1( bundle[ dup_idx_1 ]->txnp, dup_idx_1, 11.0, 5, 0, 'D' ); /* different */
   fd_ed25519_sig_t sig; memcpy( &sig, txnp_get_signatures( bundle[ dup_idx_1 ]->txnp ), sizeof(fd_ed25519_sig_t) );
@@ -1558,9 +1565,9 @@ test_bundle_nonce( void ) {
 
   /* Cannot insert bundle with same nonce, even with higher prio */
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
-  make_vote_transaction1( bundle[0]->txnp, 0UL );
+  make_transaction1      ( bundle[0]->txnp, 0UL, 100U, 100U, 5.0, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[1]->txnp, 1UL, 999.0, 5, 0, 'b' );
-  make_vote_transaction1( bundle[2]->txnp, 2UL );
+  make_transaction1      ( bundle[2]->txnp, 2UL, 100U, 100U, 4.0, "C", "D", NULL, NULL );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_PRIORITY );
 
@@ -1596,7 +1603,7 @@ test_bundle_nonce( void ) {
   /* Displace nonce txns using a bundle */
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 2.0, 5, 0, 'b' );
-  make_vote_transaction1( bundle[1]->txnp, 1UL );
+  make_transaction1      ( bundle[1]->txnp, 1UL, 100U, 100U, 5.0, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 5, 0, 'c' );
   fd_ed25519_sig_t sig; memcpy( &sig, txnp_get_signatures( bundle[1]->txnp ), sizeof(fd_ed25519_sig_t) );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
@@ -1612,7 +1619,7 @@ test_bundle_nonce( void ) {
   /* Reject duplicate nonce in bundle */
   bundle = fd_pack_insert_bundle_init( pack, _bundle, 3UL );
   make_nonce_transaction1( bundle[0]->txnp, 0UL, 2.0, 5, 0, 'b' );
-  make_vote_transaction1( bundle[1]->txnp, 1UL );
+  make_transaction1      ( bundle[1]->txnp, 1UL, 100U, 100U, 5.0, "A", "B", NULL, NULL );
   make_nonce_transaction1( bundle[2]->txnp, 2UL, 2.0, 5, 0, 'b' );
   result = fd_pack_insert_bundle_fini( pack, bundle, 3UL, 1000UL, 0, NULL, &_deleted );
   FD_TEST( result==FD_PACK_INSERT_REJECT_NONCE_CONFLICT );

@@ -1474,9 +1474,11 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
     int est_result = fd_pack_estimate_rewards_and_compute( bundle[ i ], ord, pack->lim );
-    if( FD_UNLIKELY( !est_result   ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL; break; }
+    if( FD_UNLIKELY( est_result==0 ) ) { err = FD_PACK_INSERT_REJECT_ESTIMATION_FAIL;  break; }
+    /* Votes not allowed in bundles */
+    if( FD_UNLIKELY( est_result==1 ) ) { err = FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST; break; }
     int nonce_result = fd_pack_validate_durable_nonce( ord->txn_e );
-    if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;   break; }
+    if( FD_UNLIKELY( !nonce_result ) ) { err = FD_PACK_INSERT_REJECT_INVALID_NONCE;    break; }
     int is_durable_nonce = nonce_result==2;
     nonce_txn_cnt += !!is_durable_nonce;
 
