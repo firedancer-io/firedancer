@@ -1153,6 +1153,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
            stays correct); the per-txn balance check uses
            starting_lamports[] instead. */
         txn_out->accounts.starting_lamports[ i ] = reuse->lamports;
+        txn_out->accounts.starting_data_len[ i ] = reuse->data_len;
         txn_out->accounts.account[ i ]           = reuse;
         break;
       }
@@ -1190,6 +1191,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
       txn_out->accounts.account[ txn_idx ] = &acquire_base[ i ];
       txn_out->accounts.account_acquired[ txn_idx ] = 1U;
       txn_out->accounts.starting_lamports[ txn_idx ] = acquire_base[ i ].prior_lamports;
+      txn_out->accounts.starting_data_len[ txn_idx ] = acquire_base[ i ].prior_data_len;
     }
     runtime->accounts.account_cnt += acquire_cnt;
   }
@@ -1304,9 +1306,16 @@ fd_executor_txn_check( fd_bank_t *    bank,
 
     /* Tips for bundles are collected in the bank: a user submitting a
        bundle must include a instruction that transfers lamports to
-       a specific tip account.  Tips accumulated through the slot. */
+       a specific tip account.  Tips accumulated through the slot.
+
+       The delta must be measured against this txn's starting balance,
+       not acc->prior_lamports.  For a tip account reused across bundle
+       txns, prior_lamports stays anchored to the on-chain pre-image, so
+       using it here would re-count the credit from earlier bundle txns
+       and inflate bank->f.tips.  starting_lamports[] holds the carried-
+       forward balance (== prior_lamports for freshly acquired accounts). */
     if( FD_UNLIKELY( fd_pack_tip_is_tip_account( fd_type_pun_const( txn_out->accounts.keys[ i ].uc ) ) ) ) {
-      txn_out->details.tips += fd_ulong_sat_sub( acc->lamports, acc->prior_lamports );
+      txn_out->details.tips += fd_ulong_sat_sub( acc->lamports, txn_out->accounts.starting_lamports[ i ] );
     }
 
     fd_uwide_inc( &ending_lamports_h, &ending_lamports_l, ending_lamports_h, ending_lamports_l, acc->lamports );
@@ -1328,15 +1337,20 @@ fd_executor_txn_check( fd_bank_t *    bank,
         // no-op
       } else {
         /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
-        uchar before_uninitialized = acc->prior_lamports==0UL;
-        uchar before_rent_exempt   = acc->prior_lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, acc->prior_data_len );
+        /* Use this txn's carried-forward starting state, not acc->prior_*
+           (which stays anchored to the on-chain pre-image across bundle
+           txns).  Equals prior_* for freshly acquired accounts. */
+        ulong before_lamports     = txn_out->accounts.starting_lamports[ i ];
+        ulong before_data_len     = txn_out->accounts.starting_data_len[ i ];
+        uchar before_uninitialized = before_lamports==0UL;
+        uchar before_rent_exempt   = before_lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, before_data_len );
 
         /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L50 */
         if( FD_UNLIKELY( before_uninitialized || before_rent_exempt ) ) {
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
           return FD_RUNTIME_TXN_ERR_INSUFFICIENT_FUNDS_FOR_RENT;
         /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L56 */
-        } else if( (acc->data_len==acc->prior_data_len) && acc->lamports<=acc->prior_lamports ) {
+        } else if( (acc->data_len==before_data_len) && acc->lamports<=before_lamports ) {
           // no-op
         } else {
           /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L104 */
