@@ -6,6 +6,7 @@
 #undef FD_ACCDB_NO_FORK_ID
 
 #include "../../ballet/txn/fd_txn.h"
+#include "../../ballet/base58/fd_base58.h"
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
 
@@ -1461,6 +1462,22 @@ background_compact( fd_accdb_t * accdb,
     uint next_idx = FD_VOLATILE_CONST( candidate->map.next );
     ulong candidate_packed = FD_VOLATILE_CONST( candidate->offset_fork );
     if( FD_LIKELY( (candidate_packed & FD_ACCDB_OFF_MASK)==compact_base+compact->compaction_offset ) ) {
+      /* IDENTITY DETECTOR (always on).  The chain was selected by hashing
+         the ON-DISK record's pubkey (meta->pubkey) and the candidate is
+         matched by offset equality alone.  If a dead/garbage on-disk
+         record decoded to a pubkey whose live chain happens to contain an
+         accmeta with a colliding offset, we would relocate (and CAS-
+         republish the offset of) the WRONG account — corrupting its
+         on-disk location.  Assert the matched accmeta's own pubkey equals
+         the on-disk record's pubkey before trusting the offset match. */
+      if( FD_UNLIKELY( memcmp( candidate->key.pubkey, meta->pubkey, 32UL ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( meta->pubkey,         disk_b58 );
+        FD_BASE58_ENCODE_32_BYTES( candidate->key.pubkey, cand_b58 );
+        FD_LOG_ERR(( "accdb compaction match identity mismatch at offset %lu: on-disk record "
+                     "pubkey=%s but offset-matched accmeta pubkey=%s (offset collision — would "
+                     "relocate the wrong account)",
+                     compact_base+compact->compaction_offset, disk_b58, cand_b58 ));
+      }
       accmeta       = candidate;
       source_packed = candidate_packed;
       break;
@@ -2211,7 +2228,19 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   ulong read_offsets[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
   uchar * read_bases[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
   ulong read_sizes[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  struct iovec read_ops[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  /* Identity detector (STEP 11b): read the on-disk record HEADER (pubkey
+     @0, size @32) as the first scatter element of the SAME preadv2 that
+     fills the cache line — no extra I/O — so we can verify offset_fork
+     actually points at THIS account's record.  The owner+data go into the
+     cache line; if offset_fork ever pointed at a different / stale record,
+     the line would get a foreign owner while its key (set from accmetas[i])
+     stays valid — the wrong-owner-valid-key corruption.  Nothing else in
+     the read path validates on-disk identity (C6/C7 only compare the
+     in-memory cache-line key against the same accmeta). */
+  fd_accdb_disk_meta_t read_hdrs[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  ulong  read_base_offsets[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  ulong  read_pubkey_idx  [ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  uint   read_expect_size [ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] || exists_in_cache[ i ] ) ) continue;
@@ -2241,10 +2270,29 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
        read and no post-read validation is needed. */
     while( FD_UNLIKELY( (FD_VOLATILE_CONST( accmetas[ i ]->offset_fork ) & FD_ACCDB_OFF_MASK)==FD_ACCDB_OFF_INVAL ) ) FD_SPIN_PAUSE();
 
-    read_offsets[ read_ops_cnt ] = fd_accdb_acc_offset(accmetas[ i ]) + offsetof(fd_accdb_disk_meta_t, owner);
+    /* Snapshot the offset ONCE into a stable local so the owner read and
+       the identity detector below both refer to the same record.  Read
+       the whole record from base_off (header + owner + data) so the
+       header lands in read_hdrs[i] in the same preadv2 (2-element
+       scatter: header -> read_hdrs[i], owner+data -> cache line). */
+    ulong base_off = fd_accdb_acc_offset( accmetas[ i ] );
+    ulong data_sz  = FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size );
+
+    read_base_offsets[ read_ops_cnt ] = base_off;
+    read_pubkey_idx  [ read_ops_cnt ] = i;
+    read_expect_size [ read_ops_cnt ] = (uint)data_sz;
+
+    /* Read the full record from base_off: pubkey+size into read_hdrs[i]
+       (the on-disk record header, fd_accdb_disk_meta_t = pubkey[32] +
+       size[4] + owner[32]), and owner+data straight into the cache line.
+       The header's trailing owner[32] field and the cache line's owner+
+       data are the SAME 32+data bytes; we let the header buffer capture
+       only pubkey+size and scatter owner+data into the line.  Total bytes
+       read = offsetof(owner) + 32 + data = sizeof(disk_meta)+data. */
+    read_offsets[ read_ops_cnt ] = base_off;
     read_bases[ read_ops_cnt ]   = original_cache_line[ i ]->owner;
-    read_sizes[ read_ops_cnt ]   = 32UL + FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size );
-    read_ops[ read_ops_cnt++ ]   = (struct iovec){ .iov_base = original_cache_line[ i ]->owner, .iov_len = 32UL + FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) };
+    read_sizes[ read_ops_cnt ]   = offsetof(fd_accdb_disk_meta_t, owner) + 32UL + data_sz;
+    read_ops_cnt++;
   }
 
   // STEP 11.
@@ -2262,9 +2310,22 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   remains stable for the duration of this read — no post-read
   //   validation or retry is needed.
   for( ulong i=0UL; i<read_ops_cnt; i++ ) {
-    ulong bytes_read = 0UL;
+    /* One preadv2 of the whole record from read_offsets[i] (=base_off),
+       scattered into two destinations because they are not adjacent in
+       memory: [0]=on-disk header (pubkey+size, 36B) into read_hdrs[i] for
+       the identity check, [1]=owner+data into the cache line.  (The disk
+       record is contiguous but the cache line has no slot for pubkey+size
+       before owner, hence the 2-element scatter rather than one iovec.)
+       Standard short-read handling: advance the iovec array. */
+    struct iovec iov[2] = {
+      { .iov_base = &read_hdrs[ i ], .iov_len = offsetof(fd_accdb_disk_meta_t, owner)      },
+      { .iov_base = read_bases[ i ], .iov_len = read_sizes[ i ] - offsetof(fd_accdb_disk_meta_t, owner) },
+    };
+    struct iovec * iov_ptr = iov;
+    int            iov_cnt = 2;
+    ulong          bytes_read = 0UL;
     while( FD_LIKELY( bytes_read<read_sizes[ i ] ) ) {
-      long result = preadv2( accdb->fd, &read_ops[ i ], 1, (long)(read_offsets[ i ]+bytes_read), 0 );
+      long result = preadv2( accdb->fd, iov_ptr, iov_cnt, (long)(read_offsets[ i ]+bytes_read), 0 );
       if( FD_UNLIKELY( -1==result && (errno==EINTR || errno==EAGAIN || errno==EWOULDBLOCK ) ) ) continue;
       else if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "preadv2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       else if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "accounts database is corrupt, data expected at offset %lu with size %lu exceeded file extents",
@@ -2274,8 +2335,37 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
       accdb->metrics->bytes_read += (ulong)result;
       accdb->metrics->read_ops++;
 
-      read_ops[ i ].iov_base = read_bases[ i ] + bytes_read;
-      read_ops[ i ].iov_len  = read_sizes[ i ] - bytes_read;
+      /* Advance past fully-consumed iovec elements, then trim the current. */
+      ulong adv = (ulong)result;
+      while( iov_cnt && adv>=iov_ptr[0].iov_len ) { adv -= iov_ptr[0].iov_len; iov_ptr++; iov_cnt--; }
+      if( FD_LIKELY( iov_cnt ) ) { iov_ptr[0].iov_base = (uchar *)iov_ptr[0].iov_base + adv; iov_ptr[0].iov_len -= adv; }
+    }
+  }
+
+  // STEP 11b.
+  //   IDENTITY DETECTOR (always on).  STEP 11 read the on-disk record
+  //   header (pubkey @0, size @32) into read_hdrs[i] as the first iovec
+  //   element of the SAME preadv2 that filled the cache line — no extra
+  //   I/O.  Nothing else verifies that offset_fork actually points at THIS
+  //   account's record: C6/C7 only compare the in-memory cache line key
+  //   against the same accmeta it was populated from, so a bad offset_fork
+  //   (foreign / stale / torn-with-executable_size record) would yield a
+  //   wrong owner with a still-valid key — exactly the wrong-owner-valid-
+  //   key corruption observed on mainnet.  Assert the header belongs to
+  //   the requested pubkey and has the expected size, crashing at the
+  //   corruption's manifestation site and naming the foreign record so the
+  //   upstream offset_fork corruptor can be identified on the next repro. */
+  for( ulong i=0UL; i<read_ops_cnt; i++ ) {
+    ulong         idx     = read_pubkey_idx[ i ];
+    uchar const * want_pk = pubkeys[ idx ];
+    if( FD_UNLIKELY( memcmp( read_hdrs[ i ].pubkey, want_pk, 32UL ) || read_hdrs[ i ].size!=read_expect_size[ i ] ) ) {
+      FD_BASE58_ENCODE_32_BYTES( want_pk,             want_b58 );
+      FD_BASE58_ENCODE_32_BYTES( read_hdrs[ i ].pubkey, disk_b58 );
+      FD_LOG_ERR(( "accdb cold-load identity mismatch: requested pubkey=%s expect_size=%u; "
+                   "on-disk record at offset %lu has pubkey=%s size=%u (offset_fork points at "
+                   "the wrong/stale/torn record — wrong owner would have been read)",
+                   want_b58, read_expect_size[ i ],
+                   read_base_offsets[ i ], disk_b58, read_hdrs[ i ].size ));
     }
   }
 
