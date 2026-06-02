@@ -275,7 +275,8 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
                         fd_bank_t *               bank,
                         fd_sol_sysvar_clock_t *   clock,
                         fd_runtime_stack_t *      runtime_stack,
-                        ulong const *             parent_epoch ) {
+                        ulong const *             parent_epoch,
+                        int *                     out_estimate_present ) {
   fd_epoch_schedule_t const * epoch_schedule = &bank->f.epoch_schedule;
   ulong                       slot_duration  = bank->f.ns_per_slot.ul[0];
   ulong                       current_slot   = bank->f.slot;
@@ -303,6 +304,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L56-L58 */
   if( FD_UNLIKELY( total_stake==0UL ) ) {
+    *out_estimate_present = 0;
     return 0L;
   }
 
@@ -355,6 +357,7 @@ get_timestamp_estimate( fd_accdb_user_t *         accdb,
         (long)max_allowable_drift_fast / NS_IN_S );
   }
 
+  *out_estimate_present = 1;
   return estimate;
 }
 
@@ -384,10 +387,12 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
 
   /* TODO: Are we handling slot 0 correctly?
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2176-L2183 */
-  long timestamp_estimate = get_timestamp_estimate( accdb, xid, bank, clock, runtime_stack, parent_epoch );
+  int  estimate_present   = 0;
+  long timestamp_estimate = get_timestamp_estimate( accdb, xid, bank, clock, runtime_stack, parent_epoch, &estimate_present );
 
-  /* If the timestamp was successfully calculated, use it. It not keep the old one. */
-  if( FD_LIKELY( timestamp_estimate!=0L ) ) {
+  /* If the timestamp was successfully calculated, use it. Otherwise,
+     keep the old one. */
+  if( FD_LIKELY( estimate_present ) ) {
     unix_timestamp = timestamp_estimate;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2180-L2182 */
