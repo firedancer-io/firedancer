@@ -447,8 +447,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
   int   execution_success = 1;
   ulong failed_idx        = ULONG_MAX;
 
-  FD_LOG_NOTICE(( "bundle: begin execute slot=%lu txn_cnt=%lu", slot, txn_cnt ));
-
   /* Every transaction in the bundle should be executed in order against
      different transaciton contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -470,9 +468,7 @@ handle_bundle( fd_execle_tile_t *  ctx,
     txn_in->txn              = txn;
     txn_in->bundle.is_bundle = 1;
 
-    FD_LOG_NOTICE(( "bundle: execute txn %lu/%lu (prev_txn_cnt=%lu)", i+1UL, txn_cnt, txn_in->bundle.prev_txn_cnt ));
     fd_runtime_prepare_and_execute_txn( ctx->runtime, bank, txn_in, txn_out );
-    FD_LOG_NOTICE(( "bundle: executed txn %lu/%lu committable=%d txn_err=%d", i+1UL, txn_cnt, txn_out->err.is_committable, txn_out->err.txn_err ));
 
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_out->err.txn_err)<<24);
     if( FD_UNLIKELY( !txn_out->err.is_committable || txn_out->err.txn_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -482,22 +478,18 @@ handle_bundle( fd_execle_tile_t *  ctx,
     }
   }
 
-  FD_LOG_NOTICE(( "bundle: execute phase done success=%d failed_idx=%lu", execution_success, failed_idx ));
-
   /* If all of the transactions in the bundle executed successfully, we
      can commit the transactions in order.  At this point, we cann also
      accumulate unused CUs to the rebate.  Otherwise, if any transaction
      fails, we need to exclude all the bundle transactions and rebate
      all of the CUs. */
   if( FD_LIKELY( execution_success ) ) {
-    FD_LOG_NOTICE(( "bundle: begin commit slot=%lu txn_cnt=%lu", slot, txn_cnt ));
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
       fd_txn_in_t *  txn_in    = &ctx->txn_in[ i ];
       fd_txn_out_t * txn_out   = &ctx->txn_out[ i ];
       uchar *        signature = (uchar *)txn_in->txn->payload + TXN( txn_in->txn )->signature_off;
 
-      FD_LOG_NOTICE(( "bundle: commit txn %lu/%lu", i+1UL, txn_cnt ));
       fd_runtime_commit_txn( ctx->runtime, bank, txn_out );
 
       txn_end_ticks[ i ] = fd_tickcount();
@@ -554,7 +546,6 @@ handle_bundle( fd_execle_tile_t *  ctx,
     }
   } else {
     FD_TEST( failed_idx != ULONG_MAX );
-    FD_LOG_NOTICE(( "bundle: begin cancel slot=%lu txn_cnt=%lu failed_idx=%lu", slot, txn_cnt, failed_idx ));
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
       ctx->txn_out[ i ].err.is_committable = 0;
