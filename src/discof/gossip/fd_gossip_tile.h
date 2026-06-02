@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_discof_gossip_fd_gossip_tile_h
 #define HEADER_fd_src_discof_gossip_fd_gossip_tile_h
 
+#include "../../disco/fd_disco_base.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
@@ -20,6 +21,8 @@ typedef struct {
 #define FD_GOSSIP_WFS_STATE_PUBLISH (3)
 #define FD_GOSSIP_WFS_STATE_DONE    (4)
 
+#define FD_GOSSIP_GOSSVF_MTU (sizeof(fd_gossip_message_t) + FD_GOSSIP_MESSAGE_MAX_CRDS + FD_NET_MTU)
+
 struct fd_gossip_tile_ctx {
   fd_gossip_t * gossip;
 
@@ -27,6 +30,8 @@ struct fd_gossip_tile_ctx {
   fd_gossip_contact_info_t my_contact_info[1];
 
   fd_stem_context_t * stem;
+
+  uchar gossvf_staged[ FD_GOSSIP_GOSSVF_MTU ] __attribute__((aligned(128)));
 
   uint  rng_seed;
   ulong rng_idx;
