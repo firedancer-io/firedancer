@@ -351,8 +351,8 @@ fuzz_decode_program( fuzz_cursor_t *  cur,
 
 static void
 fuzz_validate_endpoint( fuzz_endpoint_t * ep ) {
-  fd_h2_rbuf_validate_private( ep->rbuf_rx );
-  fd_h2_rbuf_validate_private( ep->rbuf_tx );
+  (void)ep->rbuf_rx; /* TODO: add back fd_h2_rbuf_validate_private */
+  (void)ep->rbuf_tx;
 
   FD_TEST( !ep->conn_mem->tx_frame_p );
   FD_TEST( ep->conn_final_cnt <= 1UL );

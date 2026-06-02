@@ -284,7 +284,7 @@ fd_sbpf_lenient_get_string_in_section( uchar const *         elf_bytes,
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L486-L495 */
-  uchar * null_terminator_ptr = memchr( (uchar const *)elf_bytes+string_range_start, 0, string_range_end-string_range_start );
+  uchar const * null_terminator_ptr = memchr( (uchar const *)elf_bytes+string_range_start, 0, string_range_end-string_range_start );
   if( FD_UNLIKELY( null_terminator_ptr==NULL ) ) {
     return FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG;
   }

@@ -13,7 +13,7 @@ fd_io_fgets( char * restrict            str,
     char const * peek     = fd_io_buffered_istream_peek   ( istream );
     ulong        peek_max = fd_io_buffered_istream_peek_sz( istream );
 
-    void * peek_found = memchr( peek, '\n', peek_max );
+    void const * peek_found = memchr( peek, '\n', peek_max );
     if( peek_found ) {
       ulong peek_sz = (ulong)peek_found - (ulong)peek + 1UL;
       peek_sz = fd_ulong_min( peek_sz, out_max );

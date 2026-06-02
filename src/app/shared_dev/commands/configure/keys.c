@@ -18,7 +18,7 @@ static int
 path_parent( char const * path,
              char *       parent,
              ulong        parent_sz ) {
-  char * last_slash = strrchr( path, '/' );
+  char const * last_slash = strrchr( path, '/' );
 
   if( FD_UNLIKELY( !last_slash ) ) return -1;
 
