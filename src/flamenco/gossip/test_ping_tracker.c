@@ -78,7 +78,7 @@ test_basic( void ) {
 
 
   /* High stake nodes do not get tracked ... */
-  fd_ping_tracker_track( ping_tracker, random_pubkey, 1000000000UL, entrypoints[0], now );
+  fd_ping_tracker_track( ping_tracker, random_pubkey, FD_GOSSIP_STAKED_THRESHOLD, entrypoints[0], now );
   FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(10), NULL, NULL, NULL ) );
 
   /* Low stake nodes do get tracked ... */

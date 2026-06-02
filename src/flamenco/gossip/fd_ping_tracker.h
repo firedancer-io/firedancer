@@ -16,7 +16,8 @@
 
    Any peer which has tried to send us a gossip message within the last
    sixty seconds is eligible to be pinged, except nodes with at least
-   one SOL of stake which are exempt from ping requirements.
+   FD_GOSSIP_STAKED_THRESHOLD lamports of stake which are exempt from
+   ping requirements.
 
    Once a peer has been pinged, we wait up to twenty seconds for a
    response before trying again.  We repeatedly retry pinging the peer
@@ -28,6 +29,7 @@
    begin pinging the peer again, every twenty seconds, to refresh the
    peer. */
 
+#include "fd_gossip_message.h"
 #include "../../util/rng/fd_rng.h"
 #include "../../util/net/fd_net_headers.h"
 
