@@ -505,12 +505,15 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
     FD_TEST( env->txn_out[1].err.is_committable );
     FD_TEST( env->txn_out[1].accounts.is_writable[1] == 1 );
     FD_TEST( env->txn_out[1].accounts.account[1] == env->txn_out[0].accounts.account[1] ); /* reused */
-    FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 0 );                          /* not the owner */
     env->txn_out[1].accounts.account[1]->lamports = 4000000UL;
 
-    /* The writer's writability must have been propagated to the owner so
-       the owner commits the final shared state. */
-    FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
+    /* Ownership of the accdb ref must transfer to the writable reuser:
+       the writer now owns+commits the final state, while is_writable on
+       the read-only owner is left untouched (so per-account cost stays
+       correct). */
+    FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 1 ); /* writer is now the owner */
+    FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 0 ); /* prior owner released ownership */
+    FD_TEST( env->txn_out[0].accounts.is_writable[1] == 0 );      /* still read-only for tx0 */
 
     fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
     fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
@@ -1089,6 +1092,168 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
 
   fd_new_votes_evict_fork( new_votes, fork_idx );
   env->bank->new_votes_fork_id = USHORT_MAX;
+
+  /* Test: a bundle rm_vote queued by a NON-owner txn must still be
+     recorded in order.  new_vote/rm_vote feed an ordered op-log, so they
+     fire per writable txn, independent of which txn owns the accdb ref.
+
+     Regression this guards: if rm_vote were gated on account_acquired
+     (like the lthash commit), then a close queued by tx0 whose ref
+     ownership later moved to tx1 (a writable reuse that does not touch
+     vote state) would be dropped.  With the account pre-existing in the
+     root map, dropping the remove leaves a stale entry (present) instead
+     of correctly tombstoning it (absent). */
+  {
+    env->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( env->bank ) );
+    fd_new_votes_t * nv  = fd_bank_new_votes( env->bank );
+    ushort           fidx = env->bank->new_votes_fork_id;
+
+    /* Pre-populate the root map with pubkey2 so a dropped remove is
+       observable as a stale survivor. */
+    fd_new_votes_insert( nv, fidx, &pubkey2 );
+    fd_new_votes_apply_delta( nv, fidx );
+
+    fd_txn_p_t nonowner_txn_p[2] = {0};
+    fd_pubkey_t nonowner_keys[2] = { pubkey1, pubkey2 };
+    for( ulong i=0UL; i<2UL; i++ ) {
+      sz = txn_serialize( nonowner_txn_p[i].payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, nonowner_keys, &dummy_hash );
+      nonowner_txn_p[i].payload_sz = (ushort)sz;
+      FD_TEST( fd_txn_parse( nonowner_txn_p[i].payload, sz, TXN( &nonowner_txn_p[i] ), NULL ) );
+      env->txn_in.txn                 = &nonowner_txn_p[i];
+      env->txn_in.bundle.is_bundle    = 1;
+      env->txn_in.bundle.prev_txn_cnt = i;
+      for( ulong j=0UL; j<i; j++ ) env->txn_in.bundle.prev_txn_outs[j] = &env->txn_out[j];
+      fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
+      FD_TEST( env->txn_out[i].err.is_committable );
+      FD_TEST( env->txn_out[i].accounts.is_writable[1] );
+    }
+
+    /* tx0 closes the vote account; tx1 reuses it writable (taking
+       ownership of the accdb ref) but does not touch vote state. */
+    env->txn_out[0].accounts.rm_vote[1] = 1;
+
+    /* Ownership must have moved to tx1, leaving tx0 a non-owner. */
+    FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 0 );
+    FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 1 );
+
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+
+    fd_new_votes_apply_delta( nv, fidx );
+
+    /* The non-owner's remove must have tombstoned the pre-existing entry. */
+    uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) it_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, it_mem );
+    FD_TEST( fd_new_votes_iter_done( it ) ); /* pubkey2 removed -> empty */
+    fd_new_votes_iter_fini( it );
+
+    fd_new_votes_evict_fork( nv, fidx );
+    env->bank->new_votes_fork_id = USHORT_MAX;
+  }
+
+  FD_LOG_NOTICE(( "test bundle non-owner vote op ordering... ok" ));
+
+  /* Test: stake_update queued by a non-owner txn must still fire once,
+     on the txn that ends up owning the accdb ref.  tx0 marks the stake
+     account; tx1 reuses it writable (ownership moves to tx1).  The
+     delegation must be removed exactly once (drained to zero in tx1). */
+  {
+    fd_pubkey_t stake_acct = { .ul[0] = 0x53544B4544474531UL };
+    fd_pubkey_t vote_acct  = { .ul[0] = 0x564F544543414331UL };
+    uchar sdata[ FD_STAKE_STATE_SZ ] = {0};
+    FD_STORE( fd_stake_state_t, sdata, ((fd_stake_state_t){
+      .stake_type = FD_STAKE_STATE_STAKE,
+      .stake = { .meta = { .staker = stake_acct, .withdrawer = stake_acct },
+                 .stake = { .delegation = { .voter_pubkey = vote_acct, .stake = 5UL,
+                                            .activation_epoch = 0UL, .deactivation_epoch = ULONG_MAX,
+                                            .warmup_cooldown_rate = 0.25 } } } }) );
+    create_test_account( env->mini->runtime->accdb, env->fork_id, &stake_acct, 2000000000UL,
+                         (uint)FD_STAKE_STATE_SZ, sdata, &fd_solana_stake_program_id );
+    fd_stake_delegations_root_update( fd_banks_stake_delegations_root_query( env->mini->banks ),
+                                      &stake_acct, &vote_acct, 5UL, 0UL, ULONG_MAX, 0UL,
+                                      FD_STAKE_DELEGATIONS_WARMUP_COOLDOWN_RATE_ENUM_025 );
+
+    fd_txn_p_t sp[2] = {0};
+    fd_pubkey_t skeys[2] = { pubkey1, stake_acct };
+    for( ulong i=0UL; i<2UL; i++ ) {
+      sz = txn_serialize( sp[i].payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, skeys, &dummy_hash );
+      sp[i].payload_sz = (ushort)sz;
+      FD_TEST( fd_txn_parse( sp[i].payload, sz, TXN( &sp[i] ), NULL ) );
+      env->txn_in.txn                 = &sp[i];
+      env->txn_in.bundle.is_bundle    = 1;
+      env->txn_in.bundle.prev_txn_cnt = i;
+      for( ulong j=0UL; j<i; j++ ) env->txn_in.bundle.prev_txn_outs[j] = &env->txn_out[j];
+      fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[i] );
+      FD_TEST( env->txn_out[i].err.is_committable );
+      FD_TEST( env->txn_out[i].accounts.is_writable[1] );
+    }
+
+    /* tx0 saw the stake account and queued stake_update; ownership and
+       the stake_update flag both moved to tx1 (cleared on tx0), so the
+       delegation update fires exactly once on the new owner.  tx1 then
+       drains the account to zero (closed). */
+    FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 0 );
+    FD_TEST( env->txn_out[0].accounts.stake_update[1] == 0 ); /* moved away */
+    FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 1 );
+    FD_TEST( env->txn_out[1].accounts.stake_update[1] );      /* carried onto new owner */
+    env->txn_out[1].accounts.account[1]->lamports   = 0UL;
+    env->txn_out[1].accounts.account[1]->data_len   = 0UL;
+    fd_memset( env->txn_out[1].accounts.account[1]->owner, 0, 32UL );
+
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+
+    fd_stake_delegations_t * frontier = fd_bank_stake_delegations_frontier_query( env->mini->banks, env->bank );
+    FD_TEST( !find_visible_stake_delegation( frontier, &stake_acct ) ); /* removed exactly once */
+    fd_bank_stake_delegations_end_frontier_query( env->mini->banks, env->bank );
+  }
+
+  FD_LOG_NOTICE(( "test bundle non-owner stake_update carry... ok" ));
+
+  /* Test: a fully-cancelled bundle must not apply any vote op.  tx0
+     queues rm_vote then the bundle is cancelled (not committed); the
+     pre-existing root entry must survive untouched. */
+  {
+    fd_pubkey_t cancel_fp  = { .ul[0] = 0x43414E43454C4650UL };
+    fd_pubkey_t cancel_acc = { .ul[0] = 0x43414E43454C4143UL };
+    create_test_account( env->mini->runtime->accdb, env->fork_id, &cancel_fp,  1000000000UL, 0UL, NULL, &system );
+    create_test_account( env->mini->runtime->accdb, env->fork_id, &cancel_acc, 1000000UL,    0UL, NULL, &system );
+
+    env->bank->new_votes_fork_id = fd_new_votes_new_fork( fd_bank_new_votes( env->bank ) );
+    fd_new_votes_t * nv   = fd_bank_new_votes( env->bank );
+    ushort           fidx = env->bank->new_votes_fork_id;
+    fd_new_votes_insert( nv, fidx, &cancel_acc );
+    fd_new_votes_apply_delta( nv, fidx );
+
+    fd_txn_p_t cp = {0};
+    fd_pubkey_t ckeys[2] = { cancel_fp, cancel_acc };
+    sz = txn_serialize( cp.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, ckeys, &dummy_hash );
+    cp.payload_sz = (ushort)sz;
+    FD_TEST( fd_txn_parse( cp.payload, sz, TXN( &cp ), NULL ) );
+    env->txn_in.txn                 = &cp;
+    env->txn_in.bundle.is_bundle    = 1;
+    env->txn_in.bundle.prev_txn_cnt = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+    FD_TEST( env->txn_out[0].err.is_committable );
+    env->txn_out[0].accounts.rm_vote[1] = 1;
+
+    /* Cancel instead of commit: no vote op should be applied. */
+    env->txn_out[0].err.is_committable = 0;
+    fd_runtime_cancel_txn( env->runtime, &env->txn_out[0] );
+
+    fd_new_votes_apply_delta( nv, fidx );
+    uchar __attribute__((aligned(FD_NEW_VOTES_ITER_ALIGN))) it_mem[ FD_NEW_VOTES_ITER_FOOTPRINT ];
+    fd_new_votes_iter_t * it = fd_new_votes_iter_init( nv, NULL, 0UL, it_mem );
+    FD_TEST( !fd_new_votes_iter_done( it ) ); /* cancel_acc still present */
+    int ts = 1;
+    FD_TEST( fd_pubkey_eq( fd_new_votes_iter_ele( it, &ts ), &cancel_acc ) && !ts );
+    fd_new_votes_iter_fini( it );
+
+    fd_new_votes_evict_fork( nv, fidx );
+    env->bank->new_votes_fork_id = USHORT_MAX;
+  }
+
+  FD_LOG_NOTICE(( "test bundle cancelled vote op not applied... ok" ));
 }
 
 int

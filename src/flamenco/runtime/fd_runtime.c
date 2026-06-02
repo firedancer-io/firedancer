@@ -1004,30 +1004,42 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
          payer account. */
       if( FD_UNLIKELY( !txn_out->accounts.is_writable[ i ] ) ) continue;
 
-      /* Only the txn that owns the accdb reference commits the account.
-         In a bundle, accounts reused from an earlier txn (account_acquired
-         == 0) are committed once by their owner against the true on-chain
-         pre-image, so the incremental lthash stays correct and the
-         account is not double-counted. */
+      fd_pubkey_t const * pubkey = &txn_out->accounts.keys[ i ];
+
+      /* new_vote/rm_vote feed an ordered op-log (fd_new_votes), not a
+         net-state cache, so they must fire per writable txn before the
+         account_acquired gate below.  In a bundle the accdb ref is
+         owned by a single (last writable) txn, but every writable txn
+         that created/closed a vote account must contribute its op in
+         order so create->delete->recreate replays identically to a
+         per-txn commit.  These flags are left on the txn that set them
+         (not carried), so each fires exactly where the vote program
+         recorded it. */
+      if( FD_UNLIKELY( txn_out->accounts.new_vote[ i ] &&
+                       !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
+        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+        fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
+      }
+      if( FD_UNLIKELY( txn_out->accounts.rm_vote[i] &&
+                       !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
+        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
+        fd_new_votes_remove( new_votes, bank->new_votes_fork_id, pubkey );
+      }
+
+      /* Only the txn that owns the accdb reference commits the account
+         state.  In a bundle, an account is owned by its last writable
+         user (account_acquired==1); every other txn referencing it has
+         account_acquired==0 and skips here, so the final shared state is
+         lthashed exactly once and not double-counted.  stake_update/
+         vote_update are recomputed from the final state and were moved
+         onto this owner, so they also fire here exactly once. */
       if( FD_UNLIKELY( !txn_out->accounts.account_acquired[ i ] ) ) continue;
 
-      fd_pubkey_t const * pubkey  = &txn_out->accounts.keys[ i ];
-      fd_acc_t *  account = txn_out->accounts.account[ i ];
-
+      fd_acc_t * account = txn_out->accounts.account[ i ];
       account->commit = 1;
 
       if( FD_UNLIKELY( txn_out->accounts.stake_update[ i ] ) ) {
         fd_stakes_update_stake_delegation( pubkey, account, bank );
-      }
-
-      if( FD_UNLIKELY( txn_out->accounts.new_vote[ i ] && !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) ) {
-        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-        fd_new_votes_insert( new_votes, bank->new_votes_fork_id, pubkey );
-      }
-      if( txn_out->accounts.rm_vote[i] &&
-          !FD_FEATURE_ACTIVE_BANK( bank, validator_admission_ticket ) ) {
-        fd_new_votes_t * new_votes = fd_bank_new_votes( bank );
-        fd_new_votes_remove( new_votes, bank->new_votes_fork_id, pubkey );
       }
 
       if( txn_out->accounts.vote_update[i] ) {

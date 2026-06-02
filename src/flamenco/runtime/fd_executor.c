@@ -1156,20 +1156,34 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
         txn_out->accounts.starting_data_len[ i ] = reuse->data_len;
         txn_out->accounts.account[ i ]           = reuse;
 
-        /* Only the txn that owns the accdb reference lthashes the (final,
-           shared) account state at commit, and only if its is_writable
-           slot is set.  If this reuser writes the account but the owner
-           acquired it read-only, propagate writability back to the owner
-           so the modification is committed to the lthash exactly once.
-           Otherwise a write here would never be hashed -> bank hash
-           mismatch. */
+        /* A deduplicated bundle account is owned by exactly one txn
+           (account_acquired==1): the only txn that lthashes the final
+           shared state and releases the accdb ref.  When this reuser is
+           writable, transfer ownership to it so the LAST writable user
+           commits the final state.
+
+           stake_update/vote_update are recomputed from the final account
+           state, so they only need to fire once -- MOVE them onto the
+           new owner (mirroring origin/main's carry-forward), clearing the
+           previous holder.
+
+           new_vote/rm_vote are NOT net-state flags: each fd_new_votes
+           insert/remove appends to an ordered op-log that apply_delta
+           replays in sequence.  Collapsing them onto one owner loses the
+           intermediate ops (e.g. create->delete->recreate within a
+           bundle).  So we do NOT move them here; instead the commit loop
+           fires them per writable txn (gated on is_writable alone),
+           exactly like main, preserving the op order. */
         if( txn_out->accounts.is_writable[ i ] ) {
           for( ulong p=txn_in->bundle.prev_txn_cnt; p>0UL; p-- ) {
-            fd_txn_out_t * owner = txn_in->bundle.prev_txn_outs[ p-1UL ];
+            fd_txn_out_t * holder = txn_in->bundle.prev_txn_outs[ p-1UL ];
             int found = 0;
-            for( ushort k=0; k<owner->accounts.cnt; k++ ) {
-              if( owner->accounts.account[ k ]!=reuse || !owner->accounts.account_acquired[ k ] ) continue;
-              owner->accounts.is_writable[ k ] = 1U;
+            for( ushort k=0; k<holder->accounts.cnt; k++ ) {
+              if( holder->accounts.account[ k ]!=reuse || !holder->accounts.account_acquired[ k ] ) continue;
+              txn_out->accounts.stake_update[ i ] |= holder->accounts.stake_update[ k ]; holder->accounts.stake_update[ k ] = 0;
+              txn_out->accounts.vote_update [ i ] |= holder->accounts.vote_update [ k ]; holder->accounts.vote_update [ k ] = 0;
+              holder->accounts.account_acquired[ k ] = 0U;
+              txn_out->accounts.account_acquired[ i ] = 1U;
               found = 1;
               break;
             }
