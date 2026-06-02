@@ -1132,65 +1132,46 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
        bundle.  All such accounts live (deduplicated) in fd_runtime_t so
        we can reuse the existing account instead of re-acquiring it. */
     if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
-      for( ulong j=0UL; j<runtime->accounts.account_cnt; j++ ) {
-        if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &runtime->accounts.account[ j ].pubkey ), key ) ) ) continue;
-        fd_acc_t * reuse = &runtime->accounts.account[ j ];
+      /* Scan prior bundle txns most-recent-first for the account's
+         current accdb-ref owner.  The deduplicated account is owned by
+         exactly one prior txn (account_acquired==1) -- the last writable
+         user -- so the first such match is both the owner and the
+         fd_acc_t* to reuse.  A single backward scan finds both. */
+      for( ulong p=txn_in->bundle.prev_txn_cnt; p>0UL && !txn_out->accounts.account[ i ]; p-- ) {
+        fd_txn_out_t * holder = txn_in->bundle.prev_txn_outs[ p-1UL ];
+        for( ushort k=0; k<holder->accounts.cnt; k++ ) {
+          if( !holder->accounts.account_acquired[ k ] ) continue;
+          if( !fd_pubkey_eq( &holder->accounts.keys[ k ], key ) ) continue;
+          fd_acc_t * reuse = holder->accounts.account[ k ];
 
-        /* If the prior bundle txn drained the account to zero lamports,
-           the next txn must observe the reclaimed account, matching the
-           tombstone reset the accdb applies on a fresh acquire: empty
-           data, non-executable, system (zero) owner.
-           https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
-        if( FD_UNLIKELY( !reuse->lamports ) ) {
-          reuse->data_len   = 0UL;
-          reuse->executable = 0;
-          memset( reuse->owner, 0, 32UL );
-        }
-
-        /* This txn's starting balance is the carried-forward state from
-           the prior bundle txn.  We do NOT touch reuse->prior_* (those
-           stay anchored to the on-chain pre-image so the commit lthash
-           stays correct); the per-txn balance check uses
-           starting_lamports[] instead. */
-        txn_out->accounts.starting_lamports[ i ] = reuse->lamports;
-        txn_out->accounts.starting_data_len[ i ] = reuse->data_len;
-        txn_out->accounts.account[ i ]           = reuse;
-
-        /* A deduplicated bundle account is owned by exactly one txn
-           (account_acquired==1): the only txn that lthashes the final
-           shared state and releases the accdb ref.  When this reuser is
-           writable, transfer ownership to it so the LAST writable user
-           commits the final state.
-
-           stake_update/vote_update are recomputed from the final account
-           state, so they only need to fire once -- MOVE them onto the
-           new owner (mirroring origin/main's carry-forward), clearing the
-           previous holder.
-
-           new_vote/rm_vote are NOT net-state flags: each fd_new_votes
-           insert/remove appends to an ordered op-log that apply_delta
-           replays in sequence.  Collapsing them onto one owner loses the
-           intermediate ops (e.g. create->delete->recreate within a
-           bundle).  So we do NOT move them here; instead the commit loop
-           fires them per writable txn (gated on is_writable alone),
-           exactly like main, preserving the op order. */
-        if( txn_out->accounts.is_writable[ i ] ) {
-          for( ulong p=txn_in->bundle.prev_txn_cnt; p>0UL; p-- ) {
-            fd_txn_out_t * holder = txn_in->bundle.prev_txn_outs[ p-1UL ];
-            int found = 0;
-            for( ushort k=0; k<holder->accounts.cnt; k++ ) {
-              if( holder->accounts.account[ k ]!=reuse || !holder->accounts.account_acquired[ k ] ) continue;
-              txn_out->accounts.stake_update[ i ] |= holder->accounts.stake_update[ k ]; holder->accounts.stake_update[ k ] = 0;
-              txn_out->accounts.vote_update [ i ] |= holder->accounts.vote_update [ k ]; holder->accounts.vote_update [ k ] = 0;
-              holder->accounts.account_acquired[ k ] = 0U;
-              txn_out->accounts.account_acquired[ i ] = 1U;
-              found = 1;
-              break;
-            }
-            if( found ) break;
+          /* If the prior bundle txn drained the account to zero lamports,
+             the next txn must observe the reclaimed account, matching the
+             tombstone reset the accdb applies on a fresh acquire: empty
+             data, non-executable, system (zero) owner.
+             https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
+          if( FD_UNLIKELY( !reuse->lamports ) ) {
+            reuse->data_len   = 0UL;
+            reuse->executable = 0;
+            memset( reuse->owner, 0, 32UL );
           }
+
+          /* This txn's starting balance is the carried-forward state from
+             the prior bundle txn. */
+          txn_out->accounts.starting_lamports[ i ] = reuse->lamports;
+          txn_out->accounts.starting_data_len[ i ] = reuse->data_len;
+          txn_out->accounts.account[ i ]           = reuse;
+
+          /* If this txn writes the account, transfer ownership of the
+             accdb ref to it and carry forward the vote and stake
+             cache update flags. */
+          if( txn_out->accounts.is_writable[ i ] ) {
+            txn_out->accounts.stake_update[ i ] |= holder->accounts.stake_update[ k ]; holder->accounts.stake_update[ k ] = 0;
+            txn_out->accounts.vote_update [ i ] |= holder->accounts.vote_update [ k ]; holder->accounts.vote_update [ k ] = 0;
+            holder->accounts.account_acquired[ k ] = 0U;
+            txn_out->accounts.account_acquired[ i ] = 1U;
+          }
+          break;
         }
-        break;
       }
     }
     if( FD_UNLIKELY( txn_out->accounts.account[ i ] ) ) continue;

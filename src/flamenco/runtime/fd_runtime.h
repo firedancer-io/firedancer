@@ -275,9 +275,7 @@ struct fd_txn_out {
     uchar       is_writable[ MAX_TX_ACCOUNT_LOCKS ];
     uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];
     ulong       starting_lamports[ MAX_TX_ACCOUNT_LOCKS ];
-
     ulong       starting_data_len[ MAX_TX_ACCOUNT_LOCKS ];
-
 
     ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
     fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
