@@ -907,6 +907,67 @@ test_npow2_init( fd_wksp_t * wksp ) {
   }
 }
 
+/* test_vtr_release_on_publish exercises the vtr lifecycle fix: vtrs are
+   acquired from the vtr_pool on first vote, parked on the dlist of the
+   block they voted for, and released back to the pool when that block
+   is pruned by fd_ghost_publish.
+
+         0
+         |
+         1
+        / \
+       2   3
+       |   |
+       4   5
+           |
+           6
+
+   Publishing 3 prunes {0,1,2,4}; survivors {3,5,6}. */
+
+void
+test_vtr_release_on_publish( fd_wksp_t * wksp ) {
+  fd_ghost_t * ghost = setup_ghost( wksp, 8, 8 );
+  fd_hash_t    block_ids[7]; setup_block_ids( block_ids, 7 );
+
+  vtr_pool_t * vp   = vtr_pool( ghost );
+  ulong        vmax = vtr_pool_max( vp );
+  FD_TEST( vtr_pool_free( vp )==vmax ); /* no voters tracked yet */
+
+  fd_pubkey_t a = { .ul = { 0xa } };
+  fd_pubkey_t b = { .ul = { 0xb } };
+  fd_pubkey_t c = { .ul = { 0xc } };
+
+  /* a -> slot 4 (left fork), b -> slot 2 (left fork), c -> slot 3 (right fork). */
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[4] ), &a, 10, 4 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[2] ), &b, 10, 2 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[3] ), &c, 10, 3 );
+  FD_TEST( vtr_pool_free( vp )==vmax-3 ); /* three vtrs acquired */
+
+  /* Publish slot 3.  a and b lived on the pruned left fork, so their
+     vtrs must be released; c is on a surviving block, so it stays. */
+  fd_ghost_publish( ghost, fd_ghost_query( ghost, &block_ids[3] ) );
+
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[2] ) );
+  FD_TEST( !fd_ghost_query( ghost, &block_ids[4] ) );
+  FD_TEST(  fd_ghost_query( ghost, &block_ids[3] ) );
+  FD_TEST( vtr_pool_free( vp )==vmax-1 );                                /* a and b reclaimed, c kept */
+  FD_TEST(  vtr_map_ele_query( vtr_map( ghost ), &c, NULL, vp ) );       /* c still tracked */
+  FD_TEST( !vtr_map_ele_query( vtr_map( ghost ), &a, NULL, vp ) );       /* a released */
+  FD_TEST( !vtr_map_ele_query( vtr_map( ghost ), &b, NULL, vp ) );       /* b released */
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  /* Freed slots are reusable: a brand-new voter and a previously-released
+     voter both (re)acquire fresh vtrs on the surviving fork. */
+  fd_pubkey_t d = { .ul = { 0xd } };
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[6] ), &d, 10, 6 );
+  FD_TEST( vtr_pool_free( vp )==vmax-2 );
+  fd_ghost_count_vote( ghost, fd_ghost_query( ghost, &block_ids[5] ), &a, 10, 5 );
+  FD_TEST( vtr_pool_free( vp )==vmax-3 );
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  teardown_ghost( ghost );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -923,6 +984,7 @@ main( int argc, char ** argv ) {
   test_publish_right( wksp );
   test_best( wksp );
   test_ignore_out_of_order_vote( wksp );
+  test_vtr_release_on_publish( wksp );
   test_npow2_init( wksp );
   // test_vote_leaves( wksp );
   // test_best_full_tree( wksp );

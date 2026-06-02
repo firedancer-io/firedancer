@@ -105,14 +105,29 @@ struct __attribute__((aligned(128UL))) fd_ghost_blk {
   ulong     stake;       /* sum of stake that has voted for this slot or any of its descendants */
   ulong     total_stake; /* total stake for this blk */
   int       valid;       /* whether this block is valid for fork choice. an equivocating block is valid iff duplicate confirmed */
+  ulong     vtr_dlist_gaddr; /* wksp gaddr of the dlist of vtrs whose prev_block_id is this blk's id */
 };
 typedef struct fd_ghost_blk fd_ghost_blk_t;
 
-/* fd_ghost_vtr_t keeps track of what a voter's previously voted for. */
+/* fd_ghost_vtr_t keeps track of what a voter previously voted for.  A
+   vtr lives on exactly one ghost blk's vtr_dlist at any time, identified
+   by prev_block_id.  When the voter switches forks, the vtr is moved
+   off the old blk's dlist onto the new blk's dlist.  When a blk is
+   pruned by fd_ghost_publish, every vtr on its dlist is released back
+   to the vtr_pool; if those voters vote again on a non-pruned blk, a
+   fresh vtr is acquired. */
 
 struct __attribute__((aligned(128UL))) fd_ghost_vtr {
   fd_pubkey_t addr;          /* map key, vote account address */
-  ulong       next;          /* reserved for internal use by fd_pool and fd_map_chain */
+  ulong       next;          /* reserved for internal use by fd_pool */
+  struct {
+    ulong prev;
+    ulong next;
+  } map;                     /* reserved for internal use by vtr_map_chain */
+  struct {
+    ulong prev;
+    ulong next;
+  } dlist;                   /* reserved for internal use by vtr_dlist */
   ulong       prev_stake;    /* previous vote stake (vote can be from prior epoch) */
   ulong       prev_slot;     /* previous vote slot */
   fd_hash_t   prev_block_id; /* previous vote block_id  */

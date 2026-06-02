@@ -199,15 +199,17 @@ fd_votes_query( fd_votes_t *      votes,
 #define FD_VOTES_ERR_UNKNOWN_VTR   (-2) /* voter not in vtr_map */
 #define FD_VOTES_ERR_ALREADY_VOTED (-3) /* voter already voted for this slot */
 
-/* fd_votes_count_vote counts vote_acc's stake towards the voted
-   (slot, block_id).  Assumes the votes root has already been
-   initialized via fd_votes_publish.  Returns FD_VOTES_SUCCESS on
-   success, or a negative FD_VOTES_ERR_* code if the vote was not
-   counted. */
+/* fd_votes_count_vote counts stake towards the voted (slot, block_id)
+   for vote_acc.  The caller passes stake explicitly because it depends
+   on the vote's epoch, which votes does not track.  Assumes the votes
+   root has already been initialized via fd_votes_publish.  Returns
+   FD_VOTES_SUCCESS on success, or a negative FD_VOTES_ERR_* code if
+   the vote was not counted. */
 
 int
 fd_votes_count_vote( fd_votes_t *        votes,
                      fd_pubkey_t const * vote_acc,
+                     ulong               stake,
                      ulong               slot,
                      fd_hash_t const *   block_id );
 
@@ -217,14 +219,12 @@ fd_votes_count_vote( fd_votes_t *        votes,
    voters are added and assigned bit positions in the per-slot vtrs
    bitset.  Existing voters keep their old bit positions.  All existing
    slot vtrs are intersected with the kept set to clear removed voters'
-   bits.  vote_accs and stakes are parallel arrays of length cnt, where
-   vote_accs[i] is the vote account address and stakes[i] is the stake
-   for that voter. */
+   bits.  vote_accs is an array of length cnt, where vote_accs[i] is the
+   vote account address. */
 
 void
 fd_votes_update_voters( fd_votes_t *        votes,
                         fd_pubkey_t const * vote_accs,
-                        ulong const *       stakes,
                         ulong               cnt );
 
 /* fd_votes_publish publishes root as the new votes root slot, removing

@@ -1,7 +1,17 @@
-#define fd_eqvoc_proof_verified       mock_eqvoc_query_fn
-#define QUERY_VOTE_ACCS      mock_query_vote_accs
+#define QUERY_VOTE_ACCS               mock_query_vote_accs
+#define UPDATE_EPOCH_VTRS             mock_update_epoch_vtrs
 
 #include "fd_tower_tile.c"
+
+/* Stub the bank-dependent epoch_vtr_t population for tests that don't
+   set up ctx->banks / ctx->accdb. */
+
+void
+mock_update_epoch_vtrs( fd_tower_tile_t *            ctx,
+                        fd_replay_slot_completed_t * slot_completed FD_PARAM_UNUSED,
+                        ulong                        epoch ) {
+  ctx->root_epoch = epoch;
+}
 
 #include <stdio.h>
 #include <string.h>
@@ -52,13 +62,29 @@ test_count_vote_txn( void ) {
 
   static uchar tower_mem2[ 65536 ] __attribute__((aligned(128)));
   static uchar scratch_tower_mem[ FD_TOWER_VOTE_FOOTPRINT ] __attribute__((aligned(FD_TOWER_VOTE_ALIGN)));
+  static uchar root_vtr_pool_mem[ 65536 ] __attribute__((aligned(128)));
+  static uchar root_vtr_map_mem [ 65536 ] __attribute__((aligned(128)));
+  static uchar next_vtr_pool_mem[ 65536 ] __attribute__((aligned(128)));
+  static uchar next_vtr_map_mem [ 65536 ] __attribute__((aligned(128)));
   static fd_tower_tile_t ctx[1];
   memset( ctx, 0, sizeof(*ctx) );
   ctx->tower         = fd_tower_join( fd_tower_new( tower_mem2, 2, 2, 0 ) );
   ctx->scratch_tower = fd_tower_vote_join( fd_tower_vote_new( scratch_tower_mem ) );
   ctx->tower->root   = 0; /* mark as ready */
+
+  ulong vtr_chain_cnt = epoch_vtr_map_chain_cnt_est( 4UL );
+  ctx->root_epoch_vtr_pool = epoch_vtr_pool_join( epoch_vtr_pool_new( root_vtr_pool_mem, 4UL ) );
+  ctx->root_epoch_vtr_map  = epoch_vtr_map_join ( epoch_vtr_map_new ( root_vtr_map_mem,  vtr_chain_cnt, 0UL ) );
+  ctx->next_epoch_vtr_pool = epoch_vtr_pool_join( epoch_vtr_pool_new( next_vtr_pool_mem, 4UL ) );
+  ctx->next_epoch_vtr_map  = epoch_vtr_map_join ( epoch_vtr_map_new ( next_vtr_map_mem,  vtr_chain_cnt, 0UL ) );
+
   FD_TEST( ctx->tower );
   FD_TEST( ctx->scratch_tower );
+  FD_TEST( ctx->root_epoch_vtr_pool && ctx->root_epoch_vtr_map );
+  FD_TEST( ctx->next_epoch_vtr_pool && ctx->next_epoch_vtr_map );
+
+  ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
+  FD_TEST( ctx->mleaders );
 
   fd_txn_p_t        txnp[1];
   uchar             txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
@@ -161,10 +187,43 @@ test_count_vote_txn( void ) {
     FD_TEST( ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_BAD_TOWER_IDX ]==0 );
   }
 
+  /* 9. Vote epoch > root_epoch+1 — too far ahead.  Tower validation
+        passes, block_id is non-null, last_vote_slot > tower root,
+        lsched returns epoch=2 against root_epoch=0 → votes_too_new. */
+
+  {
+    ulong slots[] = { 10 };
+    ulong confs[] = { 1 };
+    txn = mock_vote_txn( 0, 1, slots, confs, &block_id_nonnull, txnp, txn_mem );
+    memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+    ctx->root_epoch                    = 0;
+    ctx->mleaders->lsched[0]->epoch    = 2;
+    ctx->mleaders->lsched[0]->slot0    = 0;
+    ctx->mleaders->lsched[0]->slot_cnt = 100;
+    ctx->mleaders->init_done[0]        = 1;
+    count_vote_txn( ctx, txn, txnp->payload );
+    FD_TEST( ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_NOT_STAKED_IDX ]==1 );
+  }
+
+  /* 10. Vote epoch == root_epoch+1 — valid case, takes the
+         next_epoch_vtr_map branch.  The map is empty so the per-vtr
+         lookup returns NULL → NOT_STAKED (not rejected as too new). */
+
+  {
+    ulong slots[] = { 10 };
+    ulong confs[] = { 1 };
+    txn = mock_vote_txn( 0, 1, slots, confs, &block_id_nonnull, txnp, txn_mem );
+    memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+    ctx->root_epoch                 = 0;
+    ctx->mleaders->lsched[0]->epoch = 1;
+    count_vote_txn( ctx, txn, txnp->payload );
+    FD_TEST( ctx->metrics.votes[ FD_METRICS_ENUM_VOTE_TXN_RESULT_V_NOT_STAKED_IDX ]==1 );
+  }
+
   FD_LOG_NOTICE(( "pass: test_count_vote_txn_tower_checks" ));
 }
 
-/* ---- test_replay_slot_completed ---- */
+/* ---- test_fixture_replay ---- */
 
 #define MOCK_SLOT_MAX (64UL)
 
@@ -291,8 +350,7 @@ test_fixture_replay( fd_wksp_t * wksp ) {
 
   /* Verify: ghost root exists. */
 
-  fd_ghost_blk_t * ghost_root = fd_ghost_root( ctx->ghost );
-  FD_TEST( ghost_root );
+  FD_TEST( fd_ghost_root( ctx->ghost ) );
 
   /* Verify: tower has blocks for all replayed slots. */
 
@@ -323,38 +381,29 @@ test_fixture_replay( fd_wksp_t * wksp ) {
      E = equivocation detected (publish_slot_duplicate)
      C = CONFIRMED_DUPLICATE reached (publish_slot_confirmed)
 
-   There are 3! = 6 orderings of {R, E, C} and 2 sub-cases for C
-   (C=A: confirmed block matches replayed, C=B: differs), giving 12
-   total cases.  Six are reducible:
+   3! = 6 orderings × 2 sub-cases for C (C=A: confirmed block matches
+   replayed; C=B: differs) = 12 total cases.  Six reduce, leaving 6
+   minimal that we test below:
 
-     same (C=A):
-       ECR ≡ ERC: E before R makes ghost invalid on replay.  C=A then
-                  re-validates.  C and R commute after E, same end state.
-       ERC ≡ REC: whether E arrives before or after R, the ghost block
-                  is invalidated either way.  C=A then re-validates.
-                  Same end state, so ERC is covered by REC.
-       → 3 minimal: RCE, REC, CRE
+           C = A (confirmed = replayed)        C = B (confirmed ≠ replayed)
+        +-------+--------+----------------+ +-------+--------+----------------+
+        | Order | Status | Reduces to     | | Order | Status | Reduces to     |
+        +-------+--------+----------------+ +-------+--------+----------------+
+        | RCE   | tested |                | | RCE   | tested |                |
+        | REC   | tested |                | | ERC   | tested |                |
+        | CRE   | tested |                | | CRE   | tested |                |
+        | ERC   |        | REC            | | REC   |        | RCE            |
+        | ECR   |        | ERC → REC      | | ECR   |        | CRE            |
+        | CER   |        | CRE            | | CER   |        | CRE            |
+        +-------+--------+----------------+ +-------+--------+----------------+
 
-     diff (C=B):
-       RCE ≡ REC: after R, ghost A is valid.  C=B sets tower confirmed
-                  and invalidates A.  E is then a no-op (already
-                  confirmed).  Swapping C and E doesn't change the end
-                  state because C=B always invalidates A.
-       ECR ≡ CRE: C before R is a forward confirmation.  E before R
-                  makes ghost invalid on replay.  Whether E or C comes
-                  first doesn't matter — R reconciles both.
-       CER ≡ CRE: C then E before R — same as CRE, E is redundant
-                  once C has forward-confirmed.
-       → 3 minimal: RCE, ERC, CRE
-
-   We test the 6 minimal orderings below. */
-
-static ulong mock_eqvoc_slot = ULONG_MAX;
-
-int
-mock_eqvoc_query_fn( fd_eqvoc_t * eqvoc FD_PARAM_UNUSED, ulong slot ) {
-  return slot==mock_eqvoc_slot;
-}
+   Why the reductions hold:
+     C=A:  ECR ≡ ERC: C and R commute after E.
+           ERC ≡ REC: ghost A invalid either way; C=A re-validates.
+           CER ≡ CRE: E is a no-op once C has forward-confirmed A.
+     C=B:  REC ≡ RCE: C=B invalidates A; swapping C/E preserves end state.
+           ECR ≡ CRE: R reconciles both — E/C order before R doesn't matter.
+           CER ≡ CRE: E redundant once C has forward-confirmed B. */
 
 #define EQVOC_START_SLOT  398915634UL
 #define EQVOC_BOOT_CNT   10UL
@@ -393,7 +442,6 @@ eqvoc_setup( fd_wksp_t * wksp ) {
     replay_slot_completed( ctx, &sc, 0UL, NULL );
   }
   FD_TEST( ctx->init==1 );
-  mock_eqvoc_slot = ULONG_MAX;
   return ctx;
 }
 
@@ -423,7 +471,7 @@ mock_confirmed( fd_tower_tile_t * ctx,
      already exist, then set stake high enough for DUPLICATE (>52%). */
 
   if( !fd_votes_query( ctx->votes, slot, block_id ) ) {
-    int err = fd_votes_count_vote( ctx->votes, &ctx->vote_accs[0], slot, block_id );
+    int err = fd_votes_count_vote( ctx->votes, &ctx->vote_accs[0], 1UL, slot, block_id );
     FD_TEST( err==FD_VOTES_SUCCESS );
   }
   fd_votes_blk_t * vblk = fd_votes_query( ctx->votes, slot, block_id );
@@ -476,7 +524,7 @@ test_eqvoc_rec_same( fd_wksp_t * wksp ) {
 
   mock_confirmed( ctx, slot, &A );
 
-  /* Bug 1 fix: fd_ghost_confirm re-validates A. */
+  /* fd_ghost_confirm re-validates A. */
 
   fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
   FD_TEST( tb && tb->confirmed==1 );
@@ -543,13 +591,28 @@ test_eqvoc_erc_diff( fd_wksp_t * wksp ) {
   fd_hash_t         A    = { .ul = { slot } };
   fd_hash_t         B    = { .ul = { slot, 0xBB } };
 
-  /* E before R: mock fd_eqvoc_proof_verified to return true for this slot. */
+  /* E before R: insert two conflicting shreds into eqvoc so that
+     fd_eqvoc_proof_verified returns true when replay checks it. */
 
-  mock_eqvoc_slot = slot;
+  {
+    static uchar s1[FD_SHRED_MAX_SZ], s2[FD_SHRED_MAX_SZ];
+    memset( s1, 0, sizeof(s1) );
+    memset( s2, 0, sizeof(s2) );
+    fd_shred_t * shred1 = (fd_shred_t *)s1;
+    fd_shred_t * shred2 = (fd_shred_t *)s2;
+    shred1->variant     = FD_SHRED_TYPE_MERKLE_DATA;
+    shred1->slot        = slot;
+    shred1->fec_set_idx = 0;
+    shred2->variant     = FD_SHRED_TYPE_MERKLE_DATA;
+    shred2->slot        = slot;
+    shred2->fec_set_idx = 0;
+    fd_gossip_duplicate_shred_t proof_chunks[FD_EQVOC_CHUNK_CNT];
+    FD_TEST( fd_eqvoc_shred_insert( ctx->eqvoc, 0, shred1, proof_chunks )==0 );
+    FD_TEST( fd_eqvoc_shred_insert( ctx->eqvoc, 1, shred2, proof_chunks )==1 );
+    FD_TEST( fd_eqvoc_proof_verified( ctx->eqvoc, slot ) );
+  }
 
-  mock_replay    ( ctx, slot, &A );
-
-  mock_eqvoc_slot = ULONG_MAX;
+  mock_replay( ctx, slot, &A );
 
   /* Replay detected eqvoc → ghost A invalid. */
 
@@ -582,8 +645,8 @@ test_eqvoc_cre_diff( fd_wksp_t * wksp ) {
 
   mock_replay ( ctx, slot, &A );
 
-  /* Bug 2 fix: fd_votes_query(NULL) finds B's fwd entry, sets
-     tower confirmed and ghost_eqvoc(A). */
+  /* fd_votes_query(NULL) finds B's fwd entry, sets tower confirmed and
+     ghost_eqvoc(A). */
 
   fd_tower_blk_t * tb = fd_tower_blocks_query( ctx->tower, slot );
   FD_TEST( tb && tb->confirmed==1 );

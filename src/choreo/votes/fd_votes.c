@@ -9,8 +9,8 @@
    vtr_pool / vtr_map / vtr_dlist / vtr_set (capacity vtr_max):
 
    Each vtr corresponds to a vote account address and has a bit position
-   in the slot vtrs bitset and their stake.  vtr entries are explicitly
-   managed by fd_votes_update_voters when the epoch stake set changes.
+   in the slot vtrs bitset.  vtr entries are explicitly managed by
+   fd_votes_update_voters when the epoch stake set changes.
    dlist of all active voters, used for mark-sweep in
    fd_votes_update_voters.
 
@@ -26,14 +26,14 @@
             | (slot_t) {         |            | (vtr_t) {          |
             |   .slot = 100,     |            |   .vote_acc = X,   |
             |   .vtrs = ...,     |            |   .bit   = 0,      |
-            |   .blk_dlist = ... |            |   .stake = 10,     |
-            | }                  |            | }                  |
+            |   .blk_dlist = ... |            | }                  |
+            | }                  |            |                    |
      map[1] +--------------------+     map[1] +--------------------+
             | (slot_t) {         |            | (vtr_t) {          |
             |   .slot = 101,     |            |   .vote_acc = Y,   |
             |   .vtrs = ...,     |            |   .bit   = 1,      |
-            |   .blk_dlist = +   |            |   .stake = 51,     |
-            | }              |   |            | }                  |
+            |   .blk_dlist = +   |            | }                  |
+            | }              |   |            |                    |
             +----------------|---+            +--------------------+
                              |
                              V
@@ -87,7 +87,6 @@ struct vtr {
     ulong next;
   } dlist;
   ulong bit;
-  ulong stake;
 };
 typedef struct vtr vtr_t;
 
@@ -331,6 +330,7 @@ fd_votes_delete( void * votes ) {
 int
 fd_votes_count_vote( fd_votes_t *        votes,
                      fd_pubkey_t const * vote_acc,
+                     ulong               stake,
                      ulong               vote_slot,
                      fd_hash_t const *   vote_block_id ) {
 
@@ -368,7 +368,7 @@ fd_votes_count_vote( fd_votes_t *        votes,
     blk_dlist_ele_push_tail( slot->blks, blk, votes->blk_pool );
     slot->blk_cnt++;
   }
-  blk->stake += vtr->stake;
+  blk->stake += stake;
   return FD_VOTES_SUCCESS;
 }
 
@@ -421,7 +421,6 @@ fd_votes_publish( fd_votes_t * votes,
 void
 fd_votes_update_voters( fd_votes_t *        votes,
                         fd_pubkey_t const * vote_accs,
-                        ulong const *       stakes,
                         ulong               cnt ) {
 
   /* Mark all existing voters for removal. */
@@ -445,7 +444,6 @@ fd_votes_update_voters( fd_votes_t *        votes,
       vtr_dlist_ele_remove( votes->vtr_dlist, vtr, votes->vtr_pool );
       slot_vtrs_insert( votes->vtr_set, vtr->bit );
       vtr->next  = 0; /* unmark for removal */
-      vtr->stake = stakes[i];
       vtr_dlist_ele_push_tail( votes->vtr_dlist, vtr, votes->vtr_pool );
     }
   }
@@ -481,7 +479,6 @@ fd_votes_update_voters( fd_votes_t *        votes,
     if( FD_LIKELY( vtr_map_ele_query( votes->vtr_map, vote_acc, NULL, votes->vtr_pool ) ) ) continue;
     vtr_t * vtr   = vtr_pool_ele_acquire( votes->vtr_pool );
     vtr->vote_acc = *vote_acc;
-    vtr->stake    = stakes[i];
     vtr->next     = 0;
     while( slot_vtrs_test( votes->vtr_set, free_bit ) ) free_bit++;
     vtr->bit = free_bit;
