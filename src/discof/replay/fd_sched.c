@@ -126,8 +126,12 @@ struct fd_sched_block {
   ulong tick_hashcnt_wmk;      /* All ticks in a valid block must accumulate the same number of
                                   hashes since the previous tick, or since block start, and this hash
                                   count must match hashes_per_tick for the block. */
-  ulong batch_end_hashcnt_wmk; /* Another constraint on the accumulated tick hash count.  In a valid
-                                  block, every batch must end strictly less than hashes_per_tick. */
+  ulong batch_end_hashcnt_wmk; /* A non-deterministic constraint on the accumulated tick hash count.
+                                  In a valid block, every run of flattened batches must end strictly
+                                  less than hashes_per_tick.  We don't enforce this as it's inherently
+                                  non-deterministic.  We accept blocks that don't end strictly less,
+                                  and simply log when it happens.  Exceeding hashes_per_tick is
+                                  obviously still bad. */
   ulong curr_tick_hashcnt; /* Starts at 0, accumulates hashcnt, resets to 0 on the next tick. */
   ulong tick_height;       /* Block is built off of a parent block with this many ticks. */
   ulong max_tick_height;   /* Block should end with precisely this many ticks. */
@@ -145,6 +149,7 @@ struct fd_sched_block {
                                        ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be receiving a new
                                        batch. */
+  uint                last_batch_empty:1; /* Another non-deterministic constraint that we detect but allow. */
 
   /* Block state. */
   uint                fec_eos:1;                          /* FEC end-of-stream: set if the last FEC set in the block has been
@@ -525,12 +530,28 @@ FD_FN_UNUSED static void
 print_block_metrics( fd_sched_t * sched, fd_sched_block_t * block ) {
   fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, fec_eos %d, rooted %d, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
                    block_to_idx( sched, block ), block->slot, block->parent_slot, block->fec_eos, block->rooted, block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  if( FD_UNLIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL && block->batch_end_hashcnt_wmk>=block->hashes_per_tick ) ) {
+    /* >1 to ignore low power hashing or hashing disabled */
+    fd_sched_printf( sched, "batch_end_hashcnt violation: yes, batch_end_hashcnt_wmk %lu >= hashes_per_tick %lu (potentially InvalidTickHashCount in Agave)\n", block->batch_end_hashcnt_wmk, block->hashes_per_tick );
+  }
+  if( FD_UNLIKELY( block->fec_eos && block->last_mblk_is_tick && block->max_tick_height!=ULONG_MAX && block->mblk_tick_cnt+block->tick_height==block->max_tick_height && block->last_batch_empty ) ) {
+    /* The block was fully received and has exactly the expected number
+       of ticks and ends in a tick, so its last microblock is the final
+       tick.  Yet its final microblock batch declared zero microblocks.
+       So the batch containing the final tick is not itself the final
+       batch: one or more empty batches trail the final tick.  Agave
+       would non-deterministically reject this as InvalidLastTick
+       depending on shred arrival timing.  This logs the shenanigan for
+       every fully received block that exhibits the pattern, whether or
+       not it ended up on the canonical fork. */
+    fd_sched_printf( sched, "last_batch_empty violation: yes, final tick not in last batch (potentially InvalidLastTick in Agave)\n" );
+  }
 }
 
 FD_FN_UNUSED static void
 print_block_debug( fd_sched_t * sched, fd_sched_block_t * block ) {
-  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, batch_end_hashcnt_wmk %lu, curr_tick_hashcnt %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
-                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->batch_end_hashcnt_wmk, block->curr_tick_hashcnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
+  fd_sched_printf( sched, "block idx %lu, block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, poh_hashing_in_flight_cnt %u, poh_hashing_done_cnt %u, poh_hash_cmp_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblk_cnt %u, mblk_freed_cnt %u, mblk_tick_cnt %u, mblk_unhashed_cnt %u, hashcnt %lu, txn_pool_max_popcnt %lu/%lu, mblk_pool_max_popcnt %lu/%lu, block_pool_max_popcnt %lu/%lu, tick_hashcnt_wmk %lu, batch_end_hashcnt_wmk %lu, curr_tick_hashcnt %lu, hashes_per_tick %lu, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d\n",
+                   block_to_idx( sched, block ), block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->poh_hashing_in_flight_cnt, block->poh_hashing_done_cnt, block->poh_hash_cmp_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblk_cnt, block->mblk_freed_cnt, block->mblk_tick_cnt, block->mblk_unhashed_cnt, block->hashcnt, block->txn_pool_max_popcnt, sched->depth, block->mblk_pool_max_popcnt, sched->depth, block->block_pool_max_popcnt, sched->block_cnt_max, block->tick_hashcnt_wmk, block->batch_end_hashcnt_wmk, block->curr_tick_hashcnt, block->hashes_per_tick, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob );
 }
 
 FD_FN_UNUSED static void
@@ -1847,13 +1868,14 @@ add_block( fd_sched_t * sched,
   block->hashes_per_tick              = ULONG_MAX;
   block->inconsistent_hashes_per_tick = 0;
 
-  block->mblks_rem    = 0UL;
-  block->txns_rem     = 0UL;
-  block->fec_buf_sz   = 0U;
-  block->fec_buf_boff = 0U;
-  block->fec_buf_soff = 0U;
-  block->fec_eob      = 0;
-  block->fec_sob      = 1;
+  block->mblks_rem        = 0UL;
+  block->txns_rem         = 0UL;
+  block->fec_buf_sz       = 0U;
+  block->fec_buf_boff     = 0U;
+  block->fec_buf_soff     = 0U;
+  block->fec_eob          = 0;
+  block->fec_sob          = 1;
+  block->last_batch_empty = 0;
 
   block->fec_eos              = 0;
   block->rooted               = 0;
@@ -1938,10 +1960,6 @@ verify_ticks_eager( fd_sched_block_t * block ) {
        bound on the hashcnt of individual microblocks, thus mitigating
        the DoS vector. */
     FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, observed cumulative tick_hashcnt %lu, expected %lu", block->slot, block->parent_slot, block->curr_tick_hashcnt, block->hashes_per_tick ));
-    return -1;
-  }
-  if( FD_UNLIKELY( block->hashes_per_tick>1UL && block->batch_end_hashcnt_wmk>=block->hashes_per_tick ) ) {
-    FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, slot %lu, parent slot %lu, batch_end_hashcnt_wmk %lu >= hashes_per_tick %lu", block->slot, block->parent_slot, block->batch_end_hashcnt_wmk, block->hashes_per_tick ));
     return -1;
   }
 
@@ -2051,7 +2069,32 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
          where the batch boundary is.  Any formulation of a
          per-microblock valid hash count will probably just end up being
          isomorphic to a check based on the accumulated tick hash count.
-         So that's how we implement this constraint.
+
+         And because apparently that wasn't enough, this "at least one
+         away" check is applied non-deterministically in Agave.
+         Contiguous runs of microblock batches are extracted out of the
+         blockstore in Agave and then flattened.  The check is then
+         applied on this flattened array of microblocks.  So depending
+         on the timing of shred ingestion into the blockstore, a batch
+         boundary that violates this check may or may not be able to
+         sneak in.  Since we don't revert deadness decisions, we will be
+         lenient and accept blocks that violate this check.
+
+         In yet another unfortunate turn - because why not - there's
+         also non-determinism in this check on the tick height:
+         https://github.com/anza-xyz/agave/blob/v4.0.0-rc.0/ledger/src/blockstore_processor.rs#L1117
+
+         The intention of this check presumably is that the last tick
+         ends the block.  More precisely, there should be no more
+         microblock batches after the one containing the final tick.
+         The way this check should have been implemented is that the
+         batch containing the final tick must also end with the
+         SLOT_COMPLETE flag.  The way this check has been implemented in
+         Agave is once again non-deterministic.  The slot_full flag is a
+         function of whether the blockstore has received all the shreds.
+         So a block may or may not be able to sneak in an empty batch
+         after the final tick.  We will be lenient and accept such
+         blocks.
 
 
          Some additional references to Agave:
@@ -2126,6 +2169,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       }
 
       block->fec_sob = 0;
+      block->last_batch_empty = !block->mblks_rem;
       continue;
     }
     if( block->txns_rem==0UL && block->mblks_rem==0UL ) {
@@ -2147,11 +2191,6 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
   if( block->fec_eob ) {
     /* Record tick hash count at batch boundaries. */
     block->batch_end_hashcnt_wmk = fd_ulong_max( block->batch_end_hashcnt_wmk, block->curr_tick_hashcnt );
-    if( FD_UNLIKELY( block->hashes_per_tick!=ULONG_MAX && block->hashes_per_tick>1UL && block->batch_end_hashcnt_wmk>=block->hashes_per_tick ) ) {
-      /* >1 to ignore low power hashing or hashing disabled */
-      FD_LOG_INFO(( "bad block: INVALID_TICK_HASH_COUNT, batch_end_hashcnt_wmk %lu >= hashes_per_tick %lu, slot %lu, parent slot %lu", block->batch_end_hashcnt_wmk, block->hashes_per_tick, block->slot, block->parent_slot ));
-      return FD_SCHED_BAD_BLOCK;
-    }
     block->fec_sob = 1;
     block->fec_eob = 0;
   }
