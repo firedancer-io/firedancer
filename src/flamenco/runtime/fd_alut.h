@@ -97,6 +97,8 @@ fd_alut_state_encode( fd_alut_meta_t const * meta,
     CHECK_LEFT( 2UL ); FD_STORE( ushort, CURSOR, (ushort)0 ); INC( 2UL );
   }
 
+  fd_memset( CURSOR, 0, _payload_sz-_i ); /* zero-pad the rest of the buffer */
+
 # undef CHECK
 # undef CHECK_LEFT
 # undef INC
