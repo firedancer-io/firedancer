@@ -109,11 +109,11 @@ struct fd_runtime {
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
-    ulong    executable_cnt; /* Number of programdata accounts currently opened in executable[]. */
+    ulong    executable_cnt;
     fd_acc_t executable[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
 
-    ulong    account_cnt; /* Number of transaction accounts currently opened in account[]. */
-    ulong    refcnt[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ]; /* Reference count for each account */
+    ulong    account_cnt;
+    ulong    refcnt[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
     fd_acc_t account[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
   } accounts;
 
@@ -272,12 +272,12 @@ struct fd_txn_out {
     ulong       cnt;
     fd_pubkey_t keys[ MAX_TX_ACCOUNT_LOCKS ];
     fd_acc_t *  account[ MAX_TX_ACCOUNT_LOCKS ];
-    uchar       is_writable[ MAX_TX_ACCOUNT_LOCKS ];       /* Per-transaction writable view for account[]. */
-    uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];  /* This txn_out owns the accdb reference for account[]. */
-    ulong       starting_lamports[ MAX_TX_ACCOUNT_LOCKS ]; /* Per-txn lamports at the start of this txn (lockstep with account[]).
-                                                              Decoupled from acc->prior_lamports so bundle reuse does not perturb the lthash. */
-    ulong       starting_data_len[ MAX_TX_ACCOUNT_LOCKS ]; /* Per-txn data_len at the start of this txn (lockstep with account[]).
-                                                              Decoupled from acc->prior_data_len for the same reason. */
+    uchar       is_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong       starting_lamports[ MAX_TX_ACCOUNT_LOCKS ];
+
+    ulong       starting_data_len[ MAX_TX_ACCOUNT_LOCKS ];
+
 
     ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
     fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
