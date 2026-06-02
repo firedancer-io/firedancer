@@ -455,6 +455,9 @@ fd_topob_tile_priority_type( char const * name ) {
   for( char const ** p = POST_START; *p; p++ ) {
     if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_NORMAL;
   }
+  for( char const ** p = ALWAYS; *p; p++ ) {
+    if( !strcmp( name, *p ) ) return FD_TOPOB_PRIORITY_NORMAL;
+  }
   return FD_TOPOB_PRIORITY_FLOATING;
 }
 
