@@ -17,18 +17,8 @@
    shreds conflict in a way that implies equivocating blocks for a slot.
    See `verify_proof` in fd_eqvoc.c for details. */
 
-#define FD_EQVOC_SUCCESS (0) /* shreds do not equivocate */
-
-/* proof successfully reassembled from chunked and verified */
-
-#define FD_EQVOC_SUCCESS_MERKLE  (1)
-#define FD_EQVOC_SUCCESS_META    (2)
-#define FD_EQVOC_SUCCESS_LAST    (3)
-#define FD_EQVOC_SUCCESS_OVERLAP (4)
-#define FD_EQVOC_SUCCESS_CHAINED (5)
-
-/* proof successfully reassembled from chunked but not verified */
-
+#define FD_EQVOC_SUCCESS     ( 1) /* successful proof verification */
+#define FD_EQVOC_IGNORED     ( 0) /* proof ignored */
 #define FD_EQVOC_ERR_SERDE   (-1) /* invalid serialization */
 #define FD_EQVOC_ERR_SLOT    (-2) /* shreds were for different slots */
 #define FD_EQVOC_ERR_VERSION (-3) /* either shred had wrong shred version */
@@ -36,21 +26,13 @@
 #define FD_EQVOC_ERR_MERKLE  (-5) /* failed to derive merkle root */
 #define FD_EQVOC_ERR_SIG     (-6) /* failed to sigverify */
 
-/* chunk was invalid */
+/* chunk_insert errors */
 
-#define FD_EQVOC_ERR_CHUNK_CNT (-7) /* num_chunks != FD_EQVOC_CHUNK_CNT */
-#define FD_EQVOC_ERR_CHUNK_IDX (-8) /* chunk_index >= FD_EQVOC_CHUNK_CNT */
-#define FD_EQVOC_ERR_CHUNK_LEN (-9) /* chunk_len does not match expected length for chunk_index */
-
-/* chunk was ignored */
-
+#define FD_EQVOC_ERR_CHUNK_CNT  (-7) /* num_chunks != FD_EQVOC_CHUNK_CNT */
+#define FD_EQVOC_ERR_CHUNK_IDX  (-8) /* chunk_index >= FD_EQVOC_CHUNK_CNT */
+#define FD_EQVOC_ERR_CHUNK_LEN  (-9) /* chunk_len does not match expected length for chunk_index */
 #define FD_EQVOC_ERR_CHUNK_FROM (-10) /* unrecognized from address */
 #define FD_EQVOC_ERR_CHUNK_SLOT (-11) /* slot older than root */
-
-/* shred was ignored */
-
-#define FD_EQVOC_ERR_SHRED_SLOT (-12) /* slot older than root */
-#define FD_EQVOC_ERR_SHRED_IDX  (-13) /* shred index >= FD_SHRED_BLK_MAX */
 
 /* FD_EQVOC_CHUNK_CNT: the count of chunks is hardcoded because Agave
    discards any chunks where count != 3 (even though technically the
@@ -158,43 +140,35 @@ fd_eqvoc_leave( fd_eqvoc_t const * eqvoc );
 void *
 fd_eqvoc_delete( void * sheqvoc );
 
-/* fd_eqvoc_shred_insert inserts the shred into eqvoc.  Returns
-   FD_EQVOC_SUCCESS if no equivocation was detected,
-   FD_EQVOC_SUCCESS_{...} (positive) if the shred conflicts with a
-   previously inserted shred (chunks_out will be populated with a
-   DuplicateShred proof that can be sent over gossip), or
-   FD_EQVOC_ERR_SHRED_SLOT if shred->slot <= root. */
+/* fd_eqvoc_shred_insert inserts the shred into eqvoc.  Returns 1 if a
+   proof was constructed, 0 otherwise. */
 
 int
 fd_eqvoc_shred_insert( fd_eqvoc_t *                eqvoc,
-                       ushort                      shred_version,
-                       ulong                       root,
-                       fd_epoch_leaders_t const *  leader_schedule,
+                       int                         shred_hint,
                        fd_shred_t const *          shred,
                        fd_gossip_duplicate_shred_t chunks_out[static FD_EQVOC_CHUNK_CNT] );
 
 /* fd_eqvoc_chunk_insert inserts a DuplicateShred chunk from gossip into
-   eqvoc.  Returns FD_EQVOC_SUCCESS if no proof was completed or
-   verified yet, FD_EQVOC_SUCCESS_{...} (positive) if a complete proof
-   was assembled and verified (chunks_out will be populated with the
-   proof), or FD_EQVOC_ERR_{...} (negative) if the chunk or reassembled
-   shreds failed validation.
+   eqvoc.  Returns FD_EQVOC_SUCCESS (1) if a complete proof was
+   assembled and verified (chunks_out will be populated with the proof),
+   FD_EQVOC_IGNORED (0) if proof was ignored, or FD_EQVOC_ERR_{...}
+   (negative) if the chunk or reassembled shreds failed validation.
 
    Chunks arrive from untrusted gossip peers and are validated (chunk
    count, index, length, shred deserialization, shred version, merkle
    root, signature, etc.).
 
    Returns FD_EQVOC_ERR_CHUNK_SLOT if chunk->slot <= root.  Returns
-   FD_EQVOC_ERR_CHUNK_FROM if from is not
-   in the voter set.  Each voter is limited to dup_max in-progress
-   proofs; if exceeded, the LRU-proof is evicted.  Once all chunks for a
-   proof arrive, the proof is reassembled, verified, and released
-   regardless of the outcome. */
+   FD_EQVOC_ERR_CHUNK_FROM if from is not in the voter set.  Each voter
+   is limited to dup_max in-progress proofs; if exceeded, the LRU-proof
+   is evicted.  Once all chunks for a proof arrive, the proof is
+   reassembled, verified, and released regardless of the outcome. */
 
 int
 fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
-                       ushort                              shred_version,
                        ulong                               root,
+                       ushort                              shred_version,
                        fd_epoch_leaders_t const          * leader_schedule,
                        fd_pubkey_t const                 * from,
                        fd_gossip_duplicate_shred_t const * chunk,
@@ -205,7 +179,7 @@ fd_eqvoc_chunk_insert( fd_eqvoc_t                        * eqvoc,
 
 int
 fd_eqvoc_proof_verified( fd_eqvoc_t * eqvoc,
-                ulong        slot );
+                         ulong        slot );
 
 /* fd_eqvoc_update_voters updates the vtr_map to match the given voter
    set.  Removes entries not in id_keys[0..cnt) (and evicts their proofs),

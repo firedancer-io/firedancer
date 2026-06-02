@@ -314,8 +314,8 @@ push_vote( fd_tower_t * tower,
 
   ulong prev_conf = 0;
   for( fd_tower_vote_iter_t iter = fd_tower_vote_iter_init_rev( tower->votes       );
-                             !fd_tower_vote_iter_done_rev( tower->votes, iter );
-                       iter = fd_tower_vote_iter_prev    ( tower->votes, iter ) ) {
+                                  !fd_tower_vote_iter_done_rev( tower->votes, iter );
+                            iter = fd_tower_vote_iter_prev    ( tower->votes, iter ) ) {
     fd_tower_vote_t * vote = fd_tower_vote_iter_ele( tower->votes, iter );
     if( FD_UNLIKELY( vote->conf != ++prev_conf ) ) break;
     vote->conf++;

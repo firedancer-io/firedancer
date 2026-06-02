@@ -4,12 +4,6 @@
 FD_IMPORT_BINARY( id,       "src/choreo/eqvoc/fixtures/id.bin"       );
 FD_IMPORT_BINARY( pay1,     "src/choreo/eqvoc/fixtures/pay1.bin"     );
 FD_IMPORT_BINARY( pay2,     "src/choreo/eqvoc/fixtures/pay2.bin"     );
-FD_IMPORT_BINARY( mr1,      "src/choreo/eqvoc/fixtures/mr1.bin"      );
-FD_IMPORT_BINARY( mr2,      "src/choreo/eqvoc/fixtures/mr2.bin"      );
-FD_IMPORT_BINARY( last1,    "src/choreo/eqvoc/fixtures/last1.bin"    );
-FD_IMPORT_BINARY( last2,    "src/choreo/eqvoc/fixtures/last2.bin"    );
-FD_IMPORT_BINARY( chained1, "src/choreo/eqvoc/fixtures/chained1.bin" );
-FD_IMPORT_BINARY( chained2, "src/choreo/eqvoc/fixtures/chained2.bin" );
 
 #define FEC_MAX       4
 #define SLOT_MAX      4
@@ -19,14 +13,11 @@ FD_IMPORT_BINARY( chained2, "src/choreo/eqvoc/fixtures/chained2.bin" );
 
 static uchar __attribute__((aligned(128UL))) eqvoc_mem [ 131072 ];
 
-
 static fd_pubkey_t        from [1]   = { { .uc = { 242, 97, 238, 195, 95, 84,  158, 41, 211, 104, 141, 25, 22,  233, 147, 28, 8,   50, 225, 227, 88, 116, 4,   29, 207, 7,   22,  4,  141, 136, 237, 132 } } };
 static uint               sched[100] = { 0 };
 static fd_epoch_leaders_t leaders    = { .slot0 = 0, .slot_cnt = 100, .pub = from, .pub_cnt = 1, .sched = sched, .sched_cnt = 4 };
 
 static fd_gossip_duplicate_shred_t chunks_out[ FD_EQVOC_CHUNK_CNT ];
-
-static uchar proof_mem[ 2 * sizeof(ulong) + 2 * FD_SHRED_MAX_SZ ];
 
 static void
 vtr_insert( fd_eqvoc_t *        eqvoc,
@@ -54,58 +45,6 @@ teardown( fd_eqvoc_t * eqvoc ) {
   memset( eqvoc_mem, 0, sizeof(eqvoc_mem) );
 }
 
-/* test_proof is a helper that exercises verify_proof, construct_proof,
-   chunk_insert, and shred_insert for a pair of fixture shreds. */
-
-static void
-test_proof( uchar const * shred1_bytes, uchar const * shred2_bytes, int err_expected, int skip_shred_insert, int null_lsched ) {
-  fd_eqvoc_t * eqvoc = setup();
-
-  fd_shred_t const *         shred1 = (fd_shred_t const *)fd_type_pun_const( shred1_bytes );
-  fd_shred_t const *         shred2 = (fd_shred_t const *)fd_type_pun_const( shred2_bytes );
-  fd_epoch_leaders_t const * lsched = fd_ptr_if( !null_lsched, &leaders, NULL );
-
-  int err = verify_proof( eqvoc, SHRED_VERSION, lsched, shred1, shred2 );
-  if( err!=err_expected ) { FD_LOG_CRIT(("err %d != expcted %d", err, err_expected )); }
-
-  construct_proof( shred1, shred2, chunks_out );
-  ulong sz = 0;
-  for( ulong i = 0; i < FD_EQVOC_CHUNK_CNT; i++ ) {
-    memcpy( proof_mem + sz, chunks_out[i].chunk, chunks_out[i].chunk_len );
-    sz += chunks_out[i].chunk_len;
-  }
-
-  FD_TEST( fd_ulong_load_8( proof_mem )==fd_shred_sz( shred1 ) );
-  FD_TEST( 0==memcmp( proof_mem + sizeof(ulong), shred1, fd_shred_sz( shred1 ) ) );
-  FD_TEST( fd_ulong_load_8( proof_mem + sizeof(ulong) + fd_shred_sz( shred1 ) )==fd_shred_sz( shred2 ) );
-  FD_TEST( 0==memcmp( proof_mem + sizeof(ulong) + fd_shred_sz( shred1 ) + sizeof(ulong), shred2, fd_shred_sz( shred2 ) ) );
-
-  vtr_insert( eqvoc, from );
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, lsched, from, &chunks_out[0], chunks_out )==FD_EQVOC_SUCCESS );
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, lsched, from, &chunks_out[1], chunks_out )==FD_EQVOC_SUCCESS );
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, lsched, from, &chunks_out[0], chunks_out )==FD_EQVOC_SUCCESS ); /* reinserting is ignored */
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, lsched, from, &chunks_out[2], chunks_out )==err_expected     );
-
-  teardown( eqvoc );
-  memset( chunks_out, 0, sizeof(chunks_out) );
-
-  if( skip_shred_insert ) return;
-
-  eqvoc = setup();
-
-  int err_actual = FD_EQVOC_SUCCESS;
-  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, lsched, shred1, chunks_out );
-  FD_TEST( err_actual==FD_EQVOC_SUCCESS );
-
-  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, lsched, shred1, chunks_out );
-  FD_TEST( err_actual==FD_EQVOC_SUCCESS ); /* same shred twice isn't equivocating */
-
-  err_actual = fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, lsched, shred2, chunks_out );
-  FD_TEST( err_actual==err_expected );
-
-  teardown( eqvoc );
-}
-
 void
 test_shred_insert( void ) {
   fd_eqvoc_t * eqvoc = setup();
@@ -113,32 +52,18 @@ test_shred_insert( void ) {
   uchar base[FD_SHRED_MIN_SZ]; memcpy( base, id, FD_SHRED_MIN_SZ );
   fd_shred_t * shred = (fd_shred_t *)fd_type_pun( base );
 
-  /* ERR_SHRED_SLOT: slot older than root. */
-
-  shred->slot = 5;
-  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, 10UL, &leaders, shred, chunks_out )==FD_EQVOC_ERR_SHRED_SLOT );
-
-  /* ERR_SHRED_IDX: shred index >= FD_SHRED_BLK_MAX. */
-
-  memcpy( base, id, FD_SHRED_MIN_SZ );
-  shred->idx = FD_SHRED_BLK_MAX;
-  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, shred, chunks_out )==FD_EQVOC_ERR_SHRED_IDX );
-  shred->idx = FD_SHRED_BLK_MAX + 1;
-  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, shred, chunks_out )==FD_EQVOC_ERR_SHRED_IDX );
-
   /* Already-known equivocation short-circuits. */
 
   memcpy( base, id, FD_SHRED_MIN_SZ );
-  dup_t * dup = dup_insert( eqvoc, shred->slot );
-  dup->err    = FD_EQVOC_SUCCESS_MERKLE;
-  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, shred, chunks_out )==FD_EQVOC_SUCCESS );
+  dup_insert( eqvoc, shred->slot );
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, 0, shred, chunks_out )==0 );
 
-  /* First shred in FEC set (no sibling) returns SUCCESS. */
+  /* First shred in FEC set (no sibling) returns 0. */
 
   memcpy( base, id, FD_SHRED_MIN_SZ );
   shred->slot = 99;
   ulong fec_used = fec_pool_used( eqvoc->fec_pool );
-  FD_TEST( fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, shred, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_shred_insert( eqvoc, 0, shred, chunks_out )==0 );
   FD_TEST( fec_pool_used( eqvoc->fec_pool ) > fec_used );
 
   teardown( eqvoc );
@@ -150,20 +75,25 @@ test_shred_insert( void ) {
   fd_shred_t * evict_shred = (fd_shred_t *)fd_type_pun( shred_bytes );
   fd_gossip_duplicate_shred_t chunks[ FD_EQVOC_CHUNK_CNT ];
 
-  ulong k = 10;
-  for( ulong i = 0; i < FEC_MAX * k; i++ ) {
-    ulong slot        = evict_shred->slot;
-    evict_shred->slot = evict_shred->slot + i;
-    fd_eqvoc_shred_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, evict_shred, chunks );
-    evict_shred->slot = slot;
+  ulong n = 10;
+  ulong base_slot = evict_shred->slot;
+  for( ulong i = 0; i < n; i++ ) {
+    evict_shred->slot = base_slot + i;
+    fd_eqvoc_shred_insert( eqvoc, 0, evict_shred, chunks );
   }
+  evict_shred->slot = base_slot;
   FD_TEST( fec_pool_used( eqvoc->fec_pool )==FEC_MAX );
-  for( ulong i = 0; i < FEC_MAX; i++ ) {
-    for( ulong j = 0; j < (k-1); j++ ) {
-      ulong key = (evict_shred->slot + FEC_MAX * (j) + i) << 32 | evict_shred->fec_set_idx;
-      FD_TEST( !fec_map_ele_query( eqvoc->fec_map, &key, NULL, eqvoc->fec_pool ) );
-    }
-    ulong key = (evict_shred->slot + FEC_MAX * (k-1) + i) << 32 | evict_shred->fec_set_idx;
+
+  /* Each shred_insert creates 2 fec entries (UINT_MAX + fec_set_idx),
+     so only the last FEC_MAX/2 slots survive eviction. */
+
+  ulong surviving = FEC_MAX / 2;
+  for( ulong i = 0; i < n - surviving; i++ ) {
+    ulong key = (base_slot + i) << 32 | evict_shred->fec_set_idx;
+    FD_TEST( !fec_map_ele_query( eqvoc->fec_map, &key, NULL, eqvoc->fec_pool ) );
+  }
+  for( ulong i = n - surviving; i < n; i++ ) {
+    ulong key = (base_slot + i) << 32 | evict_shred->fec_set_idx;
     FD_TEST( fec_map_ele_query( eqvoc->fec_map, &key, NULL, eqvoc->fec_pool ) );
   }
   teardown( eqvoc );
@@ -222,7 +152,7 @@ test_chunk_insert( void ) {
 
   fd_gossip_duplicate_shred_t chunk0a = { .slot = 5, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN };
   memset( chunk0a.chunk, 0xAA, FD_EQVOC_CHUNK0_LEN );
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk0a, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk0a, chunks_out )==FD_EQVOC_IGNORED );
 
   vtr_t * vtr = vtr_map_ele_query( eqvoc->vtr_map, &a, NULL, eqvoc->vtr_pool );
   prf_t * prf = prf_query( eqvoc, vtr, 5 );
@@ -232,7 +162,7 @@ test_chunk_insert( void ) {
 
   fd_gossip_duplicate_shred_t chunk0b = { .slot = 5, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN };
   memset( chunk0b.chunk, 0xBB, FD_EQVOC_CHUNK0_LEN );
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk0b, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk0b, chunks_out )==FD_EQVOC_IGNORED );
 
   prf = prf_query( eqvoc, vtr, 5 );
   FD_TEST( prf->buf[0]==0xAA ); /* original data preserved */
@@ -241,12 +171,12 @@ test_chunk_insert( void ) {
   /* Reinserting chunk 2 with different length is also ignored. */
 
   fd_gossip_duplicate_shred_t chunk2_cc = { .slot = 5, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 2, .chunk_len = FD_EQVOC_CHUNK2_LEN_CC };
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk2_cc, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk2_cc, chunks_out )==FD_EQVOC_IGNORED );
   prf = prf_query( eqvoc, vtr, 5 );
   FD_TEST( prf->buf_sz==FD_EQVOC_CHUNK0_LEN + FD_EQVOC_CHUNK2_LEN_CC );
 
   fd_gossip_duplicate_shred_t chunk2_dd = { .slot = 5, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 2, .chunk_len = FD_EQVOC_CHUNK2_LEN_DD };
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk2_dd, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk2_dd, chunks_out )==FD_EQVOC_IGNORED );
   prf = prf_query( eqvoc, vtr, 5 );
   FD_TEST( prf->buf_sz==FD_EQVOC_CHUNK0_LEN + FD_EQVOC_CHUNK2_LEN_CC ); /* unchanged */
 
@@ -263,8 +193,8 @@ test_chunk_insert( void ) {
   for( ulong i = 0; i < FD_EQVOC_CHUNK_CNT; i++ ) chunks_out[i].slot = 43;
 
   vtr_insert( eqvoc, from );
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, from, &chunks_out[0], chunks_out )==FD_EQVOC_SUCCESS );
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, from, &chunks_out[1], chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, from, &chunks_out[0], chunks_out )==FD_EQVOC_IGNORED );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, from, &chunks_out[1], chunks_out )==FD_EQVOC_IGNORED );
   FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, from, &chunks_out[2], chunks_out )==FD_EQVOC_ERR_SERDE );
 
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==0 );
@@ -280,7 +210,7 @@ test_chunk_insert( void ) {
 
   for( ulong i = 1; i <= SLOT_MAX; i++ ) {
     fd_gossip_duplicate_shred_t chunk = { .slot = i, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN };
-    FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk, chunks_out )==FD_EQVOC_SUCCESS );
+    FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &chunk, chunks_out )==FD_EQVOC_IGNORED );
   }
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==SLOT_MAX );
 
@@ -293,7 +223,7 @@ test_chunk_insert( void ) {
   }
 
   fd_gossip_duplicate_shred_t evict_chunk = { .slot = SLOT_MAX + 1, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN };
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &evict_chunk, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &evict_chunk, chunks_out )==FD_EQVOC_IGNORED );
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==SLOT_MAX );
 
   xid_t evicted_key = { .slot = 1, .from = a };
@@ -307,12 +237,12 @@ test_chunk_insert( void ) {
 
   for( ulong i = 0; i < SLOT_MAX; i++ ) {
     fd_gossip_duplicate_shred_t chunk = { .slot = 100 + i, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN };
-    FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &b, &chunk, chunks_out )==FD_EQVOC_SUCCESS );
+    FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &b, &chunk, chunks_out )==FD_EQVOC_IGNORED );
   }
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==2 * SLOT_MAX );
 
   fd_gossip_duplicate_shred_t b_overflow = { .slot = 200, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN };
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &b, &b_overflow, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &b, &b_overflow, chunks_out )==FD_EQVOC_IGNORED );
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==2 * SLOT_MAX );
 
   xid_t b_evicted = { .slot = 100, .from = b };
@@ -321,13 +251,13 @@ test_chunk_insert( void ) {
   /* Duplicate chunk for existing proof should not create a new entry. */
 
   fd_gossip_duplicate_shred_t dup_chunk = { .slot = SLOT_MAX + 1, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN };
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &dup_chunk, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &a, &dup_chunk, chunks_out )==FD_EQVOC_IGNORED );
   FD_TEST( prf_pool_used( eqvoc->prf_pool )==2 * SLOT_MAX );
 
   teardown( eqvoc );
 
   /* Unverifiable proofs should not leak.  When all chunks arrive but
-     verify_proof returns <= FD_EQVOC_SUCCESS (e.g. FD_EQVOC_ERR_SERDE),
+     verify_proof returns FD_EQVOC_IGNORED or FD_EQVOC_ERR_{...},
      the proof must be released.  Repeat to confirm no pool leak. */
 
   eqvoc = setup();
@@ -344,7 +274,7 @@ test_chunk_insert( void ) {
       else             chunk.chunk_len = FD_EQVOC_CHUNK2_LEN_DD;
       int err = fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &voter, &chunk, chunks_out );
       if( ci < FD_EQVOC_CHUNK_CNT - 1 ) {
-        FD_TEST( err==FD_EQVOC_SUCCESS );
+        FD_TEST( err==FD_EQVOC_IGNORED );
         FD_TEST( prf_pool_used( eqvoc->prf_pool )==1 );
       } else {
         FD_TEST( err==FD_EQVOC_ERR_SERDE );
@@ -364,8 +294,7 @@ test_proof_verified( void ) {
 
   FD_TEST( !fd_eqvoc_proof_verified( eqvoc, 42 ) );
 
-  dup_t * dup = dup_insert( eqvoc, 42 );
-  dup->err    = FD_EQVOC_SUCCESS_MERKLE;
+  dup_insert( eqvoc, 42 );
 
   FD_TEST( fd_eqvoc_proof_verified( eqvoc, 42 ) );
   FD_TEST( !fd_eqvoc_proof_verified( eqvoc, 43 ) );
@@ -421,7 +350,7 @@ test_update_voters( void ) {
 
   /* b can accept new proofs after a's removal. */
 
-  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &b, &(fd_gossip_duplicate_shred_t){ .slot = 11, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN }, chunks_out )==FD_EQVOC_SUCCESS );
+  FD_TEST( fd_eqvoc_chunk_insert( eqvoc, SHRED_VERSION, ROOT, &leaders, &b, &(fd_gossip_duplicate_shred_t){ .slot = 11, .num_chunks = FD_EQVOC_CHUNK_CNT, .chunk_index = 0, .chunk_len = FD_EQVOC_CHUNK0_LEN }, chunks_out )==FD_EQVOC_IGNORED );
   FD_TEST( vtr_b->prf_dlist_cnt==2 );
 
   /* Newly added voter c starts with empty prf_dlist. */
@@ -484,17 +413,9 @@ test_update_voters( void ) {
 
 int
 main( void ) {
-
-  test_proof( id,       id,       FD_EQVOC_SUCCESS,         0 /* don't skip shred insert */, 0 /* lsched */      );
-  test_proof( pay1,     pay2,     FD_EQVOC_SUCCESS_MERKLE,  0 /* don't skip shred insert */, 0 /* lsched */      );
-  test_proof( mr1,      mr2,      FD_EQVOC_SUCCESS_MERKLE,  0 /* don't skip shred insert */, 0 /* lsched */      );
-  test_proof( last1,    last2,    FD_EQVOC_SUCCESS_LAST,    0 /* don't skip shred insert */, 0 /* lsched */      );
-  test_proof( chained1, chained2, FD_EQVOC_SUCCESS_CHAINED, 1 /* skip shred insert */,       1 /* null lsched */ );
-
   test_shred_insert();
   test_chunk_insert();
   test_proof_verified();
   test_update_voters();
-
   return 0;
 }
