@@ -1199,8 +1199,8 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
     block->txn_exec_in_flight_cnt++;
     sched->metrics->txn_max_in_flight_cnt = fd_uint_max( sched->metrics->txn_max_in_flight_cnt, block->txn_exec_in_flight_cnt );
 
-    ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
     if( FD_UNLIKELY( (~sched->txn_exec_ready_bitset[ 0 ])&(~sched->sigverify_ready_bitset[ 0 ])&(~sched->poh_ready_bitset[ 0 ])&fd_ulong_mask_lsb( (int)sched->exec_cnt ) ) ) FD_LOG_CRIT(( "invariant violation: txn_exec_ready_bitset 0x%lx sigverify_ready_bitset 0x%lx poh_ready_bitset 0x%lx", sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->poh_ready_bitset[ 0 ] ));
+    ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ]&sched->sigverify_ready_bitset[ 0 ]&sched->poh_ready_bitset[ 0 ] );
     if( FD_UNLIKELY( block->txn_exec_in_flight_cnt+block->txn_sigverify_in_flight_cnt+block->poh_hashing_in_flight_cnt!=total_exec_busy_cnt ) ) {
       /* Ideally we'd simply assert that the two sides of the equation
          are equal.  But abandoned blocks throw a wrench into this.  We
@@ -1303,12 +1303,19 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
      transactions to retire, before switching to a different block.
 
      Either way, there should be in-flight transactions.  We deactivate
-     the active block the moment we exhausted transactions from it. */
-  if( FD_UNLIKELY( !block_is_in_flight( block ) ) ) {
+     the active block the moment we exhausted transactions from it.
+
+     We don't assert block_is_in_flight() here because there might be
+     in-flight tasks from dying blocks that are preventing us from
+     dispatching anything momentarily.  So we assert the global exec
+     tile busy count.  This doesn't lose too much assertion coverage
+     since dying blocks are few and far between. */
+  ulong total_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( exec_fully_ready_bitset );
+  if( FD_UNLIKELY( !total_exec_busy_cnt ) ) {
     sched->print_buf_sz = 0UL;
     print_all( sched, block );
     FD_LOG_NOTICE(( "%s", sched->print_buf ));
-    FD_LOG_CRIT(( "invariant violation: expected in-flight transactions but none" ));
+    FD_LOG_CRIT(( "invariant violation: expected in-flight tasks but none found" ));
   }
 
   return 0UL;
