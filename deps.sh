@@ -378,7 +378,8 @@ check () {
     case "$choice" in
       y|Y)
         echo "[+] Installing rustup"
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        # Keep this in sync with agave/rust-toolchain.toml
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.95.0 --profile minimal
         source "$HOME/.cargo/env"
         ;;
       *)
