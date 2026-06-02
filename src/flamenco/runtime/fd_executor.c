@@ -1155,6 +1155,27 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
         txn_out->accounts.starting_lamports[ i ] = reuse->lamports;
         txn_out->accounts.starting_data_len[ i ] = reuse->data_len;
         txn_out->accounts.account[ i ]           = reuse;
+
+        /* Only the txn that owns the accdb reference lthashes the (final,
+           shared) account state at commit, and only if its is_writable
+           slot is set.  If this reuser writes the account but the owner
+           acquired it read-only, propagate writability back to the owner
+           so the modification is committed to the lthash exactly once.
+           Otherwise a write here would never be hashed -> bank hash
+           mismatch. */
+        if( txn_out->accounts.is_writable[ i ] ) {
+          for( ulong p=txn_in->bundle.prev_txn_cnt; p>0UL; p-- ) {
+            fd_txn_out_t * owner = txn_in->bundle.prev_txn_outs[ p-1UL ];
+            int found = 0;
+            for( ushort k=0; k<owner->accounts.cnt; k++ ) {
+              if( owner->accounts.account[ k ]!=reuse || !owner->accounts.account_acquired[ k ] ) continue;
+              owner->accounts.is_writable[ k ] = 1U;
+              found = 1;
+              break;
+            }
+            if( found ) break;
+          }
+        }
         break;
       }
     }

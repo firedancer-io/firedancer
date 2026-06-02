@@ -463,6 +463,74 @@ test_execute_bundles( fd_svm_mini_t * mini ) {
   FD_LOG_NOTICE(( "test 5-tx bundle cancel... ok" ));
 
   /* ==========================================================================
+     Test 4b: owner-readonly + later-writer must still be committed.
+
+     The accdb reference for an account is owned by the FIRST bundle txn
+     to acquire it.  Only that owner lthashes the (final, shared) account
+     state at commit, and only if its is_writable slot is set.  If the
+     owner acquired the account read-only but a LATER txn in the bundle
+     reuses it writable and modifies it, the modification must still be
+     committed to the lthash exactly once.  Regression: previously the
+     write was dropped (owner: not writable -> skipped; writer: not the
+     owner -> skipped) producing a bank hash mismatch.
+     ========================================================================== */
+
+  {
+    fd_pubkey_t rw_after_ro = { .ul[0] = 0x52574146544552UL };
+    create_test_account( env->mini->runtime->accdb, env->fork_id, &rw_after_ro,
+                         3000000UL, 0UL, NULL, &system );
+    fd_pubkey_t ro_keys[2] = { pubkey1, rw_after_ro };
+
+    /* tx0: target is read-only -> owner acquires the accdb ref RO. */
+    sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 1UL, 2UL, ro_keys, &dummy_hash );
+    txn_p.payload_sz = (ushort)sz;
+    FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+    env->txn_in.txn                     = &txn_p;
+    env->txn_in.bundle.is_bundle        = 1;
+    env->txn_in.bundle.prev_txn_cnt     = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[0] );
+    FD_TEST( env->txn_out[0].err.is_committable );
+    FD_TEST( env->txn_out[0].accounts.is_writable[1] == 0 );
+    FD_TEST( env->txn_out[0].accounts.account_acquired[1] == 1 ); /* owner of the ref */
+    FD_TEST( env->txn_out[0].accounts.account[1]->lamports == 3000000UL );
+
+    /* tx1: target becomes writable, reuses the owner's account, writes it. */
+    sz = txn_serialize( txn_p.payload, 1, &signature, 1UL, 0UL, 0UL, 2UL, ro_keys, &dummy_hash );
+    txn_p.payload_sz = (ushort)sz;
+    FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
+    env->txn_in.txn                     = &txn_p;
+    env->txn_in.bundle.prev_txn_cnt     = 1;
+    env->txn_in.bundle.prev_txn_outs[0] = &env->txn_out[0];
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[1] );
+    FD_TEST( env->txn_out[1].err.is_committable );
+    FD_TEST( env->txn_out[1].accounts.is_writable[1] == 1 );
+    FD_TEST( env->txn_out[1].accounts.account[1] == env->txn_out[0].accounts.account[1] ); /* reused */
+    FD_TEST( env->txn_out[1].accounts.account_acquired[1] == 0 );                          /* not the owner */
+    env->txn_out[1].accounts.account[1]->lamports = 4000000UL;
+
+    /* The writer's writability must have been propagated to the owner so
+       the owner commits the final shared state. */
+    FD_TEST( env->txn_out[0].accounts.is_writable[1] == 1 );
+
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[0] );
+    fd_runtime_commit_txn( env->runtime, env->bank, &env->txn_out[1] );
+
+    /* Post-commit non-bundle read must observe the write (would be the
+       stale 3000000 if the modification was dropped from the lthash). */
+    env->txn_in.txn              = &txn_p;
+    env->txn_in.bundle.is_bundle = 0;
+    fd_runtime_prepare_and_execute_txn( env->runtime, env->bank, &env->txn_in, &env->txn_out[2] );
+    FD_TEST( env->txn_out[2].err.is_committable );
+    FD_TEST( env->txn_out[2].accounts.account[1]->lamports == 4000000UL );
+    env->txn_out[2].err.is_committable = 0;
+    fd_runtime_cancel_txn( env->runtime, &env->txn_out[2] );
+
+    env->txn_in.bundle.is_bundle = 1; /* restore for subsequent tests */
+  }
+
+  FD_LOG_NOTICE(( "test owner-readonly + later-writer commit... ok" ));
+
+  /* ==========================================================================
      Test 5: Account reclaim divergence between bundle and replay
      ========================================================================== */
 
