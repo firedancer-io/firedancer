@@ -1078,12 +1078,6 @@ fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         data_len );
 
 void
-fd_gui_plugin_message( fd_gui_t *   gui,
-                       ulong        plugin_msg,
-                       void const * msg,
-                       long         now );
-
-void
 fd_gui_became_leader( fd_gui_t * gui,
                       ulong      slot,
                       long       start_time_nanos,

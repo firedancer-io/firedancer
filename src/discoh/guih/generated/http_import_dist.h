@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_gui_generated_http_import_dist_h
-#define HEADER_fd_src_disco_gui_generated_http_import_dist_h
+#ifndef HEADER_fd_src_discoh_guih_generated_http_import_dist_h
+#define HEADER_fd_src_discoh_guih_generated_http_import_dist_h
 
 #include "../../../util/fd_util.h"
 
@@ -17,5 +17,4 @@ typedef struct fd_http_static_file fd_http_static_file_t;
 
 extern fd_http_static_file_t STATIC_FILES[]; /* null terminated */
 
-#endif /* HEADER_fd_src_disco_gui_generated_http_import_dist_h */
-
+#endif /* HEADER_fd_src_discoh_guih_generated_http_import_dist_h */

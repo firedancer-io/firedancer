@@ -50,7 +50,7 @@ fd_gui_metrics_gossip_total_ingress_bytes( fd_topo_t const * topo, ulong gossvf_
 }
 
 static inline ulong
-fd_gui_metrics_gosip_total_egress_bytes( fd_topo_t const * topo, ulong gossip_tile_cnt ) {
+fd_gui_metrics_gossip_total_egress_bytes( fd_topo_t const * topo, ulong gossip_tile_cnt ) {
   return fd_gui_metrics_sum_tiles_counter( topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PING ) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PONG ) )
        + fd_gui_metrics_sum_tiles_counter( topo, "gossip", gossip_tile_cnt, MIDX( COUNTER, GOSSIP, MESSAGE_TX_BYTES_PRUNE ) )

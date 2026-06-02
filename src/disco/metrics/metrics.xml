@@ -1911,6 +1911,17 @@ EXAMPLES
     <counter name="BytesRead" summary="Bytes read from all connections to the GUI service" />
 </tile>
 
+<tile name="guih">
+  <gauge name="ConnActive" summary="Active HTTP connections to the GUI service, excluding connections that have been upgraded to a WebSocket connection" />
+  <gauge name="WebsocketConnActive" summary="Active WebSocket connections to the GUI service" />
+
+  <counter name="WebsocketFrameTx" summary="WebSocket frames sent to all connections to the GUI service" />
+  <counter name="WebsocketFrameRx" summary="WebSocket frames received from all connections to the GUI service" />
+
+  <counter name="BytesWritten" summary="Bytes written to all connections to the GUI service" />
+  <counter name="BytesRead" summary="Bytes read from all connections to the GUI service" />
+</tile>
+
 <tile name="event">
     <gauge name="ConnState" summary="0=disconnected, 1=connecting, 2=connected" />
     <gauge name="QueueDepth" summary="Events in the event queue waiting to be sent to the event service" />

@@ -373,7 +373,6 @@ struct fd_topo_tile {
       int    schedule_strategy;
 
       int websocket_compression;
-      int frontend_release_channel;
       ulong tile_cnt;
 
       char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];

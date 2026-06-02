@@ -206,7 +206,7 @@ static tile_spec_t const FRANKENDANCER_TILES[] = {
   { "net",    1 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
   { "resolh", 1 }, { "pack",   1 }, { "bank",   4 }, { "pohh",   1 },
   { "shred",  1 }, { "store",  1 }, { "sign",   1 }, { "plugin", 1 },
-  { "gui",    1 },
+  { "guih",   1 },
   { NULL, 0 }
 };
 
@@ -258,7 +258,7 @@ static char const * const FRANK_SKIP_HT_PREFIX[] = {
   /*  8 */ "verify",  /*  9 */ "dedup",   /* 10 */ "resolh",  /* 11 */ "pack",
   /* 12 */ "bank",    /* 13 */ "bank",    /* 14 */ "bank",    /* 15 */ "bank",
   /* 16 */ "pohh",    /* 17 */ "sign",    /* 18 */ "shred",   /* 19 */ "store",
-  /* 20 */ "plugin",  /* 21 */ "gui",
+  /* 20 */ "plugin",  /* 21 */ "guih",
 };
 #define FRANK_SKIP_HT_PREFIX_LEN (sizeof(FRANK_SKIP_HT_PREFIX)/sizeof(FRANK_SKIP_HT_PREFIX[0]))
 
@@ -313,7 +313,7 @@ static char const * const FRANK_24X2[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "verify",  /*  3 */ "verify",
   /*  4 */ "verify",  /*  5 */ "dedup",   /*  6 */ "pack",    /*  7 */ "bank",
   /*  8 */ "bank",    /*  9 */ "pohh",    /* 10 */ "sign",    /* 11 */ "store",
-  /* 12 */ "gui",     /* 13 */ _A_,       /* 14 */ _A_,       /* 15 */ _A_,
+  /* 12 */ "guih",    /* 13 */ _A_,       /* 14 */ _A_,       /* 15 */ _A_,
   /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
   /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
   /* --- HT siblings (24-47) --- */
@@ -335,7 +335,7 @@ static char const * const FRANK_32X2[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "verify",  /*  3 */ "verify",
   /*  4 */ "verify",  /*  5 */ "dedup",   /*  6 */ "pack",    /*  7 */ "bank",
   /*  8 */ "bank",    /*  9 */ "pohh",    /* 10 */ "sign",    /* 11 */ "store",
-  /* 12 */ "gui",     /* 13 */ _A_,       /* 14 */ _A_,       /* 15 */ _A_,
+  /* 12 */ "guih",    /* 13 */ _A_,       /* 14 */ _A_,       /* 15 */ _A_,
   /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
   /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
   /* 24 */ _A_,       /* 25 */ _A_,       /* 26 */ _A_,       /* 27 */ _A_,
@@ -390,7 +390,7 @@ static tile_spec_t const FRANK_MORE_BANK[] = {
   { "net",    2 }, { "quic",   1 }, { "verify", 6 }, { "dedup",  1 },
   { "resolh", 1 }, { "pack",   1 }, { "bank",   4 }, { "pohh",   1 },
   { "shred",  2 }, { "store",  1 }, { "sign",   1 }, { "plugin", 1 },
-  { "gui",    1 },
+  { "guih",   1 },
   { NULL, 0 }
 };
 
@@ -398,7 +398,7 @@ static char const * const FRANK_32X2_MORE_BANK[] = {
   /*  0 */ __,        /*  1 */ "net",     /*  2 */ "quic",    /*  3 */ "verify",
   /*  4 */ "verify",  /*  5 */ "verify",  /*  6 */ "resolh",  /*  7 */ "pack",
   /*  8 */ "bank",    /*  9 */ "bank",    /* 10 */ "pohh",    /* 11 */ "shred",
-  /* 12 */ "store",   /* 13 */ "gui",     /* 14 */ _A_,       /* 15 */ _A_,
+  /* 12 */ "store",   /* 13 */ "guih",    /* 14 */ _A_,       /* 15 */ _A_,
   /* 16 */ _A_,       /* 17 */ _A_,       /* 18 */ _A_,       /* 19 */ _A_,
   /* 20 */ _A_,       /* 21 */ _A_,       /* 22 */ _A_,       /* 23 */ _A_,
   /* 24 */ _A_,       /* 25 */ _A_,       /* 26 */ _A_,       /* 27 */ _A_,
