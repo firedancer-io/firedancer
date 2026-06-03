@@ -1705,6 +1705,7 @@ static void
 fd_accdb_acquire_inner( fd_accdb_t *          accdb,
                         fd_accdb_fork_id_t    fork_id,
                         int                   reservation_type,
+                        ulong                 reserved_cnt,
                         ulong                 pubkeys_cnt,
                         uchar const * const * pubkeys,
                         int *                 writable,
@@ -1777,6 +1778,36 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   }
 
   // STEP 2.
+  //   The two-phase programdata acquire (acquire_a then acquire_b)
+  //   works as follows: acquire_a (RESERVATION_TYPE_MAYBE_PROGRAMDATA)
+  //   over-reserves one slot in every live size class per candidate
+  //   account (reserved_cnt total per class), because it does not yet
+  //   know which accounts have programdata or what size class it lands
+  //   in.  acquire_b then resolves the actual programdata pubkeys and
+  //   re-enters here with RESERVATION_TYPE_ALREADY_RESERVED to refund
+  //   the surplus.  Keep one reservation per found programdata account
+  //   in its own size class (consumed later by release) and give the
+  //   rest back.
+  if( FD_UNLIKELY( reservation_type==RESERVATION_TYPE_ALREADY_RESERVED ) ) {
+    ulong refund[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
+    for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
+      if( FD_LIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) refund[ j ] = reserved_cnt;
+    }
+    for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
+      if( FD_LIKELY( accmetas[ i ] ) ) {
+        ulong cls = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) );
+        if( FD_LIKELY( accdb->shmem->cache_class_used[ cls ].val!=ULONG_MAX ) ) {
+          FD_TEST( refund[ cls ]>0UL );
+          refund[ cls ]--;
+        }
+      }
+    }
+    for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
+      if( FD_UNLIKELY( refund[ k ] ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ k ].val, refund[ k ] );
+    }
+  }
+
+  // STEP 3.
   //   We are potentially going to need to read the account data off of
   //   disk into the cache, if the account(s) are not in the cache so
   //   reserve the necessary cache space.  This is done with an "atomic
@@ -1834,7 +1865,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
        every size class (for the write destination buffers). But if the
        account is already resident in cache (which is the common case
        for hot accounts), the read-into-cache line is unnecessary — we
-       will get a cache hit in step 3 and never use it.  The fix is to
+       will get a cache hit in step 4 and never use it.  The fix is to
        probe acc->cache_idx here and skip the per-account size class
        reservation per-account size class reservation when a hit is
        found. This would reduce peak reservation by up to one line per
@@ -1869,7 +1900,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
   }
 
-  // STEP 3.
+  // STEP 4.
   //   For any accounts that are not in cache, we now need to actually
   //   retrieve the cache pointers from our structures.  Space has been
   //   reserved already, so this step is guaranteed to succeed, and is
@@ -1887,7 +1918,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
 
   /* Saved acc_pool indices of evicted dirty cache lines.  These are
      captured before clearing acc_idx to UINT_MAX on the line struct, so
-     that the sentinel protocol (step 13) works correctly while the
+     that the sentinel protocol (step 14) works correctly while the
      evicted account metadata is still available for writeback in steps
      4 and 6. */
   uint evicted_dest_acc[ 5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ][ FD_ACCDB_CACHE_CLASS_CNT ];
@@ -1926,7 +1957,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
   }
 
-  // STEP 4.
+  // STEP 5.
   //   For any cache lines we have retrieved, which we might potentially
   //   be about to trash (by writing stuff in there), we need to write
   //   them back to disk first if they are dirty.  This is the proces of
@@ -1996,7 +2027,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
   }
 
-  // STEP 5-6.
+  // STEP 6-7.
   //   Compute the file offset for the writes we are about to do and
   //   build the pending offset table.  The common case is a single
   //   atomic fetch-add on the write head, reserving a contiguous
@@ -2006,7 +2037,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   individual write fits in a single partition.
   //
   //   The actual stores to evicted->offset_fork and line->persisted
-  //   are deferred until after pwritev2 completes (Step 8-9), so
+  //   are deferred until after pwritev2 completes (Step 9-10), so
   //   a concurrent acquire spinning on offset==FD_ACCDB_OFF_INVAL
   //   does not proceed to preadv2 from a location that hasn't been
   //   written.
@@ -2037,7 +2068,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         ulong entry_sz = sizeof(fd_accdb_disk_meta_t) + (ulong)FD_ACCDB_SIZE_DATA( evicted->executable_size );
         /* xchg-to-INVAL atomically captures the old offset and prevents
            a concurrent acc_unlink from also reading and freeing it (the
-           xchg there will see INVAL and skip).  Step 9 republishes the
+           xchg there will see INVAL and skip).  Step 10 republishes the
            new offset; the spinner at line ~2082 tolerates the transient
            INVAL.  Same pattern as the overwrite path at line ~2388. */
         ulong old_off = fd_accdb_acc_xchg_offset( evicted, FD_ACCDB_OFF_INVAL );
@@ -2089,7 +2120,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
   }
 
-  // STEP 7.
+  // STEP 8.
   //   Fill the output entries with cache pointers and metadata based on
   //   the accounts we have located and the cache lines we have
   //   reserved.
@@ -2125,7 +2156,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     out_accs[ i ].lamports = accmetas[ i ] ? accmetas[ i ]->lamports : 0UL;
     if( FD_UNLIKELY( !accmetas[ i ] ) ) memset( out_accs[ i ].owner, 0, 32UL );
     /* For accmetas[i] != NULL, the owner is copied from the cache line
-       below in step 14, after step 11 has populated it from disk for
+       below in step 15, after step 12 has populated it from disk for
        cold loads. */
 
     out_accs[ i ].prior_lamports   = out_accs[ i ].lamports;
@@ -2160,9 +2191,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
   }
 
-  // STEP 8.
+  // STEP 9.
   //   Write the dirty eviction data to disk and publish the new offsets
-  //   BEFORE constructing read iovecs.  This is critical: step 3 may
+  //   BEFORE constructing read iovecs.  This is critical: step 4 may
   //   have evicted a dirty cache line belonging to another account in
   //   the same batch whose acc->offset is still FD_ACCDB_OFF_INVAL.
   //   The read-iovec loop below spin-waits on
@@ -2230,7 +2261,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
   }
 
-  // STEP 9.
+  // STEP 10.
   //   Now that the data is on disk, publish the evicted account offsets
   //   so concurrent acquire threads spinning on
   //   offset==FD_ACCDB_OFF_INVAL can proceed.  The fence ensures
@@ -2241,7 +2272,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     pending_lines[ k ]->persisted = 1;
   }
 
-  // STEP 10.
+  // STEP 11.
   //   Now construct iovecs for any reads we need to do of accounts into
   //   the cache.  For reading accounts, we read them directly into the
   //   sole cache line we took (and maybe just evicted).  For writing
@@ -2264,7 +2295,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     /* Tombstones (lamports==0) have no on-disk payload to read, and
        background_advance_root may unlink the acc and never assign it a
        disk offset, so the offset_fork spin below would hang forever.
-       Step 14's tombstone reset zeros the owner for these accounts. */
+       Step 15's tombstone reset zeros the owner for these accounts. */
     if( FD_UNLIKELY( !accmetas[ i ]->lamports ) ) continue;
 
     /* We are guaranteed that if an account is in the cache, the bytes
@@ -2290,7 +2321,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     read_ops[ read_ops_cnt++ ]   = (struct iovec){ .iov_base = original_cache_line[ i ]->owner, .iov_len = 32UL + FD_ACCDB_SIZE_DATA( accmetas[ i ]->executable_size ) };
   }
 
-  // STEP 11.
+  // STEP 12.
   //   Almost done... now do the actual reads of accounts into cache,
   //   using the iovecs we constructed.  This is basically the same loop
   //   as the writes, but with preadv2 instead of pwritev2, and that the
@@ -2322,7 +2353,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
   }
 
-  // STEP 12.
+  // STEP 13.
   //   Publish the real acc index for any cache lines we just loaded
   //   from disk, so concurrent threads spinning on acc_idx==UINT_MAX
   //   can proceed.  The fence ensures all preadv2 data is visible
@@ -2333,7 +2364,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     FD_VOLATILE( original_cache_line[ i ]->acc_idx ) = (uint)( accmetas[ i ] - accdb->acc_pool );
   }
 
-  // STEP 13.
+  // STEP 14.
   //   Spin-wait for any cache lines found via acc->cache_idx that are
   //   still being loaded by another thread's preadv2.  The loading
   //   thread sets acc_idx to UINT_MAX before publishing cache_idx
@@ -2349,15 +2380,15 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     while( FD_UNLIKELY( FD_VOLATILE_CONST( original_cache_line[ i ]->acc_idx )==UINT_MAX ) ) FD_SPIN_PAUSE();
   }
 
-  // STEP 14.
+  // STEP 15.
   //   Now that all reads from disk into original_cache_line have
   //   completed (and any concurrent loaders have published their
-  //   acc_idx in step 13), copy the owner into the output entries.
-  //   This must happen here rather than in step 7 because the cache
+  //   acc_idx in step 14), copy the owner into the output entries.
+  //   This must happen here rather than in step 8 because the cache
   //   line owner is only valid post-read for cold loads.
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] ) ) continue;
-    /* Tombstone reset: see STEP 7 comment. */
+    /* Tombstone reset: see STEP 8 comment. */
     if( FD_UNLIKELY( accmetas[ i ]->lamports==0UL ) ) {
       memset( out_accs[ i ].owner,       0, 32UL );
       memset( out_accs[ i ].prior_owner, 0, 32UL );
@@ -2367,7 +2398,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
     }
   }
 
-  // STEP 15.
+  // STEP 16.
   //   Finally, copy any accounts we are writing into the staging
   //   buffers, so they occupy a 10MiB cache line for the execution
   //   system.
@@ -2390,7 +2421,7 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
                   uchar const * const * pubkeys,
                   int *                 writable,
                   fd_acc_t *            out_accs ) {
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_SIMPLE, pubkeys_cnt, pubkeys, writable, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_SIMPLE, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
 void
@@ -2400,7 +2431,7 @@ fd_accdb_acquire_a( fd_accdb_t *             accdb,
                        uchar const * const * pubkeys,
                        int *                 writable,
                        fd_acc_t *            out_accs ) {
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, pubkeys_cnt, pubkeys, writable, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
 void
@@ -2411,56 +2442,7 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     uchar const * const * pubkeys,
                     int *                 writable,
                     fd_acc_t *            out_accs ) {
-  /* acquire_a reserved one slot in EVERY class per maybe-programdata
-     candidate (reserved_cnt total per class).  Now that we know the
-     actual programdata pubkeys, we keep one reservation per actual
-     programdata account in its own size class (consumed later by
-     release) and refund the rest. */
-
-  fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
-  uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
-
-  ulong refund[ FD_ACCDB_CACHE_CLASS_CNT ] = {0};
-  for( ulong j=0UL; j<FD_ACCDB_CACHE_CLASS_CNT; j++ ) {
-    if( FD_LIKELY( accdb->shmem->cache_class_used[ j ].val!=ULONG_MAX ) ) {
-      refund[ j ] = reserved_cnt;
-    }
-  }
-
-  for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
-    FD_TEST( !writable[ i ] ); /* programdata always read-only */
-
-    ulong h = fd_accdb_hash( pubkeys[ i ], accdb->shmem->seed )&(accdb->shmem->chain_cnt-1UL);
-    uint acc_idx = FD_VOLATILE_CONST( accdb->acc_map[ h ] );
-    fd_accdb_accmeta_t * accmeta = NULL;
-    while( acc_idx!=UINT_MAX ) {
-      fd_accdb_accmeta_t * candidate = &accdb->acc_pool[ acc_idx ];
-      uint next = FD_VOLATILE_CONST( candidate->map.next );
-      if( FD_UNLIKELY( (candidate->key.generation>root_generation && fd_accdb_acc_fork_id(candidate)!=fork_id.val && !descends_set_test( fork->descends, fd_accdb_acc_fork_id(candidate) )) ) || memcmp( pubkeys[ i ], candidate->key.pubkey, 32UL ) ) {
-        acc_idx = next;
-        continue;
-      }
-      accmeta = candidate;
-      break;
-    }
-
-    if( FD_UNLIKELY( accmeta && !accmeta->lamports ) ) accmeta = NULL;
-
-    if( FD_UNLIKELY( !accmeta && !writable[ i ] ) ) continue;
-    if( FD_LIKELY( accmeta ) ) {
-      ulong cls = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmeta->executable_size ) );
-      if( FD_LIKELY( accdb->shmem->cache_class_used[ cls ].val!=ULONG_MAX ) ) {
-        FD_TEST( refund[ cls ]>0UL );
-        refund[ cls ]--;
-      }
-    }
-  }
-
-  for( ulong k=0UL; k<FD_ACCDB_CACHE_CLASS_CNT; k++ ) {
-    if( FD_UNLIKELY( refund[ k ] ) ) FD_ATOMIC_FETCH_AND_SUB( &accdb->shmem->cache_class_used[ k ].val, refund[ k ] );
-  }
-
-  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, pubkeys_cnt, pubkeys, writable, out_accs );
+  fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, reserved_cnt, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
 void

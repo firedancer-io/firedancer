@@ -30,25 +30,27 @@ static uchar owner3[ 32UL ] = { 3, 0 };
 static fd_accdb_shmem_t * test_shmem_mem;
 
 static fd_accdb_t *
-test_setup( int * out_fd,
-            ulong max_accounts,
-            ulong max_live_slots,
-            ulong max_account_writes_per_slot,
-            ulong partition_cnt,
-            ulong partition_sz ) {
+test_setup_ex( int * out_fd,
+               ulong max_accounts,
+               ulong max_live_slots,
+               ulong max_account_writes_per_slot,
+               ulong partition_cnt,
+               ulong partition_sz,
+               ulong cache_fp,
+               ulong cache_min_reserved,
+               ulong joiner_cnt ) {
   int fd = memfd_create( "accdb_test", 0 );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
 
-  ulong cache_fp = TEST_CACHE_FOOTPRINT;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, 1UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, 640UL, 42UL, 1UL ) );
+                          partition_sz, cache_fp, cache_min_reserved, 42UL, joiner_cnt ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
 
@@ -59,6 +61,17 @@ test_setup( int * out_fd,
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
+}
+
+static fd_accdb_t *
+test_setup( int * out_fd,
+            ulong max_accounts,
+            ulong max_live_slots,
+            ulong max_account_writes_per_slot,
+            ulong partition_cnt,
+            ulong partition_sz ) {
+  return test_setup_ex( out_fd, max_accounts, max_live_slots, max_account_writes_per_slot,
+                        partition_cnt, partition_sz, TEST_CACHE_FOOTPRINT, 640UL, 1UL );
 }
 
 static void
@@ -907,6 +920,84 @@ test_mainnet_footprint( void ) {
   }
 }
 
+/* test_acquire_b_refund_accounting drives the two-phase programdata
+   acquire (acquire_a over-reserves one slot in every live size class per
+   candidate; acquire_b refunds the surplus, keeping one reservation per
+   found programdata account in its own size class) followed by release,
+   and asserts the per-class reservation counters (cache_class_used,
+   surfaced via fd_accdb_cache_class_occupancy's `reserved`) return EXACTLY
+   to their pre-cycle baseline.
+
+   This locks in that acquire_b's refund accounting balances.  The refund
+   was moved out of fd_accdb_acquire_b (where it walked the acc_map with
+   the joiner epoch idle) into acquire_inner's epoch-protected STEP-1 walk;
+   a miscount (over- or under-refund) leaves a class counter off baseline
+   and fails here.  We exercise a found programdata account in a TRACKED
+   size class plus a missing one (no accmeta -> no decrement) so the
+   per-class arithmetic is covered.
+
+   A class only tracks reservations when cache_class_max[c] <
+   cache_min_reserved*joiner_cnt (otherwise the counter is pinned to
+   ULONG_MAX and acquire/release skip it).  A near-minimum cache footprint
+   keeps class maxes at their ~640 floor; joiner_cnt=2 (threshold 1280)
+   makes the small classes our accounts use tracked. */
+static void
+test_acquire_b_refund_accounting( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup_ex( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL,
+                                      7UL<<30UL, 640UL, 2UL );
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, SENTINEL );
+
+  uchar cand0 [ 32 ] = { 'a', 0 };
+  uchar cand1 [ 32 ] = { 'b', 0 };
+  uchar owner [ 32 ] = { 0x11, 0 };
+  uchar pd_big[ 32 ] = { 'G', 0 };  /* class 3 (4 KiB) -- a TRACKED class */
+  uchar pd_none[ 32 ] = { 'N', 0 }; /* never committed -> no accmeta      */
+
+  uchar bigdata[ 4096 ];
+  memset( bigdata, 0xCD, sizeof(bigdata) );
+
+  accdb_write( accdb, root0, cand0,  100UL, NULL,    0UL,              owner );
+  accdb_write( accdb, root0, cand1,  100UL, NULL,    0UL,              owner );
+  accdb_write( accdb, root0, pd_big, 100UL, bigdata, sizeof(bigdata),  owner );
+
+  ulong used0[ FD_ACCDB_CACHE_CLASS_CNT ], max0[ FD_ACCDB_CACHE_CLASS_CNT ], base[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used0, max0, base );
+
+  /* Phase A: acquire the two candidates read-only (maybe-programdata
+     over-reservation: +1 to every tracked class per candidate). */
+  uchar const * cand_pks[2] = { cand0, cand1 };
+  int           cand_wr [2] = { 0, 0 };
+  fd_acc_t      cand_acc[2];
+  memset( cand_acc, 0, sizeof(cand_acc) );
+  fd_accdb_acquire_a( accdb, root0, 2UL, cand_pks, cand_wr, cand_acc );
+
+  /* Phase B: resolve programdata and refund the surplus.  reserved_cnt is
+     the candidate count (2), exactly as fd_executor.c passes
+     txn_out->accounts.cnt. */
+  uchar const * pd_pks[2] = { pd_big, pd_none };
+  int           pd_wr [2] = { 0, 0 };
+  fd_acc_t      pd_acc[2];
+  memset( pd_acc, 0, sizeof(pd_acc) );
+  fd_accdb_acquire_b( accdb, root0, 2UL, 2UL, pd_pks, pd_wr, pd_acc );
+
+  fd_accdb_release( accdb, 2UL, cand_acc );
+  fd_accdb_release( accdb, 2UL, pd_acc );
+
+  ulong used1[ FD_ACCDB_CACHE_CLASS_CNT ], max1[ FD_ACCDB_CACHE_CLASS_CNT ], post[ FD_ACCDB_CACHE_CLASS_CNT ];
+  fd_accdb_cache_class_occupancy( accdb, used1, max1, post );
+  int any_tracked = 0;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    if( base[ c ]!=ULONG_MAX ) any_tracked = 1; /* ULONG_MAX => class not tracked */
+    FD_TEST( post[ c ]==base[ c ] );
+  }
+  /* Meaningful only if at least one class actually tracks reservations. */
+  FD_TEST( any_tracked );
+
+  test_teardown( accdb, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -962,6 +1053,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "test_mainnet_footprint ..." ));
   test_mainnet_footprint();
+
+  FD_LOG_NOTICE(( "test_acquire_b_refund_accounting ..." ));
+  test_acquire_b_refund_accounting();
 
   FD_LOG_NOTICE(( "success" ));
 }
