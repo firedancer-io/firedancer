@@ -1,9 +1,9 @@
 #include "fd_grpc_codec.h"
 #include "../h2/fd_h2_rbuf.h"
 #include "../h2/fd_hpack.h"
+#include "../../util/tmpl/fd_unit_test.c"
 
-static void
-test_h2_gen_request_hdr( void ) {
+FD_UNIT_TEST( h2_gen_request_hdr ) {
   fd_grpc_req_hdrs_t req = {
     .https    = 1,
     .host     = "example.org",
@@ -91,8 +91,7 @@ hpack_literal( uchar * out, char const * name, ulong name_len,
   return (ulong)(p - out);
 }
 
-static void
-test_read_response_hdrs( void ) {
+FD_UNIT_TEST( read_response_hdrs ) {
   fd_h2_hdr_matcher_t matcher[1];
   FD_TEST( fd_h2_hdr_matcher_init( matcher, 1UL )==matcher );
   fd_h2_hdr_matcher_insert_literal( matcher, FD_GRPC_HDR_STATUS,  "grpc-status"  );
@@ -379,8 +378,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  test_h2_gen_request_hdr();
-  test_read_response_hdrs();
+  fd_unit_tests( argc, argv );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;

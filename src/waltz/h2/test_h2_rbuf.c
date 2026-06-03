@@ -17,8 +17,7 @@ test_h2_rbuf_fragments( fd_h2_rbuf_t * rbuf ) {
   FD_TEST( free0+free1==free_sz );
 }
 
-void
-test_h2_rbuf( fd_rng_t * rng ) {
+FD_UNIT_TEST( h2_rbuf ) {
   uchar scratch[64];
   for( int j=0UL; j<64; j++ ) scratch[j] = (uchar)( 'A'+j );
 

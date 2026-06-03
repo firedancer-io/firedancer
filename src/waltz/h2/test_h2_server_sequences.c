@@ -418,8 +418,7 @@ test_h2_srv_seq_handshake( test_h2_srv_seq_harness_t * harness ) {
   test_h2_srv_seq_expect_tx_empty( harness );
 }
 
-static void
-test_h2_server_stream_accounting( void ) {
+FD_UNIT_TEST( h2_server_stream_accounting ) {
   test_h2_srv_seq_harness_t harness[1];
   uchar request_headers[ TEST_H2_SRV_SEQ_HEADER_MAX ] = {0};
   uchar ping_payload[ 8 ] = { 'p', 'a', 'd', 'p', 'o', 'c', '!', '!' };
@@ -545,8 +544,7 @@ test_h2_server_stream_accounting( void ) {
   test_h2_srv_seq_expect_tx_empty( harness );
 }
 
-static void
-test_h2_server_stream_error_releases_quota( void ) {
+FD_UNIT_TEST( h2_server_stream_error_releases_quota ) {
   test_h2_srv_seq_harness_t harness[1];
   test_h2_srv_seq_harness_init( harness );
   test_h2_srv_seq_handshake( harness );
