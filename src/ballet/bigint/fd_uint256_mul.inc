@@ -15,6 +15,7 @@
 
 .macro _fd_uint256_mul_mod_p r, a, b, p, p_inv
 
+    sub     $128, %rsp
     push    %rbp
     push    %r15
     push    %r14
@@ -200,5 +201,6 @@
     pop     %r14
     pop     %r15
     pop     %rbp
+    add     $128, %rsp
 
 .endm
