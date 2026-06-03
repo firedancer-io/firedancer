@@ -101,13 +101,20 @@ struct fd_runtime {
   } instr;
 
   struct {
+    /* fd_txn_out_t only stores pointers into this runtime-owned memory.
+       Bundle txns execute before any txn_out is committed/canceled, so
+       the whole bundle's accounts are kept opened (deduplicated) in
+       these flat arrays until commit/cancel. */
+
     /* The executable accounts are derived from the accounts in the
        transaction and are used by the bpf loader program to validate
        the program data account. */
-    ulong    executable_cnt;                     /* Number of BPF upgradeable loader accounts. */
-    fd_acc_t executable[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
+    ulong    executable_cnt;
+    fd_acc_t executable[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
 
-    ulong    refcnt[ MAX_TX_ACCOUNT_LOCKS ];     /* Reference count for each account */
+    ulong    account_cnt;
+    ulong    refcnt[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t account[ FD_PACK_MAX_TXN_PER_BUNDLE * MAX_TX_ACCOUNT_LOCKS ];
   } accounts;
 
   struct {
@@ -261,17 +268,25 @@ struct fd_txn_out {
     /* is_setup is set to 1 if account data buffer resources have been
        acquired for the transaction and 0 if they have not.  If the flag
        has been set, memory resources must be released. */
-    int is_setup;
-    ulong cnt;
+    int         is_setup;
+    ulong       cnt;
     fd_pubkey_t keys[ MAX_TX_ACCOUNT_LOCKS ];
-    fd_acc_t account[ MAX_TX_ACCOUNT_LOCKS ];
+    fd_acc_t *  account[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar       is_writable[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar       account_acquired[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong       starting_lamports[ MAX_TX_ACCOUNT_LOCKS ];
+    ulong       starting_data_len[ MAX_TX_ACCOUNT_LOCKS ];
+
+    ulong      executable_cnt;                          /* Number of BPF upgradeable loader accounts for the active txn. */
+    fd_acc_t * executable[ MAX_TX_ACCOUNT_LOCKS ];      /* Active txn's BPF upgradeable loader program data accounts. */
+    uchar      executable_acquired[ MAX_TX_ACCOUNT_LOCKS ];
 
     /* Flags to demarcate if an account is queued up to update the vote
        or stakes caches in the commit stage of a transaction. */
-    uchar         stake_update[ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         vote_update [ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
-    uchar         rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar stake_update[ MAX_TX_ACCOUNT_LOCKS ];
+    uchar vote_update [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar new_vote    [ MAX_TX_ACCOUNT_LOCKS ];
+    uchar rm_vote     [ MAX_TX_ACCOUNT_LOCKS ];
 
     ulong nonce_idx_in_txn; /* !=ULONG_MAX if exists */
     ulong nonce_rollback_data_len;

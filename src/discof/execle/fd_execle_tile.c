@@ -740,6 +740,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->runtime->fuzz.enabled             = 0;
   ctx->runtime->fuzz.reclaim_accounts    = 0;
   ctx->runtime->accounts.executable_cnt  = 0UL;
+  ctx->runtime->accounts.account_cnt     = 0UL;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

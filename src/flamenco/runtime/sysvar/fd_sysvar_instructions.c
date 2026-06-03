@@ -39,7 +39,7 @@ fd_sysvar_instructions_serialize_account( fd_txn_in_t const * txn_in,
   ulong            serialized_sz = instructions_serialized_size( txn );
   FD_TEST( serialized_sz<=FD_SYSVAR_INSTRUCTIONS_FOOTPRINT );
 
-  fd_acc_t * acc = &txn_out->accounts.account[ txn_idx ];
+  fd_acc_t * acc = txn_out->accounts.account[ txn_idx ];
   /* Agave sets up the borrowed account for the instructions sysvar to contain
      default values except for the data which is serialized into the account.
      The accdb returns data=NULL for the sysvar instructions account because

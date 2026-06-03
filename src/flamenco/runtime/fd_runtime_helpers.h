@@ -37,14 +37,14 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
 /* Load the accounts in the address lookup tables of txn into out_accts_alt */
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
-                                           fd_txn_t const *          txn,
-                                           uchar const *             payload,
-                                           fd_accdb_t *              accdb,
-                                           fd_accdb_fork_id_t        fork_id,
-                                           ulong                     slot,
-                                           fd_slot_hashes_t const *  hashes,
-                                           fd_acct_addr_t *          out_accts_alt );
+fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *         txn,
+                                           uchar const *            payload,
+                                           fd_accdb_t *             accdb,
+                                           fd_accdb_fork_id_t       fork_id,
+                                           ulong                    slot,
+                                           fd_slot_hashes_t const * hashes,
+                                           fd_acct_addr_t *         out_accts_alt,
+                                           fd_runtime_t const *     runtime_opt );
 
 /* fd_runtime_new_fee_rate_governor_derived updates the bank's
    FeeRateGovernor to a new derived value based on the parent bank's
@@ -137,8 +137,7 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
 /* Gets an executable (program data) account via its pubkey. */
 
 fd_acc_t *
-fd_runtime_get_executable_account( fd_runtime_t *      runtime,
-                                   fd_txn_out_t *      txn_out,
+fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
                                    fd_pubkey_t const * pubkey );
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
