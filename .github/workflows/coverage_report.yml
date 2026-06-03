@@ -30,8 +30,6 @@ jobs:
           count_gigantic: 60
           count_huge: 100 # TODO: this is required until we can handle anonymous workspaces and loose huge pages in fddev
 
-      - uses: dtolnay/rust-toolchain@1.94.0
-
       - name: Generate all coverage
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
