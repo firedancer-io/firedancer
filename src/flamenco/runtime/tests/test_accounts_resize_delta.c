@@ -208,6 +208,7 @@ execute_txn( test_env_t *     env,
   ulong sz = txn_serialize( txn_p.payload, num_signers, signatures, num_signers,
                             0UL, num_readonly_unsigned, account_keys_cnt, account_keys,
                             &blockhash, instrs, instr_cnt );
+  txn_p.payload_sz = sz;
   FD_TEST( fd_txn_parse( txn_p.payload, sz, TXN( &txn_p ), NULL ) );
 
   env->txn_in.txn              = &txn_p;
