@@ -2001,7 +2001,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
           jsonp_ulong( gui->http, "max_total_vote_cost",         lslot->scheduler_stats->limits->max_vote_cost_per_block   );
           jsonp_ulong( gui->http, "max_account_write_cost",      lslot->scheduler_stats->limits->max_write_cost_per_acct   );
           jsonp_ulong( gui->http, "max_total_bytes",             lslot->scheduler_stats->limits->max_data_bytes_per_block  );
-          jsonp_ulong( gui->http, "max_total_microblocks",       lslot->scheduler_stats->limits->max_microblocks_per_block );
+          jsonp_ulong( gui->http, "max_total_microblocks",       lslot->max_microblocks                                    );
         jsonp_close_object( gui->http );
 
         jsonp_open_object( gui->http, "scheduler_stats" );
@@ -2050,7 +2050,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
       int processed_all_microblocks = lslot && lslot->unbecame_leader &&
                                       lslot->txs.start_offset!=ULONG_MAX &&
                                       lslot->txs.end_offset!=ULONG_MAX &&
-                                      lslot->txs.microblocks_upper_bound!=USHORT_MAX &&
+                                      lslot->txs.microblocks_upper_bound!=UINT_MAX &&
                                       lslot->txs.begin_microblocks==lslot->txs.end_microblocks &&
                                       lslot->txs.begin_microblocks==lslot->txs.microblocks_upper_bound;
 
