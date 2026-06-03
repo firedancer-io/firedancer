@@ -154,7 +154,6 @@ struct fd_bundle_tile {
 
   /* Bundle state */
   ulong bundle_seq;
-  ulong bundle_txn_cnt;
 
   /* Error backoff */
   fd_rng_t rng[1];

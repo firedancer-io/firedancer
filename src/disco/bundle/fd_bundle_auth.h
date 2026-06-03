@@ -12,6 +12,7 @@
 
 #include "../../waltz/grpc/fd_grpc_client.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
+#include "../../ballet/pb/fd_pb_tokenize.h"
 
 struct fd_bundle_auther {
   int   state;
@@ -63,15 +64,13 @@ fd_bundle_auther_handle_request_fail( fd_bundle_auther_t * auther );
 int
 fd_bundle_auther_handle_challenge_resp(
     fd_bundle_auther_t * auther,
-    void const *         data,
-    ulong                data_sz
+    fd_pb_inbuf_t        in
 );
 
 int
 fd_bundle_auther_handle_tokens_resp(
     fd_bundle_auther_t * auther,
-    void const *         data,
-    ulong                data_sz
+    fd_pb_inbuf_t        in
 );
 
 FD_PROTOTYPES_END

@@ -453,7 +453,7 @@ fd_event_client_grpc_conn_established( void * app_ctx ) {
   fd_pb_push_uint64( auth_req, 7U, client->boot_id );
   fd_pb_push_string( auth_req, 8U, client->action, strlen( client->action ) );
 
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start(
       client->grpc_client,
       "/events.v1.EventService/Authenticate", strlen("/events.v1.EventService/Authenticate"),
       FD_EVENT_CLIENT_REQ_CTX_AUTHENTICATE,
@@ -491,7 +491,7 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   }
 
   fd_pb_tlv_t challenge_tlv;
-  if( FD_UNLIKELY( !fd_pb_read_tlv( inbuf, &challenge_tlv ) ) ) {
+  if( FD_UNLIKELY( !fd_pb_tlv_read( inbuf, &challenge_tlv ) ) ) {
     FD_LOG_WARNING(( "Failed to parse auth challenge response" ));
     client->defer_disconnect = DISCONNECT_REASON_AUTH_FAILED;
     return;
@@ -537,7 +537,7 @@ fd_event_client_handle_auth_challenge_resp( fd_event_client_t * client,
   fd_pb_encoder_init( confirm_req, buffer, sizeof(buffer) );
   fd_pb_push_bytes( confirm_req, 1U, signed_challenge, 64UL );
 
-  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start1(
+  fd_grpc_h2_stream_t * stream = fd_grpc_client_request_start(
       client->grpc_client,
       "/events.v1.EventService/ConfirmAuthChallenge", strlen("/events.v1.EventService/ConfirmAuthChallenge"),
       FD_EVENT_CLIENT_REQ_CTX_CONFIRM_AUTH,
@@ -608,7 +608,7 @@ fd_event_client_handle_stream_events_resp( fd_event_client_t * client,
   ulong nonce_ack = 0UL;
   if( FD_LIKELY( protobuf_sz ) ) {
     fd_pb_tlv_t event_id;
-    if( FD_UNLIKELY( !fd_pb_read_tlv( inbuf, &event_id ) ||
+    if( FD_UNLIKELY( !fd_pb_tlv_read( inbuf, &event_id ) ||
                      event_id.field_id!=1U /* event_id */ ||
                      event_id.wire_type!=FD_PB_WIRE_TYPE_VARINT ) ) {
       FD_LOG_WARNING(( "Event gRPC rx msg: invalid Protobuf" ));
@@ -735,7 +735,7 @@ tx( fd_event_client_t * client,
   if( FD_LIKELY( !msg ) ) return;
 
   if( FD_UNLIKELY( !client->event_stream ) ) {
-    client->event_stream = fd_grpc_client_request_start1(
+    client->event_stream = fd_grpc_client_request_start(
         client->grpc_client,
         "/events.v1.EventService/StreamEvents", strlen("/events.v1.EventService/StreamEvents"),
         FD_EVENT_CLIENT_REQ_CTX_STREAM_EVENTS,
@@ -745,7 +745,7 @@ tx( fd_event_client_t * client,
     if( FD_UNLIKELY( !client->event_stream ) ) return; /* Only reason for failure is too big message, so just skip it */
     fd_grpc_client_deadline_set( client->event_stream, FD_GRPC_DEADLINE_HEADER, fd_log_wallclock()+(long)10e9 /* 10s */ );
   } else {
-    int result = fd_grpc_client_stream_send_msg1( client->grpc_client, client->event_stream, msg, msg_sz );
+    int result = fd_grpc_client_stream_send_msg( client->grpc_client, client->event_stream, msg, msg_sz );
     if( FD_UNLIKELY( !result ) ) return; /* Only reason for failure is too big message, so just skip it */
   }
 
