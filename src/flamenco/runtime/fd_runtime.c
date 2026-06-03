@@ -1587,10 +1587,8 @@ fd_runtime_get_account_at_index( fd_txn_in_t const *             txn_in,
 }
 
 fd_acc_t *
-fd_runtime_get_executable_account( fd_runtime_t *      runtime,
-                                   fd_txn_out_t *      txn_out,
+fd_runtime_get_executable_account( fd_txn_out_t *      txn_out,
                                    fd_pubkey_t const * pubkey ) {
-  (void)runtime;
   /* First try to fetch the executable account from the existing
      borrowed accounts.  If the pubkey is in the account keys, then we
      want to re-use that borrowed account since it reflects changes from
