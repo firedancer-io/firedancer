@@ -183,44 +183,6 @@ test_publish( fd_wksp_t * wksp ) {
 }
 
 void
-test_slot_mr( fd_wksp_t * wksp ) {
-  ulong        fec_max = 32;
-  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
-  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
-  FD_TEST( reasm );
-
-  fd_reasm_fec_t * pool = reasm_pool( reasm );
-  // ulong            null = pool_idx_null( pool );
-
-  ancestry_t * ancestry = reasm->ancestry;
-  frontier_t * frontier = reasm->frontier;
-  subtrees_t * subtrees = reasm->subtrees;
-
-  fd_hash_t mr0[1] = {{{ 0 }}};
-  fd_hash_t mr1[1] = {{{ 1 }}};
-  fd_hash_t mr2[1] = {{{ 2 }}};
-  fd_hash_t mr3[1] = {{{ 3 }}};
-  fd_hash_t mr4[1] = {{{ 4 }}};
-  fd_reasm_fec_t * ev[1];
-
-  fd_reasm_init( reasm, mr1, 1 ); /* set root */
-  fd_reasm_fec_t * fec1 = fd_reasm_query( reasm, mr1 );
-  FD_TEST( fec1 );
-  FD_TEST( frontier_ele_query( frontier, &fec1->key, NULL, pool ) == fec1 );
-
-  fd_reasm_fec_t * fec2 = fd_reasm_insert( reasm, mr2, mr0, 2, 0, 1, 32, 0, 1, 0, NULL, ev ); /* insert with bad mr0 should be mr1 */
-  FD_TEST( ancestry_ele_query( ancestry, &fec1->key, NULL, pool ) );                /* successfully chains anyways */
-  FD_TEST( frontier_ele_query( frontier, &fec2->key, NULL, pool ) );
-
-  fd_reasm_fec_t * fec4 = fd_reasm_insert( reasm, mr4, mr0, 4, 0, 1, 32, 0, 1, 0 , NULL, ev ); /* insert with bad mr0 should be mr3 */
-  FD_TEST( subtrees_ele_query( subtrees, &fec4->key, NULL, pool ) );                /* orphaned */
-
-  fd_reasm_fec_t * fec3 = fd_reasm_insert( reasm, mr3, mr2, 3, 0, 1, 32, 0, 1, 0, NULL, ev );
-  FD_TEST( ancestry_ele_query( ancestry, &fec3->key, NULL, pool ) );                /* mr3 should chain to 2 */
-  FD_TEST( frontier_ele_query( frontier, &fec4->key, NULL, pool ) );                /* mr4 should have chained */
-}
-
-void
 test_eqvoc( fd_wksp_t * wksp ) {
   ulong        fec_max = 32;
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
@@ -306,8 +268,7 @@ test_eqvoc( fd_wksp_t * wksp ) {
 }
 
 void
-test_eqvoc_xidbid( fd_wksp_t * wksp ) {
-  // checks the properties of the xid and bid maps are maintained correctly
+test_eqvoc_xid( fd_wksp_t * wksp ) {
   ulong        fec_max = 32;
   void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
   fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
@@ -327,39 +288,27 @@ test_eqvoc_xidbid( fd_wksp_t * wksp ) {
   fd_reasm_fec_t * fec3 = fd_reasm_insert( reasm, mr3, mr2,  1, 64, 1, 32, 0, 1, 0, NULL, ev );
 
   ulong last_xid = (1UL << 32) | 64UL;
-  ulong bid      = (1UL << 32) | UINT_MAX;
 
-  FD_TEST( xid_query( reasm->xid, bid, NULL )->cnt == 1 );
-  FD_TEST( xid_query( reasm->xid, bid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec3 ) );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 1 );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec3 ) );
 
   fd_reasm_fec_t * fec4 = fd_reasm_insert( reasm, mr4, mr2,  1, 64, 1, 32, 0, 1, 0, NULL, ev ); /* equivocate on last fec set idx, gets placed at head of list*/
-  FD_TEST( xid_query( reasm->xid, bid, NULL )->cnt == 2 );
-  FD_TEST( xid_query( reasm->xid, bid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 2 );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
 
   fd_reasm_confirm( reasm, mr4 );
-  FD_TEST( xid_query( reasm->xid, bid, NULL )->cnt == 2 );
-  FD_TEST( xid_query( reasm->xid, bid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 2 );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
 
-  /* publishing forward to mr4 (doesn't actually happen ... ) but should update the xid and bid maps to cnt 1 */
+  /* publishing forward to mr4 should update the xid map to cnt 1 */
   fd_reasm_publish( reasm, mr4, NULL );
-  FD_TEST( xid_query( reasm->xid, bid, NULL )->cnt == 1 );
-  FD_TEST( xid_query( reasm->xid, bid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 1 );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
 
   fd_hash_t mr5[1] = {{{ 1, 5 }}};
   fd_reasm_insert( reasm, mr5, mr4,  2, 0, 1, 32, 0, 1, 0, NULL, ev );
   fd_reasm_publish( reasm, mr5, NULL );
-  ulong bid2      = (2UL << 32) | UINT_MAX;
-  FD_TEST( !xid_query( reasm->xid, bid, NULL ) );
   FD_TEST( !xid_query( reasm->xid, last_xid, NULL ) );
-  FD_TEST( xid_query( reasm->xid, bid2, NULL )->cnt == 1 );
 }
 
 void
@@ -1248,23 +1197,18 @@ test_eqvoc_xid_evict( fd_wksp_t * wksp ) {
   fd_reasm_fec_t * fec4 = fd_reasm_insert( reasm, mr4, mr2,  1, 64, 1, 32, 0, 1, 0, NULL, ev );
 
   ulong last_xid = (1UL << 32) | 64UL;
-  ulong bid      = (1UL << 32) | UINT_MAX;
 
-  FD_TEST( xid_query( reasm->xid, bid,      NULL )->cnt == 2 );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 2 );
 
   /* Confirm fec4 (the second equivocating FEC). This moves fec4 to
-     the head of the xid/bid linked lists. */
+     the head of the xid linked list. */
   fd_reasm_confirm( reasm, mr4 );
-  FD_TEST( xid_query( reasm->xid, bid,      NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
 
   /* Publish to mr4.  This prunes fec3 (the unconfirmed equivocating
      FEC) via clear_slot_metadata.  After publish, cnt should be 1 and
      idx should still point to fec4 (the confirmed survivor). */
   fd_reasm_publish( reasm, mr4, NULL );
-  FD_TEST( xid_query( reasm->xid, bid,      NULL )->cnt == 1 );
-  FD_TEST( xid_query( reasm->xid, bid,      NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->cnt == 1 );
   FD_TEST( xid_query( reasm->xid, last_xid, NULL )->idx == pool_idx( reasm_pool( reasm ), fec4 ) );
 
@@ -1291,32 +1235,26 @@ test_eqvoc_xid_evict( fd_wksp_t * wksp ) {
   fd_reasm_fec_t * fecf = fd_reasm_insert( reasm, mrf, mrc,  1, 64, 1, 32, 0, 1, 0, NULL, ev ); /* first in list */
 
   ulong xid2 = (1UL << 32) | 64UL;
-  ulong bid2 = (1UL << 32) | UINT_MAX;
 
   FD_TEST( xid_query( reasm->xid, xid2, NULL )->cnt == 3 );
-  FD_TEST( xid_query( reasm->xid, bid2, NULL )->cnt == 3 );
 
   /* Confirm fecd (the first equivocating FEC this time). Should not move head of list. */
   fd_reasm_confirm( reasm, mrd );
   FD_TEST( xid_query( reasm->xid, xid2, NULL )->idx == pool_idx( reasm_pool( reasm ), fecf ) );
-  FD_TEST( xid_query( reasm->xid, bid2, NULL )->idx == pool_idx( reasm_pool( reasm ), fecf ) );
 
   /* simulate eviction of fecf */
   fd_reasm_remove( reasm, fecf, NULL );
   fd_reasm_pool_release( reasm, fecf );
 
   FD_TEST( xid_query( reasm->xid, xid2, NULL )->cnt == 2 );
-  FD_TEST( xid_query( reasm->xid, bid2, NULL )->cnt == 2 );
   FD_TEST( xid_query( reasm->xid, xid2, NULL )->idx == pool_idx( reasm_pool( reasm ), fecd ) );
-  FD_TEST( xid_query( reasm->xid, bid2, NULL )->idx == pool_idx( reasm_pool( reasm ), fecd ) );
 
-  /* Build forward from fecd so publish prunes fece, fec f */
+  /* Build forward from fecd so publish prunes fece */
   fd_reasm_insert( reasm, mrg, mrd,  2, 0, 1, 32, 0, 1, 0, NULL, ev );
   fd_reasm_publish( reasm, mrg, NULL );
 
   /* fece should have been pruned.  fecd survives at cnt 1. */
   FD_TEST( !xid_query( reasm->xid, xid2, NULL ) );
-  FD_TEST( !xid_query( reasm->xid, bid2, NULL ) );
 
   fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
   FD_LOG_NOTICE(( "test_eqvoc_xid_evict passed" ));
@@ -1337,12 +1275,11 @@ main( int argc, char ** argv ) {
 
   test_insert( wksp );
   test_publish( wksp );
-  test_slot_mr( wksp );
   test_eqvoc( wksp );
   test_xid_capacity( wksp );
   test_fec_after_eos( wksp );
   test_eqvoc_transitive( wksp );
-  test_eqvoc_xidbid( wksp );
+  test_eqvoc_xid( wksp );
   test_eqvoc_xid_evict( wksp );
   test_evict( wksp );
   test_validate_cross_slot( wksp );
