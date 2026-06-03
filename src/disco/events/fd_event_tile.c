@@ -2,6 +2,10 @@
 #include "fd_circq.h"
 #include "fd_event_client.h"
 
+#if !FD_HAS_OPENSSL
+#error "Building fd_event_tile requires FD_HAS_OPENSSL"
+#endif
+
 #include "../fd_txn_m.h"
 #include "../metrics/fd_metrics.h"
 #include "../net/fd_net_tile.h"
@@ -15,13 +19,10 @@
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/pb/fd_pb_encode.h"
 #include "../../tango/tempo/fd_tempo.h"
-
-#if FD_HAS_OPENSSL
 #include "../../util/alloc/fd_alloc.h"
 #include "../../waltz/openssl/fd_openssl.h"
 #include "../../waltz/openssl/fd_openssl_tile.h"
 #include <openssl/ssl.h>
-#endif
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -81,10 +82,7 @@ struct fd_event_tile {
 
   uchar identity_pubkey[ 32UL ];
 
-  int use_tls;
-#if FD_HAS_OPENSSL
   SSL_CTX * ssl_ctx;
-#endif
 
   fd_keyguard_client_t keyguard_client[1];
   fd_rng_t rng[1];
@@ -107,9 +105,7 @@ scratch_align( void ) {
   ulong a = alignof( fd_event_tile_t );
   a = fd_ulong_max( a, fd_event_client_align() );
   a = fd_ulong_max( a, fd_circq_align() );
-# if FD_HAS_OPENSSL
   a = fd_ulong_max( a, fd_alloc_align() );
-# endif
   return a;
 }
 
@@ -121,20 +117,16 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   l = FD_LAYOUT_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           ); /* 1GiB circq for events */
-# if FD_HAS_OPENSSL
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),          fd_alloc_footprint()                     );
-# endif
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                      );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-# if FD_HAS_OPENSSL
 FD_FN_CONST static inline ulong
 loose_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   /* Extra workspace memory for OpenSSL dynamic allocations */
   return 1UL<<26UL; /* 64 MiB */
 }
-# endif
 
 static inline void
 metrics_write( fd_event_tile_t * ctx ) {
@@ -144,16 +136,15 @@ metrics_write( fd_event_tile_t * ctx ) {
   FD_MGAUGE_SET( EVENT, EVENT_QUEUE_BYTES_CAPACITY, ctx->circq->size );
 
   fd_event_client_metrics_t const * metrics = fd_event_client_metrics( ctx->client );
-  FD_MCNT_SET( EVENT, EVENTS_SENT,         metrics->events_sent );
-  FD_MCNT_SET( EVENT, EVENTS_ACKED,        metrics->events_acked );
-  FD_MCNT_SET( EVENT, BYTES_WRITTEN,       metrics->bytes_written );
-  FD_MCNT_SET( EVENT, BYTES_READ,          metrics->bytes_read );
-  FD_MCNT_SET( EVENT, AUTH_FAIL,           metrics->auth_fail_cnt );
-  FD_MCNT_SET( EVENT, INVALID_MSG,         metrics->invalid_msg_cnt );
-  FD_MCNT_SET( EVENT, CONNECT_ATTEMPTS,    metrics->connect_attempt_cnt );
-  FD_MCNT_SET( EVENT, HANDSHAKE_TIMEOUTS,  metrics->handshake_timeout_cnt );
+  FD_MCNT_SET( EVENT, EVENTS_SENT,        metrics->events_sent );
+  FD_MCNT_SET( EVENT, EVENTS_ACKED,       metrics->events_acked );
+  FD_MCNT_SET( EVENT, BYTES_WRITTEN,      metrics->bytes_written );
+  FD_MCNT_SET( EVENT, BYTES_READ,         metrics->bytes_read );
+  FD_MCNT_SET( EVENT, INVALID_MSG,        metrics->invalid_msg_cnt );
+  FD_MCNT_SET( EVENT, CONNECT_ATTEMPTS,   metrics->connect_attempt_cnt );
+  FD_MCNT_SET( EVENT, HANDSHAKE_TIMEOUTS, metrics->handshake_timeout_cnt );
 
-  FD_MGAUGE_SET( EVENT, CONNECTION_STATE,  fd_event_client_state( ctx->client ) );
+  FD_MGAUGE_SET( EVENT, CONNECTION_STATE, fd_event_client_state( ctx->client ) );
 }
 
 static void
@@ -339,10 +330,7 @@ privileged_init( fd_topo_t *      topo,
   fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t),  sizeof(fd_event_tile_t) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           );
-# if FD_HAS_OPENSSL
   void * alloc_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-  (void)alloc_mem;
-# endif
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -384,37 +372,34 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( fd_url_parse_endpoint( url, tile->event.url, strlen( tile->event.url ), &port, &is_ssl, "[tiles.event.url]" ) ) ) {
     FD_LOG_ERR(( "Could not parse [tiles.event.url]" ));
   }
-  ctx->use_tls = is_ssl;
+  if( FD_UNLIKELY( !is_ssl ) ) {
+    FD_LOG_ERR(( "[tiles.event.url] must start with \"https://\"" ));
+  }
 
-# if FD_HAS_OPENSSL
   ctx->ssl_ctx = NULL;
-  if( ctx->use_tls ) {
-    fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), tile->kind_id );
-    if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_new failed" ));
-    fd_ossl_tile_init( alloc );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_mem, 1UL ), tile->kind_id );
+  if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_new failed" ));
+  fd_ossl_tile_init( alloc );
 
-    SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
-    if( FD_UNLIKELY( !ssl_ctx ) ) FD_LOG_ERR(( "SSL_CTX_new failed" ));
+  SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
+  if( FD_UNLIKELY( !ssl_ctx ) ) FD_LOG_ERR(( "SSL_CTX_new failed" ));
 
-    if( FD_UNLIKELY( !SSL_CTX_set_mode( ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_AUTO_RETRY ) ) )
-      FD_LOG_ERR(( "SSL_CTX_set_mode failed" ));
+  if( FD_UNLIKELY( !SSL_CTX_set_mode( ssl_ctx, SSL_MODE_ENABLE_PARTIAL_WRITE|SSL_MODE_AUTO_RETRY ) ) )
+    FD_LOG_ERR(( "SSL_CTX_set_mode failed" ));
 
-    if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) )
-      FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
+  if( FD_UNLIKELY( !SSL_CTX_set_min_proto_version( ssl_ctx, TLS1_3_VERSION ) ) )
+    FD_LOG_ERR(( "SSL_CTX_set_min_proto_version(ssl_ctx,TLS1_3_VERSION) failed" ));
 
-    if( FD_UNLIKELY( 0!=SSL_CTX_set_alpn_protos( ssl_ctx, (uchar const *)"\x02h2", 3 ) ) )
-      FD_LOG_ERR(( "SSL_CTX_set_alpn_protos failed" ));
+  if( FD_UNLIKELY( 0!=SSL_CTX_set_alpn_protos( ssl_ctx, (uchar const *)"\x02h2", 3 ) ) )
+    FD_LOG_ERR(( "SSL_CTX_set_alpn_protos failed" ));
 
+  if( tile->event.tls_cert_verify ) {
     fd_ossl_load_certs( ssl_ctx ); /* also sets SSL_VERIFY_PEER */
+  } else {
+    SSL_CTX_set_verify( ssl_ctx, SSL_VERIFY_NONE, NULL );
+  }
 
-    ctx->ssl_ctx = ssl_ctx;
-  }
-# else
-  if( FD_UNLIKELY( ctx->use_tls ) ) {
-    FD_LOG_ERR(( "TLS requested for event service (https:// URL) but this build "
-                 "does not include OpenSSL. Re-run ./deps.sh and do a clean rebuild." ));
-  }
-# endif
+  ctx->ssl_ctx = ssl_ctx;
 }
 
 static void
@@ -426,9 +411,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_event_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_event_tile_t), sizeof(fd_event_tile_t)                   );
   void * _event_client  = FD_SCRATCH_ALLOC_APPEND( l, fd_event_client_align(),  fd_event_client_footprint( GRPC_BUF_MAX ) );
   void * _circq         = FD_SCRATCH_ALLOC_APPEND( l, fd_circq_align(),         fd_circq_footprint( 1UL<<30UL )           );
-# if FD_HAS_OPENSSL
   FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
-# endif
 
   ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_event", tile->kind_id );
   ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "event_sign", tile->kind_id );
@@ -452,10 +435,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->circq = fd_circq_join( fd_circq_new( _circq, 1UL<<30UL /* 1GiB */ ) );
   FD_TEST( ctx->circq );
 
-  void * ssl_ctx_ptr = NULL;
-# if FD_HAS_OPENSSL
-  ssl_ctx_ptr = ctx->ssl_ctx;
-# endif
+  void * ssl_ctx_ptr = ctx->ssl_ctx;
 
   /* Rewrite the URL to hardcode port 7878 regardless of the port in
      the configured URL. */
@@ -484,8 +464,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                            ctx->boot_id,
                                                            ctx->machine_id,
                                                            GRPC_BUF_MAX,
-                                                           ctx->use_tls,
-                                                           ssl_ctx_ptr ) );
+                                                           ssl_ctx_ptr,
+                                                           tile->event.tls_cert_verify ) );
   FD_TEST( ctx->client );
 
   ctx->topo = topo;
@@ -596,9 +576,7 @@ fd_topo_run_tile_t fd_tile_event = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-# if FD_HAS_OPENSSL
   .loose_footprint          = loose_footprint,
-# endif
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,

@@ -22,8 +22,8 @@ message StreamEventsResponse {
   uint64 nonce = 1;
 }
 
-message AuthenticateRequest {
-  bytes identity_pubkey = 1;
+message HelloRequest {
+  reserved 1;
   string version = 2;
   bytes genesis_hash = 3;
   uint64 shred_version = 4;
@@ -33,24 +33,14 @@ message AuthenticateRequest {
   string action = 8;
 }
 
-message AuthenticateResponse {
-  bytes challenge = 1;
-}
-
-message ConfirmAuthChallengeRequest {
-  bytes signed_challenge = 1;
-}
-
-message ConfirmAuthChallengeResponse {
+message HelloResponse {
+  reserved 1;
 }
 
 // An event server for receiving application reported events
 service EventService {
-  // Generate an authentication challenge for the client to sign
-  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse) {}
-
-  // Confirm the signed authentication challenge from the client
-  rpc ConfirmAuthChallenge(ConfirmAuthChallengeRequest) returns (ConfirmAuthChallengeResponse) {}
+  // Send instance metadata on startup
+  rpc Hello(HelloRequest) returns (HelloResponse) {}
 
   // Stream of events from client to server, and acknowledgements from server to client
   rpc StreamEvents (stream StreamEventsRequest) returns (stream StreamEventsResponse);

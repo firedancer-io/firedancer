@@ -32,11 +32,10 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_LG_PRUNE  ( 2)  /* Gossip PruneData */
 #define FD_KEYGUARD_PAYLOAD_LG_SHRED  ( 3)  /* Solana legacy or merkle shred */
 #define FD_KEYGUARD_PAYLOAD_LG_TLS_CV ( 4)  /* TLS 1.3 certificate verify payload */
-#define FD_KEYGUARD_PAYLOAD_LG_REPAIR ( 6)  /* RepairProtocol */
-#define FD_KEYGUARD_PAYLOAD_LG_PING   ( 7)  /* Gossip ping protocol */
-#define FD_KEYGUARD_PAYLOAD_LG_BUNDLE ( 8)  /* Bundle block producer authentication */
-#define FD_KEYGUARD_PAYLOAD_LG_EVENT  ( 9)  /* Event reporter authentication */
-#define FD_KEYGUARD_PAYLOAD_LG_PONG   (10)  /* Gossip/Repair ping/pong protocol */
+#define FD_KEYGUARD_PAYLOAD_LG_REPAIR ( 5)  /* RepairProtocol */
+#define FD_KEYGUARD_PAYLOAD_LG_PING   ( 6)  /* Gossip ping protocol */
+#define FD_KEYGUARD_PAYLOAD_LG_BUNDLE ( 7)  /* Bundle block producer authentication */
+#define FD_KEYGUARD_PAYLOAD_LG_PONG   ( 8)  /* Gossip/Repair ping/pong protocol */
 
 #define FD_KEYGUARD_PAYLOAD_TXN    (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN   )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP)
@@ -46,15 +45,13 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_REPAIR (1UL<<FD_KEYGUARD_PAYLOAD_LG_REPAIR)
 #define FD_KEYGUARD_PAYLOAD_PING   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PING  )
 #define FD_KEYGUARD_PAYLOAD_BUNDLE (1UL<<FD_KEYGUARD_PAYLOAD_LG_BUNDLE)
-#define FD_KEYGUARD_PAYLOAD_EVENT  (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT )
 #define FD_KEYGUARD_PAYLOAD_PONG   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG  )
 
 /* Sign types *********************************************************/
 
-#define FD_KEYGUARD_SIGN_TYPE_ED25519                       (0)  /* ed25519_sign(input) */
-#define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519                (1)  /* ed25519_sign(sha256(data)) */
-#define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519         (2)  /* ed25519_sign(pubkey-data) */
-#define FD_KEYGUARD_SIGN_TYPE_FD_EVENTS_AUTH_CONCAT_ED25519 (3)  /* ed25519_sign(FD_EVENTS_AUTH-data)) */
+#define FD_KEYGUARD_SIGN_TYPE_ED25519               (0)  /* ed25519_sign(input) */
+#define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519        (1)  /* ed25519_sign(sha256(data)) */
+#define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519 (2)  /* ed25519_sign(pubkey-data) */
 
 /* Type confusion/ambiguity checks ************************************/
 

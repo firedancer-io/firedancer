@@ -4,16 +4,12 @@
 #include "fd_circq.h"
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../discof/genesis/fd_genesi_tile.h"
-
-#if FD_HAS_OPENSSL
 #include <openssl/ssl.h>
-#endif
 
-#define FD_EVENT_CLIENT_STATE_DISCONNECTED    (0)
-#define FD_EVENT_CLIENT_STATE_CONNECTING      (1)
-#define FD_EVENT_CLIENT_STATE_AUTHENTICATING  (2)
-#define FD_EVENT_CLIENT_STATE_CONFIRMING_AUTH (3)
-#define FD_EVENT_CLIENT_STATE_CONNECTED       (4)
+#define FD_EVENT_CLIENT_STATE_DISCONNECTED (0)
+#define FD_EVENT_CLIENT_STATE_CONNECTING   (1)
+#define FD_EVENT_CLIENT_STATE_REGISTERING  (2)
+#define FD_EVENT_CLIENT_STATE_CONNECTED    (3)
 
 struct fd_event_client;
 typedef struct fd_event_client fd_event_client_t;
@@ -25,7 +21,6 @@ struct fd_event_client_metrics {
   ulong events_acked;
   ulong bytes_written;
   ulong bytes_read;
-  ulong auth_fail_cnt;
   ulong invalid_msg_cnt;
   ulong connect_attempt_cnt;
   ulong handshake_timeout_cnt;
@@ -55,8 +50,8 @@ fd_event_client_new( void *                 shmem,
                      ulong                  boot_id,
                      ulong                  machine_id,
                      ulong                  buf_max,
-                     int                    use_tls,
-                     void *                 ssl_ctx );
+                     void *                 ssl_ctx,
+                     int                    tls_cert_verify );
 
 fd_event_client_t *
 fd_event_client_join( void * shec );

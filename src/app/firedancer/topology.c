@@ -746,11 +746,12 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)    fd_topob_tile_in ( topo, "shred",   i,            "metric_in", "tower_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)    fd_topob_tile_out( topo, "shred",   i,                         "shred_net",     i                                                  );
 
+# if FD_HAS_OPENSSL
   if( FD_LIKELY( telemetry_enabled ) ) {
     fd_topob_wksp( topo, "event"      );
     fd_topob_wksp( topo, "event_sign" );
     fd_topob_wksp( topo, "sign_event" );
-    fd_topob_link( topo, "event_sign", "event_sign", 128UL, 32UL, 1UL );
+    fd_topob_link( topo, "event_sign", "event_sign", 128UL, 162UL, 1UL );
     fd_topob_link( topo, "sign_event", "sign_event", 128UL, 64UL, 1UL );
     fd_topob_tile( topo, "event", "event", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1, 0 );
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -772,6 +773,9 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_in(  topo, "event",  0UL, "metric_in", "sign_event", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     fd_topob_tile_out( topo, "sign",   0UL,              "sign_event", 0UL                                         );
   }
+# else /* no OpenSSL */
+  if( telemetry_enabled ) FD_LOG_WARNING(( "ignoring [telemetry] = true: this build of Firedancer is missing OpenSSL" ));
+# endif /* FD_HAS_OPENSSL */
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
     fd_topob_wksp( topo, "bundle_verif" );
@@ -1119,6 +1123,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     fd_cstr_ncpy( tile->event.identity_key_path, config->paths.identity_key, sizeof(tile->event.identity_key_path) );
     fd_cstr_ncpy( tile->event.url, config->tiles.event.url, sizeof(tile->event.url) );
     fd_cstr_ncpy( tile->event.action, config->action, sizeof(tile->event.action) );
+    tile->event.tls_cert_verify = !!config->tiles.event.tls_cert_verify;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
 

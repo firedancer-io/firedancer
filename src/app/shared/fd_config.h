@@ -455,6 +455,7 @@ struct fd_config {
 
     struct {
       char url[ 256 ];
+      int  tls_cert_verify;
     } event;
 
     struct {

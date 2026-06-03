@@ -1,10 +1,12 @@
-ifdef FD_HAS_HOSTED
 $(call add-hdrs,fd_circq.h)
-$(call add-objs,fd_circq fd_event_client,fd_disco)
-ifdef FD_HAS_ALLOCA
-$(call add-objs,fd_event_tile,fd_disco)
-endif
-
+$(call add-objs,fd_circq,fd_disco)
 $(call make-unit-test,test_circq,test_circq,fd_disco fd_flamenco fd_tango fd_util)
 $(call run-unit-test,test_circq)
-endif
+ifdef FD_HAS_HOSTED
+ifdef FD_HAS_OPENSSL
+$(call add-objs,fd_event_auth fd_event_client,fd_disco)
+ifdef FD_HAS_ALLOCA
+$(call add-objs,fd_event_tile,fd_disco)
+endif # FD_HAS_ALLOCA
+endif # FD_HAS_OPENSSL
+endif # FD_HAS_HOSTED
