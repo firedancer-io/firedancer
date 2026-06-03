@@ -3,6 +3,7 @@ $(call add-objs,fd_txn_parse,fd_ballet)
 $(call make-unit-test,test_txn_parse,test_txn_parse,fd_ballet fd_util)
 $(call make-unit-test,test_txn,test_txn,fd_ballet fd_util)
 $(call make-unit-test,test_compact_u16,test_compact_u16,fd_ballet fd_util)
+$(call make-unit-test,test_txn_build,test_txn_build,fd_ballet fd_util)
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_txn_parse,fuzz_txn_parse,fd_ballet fd_util)
 endif
@@ -10,4 +11,7 @@ endif
 $(call run-unit-test,test_txn_parse)
 $(call run-unit-test,test_txn)
 $(call run-unit-test,test_compact_u16)
+$(call run-unit-test,test_txn_build)
 
+$(call add-hdrs,fd_txn_build.h)
+$(call add-objs,fd_txn_build,fd_ballet)
