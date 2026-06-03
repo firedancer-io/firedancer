@@ -696,8 +696,8 @@ typedef struct {
   ulong (*scratch_align           )( void );
   ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
   ulong (*loose_footprint         )( fd_topo_tile_t const * tile );
-  void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile );
-  void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile );
+  void  (*privileged_init         )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
+  void  (*unprivileged_init       )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
   void  (*run                     )( fd_topo_t * topo, fd_topo_tile_t * tile );
   ulong (*rlimit_file_cnt_fn      )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
 } fd_topo_run_tile_t;

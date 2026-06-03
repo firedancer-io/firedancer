@@ -408,8 +408,8 @@ fd_bundle_tile_init_openssl( fd_bundle_tile_t * ctx,
 #endif /* FD_HAS_OPENSSL */
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong const pending_max = tile->bundle.out_depth;
@@ -487,8 +487,8 @@ bundle_out_link( fd_topo_t const *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   fd_bundle_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   if( FD_UNLIKELY( tile->kind_id!=0 ) ) {
     FD_LOG_ERR(( "There can only be one bundle tile" ));

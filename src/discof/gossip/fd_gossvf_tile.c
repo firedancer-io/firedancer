@@ -955,8 +955,8 @@ after_frag( fd_gossvf_tile_ctx_t * ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -969,8 +969,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -1048,8 +1048,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     if( FD_LIKELY( link->mtu ) ) {
@@ -1073,7 +1073,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   FD_TEST( tile->out_cnt==1UL );
-  fd_topo_link_t * gossvf_out = &topo->links[ tile->out_link_id[ 0UL ] ];
+  fd_topo_link_t const * gossvf_out = &topo->links[ tile->out_link_id[ 0UL ] ];
   ctx->out->mem    = topo->workspaces[ topo->objs[ gossvf_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->out->chunk0 = fd_dcache_compact_chunk0( ctx->out->mem, gossvf_out->dcache );
   ctx->out->wmark  = fd_dcache_compact_wmark ( ctx->out->mem, gossvf_out->dcache, gossvf_out->mtu );

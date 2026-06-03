@@ -1243,8 +1243,8 @@ during_housekeeping( ctx_t * ctx ) {
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -1262,8 +1262,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong total_sign_depth = tile->repair.repair_sign_depth * tile->repair.repair_sign_cnt;
@@ -1304,7 +1304,7 @@ unprivileged_init( fd_topo_t *      topo,
   ulong sign_link_depth  = 0;
 
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ in_idx ] ];
     if( 0==strcmp( link->name, "net_repair" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->in_links[ in_idx ].net_rx, link->dcache );
@@ -1336,7 +1336,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sign_rrobin_idx   = 0;
 
   for( uint out_idx=0U; out_idx<(tile->out_cnt); out_idx++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ out_idx ] ];
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ out_idx ] ];
 
     if( 0==strcmp( link->name, "repair_net" ) ) {
 

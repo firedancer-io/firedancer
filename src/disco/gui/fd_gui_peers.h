@@ -396,7 +396,7 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_bandwidth_tracking_t * bw_tracking;
 
   fd_http_server_t * http;
-  fd_topo_t * topo;
+  fd_topo_t const * topo;
 
   ulong max_ws_conn_cnt;
   ulong open_ws_conn_cnt;
@@ -466,7 +466,7 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt );
 void *
 fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
-                  fd_topo_t *        topo,
+                  fd_topo_t const *  topo,
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
                   long               now );

@@ -253,8 +253,8 @@ should_shutdown( fd_forkt_tile_t const * ctx ) {
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
 
@@ -276,8 +276,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( tile->out_cnt<=FD_TOPO_MAX_TILE_OUT_LINKS );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     if     ( FD_LIKELY( !strcmp( link->name, "replay_epoch" ) ) ) ctx->in[ i ].kind = IN_KIND_REPLAY_EPOCH;
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in[ i ].kind = IN_KIND_TOWER_OUT;
@@ -294,8 +294,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   for( ulong i=0UL; i<tile->out_cnt; i++ ) {
-    fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
-    fd_topo_wksp_t * out_wksp = &topo->workspaces[ topo->objs[ out_link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ i ] ];
+    fd_topo_wksp_t const * out_wksp = &topo->workspaces[ topo->objs[ out_link->dcache_obj_id ].wksp_id ];
 
     if     ( FD_LIKELY( !strcmp( out_link->name, "gossip_out" ) ) ) FD_TEST( i==OUT_IDX_GOSSIP_OUT );
     else if( FD_LIKELY( !strcmp( out_link->name, "net_shred"  ) ) ) FD_TEST( i==OUT_IDX_NET_SHRED   );
@@ -316,11 +316,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->drain_pair_cnt = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * t = &topo->tiles[ i ];
+    fd_topo_tile_t const * t = &topo->tiles[ i ];
     for( ulong j=0UL; j<t->in_cnt; j++ ) {
       if( !t->in_link_poll[ j ] ) continue; /* unpolled => no fseq tracking */
 
-      fd_topo_link_t * link = &topo->links[ t->in_link_id[ j ] ];
+      fd_topo_link_t const * link = &topo->links[ t->in_link_id[ j ] ];
       ulong * fseq = fd_fseq_join( fd_topo_obj_laddr( topo, t->in_link_fseq_obj_id[ j ] ) );
       FD_TEST( fseq );
       FD_TEST( link->mcache );

@@ -463,8 +463,8 @@ during_housekeeping( fd_quic_ctx_t * ctx ) {
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   fd_quic_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   if( FD_UNLIKELY( topo->objs[ tile->tile_obj_id ].footprint < scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "insufficient tile scratch space" ));
@@ -505,8 +505,8 @@ quic_tls_cv_sign( void *      signer_ctx,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   if( FD_UNLIKELY( tile->in_cnt==0 ) ) {
@@ -536,7 +536,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( (ulong)ctx==(ulong)scratch );
 
   for( ulong i=0; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     if( FD_UNLIKELY( 0!=strcmp( link->name, "net_quic" ) ) ) {
       FD_LOG_ERR(( "unexpected input link %s", link->name ));
     }
@@ -595,14 +595,14 @@ unprivileged_init( fd_topo_t *      topo,
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
-  fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
+  fd_topo_link_t const * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
 
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( ctx->net_out_mem, net_out->dcache );
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
   ctx->net_out_chunk  = ctx->net_out_chunk0;
 
-  fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id[ 0 ] ];
+  fd_topo_link_t const * verify_out = &topo->links[ tile->out_link_id[ 0 ] ];
 
   ctx->verify_out_mem = topo->workspaces[ topo->objs[ verify_out->dcache_obj_id ].wksp_id ].wksp;
 

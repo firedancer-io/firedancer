@@ -274,8 +274,8 @@ after_frag( void *              _ctx,
 }
 
 static void FD_FN_SENSITIVE
-privileged_init_sensitive( fd_topo_t *      topo,
-                           fd_topo_tile_t * tile ) {
+privileged_init_sensitive( fd_topo_t const *      topo,
+                           fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
@@ -310,14 +310,14 @@ privileged_init_sensitive( fd_topo_t *      topo,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   privileged_init_sensitive( topo, tile );
 }
 
 static void FD_FN_SENSITIVE
-unprivileged_init_sensitive( fd_topo_t *      topo,
-                             fd_topo_tile_t * tile ) {
+unprivileged_init_sensitive( fd_topo_t const *      topo,
+                             fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -343,8 +343,8 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in[ i ].role = -1;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
+    fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ i ] ];
 
     if( in_link->mtu > FD_KEYGUARD_SIGN_REQ_MTU ) FD_LOG_CRIT(( "oversz link[%lu].mtu=%lu", i, in_link->mtu ));
     ctx->in[ i ].mem    = fd_wksp_containing( in_link->dcache );
@@ -403,8 +403,8 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   unprivileged_init_sensitive( topo, tile );
 }
 

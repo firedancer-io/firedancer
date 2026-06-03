@@ -47,7 +47,7 @@ fd_gui_new( void *                shmem,
             int                   schedule_strategy,
             char const *          wfs_expected_bank_hash_cstr,
             ushort                expected_shred_version,
-            fd_topo_t *           topo,
+            fd_topo_t const *     topo,
             long                  now ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
@@ -345,7 +345,7 @@ fd_gui_tile_timers_snap( fd_gui_t * gui ) {
   fd_gui_tile_timers_t * cur = gui->summary.tile_timers_snap + gui->summary.tile_timers_snap_idx * gui->tile_cnt;
   gui->summary.tile_timers_snap_idx = (gui->summary.tile_timers_snap_idx+1UL)%FD_GUI_TILE_TIMER_SNAP_CNT;
   for( ulong i=0UL; i<gui->topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &gui->topo->tiles[ i ];
+    fd_topo_tile_t const * tile = &gui->topo->tiles[ i ];
     if ( FD_UNLIKELY( !tile->metrics ) ) {
       /* bench tiles might not have been booted initially.
          This check shouldn't be necessary if all tiles barrier after boot. */
@@ -431,7 +431,7 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
 static void
 fd_gui_network_stats_snap( fd_gui_t *               gui,
                            fd_gui_network_stats_t * cur ) {
-  fd_topo_t * topo = gui->topo;
+  fd_topo_t const * topo = gui->topo;
   ulong gossvf_tile_cnt = fd_topo_tile_name_cnt( topo, "gossvf" );
   ulong gossip_tile_cnt = fd_topo_tile_name_cnt( topo, "gossip" );
   ulong shred_tile_cnt  = fd_topo_tile_name_cnt( topo, "shred" );
@@ -607,7 +607,7 @@ static void
 fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
                            fd_gui_txn_waterfall_t * cur ) {
   memset( cur, 0, sizeof(fd_gui_txn_waterfall_t) );
-  fd_topo_t * topo = gui->topo;
+  fd_topo_t const * topo = gui->topo;
 
   for( ulong i=0UL; i<gui->summary.bank_tile_cnt; i++ ) {
     fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
@@ -1234,7 +1234,7 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
        overview slots vis correct.  TODO: do this properly using frags
        sent over a link */
     if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
-      fd_topo_tile_t * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
+      fd_topo_tile_t const * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
       volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
       ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, REPAIRED_SLOTS ) ];
       fd_gui_handle_repair_slot( gui, slot, now );
@@ -3187,7 +3187,7 @@ fd_gui_handle_replay_update( fd_gui_t *                         gui,
 
   /* addresses racey behavior if we just sample at 400ms */
   if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
-    fd_topo_tile_t * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
+    fd_topo_tile_t const * repair = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "repair", 0UL ) ];
     volatile ulong const * repair_metrics = fd_metrics_tile( repair->metrics );
     ulong slot = repair_metrics[ MIDX( GAUGE, REPAIR, REPAIRED_SLOTS ) ];
     fd_gui_handle_repair_slot( gui, slot, now );
