@@ -1147,12 +1147,27 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
     int err = fd_bpf_loader_program_get_state( &txn_out->accounts.account[ i ], program_loader_state );
     if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) continue;
     if( FD_UNLIKELY( program_loader_state->discriminant!=FD_BPF_STATE_PROGRAM ) ) continue;
-    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->accdb_fork_id, program_loader_state->inner.program.programdata_address.uc ) ) ) continue;
+
+    fd_pubkey_t const * programdata_address = &program_loader_state->inner.program.programdata_address;
+
+    /* If the programdata account is already one of the transaction's
+       declared accounts (e.g. a loader Upgrade/Extend lists it as a
+       writable instruction account), do NOT re-acquire it here.  A
+       second acquire of the same (pubkey, fork) while it is held
+       writable from acquire_a above violates the accdb acquire contract
+       (a writable acquire must not overlap any other acquire of the
+       same account on the same fork; see fd_accdb.h).  It is also
+       redundant: fd_runtime_get_executable_account() always prefers the
+       declared account over runtime->accounts.executable[], so the
+       read-only copy would never be read. */
+    if( FD_UNLIKELY( fd_runtime_find_index_of_account( txn_out, programdata_address )!=ULONG_MAX ) ) continue;
+
+    if( FD_UNLIKELY( !fd_accdb_exists( runtime->accdb, bank->accdb_fork_id, programdata_address->uc ) ) ) continue;
 
     writable[ executable_account_cnt ] = 0;
     /* Keep the derived programdata address in stable storage until
        fd_accdb_acquire_b() consumes the pubkey array below. */
-    programdata_keys[ executable_account_cnt ] = program_loader_state->inner.program.programdata_address;
+    programdata_keys[ executable_account_cnt ] = *programdata_address;
     pubkeys[ executable_account_cnt ] = programdata_keys[ executable_account_cnt ].uc;
     executable_account_cnt++;
   }
