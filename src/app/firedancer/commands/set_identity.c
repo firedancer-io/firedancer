@@ -194,12 +194,12 @@ find_keyswitch( fd_topo_t const * topo,
 }
 
 static void FD_FN_SENSITIVE
-poll_keyswitch( fd_topo_t * topo,
-                ulong *     state,
-                ulong *     halted_seq,
-                uchar *     keypair,
-                int         require_tower,
-                int         force_lock ) {
+poll_keyswitch( fd_topo_t *   topo,
+                ulong *       state,
+                ulong *       halted_seq,
+                uchar const * keypair,
+                int           require_tower,
+                int           force_lock ) {
   switch( *state ) {
     case FD_SET_IDENTITY_STATE_UNLOCKED: {
       /* First update replay's keyswitch from unlocked to locked. */
@@ -335,7 +335,9 @@ poll_keyswitch( fd_topo_t * topo,
       }
 
       FD_COMPILER_MFENCE();
-      fd_memzero_explicit( keypair, 32UL ); /* Private key no longer needed in this process */
+      uchar * keypair_wr = fd_keyload_mprotect_wr( keypair, 0 );
+      fd_memzero_explicit( keypair_wr, 32UL ); /* Private key no longer needed in this process */
+      fd_keyload_mprotect_ro( keypair_wr, 0 );
       FD_COMPILER_MFENCE();
 
       for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -478,9 +480,10 @@ set_identity_cmd_args( int *    pargc,
   (*pargv)++;
 
   if( FD_UNLIKELY( !strcmp( path, "-" ) ) ) {
-    args->set_identity.keypair = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+    uchar * keypair_wr = fd_keyload_alloc_protected_pages( 1UL, 2UL );
     FD_LOG_STDOUT(( "Reading identity keypair from stdin.  Press Ctrl-D when done.\n" ));
-    fd_keyload_read( STDIN_FILENO, "stdin", args->set_identity.keypair );
+    fd_keyload_read( STDIN_FILENO, "stdin", keypair_wr );
+    args->set_identity.keypair = fd_keyload_mprotect_ro( keypair_wr, 0 );
   } else {
     args->set_identity.keypair = fd_keyload_load( path, 0 );
   }
