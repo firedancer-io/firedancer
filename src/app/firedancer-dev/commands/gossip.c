@@ -142,9 +142,9 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
   fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL*4, sizeof(fd_gossip_update_message_t), 1UL );
   fd_topob_tile_out( topo, "gossip", 0UL, "gossip_out", 0UL );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
-    fd_topob_link(     topo, "gossvf_gossip", "gossvf_gossip", 65536UL*4, sizeof(fd_gossip_message_t)+FD_GOSSIP_MESSAGE_MAX_CRDS+FD_NET_MTU, 1UL );
+    fd_topob_link(     topo, "gossvf_gossip", "gossvf_gossip", 65536UL*4, FD_GOSSIP_GOSSVF_MTU, 1UL );
     fd_topob_tile_out( topo, "gossvf", i, "gossvf_gossip", i );
-    fd_topob_tile_in(  topo, "gossip", 0UL, "metric_in", "gossvf_gossip", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in(  topo, "gossip", 0UL, "metric_in", "gossvf_gossip", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
     /* Only one link_kind for gossip_out broadcast link */
     fd_topob_tile_in( topo, "gossvf", i, "metric_in", "gossip_gossvf", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
