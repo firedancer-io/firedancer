@@ -37,12 +37,6 @@ For Firedancer builds:
 
 ## Auto-generated Code
 
-- **Metrics:** After changing `metrics.xml`, run:
-  ```bash
-  make -C src/disco/metrics metrics
-  ```
-  Regenerates all files in `src/disco/metrics/generated/` and `book/api/metrics-generated.md`.
-
 - **Features:** After changing `feature_map.json`, run:
   ```bash
   cd src/flamenco/features && make generate
