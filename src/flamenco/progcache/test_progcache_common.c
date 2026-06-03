@@ -89,20 +89,3 @@ test_account_init_v3_data( test_account_t * acc,
   fd_accdb_ro_init_nodb_oob( acc->ro, address, acc->meta, buf );
   return acc;
 }
-
-struct test_case {
-  char const * name;
-  void      (* fn)( fd_wksp_t * wksp );
-};
-
-FD_FN_UNUSED static int
-match_test_name( char const * test_name,
-                 int          argc,
-                 char **      argv ) {
-  if( argc<=1 ) return 1;
-  for( int i=1; i<argc; i++ ) {
-    if( argv[ i ][ strspn( argv[ i ], " \t\n\r" ) ]=='\0' ) continue;
-    if( strstr( test_name, argv[ i ] ) ) return 1;
-  }
-  return 0;
-}
