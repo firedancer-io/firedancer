@@ -41,12 +41,23 @@ local tango_link = ProtoField.uint32("fd_tango.link", "Link Hash", base.HEX)
 local tango_link_name = ProtoField.string("fd_tango.linkname", "Link Name")
 local tango_contents = ProtoField.bytes("fd_tango.contents", "DCache Contents")
 
-local tpu_payload_sz = ProtoField.uint16("fd_tpu.payload_sz", "Payload Size")
+local tpu_payload_sz = ProtoField.uint64("fd_tpu.payload_sz", "Payload Size")
 local tpu_txn = ProtoField.bytes("fd_tpu.txn_t", "fd_txn_t")
 local tpu_requested_cus = ProtoField.uint32("fd_tpu.requested_cus", "Requested CUs")
 local tpu_executed_cus = ProtoField.uint32("fd_tpu.executed_cus", "Executed CUs")
 local sched_arrival_ns = ProtoField.int64("fd_tpu.sched_arrival_ns", "Arrival Time (ns)")
+local tpu_pack_alloc = ProtoField.uint32("fd_tpu.pack_alloc", "Estimated Account Data Bytes")
+local tpu_source_ipv4 = ProtoField.ipv4("fd_tpu.source_ipv4", "Source IP Address")
 local tpu_flags = ProtoField.uint32("fd_tpu.flags", "Flags")
+
+local source_tpu_enum = {
+    [1] = "QUIC",
+    [2] = "UDP",
+    [3] = "GOSSIP",
+    [4] = "BUNDLE",
+    [5] = "TXSEND"
+}
+local tpu_source_tpu = ProtoField.uint8("fd_tpu.source_tpu", "Source TPU", base.DEC, source_tpu_enum)
 
 local yesno_types = {
     [0] = "No",
@@ -129,6 +140,9 @@ tango.fields = {
   tpu_requested_cus,
   tpu_executed_cus,
   sched_arrival_ns,
+  tpu_pack_alloc,
+  tpu_source_tpu,
+  tpu_source_ipv4,
   tpu_flags,
 
   tpu_simple_vote,
@@ -141,44 +155,131 @@ tango.fields = {
 }
 
 local link_hashes = {
-  [0x18a945] = "shred_net",
-  [0x2aabab] = "quic_verify",
-  [0x1efba0] = "verify_dedup",
-  [0x59ac4d] = "dedup_pack",
-  [0x9e5973] = "gossip_dedup",
-  [0x27193a] = "stake_out",
-  [0x59bd91] = "resolv_pack",
-  [0x7b8342] = "pack_bank",
+  [0x2080d6] = "bank_pack",
   [0xfe7bbf] = "bank_poh",
-  [0xdb6a44] = "poh_shred",
+  [0xc5edd5] = "bank_pohh",
+  [0xc7e9e7] = "bundle_sign",
+  [0x2259d5] = "bundle_status",
+  [0x9e4bf4] = "bundle_verif",
+  [0x9d8724] = "cap_execrp",
+  [0x028d7f] = "cap_repl",
   [0xb8e9a5] = "crds_shred",
+  [0x59ac4d] = "dedup_pack",
+  [0x6fa24c] = "dedup_resolh",
+  [0x409d3f] = "dedup_resolv",
+  [0x5c4381] = "event_sign",
+  [0x257632] = "execle_pack",
+  [0x458b11] = "execle_poh",
+  [0x6b8288] = "execrp_replay",
+  [0xf34262] = "executed_txn",
+  [0x063e7f] = "genesi_out",
+  [0x9e5973] = "gossip_dedup",
+  [0xc39d46] = "gossip_gossvf",
+  [0x3c9510] = "gossip_net",
+  [0xef3ca0] = "gossip_out",
+  [0x95c8b9] = "gossip_plugi",
+  [0x7af27e] = "gossip_sign",
+  [0x88f11a] = "gossvf_gossip",
+  [0x3f8da5] = "ipecho_out",
+  [0xfb0d59] = "net_gossvf",
+  [0xf680c5] = "net_quic",
+  [0xd5cc48] = "net_repair",
+  [0x6f928b] = "net_shred",
+  [0x287af8] = "net_txsend",
+  [0x7b8342] = "pack_bank",
+  [0xe959ef] = "pack_execle",
+  [0x534f91] = "pack_poh",
+  [0x84ad31] = "pack_pohh",
+  [0x06c577] = "pack_sign",
+  [0x8c8ec7] = "plugin_out",
+  [0xee5444] = "poh_pack",
+  [0x8b0b77] = "poh_replay",
+  [0xdb6a44] = "poh_shred",
+  [0xd1d9f8] = "pohh_pack",
+  [0x49cb86] = "pohh_plugin",
+  [0xc2fc14] = "pohh_shred",
+  [0x0d274e] = "quic_net",
+  [0x2aabab] = "quic_verify",
+  [0xf005bb] = "repair_net",
+  [0x629712] = "repair_out",
+  [0xbaac5b] = "repair_sign",
+  [0xbfa307] = "replay_epoch",
+  [0x5953b3] = "replay_execrp",
+  [0x01a062] = "replay_out",
+  [0x7277f4] = "replay_plugi",
+  [0x3fb62b] = "replay_resol",
+  [0x2fc720] = "resolh_pack",
+  [0x59bd91] = "resolv_pack",
+  [0x6ca466] = "resolv_replay",
+  [0x8282c8] = "rpc_replay",
+  [0x18a945] = "shred_net",
+  [0x1eb6fd] = "shred_out",
+  [0xc650c9] = "shred_sign",
   [0x6e5d41] = "shred_store",
   [0x3845f5] = "shred_storei",
-  [0xc650c9] = "shred_sign",
-  [0xd408b5] = "sign_shred",
-  [0x0d274e] = "quic_net",
-  [0xf680c5] = "net_quic",
-  [0xee5444] = "poh_pack",
-  [0x6f928b] = "net_shred",
-  [0x9e5973] = "gossip_dedup",
-  [0x409d3f] = "dedup_resolv",
-  [0x3fb62b] = "replay_resol",
-  [0x8c8ec7] = "plugin_out"  ,
-  [0x7277f4] = "replay_plugi",
-  [0x95c8b9] = "gossip_plugi",
-  [0xff8c5d] = "poh_plugin"  ,
-  [0x016c76] = "startp_plugi",
-  [0x875140] = "votel_plugin",
-  [0x9e4bf4] = "bundle_verif",
-  [0xc7e9e7] = "bundle_sign" ,
-  [0x81114e] = "sign_bundle" ,
-  [0x8ebf3e] = "bundle_status",
-  [0x06c577] = "pack_sign",
+  [0x81114e] = "sign_bundle",
+  [0xac9667] = "sign_event",
+  [0x251fca] = "sign_gossip",
   [0x6a974e] = "sign_pack",
-  [0x2080d6] = "bank_pack",
-  [0x534f91] = "pack_poh",
-  [0xd5cc48] = "net_repair",
-  [0xf005bb] = "repair_net"
+  [0x5f5814] = "sign_repair",
+  [0xd408b5] = "sign_shred",
+  [0x40972f] = "sign_txsend",
+  [0x8ea9bf] = "snapct_gui",
+  [0x5c70df] = "snapct_ld",
+  [0x148184] = "snapct_repr",
+  [0xdef6de] = "snapdc_in",
+  [0xacbf32] = "snapin_ct",
+  [0xa701b5] = "snapin_gui",
+  [0x26fe69] = "snapin_manif",
+  [0x66308d] = "snapld_dc",
+  [0x27193a] = "stake_out",
+  [0x016c76] = "startp_plugi",
+  [0x02a21a] = "tower_out",
+  [0xf7b150] = "txsend_net",
+  [0x1f1be9] = "txsend_out",
+  [0x86f1e2] = "txsend_sign",
+  [0xc9c463] = "valcfg_plugi",
+  [0x1efba0] = "verify_dedup",
+  [0x875140] = "votel_plugin",
+}
+
+local txn_m_links = {
+  bundle_verif = true,
+  dedup_pack = true,
+  dedup_resolh = true,
+  dedup_resolv = true,
+  gossip_dedup = true,
+  quic_verify = true,
+  resolh_pack = true,
+  resolv_pack = true,
+  txsend_out = true,
+  verify_dedup = true,
+}
+
+local microblock_links = {
+  bank_poh = true,
+  bank_pohh = true,
+  execle_poh = true,
+}
+
+local expanded_microblock_links = {
+  pack_execle = true,
+  pack_bank = true,
+}
+
+local rebate_links = {
+  bank_pack = true,
+  execle_pack = true,
+}
+
+local became_leader_links = {
+  poh_pack = true,
+  pohh_pack = true,
+}
+
+local done_packing_links = {
+  pack_poh = true,
+  pack_pohh = true,
 }
 
 
@@ -192,7 +293,7 @@ function tango.dissector (tvb, pinfo, tree)
   end
 
   local link_hash = tvb(packet_len-4, 4):le_uint()
-  local link_name = link_hashes[bit.rshift(link_hash, 8)]
+  local link_name = link_hashes[bit.rshift(link_hash, 8)] or string.format("unknown_0x%06x", bit.rshift(link_hash, 8))
 
   local link_element = subtree:add_le(tango_link, tvb(packet_len-4, 4)):append_text( " (" .. link_name .. ")" )
   subtree:add(tango_link_name, tvb(packet_len-4, 4), link_name)
@@ -219,30 +320,40 @@ function tango.dissector (tvb, pinfo, tree)
   if link_name:match("^net_") or link_name:match("_net$") then
     local dissector = Dissector.get("eth_withoutfcs")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "gossip_verif" or link_name == "txsend_out" or link_name == "gossip_dedup" then
+  elseif txn_m_links[link_name] then
     local dissector = Dissector.get("fd_txn_m_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "poh_shred" then
+  elseif link_name == "poh_shred" or link_name == "pohh_shred" then
     local dissector = Dissector.get("fd_poh_shred")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "bank_pack" then
+  elseif rebate_links[link_name] then
     local dissector = Dissector.get("fd_pack_rebate_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "pack_bank" or link_name == "bank_poh" then
+  elseif microblock_links[link_name] or expanded_microblock_links[link_name] then
     local dissector = Dissector.get("solana.tpu.udp")
     local dissector2 = Dissector.get("fd_txn_t")
 
-    for j=1,dcache_contents:len()-2111,2112 do
-      local txn_tree = dcache_tree:add(tpu_txn, dcache_contents(j-1,2112))
+    local fd_txn_p_sz = 2176
+    local fd_txn_e_sz = 6272
+    local txn_stride = fd_txn_p_sz
+    if expanded_microblock_links[link_name] then
+      txn_stride = fd_txn_e_sz
+    end
+    local offset = 0
+    while offset + txn_stride <= dcache_contents:len() do
+      local txn_tree = dcache_tree:add(tpu_txn, dcache_contents(offset, fd_txn_p_sz))
 
-      dissector:call(dcache_contents(j-1,1232):tvb(), pinfo, txn_tree)
-      txn_tree:add_le(tpu_payload_sz, dcache_contents(j+1231, 2))
-      txn_tree:add_le(tpu_requested_cus, dcache_contents(j+1239, 4))
-      txn_tree:add_le(tpu_executed_cus, dcache_contents(j+1243, 4))
-      txn_tree:add_le(sched_arrival_ns, dcache_contents(j+1247, 8))
-      local flag_tvb = dcache_contents(j+1255,4)
+      dissector:call(dcache_contents(offset, 1232):tvb(), pinfo, txn_tree)
+      txn_tree:add_le(tpu_payload_sz, dcache_contents(offset+1232, 8))
+      txn_tree:add_le(tpu_requested_cus, dcache_contents(offset+1240, 4))
+      txn_tree:add_le(tpu_executed_cus, dcache_contents(offset+1244, 4))
+      txn_tree:add_le(sched_arrival_ns, dcache_contents(offset+1248, 8))
+      txn_tree:add_le(tpu_pack_alloc, dcache_contents(offset+1256, 4))
+      txn_tree:add_le(tpu_source_tpu, dcache_contents(offset+1260, 1))
+      txn_tree:add(tpu_source_ipv4, dcache_contents(offset+1264, 4))
+      local flag_tvb = dcache_contents(offset+1268,4)
       local flag_val = flag_tvb:le_uint()
-      local flag_node = txn_tree:add_le(tpu_flags, dcache_contents(j+1255, 4))
+      local flag_node = txn_tree:add_le(tpu_flags, dcache_contents(offset+1268, 4))
       flag_node:add_le(tpu_simple_vote, flag_tvb)
       flag_node:add_le(tpu_bundle,flag_tvb)
       flag_node:add_le(tpu_initializer,flag_tvb)
@@ -251,17 +362,19 @@ function tango.dissector (tvb, pinfo, tree)
       flag_node:add_le(tpu_nonce, flag_tvb)
       flag_node:add_le(tpu_status, flag_tvb)
 
-      local txn_t_tvb = dcache_contents(j+1259, 852):tvb()
+      local txn_t_tvb = dcache_contents(offset+1272, 852):tvb()
       dissector2:call(txn_t_tvb, pinfo, txn_tree)
+
+      offset = offset + txn_stride
     end
     -- If bank_poh, the trailer
   elseif link_name == "shred_store" or link_name == "shred_storei" then
     local dissector = Dissector.get("fd_shred34_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "poh_pack" then
+  elseif became_leader_links[link_name] then
     local dissector = Dissector.get("fd_became_leader_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "pack_poh" then
+  elseif done_packing_links[link_name] then
     if dcache_contents:len() ~= 0 then
       local dissector = Dissector.get("fd_done_packing_t")
       dissector:call(dcache_contents, pinfo, dcache_tree)
@@ -558,13 +671,6 @@ local f_ref_slot = ProtoField.uint64("fd_txn_m_t.reference_slot", "Reference Slo
 local f_txn_t_sz = ProtoField.uint16("fd_txn_m_t.txn_t_sz",       "Size of fd_txn_t")
 local f_source_ipv4 = ProtoField.ipv4("fd_txn_m_t.source_ipv4",       "IP Address")
 
-local source_tpu_enum = {
-    [1] = "QUIC",
-    [2] = "UDP",
-    [4] = "GOSSIP",
-    [8] = "BUNDLE",
-    [16] = "TXSEND"
-}
 local f_source_tpu = ProtoField.uint8("fd_txn_m_t.source_tpu",       "Source TPU", base.DEC, source_tpu_enum)
 local f_payload_sz = ProtoField.uint16("fd_txn_m_t.payload_sz",       "Size of payload")
 local f_bundle_id = ProtoField.uint64("fd_txn_m_t.bundle_id",       "Bundle ID")
