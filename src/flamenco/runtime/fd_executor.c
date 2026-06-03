@@ -1086,13 +1086,93 @@ fd_execute_instr( fd_runtime_t *      runtime,
   return fd_execute_instr_end( ctx, instr, instr_exec_result );
 }
 
+/* reuse_bundle_account scans previous bundle txns for an already-opened
+   account matching key and, if found, wires it into txn_out at idx
+   (reusing the accdb ref instead of re-acquiring it).  On no match
+   txn_out->accounts.account[idx] is left untouched.  Must only be
+   called for bundle txns. */
+
 static void
-setup_txn_account_keys( fd_runtime_t *      runtime,
-                        fd_txn_in_t const * txn_in,
-                        fd_txn_out_t *      txn_out ) {
-  ulong row = txn_in->bundle.is_bundle ? txn_in->bundle.prev_txn_cnt : 0UL;
-  FD_TEST( row<FD_PACK_MAX_TXN_PER_BUNDLE );
-  if( FD_LIKELY( !row ) ) {
+reuse_bundle_account( fd_txn_in_t const * txn_in,
+                      fd_txn_out_t *      txn_out,
+                      fd_pubkey_t const * key,
+                      ushort              idx ) {
+  /* Iterate backwards through previous bundle txns to find the relevant
+     account.  No duplicate accounts can be loaded in a bundle. */
+  for( ulong p=txn_in->bundle.prev_txn_cnt; p>0UL; p-- ) {
+    fd_txn_out_t * prev_txn = txn_in->bundle.prev_txn_outs[ p-1UL ];
+    for( ushort k=0; k<prev_txn->accounts.cnt; k++ ) {
+      /* Only match if the txn owns the reference to the account. */
+      if( !prev_txn->accounts.account_acquired[ k ] || !fd_pubkey_eq( &prev_txn->accounts.keys[ k ], key ) ) continue;
+      fd_acc_t * reuse = prev_txn->accounts.account[ k ];
+
+      /* If the prior bundle txn drained the account to zero lamports,
+         the next txn must observe the reclaimed account, matching the
+         tombstone reset the accdb applies on a fresh acquire: empty
+         data, non-executable, system owner.
+         https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
+      if( FD_UNLIKELY( !reuse->lamports ) ) {
+        reuse->data_len   = 0UL;
+        reuse->executable = 0;
+        memset( reuse->owner, 0, 32UL );
+      }
+
+      /* This txn's starting balance is the carried-forward state from
+         the prior bundle txn.  The txn_out locally stores starting data
+         length and lamports for txn-level checks.  The accdb_t's
+         starting information refers to the pre-bundle state of the
+         account. */
+      txn_out->accounts.starting_lamports[ idx ] = reuse->lamports;
+      txn_out->accounts.starting_data_len[ idx ] = reuse->data_len;
+      txn_out->accounts.account[ idx ]           = reuse;
+
+      /* If this txn writes the account, transfer ownership of the accdb
+         ref to it and carry forward the vote and stake cache update
+         flags. */
+      if( txn_out->accounts.is_writable[ idx ] ) {
+        txn_out->accounts.stake_update[ idx ]    |= prev_txn->accounts.stake_update[ k ]; prev_txn->accounts.stake_update[ k ] = 0;
+        txn_out->accounts.vote_update [ idx ]    |= prev_txn->accounts.vote_update [ k ]; prev_txn->accounts.vote_update [ k ] = 0;
+        prev_txn->accounts.account_acquired[ k ]  = 0U;
+        txn_out->accounts.account_acquired[ idx ] = 1U;
+      }
+      return;
+    }
+  }
+}
+
+/* fd_executor_reuse_bundle_executable scans the runtime's deduplicated
+   account pools for a programdata account matching programdata_key that
+   was already opened by an earlier transaction in the bundle (either as
+   a regular transaction account or as a programdata account).  Returns
+   the existing fd_acc_t so it can be reused instead of re-acquiring it,
+   or NULL if none is found.  Must only be called for bundle txns. */
+
+static fd_acc_t *
+reuse_bundle_executable( fd_runtime_t *      runtime,
+                         fd_pubkey_t const * programdata_key ) {
+  for( ulong j=0UL; j<runtime->accounts.account_cnt; j++ ) {
+    if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &runtime->accounts.account[ j ].pubkey ), programdata_key ) ) ) continue;
+    return &runtime->accounts.account[ j ];
+  }
+  for( ulong j=0UL; j<runtime->accounts.executable_cnt; j++ ) {
+    if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &runtime->accounts.executable[ j ].pubkey ), programdata_key ) ) ) continue;
+    return &runtime->accounts.executable[ j ];
+  }
+  return NULL;
+}
+
+int
+fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
+                                    fd_bank_t *         bank,
+                                    fd_txn_in_t const * txn_in,
+                                    fd_txn_out_t *      txn_out ) {
+
+  ulong         acquire_idx[ MAX_TX_ACCOUNT_LOCKS ];
+  int           acquire_writable[ MAX_TX_ACCOUNT_LOCKS ];
+  uchar const * acquire_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
+  ulong         acquire_cnt = 0UL;
+
+  if( FD_LIKELY( !txn_in->bundle.is_bundle || txn_in->bundle.prev_txn_cnt==0UL ) ) {
     runtime->accounts.account_cnt    = 0UL;
     runtime->accounts.executable_cnt = 0UL;
   }
@@ -1102,22 +1182,12 @@ setup_txn_account_keys( fd_runtime_t *      runtime,
   for( ulong i=0UL; i<TXN( txn_in->txn )->acct_addr_cnt; i++ ) txn_out->accounts.keys[ i ] = tx_accs[ i ];
 
   txn_out->accounts.executable_cnt = 0UL;
-}
-
-int
-fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
-                                    fd_bank_t *         bank,
-                                    fd_txn_in_t const * txn_in,
-                                    fd_txn_out_t *      txn_out ) {
-  ulong acquire_idx[ MAX_TX_ACCOUNT_LOCKS ];
-  int   acquire_writable[ MAX_TX_ACCOUNT_LOCKS ];
-  uchar const * acquire_pubkeys[ MAX_TX_ACCOUNT_LOCKS ];
-  ulong acquire_cnt = 0UL;
-
-  setup_txn_account_keys( runtime, txn_in, txn_out );
 
   int err = fd_executor_setup_txn_alut_account_keys( runtime, bank, txn_in, txn_out );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
+
+  /* First, resolve all transaction accounts.  Reuse existing accounts
+     if we are in a bundle. */
 
   for( ushort i=0; i<txn_out->accounts.cnt; i++ ) {
     txn_out->accounts.is_writable[ i ]      = (uchar)fd_runtime_account_is_writable_idx( txn_in, txn_out, i );
@@ -1127,58 +1197,14 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
     fd_pubkey_t const * key = &txn_out->accounts.keys[ i ];
 
-    /* If the current transaction is part of a bundle, the account may
-       have already been acquired by an earlier transaction in the
-       bundle.  All such accounts live (deduplicated) in fd_runtime_t so
-       we can reuse the existing account instead of re-acquiring it. */
-    if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
-      /* Scan prior bundle txns most-recent-first for the account's
-         current accdb-ref owner.  The deduplicated account is owned by
-         exactly one prior txn (account_acquired==1) -- the last writable
-         user -- so the first such match is both the owner and the
-         fd_acc_t* to reuse.  A single backward scan finds both. */
-      for( ulong p=txn_in->bundle.prev_txn_cnt; p>0UL && !txn_out->accounts.account[ i ]; p-- ) {
-        fd_txn_out_t * holder = txn_in->bundle.prev_txn_outs[ p-1UL ];
-        for( ushort k=0; k<holder->accounts.cnt; k++ ) {
-          if( !holder->accounts.account_acquired[ k ] ) continue;
-          if( !fd_pubkey_eq( &holder->accounts.keys[ k ], key ) ) continue;
-          fd_acc_t * reuse = holder->accounts.account[ k ];
-
-          /* If the prior bundle txn drained the account to zero lamports,
-             the next txn must observe the reclaimed account, matching the
-             tombstone reset the accdb applies on a fresh acquire: empty
-             data, non-executable, system (zero) owner.
-             https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L199-L228 */
-          if( FD_UNLIKELY( !reuse->lamports ) ) {
-            reuse->data_len   = 0UL;
-            reuse->executable = 0;
-            memset( reuse->owner, 0, 32UL );
-          }
-
-          /* This txn's starting balance is the carried-forward state from
-             the prior bundle txn. */
-          txn_out->accounts.starting_lamports[ i ] = reuse->lamports;
-          txn_out->accounts.starting_data_len[ i ] = reuse->data_len;
-          txn_out->accounts.account[ i ]           = reuse;
-
-          /* If this txn writes the account, transfer ownership of the
-             accdb ref to it and carry forward the vote and stake
-             cache update flags. */
-          if( txn_out->accounts.is_writable[ i ] ) {
-            txn_out->accounts.stake_update[ i ] |= holder->accounts.stake_update[ k ]; holder->accounts.stake_update[ k ] = 0;
-            txn_out->accounts.vote_update [ i ] |= holder->accounts.vote_update [ k ]; holder->accounts.vote_update [ k ] = 0;
-            holder->accounts.account_acquired[ k ] = 0U;
-            txn_out->accounts.account_acquired[ i ] = 1U;
-          }
-          break;
-        }
-      }
-    }
+    if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) reuse_bundle_account( txn_in, txn_out, key, i );
     if( FD_UNLIKELY( txn_out->accounts.account[ i ] ) ) continue;
 
     FD_TEST( runtime->accounts.account_cnt+acquire_cnt<FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
     acquire_idx[ acquire_cnt ]      = i;
     acquire_pubkeys[ acquire_cnt ]  = key->uc;
+    /* Explictly acquire all bundle accounts as writable to cleanly
+       handle permission upgrades for potential future writes. */
     acquire_writable[ acquire_cnt ] = txn_in->bundle.is_bundle ? 1 : (int)txn_out->accounts.is_writable[ i ];
     acquire_cnt++;
   }
@@ -1204,8 +1230,8 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
     for( ulong i=0UL; i<acquire_cnt; i++ ) {
       ulong txn_idx = acquire_idx[ i ];
-      txn_out->accounts.account[ txn_idx ] = &acquire_base[ i ];
-      txn_out->accounts.account_acquired[ txn_idx ] = 1U;
+      txn_out->accounts.account[ txn_idx ]           = &acquire_base[ i ];
+      txn_out->accounts.account_acquired[ txn_idx ]  = 1U;
       txn_out->accounts.starting_lamports[ txn_idx ] = acquire_base[ i ].prior_lamports;
       txn_out->accounts.starting_data_len[ txn_idx ] = acquire_base[ i ].prior_data_len;
     }
@@ -1229,23 +1255,7 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
 
     fd_pubkey_t const * programdata_key = &program_loader_state->inner.program.programdata_address;
 
-    /* If the current transaction is part of a bundle, the programdata
-       account may have already been opened by an earlier transaction in
-       the bundle: either as a regular transaction account or as a
-       programdata account.  All such accounts live (deduplicated) in
-       fd_runtime_t so we can reuse the existing account instead of
-       re-acquiring it. */
-    fd_acc_t * reused_executable = NULL;
-    if( FD_UNLIKELY( txn_in->bundle.is_bundle ) ) {
-      for( ulong j=0UL; j<runtime->accounts.account_cnt && !reused_executable; j++ ) {
-        if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &runtime->accounts.account[ j ].pubkey ), programdata_key ) ) ) continue;
-        reused_executable = &runtime->accounts.account[ j ];
-      }
-      for( ulong j=0UL; j<runtime->accounts.executable_cnt && !reused_executable; j++ ) {
-        if( FD_LIKELY( !fd_pubkey_eq( fd_type_pun_const( &runtime->accounts.executable[ j ].pubkey ), programdata_key ) ) ) continue;
-        reused_executable = &runtime->accounts.executable[ j ];
-      }
-    }
+    fd_acc_t * reused_executable = txn_in->bundle.is_bundle ? reuse_bundle_executable( runtime, programdata_key ) : NULL;
     if( FD_UNLIKELY( reused_executable ) ) {
       txn_out->accounts.executable[ executable_account_cnt ]          = reused_executable;
       txn_out->accounts.executable_acquired[ executable_account_cnt ] = 0U;
@@ -1267,19 +1277,15 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
      ran over acquire_cnt pubkeys (the freshly-acquired accounts, not
      the ones reused from earlier bundle txns), so the reserved count is
      acquire_cnt and not txn_out->accounts.cnt. */
-  if( FD_LIKELY( executable_acquire_cnt ) ) {
-    FD_TEST( runtime->accounts.executable_cnt+executable_acquire_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
-    fd_acc_t * acquire_base = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
-    fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, acquire_cnt, executable_acquire_cnt, pubkeys, writable, acquire_base );
-    for( ushort i=0; i<executable_acquire_cnt; i++ ) {
-      ushort exe_idx = executable_acquire_idx[ i ];
-      txn_out->accounts.executable[ exe_idx ]          = &acquire_base[ i ];
-      txn_out->accounts.executable_acquired[ exe_idx ] = 1U;
-    }
-    runtime->accounts.executable_cnt += executable_acquire_cnt;
-  } else {
-    fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, acquire_cnt, 0UL, pubkeys, writable, &runtime->accounts.executable[ runtime->accounts.executable_cnt ] );
+  FD_TEST( runtime->accounts.executable_cnt+executable_acquire_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
+  fd_acc_t * acquire_base = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
+  fd_accdb_acquire_b( runtime->accdb, bank->accdb_fork_id, acquire_cnt, executable_acquire_cnt, pubkeys, writable, acquire_base );
+  for( ushort i=0; i<executable_acquire_cnt; i++ ) {
+    ushort exe_idx = executable_acquire_idx[ i ];
+    txn_out->accounts.executable[ exe_idx ]          = &acquire_base[ i ];
+    txn_out->accounts.executable_acquired[ exe_idx ] = 1U;
   }
+  runtime->accounts.executable_cnt += executable_acquire_cnt;
 
 
   txn_out->accounts.is_setup         = 1;
@@ -1350,11 +1356,10 @@ fd_executor_txn_check( fd_bank_t *    bank,
         // no-op
       } else {
         /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L45-L59 */
-        /* Use this txn's carried-forward starting state, not acc->prior_*
-           (which stays anchored to the on-chain pre-image across bundle
-           txns).  Equals prior_* for freshly acquired accounts. */
-        ulong before_lamports     = txn_out->accounts.starting_lamports[ i ];
-        ulong before_data_len     = txn_out->accounts.starting_data_len[ i ];
+        /* Use this carried-forward starting state, not acc->prior_*.
+           Equals prior_* for freshly acquired accounts. */
+        ulong before_lamports      = txn_out->accounts.starting_lamports[ i ];
+        ulong before_data_len      = txn_out->accounts.starting_data_len[ i ];
         uchar before_uninitialized = before_lamports==0UL;
         uchar before_rent_exempt   = before_lamports>=fd_rent_exempt_minimum_balance( &bank->f.rent, before_data_len );
 
