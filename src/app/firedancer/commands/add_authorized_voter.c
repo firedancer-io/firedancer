@@ -76,19 +76,20 @@ add_authorized_voter_cmd_args( int *    pargc,
   (*pargv)++;
 
   if( FD_UNLIKELY( !strcmp( path, "-" ) ) ) {
-    args->add_authorized_voter.keypair = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+    uchar * keypair_wr = fd_keyload_alloc_protected_pages( 1UL, 2UL );
     FD_LOG_STDOUT(( "Reading authorized voter keypair from stdin.  Press Ctrl-D when done.\n" ));
-    fd_keyload_read( STDIN_FILENO, "stdin", args->add_authorized_voter.keypair );
+    fd_keyload_read( STDIN_FILENO, "stdin", keypair_wr );
+    args->add_authorized_voter.keypair = fd_keyload_mprotect_ro( keypair_wr, 0 );
   } else {
     args->add_authorized_voter.keypair = fd_keyload_load( path, 0 );
   }
 }
 
 static void FD_FN_SENSITIVE
-poll_keyswitch( fd_topo_t * topo,
-                ulong *     state,
-                uchar *     keypair,
-                int *       has_error ) {
+poll_keyswitch( fd_topo_t *   topo,
+                ulong *       state,
+                uchar const * keypair,
+                int *         has_error ) {
   fd_keyswitch_t * tower = fd_topo_obj_laddr( topo, topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ].av_keyswitch_obj_id );
 
   switch( *state ) {
@@ -111,7 +112,9 @@ poll_keyswitch( fd_topo_t * topo,
         tile_ks->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
       }
-      fd_memzero_explicit( keypair, 32UL );
+      uchar * keypair_wr = fd_keyload_mprotect_wr( keypair, 0 );
+      fd_memzero_explicit( keypair_wr, 32UL );
+      fd_keyload_mprotect_ro( keypair_wr, 0 );
       *state = FD_ADD_AUTH_VOTER_STATE_SIGN_TILE_REQUESTED;
       FD_LOG_INFO(( "Requesting all sign tiles to update authorized voter key set..." ));
       break;

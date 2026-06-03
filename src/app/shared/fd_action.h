@@ -33,11 +33,11 @@ union fdctl_args {
   struct {
     int     require_tower;
     int     force;
-    uchar * keypair;
+    uchar const * keypair;
   } set_identity;
 
   struct {
-    uchar * keypair;
+    uchar const * keypair;
   } add_authorized_voter;
 
   struct {
