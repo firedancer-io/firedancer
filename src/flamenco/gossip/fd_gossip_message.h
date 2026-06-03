@@ -55,6 +55,12 @@
 #define FD_GOSSIP_FAILED_NO_CONTACT_INFO (1)
 #define FD_GOSSIP_FAILED_WALLCLOCK       (2)
 
+/* FD_GOSSIP_STAKED_THRESHOLD is the minimum stake (in lamports) at
+   which a node is considered an active participant (e.g. it does not
+   need to maintain a connection by responding to pings), whereas nodes
+   below this threshold are treated as unstaked.  This is 100 SOL. */
+#define FD_GOSSIP_STAKED_THRESHOLD (100UL*1000000000UL)
+
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (offsetof(fd_gossip_update_message_t, contact_info)        + sizeof((fd_gossip_update_message_t *)0)->contact_info)
 #define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof((fd_gossip_update_message_t *)0)->contact_info_remove)
 #define FD_GOSSIP_UPDATE_SZ_VOTE                (offsetof(fd_gossip_update_message_t, vote)                + sizeof((fd_gossip_update_message_t *)0)->vote)

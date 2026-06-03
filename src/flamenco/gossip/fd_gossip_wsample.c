@@ -11,6 +11,7 @@
 
 #include "fd_gossip_wsample.h"
 #include "fd_active_set.h"
+#include "fd_gossip_message.h"
 #include "../../util/log/fd_log.h"
 
 #define R           (9UL)  /* Radix of the sampling trees. */
@@ -291,8 +292,9 @@ fd_gossip_wsample_join( void * shwsample ) {
 static inline int
 is_active( ulong stake,
            int   ping_tracked ) {
-  /* 1. If the node has more than 1 sol staked, it is active */
-  if( FD_UNLIKELY( stake>=1000000000UL ) ) return 1;
+  /* 1. If the node has more than FD_GOSSIP_STAKED_THRESHOLD lamports
+        staked, it is active */
+  if( FD_UNLIKELY( stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) return 1;
 
   /* 2. If the node has actively ponged a ping, it is active */
   if( FD_UNLIKELY( ping_tracked ) ) return 1;

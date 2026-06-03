@@ -562,9 +562,10 @@ static inline int
 is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
                 fd_ip4_port_t           addr,
                 fd_pubkey_t const *     pubkey ) {
-  /* 1. If the node has more than 1 sol staked, it is active */
+  /* 1. If the node has more than FD_GOSSIP_STAKED_THRESHOLD lamports
+        staked, it is active */
   stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, pubkey, NULL, ctx->stake.pool );
-  if( FD_LIKELY( stake && stake->stake>=1000000000UL ) ) return 1;
+  if( FD_LIKELY( stake && stake->stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) return 1;
 
   /* 2. If the node has actively ponged a ping, it is active */
   ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );

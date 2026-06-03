@@ -282,7 +282,7 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
 
   if( FD_UNLIKELY( !peer ) ) {
-    if( FD_LIKELY( peer_stake>=1000000000UL ) ) return;
+    if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) return;
 
     if( FD_UNLIKELY( !pool_free( ping_tracker->pool ) ) ) {
       peer = lru_list_ele_peek_head( ping_tracker->lru, ping_tracker->pool );
@@ -306,9 +306,10 @@ fd_ping_tracker_track( fd_ping_tracker_t * ping_tracker,
     peer_map_ele_insert( ping_tracker->peers, peer, ping_tracker->pool );
     lru_list_ele_push_tail( ping_tracker->lru, peer, ping_tracker->pool );
   } else {
-    if( FD_LIKELY( peer_stake>=1000000000UL ) ) {
-      /* Node went from unstaked (or low staked) to >=1 SOL.  No longer
-         need to ping it. */
+    if( FD_LIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) {
+      /* Node went from unstaked (or low staked) to
+         >=FD_GOSSIP_STAKED_THRESHOLD lamports.  No longer need to ping
+         it. */
       ping_tracker->metrics->stake_changed_cnt++;
       remove_peer( ping_tracker, peer, now, FD_PING_TRACKER_CHANGE_TYPE_INACTIVE_STAKED );
       return;
@@ -353,7 +354,7 @@ fd_ping_tracker_register( fd_ping_tracker_t * ping_tracker,
                           fd_ip4_port_t       peer_address,
                           uchar const *       pong_token,
                           long                now ) {
-  if( FD_UNLIKELY( peer_stake>=1000000000UL ) ) {
+  if( FD_UNLIKELY( peer_stake>=FD_GOSSIP_STAKED_THRESHOLD ) ) {
     ping_tracker->metrics->pong_result[ 0UL ]++;
     return;
   }
