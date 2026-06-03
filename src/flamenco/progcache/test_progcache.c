@@ -7,8 +7,11 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/program/fd_bpf_loader_program.h"
 #include "../features/fd_features.h"
+#include "../../util/tmpl/fd_unit_test.c"
 #include <stdlib.h>
 #include <regex.h>
+
+static fd_wksp_t * wksp;
 
 struct test_env {
   fd_wksp_t *    wksp;
@@ -100,8 +103,7 @@ test_pull( fd_progcache_t *           cache,
 
 /* test_invalid_owner: Account exists but is not owned by BPF loader */
 
-static void
-test_invalid_owner( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( invalid_owner ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -122,8 +124,7 @@ test_invalid_owner( fd_wksp_t * wksp ) {
 
 /* test_invalid_program: Program account exists but fails loading */
 
-static void
-test_invalid_program( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( invalid_program ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -151,8 +152,7 @@ test_invalid_program( fd_wksp_t * wksp ) {
 
 /* test_valid_program: Load a valid program account */
 
-static void
-test_valid_program( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( valid_program ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -191,8 +191,7 @@ test_valid_program( fd_wksp_t * wksp ) {
 /* test_epoch_boundary: Ensure that a valid program gets re-verified
    after an epoch boundary. */
 
-static void
-test_epoch_boundary( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( epoch_boundary ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -227,8 +226,7 @@ test_epoch_boundary( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_epoch_boundary2( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( epoch_boundary2 ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -288,8 +286,7 @@ test_epoch_boundary2( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_publish_trivial( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( publish_trivial ) {
   /* Exercise a sequence of prepare/publish operations seen when running
      'firedancer-dev backtest' */
 
@@ -304,8 +301,7 @@ test_publish_trivial( fd_wksp_t * wksp ) {
 /* test_root_nonroot_prio: non-rooted record should take priority over
    rooted records. */
 
-static void
-test_root_nonroot_prio( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( root_nonroot_prio ) {
   test_env_t * env = test_env_create( wksp );
 
   fd_progcache_fork_id_t fork_1 = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() ); /* account deployed here */
@@ -343,8 +339,7 @@ test_root_nonroot_prio( fd_wksp_t * wksp ) {
    cancelled — parent's child_head/tail were reset.  Verify they're
    re-established correctly. */
 
-static void
-test_reattach_after_cancel_all( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( reattach_after_cancel_all ) {
   test_env_t * env = test_env_create( wksp );
 
   fd_progcache_fork_id_t parent  = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
@@ -386,8 +381,7 @@ test_reattach_after_cancel_all( fd_wksp_t * wksp ) {
 
 /* test_reclaim_empty: Reclaim on empty queue returns 0 */
 
-static void
-test_reclaim_empty( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( reclaim_empty ) {
   test_env_t * env = test_env_create( wksp );
 
   FD_TEST( env->progcache->join->rec.reclaim_head==UINT_MAX );
@@ -399,8 +393,7 @@ test_reclaim_empty( fd_wksp_t * wksp ) {
 /* test_reclaim_no_readers: Single record with no active readers should
    be freed by reclaim_work. */
 
-static void
-test_reclaim_no_readers( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( reclaim_no_readers ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -431,8 +424,7 @@ test_reclaim_no_readers( fd_wksp_t * wksp ) {
 /* test_reclaim_active_reader: Record with an active reader should be
    deferred by reclaim_work until the reader releases the lock. */
 
-static void
-test_reclaim_active_reader( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( reclaim_active_reader ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -465,8 +457,7 @@ test_reclaim_active_reader( fd_wksp_t * wksp ) {
 /* test_reclaim_txn_unlink: Record linked to a txn should be unlinked
    from the txn's record list before being freed. */
 
-static void
-test_reclaim_txn_unlink( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( reclaim_txn_unlink ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -496,8 +487,7 @@ test_reclaim_txn_unlink( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_join_null_scratch( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( join_null_scratch ) {
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
   FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 32UL ) );
   fd_progcache_t cache[1];
@@ -505,8 +495,7 @@ test_join_null_scratch( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_progcache_shmem_delete( mem ) );
 }
 
-static void
-test_join_misaligned_scratch( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( join_misaligned_scratch ) {
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
   FD_TEST( fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 32UL ) );
   uchar scratch_buf[ FD_PROGCACHE_SCRATCH_ALIGN ] __attribute__((aligned(FD_PROGCACHE_SCRATCH_ALIGN)));
@@ -515,36 +504,31 @@ test_join_misaligned_scratch( fd_wksp_t * wksp ) {
   fd_wksp_free_laddr( fd_progcache_shmem_delete( mem ) );
 }
 
-static void
-test_shmem_new_zero_txn_max( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( shmem_new_zero_txn_max ) {
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
   FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 0UL, 32UL ) );
   fd_wksp_free_laddr( mem );
 }
 
-static void
-test_shmem_new_zero_rec_max( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( shmem_new_zero_rec_max ) {
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
   FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, 0UL ) );
   fd_wksp_free_laddr( mem );
 }
 
-static void
-test_shmem_new_oversized_txn_max( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( shmem_new_oversized_txn_max ) {
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
   FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, (ulong)UINT_MAX+1UL, 32UL ) );
   fd_wksp_free_laddr( mem );
 }
 
-static void
-test_shmem_new_oversized_rec_max( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( shmem_new_oversized_rec_max ) {
   fd_progcache_shmem_t * mem = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), fd_progcache_shmem_footprint( 16UL, 32UL ), 1UL );
   FD_TEST( !fd_progcache_shmem_new( mem, 1UL, 1UL, 16UL, (ulong)UINT_MAX+1UL ) );
   fd_wksp_free_laddr( mem );
 }
 
-static void
-test_shmem_delete_fast( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( shmem_delete_fast ) {
   ulong txn_max           = 16UL;
   ulong progcache_rec_max = 32UL;
   ulong wksp_tag          =  2UL;
@@ -581,8 +565,7 @@ test_shmem_delete_fast( fd_wksp_t * wksp ) {
 /* test_reclaim_mixed: Multiple records enqueued for reclaim with mixed
    readability.  Only records without active readers should be freed. */
 
-static void
-test_reclaim_mixed( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( reclaim_mixed ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -622,8 +605,7 @@ test_reclaim_mixed( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_loader_v3_ok( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( loader_v3_ok ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -653,8 +635,7 @@ test_loader_v3_ok( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_loader_v3_wrong_account_type( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( loader_v3_wrong_account_type ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -686,8 +667,7 @@ test_loader_v3_wrong_account_type( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_loader_v3_undersize( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( loader_v3_undersize ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -710,8 +690,7 @@ test_loader_v3_undersize( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_loader_v3_corrupt( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( loader_v3_corrupt ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -734,8 +713,7 @@ test_loader_v3_corrupt( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_loader_v3_epoch_boundary( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( loader_v3_epoch_boundary ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t fork_a = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -778,8 +756,7 @@ test_loader_v3_epoch_boundary( fd_wksp_t * wksp ) {
   test_env_destroy( env );
 }
 
-static void
-test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( loader_v3_epoch_boundary_skipped_slots ) {
   test_env_t * env = test_env_create( wksp );
 
   ulong const mainnet_slots_per_epoch = 432000UL;
@@ -847,8 +824,7 @@ test_loader_v3_epoch_boundary_skipped_slots( fd_wksp_t * wksp ) {
 /* test_clock_evict_all_visited: First pass clears visited bits,
    second pass evicts. */
 
-static void
-test_clock_evict_all_visited( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( clock_evict_all_visited ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -897,8 +873,7 @@ test_clock_evict_all_visited( fd_wksp_t * wksp ) {
 
 /* test_clock_evict_wraps_around: Head wraps from rec_max back to 0. */
 
-static void
-test_clock_evict_wraps_around( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( clock_evict_wraps_around ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -938,8 +913,7 @@ test_clock_evict_wraps_around( fd_wksp_t * wksp ) {
 
 /* test_clock_evict_empty_cache: No-op eviction on empty cache. */
 
-static void
-test_clock_evict_empty_cache( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( clock_evict_empty_cache ) {
   test_env_t * env = test_env_create( wksp );
 
   ulong evict_cnt_before = env->progcache->metrics->evict_cnt;
@@ -954,8 +928,7 @@ test_clock_evict_empty_cache( fd_wksp_t * wksp ) {
 /* test_clock_evict_delete_fails: fd_prog_delete_rec returns -1 for a
    stale exists bit.  Eviction should skip it and keep going. */
 
-static void
-test_clock_evict_delete_fails( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( clock_evict_delete_fails ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -1010,8 +983,7 @@ test_clock_evict_delete_fails( fd_wksp_t * wksp ) {
 
 /* test_clock_evict_heap_only: rec_min=0, heap_min>0 evicts by heap. */
 
-static void
-test_clock_evict_heap_only( fd_wksp_t * wksp ) {
+FD_UNIT_TEST( clock_evict_heap_only ) {
   test_env_t * env = test_env_create( wksp );
   fd_progcache_fork_id_t xid = fd_progcache_attach_child( env->progcache->join, fd_progcache_fork_id_initial() );
 
@@ -1066,51 +1038,10 @@ main( int     argc,
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
   FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-# define TEST( name ) { #name, name }
-  struct test_case cases[] = {
-    TEST( test_invalid_owner ),
-    TEST( test_invalid_program ),
-    TEST( test_valid_program ),
-    TEST( test_epoch_boundary ),
-    TEST( test_epoch_boundary2 ),
-    TEST( test_publish_trivial ),
-    TEST( test_root_nonroot_prio ),
-    TEST( test_reattach_after_cancel_all ),
-    TEST( test_reclaim_empty ),
-    TEST( test_reclaim_no_readers ),
-    TEST( test_reclaim_active_reader ),
-    TEST( test_reclaim_txn_unlink ),
-    TEST( test_reclaim_mixed ),
-    TEST( test_join_null_scratch ),
-    TEST( test_join_misaligned_scratch ),
-    TEST( test_shmem_new_zero_txn_max ),
-    TEST( test_shmem_new_zero_rec_max ),
-    TEST( test_shmem_new_oversized_txn_max ),
-    TEST( test_shmem_new_oversized_rec_max ),
-    TEST( test_shmem_delete_fast ),
-    TEST( test_loader_v3_ok ),
-    TEST( test_loader_v3_wrong_account_type ),
-    TEST( test_loader_v3_undersize ),
-    TEST( test_loader_v3_corrupt ),
-    TEST( test_loader_v3_epoch_boundary ),
-    TEST( test_loader_v3_epoch_boundary_skipped_slots ),
-    TEST( test_clock_evict_all_visited ),
-    TEST( test_clock_evict_wraps_around ),
-    TEST( test_clock_evict_empty_cache ),
-    TEST( test_clock_evict_delete_fails ),
-    TEST( test_clock_evict_heap_only ),
-    {0}
-  };
-# undef TEST
-  for( struct test_case * tc = cases; tc->name; tc++ ) {
-    if( match_test_name( tc->name, argc, argv ) ) {
-      FD_LOG_NOTICE(( "Running %s", tc->name ));
-      tc->fn( wksp );
-    }
-  }
+  fd_unit_tests( argc, argv );
 
   fd_wksp_delete_anonymous( wksp );
 

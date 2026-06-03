@@ -7,11 +7,13 @@
 #include "../features/fd_features.h"
 #include "../../util/racesan/fd_racesan_async.h"
 #include "../../util/racesan/fd_racesan_weave.h"
+#include "../../util/tmpl/fd_unit_test.c"
 
 FD_IMPORT_BINARY( valid_program_data, "src/ballet/sbpf/fixtures/hello_solana_program.so" );
 
 int const fd_progcache_use_malloc = 1;
 
+static fd_wksp_t *   wksp;
 static fd_features_t g_features[1];
 
 #define FIBER_MAX       (4)
@@ -195,7 +197,8 @@ metrics_check_no_oom( void ) {
 }
 
 static fd_progcache_shmem_t *
-test_progcache_shmem_new( fd_wksp_t * wksp ) {
+test_progcache_shmem_new( void ) {
+  fd_wksp_reset( wksp, 1UL );
   ulong txn_max           = 16UL;
   ulong progcache_rec_max = 32UL;
   ulong wksp_tag          =  1UL;
@@ -219,9 +222,8 @@ test_progcache_reset( fd_progcache_join_t * join ) {
 
 /* test_pull_pull races two loads for the same program */
 
-static void
-test_pull_pull( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( pull_pull ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t        key = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot=0UL };
@@ -261,9 +263,8 @@ test_pull_pull( fd_wksp_t * wksp ) {
 
 /* test_pull_peek races a cache fill against a read-only cache lookup */
 
-static void
-test_pull_peek( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( pull_peek ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -303,9 +304,8 @@ test_pull_peek( fd_wksp_t * wksp ) {
 /* test_cancel_peek races a cancel against a peek for a child txn.
    Pre-populates cache under xid0, then races cancel(xid1) vs peek(xid0). */
 
-static void
-test_cancel_peek( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( cancel_peek ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -354,9 +354,8 @@ test_cancel_peek( fd_wksp_t * wksp ) {
 
 /* test_publish_evict races advance_root against clock eviction */
 
-static void
-test_publish_evict( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( publish_evict ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -401,9 +400,8 @@ test_publish_evict( fd_wksp_t * wksp ) {
 
 /* test_peek_root races a peek against advance_root */
 
-static void
-test_peek_root( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( peek_root ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -449,9 +447,8 @@ test_peek_root( fd_wksp_t * wksp ) {
 
 /* test_peek_cancel_new races a peek against cancel */
 
-static void
-test_peek_cancel( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( peek_cancel ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -497,9 +494,8 @@ test_peek_cancel( fd_wksp_t * wksp ) {
 
 /* test_peek_peek races two peeks for the same program */
 
-static void
-test_peek_peek( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( peek_peek ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -547,9 +543,8 @@ test_peek_peek( fd_wksp_t * wksp ) {
 /* test_peek_root_sibling races a peek on one sibling against
    advance_root of another sibling */
 
-static void
-test_peek_root_sibling( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( peek_root_sibling ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -597,9 +592,8 @@ test_peek_root_sibling( fd_wksp_t * wksp ) {
 
 /* test_peek_peek_root races two peeks against advance_root */
 
-static void
-test_peek_peek_root( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( peek_peek_root ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -650,9 +644,8 @@ test_peek_peek_root( fd_wksp_t * wksp ) {
 /* test_inject_at_hook verifies that racesan hooks fire correctly
    during advance_root */
 
-static void
-test_inject_at_hook( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( inject_at_hook ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -689,9 +682,8 @@ test_inject_at_hook( fd_wksp_t * wksp ) {
 /* test_publish_reclaim_evicted races advance_root against eviction
    where the evicted record belongs to the txn being published */
 
-static void
-test_publish_reclaim_evicted( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( publish_reclaim_evicted ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
   fd_prog_load_env_t load_env = { .features = g_features, .feature_slot = 0UL };
@@ -736,9 +728,8 @@ test_publish_reclaim_evicted( fd_wksp_t * wksp ) {
 /* test_root_evict_two races advance_root against eviction with
    two different programs populated on two sibling forks */
 
-static void
-test_root_evict_two( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( root_evict_two ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t ka   = test_key( 1UL );
   fd_pubkey_t kb   = test_key( 2UL );
@@ -791,9 +782,8 @@ test_root_evict_two( fd_wksp_t * wksp ) {
    where the evicted record's CLOCK bits are stale.
    Reproduces the crash from auditor-internal#460 */
 
-static void
-test_publish_evict_stale( fd_wksp_t * wksp ) {
-  fd_progcache_shmem_t * shmem = test_progcache_shmem_new( wksp );
+FD_UNIT_TEST( publish_evict_stale ) {
+  fd_progcache_shmem_t * shmem = test_progcache_shmem_new();
 
   fd_pubkey_t key  = test_key( 42UL );
 
@@ -873,35 +863,10 @@ main( int     argc,
   if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
 
   FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-# define TEST( name ) { #name, name }
-  struct test_case cases[] = {
-    TEST( test_pull_pull ),
-    TEST( test_pull_peek ),
-    TEST( test_cancel_peek ),
-    TEST( test_publish_evict ),
-    TEST( test_peek_root ),
-    TEST( test_peek_cancel ),
-    TEST( test_peek_peek ),
-    TEST( test_peek_root_sibling ),
-    TEST( test_peek_peek_root ),
-    TEST( test_inject_at_hook ),
-    TEST( test_root_evict_two ),
-    TEST( test_publish_reclaim_evicted ),
-    TEST( test_publish_evict_stale ),
-    {0}
-  };
-# undef TEST
-
-  for( struct test_case * tc = cases; tc->name; tc++ ) {
-    if( match_test_name( tc->name, argc, argv ) ) {
-      FD_LOG_NOTICE(( "Running %s", tc->name ));
-      tc->fn( wksp );
-      fd_wksp_reset( wksp, 1UL );
-    }
-  }
+  fd_unit_tests( argc, argv );
 
   fd_wksp_delete_anonymous( wksp );
 
