@@ -1255,6 +1255,8 @@ metric introduced.
 </enum>
 
 <tile name="execrp">
+    <gauge name="Processing" summary="Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing), either 1 or 0" />
+
     <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction" />
     <counter name="SigverifyCount" summary="Number of Ed25519 signature verification jobs executed" />
     <counter name="PohHashCount" summary="Number of PoH SHA-256 calls executed" />

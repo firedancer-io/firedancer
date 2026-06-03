@@ -314,11 +314,10 @@ struct fd_replay_tile {
 
   int larger_max_cost_per_block;
 
-  /* When we transition to becoming leader, we can only unbecome the
-     leader if we have received a block id from the FEC reassembler, and
-     a message from PoH that the leader slot has ended.  After both of
-     these conditions are met, then we are free to unbecome the leader.
-  */
+  /* When we transition to becoming leader, we can only unbecome leader
+     if we have received a block id from the FEC reassembler, and a
+     message from PoH that the leader slot has ended.  After both of
+     these conditions are met, then we are free to unbecome leader. */
   uint        is_leader : 1;
   uint        supports_leader : 1;
   int         recv_poh;

@@ -867,7 +867,6 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( reset_leader && !fd_memeq( reset_leader, ctx->identity_pubkey, 32UL ) ) ) return 0;
   }
 
-
   long now_nanos = fd_log_wallclock();
 
   ctx->is_leader = 1;

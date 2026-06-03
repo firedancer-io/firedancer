@@ -952,6 +952,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">execrp_&#8203;processing</span> | gauge | Whether the tile is currently processing a task (executing, sigverifying, or PoH hashing), either 1 or 0 |
 | <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of loading and executing a transaction (Transaction executed successfully) |
 | <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">instruction_&#8203;error</span>"} | counter | Result of loading and executing a transaction (An error occurred while processing an instruction) |
 | <span class="metrics-name">execrp_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction (The transaction fee payer address was not found) |
