@@ -353,6 +353,10 @@ struct fd_gui_leader_slot {
 
   fd_done_packing_t scheduler_stats[ 1 ];
 
+  /* The initial, maximum number of microblocks that could be packed
+     into this slot. */
+  ulong max_microblocks;
+
   uchar unbecame_leader: 1;
 };
 
