@@ -26,6 +26,7 @@
 #include "../fd_runtime.h"
 #include "../fd_runtime_stack.h"
 #include "../fd_acc_pool.h"
+#include "../fd_txncache.h"
 #include "../../vm/fd_vm.h"
 
 /* fd_svm_mini_t holds handles to all relevant Firedancer runtime
@@ -36,6 +37,8 @@ struct fd_svm_mini {
   fd_banks_t *         banks;
   fd_runtime_t *       runtime;
   fd_runtime_stack_t * runtime_stack;
+  fd_txncache_shmem_t * txncache_shmem;
+  fd_txncache_t *      txncache;
   fd_acc_pool_t *      acc_pool;
   fd_vm_t *            vm;
 
@@ -71,6 +74,7 @@ struct fd_svm_mini_limits {
 
   /* txn executor */
   ulong max_txn_write_locks;
+  ulong max_txn_per_slot;
 
   /* wksp alloc tag (0 uses default) */
   ulong wksp_tag;
@@ -153,7 +157,8 @@ fd_svm_mini_limits_default( fd_svm_mini_limits_t * limits ) {
     .max_account_space_bytes  = 32UL<<20,
     .max_progcache_recs       = 256UL,
     .max_progcache_heap_bytes = 65536UL,
-    .max_txn_write_locks      = 0UL
+    .max_txn_write_locks      = 0UL,
+    .max_txn_per_slot         = 128UL
   };
   return limits;
 }

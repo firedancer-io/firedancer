@@ -101,6 +101,8 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   ulong funk_sz           = fd_funk_shmem_footprint( txn_max, rec_max );
   ulong funk_lock_sz      = fd_funk_locks_footprint( txn_max, rec_max );
   ulong pcache_sz         = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
+  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
+  ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz          = fd_banks_footprint( txn_max, limits->max_fork_width, limits->max_stake_accounts, limits->max_vote_accounts );
   ulong acc_pool_sz       = fd_acc_pool_footprint( acc_pool_cnt );
   ulong runtime_stack_sz  = fd_runtime_stack_footprint( limits->max_vote_accounts, limits->max_vote_accounts, limits->max_stake_accounts );
@@ -112,6 +114,8 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   sz += WKSP_ALLOC( fd_funk_align(),            funk_lock_sz                     );
   sz += WKSP_ALLOC( fd_progcache_shmem_align(), pcache_sz                        );
   sz += WKSP_ALLOC( FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT   );
+  sz += WKSP_ALLOC( fd_txncache_shmem_align(),  txncache_shmem_sz                );
+  sz += WKSP_ALLOC( fd_txncache_align(),        txncache_sz                      );
   sz += WKSP_ALLOC( fd_banks_align(),           banks_sz                         );
   sz += WKSP_ALLOC( fd_acc_pool_align(),        acc_pool_sz                      );
   sz += WKSP_ALLOC( alignof(fd_runtime_t),      sizeof(fd_runtime_t)             );
@@ -136,6 +140,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   ulong funk_sz          = fd_funk_shmem_footprint( txn_max, rec_max );
   ulong funk_lock_sz     = fd_funk_locks_footprint( txn_max, rec_max );
   ulong pcache_sz        = fd_progcache_shmem_footprint( txn_max, limits->max_progcache_recs );
+  ulong txncache_shmem_sz = fd_txncache_shmem_footprint( txn_max, limits->max_txn_per_slot );
+  ulong txncache_sz       = fd_txncache_footprint( txn_max );
   ulong banks_sz         = fd_banks_footprint( txn_max, limits->max_fork_width,
                                                limits->max_stake_accounts, limits->max_vote_accounts );
   ulong acc_pool_sz      = fd_acc_pool_footprint( acc_pool_cnt );
@@ -148,6 +154,8 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   void *          funk_locks;    FD_TEST( (funk_locks   = fd_wksp_alloc_laddr( wksp, fd_funk_align(),            funk_lock_sz,                   wksp_tag )) );
   void *          pcache_mem;    FD_TEST( (pcache_mem   = fd_wksp_alloc_laddr( wksp, fd_progcache_shmem_align(), pcache_sz,                      wksp_tag )) );
   uchar *         scratch;       FD_TEST( (scratch      = fd_wksp_alloc_laddr( wksp, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT, wksp_tag )) );
+  void *          txncache_shmem; FD_TEST( (txncache_shmem = fd_wksp_alloc_laddr( wksp, fd_txncache_shmem_align(),  txncache_shmem_sz,            wksp_tag )) );
+  void *          txncache_mem;   FD_TEST( (txncache_mem   = fd_wksp_alloc_laddr( wksp, fd_txncache_align(),        txncache_sz,                  wksp_tag )) );
   void *          banks_mem;     FD_TEST( (banks_mem    = fd_wksp_alloc_laddr( wksp, fd_banks_align(),           banks_sz,                       wksp_tag )) );
   void *          acc_pool_mem;  FD_TEST( (acc_pool_mem = fd_wksp_alloc_laddr( wksp, fd_acc_pool_align(),        acc_pool_sz,                    wksp_tag )) );
   fd_runtime_t *  runtime;       FD_TEST( (runtime      = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_t),      sizeof(fd_runtime_t),           wksp_tag )) );
@@ -161,14 +169,18 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
 
   void * shfunk   = fd_funk_shmem_new     ( funk_mem,   wksp_tag, 1UL, txn_max, rec_max );
   void * shpcache = fd_progcache_shmem_new( pcache_mem, wksp_tag, 1UL, txn_max, limits->max_progcache_recs );
+  fd_txncache_shmem_t * shtxncache = fd_txncache_shmem_join( fd_txncache_shmem_new( txncache_shmem, txn_max, limits->max_txn_per_slot ) );
   if( FD_UNLIKELY( !shfunk   ) ) FD_LOG_ERR(( "fd_funk_shmem_new failed"      ));
   if( FD_UNLIKELY( !shpcache ) ) FD_LOG_ERR(( "fd_progcache_shmem_new failed" ));
+  if( FD_UNLIKELY( !shtxncache ) ) FD_LOG_ERR(( "fd_txncache_shmem_new failed" ));
   FD_TEST( fd_funk_locks_new( funk_locks, txn_max, rec_max ) );
 
   FD_TEST( fd_accdb_admin_v1_init( mini->accdb_admin, funk_mem, funk_locks ) );
   FD_TEST( fd_accdb_user_v1_init ( mini->accdb,       funk_mem, funk_locks, txn_max ) );
 
   FD_TEST( fd_progcache_join( mini->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) );
+  mini->txncache_shmem = shtxncache;
+  FD_TEST( (mini->txncache = fd_txncache_join( fd_txncache_new( txncache_mem, shtxncache ) )) );
 
   mini->banks = fd_banks_join( fd_banks_new( banks_mem, txn_max, limits->max_fork_width,
                                limits->max_stake_accounts, limits->max_vote_accounts, 0, 8888UL ) );
@@ -180,7 +192,7 @@ fd_svm_mini_create( fd_wksp_t *                  wksp,
   mini->runtime = runtime;
 
   runtime->accdb        = mini->accdb;
-  runtime->status_cache = NULL;
+  runtime->status_cache = mini->txncache;
   runtime->progcache    = mini->progcache;
   runtime->acc_pool     = mini->acc_pool;
 
@@ -220,6 +232,11 @@ fd_svm_mini_destroy( fd_svm_mini_t * mini ) {
   if( mini->runtime ) fd_wksp_free_laddr( mini->runtime );
   if( mini->acc_pool ) fd_wksp_free_laddr( mini->acc_pool );
   if( mini->banks ) fd_wksp_free_laddr( mini->banks );
+
+  if( mini->txncache ) {
+    fd_wksp_free_laddr( mini->txncache );
+    if( mini->txncache_shmem ) fd_wksp_free_laddr( mini->txncache_shmem );
+  }
 
   uchar * scratch = mini->progcache->scratch;
   fd_progcache_shmem_t * shpcache = NULL;
@@ -385,6 +402,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
 
   fd_accdb_v1_clear( mini->accdb_admin );
   fd_progcache_reset( mini->progcache->join );
+  fd_txncache_reset( mini->txncache );
   fd_banks_clear( mini->banks           );
 
   fd_bank_t * bank = fd_banks_init_bank( mini->banks );
@@ -397,6 +415,7 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
   fd_funk_t * funk = fd_accdb_user_v1_funk( mini->accdb );
   fd_funk_txn_xid_copy( funk->shmem->last_publish, &root_xid );
   bank->progcache_fork_id = fd_progcache_fork_id_initial();
+  bank->txncache_fork_id  = fd_txncache_attach_child( mini->txncache, (fd_txncache_fork_id_t){ USHORT_MAX } );
 
   if( params->clock ) {
     bank->f.slot  = params->clock->slot;
@@ -547,6 +566,11 @@ fd_svm_mini_reset( fd_svm_mini_t *        mini,
     fd_svm_mini_init_mock_validators( mini, bank, params );
   }
 
+  fd_hash_t const * root_block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  if( FD_LIKELY( root_block_hash ) ) {
+    fd_txncache_finalize_fork( mini->txncache, bank->txncache_fork_id, 0UL, root_block_hash->uc );
+  }
+
   return bank_idx;
 }
 
@@ -571,6 +595,7 @@ fd_svm_mini_attach_child( fd_svm_mini_t * mini,
 
   fd_accdb_attach_child( mini->accdb_admin, &parent_xid, &xid );
   bank->progcache_fork_id = fd_progcache_attach_child( mini->progcache->join, parent_bank->progcache_fork_id );
+  bank->txncache_fork_id  = fd_txncache_attach_child ( mini->txncache,        parent_bank->txncache_fork_id  );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_execute_prepare( mini->banks, bank, mini->accdb, mini->runtime_stack, NULL, &is_epoch_boundary );
@@ -587,6 +612,23 @@ fd_svm_mini_freeze( fd_svm_mini_t * mini,
      blockhash.  (Real POH is computed by the PoH tile.) */
   fd_sha256_hash( bank->f.poh.hash, 32UL, bank->f.poh.hash );
   fd_runtime_block_execute_finalize( bank, mini->accdb, NULL );
+  fd_hash_t const * block_hash = fd_blockhashes_peek_last_hash( &bank->f.block_hash_queue );
+  FD_TEST( block_hash );
+  fd_txncache_finalize_fork( mini->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
+}
+
+static void
+fd_svm_mini_txncache_cancel_subtree( fd_svm_mini_t * mini,
+                                     fd_bank_t *     bank ) {
+  ulong child_idx = bank->child_idx;
+  while( child_idx!=ULONG_MAX ) {
+    fd_bank_t * child = fd_banks_bank_query( mini->banks, child_idx );
+    FD_TEST( child );
+    ulong sibling_idx = child->sibling_idx;
+    fd_svm_mini_txncache_cancel_subtree( mini, child );
+    child_idx = sibling_idx;
+  }
+  fd_txncache_cancel_fork( mini->txncache, bank->txncache_fork_id );
 }
 
 void
@@ -599,6 +641,7 @@ fd_svm_mini_cancel_fork( fd_svm_mini_t * mini,
 
   fd_accdb_cancel         ( mini->accdb_admin,     &xid );
   fd_progcache_cancel_fork( mini->progcache->join, bank->progcache_fork_id );
+  fd_svm_mini_txncache_cancel_subtree( mini, bank );
 }
 
 void
@@ -611,6 +654,7 @@ fd_svm_mini_advance_root( fd_svm_mini_t * mini,
 
   fd_accdb_advance_root    ( mini->accdb_admin,     &xid );
   fd_progcache_advance_root( mini->progcache->join, bank->progcache_fork_id );
+  fd_txncache_advance_root ( mini->txncache,        bank->txncache_fork_id  );
   fd_banks_advance_root    ( mini->banks, bank_idx );
 }
 
