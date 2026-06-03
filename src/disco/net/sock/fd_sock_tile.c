@@ -556,10 +556,15 @@ during_frag( fd_sock_tile_t * ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->link_tx[ in_idx ].chunk0, ctx->link_tx[ in_idx ].wmark ));
   }
 
+  ctx->parsed.invalid = 0;
+
   ulong const hdr_min = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t);
   if( FD_UNLIKELY( sz<hdr_min ) ) {
-    /* FIXME support ICMP messages in the future? */
-    FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));
+    /* FIXME support ICMP messages in the future?
+       Defer the error to after_frag, where we know we weren't
+       overrun. */
+    ctx->parsed.invalid = 1;
+    return;
   }
 
   uchar const * frame   = fd_chunk_to_laddr_const( ctx->link_tx[ in_idx ].base, chunk );
@@ -573,9 +578,14 @@ during_frag( fd_sock_tile_t * ctx,
 
   fd_ip4_hdr_t const * ip_hdr  = (fd_ip4_hdr_t const *)( frame  +sizeof(fd_eth_hdr_t) );
   fd_udp_hdr_t const * udp_hdr = (fd_udp_hdr_t const *)( payload-sizeof(fd_udp_hdr_t) );
-  if( FD_UNLIKELY( ( FD_IP4_GET_VERSION( *ip_hdr )!=4 ) |
-                   ( ip_hdr->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) ) {
-    FD_LOG_ERR(( "packet from in_idx=%lu: sock tile only supports IPv4 UDP for now", in_idx ));
+  ctx->parsed.ip_version  = FD_IP4_GET_VERSION( *ip_hdr );
+  ctx->parsed.ip_protocol = ip_hdr->protocol;
+  if( FD_UNLIKELY( ( ctx->parsed.ip_version !=4                       ) |
+                   ( ctx->parsed.ip_protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) {
+    /* sock tile only supports IPv4 UDP for now.  Defer the error to
+       after_frag, where we know we weren't overrun. */
+    ctx->parsed.invalid = 1;
+    return;
   }
 
   ulong msg_sz = sizeof(fd_udp_hdr_t) + payload_sz;
@@ -624,14 +634,28 @@ during_frag( fd_sock_tile_t * ctx,
 
 static void
 after_frag( fd_sock_tile_t *    ctx,
-            ulong               in_idx FD_PARAM_UNUSED,
+            ulong               in_idx,
             ulong               seq    FD_PARAM_UNUSED,
             ulong               sig    FD_PARAM_UNUSED,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
             ulong               tspub  FD_PARAM_UNUSED,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
-  /* Commit the packet added in during_frag */
+  /* Commit the packet added in during_frag.  during_frag defers fatal
+     errors to here (where we know we weren't overrun) by setting the
+     invalid flag. */
+
+  if( FD_UNLIKELY( ctx->parsed.invalid ) ) {
+    ulong const hdr_min = sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t);
+    if( FD_UNLIKELY( sz<hdr_min ) ) {
+      /* FIXME support ICMP messages in the future? */
+      FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));
+    }
+    if( FD_UNLIKELY( ( ctx->parsed.ip_version !=4                       ) |
+                     ( ctx->parsed.ip_protocol!=FD_IP4_HDR_PROTOCOL_UDP ) ) ) {
+      FD_LOG_ERR(( "packet from in_idx=%lu: sock tile only supports IPv4 UDP for now", in_idx ));
+    }
+  }
 
   ctx->tx_idle_cnt = 0;
   ctx->batch_cnt++;

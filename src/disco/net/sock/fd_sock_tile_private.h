@@ -88,6 +88,14 @@ struct fd_sock_tile {
   uchar * tx_scratch1;
   uchar * tx_ptr; /* in [tx_scratch0,tx_scratch1) */
 
+  /* Values parsed from the current frag in during_frag, validated in
+     after_frag */
+  struct {
+    int  invalid; /* set if the frag failed validation in during_frag */
+    uint ip_version;
+    uint ip_protocol;
+  } parsed;
+
   fd_sock_tile_metrics_t metrics;
 };
 
