@@ -7,7 +7,7 @@ ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_txn_parse,fuzz_txn_parse,fd_ballet fd_util)
 endif
 
-$(call run-unit-test,test_txn_parse,)
-$(call run-unit-test,test_txn,)
-$(call run-unit-test,test_compact_u16,)
+$(call run-unit-test,test_txn_parse)
+$(call run-unit-test,test_txn)
+$(call run-unit-test,test_compact_u16)
 

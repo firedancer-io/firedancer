@@ -19,6 +19,7 @@ $(call add-objs,fd_hashes,fd_flamenco)
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_hashes)
 endif
 endif
 
@@ -34,7 +35,7 @@ $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_cost_tracker,test_cost_tracker,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_cost_tracker,)
+$(call run-unit-test,test_cost_tracker)
 endif
 endif
 
@@ -61,7 +62,7 @@ $(call add-objs,fd_bank,fd_flamenco)
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_INT128
 $(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_bank,)
+$(call run-unit-test,test_bank)
 endif
 endif
 endif
@@ -78,9 +79,9 @@ ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_deprecate_rent_exemption_threshold,test_deprecate_rent_exemption_threshold,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_deprecate_rent_exemption_threshold)
 $(call make-unit-test,test_instr_acct_bounds,test_instr_acct_bounds,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_instr_acct_bounds,)
+$(call run-unit-test,test_instr_acct_bounds)
 $(call make-unit-test,test_define_ltds_fee_only_semantics,test_define_ltds_fee_only_semantics,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_define_ltds_fee_only_semantics,)
+$(call run-unit-test,test_define_ltds_fee_only_semantics)
 $(call make-unit-test,test_accounts_resize_delta,tests/test_accounts_resize_delta,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_accounts_resize_delta)
 $(call make-unit-test,test_fee_reward,tests/test_fee_reward,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util)
