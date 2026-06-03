@@ -430,7 +430,10 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, stake_accum->pubkey.uc );
     /* Agave's VAT filter also checks lamports against the VoteStateV4
        rent-exempt minimum. */
-    if( FD_UNLIKELY( !acc.lamports ) ) continue;
+    if( FD_UNLIKELY( !acc.lamports ) ) {
+      fd_accdb_unread_one( accdb, &acc );
+      continue;
+    }
 
     ulong vote_account_lamports = acc.lamports;
     ulong vote_account_rent_exempt_minimum = fd_rent_exempt_minimum_balance( &bank->f.rent, FD_VOTE_STATE_V4_SZ );
@@ -463,6 +466,7 @@ fd_refresh_vote_accounts_vat( fd_bank_t *                    bank,
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
     if( FD_UNLIKELY( !acc.lamports ) ) {
       fd_top_votes_invalidate( top_votes_t_2, &pubkey );
+      fd_accdb_unread_one( accdb, &acc );
       continue;
     }
 
@@ -687,6 +691,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
     fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
     if( FD_UNLIKELY( !acc.lamports ) ) {
       fd_top_votes_invalidate( top_votes_t_2, &pubkey );
+      fd_accdb_unread_one( accdb, &acc );
       continue;
     }
     if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
@@ -732,6 +737,7 @@ fd_refresh_vote_accounts_no_vat( fd_bank_t *                    bank,
     int exists_t_1 = 1;
     if( FD_UNLIKELY( !acc.lamports ) ) {
       exists_t_1 = 0;
+      fd_accdb_unread_one( accdb, &acc );
     } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
       exists_t_1 = 0;
       fd_accdb_unread_one( accdb, &acc );

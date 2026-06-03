@@ -286,9 +286,7 @@ fd_top_votes_refresh( fd_top_votes_t *   top_votes,
 
     int is_valid = 1;
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, pubkey.uc );
-    if( FD_UNLIKELY( !acc.lamports ) ) {
-      is_valid = 0;
-    } else if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
+    if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
       fd_accdb_unread_one( accdb, &acc );
       is_valid = 0;
     }

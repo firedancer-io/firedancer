@@ -64,6 +64,10 @@
 
 static fd_accdb_shmem_t * test_shmem_mem;
 
+static fd_accdb_shmem_t * test_shmem;   /* shared shmem, for extra joins   */
+static int               test_fd;       /* shared backing fd, for extra joins */
+static ulong             test_max_live_slots;
+
 static fd_accdb_t *
 test_setup( int * out_fd,
             ulong max_accounts,
@@ -74,24 +78,46 @@ test_setup( int * out_fd,
   int fd = memfd_create( "accdb_racesan", 0 );
   if( FD_UNLIKELY( fd<0 ) ) FD_LOG_ERR(( "memfd_create failed" ));
   *out_fd = fd;
+  test_fd  = fd;
+  test_max_live_slots = max_live_slots;
 
+  /* joiner_cnt=2: the orphan/poison tests model TWO concurrent tiles (a
+     reader "D" holding a pin on one handle while a committer/advance_root
+     drives the other), so the shmem must admit a second joiner with its
+     own epoch slot. */
   ulong cache_fp = TEST_CACHE_FOOTPRINT;
-  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, 1UL );
+  ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, max_live_slots, max_account_writes_per_slot, partition_cnt, cache_fp, 640UL, 2UL );
   FD_TEST( shmem_fp );
   void * shmem_mem = aligned_alloc( fd_accdb_shmem_align(), shmem_fp );
   FD_TEST( shmem_mem );
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, 640UL, 42UL, 1UL ) );
+                          partition_sz, cache_fp, 640UL, 42UL, 2UL ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
+  test_shmem     = shmem;
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );
   FD_TEST( accdb_fp );
   void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
   FD_TEST( accdb_mem );
   fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, shmem, fd, 0UL, NULL ) );
+  FD_TEST( accdb );
+  return accdb;
+}
+
+/* test_join_extra creates a SECOND accdb handle on the same shmem (its own
+   joiner epoch slot), modelling a separate exec tile.  Used so a reader
+   can hold an acquire bracket on one handle while the main handle commits
+   / advances root — mirroring production, where the one-bracket-per-handle
+   invariant holds because each tile has its own handle. */
+static fd_accdb_t *
+test_join_extra( void ) {
+  ulong accdb_fp = fd_accdb_footprint( test_max_live_slots );
+  void * accdb_mem = aligned_alloc( fd_accdb_align(), accdb_fp );
+  FD_TEST( accdb_mem );
+  fd_accdb_t * accdb = fd_accdb_join( fd_accdb_new( accdb_mem, test_shmem, test_fd, 0UL, NULL ) );
   FD_TEST( accdb );
   return accdb;
 }
@@ -163,6 +189,10 @@ test_tombstone_orphan_ebr_poison( void ) {
   /* Small pools so the recycled accmeta slot is reused quickly and the
      cache pressure for pre-eviction is easy to trigger. */
   fd_accdb_t * accdb = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+  /* Separate handle for the "D reader" tile so its long-held acquire
+     bracket does not collide with the committer/advance_root bracket on
+     the main handle (one bracket per handle, as in production). */
+  fd_accdb_t * accdb_d = test_join_extra();
 
   uchar pubkey_P[ 32 ] = { 'P', 0 };
   uchar pubkey_B[ 32 ] = { 'B', 0 };
@@ -188,7 +218,7 @@ test_tombstone_orphan_ebr_poison( void ) {
   int wr[1] = { 1 };
   fd_acc_t acc_D[1];
   memset( acc_D, 0, sizeof(acc_D) );
-  fd_accdb_acquire( accdb, D, 1UL, pks_P, wr, acc_D );
+  fd_accdb_acquire( accdb_d, D, 1UL, pks_P, wr, acc_D );
   /* The re-acquire sees a closed account. */
   FD_TEST( acc_D[0].lamports==0UL );
 
@@ -227,7 +257,7 @@ test_tombstone_orphan_ebr_poison( void ) {
   fd_accdb_debug_force_preevict( accdb );
 
   /* D releases its pin (orphan refcnt -> 0). */
-  fd_accdb_release( accdb, 1UL, acc_D );
+  fd_accdb_release( accdb_d, 1UL, acc_D );
 
   /* Now pre-eviction writes the orphaned dirty line back to disk:
      pubkey=victim (from the recycled accmeta) + owner=P (from the
@@ -263,6 +293,7 @@ test_tombstone_orphan_ebr_poison( void ) {
     FD_LOG_ERR(( "POISON CONFIRMED: tombstone-orphan / EBR-leak / writeback poison reproduced" ));
   }
 
+  free( accdb_d );
   test_teardown( accdb, fd );
 }
 

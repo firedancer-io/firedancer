@@ -919,7 +919,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
   fd_top_votes_t const * top_votes_t_2 = fd_bank_top_votes_t_2_query( bank );
   uchar __attribute__((aligned(FD_TOP_VOTES_ITER_ALIGN))) iter_mem[ FD_TOP_VOTES_ITER_FOOTPRINT ];
 
-#define BATCH 128UL
+#define BATCH 64UL
   fd_pubkey_t   vote_accs[ BATCH ];
   ulong         stakes[ BATCH ];
   uchar const * pubkeys[ BATCH ];
@@ -969,7 +969,6 @@ query_vote_accs( fd_tower_tile_t *            ctx,
     ctx->our_vote_acct_sz = fd_ulong_min( reconcile_ro.data_len, FD_VOTE_STATE_DATA_MAX );
     *our_vote_acct_bal = reconcile_ro.lamports;
     fd_memcpy( ctx->our_vote_acct, reconcile_ro.data, ctx->our_vote_acct_sz );
-    fd_accdb_unread_one( ctx->accdb, &reconcile_ro );
     int skip_reconcile = !ctx->init && ctx->wfs;
     if( FD_LIKELY( !skip_reconcile ) ) {
       ulong root; fd_tower_vote_remove_all( ctx->scratch_tower ); fd_tower_from_vote_acc( ctx->scratch_tower, &root, ctx->our_vote_acct );
@@ -978,6 +977,7 @@ query_vote_accs( fd_tower_tile_t *            ctx,
       FD_LOG_NOTICE(( "wait_for_supermajority: skipping tower reconcile on init slot %lu", slot_completed->slot ));
     }
   }
+  fd_accdb_unread_one( ctx->accdb, &reconcile_ro );
 
   return total_stake;
 }

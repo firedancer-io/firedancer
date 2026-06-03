@@ -2190,10 +2190,10 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
       } else {
         serializing = 1;
       }
-      fd_accdb_unread_one( alut_ctx->accdb, &ro );
     } else {
       serializing = 1;
     }
+    fd_accdb_unread_one( alut_ctx->accdb, &ro );
   }
 
   /* Transactions should not have duplicate accounts.

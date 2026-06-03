@@ -79,7 +79,10 @@ fd_feature_restore( fd_bank_t *             bank,
   if( FD_UNLIKELY( id->reverted ) ) return;
 
   fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, addr->uc );
-  if( FD_UNLIKELY( !acc.lamports ) ) return;
+  if( FD_UNLIKELY( !acc.lamports ) ) {
+    fd_accdb_unread_one( accdb, &acc );
+    return;
+  }
 
   /* Skip accounts that are not owned by the feature program
      https://github.com/anza-xyz/solana-sdk/blob/6512aca61167088ce10f2b545c35c9bcb1400e70/feature-gate-interface/src/lib.rs#L42-L44 */

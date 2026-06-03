@@ -18,6 +18,7 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
   fd_acc_t acc = fd_accdb_read_one( accdb, fork, key->uc );
   if( FD_UNLIKELY( !acc.lamports ) ) {
     if( log_fails ) FD_LOG_DEBUG(( "Sysvar %s not found", pos->name ));
+    fd_accdb_unread_one( accdb, &acc );
     return 0;
   }
 

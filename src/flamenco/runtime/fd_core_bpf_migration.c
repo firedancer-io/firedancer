@@ -45,7 +45,10 @@ tmp_account_read( fd_tmp_account_t *        acc,
                   fd_accdb_fork_id_t        fork_id,
                   fd_pubkey_t const *       addr ) {
   fd_acc_t db_acc = fd_accdb_read_one( accdb, fork_id, addr->uc );
-  if( FD_UNLIKELY( !db_acc.lamports ) ) return NULL;
+  if( FD_UNLIKELY( !db_acc.lamports ) ) {
+    fd_accdb_unread_one( accdb, &db_acc );
+    return NULL;
+  }
 
   acc->lamports = db_acc.lamports;
   fd_memcpy( acc->owner.uc, db_acc.owner, 32UL );
@@ -143,6 +146,7 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
     /* Program data account should not exist */
     fd_acc_t progdata = fd_accdb_read_one( accdb, fork_id, program_data_address.uc );
     int progdata_exists = !!progdata.lamports;
+    if( FD_UNLIKELY( !progdata_exists ) ) fd_accdb_unread_one( accdb, &progdata );
 
     /* SIMD-0444: relax_programdata_account_check_migration
        https://github.com/anza-xyz/agave/blob/v3.1.8/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L57-L70 */
@@ -293,6 +297,7 @@ target_bpf_v2_new_checked( target_builtin_t *        target_bpf_v2,
   do {
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, program_data_address.uc );
     int progdata_exists = !!acc.lamports;
+    if( FD_UNLIKELY( !progdata_exists ) ) fd_accdb_unread_one( accdb, &acc );
 
     /* https://github.com/anza-xyz/agave/blob/v4.0.0-beta.2/runtime/src/bank/builtins/core_bpf_migration/target_bpf_v2.rs#L49-L74 */
     if( FD_LIKELY( allow_prefunded ) ) {

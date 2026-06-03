@@ -72,8 +72,7 @@ fd_sysvar_clock_read( fd_accdb_t *            accdb,
                       fd_accdb_fork_id_t      fork_id,
                       fd_sol_sysvar_clock_t * clock ) {
   fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, fd_sysvar_clock_id.uc );
-  if( FD_UNLIKELY( !acc.lamports ) ) return NULL;
-  if( FD_UNLIKELY( acc.data_len<sizeof(fd_sol_sysvar_clock_t) ) ) {
+  if( FD_UNLIKELY( !acc.lamports || acc.data_len<sizeof(fd_sol_sysvar_clock_t) ) ) {
     /* This check is needed as a quirk of the fuzzer. If a sysvar
        account exists in the accounts database, but doesn't have any
        lamports, this means that the account does not exist.  This
@@ -144,8 +143,7 @@ accum_vote_stakes_no_vat( fd_bank_t *               bank,
     int   found = fd_top_votes_query( top_votes, &pubkey, NULL, NULL, &last_vote_slot, &last_vote_timestamp, NULL, &is_valid );
     if( FD_UNLIKELY( !found ) ) {
       fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, pubkey.uc );
-      if( FD_UNLIKELY( !acc.lamports ) ) continue;
-      if( FD_UNLIKELY( !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
+      if( FD_UNLIKELY( !acc.lamports || !fd_vsv_is_correct_size_owner_and_init( acc.owner, acc.data, acc.data_len ) ) ) {
         fd_accdb_unread_one( accdb, &acc );
         continue;
       }

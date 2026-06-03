@@ -131,7 +131,10 @@ fd_builtin_is_bpf( fd_accdb_t *         accdb,
                    fd_accdb_fork_id_t   fork_id,
                    fd_pubkey_t const  * pubkey ) {
   fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, pubkey->uc );
-  if( FD_UNLIKELY( !acc.lamports ) ) return 0;
+  if( FD_UNLIKELY( !acc.lamports ) ) {
+    fd_accdb_unread_one( accdb, &acc );
+    return 0;
+  }
 
   int is_bpf = !memcmp( acc.owner, fd_solana_bpf_loader_upgradeable_program_id.uc, 32UL );
   fd_accdb_unread_one( accdb, &acc );

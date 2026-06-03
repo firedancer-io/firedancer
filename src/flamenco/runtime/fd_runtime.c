@@ -416,8 +416,7 @@ fd_feature_activate( fd_bank_t *             bank,
   if( FD_UNLIKELY( id->reverted==1 ) ) return;
 
   fd_acc_t acc = fd_accdb_read_one( accdb, bank->accdb_fork_id, addr->uc );
-  if( FD_UNLIKELY( !acc.lamports ) ) return;
-  if( FD_UNLIKELY( memcmp( acc.owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
+  if( FD_UNLIKELY( !acc.lamports || memcmp( acc.owner, fd_solana_feature_program_id.uc, 32UL ) ) ) {
     fd_accdb_unread_one( accdb, &acc ); /* Feature account not yet initialized */
     return;
   }
@@ -704,7 +703,10 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_in_t const *       txn_in,
     }
 
     fd_acc_t acc = fd_accdb_read_one( accdb, fork_id, addr_lut_acc.uc );
-    if( FD_UNLIKELY( !acc.lamports ) ) return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+    if( FD_UNLIKELY( !acc.lamports ) ) {
+      fd_accdb_unread_one( accdb, &acc );
+      return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+    }
     int err = fd_alut_interp_next( interp, &addr_lut_acc, acc.owner, acc.data, acc.data_len );
     fd_accdb_unread_one( accdb, &acc );
     if( FD_UNLIKELY( err ) ) return err;
@@ -1106,11 +1108,10 @@ fd_runtime_commit_txn( fd_runtime_t * runtime,
     }
   }
 
-  fd_accdb_release( runtime->accdb, txn_out->accounts.cnt, txn_out->accounts.account );
-  if( FD_LIKELY( runtime->accounts.executable_cnt ) ) {
-    fd_accdb_release( runtime->accdb, runtime->accounts.executable_cnt, runtime->accounts.executable );
-    runtime->accounts.executable_cnt = 0UL;
-  }
+  fd_accdb_release_ab( runtime->accdb,
+                       txn_out->accounts.cnt, txn_out->accounts.account,
+                       runtime->accounts.executable_cnt, runtime->accounts.executable );
+  runtime->accounts.executable_cnt = 0UL;
 }
 
 void
@@ -1119,11 +1120,10 @@ fd_runtime_cancel_txn( fd_runtime_t * runtime,
   FD_TEST( !txn_out->err.is_committable );
   if( FD_UNLIKELY( !txn_out->accounts.is_setup ) ) return;
 
-  fd_accdb_release( runtime->accdb, txn_out->accounts.cnt, txn_out->accounts.account );
-  if( FD_LIKELY( runtime->accounts.executable_cnt ) ) {
-    fd_accdb_release( runtime->accdb, runtime->accounts.executable_cnt, runtime->accounts.executable );
-    runtime->accounts.executable_cnt = 0UL;
-  }
+  fd_accdb_release_ab( runtime->accdb,
+                       txn_out->accounts.cnt, txn_out->accounts.account,
+                       runtime->accounts.executable_cnt, runtime->accounts.executable );
+  runtime->accounts.executable_cnt = 0UL;
 }
 static inline void
 fd_runtime_reset_runtime( fd_runtime_t * runtime ) {

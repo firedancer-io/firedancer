@@ -23,8 +23,14 @@ struct fd_accdb_fork {
 
 typedef struct fd_accdb_fork fd_accdb_fork_t;
 
+#define FD_ACCDB_ACQUIRE_STATE_IDLE    (0)
+#define FD_ACCDB_ACQUIRE_STATE_PHASE_A (1)
+#define FD_ACCDB_ACQUIRE_STATE_OPEN    (2)
+
 struct __attribute__((aligned(FD_ACCDB_ALIGN))) fd_accdb_private {
   int fd;
+
+  int acquire_state;
 
   fd_accdb_shmem_t * shmem;
 
@@ -207,6 +213,7 @@ fd_accdb_new( void *              ljoin,
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
   accdb->fd = fd;
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
 
   accdb->shmem = (fd_accdb_shmem_t *)shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, _acc_pool_shmem, _acc_pool_ele, max_accounts ) );
@@ -366,6 +373,7 @@ fd_accdb_join_readonly( void *             ljoin,
   void * _local_fork_pool = FD_SCRATCH_ALLOC_APPEND( l2, alignof(fd_accdb_fork_t), max_live_slots*sizeof(fd_accdb_fork_t) );
 
   accdb->fd    = fd_ro;
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
   accdb->shmem = shmem;
   FD_TEST( acc_pool_join( accdb->acc_pool_join, _acc_pool_shmem, _acc_pool_ele, max_accounts ) );
   accdb->acc_pool = accdb->acc_pool_join->ele;
@@ -2421,6 +2429,8 @@ fd_accdb_acquire( fd_accdb_t *          accdb,
                   uchar const * const * pubkeys,
                   int *                 writable,
                   fd_acc_t *            out_accs ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
   fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_SIMPLE, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
@@ -2431,6 +2441,8 @@ fd_accdb_acquire_a( fd_accdb_t *             accdb,
                        uchar const * const * pubkeys,
                        int *                 writable,
                        fd_acc_t *            out_accs ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_IDLE );
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_PHASE_A;
   fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_MAYBE_PROGRAMDATA, 0UL, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
@@ -2442,13 +2454,19 @@ fd_accdb_acquire_b( fd_accdb_t *          accdb,
                     uchar const * const * pubkeys,
                     int *                 writable,
                     fd_acc_t *            out_accs ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_PHASE_A );
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_OPEN;
   fd_accdb_acquire_inner( accdb, fork_id, RESERVATION_TYPE_ALREADY_RESERVED, reserved_cnt, pubkeys_cnt, pubkeys, writable, out_accs );
 }
 
-void
-fd_accdb_release( fd_accdb_t * accdb,
-                  ulong        accs_cnt,
-                  fd_acc_t *   accs ) {
+/* release_inner drains one group of acquired accs but does NOT change the
+   handle's acquire_state.  The public fd_accdb_release / fd_accdb_release_ab
+   wrappers below own the state transition (a single-phase release closes
+   the bracket; release_ab drains both phase groups then closes). */
+static void
+release_inner( fd_accdb_t * accdb,
+               ulong        accs_cnt,
+               fd_acc_t *   accs ) {
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE(); /* StoreLoad: epoch store must be globally visible
@@ -2846,6 +2864,27 @@ fd_accdb_release( fd_accdb_t * accdb,
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = ULONG_MAX;
+}
+
+void
+fd_accdb_release( fd_accdb_t * accdb,
+                  ulong        accs_cnt,
+                  fd_acc_t *   accs ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_OPEN );
+  release_inner( accdb, accs_cnt, accs );
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
+}
+
+void
+fd_accdb_release_ab( fd_accdb_t * accdb,
+                     ulong        accs_cnt,
+                     fd_acc_t *   accs,
+                     ulong        execs_cnt,
+                     fd_acc_t *   execs ) {
+  FD_TEST( accdb->acquire_state==FD_ACCDB_ACQUIRE_STATE_OPEN );
+  release_inner( accdb, accs_cnt, accs );
+  if( FD_LIKELY( execs_cnt ) ) release_inner( accdb, execs_cnt, execs );
+  accdb->acquire_state = FD_ACCDB_ACQUIRE_STATE_IDLE;
 }
 
 fd_acc_t

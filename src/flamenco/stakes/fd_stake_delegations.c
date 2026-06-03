@@ -299,7 +299,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *   stake_delegations,
 
   ulong const job_cnt = fd_stake_delegations_cnt( stake_delegations );
 
-#define BATCH 128UL
+#define BATCH 64UL
   uchar const * pubkeys[ BATCH ];
   int           writable[ BATCH ];
   fd_acc_t      accs[ BATCH ];

@@ -366,6 +366,13 @@ fd_accdb_release( fd_accdb_t * accdb,
                   ulong        accs_cnt,
                   fd_acc_t *   accs );
 
+void
+fd_accdb_release_ab( fd_accdb_t * accdb,
+                     ulong        accs_cnt,
+                     fd_acc_t *   accs,
+                     ulong        execs_cnt,
+                     fd_acc_t *   execs );
+
 fd_acc_t
 fd_accdb_read_one( fd_accdb_t *       accdb,
                    fd_accdb_fork_id_t fork_id,

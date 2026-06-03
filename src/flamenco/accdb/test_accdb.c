@@ -982,8 +982,7 @@ test_acquire_b_refund_accounting( void ) {
   memset( pd_acc, 0, sizeof(pd_acc) );
   fd_accdb_acquire_b( accdb, root0, 2UL, 2UL, pd_pks, pd_wr, pd_acc );
 
-  fd_accdb_release( accdb, 2UL, cand_acc );
-  fd_accdb_release( accdb, 2UL, pd_acc );
+  fd_accdb_release_ab( accdb, 2UL, cand_acc, 2UL, pd_acc );
 
   ulong used1[ FD_ACCDB_CACHE_CLASS_CNT ], max1[ FD_ACCDB_CACHE_CLASS_CNT ], post[ FD_ACCDB_CACHE_CLASS_CNT ];
   fd_accdb_cache_class_occupancy( accdb, used1, max1, post );
