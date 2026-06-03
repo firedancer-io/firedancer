@@ -2,8 +2,11 @@
 #include "../disco/metrics/fd_metrics.h"
 #include <time.h>
 
+__attribute__((weak)) int volatile const fd_startup_skip_checks = 0;
+
 void
 fd_sleep_until_replay_started( fd_topo_t const * topo ) {
+  if( fd_startup_skip_checks ) return;
 
   /* Defensive boilerplate to prevent segfault */
 
