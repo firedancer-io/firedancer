@@ -7,6 +7,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../util/racesan/fd_racesan_target.h"
 
 FD_STATIC_ASSERT( sizeof(fd_accdb_cache_line_t)==FD_ACCDB_CACHE_META_SZ, cache_meta_sz );
 
@@ -614,6 +615,7 @@ cache_try_pin( fd_accdb_cache_line_t * line,
         return NULL;
       }
       line->referenced = 1;
+      fd_racesan_hook( "cache_try_pin:pinned" );
       return line;
     }
     FD_SPIN_PAUSE();
@@ -826,7 +828,9 @@ acc_unlink( fd_accdb_t * accdb,
 
   if( FD_UNLIKELY( had_valid ) ) {
     fd_accdb_cache_line_t * stale = cache_line( accdb, FD_ACCDB_ACC_CIDX_CLASS( cidx ), FD_ACCDB_ACC_CIDX_IDX( cidx ) );
+    fd_racesan_hook( "acc_unlink:pre_reclaim_cas" );
     uint old_rc = FD_ATOMIC_CAS( &stale->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL );
+    fd_racesan_hook( "acc_unlink:post_reclaim_cas" );
     if( FD_LIKELY( !old_rc ) ) {
       /* Claimed.  Validate key (ABA, slot could have been recycled
          between our read of cache_idx and the CAS). */
@@ -843,9 +847,41 @@ acc_unlink( fd_accdb_t * accdb,
         FD_VOLATILE( stale->refcnt ) = 0;
       }
     }
-    /* If old_rc>0 the line is pinned by an active transaction.  Since
-       acc_unlink only runs during advance_root/purge, pinned lines
-       can't reference the fork being purged — safe to skip. */
+    else if( FD_LIKELY( old_rc!=FD_ACCDB_EVICT_SENTINEL ) ) {
+      /* Pinned by an active reader.  We cannot reclaim the line, but
+         its accmeta slot is about to be deferred-released and recycled.
+         If we just skipped, a later writeback of this stil dirty line
+         would pair the recycled accmeta's pubkey with the old account's
+         owner and data, a silent corruption.  Sever the back-reference
+         so background_preevict's writeback gate never fires for it.
+
+         This is the only case that needs severing: a reader's pin does
+         not keep the slot alive, so the slot can recycle under it.
+
+         CAS rather than store: we don't own the line, so the pinner
+         could release and the line be recycled to another account
+         underneath us. CASing acc_idx from THIS slot to UINT_MAX is
+         ABA-safe because our slot cannot be reused until the
+         epoch-gated drain_deferred_frees runs.
+
+         Leave key/owner/data intact: the reader still reads them, and
+         the line (gen still valid) is reclaimed by the next CLOCK sweep
+         once the pin drops.  That reclaim is lazy so the slot is
+         briefly dark capacity. */
+      FD_ATOMIC_CAS( &stale->acc_idx, acc_idx, UINT_MAX );
+
+      /* The tombstone self-unlink an legitimately be pinned here,
+         old version and purge unlinks are never pinned.  A live account
+         here means that invariant regressed.  Reading is safe as the
+         unlinked accmeta is on a frozen bank and can't mutate. */
+      FD_TEST( accmeta->lamports==0UL );
+    }
+    else {
+      /* A foreground evictor already claimed this line.  It holds its
+         epoch acquire and writeback, so drain_deferred_frees cannot
+         recycle the slot before it finishes. Its writeback names the old
+         account correctly, no poison. */
+    }
   }
 }
 
@@ -1199,6 +1235,12 @@ acquire_cache_line( fd_accdb_t * accdb,
     }
 
     if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) continue;
+
+    /* The line is now claimed for eviction (refcnt==EVICT_SENTINEL).  A
+       concurrent acc_unlink that targets this same line's accmeta will
+       observe the sentinel here and take its do-nothing branch — see the
+       test_accdb_racesan SENTINEL case. */
+    fd_racesan_hook( "clock_evict:post_sentinel" );
 
     if( FD_LIKELY( line->acc_idx!=UINT_MAX ) ) {
       evict_clear_acc_cache_ref( &accdb->acc_pool[ line->acc_idx ], size_class, hand );
@@ -1934,6 +1976,7 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
         accdb->metrics->accounts_evicted_per_class[ j ]++;
 
         fd_accdb_accmeta_t const * evicted = &accdb->acc_pool[ evicted_dest_acc[ i ][ j ] ];
+        fd_racesan_hook( "writeback:pre_synth" );
         total_write_sz += sizeof(fd_accdb_disk_meta_t) + FD_ACCDB_SIZE_DATA( evicted->executable_size );
         fd_memcpy( write_metas[ write_meta_cnt ].pubkey, evicted->key.pubkey, 32UL );
         write_metas[ write_meta_cnt ].size = FD_ACCDB_SIZE_DATA( evicted->executable_size );
@@ -3198,11 +3241,17 @@ fd_accdb_lamports( fd_accdb_t *       accdb,
   rather than blocking.  The low_water / target thresholds are static
   per-class watermarks computed at initialization; pre-eviction only
   converts resident lines into free-list entries and does not consume
-  cache-slot reservations. */
+  cache-slot reservations.
+
+  force: when non-zero, ignore the watermark and sweep every line in
+  every class.  Always 0 in normal operation; used only by
+  test_accdb_racesan to deterministically exercise the writeback path
+  without manufacturing real cache pressure. */
 
 static void
 background_preevict( fd_accdb_t * accdb,
-                     int *        charge_busy ) {
+                     int *        charge_busy,
+                     int          force ) {
   fd_accdb_shmem_t * shmem = accdb->shmem;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
@@ -3212,12 +3261,13 @@ background_preevict( fd_accdb_t * accdb,
     ulong freec  = FD_VOLATILE_CONST( shmem->cache_free_cnt[ c ].val );
     ulong live   = init>freec ? init-freec : 0UL;
     ulong avail  = max_c-live;
-    if( FD_LIKELY( avail>=shmem->cache_free_low_water[ c ] ) ) continue;
+    if( FD_LIKELY( !force && avail>=shmem->cache_free_low_water[ c ] ) ) continue;
 
     *charge_busy = 1;
 
-    ulong budget  = 256UL;
+    ulong budget  = force ? init : 256UL;
     ulong evicted = 0UL;
+    if( FD_UNLIKELY( force ) ) target = max_c; /* sweep everything */
 
     for( ulong tick=0UL; tick<budget && avail+evicted<target; tick++ ) {
       /* Only sweep the lazily initialized prefix.  cache_class_init
@@ -3250,6 +3300,7 @@ background_preevict( fd_accdb_t * accdb,
       line->key.generation = UINT_MAX;
       if( FD_UNLIKELY( !line->persisted && acc_idx!=UINT_MAX ) ) {
         fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
+        fd_racesan_hook( "preevict:pre_synth" );
         ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
 
         /* Atomically swap the old offset to FD_ACCDB_OFF_INVAL so that
@@ -3561,7 +3612,7 @@ fd_accdb_background( fd_accdb_t * accdb,
     return;
   }
 
-  background_preevict( accdb, charge_busy );
+  background_preevict( accdb, charge_busy, 0 );
 
   for( ulong k=0UL; k<FD_ACCDB_COMPACTION_LAYER_CNT; k++ ) {
     background_compact( accdb, k, charge_busy );
@@ -3607,3 +3658,137 @@ fd_accdb_cache_class_thresholds( fd_accdb_t * accdb,
     low_water_used[ c ] = max_c>free_lwm ? max_c-free_lwm : 0UL;
   }
 }
+
+#if FD_HAS_RACESAN
+
+/* Force pre-eviction (ignore the watermark) so a deterministic
+   single-threaded test can exercise the writeback path without
+   manufacturing real cache pressure.  Sweeps several times: CLOCK needs
+   two visits to evict a recently-touched line (clear the "referenced"
+   bit, then evict), and the clock hand position carries across calls, so
+   one or two sweeps is not enough to guarantee every eligible line is
+   flushed back. */
+void
+fd_accdb_debug_force_preevict( fd_accdb_t * accdb ) {
+  for( ulong iter=0UL; iter<8UL; iter++ ) {
+    int charge_busy = 0;
+    background_preevict( accdb, &charge_busy, 1 );
+  }
+}
+
+/* Locate the resident cache line currently holding `pubkey` (most recent
+   generation if multiple).  Returns 1 and fills out_class/out_idx on a
+   hit, 0 if no resident line matches.  Test-only helper so the test can
+   target a specific line without seeing the opaque fd_accdb struct. */
+
+int
+fd_accdb_debug_find_line( fd_accdb_t *  accdb,
+                          uchar const * pubkey,
+                          ulong *       out_class,
+                          ulong *       out_idx ) {
+  int   found      = 0;
+  uint  best_gen   = 0U;
+  for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) {
+    ulong init  = FD_VOLATILE_CONST( accdb->shmem->cache_class_init[ c ].val );
+    ulong max_c = accdb->shmem->cache_class_max[ c ];
+    if( init>max_c ) init = max_c;
+    for( ulong idx=0UL; idx<init; idx++ ) {
+      fd_accdb_cache_line_t * line = cache_line( accdb, c, idx );
+      if( line->key.generation==UINT_MAX ) continue;
+      if( memcmp( line->key.pubkey, pubkey, 32UL ) ) continue;
+      if( !found || line->key.generation>=best_gen ) {
+        best_gen   = line->key.generation;
+        *out_class = c;
+        *out_idx   = idx;
+        found      = 1;
+      }
+    }
+  }
+  return found;
+}
+
+/* Deterministically evict a single specified cache line via the
+   foreground evictor's claim sequence (CAS refcnt 0->EVICT_SENTINEL),
+   then write the dirty line back exactly as fd_accdb_acquire_inner's
+   STEP-4 / background_ preevict do (pubkey from accmeta, owner+data
+   from the line).  Mirrors acquire_cache_line's CLOCK-claim path
+   (fd_accdb.c) so a racesan test can reproduce, without a 640+-slot
+   cache-pressure rig, the interleaving where acc_unlink observes
+   EVICT_SENTINEL on the line it is unlinking.
+
+   The fd_racesan_hook("clock_evict:post_sentinel") fires right after
+   the sentinel is installed (matching the production foreground path),
+   so the test can suspend this fiber holding the sentinel while another
+   fiber drives acc_unlink to its reclaim CAS.  Returns the captured
+   evicted acc_idx (UINT_MAX if the line was clean / unbound). */
+
+uint
+fd_accdb_debug_clock_evict_line( fd_accdb_t * accdb,
+                                 ulong        size_class,
+                                 ulong        line_idx ) {
+  fd_accdb_shmem_t *      shmem = accdb->shmem;
+  fd_accdb_cache_line_t * line  = cache_line( accdb, size_class, line_idx );
+
+  /* Claim for eviction, same as acquire_cache_line's CLOCK path. */
+  if( FD_UNLIKELY( FD_ATOMIC_CAS( &line->refcnt, 0U, FD_ACCDB_EVICT_SENTINEL )!=0U ) ) return UINT_MAX;
+
+  fd_racesan_hook( "clock_evict:post_sentinel" );
+
+  uint acc_idx = line->acc_idx;
+  if( FD_LIKELY( acc_idx!=UINT_MAX ) ) {
+    evict_clear_acc_cache_ref( &accdb->acc_pool[ acc_idx ], size_class, line_idx );
+  }
+  uint evicted_acc_idx = line->persisted ? UINT_MAX : acc_idx;
+  line->key.generation = UINT_MAX;
+
+  /* Write back the dirty line, exactly like the production writeback
+     sites: this is the synthesis that would emit a pubkey=NEW/owner=OLD
+     poison record if the accmeta slot had been recycled out from under
+     us.  In the SENTINEL-vs-acc_unlink race this proves no poison: the
+     epoch the evictor holds blocks drain_deferred_frees, so the slot is
+     never recycled while we are here. */
+  if( FD_UNLIKELY( !line->persisted && acc_idx!=UINT_MAX ) ) {
+    fd_accdb_accmeta_t * accmeta = &accdb->acc_pool[ acc_idx ];
+    ulong entry_sz = sizeof(fd_accdb_disk_meta_t)+(ulong)FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+
+    ulong old_offset = fd_accdb_acc_xchg_offset( accmeta, FD_ACCDB_OFF_INVAL );
+    if( FD_LIKELY( old_offset!=FD_ACCDB_OFF_INVAL ) ) {
+      fd_accdb_shmem_bytes_freed( shmem, old_offset, entry_sz );
+      FD_ATOMIC_FETCH_AND_SUB( &shmem->shmetrics->disk_used_bytes, entry_sz );
+    }
+
+    fd_accdb_disk_meta_t meta;
+    fd_memcpy( meta.pubkey, accmeta->key.pubkey, 32UL );
+    meta.size = FD_ACCDB_SIZE_DATA( accmeta->executable_size );
+    fd_memcpy( meta.owner, line->owner, 32UL );
+
+    struct iovec iovs[ 2UL ] = {
+      { .iov_base = &meta,              .iov_len = sizeof(fd_accdb_disk_meta_t) },
+      { .iov_base = (void *)(line+1UL), .iov_len = FD_ACCDB_SIZE_DATA( accmeta->executable_size ) }
+    };
+    ulong file_off = allocate_next_write( accdb, entry_sz );
+    ulong written  = 0UL;
+    while( written<entry_sz ) {
+      long result = pwritev2( accdb->fd, iovs, 2, (long)(file_off+written), 0 );
+      if( FD_UNLIKELY( result==-1 && errno==EINTR ) ) continue;
+      else if( FD_UNLIKELY( result<=0 ) ) FD_LOG_ERR(( "pwritev2() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+      written += (ulong)result;
+      for( int v=0; v<2; v++ ) {
+        if( (ulong)result>=iovs[ v ].iov_len ) { result -= (long)iovs[ v ].iov_len; iovs[ v ].iov_len = 0UL; }
+        else { iovs[ v ].iov_base = (uchar *)iovs[ v ].iov_base + result; iovs[ v ].iov_len -= (ulong)result; break; }
+      }
+    }
+    FD_COMPILER_MFENCE();
+    accmeta->offset_fork = fd_accdb_acc_pack_offset_fork( file_off, fd_accdb_acc_fork_id(accmeta) );
+    FD_ATOMIC_FETCH_AND_ADD( &shmem->shmetrics->disk_used_bytes, entry_sz );
+  }
+
+  line->persisted      = 1;
+  line->acc_idx        = UINT_MAX;
+  line->key.generation = UINT_MAX;
+  line->refcnt         = 0;
+  cache_free_push( accdb, size_class, line );
+  return evicted_acc_idx;
+}
+
+#endif
