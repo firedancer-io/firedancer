@@ -50,7 +50,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   while( size >= sizeof(fd_gossip_duplicate_shred_t) ) {
     fd_gossip_duplicate_shred_t chunk;
     memcpy( &chunk, data, sizeof(fd_gossip_duplicate_shred_t) );
-    fd_eqvoc_chunk_insert( eqvoc, 42, 0UL, &leaders, &from, &chunk, chunks_out );
+    fd_eqvoc_chunk_insert( eqvoc, 0UL, 42, &leaders, &from, &chunk, chunks_out );
     data += sizeof(fd_gossip_duplicate_shred_t);
     size -= sizeof(fd_gossip_duplicate_shred_t);
   }
