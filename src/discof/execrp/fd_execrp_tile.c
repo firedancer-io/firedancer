@@ -233,6 +233,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
                  fd_stem_context_t * stem ) {
   if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
 
+  FD_MGAUGE_SET( EXECRP, PROCESSING, 1UL );
+
   if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in->chunk0 || chunk > ctx->replay_in->wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in->chunk0, ctx->replay_in->wmark ));
@@ -320,6 +322,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
       default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));
     }
   } else FD_LOG_CRIT(( "invalid in_idx %lu", in_idx ));
+
+  FD_MGAUGE_SET( EXECRP, PROCESSING, 0UL );
 
   return 0;
 }
