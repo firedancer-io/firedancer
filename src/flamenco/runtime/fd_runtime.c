@@ -1426,14 +1426,25 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *         banks,
   ulong new_rate_activation_epoch = 0UL;
 
   {
+    /* Snapshot the stake history sysvar into a local buffer and release
+       the accdb bracket before calling fd_refresh_vote_accounts, which
+       performs its own accdb acquires.  fd_sysvar_stake_history_view
+       aliases the source bytes, so the bracket cannot be held open
+       across an inner acquire. */
+    uchar                stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
     fd_stake_history_t   stake_history_[1];
     fd_stake_history_t * stake_history = NULL;
     fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-    if( FD_LIKELY( ro.lamports ) ) stake_history = fd_sysvar_stake_history_view( stake_history_, ro.data, ro.data_len );
+    if( FD_LIKELY( ro.lamports ) ) {
+      ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+      fd_memcpy( stake_history_data, ro.data, copy_sz );
+      fd_accdb_unread_one( accdb, &ro );
+      stake_history = fd_sysvar_stake_history_view( stake_history_, stake_history_data, copy_sz );
+    } else {
+      fd_accdb_unread_one( accdb, &ro );
+    }
 
     fd_refresh_vote_accounts( bank, accdb, runtime_stack, stake_delegations, stake_history, &new_rate_activation_epoch );
-
-    if( FD_LIKELY( ro.lamports ) ) fd_accdb_unread_one( accdb, &ro );
   }
   fd_vote_stakes_genesis_fini( fd_bank_vote_stakes( bank ) );
 

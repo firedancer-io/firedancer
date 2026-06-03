@@ -825,12 +825,22 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
   };
   fd_sysvar_stake_history_update( bank, accdb, capture_ctx, &elem );
 
-  fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
-  if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing" ));
-  
+  /* Snapshot the stake history sysvar into a local buffer and release
+     the accdb bracket before calling fd_refresh_vote_accounts, which
+     performs its own accdb acquires.  fd_sysvar_stake_history_view
+     aliases the source bytes, so the bracket cannot be held open across
+     an inner acquire. */
+  uchar              stake_history_data[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ];
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, ro.data, ro.data_len ) ) ) {
-    FD_LOG_HEXDUMP_ERR(( "Invalid StakeHistory sysvar", ro.data, ro.data_len ));
+  {
+    fd_acc_t ro = fd_accdb_read_one( accdb, bank->accdb_fork_id, fd_sysvar_stake_history_id.uc );
+    if( FD_UNLIKELY( !ro.lamports ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing" ));
+    ulong copy_sz = fd_ulong_min( ro.data_len, FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ );
+    fd_memcpy( stake_history_data, ro.data, copy_sz );
+    fd_accdb_unread_one( accdb, &ro );
+    if( FD_UNLIKELY( !fd_sysvar_stake_history_view( stake_history, stake_history_data, copy_sz ) ) ) {
+      FD_LOG_HEXDUMP_ERR(( "Invalid StakeHistory sysvar", stake_history_data, copy_sz ));
+    }
   }
 
   /* Now increment the epoch and recompute the stakes for the vote
@@ -844,8 +854,6 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                             stake_delegations,
                             stake_history,
                             new_rate_activation_epoch );
-
-  fd_accdb_unread_one( accdb, &ro );
 }
 
 
