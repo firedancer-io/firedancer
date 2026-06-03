@@ -1654,11 +1654,12 @@ fd_gui_clear_slot( fd_gui_t *      gui,
     lslot->leader_end_time             = LONG_MAX;
     lslot->tile_timers_sample_cnt      = 0UL;
     lslot->scheduler_counts_sample_cnt = 0UL;
-    lslot->txs.microblocks_upper_bound = USHORT_MAX;
+    lslot->txs.microblocks_upper_bound = UINT_MAX;
     lslot->txs.begin_microblocks       = 0U;
     lslot->txs.end_microblocks         = 0U;
     lslot->txs.start_offset            = ULONG_MAX;
     lslot->txs.end_offset              = ULONG_MAX;
+    lslot->max_microblocks             = ULONG_MAX;
     lslot->unbecame_leader             = 0;
   }
 
@@ -3014,7 +3015,8 @@ fd_gui_became_leader( fd_gui_t * gui,
   slot->max_compute_units = (uint)max_compute_units;
   lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, start_time_nanos, lslot->leader_start_time );
   lslot->leader_end_time   = end_time_nanos;
-  if( FD_LIKELY( lslot->txs.microblocks_upper_bound==USHORT_MAX ) ) lslot->txs.microblocks_upper_bound = (ushort)max_microblocks;
+  lslot->max_microblocks   = max_microblocks;
+  if( FD_LIKELY( lslot->txs.microblocks_upper_bound==UINT_MAX ) ) lslot->txs.microblocks_upper_bound = (uint)max_microblocks;
 
   if( FD_UNLIKELY( gui->summary.is_full_client ) ) fd_gui_handle_slot_start( gui, slot->slot, slot->parent_slot, start_time_nanos );
 }
