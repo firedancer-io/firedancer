@@ -112,11 +112,6 @@ during_frag( fd_dedup_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     if( FD_UNLIKELY( sz>FD_TPU_RAW_MTU ) ) FD_LOG_ERR(( "received a gossip transaction that was too large" ));
     fd_memcpy( dst, src, sz );
-
-    fd_txn_m_t const * txnm = (fd_txn_m_t const *)dst;
-    if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
-      FD_LOG_ERR(( "vote txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
-    }
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
     if( FD_LIKELY( sig==REPLAY_SIG_TXN_EXECUTED ) ) {
       fd_replay_txn_executed_t * txn_executed = fd_type_pun( src );
@@ -164,7 +159,9 @@ after_frag( fd_dedup_ctx_t *    ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY       ) ) return;
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
+  if( FD_UNLIKELY( txnm->payload_sz>FD_TPU_MTU ) ) {
+    FD_LOG_ERR(( "dedup: txn payload size %hu exceeds max %lu", txnm->payload_sz, FD_TPU_MTU ));
+  }
   fd_txn_t * txn = fd_txn_m_txn_t( txnm );
 
   if( FD_UNLIKELY( txnm->block_engine.bundle_id && (txnm->block_engine.bundle_id!=ctx->bundle_id) ) ) {
