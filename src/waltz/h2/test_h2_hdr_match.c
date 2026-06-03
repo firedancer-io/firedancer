@@ -78,8 +78,7 @@ check_hpack_idx( int          idx,
 # undef EXPECT_NAME
 }
 
-void
-test_h2_hdr_match( void ) {
+FD_UNIT_TEST( h2_hdr_match ) {
   fd_h2_hdr_matcher_t matcher[1];
   FD_TEST( fd_h2_hdr_matcher_init( matcher, 1UL )==matcher );
 

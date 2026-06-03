@@ -49,8 +49,7 @@ test_h2_push_settings_max_frame_size( fd_h2_rbuf_t * rbuf,
    - Server: SETTINGS
    - Client: SETTINGS ACK */
 
-static void
-test_h2_client_handshake( void ) {
+FD_UNIT_TEST( h2_client_handshake ) {
   uchar scratch[256];
   uchar rbuf_rx_b[128];
   uchar rbuf_tx_b[128];
@@ -201,8 +200,7 @@ test_h2_ping_ack( fd_h2_conn_t * conn ) {
   test_h2_ping_tx_ack_cnt++;
 }
 
-static void
-test_h2_ping_tx( void ) {
+FD_UNIT_TEST( h2_ping_tx ) {
   fd_h2_conn_t conn[1];
   FD_TEST( fd_h2_conn_init_client( conn )==conn );
   uchar scratch[128];
@@ -288,8 +286,7 @@ test_cb_conn_final( fd_h2_conn_t * conn,
    can never be consumed, causing a deadlock.  The buffer guard
    detects this and issues a conn error instead. */
 
-static void
-test_h2_buffer_guard( void ) {
+FD_UNIT_TEST( h2_buffer_guard ) {
   FD_LOG_NOTICE(( "Testing H2 buffer guard" ));
 
   /* (a) Frame exceeds buffer capacity -> FD_H2_ERR_INTERNAL
@@ -570,8 +567,7 @@ test_h2_buffer_guard( void ) {
   FD_LOG_NOTICE(( "test_h2_buffer_guard: pass" ));
 }
 
-static void
-test_h2_invalid_max_frame_size( void ) {
+FD_UNIT_TEST( h2_invalid_max_frame_size ) {
   static uint const invalid_values[] = {
     0x00003fffU,
     0x01000000U
@@ -615,10 +611,3 @@ test_h2_invalid_max_frame_size( void ) {
   }
 }
 
-static void
-test_h2_conn( void ) {
-  test_h2_client_handshake();
-  test_h2_invalid_max_frame_size();
-  test_h2_ping_tx();
-  test_h2_buffer_guard();
-}
