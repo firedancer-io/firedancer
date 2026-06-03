@@ -27,7 +27,7 @@ The Firedancer project is producing two validators,
 * **Frankendancer** A hybrid validator using parts of Firedancer and
 parts of Agave. Frankendancer uses the Firedancer networking stack and
 block production components to perform better while leader. Other
-functionality including execution and consensus is using the Agave
+functionality including execution and consensus uses the Agave
 validator code.
 * **Firedancer** A full from-scratch Firedancer with no Agave code.
 
