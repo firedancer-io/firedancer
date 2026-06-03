@@ -1264,12 +1264,9 @@ fd_executor_setup_accounts_for_txn( fd_runtime_t *      runtime,
   }
 
   /* acquire_b must refund exactly what acquire_a reserved.  acquire_a
-     ran over acquire_cnt pubkeys (the freshly-acquired accounts, not the
-     ones reused from earlier bundle txns), so the reserved count is
-     acquire_cnt - NOT txn_out->accounts.cnt.  Passing the full account
-     count here over-refunds the per-class cache reservation by the
-     number of reused accounts, eventually underflowing cache_class_used
-     and wedging fd_accdb's reservation loop. */
+     ran over acquire_cnt pubkeys (the freshly-acquired accounts, not
+     the ones reused from earlier bundle txns), so the reserved count is
+     acquire_cnt and not txn_out->accounts.cnt. */
   if( FD_LIKELY( executable_acquire_cnt ) ) {
     FD_TEST( runtime->accounts.executable_cnt+executable_acquire_cnt<=FD_PACK_MAX_TXN_PER_BUNDLE*MAX_TX_ACCOUNT_LOCKS );
     fd_acc_t * acquire_base = &runtime->accounts.executable[ runtime->accounts.executable_cnt ];
