@@ -79,7 +79,7 @@ read_key( char const * key_path,
   return fd_keyload_read( key_fd, key_path, key );
 }
 
-uchar * FD_FN_SENSITIVE
+uchar const * FD_FN_SENSITIVE
 fd_keyload_load( char const * key_path,
                  int          public_key_only ) {
   if( FD_UNLIKELY( !key_path || !key_path[0] ) ) {
@@ -95,8 +95,31 @@ fd_keyload_load( char const * key_path,
 
   if( public_key_only ) fd_memzero_explicit( key_page, 32UL );
 
+  /* Make the key page read-only now that the key has been loaded. */
+  if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   if( public_key_only ) return key_page+32UL;
   else                  return key_page;
+}
+
+uchar * FD_FN_SENSITIVE
+fd_keyload_mprotect_wr( uchar const * key,
+                        int           public_key_only ) {
+  uchar * key_mut = (uchar *)key;
+  void * key_page = public_key_only ? key_mut-32UL : key_mut;
+  if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ | PROT_WRITE ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return key_mut;
+}
+
+uchar const * FD_FN_SENSITIVE
+fd_keyload_mprotect_ro( uchar * key,
+                        int     public_key_only ) {
+  void * key_page = public_key_only ? key-32UL : key;
+  if( FD_UNLIKELY( mprotect( key_page, 4096UL, PROT_READ ) ) )
+    FD_LOG_ERR(( "mprotect failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  return key;
 }
 
 void FD_FN_SENSITIVE

@@ -143,13 +143,13 @@ find_keyswitch( fd_topo_t const * topo,
 }
 
 static void FD_FN_SENSITIVE
-poll_keyswitch( fd_topo_t * topo,
-                ulong *     state,
-                ulong *     halted_seq,
-                uchar *     keypair,
-                int *       has_error,
-                int         require_tower,
-                int         force_lock ) {
+poll_keyswitch( fd_topo_t *   topo,
+                ulong *       state,
+                ulong *       halted_seq,
+                uchar const * keypair,
+                int *         has_error,
+                int           require_tower,
+                int           force_lock ) {
   switch( *state ) {
     case FD_SET_IDENTITY_STATE_UNLOCKED: {
       fd_keyswitch_t * poh = find_keyswitch( topo, "pohh" );
@@ -244,7 +244,9 @@ poll_keyswitch( fd_topo_t * topo,
       fd_keyswitch_t * sign = find_keyswitch( topo, "sign" );
       memcpy( sign->bytes, keypair, 64UL );
       FD_COMPILER_MFENCE();
-      fd_memzero_explicit( keypair, 32UL ); /* Private key no longer needed in this process */
+      uchar * keypair_wr = fd_keyload_mprotect_wr( keypair, 0 );
+      fd_memzero_explicit( keypair_wr, 32UL ); /* Private key no longer needed in this process */
+      fd_keyload_mprotect_ro( keypair_wr, 0 );
       FD_COMPILER_MFENCE();
       sign->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
       FD_COMPILER_MFENCE();
@@ -334,9 +336,10 @@ set_identityh_cmd_args( int *    pargc,
   (*pargv)++;
 
   if( FD_UNLIKELY( !strcmp( path, "-" ) ) ) {
-    args->set_identity.keypair = fd_keyload_alloc_protected_pages( 1UL, 2UL );
+    uchar * keypair_wr = fd_keyload_alloc_protected_pages( 1UL, 2UL );
     FD_LOG_STDOUT(( "Reading identity keypair from stdin.  Press Ctrl-D when done.\n" ));
-    fd_keyload_read( STDIN_FILENO, "stdin", args->set_identity.keypair );
+    fd_keyload_read( STDIN_FILENO, "stdin", keypair_wr );
+    args->set_identity.keypair = fd_keyload_mprotect_ro( keypair_wr, 0 );
   } else {
     args->set_identity.keypair = fd_keyload_load( path, 0 );
   }
