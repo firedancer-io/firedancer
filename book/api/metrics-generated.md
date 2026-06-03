@@ -47,6 +47,7 @@
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">idle</span>"} | counter | CPU time spent in each CPU regime (Idle (task was not runnable)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">user</span>"} | counter | CPU time spent in each CPU regime (User (task was scheduled and executing in user mode)) |
 | <span class="metrics-name">tile_&#8203;cpu_&#8203;duration_&#8203;nanos</span><br/>{cpu_&#8203;regime="<span class="metrics-enum">system</span>"} | counter | CPU time spent in each CPU regime (System (task was scheduled and executing in kernel mode)) |
+| <span class="metrics-name">tile_&#8203;irq_&#8203;count</span> | counter | The number of times this tile was interrupted by an IRQ (fixed tiles only) |
 
 </div>
 
@@ -1061,7 +1062,7 @@
 | <span class="metrics-name">tower_&#8203;votes</span><br/>{vote_&#8203;txn_&#8203;result="<span class="metrics-enum">bad_&#8203;tower</span>"} | counter | Result of processing a vote txn (per txn) (Vote txn deserialized but tower was invalid) |
 | <span class="metrics-name">tower_&#8203;votes</span><br/>{vote_&#8203;txn_&#8203;result="<span class="metrics-enum">unknown_&#8203;block_&#8203;id</span>"} | counter | Result of processing a vote txn (per txn) (Last vote had a null block id) |
 | <span class="metrics-name">tower_&#8203;votes</span><br/>{vote_&#8203;txn_&#8203;result="<span class="metrics-enum">too_&#8203;old</span>"} | counter | Result of processing a vote txn (per txn) (Last vote slot was behind the votes root) |
-| <span class="metrics-name">tower_&#8203;votes</span><br/>{vote_&#8203;txn_&#8203;result="<span class="metrics-enum">not_&#8203;staked</span>"} | counter | Result of processing a vote txn (per txn) (Voter was not staked in the current root's epoch) |
+| <span class="metrics-name">tower_&#8203;votes</span><br/>{vote_&#8203;txn_&#8203;result="<span class="metrics-enum">not_&#8203;staked</span>"} | counter | Result of processing a vote txn (per txn) (Unable to query stake for vote slot) |
 | <span class="metrics-name">tower_&#8203;votes</span><br/>{vote_&#8203;txn_&#8203;result="<span class="metrics-enum">bad_&#8203;signer</span>"} | counter | Result of processing a vote txn (per txn) (Vote txn was not signed by the authorized voter for the vote account at the vote epoch) |
 | <span class="metrics-name">tower_&#8203;vote_&#8203;slots</span><br/>{vote_&#8203;slot_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Result of counting an individual vote slot from a vote txn (per slot) (Vote slot was counted) |
 | <span class="metrics-name">tower_&#8203;vote_&#8203;slots</span><br/>{vote_&#8203;slot_&#8203;result="<span class="metrics-enum">too_&#8203;new</span>"} | counter | Result of counting an individual vote slot from a vote txn (per slot) (Vote slot was too far ahead of the votes root) |
@@ -1176,6 +1177,14 @@
 | <span class="metrics-name">diag_&#8203;vote_&#8203;status</span> | gauge | Precise status of the vote subsystem: 0=disabled (non-voting or no tower tile), 1=not started (tower tile not running or no votes cast yet), 2=delinquent (vote distance exceeds threshold or vote stalled), 3=voting (voting normally) |
 | <span class="metrics-name">diag_&#8203;replay_&#8203;status</span> | gauge | Precise status of the replay subsystem: 0=disabled (no replay tile), 1=not started (replay tile not running or slots are zero), 2=behind (replay lagging behind turbine or reset slot stalled), 3=running (replay keeping up) |
 | <span class="metrics-name">diag_&#8203;turbine_&#8203;status</span> | gauge | Precise status of the turbine subsystem: 0=disabled (no shred or replay tiles), 1=not started (tiles not all running or turbine slot is zero), 2=stalled (turbine slot not advancing), 3=repair outpacing (repair byte throughput exceeds turbine), 4=running (turbine receiving normally) |
+| <span class="metrics-name">diag_&#8203;device_&#8203;irqs_&#8203;total</span> | counter | Number of device IRQs across all CPUs |
+| <span class="metrics-name">diag_&#8203;device_&#8203;irqs_&#8203;undesired</span> | counter | Number of device hard IRQs that stole CPU time from fixed tiles |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;total</span><br/>{softirq="<span class="metrics-enum">net</span>"} | counter | Number of soft-IRQs across all CPUs (NET_TX, NET_RX) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;total</span><br/>{softirq="<span class="metrics-enum">disk</span>"} | counter | Number of soft-IRQs across all CPUs (BLOCK) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;total</span><br/>{softirq="<span class="metrics-enum">other</span>"} | counter | Number of soft-IRQs across all CPUs (e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ...) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;undesired</span><br/>{softirq="<span class="metrics-enum">net</span>"} | counter | Number of soft-IRQs that stole CPU time from fixed tiles (NET_TX, NET_RX) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;undesired</span><br/>{softirq="<span class="metrics-enum">disk</span>"} | counter | Number of soft-IRQs that stole CPU time from fixed tiles (BLOCK) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;undesired</span><br/>{softirq="<span class="metrics-enum">other</span>"} | counter | Number of soft-IRQs that stole CPU time from fixed tiles (e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ...) |
 
 </div>
 
