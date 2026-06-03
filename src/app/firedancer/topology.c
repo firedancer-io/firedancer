@@ -485,11 +485,11 @@ fd_topo_initialize( config_t * config ) {
     /**/                   fd_topob_link( topo, "dedup_resolv",  "dedup_resolv",  65536UL,                                  FD_TPU_PARSED_MTU,             1UL );
     FOR(resolv_tile_cnt)   fd_topob_link( topo, "resolv_pack",   "resolv_pack",   65536UL,                                  FD_TPU_RESOLVED_MTU,           1UL );
     /**/                   fd_topob_link( topo, "pack_poh",      "pack_poh",      4096UL,                                   sizeof(fd_done_packing_t),     1UL );
-    FOR(execle_tile_cnt)   fd_topob_link( topo, "execle_poh",    "execle_poh",    16384UL,                                  USHORT_MAX,                    1UL );
+    FOR(execle_tile_cnt)   fd_topob_link( topo, "execle_poh",    "execle_poh",    16384UL,                                  MAX_MICROBLOCK_SZ,             1UL );
     /* pack_execle is shared across all execle, so if one executor stalls
        due to complex transactions, the buffer needs to be large so that
        other executors can keep proceeding. */
-    /**/                   fd_topob_link( topo, "pack_execle",   "pack_execle",   65536UL,                                  USHORT_MAX,                    1UL );
+    /**/                   fd_topob_link( topo, "pack_execle",   "pack_execle",   65536UL,                                  MAX_MICROBLOCK_SZ,             1UL );
     if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
       FOR(execle_tile_cnt) fd_topob_link( topo, "execle_pack",   "execle_pack",   16384UL,                                  USHORT_MAX,                    1UL );
     }
