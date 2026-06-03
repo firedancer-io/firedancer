@@ -1244,6 +1244,25 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">rpc_&#8203;request_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent in service |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">genesis</span>"} | counter | Number of RPC requests served (GET /genesis.tar.bz2) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">unknown</span>"} | counter | Number of RPC requests served (Unknown or unsupported method) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getAccountInfo</span>"} | counter | Number of RPC requests served (getAccountInfo) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getBalance</span>"} | counter | Number of RPC requests served (getBalance) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getBlockHeight</span>"} | counter | Number of RPC requests served (getBlockHeight) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getClusterNodes</span>"} | counter | Number of RPC requests served (getClusterNodes) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getEpochInfo</span>"} | counter | Number of RPC requests served (getEpochInfo) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getGenesisHash</span>"} | counter | Number of RPC requests served (getGenesisHash) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getHealth</span>"} | counter | Number of RPC requests served (getHealth) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getIdentity</span>"} | counter | Number of RPC requests served (getIdentity) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getInflationGovernor</span>"} | counter | Number of RPC requests served (getInflationGovernor) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getLatestBlockhash</span>"} | counter | Number of RPC requests served (getLatestBlockhash) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getMinimumBalanceForRentExemption</span>"} | counter | Number of RPC requests served (getMinimumBalanceForRentExemption) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getMultipleAccounts</span>"} | counter | Number of RPC requests served (getMultipleAccounts) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getSlot</span>"} | counter | Number of RPC requests served (getSlot) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getTransactionCount</span>"} | counter | Number of RPC requests served (getTransactionCount) |
+| <span class="metrics-name">rpc_&#8203;request_&#8203;count</span><br/>{rpc_&#8203;method="<span class="metrics-enum">getVersion</span>"} | counter | Number of RPC requests served (getVersion) |
+| <span class="metrics-name">rpc_&#8203;connection_&#8203;count</span> | gauge | The number of active HTTP connections to the RPC service |
 
 </div>
 

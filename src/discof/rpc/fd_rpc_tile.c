@@ -8,6 +8,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/features/fd_features.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_rent.h"
@@ -266,6 +267,8 @@ struct fd_rpc_tile {
   fd_rpc_out_t replay_out[1];
 
   fd_accdb_user_t accdb[1];
+
+  fd_histf_t request_duration[ 1 ];
 
 # if FD_HAS_ZSTD
   uchar compress_buf[ ZSTD_COMPRESSBOUND( FD_RUNTIME_ACC_SZ_MAX ) ];
@@ -1084,6 +1087,8 @@ static fd_http_server_response_t
 getAccountInfo( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_ACCOUNT_INFO, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
 
@@ -1133,6 +1138,8 @@ static fd_http_server_response_t
 getBalance( fd_rpc_tile_t * ctx,
             cJSON const *   id,
             cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_BALANCE, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
 
@@ -1169,6 +1176,8 @@ static fd_http_server_response_t
 getBlockHeight( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_BLOCK_HEIGHT, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1199,6 +1208,8 @@ static fd_http_server_response_t
 getClusterNodes( fd_rpc_tile_t * ctx,
                  cJSON const *   id,
                  cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_CLUSTER_NODES, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
@@ -1274,6 +1285,8 @@ static fd_http_server_response_t
 getEpochInfo( fd_rpc_tile_t * ctx,
               cJSON const *   id,
               cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_EPOCH_INFO, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1309,6 +1322,8 @@ static fd_http_server_response_t
 getGenesisHash( fd_rpc_tile_t * ctx,
                 cJSON const *   id,
                 cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_GENESIS_HASH, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
@@ -1360,6 +1375,8 @@ getGenesisHash( fd_rpc_tile_t * ctx,
 
 static inline int
 _getHealth( fd_rpc_tile_t * ctx ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_HEALTH, 1UL );
+
   /* fd_http_server_listen is not called until after RPC has initialized banks */
   if( FD_UNLIKELY( ctx->confirmed_idx==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
   if( FD_UNLIKELY( ctx->cluster_confirmed_slot==ULONG_MAX ) ) return FD_RPC_HEALTH_STATUS_UNKNOWN;
@@ -1396,6 +1413,8 @@ static fd_http_server_response_t
 getIdentity( fd_rpc_tile_t * ctx,
              cJSON const *   id,
              cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_IDENTITY, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
@@ -1408,6 +1427,8 @@ static fd_http_server_response_t
 getInflationGovernor( fd_rpc_tile_t * ctx,
                      cJSON const *   id,
                      cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_INFLATION_GOVERNOR, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1444,6 +1465,8 @@ static fd_http_server_response_t
 getLatestBlockhash( fd_rpc_tile_t * ctx,
                     cJSON const *   id,
                     cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_LATEST_BLOCKHASH, 1UL );
+
   if( FD_UNLIKELY( ctx->processed_idx==ULONG_MAX ) ) {
     CSTR_JSON( id, id_cstr );
     return PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32065,\"message\":\"Firedancer Error: banks uninitialized\"},\"id\":%s}\n", id_cstr );
@@ -1481,6 +1504,8 @@ static fd_http_server_response_t
 getMinimumBalanceForRentExemption( fd_rpc_tile_t * ctx,
                                    cJSON const *   id,
                                    cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_MINIMUM_BALANCE_FOR_RENT_EXEMPTION, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
 
@@ -1535,6 +1560,8 @@ static fd_http_server_response_t
 getMultipleAccounts( fd_rpc_tile_t * ctx,
                      cJSON const *   id,
                      cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_MULTIPLE_ACCOUNTS, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 1, 2, &response ) ) ) return response;
 
@@ -1614,6 +1641,8 @@ static fd_http_server_response_t
 getSlot( fd_rpc_tile_t * ctx,
          cJSON const *   id,
          cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_SLOT, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1651,6 +1680,8 @@ static fd_http_server_response_t
 getTransactionCount( fd_rpc_tile_t * ctx,
                      cJSON const *   id,
                      cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_TRANSACTION_COUNT, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 1, &response ) ) ) return response;
 
@@ -1677,6 +1708,8 @@ static fd_http_server_response_t
 getVersion( fd_rpc_tile_t * ctx,
             cJSON const *   id,
             cJSON const *   params ) {
+  FD_MCNT_INC( RPC, REQUEST_COUNT_GET_VERSION, 1UL );
+
   fd_http_server_response_t response;
   if( FD_UNLIKELY( !fd_rpc_validate_params( ctx, id, params, 0, 0, &response ) ) ) return response;
 
@@ -1692,9 +1725,8 @@ UNIMPLEMENTED(sendTransaction)
 UNIMPLEMENTED(simulateTransaction)
 
 static fd_http_server_response_t
-rpc_http_request( fd_http_server_request_t const * request ) {
-  fd_rpc_tile_t * ctx = (fd_rpc_tile_t *)request->ctx;
-
+rpc_http_request1( fd_rpc_tile_t *                  ctx,
+                   fd_http_server_request_t const * request ) {
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/health" ) ) ) {
     int health_status = _getHealth( ctx );
 
@@ -1707,6 +1739,7 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   }
 
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/genesis.tar.bz2" ) ) ) {
+    FD_MCNT_INC( RPC, REQUEST_COUNT_GENESIS, 1UL );
     if( FD_UNLIKELY( ctx->genesis_tar_bz_sz==ULONG_MAX ) ) return (fd_http_server_response_t){ .status = 404 };
 
     fd_http_server_response_t response = (fd_http_server_response_t){ .status = 200 };
@@ -1865,11 +1898,22 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   else if( FD_LIKELY( !strcmp( _method->valuestring, "sendTransaction"                   ) ) ) response = sendTransaction( ctx, id, params );
   else if( FD_LIKELY( !strcmp( _method->valuestring, "simulateTransaction"               ) ) ) response = simulateTransaction( ctx, id, params );
   else {
+    FD_MCNT_INC( RPC, REQUEST_COUNT_UNKNOWN, 1UL );
     CSTR_JSON( id, id_cstr );
     response = PRINTF_JSON( ctx, "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32601,\"message\":\"Method not found\"},\"id\":%s}\n", id_cstr );
   }
 
   cJSON_Delete( json );
+  return response;
+}
+
+static fd_http_server_response_t
+rpc_http_request( fd_http_server_request_t const * request ) {
+  fd_rpc_tile_t * ctx = request->ctx;
+  long dt = -fd_tickcount();
+  fd_http_server_response_t response = rpc_http_request1( ctx, request );
+  dt += fd_tickcount();
+  fd_histf_sample( ctx->request_duration, (ulong)dt );
   return response;
 }
 
@@ -1989,6 +2033,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_accdb_init_from_topo( ctx->accdb, topo, tile->rpc.accdb_max_depth );
 
+  fd_histf_join( fd_histf_new( ctx->request_duration, FD_MHIST_SECONDS_MIN( RPC, REQUEST_DURATION_SECONDS ),
+                                                      FD_MHIST_SECONDS_MAX( RPC, REQUEST_DURATION_SECONDS ) ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
@@ -2034,6 +2081,12 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return base+tile->rpc.max_http_connections;
 }
 
+static inline void
+metrics_write( fd_rpc_tile_t * ctx ) {
+  FD_MHIST_COPY( RPC, REQUEST_DURATION_SECONDS, ctx->request_duration );
+  FD_MGAUGE_SET( RPC, CONNECTION_COUNT, ctx->http->metrics.connection_cnt );
+}
+
 #define STEM_BURST (1UL)
 
 /* The default STEM_LAZY is based on cr_max, which is the minimum depth
@@ -2054,6 +2107,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../disco/stem/fd_stem.c"
 

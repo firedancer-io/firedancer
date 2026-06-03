@@ -58,10 +58,11 @@ class HistogramConverter(Enum):
     NANOSECONDS = 2
 
 class EnumValue:
-    def __init__(self, value: int, name: str, label: str):
+    def __init__(self, value: int, name: str, label: str, normalize: bool = True):
         self.value = value
         self.name = name
         self.label = label
+        self.normalize = normalize
 
 class MetricEnum:
     def __init__(self, name: str, values: List[EnumValue]):
@@ -207,7 +208,8 @@ def parse_metrics(xml_data: str) -> Metrics:
                 EnumValue(
                     value=int(value.attrib['value']),
                     name=value.attrib['name'],
-                    label=value.attrib['label']
+                    label=value.attrib['label'],
+                    normalize=(enum.attrib.get('normalize', 'true').lower() == 'true')
                 )
                 for value in enum.findall('int')
             ]

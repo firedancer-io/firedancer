@@ -9,7 +9,7 @@ def _write_metric(f: TextIO, metric: Metric, prefix: str):
     if isinstance(metric, CounterEnumMetric) or isinstance(metric, GaugeEnumMetric):
         for value in metric.enum.values:
             full_name = prefix + "_" + camel2snake(metric.name)
-            tag = camel2snake(value.name)
+            tag = camel2snake(value.name) if value.normalize else value.name
             tag = '<span class="metrics-enum">' + tag + '</span>'
             full_tag = "{" + camel2snake(metric.enum.name) + "=\"" + tag + "\"}"
             full_tag = full_tag.replace("_", "_&#8203;")
