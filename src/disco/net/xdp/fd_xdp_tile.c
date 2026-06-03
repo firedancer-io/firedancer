@@ -1230,8 +1230,8 @@ interface_addrs( const char * interface,
       +-> XSKMAP object <-- BPF_MAP file descriptor (xsk_map) */
 
 FD_FN_UNUSED static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -1382,8 +1382,8 @@ init_device_table( fd_net_ctx_t * ctx,
 }
 
 FD_FN_UNUSED static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -1412,7 +1412,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt>MAX_NET_INS ) ) FD_LOG_ERR(( "net tile in link cnt %lu exceeds MAX_NET_INS %lu", tile->in_cnt, MAX_NET_INS ));
   FD_TEST( tile->in_cnt<=32 );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     if( FD_UNLIKELY( link->mtu!=FD_NET_MTU ) ) FD_LOG_ERR(( "net tile in link %s does not have a normal MTU", link->name ));
 
     ctx->in[ i ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
@@ -1421,38 +1421,38 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   for( ulong i = 0; i < tile->out_cnt; i++ ) {
-    fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i  ] ];
+    fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ i  ] ];
     if( strcmp( out_link->name, "net_quic" ) == 0 ) {
-      fd_topo_link_t * quic_out = out_link;
+      fd_topo_link_t const * quic_out = out_link;
       ctx->quic_out->mcache = quic_out->mcache;
       ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
       ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
       ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
     } else if( strcmp( out_link->name, "net_shred" ) == 0 ) {
-      fd_topo_link_t * shred_out = out_link;
+      fd_topo_link_t const * shred_out = out_link;
       ctx->shred_out->mcache = shred_out->mcache;
       ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
       ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
       ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
     } else if( strcmp( out_link->name, "net_gossvf" ) == 0 ) {
-      fd_topo_link_t * gossip_out = out_link;
+      fd_topo_link_t const * gossip_out = out_link;
       ctx->gossvf_out->mcache = gossip_out->mcache;
       ctx->gossvf_out->sync   = fd_mcache_seq_laddr( ctx->gossvf_out->mcache );
       ctx->gossvf_out->depth  = fd_mcache_depth( ctx->gossvf_out->mcache );
       ctx->gossvf_out->seq    = fd_mcache_seq_query( ctx->gossvf_out->sync );
     } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
-      fd_topo_link_t * repair_out = out_link;
+      fd_topo_link_t const * repair_out = out_link;
       ctx->repair_out->mcache = repair_out->mcache;
       ctx->repair_out->sync   = fd_mcache_seq_laddr( ctx->repair_out->mcache );
       ctx->repair_out->depth  = fd_mcache_depth( ctx->repair_out->mcache );
       ctx->repair_out->seq    = fd_mcache_seq_query( ctx->repair_out->sync );
     } else if( strcmp( out_link->name, "net_netlnk" ) == 0 ) {
-      fd_topo_link_t * netlink_out = out_link;
+      fd_topo_link_t const * netlink_out = out_link;
       ctx->neigh4_solicit->mcache = netlink_out->mcache;
       ctx->neigh4_solicit->depth  = fd_mcache_depth( ctx->neigh4_solicit->mcache );
       ctx->neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->neigh4_solicit->mcache ) );
     } else if( strcmp( out_link->name, "net_txsend" ) == 0 ) {
-      fd_topo_link_t * txsend_out = out_link;
+      fd_topo_link_t const * txsend_out = out_link;
       ctx->txsend_out->mcache = txsend_out->mcache;
       ctx->txsend_out->sync   = fd_mcache_seq_laddr( ctx->txsend_out->mcache );
       ctx->txsend_out->depth  = fd_mcache_depth( ctx->txsend_out->mcache );
@@ -1522,8 +1522,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* Initialize RX mcache chunks */
 
   for( ulong i=0UL; i<(tile->out_cnt); i++ ) {
-    fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i  ] ];
-    fd_frag_meta_t * mcache   = out_link->mcache;
+    fd_topo_link_t const * out_link = &topo->links[ tile->out_link_id[ i  ] ];
+    fd_frag_meta_t * mcache = out_link->mcache;
     for( ulong j=0UL; j<fd_mcache_depth( mcache ); j++ ) {
       mcache[ j ].chunk = (uint)( ctx->umem_chunk0 + (frame_off>>FD_CHUNK_LG_SZ) );
       frame_off += frame_sz;

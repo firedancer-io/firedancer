@@ -696,12 +696,12 @@ poh_link_publish( poh_link_t *  link,
 }
 
 static void
-poh_link_init( poh_link_t *     link,
-               fd_topo_t *      topo,
-               fd_topo_tile_t * tile,
-               ulong            out_idx ) {
-  fd_topo_link_t * topo_link = &topo->links[ tile->out_link_id[ out_idx ] ];
-  fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ topo_link->dcache_obj_id ].wksp_id ];
+poh_link_init( poh_link_t *           link,
+               fd_topo_t const *      topo,
+               fd_topo_tile_t const * tile,
+               ulong                  out_idx ) {
+  fd_topo_link_t const * topo_link = &topo->links[ tile->out_link_id[ out_idx ] ];
+  fd_topo_wksp_t const * wksp = &topo->workspaces[ topo->objs[ topo_link->dcache_obj_id ].wksp_id ];
 
   link->mem      = wksp->wksp;
   link->depth    = fd_mcache_depth( topo_link->mcache );
@@ -713,7 +713,7 @@ poh_link_init( poh_link_t *     link,
   link->cr_avail = 0UL;
   link->rx_cnt   = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * _tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * _tile = &topo->tiles[ i ];
     for( ulong j=0UL; j<_tile->in_cnt; j++ ) {
       if( _tile->in_link_id[ j ]==topo_link->id && _tile->in_link_reliable[ j ] ) {
         FD_TEST( link->rx_cnt<32UL );
@@ -2193,8 +2193,8 @@ after_frag( fd_pohh_tile_t *    ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -2206,10 +2206,11 @@ privileged_init( fd_topo_t *      topo,
   const uchar * identity_key = fd_keyload_load( tile->pohh.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
 
+  ctx->bundle.enabled = tile->pohh.bundle.enabled;
   if( FD_UNLIKELY( !tile->pohh.bundle.vote_account_path[0] ) ) {
-    tile->pohh.bundle.enabled = 0;
+    ctx->bundle.enabled = 0;
   }
-  if( FD_UNLIKELY( tile->pohh.bundle.enabled ) ) {
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_base58_decode_32( tile->pohh.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
       const uchar * vote_key = fd_keyload_load( tile->pohh.bundle.vote_account_path, /* pubkey only: */ 1 );
       fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
@@ -2354,8 +2355,8 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -2395,14 +2396,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->max_active_descendant = 0UL;
 
-  if( FD_UNLIKELY( tile->pohh.bundle.enabled ) ) {
-    ctx->bundle.enabled = 1;
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     NONNULL( fd_bundle_crank_gen_init( ctx->bundle.gen, (fd_acct_addr_t const *)tile->pohh.bundle.tip_distribution_program_addr,
              (fd_acct_addr_t const *)tile->pohh.bundle.tip_payment_program_addr,
              (fd_acct_addr_t const *)ctx->bundle.vote_account.uc,
              (fd_acct_addr_t const *)ctx->bundle.vote_account.uc, "NAN", 0UL ) ); /* last three arguments are properly bogus */
-  } else {
-    ctx->bundle.enabled = 0;
   }
 
   ulong pohh_shred_obj_id = fd_pod_query_ulong( topo->props, "pohh_shred", ULONG_MAX );
@@ -2465,8 +2463,8 @@ unprivileged_init( fd_topo_t *      topo,
                                                        FD_MHIST_SECONDS_MAX( POHH, BUNDLE_INITIALIZE_DELAY_SECONDS  ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );

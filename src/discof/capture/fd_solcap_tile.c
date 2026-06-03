@@ -380,8 +380,8 @@ returnable_frag( fd_solcap_tile_ctx_t * ctx,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_solcap_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_solcap_tile_ctx_t), sizeof(fd_solcap_tile_ctx_t) );
@@ -461,8 +461,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_solcap_tile_ctx_t * ctx = (fd_solcap_tile_ctx_t *)scratch;
@@ -470,8 +470,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_cnt = 0UL;
   FD_TEST( tile->in_cnt <= 32UL );
   for( ulong i = 0UL; i < tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     ctx->in[ctx->in_cnt].mem    = wksp->wksp;
     ctx->in[ctx->in_cnt].chunk0 = fd_dcache_compact_chunk0( wksp->wksp, link->dcache );

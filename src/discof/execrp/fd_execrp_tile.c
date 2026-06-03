@@ -331,8 +331,8 @@ returnable_frag( fd_execrp_tile_t *  ctx,
 extern FD_TL int fd_wksp_oom_silent;
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   fd_execrp_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   ctx->funk_pkey = -1;
 
@@ -367,8 +367,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -400,7 +400,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* First find and setup the in-link from replay to exec. */
   ctx->replay_in->idx = fd_topo_find_tile_in_link( topo, tile, "replay_execrp", 0UL );
   FD_TEST( ctx->replay_in->idx!=ULONG_MAX );
-  fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ ctx->replay_in->idx ] ];
+  fd_topo_link_t const * replay_in_link = &topo->links[ tile->in_link_id[ ctx->replay_in->idx ] ];
   ctx->replay_in->mem    = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->replay_in->chunk0 = fd_dcache_compact_chunk0( ctx->replay_in->mem, replay_in_link->dcache );
   ctx->replay_in->wmark  = fd_dcache_compact_wmark( ctx->replay_in->mem, replay_in_link->dcache, replay_in_link->mtu );
@@ -408,7 +408,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->execrp_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "execrp_replay", ctx->tile_idx );
   if( FD_LIKELY( ctx->execrp_replay_out->idx!=ULONG_MAX ) ) {
-    fd_topo_link_t * execrp_replay_link = &topo->links[ tile->out_link_id[ ctx->execrp_replay_out->idx ] ];
+    fd_topo_link_t const * execrp_replay_link = &topo->links[ tile->out_link_id[ ctx->execrp_replay_out->idx ] ];
     ctx->execrp_replay_out->mem    = topo->workspaces[ topo->objs[ execrp_replay_link->dcache_obj_id ].wksp_id ].wksp;
     ctx->execrp_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->execrp_replay_out->mem, execrp_replay_link->dcache );
     ctx->execrp_replay_out->wmark  = fd_dcache_compact_wmark( ctx->execrp_replay_out->mem, execrp_replay_link->dcache, execrp_replay_link->mtu );
@@ -462,7 +462,7 @@ unprivileged_init( fd_topo_t *      topo,
     ulong tile_idx = tile->kind_id;
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_execrp", tile_idx );
     FD_TEST( idx!=ULONG_MAX );
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ idx ] ];
     fd_capture_link_buf_t * cap_execrp_out = ctx->cap_execrp_out;
     cap_execrp_out->base.vt = &fd_capture_link_buf_vt;
     cap_execrp_out->idx     = idx;
@@ -475,7 +475,7 @@ unprivileged_init( fd_topo_t *      topo,
     cap_execrp_out->seq     = 0UL;
 
     ulong consumer_tile_idx = fd_topo_find_tile(topo, "solcap", 0UL);
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ consumer_tile_idx ];
     cap_execrp_out->fseq = NULL;
     for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {

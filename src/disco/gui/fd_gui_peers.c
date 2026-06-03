@@ -199,7 +199,7 @@ build_geoip_trie( fd_gui_peers_ctx_t *   peers,
 void *
 fd_gui_peers_new( void *             shmem,
                   fd_http_server_t * http,
-                  fd_topo_t *        topo,
+                  fd_topo_t const *  topo,
                   ulong              max_ws_conn_cnt,
                   char const *       wfs_expected_bank_hash_cstr,
                   long               now ) {

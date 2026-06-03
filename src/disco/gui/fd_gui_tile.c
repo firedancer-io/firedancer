@@ -94,7 +94,7 @@ struct fd_gui_out_ctx {
 typedef struct fd_gui_out_ctx fd_gui_out_ctx_t;
 
 typedef struct {
-  fd_topo_t * topo;
+  fd_topo_t const * topo;
 
   int is_full_client;
   int snapshots_enabled;
@@ -675,8 +675,8 @@ gui_ws_message( ulong         ws_conn_id,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -715,11 +715,11 @@ privileged_init( fd_topo_t *      topo,
 extern char const fdctl_version_string[];
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  fd_topo_tile_t * gui_tile = &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ];
+  fd_topo_tile_t const * gui_tile = &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ];
   switch( gui_tile->gui.frontend_release_channel ) {
     case 0: STATIC_FILES = STATIC_FILES_STABLE; break;
     case 1: STATIC_FILES = STATIC_FILES_ALPHA;  break;
@@ -764,8 +764,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_cnt = tile->in_cnt;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     if( FD_LIKELY( !strcmp( link->name, "plugin_out"        ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;      /* full client only */

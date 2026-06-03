@@ -122,8 +122,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   if( FD_UNLIKELY( tile->kind_id!=0 ) ) {
     FD_LOG_ERR(( "Topology contains more than one netlink tile" ));
   }
@@ -168,8 +168,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   FD_SCRATCH_ALLOC_INIT( l, fd_topo_obj_laddr( topo, tile->tile_obj_id ) );
   fd_netlink_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_netlink_tile_ctx_t), sizeof(fd_netlink_tile_ctx_t) );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
@@ -192,7 +192,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_fib4_join(        ctx->fib4_main,  fd_topo_obj_laddr( topo, tile->netlink.fib4_main_obj_id  ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     if( FD_UNLIKELY( link->mtu!=0UL ) ) FD_LOG_ERR(( "netlink solicit links must have an MTU of zero" ));
   }
 

@@ -2429,8 +2429,8 @@ out1( fd_topo_t const *      topo,
 }
 
 static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -2441,11 +2441,12 @@ privileged_init( fd_topo_t *      topo,
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
   ctx->identity_idx         = 0UL;
 
+  ctx->bundle.enabled = tile->replay.bundle.enabled;
   if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
-    tile->replay.bundle.enabled = 0;
+    ctx->bundle.enabled = 0;
   }
 
-  if( FD_UNLIKELY( tile->replay.bundle.enabled ) ) {
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
       const uchar * vote_key = fd_keyload_load( tile->replay.bundle.vote_account_path, /* pubkey only: */ 1 );
       fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
@@ -2480,8 +2481,8 @@ privileged_init( fd_topo_t *      topo,
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+unprivileged_init( fd_topo_t const *      topo,
+                   fd_topo_tile_t const * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
@@ -2541,8 +2542,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->hard_fork_cnt = ULONG_MAX;
   ctx->has_manifest_block_id = 0;
 
-  if( FD_UNLIKELY( tile->replay.bundle.enabled ) ) {
-    ctx->bundle.enabled = 1;
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     if( FD_UNLIKELY( !fd_bundle_crank_gen_init( ctx->bundle.gen,
              (fd_acct_addr_t const *)tile->replay.bundle.tip_distribution_program_addr,
              (fd_acct_addr_t const *)tile->replay.bundle.tip_payment_program_addr,
@@ -2550,8 +2550,6 @@ unprivileged_init( fd_topo_t *      topo,
              (fd_acct_addr_t const *)ctx->bundle.vote_account.uc, "NAN", 0UL ) ) ) {
       FD_LOG_ERR(( "failed to initialize bundle crank gen" ));
     }
-  } else {
-    ctx->bundle.enabled = 0;
   }
 
   fd_features_t * features = &bank->f.features;
@@ -2665,8 +2663,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
-    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     if( FD_LIKELY( link->dcache ) ) {
       ctx->in[ i ].mem    = link_wksp->wksp;
@@ -2699,7 +2697,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
     FD_TEST( idx!=ULONG_MAX );
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+    fd_topo_link_t const * link = &topo->links[ tile->out_link_id[ idx ] ];
 
 
     fd_capture_link_buf_t * cap_repl_out = ctx->cap_repl_out;
@@ -2719,7 +2717,7 @@ unprivileged_init( fd_topo_t *      topo,
 
 
     ulong consumer_tile_idx = fd_topo_find_tile( topo, "solcap", 0UL );
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ consumer_tile_idx ];
     cap_repl_out->fseq = NULL;
     for( ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {

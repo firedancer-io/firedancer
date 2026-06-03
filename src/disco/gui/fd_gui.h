@@ -589,7 +589,7 @@ typedef struct fd_gui_boot_progress fd_gui_boot_progress_t;
 
 struct fd_gui {
   fd_http_server_t * http;
-  fd_topo_t * topo;
+  fd_topo_t const * topo;
 
   ulong tile_cnt;
 
@@ -864,7 +864,7 @@ fd_gui_new( void *                shmem,
             int                   schedule_strategy,
             char const *          wfs_expected_bank_hash_cstr,
             ushort                expected_shred_version,
-            fd_topo_t *           topo,
+            fd_topo_t const *     topo,
             long                  now );
 
 fd_gui_t *
