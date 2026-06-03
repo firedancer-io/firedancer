@@ -220,7 +220,8 @@ def _write_enums(enums: List[MetricEnum], common_offset: int):
             f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_CNT ({len(enum.values)}UL)\n')
             for idx, enum_value in enumerate(enum.values):
                 f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_V_{camel2snake(enum_value.name)}_IDX  {idx}\n')
-                f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_V_{camel2snake(enum_value.name)}_NAME "{camel2snake(enum_value.name).lower()}"\n')
+                tag = camel2snake(enum_value.name).lower() if enum_value.normalize else enum_value.name
+                f.write(f'#define FD_METRICS_ENUM_{camel2snake(enum.name)}_V_{camel2snake(enum_value.name)}_NAME "{tag}"\n')
             f.write('\n')
         f.write('#endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_enums_h */\n')
 

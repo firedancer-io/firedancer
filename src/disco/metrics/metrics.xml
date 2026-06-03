@@ -1170,7 +1170,32 @@ metric introduced.
     <counter name="BytesRead" summary="The total number of bytes read from all requests to the Prometheus endpoint" />
 </tile>
 
+<enum name="RpcMethod" normalize="false">
+    <int value="-2" name="genesis" label="GET /genesis.tar.bz2" />
+    <int value="-1" name="unknown" label="Unknown or unsupported method" />
+    <int value="0" name="getAccountInfo" label="getAccountInfo" />
+    <int value="1" name="getBalance" label="getBalance" />
+    <int value="2" name="getBlockHeight" label="getBlockHeight" />
+    <int value="3" name="getClusterNodes" label="getClusterNodes" />
+    <int value="4" name="getEpochInfo" label="getEpochInfo" />
+    <int value="5" name="getGenesisHash" label="getGenesisHash" />
+    <int value="6" name="getHealth" label="getHealth" />
+    <int value="7" name="getIdentity" label="getIdentity" />
+    <int value="8" name="getInflationGovernor" label="getInflationGovernor" />
+    <int value="9" name="getLatestBlockhash" label="getLatestBlockhash" />
+    <int value="10" name="getMinimumBalanceForRentExemption" label="getMinimumBalanceForRentExemption" />
+    <int value="11" name="getMultipleAccounts" label="getMultipleAccounts" />
+    <int value="12" name="getSlot" label="getSlot" />
+    <int value="13" name="getTransactionCount" label="getTransactionCount" />
+    <int value="14" name="getVersion" label="getVersion" />
+</enum>
+
 <tile name="rpc">
+    <histogram name="RequestDurationSeconds" min="0.000001" max="0.1" converter="seconds">
+      <summary>Duration spent in service</summary>
+    </histogram>
+    <counter name="RequestCount" enum="RpcMethod" summary="Number of RPC requests served" />
+    <gauge name="ConnectionCount" summary="The number of active HTTP connections to the RPC service" />
 </tile>
 
 <enum name="Softirq">
