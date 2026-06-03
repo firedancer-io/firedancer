@@ -7,7 +7,7 @@ $(call make-bin,fd_vinyl_ctl,fd_vinyl_ctl,fd_vinyl fd_tango fd_util)
 endif
 $(call make-unit-test,test_vinyl_base,test_vinyl_base,fd_vinyl fd_tango fd_util)
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_vinyl_req,test_vinyl_req,fd_vinyl fd_tango fd_util)
+$(call make-unit-test,test_vinyl_req,test_vinyl_req,fd_vinyl fd_tango fd_util) # lint-no-run-unit-test, requires two tiles running
 endif
 $(call run-unit-test,test_vinyl_base)
 endif

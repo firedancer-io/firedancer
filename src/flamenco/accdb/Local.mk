@@ -16,6 +16,7 @@ $(call add-objs,fd_accdb_pipe,fd_flamenco)
 $(call add-hdrs,fd_accdb_impl_v0.h)
 $(call add-objs,fd_accdb_impl_v0,fd_flamenco)
 $(call make-unit-test,test_accdb_v0,test_accdb_v0,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_accdb_v0)
 
 # In-memory only database
 $(call add-hdrs,fd_accdb_funk.h)

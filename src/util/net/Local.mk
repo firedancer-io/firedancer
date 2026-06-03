@@ -10,7 +10,7 @@ $(call make-unit-test,test_igmp,test_igmp,fd_util)
 $(call run-unit-test,test_igmp)
 $(call make-unit-test,test_udp,test_udp,fd_util)
 $(call run-unit-test,test_udp)
-$(call make-unit-test,test_pcap,test_pcap,fd_util)
+$(call make-unit-test,test_pcap,test_pcap,fd_util) # lint-no-run-unit-test, needs CLI args/input
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_pcapng,test_pcapng,fd_util)
 $(call run-unit-test,test_pcapng)

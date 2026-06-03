@@ -4,3 +4,4 @@ ifdef FD_HAS_HOSTED
 $(call add-objs,fd_backtrace,fd_util)
 endif
 $(call make-unit-test,test_log,test_log,fd_util)
+$(call run-unit-test,test_log)

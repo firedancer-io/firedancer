@@ -1,0 +1,16 @@
+name: Lint Makefiles, Find Missing Tests
+on:
+  workflow_call:
+  workflow_dispatch:
+concurrency:
+  group: tests_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  lint:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: lint Makefiles to find broken/missing tests
+        run: |
+          make lint

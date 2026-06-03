@@ -1,7 +1,7 @@
 $(call add-hdrs,fd_sbpf_instr.h fd_sbpf_loader.h fd_sbpf_opcodes.h)
 $(call add-objs,fd_sbpf_loader,fd_ballet)
 ifdef FD_HAS_HOSTED
-$(call make-unit-test,test_sbpf_load_prog,test_sbpf_load_prog,fd_ballet fd_util)
+$(call make-unit-test,test_sbpf_load_prog,test_sbpf_load_prog,fd_ballet fd_util) # lint-no-run-unit-test, requires CLI arg
 $(call make-unit-test,test_sbpf_loader,test_sbpf_loader,fd_ballet fd_util)
 $(call make-unit-test,test_sbpf_elf_peek,test_sbpf_elf_peek,fd_ballet fd_util)
 $(call make-unit-test,test_sbpf_strict_elf,test_sbpf_strict_elf,fd_ballet fd_util)
