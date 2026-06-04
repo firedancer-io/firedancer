@@ -59,6 +59,6 @@ $(call make-fuzz-test,fuzz_quic_wire,fuzz_quic_wire,$(QUIC_TEST_LIBS))
 $(call make-fuzz-test,fuzz_quic_actor,fuzz_quic_actor,$(QUIC_TEST_LIBS))
 endif
 
-$(call make-unit-test,test_quic_key_phase,test_quic_key_phase,$(QUIC_TEST_LIBS) fd_fibre)
+$(call make-unit-test,test_quic_key_phase,test_quic_key_phase,$(QUIC_TEST_LIBS))
 $(call run-unit-test,test_quic_key_phase)
 endif
