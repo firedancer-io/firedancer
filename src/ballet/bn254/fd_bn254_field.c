@@ -1,5 +1,8 @@
 #include "./fd_bn254.h"
 #include "../fiat-crypto/bn254_64.c"
+#if FD_HAS_S2NBIGNUM
+#include <s2n-bignum.h>
+#endif
 
 /* Fp = base field */
 
@@ -155,12 +158,41 @@ fd_bn254_fp_set( fd_bn254_fp_t * r,
   return r;
 }
 
+/* fd_bn254_fp_add: r = a + b mod p, output in [0, p).  Used everywhere. */
 INLINE fd_bn254_fp_t *
 fd_bn254_fp_add( fd_bn254_fp_t * r,
                  fd_bn254_fp_t const * a,
                  fd_bn254_fp_t const * b ) {
   fiat_bn254_add( r->limbs, a->limbs, b->limbs );
   return r;
+}
+
+/* fd_bn254_fp_add_lazy: r = a + b, output in [0, 2p) (NO conditional sub).
+   Safe ONLY if the result feeds a Mont mul (the CIOS reduction tolerates
+   inputs up to 2p for BN254 since p_limbs[3] < (2^64-1)/2-1).  Do NOT
+   feed lazy outputs to fp_sub, fp_neg, fp_eq, frombytes, halve, etc.
+   On non-x86 builds we fall back to the (eager) fp_add: still correct,
+   just no perf win. */
+INLINE fd_bn254_fp_t *
+fd_bn254_fp_add_lazy( fd_bn254_fp_t * r,
+                      fd_bn254_fp_t const * a,
+                      fd_bn254_fp_t const * b ) {
+#if FD_HAS_X86
+  unsigned long long t0, t1, t2, t3;
+  uchar c = 0;
+  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[0], (unsigned long long)b->limbs[0], &t0 );
+  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[1], (unsigned long long)b->limbs[1], &t1 );
+  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[2], (unsigned long long)b->limbs[2], &t2 );
+  c = (uchar)_addcarry_u64( c, (unsigned long long)a->limbs[3], (unsigned long long)b->limbs[3], &t3 );
+  (void)c; /* p < 2^254 so c is always 0 for a, b < 2p */
+  r->limbs[0] = (ulong)t0;
+  r->limbs[1] = (ulong)t1;
+  r->limbs[2] = (ulong)t2;
+  r->limbs[3] = (ulong)t3;
+  return r;
+#else
+  return fd_bn254_fp_add( r, a, b );
+#endif
 }
 
 INLINE fd_bn254_fp_t *
@@ -218,16 +250,30 @@ fd_bn254_fp_pow( fd_bn254_fp_t * restrict r,
   return r;
 }
 
-/* fd_bn254_fp_inv computes r = 1 / a.
-   a MUST not be 0.
-   Computes via a^{-1} <=> a^{p-2}. */
+/* fd_bn254_fp_inv computes r = 1 / a.  a MUST not be 0.
+   With s2n-bignum: bignum_modinv (Bernstein-Yang divsteps), ~10x faster
+   than Fermat's little theorem.  Without: a^{p-2} via square-and-multiply. */
 static inline fd_bn254_fp_t *
 fd_bn254_fp_inv( fd_bn254_fp_t * r,
                   fd_bn254_fp_t const * a ) {
+#if FD_HAS_S2NBIGNUM
+  /* a is in Mont form: a_limbs = a*R mod p.
+     bignum_modinv treats inputs as canonical residues, so it computes
+       z = (a*R)^{-1} = a^{-1} * R^{-1}    (non-Mont form).
+     Two fiat_bn254_to_montgomery calls multiply by R each, giving
+       r = a^{-1} * R^{-1} * R * R = a^{-1} * R = (a^{-1})_mont. */
+  ulong tmp[12]; /* bignum_modinv needs 3*k temporary */
+  ulong z[4];
+  bignum_modinv( 4, z, a->limbs, fd_bn254_const_p->limbs, tmp );
+  fiat_bn254_to_montgomery( r->limbs, z );
+  fiat_bn254_to_montgomery( r->limbs, r->limbs );
+  return r;
+#else
   fd_uint256_t p_minus_2[1];
   fd_bn254_fp_set( p_minus_2, fd_bn254_const_p );
   p_minus_2->limbs[0] -= 2UL;
   return fd_bn254_fp_pow( r, a, p_minus_2 );
+#endif
 }
 
 static inline fd_bn254_fp_t *
