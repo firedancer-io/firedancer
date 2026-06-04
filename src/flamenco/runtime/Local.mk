@@ -66,7 +66,9 @@ endif
 endif
 endif
 
+ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
+endif
 
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
