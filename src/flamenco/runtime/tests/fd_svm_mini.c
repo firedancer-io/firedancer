@@ -27,7 +27,8 @@
 #include <sys/mman.h>
 
 static fd_wksp_t *
-fd_wksp_new_lazy( ulong footprint ) {
+fd_wksp_new_lazy( ulong footprint,
+                  ulong addl_part_cnt ) {
   footprint = fd_ulong_align_up( footprint, FD_SHMEM_NORMAL_PAGE_SZ );
   void * mem = mmap( NULL, footprint, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0 );
   if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
@@ -37,6 +38,7 @@ fd_wksp_new_lazy( ulong footprint ) {
 
   ulong part_max = fd_wksp_part_max_est( footprint, 64UL<<10 );
   FD_TEST( part_max );
+  part_max += addl_part_cnt;
   ulong data_max = fd_wksp_data_max_est( footprint, part_max );
   FD_TEST( data_max );
   fd_wksp_t * wksp = fd_wksp_join( fd_wksp_new( mem, "wksp", 1U, part_max, data_max ) );
@@ -79,7 +81,7 @@ fd_svm_test_boot( int *    pargc,
   } else {
 fallback:
     FD_LOG_NOTICE(( "--page-sz not specified, using lazy paged memory" ));
-    wksp = fd_wksp_new_lazy( wksp_sz );
+    wksp = fd_wksp_new_lazy( wksp_sz, limits->wksp_addl_part_cnt );
   }
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
@@ -123,6 +125,7 @@ fd_svm_mini_wksp_data_max( fd_svm_mini_limits_t const * limits ) {
   sz += WKSP_ALLOC( fd_vm_align(),              fd_vm_footprint()                );
   sz += WKSP_ALLOC( 16UL,                       limits->max_account_space_bytes  );
   sz += WKSP_ALLOC( 1UL,                        limits->max_progcache_heap_bytes );
+  sz += WKSP_ALLOC( 16UL,                       limits->wksp_addl_sz             );
 # undef WKSP_ALLOC
 
   return sz;
