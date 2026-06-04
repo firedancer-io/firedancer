@@ -736,10 +736,10 @@ main( int     argc,
 
   test_count_vote_txn();
 
-  ulong       page_cnt = 4;
-  char *      page_sz  = "gigantic";
-  ulong       numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp     = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  char const * page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 4UL                     );
+  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
+  fd_wksp_t * wksp      = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
   test_fixture_replay( wksp );
