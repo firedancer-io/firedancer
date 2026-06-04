@@ -27,10 +27,8 @@ $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
 
 ifdef FD_HAS_ATOMIC
-ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_txncache_shmem.h fd_txncache.h)
 $(call add-objs,fd_txncache_shmem fd_txncache,fd_flamenco)
-endif
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
 ifdef FD_HAS_INT128
@@ -68,9 +66,7 @@ endif
 endif
 endif
 
-ifdef FD_HAS_ALLOCA
 $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
-endif
 
 ifdef FD_HAS_ATOMIC
 ifdef FD_HAS_INT128
