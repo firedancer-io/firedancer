@@ -843,7 +843,7 @@ acc_unlink( fd_accdb_t * accdb,
          between our read of cache_idx and the CAS). */
       if( FD_LIKELY( stale->key.generation==accmeta->key.generation &&
                      !memcmp( stale->key.pubkey, accmeta->key.pubkey, 32UL ) ) ) {
-        ulong sc = fd_accdb_cache_class( FD_ACCDB_SIZE_DATA( accmeta->executable_size ) );
+        ulong sc = FD_ACCDB_ACC_CIDX_CLASS( cidx );
         stale->key.generation = UINT_MAX;
         stale->persisted = 1;
         stale->acc_idx   = UINT_MAX;
@@ -860,19 +860,10 @@ acc_unlink( fd_accdb_t * accdb,
          If we just skipped, a later writeback of this still dirty line
          would pair the recycled accmeta's pubkey with the old account's
          owner and data, a silent corruption.  Mark the line persisted so
-         the writeback gate (!persisted && acc_idx!=UINT_MAX) never fires
-         for it — neither in CLOCK eviction (acquire_cache_line) nor in
-         background_preevict.
+         the writeback gate never fires.
 
          This is the only case that needs neutralizing: a reader's pin
          does not keep the slot alive, so the slot can recycle under it.
-
-         We do NOT sever acc_idx (set it to UINT_MAX).  acc_idx==UINT_MAX
-         is the cold-load "still loading" sentinel that acquire_inner's
-         STEP-13/14 spins on (line->acc_idx!=UINT_MAX); severing it would
-         hang the pinning reader forever in STEP-14, waiting for a publish
-         that never comes.  Setting persisted alone neutralizes the
-         writeback while leaving the STEP-14 invariant intact.
 
          A plain store is sufficient: the line is pinned (refcnt>0) so
          CLOCK/preevict cannot claim it (their refcnt 0->SENTINEL CAS
