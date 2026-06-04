@@ -450,8 +450,7 @@ unprivileged_init( fd_topo_t const *      topo,
 static void
 quic_tx_aio_send_flush( fd_benchs_ctx_t * ctx ) {
   if( FD_LIKELY( ctx->tx_idx ) ) {
-    int flags = 0;
-    int rtn = sendmmsg( ctx->conn_fd[0], ctx->tx_msgs, (uint)ctx->tx_idx, flags );
+    int rtn = sendmmsg( ctx->conn_fd[0], ctx->tx_msgs, (uint)ctx->tx_idx, 0 );
     if( FD_UNLIKELY( rtn < 0 ) ) {
       FD_LOG_NOTICE(( "Error occurred in sendmmsg. Error: %d %s",
           errno, strerror( errno ) ));
