@@ -1379,7 +1379,12 @@ mark_bank_dead( fd_replay_tile_t *  ctx,
   }
 }
 
-/* Returns 1 if charge_busy. */
+/* Try to dispatch some work before we try to ingest more FEC sets.  If
+   FEC ingestion takes precedence, exec tiles can be left idle for an
+   extended period of time during catchup due to the burstiness of
+   reassembled FEC delivery.  It's better to keep the exec tiles busy
+   with potentially suboptimal scheduling than to leave them idle while
+   a burst of FEC sets gets ingested. */
 static int
 replay( fd_replay_tile_t *  ctx,
         fd_stem_context_t * stem ) {
@@ -1415,7 +1420,7 @@ replay( fd_replay_tile_t *  ctx,
     }
     case FD_SCHED_TT_MARK_DEAD: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->mark_dead->bank_idx );
-      FD_TEST( bank );
+      FD_TEST( bank && bank->refcnt==0 );
       mark_bank_dead( ctx, stem, task->mark_dead->bank_idx );
       break;
     }
@@ -1430,6 +1435,10 @@ replay( fd_replay_tile_t *  ctx,
 static int
 can_process_fec( fd_replay_tile_t * ctx,
                  int *              evict_banks_out ) {
+  /* We can process a FEC set if a few conditions are met:
+     - sched has capacity
+     - reasm has a FEC in its out queue ready to be processed */
+
   fd_reasm_fec_t * fec;
   if( FD_UNLIKELY( fd_sched_can_ingest_cnt( ctx->sched )==0UL ) ) {
     ctx->metrics.sched_full++;
@@ -1462,6 +1471,8 @@ can_process_fec( fd_replay_tile_t * ctx,
     ctx->metrics.leader_bid_wait++;
     return 0;
   }
+
+  /* TODO:FIXME: THE FULL CHECK DOESN'T ACCOUNT FOR EQUIVOCATION */
 
   /* If fec_set_idx is 0, we need a new bank for a new slot.  Banks must
      not be full in this case. */
@@ -1630,15 +1641,15 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem,
                    fd_reasm_fec_t *    reasm_fec ) {
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
-  if( FD_UNLIKELY( !parent ) ) {
-    FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is unconnected in reasm", reasm_fec->slot, reasm_fec->fec_set_idx ));
-    return;
-  }
+  FD_TEST( !!parent );
 
   fd_reasm_fec_t * path[ FD_BANKS_MAX_BANKS ];
   ulong            path_cnt = 0UL;
   path[ path_cnt++ ] = reasm_fec;
 
+  /* Collect all of the slot completes starting from the current FEC
+     iterating through the tree until we hit a FEC that is a slot
+     complete that corresponds to a valid bank. */
   for( fd_reasm_fec_t * curr = reasm_fec;; ) {
     curr = fd_reasm_parent( ctx->reasm, curr );
     FD_TEST( curr );
@@ -1651,6 +1662,10 @@ backfill_fec_sets( fd_replay_tile_t *  ctx,
     path[ path_cnt++ ] = curr;
   }
 
+  /* For each bank's worth of FECs, insert all of the FECs into the
+     scheduler.  Ensure that only a full bank's worth of FECs are
+     inserted at a time.  If there's no capacity in the banks or the
+     scheduler, backoff for now and try again later. */
   for( ulong i=path_cnt; i>0UL; i-- ) {
     fd_reasm_fec_t * leaf = path[ i-1 ];
 
@@ -1682,11 +1697,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
                  fd_reasm_fec_t *    reasm_fec ) {
 
   fd_reasm_fec_t * parent = fd_reasm_parent( ctx->reasm, reasm_fec );
-  if( FD_UNLIKELY( !parent ) ) {
-    FD_LOG_WARNING(( "dropping FEC set (slot=%lu, fec_set_idx=%u) because it is unconnected in reasm", reasm_fec->slot, reasm_fec->fec_set_idx ));
-    return;
-  }
-
   if( FD_UNLIKELY( parent->bank_dead ) ) {
     /* Inherit the dead flag from the parent.  If a dead slot is
        completed, we publish the slot as dead.  Don't insert FECs for
@@ -1699,20 +1709,21 @@ process_fec_set( fd_replay_tile_t *  ctx,
 
   /* An invariant from reasm is that if we receive a FEC set that is
      both with eqvoc and confirmed set, we know that we must replay the
-     slot associated with this FEC. */
+     slot associated with this FEC.  eqvivocation when fec_set_idx == 0
+     gets handled cleanly. */
   int eqvoc_detected = reasm_fec->fec_set_idx!=0 && (reasm_fec->eqvoc && !parent->eqvoc);
   if( FD_UNLIKELY( eqvoc_detected ) ) FD_TEST( reasm_fec->confirmed && parent->confirmed );
 
-  /* If the bank associated with the parent FEC set is not valid, or if
-     the bank has been recycled, that means that we have evicted the
-     bank associated with this FEC.  This happens if the bank has been
-     evicted. */
+  /* We can detect if a bank has been evicted if the bank index tagged
+     to the FEC set is no longer valid or the bank sequence number for
+     the same bank is different (the bank has been recycled).  */
   fd_bank_t * parent_fec_bank = fd_banks_bank_query( ctx->banks, parent->bank_idx );
   int has_evicted = !parent_fec_bank || parent_fec_bank->bank_seq!=parent->bank_seq;
 
-  /* If the parent FEC has a valid corresponding bank and there has been
-     no mid-slot equivocation detected so far, we can insert the FEC
-     set.  Otherwise, we need to backfill any missing FEC sets. */
+  /* If the upcoming FEC is either the start of an equivocating chain or
+     would chain off of a bank that was evicted, we must backfill any
+     FECs into the scheduler.  This backfill must start from a FEC with
+     fec_set_idx==0 with a parent FEC corresponding to a valid bank. */
   if( FD_LIKELY( !has_evicted && !eqvoc_detected ) ) {
     insert_fec_set( ctx, stem, reasm_fec );
   } else {
@@ -1910,6 +1921,8 @@ try_process_fec( fd_replay_tile_t *  ctx,
     return 1;
   }
 
+  /* If we need to evict banks, just gather the frontier set of banks.
+     Eventually these banks will be marked dead and pruned away. */
   if( FD_UNLIKELY( evict_banks ) ) {
     FD_LOG_WARNING(( "banks are full and partially executed frontier banks are being evicted" ));
     fd_banks_get_frontier( ctx->banks, ctx->frontier_indices, &ctx->frontier_cnt );
@@ -1983,12 +1996,6 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  /* Try to dispatch some work before we try to ingest more FEC sets.
-     If FEC ingestion takes precedence, exec tiles can be left idle for
-     an extended period of time during catchup due to the burstiness of
-     reassembled FEC delivery.  It's better to keep the exec tiles busy
-     with potentially suboptimal scheduling than to leave them idle
-     while a burst of FEC sets gets ingested. */
   if( FD_LIKELY( replay( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
