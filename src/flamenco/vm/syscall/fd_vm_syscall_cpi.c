@@ -226,11 +226,6 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
 #define FD_CPI_MAX_ACCOUNT_INFOS           (128UL)
 #define FD_CPI_MAX_ACCOUNT_INFOS_SIMD_0339 (255UL)
 
-/* This is just encoding what Agave says in their code comments into a
-   compile-time check, so if anyone ever inadvertently changes one of
-   the limits, they will have to take a look. */
-FD_STATIC_ASSERT( FD_CPI_MAX_ACCOUNT_INFOS==MAX_TX_ACCOUNT_LOCKS, cpi_max_account_info );
-
 /* https://github.com/anza-xyz/agave/blob/v3.1.2/program-runtime/src/cpi.rs#L168-L180 */
 static inline ulong
 get_cpi_max_account_infos( fd_bank_t * bank ) {

@@ -46,8 +46,8 @@ struct fd_execrp_tile {
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            execrp_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
 
-  fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
-  fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
+  fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
+  fd_sha512_t *         sha_lj[  FD_TXN_SIG_MAX ];
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -385,7 +385,7 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  for( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_TXN_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
     FD_TEST( sha );
     ctx->sha_lj[i] = sha;

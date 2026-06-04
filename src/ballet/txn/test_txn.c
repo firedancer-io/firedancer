@@ -227,7 +227,7 @@ main( int     argc,
 
   for( ulong instr_cnt=0UL; instr_cnt<=FD_TXN_INSTR_MAX; instr_cnt++ )
     for( ulong alt_cnt=0UL; alt_cnt<=FD_TXN_ADDR_TABLE_LOOKUP_MAX; alt_cnt++ )
-      if( MIN_PAYLOAD_SZ( instr_cnt, alt_cnt ) <= FD_TXN_MTU )
+      if( MIN_PAYLOAD_SZ( instr_cnt, alt_cnt ) <= FD_TXN_MTU_V0 )
         FD_TEST( PARSED_SZ( instr_cnt, alt_cnt ) <= FD_TXN_MAX_SZ );
 
 
