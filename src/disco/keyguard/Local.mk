@@ -18,8 +18,6 @@ $(call make-unit-test,test_keyload,test_keyload,fd_disco fd_flamenco fd_tls fd_b
 $(call run-unit-test,test_keyload)
 $(call make-proof,proof_authorize,fd_keyguard_proofs.c)
 
-ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_sign_tile,fd_disco)
-endif
 endif
 endif
