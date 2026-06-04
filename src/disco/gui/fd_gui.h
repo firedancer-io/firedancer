@@ -272,6 +272,7 @@ struct fd_gui_tile_timers {
   ulong  nivcsw;
   ulong  minflt;
   ulong  majflt;
+  ulong  interrupts;
 };
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
