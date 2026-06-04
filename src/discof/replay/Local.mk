@@ -1,5 +1,7 @@
 $(call add-hdrs,fd_execrp.h)
 $(call add-objs,fd_rdisp,fd_discof)
+$(call add-hdrs,fd_fwd_confirmed.h)
+$(call add-objs,fd_fwd_confirmed,fd_discof)
 $(call make-unit-test,test_rdisp,test_rdisp,fd_discof fd_ballet fd_tango fd_util)
 $(call run-unit-test,test_rdisp)
 ifdef FD_HAS_ALLOCA
