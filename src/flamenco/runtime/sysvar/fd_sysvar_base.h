@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_base_h
 
 #include "../../fd_flamenco_base.h"
-#include "../../accdb/fd_accdb_base.h"
 
 #define FD_SYSVAR_ALIGN_MAX (16UL)
 
