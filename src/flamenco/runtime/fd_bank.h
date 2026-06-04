@@ -259,6 +259,7 @@ struct fd_bank {
   ulong sibling_idx; /* index of the right-sibling in the node pool */
   ulong state;       /* keeps track of the state of the bank */
   ulong bank_seq;    /* app-wide bank sequence number */
+  uchar is_leader;   /* whether the bank is the leader */
 
   ulong refcnt; /* reference count on the bank, see replay for more details */
 
@@ -748,7 +749,8 @@ fd_banks_mark_bank_frozen( fd_bank_t * bank );
 fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
                    ulong        parent_bank_idx,
-                   long         now );
+                   long         now,
+                   uchar        is_leader );
 
 
 /* fd_banks_get_frontier returns the frontier set of bank indices in the

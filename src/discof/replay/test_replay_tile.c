@@ -48,7 +48,8 @@ mock_banks_bank_query_fn( fd_banks_t * banks FD_PARAM_UNUSED,
 fd_bank_t *
 mock_banks_new_bank_fn( fd_banks_t * banks FD_PARAM_UNUSED,
                         ulong        parent_bank_idx FD_PARAM_UNUSED,
-                        long         now FD_PARAM_UNUSED ) {
+                        long         now FD_PARAM_UNUSED,
+                        uchar        is_leader FD_PARAM_UNUSED ) {
   FD_TEST( mock_banks_next < MOCK_BANKS_MAX );
   ulong idx = mock_banks_next++;
   fd_bank_t * bank = &mock_banks_arr[ idx ];
