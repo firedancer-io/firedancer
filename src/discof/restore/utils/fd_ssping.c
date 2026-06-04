@@ -326,7 +326,7 @@ remove_fdesc_idx( fd_ssping_t * ssping,
     .sin_addr   = { .s_addr = 0U },
     .sin_port   = 0
   }};
-  if( FD_UNLIKELY( connect( fdesc, addr, sizeof(addr) ) ) ) FD_LOG_ERR(( "connect(AF_UNSPEC) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( connect( fdesc, fd_type_pun_const( addr ), sizeof(addr) ) ) ) FD_LOG_ERR(( "connect(AF_UNSPEC) failed (%d-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Mark that the pool element no longer has an associated index. */
   ssping->pool[ pool_idx ].used_fd_idx = ULONG_MAX;
@@ -477,7 +477,7 @@ send_pings( fd_ssping_t *     ssping,
       .sin_port   = peer->addr.port
     }};
 
-    if( FD_UNLIKELY( connect( fdesc, addr, sizeof(addr) ) && errno!=EINPROGRESS ) ) {
+    if( FD_UNLIKELY( connect( fdesc, fd_type_pun_const( addr ), sizeof(addr) ) && errno!=EINPROGRESS ) ) {
       FD_LOG_WARNING(( "connect(" FD_IP4_ADDR_FMT ":%hu) failed (%d-%s)", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), errno, fd_io_strerror( errno ) ));
       /* Nothing to do.  It will get "reaped" later. */
     }

@@ -9,7 +9,7 @@
 
 #include <netinet/in.h>
 #include <sys/socket.h>
-#include <sys/poll.h>
+#include <poll.h>
 
 #include "generated/fd_ipecho_tile_seccomp.h"
 

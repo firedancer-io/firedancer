@@ -256,7 +256,7 @@ test_pivot_root_inner( void ) {
 
     ulong offset = 0UL;
     while( offset<(ulong)dents_bytes ) {
-      struct dirent64 const * dent = (struct dirent64 const *)(buf + offset);
+      struct dirent const * dent = (struct dirent const *)(buf + offset);
       FD_TEST( !strcmp( dent->d_name, "." ) || !strcmp( dent->d_name, "..") );
       offset += dent->d_reclen;
     }

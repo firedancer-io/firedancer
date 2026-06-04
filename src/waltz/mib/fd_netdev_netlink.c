@@ -12,6 +12,8 @@
 #include <linux/if.h> /* IFNAMSIZ */
 #include <linux/if_arp.h> /* ARPHRD_NETROM */
 #include <linux/rtnetlink.h> /* RTM_{...}, NLM_{...} */
+#include <linux/ip.h>
+#include <linux/ipv6.h>
 #include <linux/if_tunnel.h>
 
 static fd_netdev_t *
