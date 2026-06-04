@@ -1192,6 +1192,16 @@ fd_gui_printf_health( fd_gui_t * gui ) {
     turbine_status = metrics[ MIDX( GAUGE, DIAG, TURBINE_STATUS ) ];
   }
 
+  if( FD_UNLIKELY( !gui->summary.is_full_client ) ) {
+    switch( gui->summary.vote_state ) {
+      case FD_GUI_VOTE_STATE_VOTING:     vote_status = FD_DIAG_VOTE_STATUS_VOTING;     break;
+      case FD_GUI_VOTE_STATE_DELINQUENT: vote_status = FD_DIAG_VOTE_STATUS_DELINQUENT; break;
+      default:                           vote_status = FD_DIAG_VOTE_STATUS_DISABLED;   break;
+    }
+    replay_status  = FD_DIAG_REPLAY_STATUS_DISABLED;
+    turbine_status = FD_DIAG_TURBINE_STATUS_DISABLED;
+  }
+
   /* Map bundle status to string */
   char const * bundle_str;
   switch( bundle_status ) {
