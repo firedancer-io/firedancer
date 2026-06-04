@@ -1,16 +1,16 @@
-#define QUERY_VOTE_ACCS               mock_query_vote_accs
-#define UPDATE_EPOCH_VTRS             mock_update_epoch_vtrs
+#define QUERY_TOWERS mock_query_towers
+#define QUERY_VOTERS mock_query_voters
 
 #include "fd_tower_tile.c"
 
-/* Stub the bank-dependent epoch_vtr_t population for tests that don't
-   set up ctx->banks / ctx->accdb. */
-
-void
-mock_update_epoch_vtrs( fd_tower_tile_t *            ctx,
-                        fd_replay_slot_completed_t * slot_completed FD_PARAM_UNUSED,
-                        ulong                        epoch ) {
-  ctx->root_epoch = epoch;
+ulong
+mock_query_voters( fd_tower_tile_t *      ctx            FD_PARAM_UNUSED,
+                   ulong                  epoch          FD_PARAM_UNUSED,
+                   fd_funk_txn_xid_t      bank_xid       FD_PARAM_UNUSED,
+                   fd_top_votes_t const * top_votes      FD_PARAM_UNUSED,
+                   epoch_vtr_t *          pool           FD_PARAM_UNUSED,
+                   epoch_vtr_map_t *      map            FD_PARAM_UNUSED ) {
+  return 0UL;
 }
 
 #include <stdio.h>
@@ -235,15 +235,15 @@ test_count_vote_txn( void ) {
 #define FIXTURE_RECORD_SZ  (32UL + 32UL + 8UL + 8UL + FD_VOTE_STATE_DATA_MAX)
 #define FIXTURE_FILE_SZ    (FIXTURE_VTR_CNT * FIXTURE_RECORD_SZ)
 
-/* mock_query_vote_accs: loads voter data from a fixture file for the
+/* mock_query_towers: loads voter data from a fixture file for the
    current slot and calls count_vote_acc for each record. */
 
 ulong
-mock_query_vote_accs( fd_tower_tile_t *            ctx,
-                      fd_replay_slot_completed_t * slot_completed,
-                      fd_ghost_blk_t *             ghost_blk,
-                      int *                        found_our_vote_acct,
-                      ulong *                      our_vote_acct_bal ) {
+mock_query_towers( fd_tower_tile_t *            ctx,
+              fd_replay_slot_completed_t * slot_completed,
+              fd_ghost_blk_t *             ghost_blk,
+              int *                        found_our_vote_acct,
+              ulong *                      our_vote_acct_bal ) {
 
   /* Open the fixture file for this slot. */
 
@@ -274,6 +274,9 @@ mock_query_vote_accs( fd_tower_tile_t *            ctx,
     uchar const * data = rec + 80UL;
 
     count_vote_acc( ctx, slot_completed, ghost_blk, &vote_acc, stake, data, FD_VOTE_STATE_DATA_MAX );
+
+    ctx->vote_accs[i] = vote_acc;
+    fd_vote_account_node_pubkey( data, FD_VOTE_STATE_DATA_MAX, &ctx->id_keys[i] );
 
     total_stake += stake;
     prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_acc, stake, prev_voter_idx );
