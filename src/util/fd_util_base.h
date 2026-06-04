@@ -324,7 +324,7 @@ typedef unsigned short ushort;
 typedef unsigned int   uint;
 typedef unsigned long  ulong;
 
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 
 __extension__ typedef          __int128  int128;
 __extension__ typedef unsigned __int128 uint128;
