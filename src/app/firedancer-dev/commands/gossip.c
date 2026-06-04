@@ -198,24 +198,6 @@ static void
 gossip_args( int *    pargc,
              char *** pargv,
              args_t * args  ) {
-  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( pargc, pargv, "--help" ) ) ) {
-    fputs(
-      "\nUsage: firedancer-dev gossip [GLOBAL FLAGS] [FLAGS]\n"
-      "\n"
-      "Global Flags:\n"
-      "  --mainnet            Use Solana mainnet-beta defaults\n"
-      "  --testnet            Use Solana testnet defaults\n"
-      "  --devnet             Use Solana devnet defaults\n"
-      "\n"
-      "Flags:\n"
-      "  --max-entries <num>         Exit once we see <num> CRDS entries in table\n"
-      "  --max-contact-infos <num>   Exit once we see <num> contact infos in table\n"
-      "  --compact                   Use compact output format\n"
-      "\n",
-      stderr );
-    exit( EXIT_SUCCESS );
-  }
-
   args->gossip.max_entries  = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-entries", NULL, ULONG_MAX );
   args->gossip.max_contact  = fd_env_strip_cmdline_ulong   ( pargc, pargv, "--max-contact-infos", NULL, ULONG_MAX );
   args->gossip.compact_mode = fd_env_strip_cmdline_contains( pargc, pargv, "--compact" );
@@ -271,10 +253,23 @@ gossip_cmd_fn( args_t *   args,
   }
 }
 
+static void
+gossip_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--max-entries",       "<num>", "Exit once we see <num> CRDS entries in the table" );
+  fd_action_help_arg( help, "--max-contact-infos", "<num>", "Exit once we see <num> contact infos in the table" );
+  fd_action_help_arg( help, "--compact",           NULL,    "Use a denser output format" );
+}
+
 action_t fd_action_gossip = {
-  .name = "gossip",
-  .args = gossip_args,
-  .fn   = gossip_cmd_fn,
-  .perm = gossip_cmd_perm,
-  .topo = gossip_cmd_topo,
+  .name        = "gossip",
+  .args        = gossip_args,
+  .fn          = gossip_cmd_fn,
+  .perm        = gossip_cmd_perm,
+  .topo        = gossip_cmd_topo,
+  .description = "Run a reduced topology that joins gossip and prints diagnostics",
+  .detail      = "Boots a minimal Firedancer topology containing the gossip tile, joins the\n"
+                 "cluster's gossip network, and periodically prints CRDS table and contact\n"
+                 "info statistics until the configured thresholds are reached.",
+  .usage       = "gossip [OPTIONS]",
+  .args_help   = gossip_args_help,
 };

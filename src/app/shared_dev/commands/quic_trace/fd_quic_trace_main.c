@@ -223,13 +223,13 @@ quic_trace_cmd_fn( args_t *   args,
 
   /* target_net link tracking */
   char out_link_name[16];
-  snprintf( out_link_name, sizeof(out_link_name), "%s_net", tile_names[trace_send] );
+  FD_TEST( fd_cstr_printf_check( out_link_name, sizeof(out_link_name), NULL, "%s_net", tile_names[trace_send] ) );
   ulong link_id = fd_topo_find_link( topo, out_link_name, 0 );
   if( FD_UNLIKELY( link_id == ULONG_MAX ) ) FD_LOG_ERR(("%s not found", out_link_name));
   fd_topo_link_t * target_net = &topo->links[link_id];
 
   /* net_target link tracking */
-  snprintf( out_link_name, sizeof(out_link_name), "net_%s", tile_names[trace_send] );
+  FD_TEST( fd_cstr_printf_check( out_link_name, sizeof(out_link_name), NULL, "net_%s", tile_names[trace_send] ) );
   link_id = fd_topo_find_link( topo, out_link_name, 0 );
   if( FD_UNLIKELY( link_id == ULONG_MAX ) ) FD_LOG_ERR(("%s not found", out_link_name));
 

@@ -113,6 +113,18 @@ determine_override_config( int *                      pargc,
   }
 }
 
+__attribute__((weak)) void
+fd_global_options_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--config",       "<path>", "Path to a configuration TOML file" );
+  fd_action_help_arg( help, "--mainnet",      NULL,     "Use Solana mainnet defaults" );
+  fd_action_help_arg( help, "--testnet",      NULL,     "Use Solana testnet defaults" );
+  fd_action_help_arg( help, "--devnet",       NULL,     "Use Solana devnet defaults" );
+  fd_action_help_arg( help, "--mainnet-jito", NULL,     "Use Solana mainnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--testnet-jito", NULL,     "Use Solana testnet defaults with the Jito relayer/bundles" );
+  fd_action_help_arg( help, "--version",      NULL,     "Show the current software version" );
+  fd_action_help_arg( help, "--help/-h",      NULL,     "Print this help message" );
+}
+
 int
 fd_main_init( int *                      pargc,
               char ***                   pargv,
@@ -273,7 +285,7 @@ fd_main( int                        argc,
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
     if( FD_UNLIKELY( !strcmp( argv[ 0 ], ACTIONS[ i ]->name ) ||
                      (!strcmp( argv[ 0 ], "--version" ) && !strcmp( "version", ACTIONS[ i ]->name )) ||
-                     (!strcmp( argv[ 0 ], "--help" ) && !strcmp( "help", ACTIONS[ i ]->name ))
+                     ((!strcmp( argv[ 0 ], "--help" ) || !strcmp( argv[ 0 ], "-h" )) && !strcmp( "help", ACTIONS[ i ]->name ))
     ) ) {
       action = ACTIONS[ i ];
       if( FD_UNLIKELY( action->is_immediate ) ) {
@@ -281,6 +293,14 @@ fd_main( int                        argc,
         return 0;
       }
       break;
+    }
+  }
+
+  if( FD_UNLIKELY( action ) ) {
+    int help_argc = argc-1; char ** help_argv = argv+1;
+    if( FD_UNLIKELY( fd_env_strip_cmdline_contains( &help_argc, &help_argv, "--help" ) || fd_env_strip_cmdline_contains( &help_argc, &help_argv, "-h" ) ) ) {
+      fd_action_help_print( action );
+      return 0;
     }
   }
 

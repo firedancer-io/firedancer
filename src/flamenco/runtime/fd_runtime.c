@@ -1692,6 +1692,15 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *              banks,
     if( FD_LIKELY( ro ) ) fd_accdb_close_ro( accdb, ro );
   }
 
+  /* At genesis (epoch 0) there is no previous epoch, so the t-2 set
+     should equal the genesis staked set. */
+
+  {
+    fd_top_votes_t * top_votes_t_1 = fd_bank_top_votes_t_1_modify( bank );
+    fd_top_votes_t * top_votes_t_2 = fd_bank_top_votes_t_2_modify( bank );
+    fd_memcpy( top_votes_t_2, top_votes_t_1, FD_TOP_VOTES_MAX_FOOTPRINT );
+  }
+
   fd_vote_stakes_t * vote_stakes = fd_bank_vote_stakes( bank );
   fd_vote_stakes_genesis_fini( vote_stakes );
 

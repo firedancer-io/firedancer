@@ -16,30 +16,6 @@ void
 monitor_gossip_cmd_args( int *    pargc,
                          char *** pargv,
                          args_t * args ) {
-  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( pargc, pargv, "--help" ) ) ) {
-    fputs(
-      "\nUsage: firedancer monitor-gossip [GLOBAL FLAGS] [FLAGS]\n"
-      "\n"
-      "  Monitor gossip diagnostics on a running Firedancer\n"
-      "  instance.  Attaches read-only to the validator's\n"
-      "  shared memory and prints CRDS tables, message\n"
-      "  statistics, and tile performance.\n"
-      "\n"
-      "Global Flags:\n"
-      "  --mainnet            Use Solana mainnet-beta defaults\n"
-      "  --testnet            Use Solana testnet defaults\n"
-      "  --devnet             Use Solana devnet defaults\n"
-      "\n"
-      "Flags:\n"
-      "  --topo <name>        Reconstruct topology from a named\n"
-      "                       action (e.g. gossip). Default uses\n"
-      "                       the production topology.\n"
-      "  --compact            Use compact output format\n"
-      "\n",
-      stderr );
-    exit( EXIT_SUCCESS );
-  }
-
   char const * topo_name = fd_env_strip_cmdline_cstr( pargc, pargv, "--topo", NULL, "" );
   ulong topo_name_len = strlen( topo_name );
   if( FD_UNLIKELY( topo_name_len > sizeof(args->monitor_gossip.topo)-1 ) ) FD_LOG_ERR(( "Unknown --topo %s", topo_name ));
@@ -141,6 +117,14 @@ monitor_gossip_cmd_fn( args_t *   args,
   }
 }
 
+static void
+monitor_gossip_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "--topo",    "<command>", "Build the topology from another subcommand (e.g. `gossip`) instead of\n"
+                                                      "the default validator topology.  <command> is the name of a subcommand\n"
+                                                      "that builds its own topology" );
+  fd_action_help_arg( help, "--compact", NULL,        "Use a denser output format" );
+}
+
 action_t fd_action_monitor_gossip = {
   .name           = "monitor-gossip",
   .args           = monitor_gossip_cmd_args,
@@ -149,4 +133,9 @@ action_t fd_action_monitor_gossip = {
   .perm           = monitor_gossip_cmd_perm,
   .is_diagnostic  = 1,
   .description    = "Monitor gossip diagnostics on a running Firedancer instance",
+  .detail         = "Connects to a running validator's shared memory and prints gossip diagnostics,\n"
+                    "including gossip table statistics, message statistics, and per-tile\n"
+                    "performance.",
+  .usage          = "monitor-gossip [OPTIONS]",
+  .args_help      = monitor_gossip_args_help,
 };

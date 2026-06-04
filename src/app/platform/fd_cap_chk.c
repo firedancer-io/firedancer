@@ -210,8 +210,8 @@ fd_cap_chk_raise_rlimit( fd_cap_chk_t *  chk,
       if( FD_UNLIKELY( file_nr<limit ) )
         FD_LOG_ERR(( "Firedancer requires `/proc/sys/fs/nr_open` to be at least %lu "
                      "to raise RLIMIT_NOFILE, but it is %u. Please either increase "
-                     "the sysctl or run `fdctl configure init sysctl` which will do "
-                     "it for you.", limit, file_nr ));
+                     "the sysctl or run the `configure init sysctl` command which will "
+                     "do it for you.", limit, file_nr ));
     }
     rlim.rlim_cur = limit;
     rlim.rlim_max = limit;

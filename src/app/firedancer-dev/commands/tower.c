@@ -12,6 +12,8 @@
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
+extern action_t fd_action_tower;
+
 /* fd_tower_tile_t is defined in fd_tower_tile.c, we just need to access it */
 
 static void
@@ -74,49 +76,6 @@ print_all_forks( fd_tower_t * tower ) {
   printf( "\n" );
 }
 
-static const char * HELP =
-  "\n\n"
-  "usage: tower [-h] {forks}\n"
-  "\n"
-  "positional arguments:\n"
-  "  {forks}\n"
-  "    forks              prints the tower forks tree structure and leaves\n"
-  "    ghost              prints the ghost fork choice structure\n"
-  "    tower              prints the local tower\n"
-  "\n"
-  "optional arguments:\n"
-  "  -h, --help            show this help message and exit\n";
-
-static const char * FORKS_HELP =
-  "\n\n"
-  "usage: tower forks [-h]\n"
-  "\n"
-  "optional arguments:\n"
-  "  -h, --help            show this help message and exit\n";
-
-static const char * GHOST_HELP =
-  "\n\n"
-  "usage: tower ghost [-h]\n"
-  "\n"
-  "optional arguments:\n"
-  "  -h, --help            show this help message and exit\n";
-
-static const char * TOWER_HELP =
-  "\n\n"
-  "usage: tower tower [-h]\n"
-  "\n"
-  "optional arguments:\n"
-  "  -h, --help            show this help message and exit\n";
-
-void
-tower_cmd_help( char const * arg ) {
-  if      ( FD_LIKELY( !arg                    ) ) FD_LOG_NOTICE(( "%s", HELP       ));
-  else if ( FD_LIKELY( !strcmp( arg, "forks" ) ) ) FD_LOG_NOTICE(( "%s", FORKS_HELP ));
-  else if ( FD_LIKELY( !strcmp( arg, "ghost" ) ) ) FD_LOG_NOTICE(( "%s", GHOST_HELP ));
-  else if ( FD_LIKELY( !strcmp( arg, "tower" ) ) ) FD_LOG_NOTICE(( "%s", TOWER_HELP ));
-  else                                             FD_LOG_NOTICE(( "%s", HELP       ));
-}
-
 static void
 tower_cmd_fn_forks( args_t *   args,
                     config_t * config ) {
@@ -171,10 +130,6 @@ tower_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
 
-  /* help */
-  args->tower.help = fd_env_strip_cmdline_contains( pargc, pargv, "--help" );
-  args->tower.help = args->tower.help || fd_env_strip_cmdline_contains( pargc, pargv, "-h" );
-
   /* positional arg */
   args->tower.pos_arg = (*pargv)[0];
   if( FD_UNLIKELY( !args->tower.pos_arg ) ) {
@@ -183,6 +138,7 @@ tower_cmd_args( int *    pargc,
   }
 
   (*pargc)--;
+  (*pargv)++;
 }
 
 static void
@@ -190,19 +146,31 @@ tower_cmd_fn( args_t *   args,
               config_t * config ) {
 
   if( args->tower.help ) {
-    tower_cmd_help( args->tower.pos_arg );
+    fd_action_help_print( &fd_action_tower );
     return;
   }
 
   if     ( !strcmp( args->tower.pos_arg, "forks" ) ) tower_cmd_fn_forks( args, config );
   else if( !strcmp( args->tower.pos_arg, "ghost" ) ) tower_cmd_fn_ghost( args, config );
   else if( !strcmp( args->tower.pos_arg, "tower" ) ) tower_cmd_fn_tower( args, config );
-  else                                               tower_cmd_help( NULL );
+  else                                               fd_action_help_print( &fd_action_tower );
+}
+
+static void
+tower_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "forks", NULL, "Print the tower forks tree structure and leaves" );
+  fd_action_help_arg( help, "ghost", NULL, "Print the ghost fork choice structure" );
+  fd_action_help_arg( help, "tower", NULL, "Print the local tower" );
 }
 
 action_t fd_action_tower = {
-  .name = "tower",
-  .args = tower_cmd_args,
-  .fn   = tower_cmd_fn,
-  .perm = dev_cmd_perm,
+  .name        = "tower",
+  .args        = tower_cmd_args,
+  .fn          = tower_cmd_fn,
+  .perm        = dev_cmd_perm,
+  .description = "Inspect a running validator's tower, ghost, and forks state",
+  .detail      = "Attaches to a running validator's tower tile and continuously prints the\n"
+                 "requested data structure.  Pick one of the subcommands below.",
+  .usage       = "tower <forks|ghost|tower>",
+  .args_help   = tower_args_help,
 };

@@ -94,9 +94,10 @@ reasm_cmd_args( int *    pargc,
 }
 
 action_t fd_action_reasm = {
-  .name = "reasm",
-  .args = reasm_cmd_args,
-  .fn   = reasm_cmd_fn,
-  .perm = dev_cmd_perm,
+  .name        = "reasm",
+  .args        = reasm_cmd_args,
+  .fn          = reasm_cmd_fn,
+  .perm        = dev_cmd_perm,
+  .description = "Join a running validator's replay tile and print its reassembly tree",
 };
 

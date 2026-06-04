@@ -2,6 +2,7 @@
 #define HEADER_fd_src_app_firedancer_dev_main_h
 
 #include "../shared/commands/configure/configure.h"
+#include "../shared/fd_action.h"
 
 char const * FD_APP_NAME    = "Firedancer";
 char const * FD_BINARY_NAME = "firedancer-dev";

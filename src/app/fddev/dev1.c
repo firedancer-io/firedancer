@@ -108,11 +108,19 @@ dev1_cmd_fn( args_t *   args,
   fd_sys_util_exit_group( result );
 }
 
+static void
+dev1_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "<tile>",         NULL, "Name of the tile to run (e.g. `net`, `quic`, `replay`), or `agave` to run\n"
+                                                    "the Agave side" );
+  fd_action_help_arg( help, "--no-configure", NULL, "Skip the host configuration (`configure init`) step before starting" );
+}
+
 action_t fd_action_dev1 = {
   .name             = "dev1",
   .args             = dev1_cmd_args,
   .fn               = dev1_cmd_fn,
   .perm             = dev_cmd_perm,
   .is_local_cluster = 1,
-  .description      = "Start up a single tile"
+  .description      = "Start up a single tile",
+  .args_help        = dev1_args_help,
 };

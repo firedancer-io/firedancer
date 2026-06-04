@@ -384,9 +384,10 @@ backtest_cmd_fn( args_t *   args,
 }
 
 action_t fd_action_backtest = {
-  .name = "backtest",
-  .args = backtest_cmd_args,
-  .fn   = backtest_cmd_fn,
-  .perm = backtest_cmd_perm,
-  .topo = backtest_cmd_topo,
+  .name        = "backtest",
+  .args        = backtest_cmd_args,
+  .fn          = backtest_cmd_fn,
+  .perm        = backtest_cmd_perm,
+  .topo        = backtest_cmd_topo,
+  .description = "Replay a ledger offline through the replay tile with mocked consensus",
 };

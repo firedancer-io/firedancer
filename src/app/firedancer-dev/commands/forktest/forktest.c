@@ -485,10 +485,11 @@ forktest_fn( args_t *   args,
 }
 
 action_t fd_action_forktest = {
-  .name = "forktest",
-  .args = forktest_cmd_args,
-  .fn   = forktest_fn,
-  .perm = forktest_perm,
-  .topo = forktest_topo,
-  .is_local_cluster = 1
+  .name             = "forktest",
+  .args             = forktest_cmd_args,
+  .fn               = forktest_fn,
+  .perm             = forktest_perm,
+  .topo             = forktest_topo,
+  .is_local_cluster = 1,
+  .description      = "Replay a ledger offline through a pruned full topology with real consensus",
 };

@@ -68,7 +68,7 @@ add_authorized_voter_cmd_args( int *    pargc,
                                args_t * args ) {
 
   if( FD_UNLIKELY( *pargc<1 ) ) {
-    FD_LOG_ERR(( "Usage: firedancer add-authorized-voter <keypair>" ));
+    FD_LOG_ERR(( "Usage: %s add-authorized-voter <keypair>", FD_BINARY_NAME ));
   }
 
   char const * path = *pargv[0];
@@ -232,6 +232,15 @@ add_authorized_voter_cmd_fn( args_t *   args,
   add_authorized_voter( args, config );
 }
 
+static void
+add_authorized_voter_args_help( fd_action_help_t * help ) {
+  fd_action_help_arg( help, "<keypair>", NULL, "Path to the authorized voter keypair to add, in the standard Solana\n"
+                                               "keypair file format (the 64-byte JSON array).  The full keypair is\n"
+                                               "required, not just the public key, because the validator must sign\n"
+                                               "votes with it.  Pass `-` to read the same JSON array from stdin\n"
+                                               "instead of from a file" );
+}
+
 action_t fd_action_add_authorized_voter = {
   .name           = "add-authorized-voter",
   .args           = add_authorized_voter_cmd_args,
@@ -239,4 +248,24 @@ action_t fd_action_add_authorized_voter = {
   .require_config = 1,
   .perm           = NULL,
   .description    = "Add an authorized voter to the validator",
+  .detail         = "Registers an additional authorized voter key with an already running\n"
+                    "validator so it can sign votes with that key, in addition to the identity\n"
+                    "key and any voters already configured.  On success it prints `Authorized\n"
+                    "voter key added <pubkey>` and exits 0.  It fails (non-zero, with no change)\n"
+                    "if the key is already an authorized voter, or if the validator already has\n"
+                    "the maximum of 16 authorized voters.\n"
+                    "\n"
+                    "This command does not start a validator; it attaches to one that is already\n"
+                    "running.  It finds the running validator from the shared memory described by\n"
+                    "the configuration file, so you must point --config at the SAME config file the\n"
+                    "validator was started with, and run it from a binary built from the SAME git\n"
+                    "commit (compare this binary's `--version` against the running validator's).  If\n"
+                    "the config or binary differ, the layout will not match and the command fails\n"
+                    "without changing anything.\n"
+                    "\n"
+                    "The change is live only: it is not written back to the config file, so the\n"
+                    "voter is dropped on the validator's next restart.  To keep it across restarts,\n"
+                    "also add the keypair path to [paths.authorized_voter_paths] in the config.",
+  .usage          = "add-authorized-voter <keypair>",
+  .args_help      = add_authorized_voter_args_help,
 };
