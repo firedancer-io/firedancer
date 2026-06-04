@@ -30,7 +30,6 @@ endif
 
 else # CROSS=0
 
-include config/extra/with-ucontext.mk
 include config/extra/with-s2nbignum.mk
 include config/extra/with-blst.mk
 include config/extra/with-zstd.mk

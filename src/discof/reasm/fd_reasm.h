@@ -129,8 +129,7 @@
    derive its direct child's key and therefore query for it.
 
    For the special case of the first FEC set in a slot, the reasm can
-   derive the parent key by subtracting the parent_off from the slot and
-   querying for (slot, UINT_MAX).
+   derive the parent key by subtracting the parent_off from the slot.
 
    CHAINING
 
@@ -189,7 +188,6 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   int    in_out;        /* whether this FEC is currently present in the out dlist */
 
   ulong  xid_next;     /* pool idx of next FEC with same (slot, fec_set_idx). ULONG_MAX if no next. Maintain the order of most recent to least recent. */
-  ulong  bid_next;     /* pool idx of next FEC with same (slot, UINT_MAX). ULONG_MAX if no next. Maintain the order of most recent to least recent. */
 
   /* Data (set by caller) */
 
