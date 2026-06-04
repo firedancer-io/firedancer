@@ -176,7 +176,6 @@ typedef struct fd_store_key fd_store_key_t;
 struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
   fd_store_key_t key;                          /* map key, merkle root of the FEC set + a partition index */
   ulong          next;                         /* reserved for internal use by fd_pool, fd_map_chain */
-  fd_hash_t      cmr;                          /* parent's map key, chained merkle root of the FEC set */
   uint           shred_offs[FD_FEC_SHRED_CNT]; /* shred_offs[ i ] is the total size of data shreds [0, i], up to FD_FEC_SHRED_CNT */
   ulong          data_sz;                      /* sz of the FEC set payload, guaranteed <= store->fec_data_max */
   ulong          data_gaddr;                   /* wksp gaddr of this element's data buffer */

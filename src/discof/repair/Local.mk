@@ -1,6 +1,8 @@
 ifdef FD_HAS_HOSTED
 $(call add-objs,fd_repair_tile,fd_discof)
 endif
+$(call add-objs,fd_reqlim,fd_discof)
+$(call add-hdrs,fd_reqlim.h)
 $(call add-objs,fd_policy,fd_discof)
 $(call add-hdrs,fd_policy.h)
 $(call add-objs,fd_inflight,fd_discof)
