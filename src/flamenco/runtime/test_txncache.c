@@ -8,19 +8,9 @@
 
 FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN==128UL, unit_test );
 
-#define BLOCKHASH( x ) __extension__({         \
-  uchar * _out = fd_alloca_check( 1UL, 32UL ); \
-  fd_memset( _out, 0, 32UL );                  \
-  (void)FD_STORE( ulong, _out, (x) );          \
-  _out;                                        \
-})
+#define BLOCKHASH( x ) (&((fd_hash_t){ .ul = { (x) } }))->uc
 
-#define TXNHASH( x ) __extension__({           \
-  uchar * _out = fd_alloca_check( 1UL, 32UL ); \
-  fd_memset( _out, 0, 32UL );                  \
-  (void)FD_STORE( ulong, _out, (x) );          \
-  _out;                                        \
-})
+#define TXNHASH( x ) (&((fd_hash_t){ .ul = { (x) } }))->uc
 
 #define NULL_FORK ((fd_txncache_fork_id_t){ .val = USHORT_MAX })
 

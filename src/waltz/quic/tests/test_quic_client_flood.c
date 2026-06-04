@@ -112,8 +112,8 @@ run_quic_client(
 
     ulong ref_msg_mem_footprint = 0UL;
     for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) ref_msg_mem_footprint += fd_ulong_align_up( msg_sz + 96UL, 128UL );
-    uchar * ref_msg_mem = fd_alloca( 128UL, ref_msg_mem_footprint );
-    if( FD_UNLIKELY( !ref_msg_mem ) ) FD_LOG_ERR(( "fd_alloc failed" ));
+    uchar ref_msg_mem_[ ref_msg_mem_footprint ];
+    uchar * ref_msg_mem = ref_msg_mem_;
 
     uchar * ref_msg[ MSG_SZ_MAX - MSG_SZ_MIN + 1UL ];
     for( ulong msg_sz=MSG_SZ_MIN; msg_sz<=MSG_SZ_MAX; msg_sz++ ) {

@@ -433,7 +433,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
      anything else is a nonce transaction which we do not insert, or an
      already expired transaction which can also be discarded. */
 
-  uchar * _map = fd_alloca_check( alignof(blockhash_map_t), blockhash_map_footprint( 1024UL ) );
+  uchar __attribute__((aligned(alignof(blockhash_map_t)))) _map[ blockhash_map_footprint( 1024UL ) ];
   blockhash_map_t * blockhash_map = blockhash_map_join( blockhash_map_new( _map, 1024UL, ctx->seed ) );
   if( FD_UNLIKELY( !blockhash_map ) ) FD_LOG_ERR(( "failed to create blockhash map" ));
 
