@@ -11,7 +11,7 @@
 union __attribute__((packed)) fd_w_u128 {
   uchar uc[16];
   ulong ul[2];
-# if FD_HAS_INT128
+# ifdef __SIZEOF_INT128__
   uint128 ud;
 # endif
 };

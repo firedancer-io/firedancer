@@ -8,9 +8,7 @@ union fd_gcm128 {
     ulong hi;
     ulong lo;
   };
-# if FD_HAS_INT128
   uint128 u128;
-# endif
 };
 
 typedef union fd_gcm128 fd_gcm128_t;
