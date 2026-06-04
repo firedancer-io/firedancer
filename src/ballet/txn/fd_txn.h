@@ -745,6 +745,54 @@ fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_pa
   return fd_txn_parse_core( payload, payload_sz, out_buf, counters_opt, NULL );
 }
 
+/* FD_TXN_V1_DEFAULT_HEAP_SZ: per SIMD-0385, a v1 transaction that does not
+   set ConfigMask bit 4 defaults its requested heap size to 32 KiB
+   (HEAP_LENGTH / MIN_HEAP_FRAME_BYTES). */
+#define FD_TXN_V1_DEFAULT_HEAP_SZ (32UL*1024UL)
+
+/* fd_txn_parse_v1_config decodes the four compute-budget fields a v1
+   (SIMD-0385) transaction carries in its ConfigMask + ConfigValues region.
+   config_mask is the validated TransactionConfigMask (only bits 0-4 set,
+   bits 0 and 1 set together) and config_values points at the start of the
+   ConfigValues region (payload + fd_txn_t.v1_txn_config_values_off).
+
+   ConfigValues holds one 4-byte little-endian word per set mask bit, in
+   ascending bit order, so the fields are read with a left-to-right cursor,
+   advancing past each present field.  Absent fields take their defaults:
+   priority fee 0, compute-unit limit 0, loaded-accounts-data size 0, heap
+   size 32 KiB.  Values are returned raw -- no clamping or range validation
+   -- so callers apply their own limits/checks.  All out pointers must be
+   non-NULL.
+
+   The caller must have already validated config_mask and the ConfigValues
+   region size (= 4*popcount(mask) bytes), as fd_txn_parse does, so the
+   loads here are in bounds.
+
+   https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/runtime-transaction/src/runtime_transaction/transaction_view.rs#L97-L107 */
+static inline void
+fd_txn_parse_v1_config( uchar          config_mask,
+                        uchar const *  config_values,
+                        ulong *        out_priority_fee_lamports,
+                        ulong *        out_compute_unit_limit,
+                        ulong *        out_loaded_accounts_data_sz,
+                        ulong *        out_heap_size ) {
+  ulong priority_fee = 0UL;
+  ulong cu_limit     = 0UL;
+  ulong loaded       = 0UL;
+  ulong heap         = FD_TXN_V1_DEFAULT_HEAP_SZ;
+
+  uchar const * v = config_values;
+  if( config_mask     & 1U ) { priority_fee = FD_LOAD( ulong, v ); v += 8UL; } /* bits 0,1: u64 */
+  if( (config_mask>>2)& 1U ) { cu_limit     = FD_LOAD( uint,  v ); v += 4UL; } /* bit 2:    u32 */
+  if( (config_mask>>3)& 1U ) { loaded       = FD_LOAD( uint,  v ); v += 4UL; } /* bit 3:    u32 */
+  if( (config_mask>>4)& 1U ) { heap         = FD_LOAD( uint,  v );           } /* bit 4:    u32 */
+
+  *out_priority_fee_lamports   = priority_fee;
+  *out_compute_unit_limit      = cu_limit;
+  *out_loaded_accounts_data_sz = loaded;
+  *out_heap_size               = heap;
+}
+
 /* fd_txn_is_writable: Is the account at the supplied index writable
 
      Accounts ordered:

@@ -15,11 +15,19 @@ struct fd_compute_budget_details {
   uchar has_requested_heap_size;
   uchar has_loaded_accounts_data_size_limit_update;
 
+  /* is_v1: set for tx-v1 (SIMD-0385) transactions, whose compute budget
+     is carried by the ConfigMask rather than by ComputeBudget program
+     instructions. For tx-v1 the priority fee is supplied directly as a
+     total (priority_fee_lamports) instead of being derived from a per-CU
+     price, so the fee calculation must branch on this flag. */
+  uchar is_v1;
+
   ulong compute_unit_limit;              /* Compute unit limit for this transaction. */
   ulong compute_unit_price;              /* Compute unit price for this transaction. */
   ulong compute_meter;                   /* Remaining compute units */
   ulong heap_size;                       /* Heap size for VMs for this transaction. */
   ulong loaded_accounts_data_size_limit; /* Loaded accounts data size limit for this transaction. */
+  ulong priority_fee_lamports;           /* tx-v1 only: total priority fee in lamports (ConfigMask bits 0,1). */
 
   /* SIMD-170 introduces a conservative CU limit of 3,000 CUs per
      non-migrated native program, and 200,000 CUs for all other programs

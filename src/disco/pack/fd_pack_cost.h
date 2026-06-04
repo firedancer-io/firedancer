@@ -385,7 +385,9 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     fd_pack_builtin_prog_cost_t const * in_tbl = fd_pack_builtin_query( prog_id, null_row );
     non_builtin_cnt += !in_tbl->cost_per_instr; /* null row has 0 cost */
 
-    if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
+    /* If the transaction is not a V1 transaction, parse the compute budget instruction.
+       Compute budget instructions are silently ignored for V1 transactions. */
+    if( FD_UNLIKELY( txn->transaction_version!=FD_TXN_V1 && in_tbl==compute_budget_row ) ) {
       if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, data_sz, cbp ) ) )
         return 0UL;
     } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) ) ) {
@@ -525,7 +527,40 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   ulong fee[1];
   uint execution_cost[1];
   ulong loaded_account_data_cost[1];
-  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
+  if( txn->transaction_version==FD_TXN_V1 ) {
+
+    /* tx-v1 carries its compute budget in the ConfigMask; decode the raw
+       fields, then apply this cost model's clamps (heap is unused here). */
+    ulong v1_priority_fee, v1_cu_limit, v1_loaded, v1_heap;
+    fd_txn_parse_v1_config( txn->v1_txn_config_mask, payload+txn->v1_txn_config_values_off,
+                            &v1_priority_fee, &v1_cu_limit, &v1_loaded, &v1_heap );
+
+    *fee            = v1_priority_fee;
+    *execution_cost = (uint)fd_ulong_min( v1_cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
+    v1_loaded       = fd_ulong_min( v1_loaded, FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ );
+    *loaded_account_data_cost = FD_COMPUTE_BUDGET_HEAP_COST *
+        ( ( v1_loaded + FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE - 1UL )
+          / FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE );
+    (void)v1_heap;
+
+    /* SIMD-0517 "adjust up" hazard (tx-v1 only).  A request of 0 loaded
+       account data (ConfigMask bit 3 unset, or set to 0) costs 0 pages
+       here, but any transaction actually loads accounts -- at minimum the
+       fee payer, and in the fee-only rollback path a nonce account that
+       can be multiple MB.  The consensus cost model charges that *actual*
+       loaded size, so block production would have to adjust the reserved
+       cost UP after execution.  Pack only ever rebates cost down, so
+       rather than reserve a page (agave's qos_service approach, which is
+       block-production-only and still insufficient for oversized nonce
+       accounts), Firedancer drops these transactions.  v0 cannot hit this:
+       its default request is 64 MiB and an explicit 0 is rejected at
+       sanitize, so its loaded cost is always >= 1 page.
+
+       https://github.com/anza-xyz/agave/blob/v4.1.0-beta.1/core/src/banking_stage/qos_service.rs#L69-L73 */
+    if( FD_UNLIKELY( 0UL==*loaded_account_data_cost ) ) return 0UL;
+  } else {
+    fd_compute_budget_program_finalize( cbp, txn->instr_cnt, txn->instr_cnt-non_builtin_cnt, fee, execution_cost, loaded_account_data_cost );
+  }
 
   /* As an optimization, for simple votes we can override execution cost
     with a known tighter upper bound. */
