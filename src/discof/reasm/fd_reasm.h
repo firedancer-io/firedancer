@@ -63,11 +63,11 @@
             cleaf  cleaf
 
 
-   The forest also potentially contains one or more orphaned tree
-   components.  Nodes in orphaned trees are FEC sets that has not yet
+   The forest also potentially contains one or more orphaned subtree
+   components.  Nodes in orphaned subtrees are FEC sets that has not yet
    chained to the reasm root, but may chain to one another.  Each orphan
-   tree root is an "oroot".  Leaves are not distinguished from internal
-   nodes in orphan trees, any non-root node is an "onode".
+   root is an "oroot".  Leaves are not distinguished from internal
+   nodes in orphan subtrees (any non-root node is an "onode").
 
        oroot              oroot
       /    \             /
@@ -90,25 +90,25 @@
    INSERTING
 
    When inserting a new FEC set, the reasm first checks whether the
-   parent is a FEC set already in the frontier map.  This indicates that
-   the new FEC set directly chains off the frontier.  If it does, the
+   parent is a FEC set already in the cleaf map.  This indicates that
+   the new FEC set directly chains off the cleaf.  If it does, the
    parent FEC set is removed, and the new FEC set is inserted into the
-   frontier map.  This is the common case because we expect FEC sets to
+   cleaf map.  This is the common case because we expect FEC sets to
    chain linearly the vast majority (ie. not start new forks), so the
-   new FEC set is simply "advancing" the frontier.  The parent FEC set
-   is also added to the ancestry map, so that every leaf can trace back
+   new FEC set is simply "advancing" the cleaf.  The parent FEC set
+   is also added to the cnode map, so that every leaf can trace back
    to the root.
 
-   If the FEC set's parent is not already in the frontier, the reasm
-   checks the ancestry map next.  If the parent is in the ancestry map,
+   If the FEC set's parent is not already in the cleaf, the reasm
+   checks the cnode map next.  If the parent is in the cnode map,
    the reasm knows that this FEC set is starting a new fork, because it
-   is part of the tree (the ancestry) but not one of the leaves (the
-   frontier).  In this case, the new FEC set is simply inserted into the
-   frontier map, and now the frontier has an additional fork (leaf).
+   is part of the tree (the cnode) but not one of the leaves (the
+   cleaf).  In this case, the new FEC set is simply inserted into the
+   cleaf map, and now the cleaf has an additional fork (leaf).
 
-   Lastly, if the FEC set's parent is not in the ancestry map, the reasm
+   Lastly, if the FEC set's parent is not in the cnode map, the reasm
    knows that this FEC set is orphaned.  It is inserted into the
-   orphaned map for later retry of tree insertion when its ancestors
+   onode map for later retry of tree insertion when its ancestors
    have been inserted.
 
    Here are some more important details on forks. Note a FEC set can
@@ -135,7 +135,7 @@
 
    As mentioned in the top-level documentation, the purpose of the reasm
    is to chain FEC sets.  On insertion, the reasm will attempt to chain
-   as many FEC sets as possible to the frontier.  The reasm does this by
+   as many FEC sets as possible to the cleaf.  The reasm does this by
    conducting a BFS from the just-inserted FEC set, looking for parents
    and orphans to traverse.  See `chain` in the .c file for the
    implementation. */
@@ -156,16 +156,16 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ulong child;   /* pool idx of the left-child */
   ulong sibling; /* pool idx of the right-sibling */
 
-  /* When it's in the subtrees map, it's also in the subtreel dlist,
+  /* When it's in the oroot map, it's also in the olist dlist,
      which uses these two pointers. */
   struct {
     ulong prev;
     ulong next;
-  } subtreel;
+  } olist;
 
   /* dlist threaded through elements if they are in the out queue.
      Internal reasm APIs need to maintain the invariant that elements in
-     the out dlist must exist in and only in the ancestry/frontier map.
+     the out dlist must exist in and only in the cnode/cleaf map.
      If an element exists in the out dlist, in_out must be 1 (and the
      vice versa). */
   struct {
@@ -284,7 +284,7 @@ fd_reasm_free( fd_reasm_t * reasm );
 /* fd_reasm_peek returns the next successfully reassembled FEC set, NULL
    if there is no FEC set to return.  This peeks at the head of the
    reasm out queue.  Any FEC sets in the out queue are part of a
-   connected ancestry chain to the root therefore a parent is always
+   connected cnode chain to the root therefore a parent is always
    guaranteed to be returned by consume before its child (see top-level
    documentation for details).  In order to actually consume and make
    progress on consuming FEC sets, use fd_reasm_pop(). */
@@ -295,7 +295,7 @@ fd_reasm_peek( fd_reasm_t * reasm );
 /* fd_reasm_pop returns the next successfully reassembled FEC set, NULL
    if there is no FEC set to return.  This pops and returns the head of
    the reasm out queue.  Any FEC sets in the out queue are part of a
-   connected ancestry chain to the root therefore a parent is always
+   connected cnode chain to the root therefore a parent is always
    guaranteed to be returned by consume before its child (see top-level
    documentation for details). */
 
@@ -351,7 +351,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
    It is assumed that the passed `head` exists in reasm.  If `head` is
    in orphans, it is assumed that it is a leaf node, and only `head`
-   will be cleared.  If `head` is in ancestry, a chain of nodes will be
+   will be cleared.  If `head` is in cnode, a chain of nodes will be
    cleared starting from `head` and walking up the tree until one of the
    following conditions is met: we reach fec_set_idx 0, we reach a fec
    set with an equivocating sibling.  Any children nodes of `head` will
@@ -389,19 +389,19 @@ fd_reasm_pool_release( fd_reasm_t *     reasm,
 ulong
 fd_reasm_pool_idx( fd_reasm_t * reasm, fd_reasm_fec_t * ele );
 
-/* fd_reasm_confirm confirms the FEC keyed by block_id.  The ancestry
+/* fd_reasm_confirm confirms the FEC keyed by block_id.  The cnode
    beginning from this FEC then becomes the canonical chain of FEC sets
    back to the reasm root, and any equivocating siblings along this
    chain will not be delivered by fd_reasm_pop.  If the FEC is not found
    or not part of the connected tree, this has no effect.
 
    Because fd_reasm_pop is usually called eagerly during replay before
-   confirmation, it's possible that a FEC set not in this ancestry chain
+   confirmation, it's possible that a FEC set not in this cnode chain
    was delivered prior to this confirmation.  Consumers will observe at
    most two versions of a given FEC xid (slot, fec_set_idx).
 
    Note that while this may appear to be an expensive operation linear
-   in the length of the ancestry chain, the traversal can terminate at
+   in the length of the cnode chain, the traversal can terminate at
    the previous confirmation and therefore the cost is amortized across
    n inserts since the last confirmation.
 

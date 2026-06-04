@@ -24,10 +24,10 @@ test_insert( fd_wksp_t * wksp ) {
   fd_reasm_fec_t * pool = reasm_pool( reasm );
   // ulong            null = pool_idx_null( pool );
 
-  ancestry_t * ancestry = reasm->ancestry;
-  frontier_t * frontier = reasm->frontier;
-  orphaned_t * orphaned = reasm->orphaned;
-  subtrees_t * subtrees = reasm->subtrees;
+  cnode_t * cnode = reasm->cnode;
+  cleaf_t * cleaf = reasm->cleaf;
+  onode_t * onode = reasm->onode;
+  oroot_t * oroot = reasm->oroot;
 
   /* Receive (0, 64) -> (1, 32) -> (1, 0) -> (2, 0) -> (3, 64) -> (2, 32) -> (3, 32) -> (3, 0) */
 
@@ -44,36 +44,36 @@ test_insert( fd_wksp_t * wksp ) {
   fd_reasm_init( reasm, mr0_64, 0 );
   fd_reasm_fec_t * f0_64 = fd_reasm_query( reasm, mr0_64 );
   FD_TEST( f0_64 );
-  FD_TEST( frontier_ele_query( frontier, &f0_64->key, NULL, pool ) == f0_64 );
+  FD_TEST( cleaf_ele_query( cleaf, &f0_64->key, NULL, pool ) == f0_64 );
 
   fd_reasm_fec_t * f1_32 = fd_reasm_insert( reasm, mr1_32, mr1_00, 1, 32, 1, 32, 1, 1, 0, NULL, ev );
-  FD_TEST( subtrees_ele_query( subtrees, &f1_32->key, NULL, pool ) == f1_32 );
+  FD_TEST( oroot_ele_query( oroot, &f1_32->key, NULL, pool ) == f1_32 );
 
   fd_reasm_fec_t * f1_00 = fd_reasm_insert( reasm, mr1_00, mr0_64, 1, 0, 1, 32, 0, 0, 0, NULL, ev );
-  FD_TEST( ancestry_ele_query( ancestry, &f1_00->key, NULL, pool ) );
-  FD_TEST( ancestry_ele_query( ancestry, &f0_64->key, NULL, pool ) );
-  FD_TEST( frontier_ele_query( frontier, &f1_32->key, NULL, pool ) );
+  FD_TEST( cnode_ele_query( cnode, &f1_00->key, NULL, pool ) );
+  FD_TEST( cnode_ele_query( cnode, &f0_64->key, NULL, pool ) );
+  FD_TEST( cleaf_ele_query( cleaf, &f1_32->key, NULL, pool ) );
 
   fd_reasm_fec_t * f2_00 = fd_reasm_insert( reasm, mr2_00, mr1_32, 2, 0, 1, 32, 0, 0, 0, NULL, ev );
-  FD_TEST( frontier_ele_query( frontier, &f2_00->key, NULL, pool ) );
-  FD_TEST( ancestry_ele_query( ancestry, &f1_32->key, NULL, pool ) );
+  FD_TEST( cleaf_ele_query( cleaf, &f2_00->key, NULL, pool ) );
+  FD_TEST( cnode_ele_query( cnode, &f1_32->key, NULL, pool ) );
 
   fd_reasm_fec_t * f3_64 = fd_reasm_insert( reasm, mr3_64, mr3_32, 3, 64, 2, 32, 1, 1, 0, NULL, ev );
-  FD_TEST( subtrees_ele_query( subtrees, &f3_64->key, NULL, pool ) );
+  FD_TEST( oroot_ele_query( oroot, &f3_64->key, NULL, pool ) );
 
   fd_reasm_fec_t * f2_32 = fd_reasm_insert( reasm, mr2_32, mr2_00, 2, 32, 1, 32, 1, 1, 0, NULL, ev );
-  FD_TEST( frontier_ele_query( frontier, &f2_32->key, NULL, pool ) );
-  FD_TEST( ancestry_ele_query( ancestry, &f2_00->key, NULL, pool ) );
+  FD_TEST( cleaf_ele_query( cleaf, &f2_32->key, NULL, pool ) );
+  FD_TEST( cnode_ele_query( cnode, &f2_00->key, NULL, pool ) );
 
   fd_reasm_fec_t * f3_32 = fd_reasm_insert( reasm, mr3_32, mr3_00, 3, 32, 2, 32, 0, 0, 0, NULL, ev);
-  FD_TEST( subtrees_ele_query( subtrees, &f3_32->key, NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, &f3_64->key, NULL, pool ) );
+  FD_TEST( oroot_ele_query( oroot, &f3_32->key, NULL, pool ) );
+  FD_TEST( onode_ele_query( onode, &f3_64->key, NULL, pool ) );
 
   fd_reasm_fec_t * f3_00 = fd_reasm_insert( reasm, mr3_00, mr1_32, 3, 0, 2, 32, 0, 0, 0, NULL, ev);
-  FD_TEST( ancestry_ele_query( ancestry, &f3_00->key,  NULL, pool ) );
-  FD_TEST( frontier_ele_query( frontier, &f2_32->key, NULL, pool ) );
-  FD_TEST( ancestry_ele_query( ancestry, &f3_32->key, NULL, pool ) );
-  FD_TEST( frontier_ele_query( frontier, &f3_64->key, NULL, pool ) );
+  FD_TEST( cnode_ele_query( cnode, &f3_00->key,  NULL, pool ) );
+  FD_TEST( cleaf_ele_query( cleaf, &f2_32->key, NULL, pool ) );
+  FD_TEST( cnode_ele_query( cnode, &f3_32->key, NULL, pool ) );
+  FD_TEST( cleaf_ele_query( cleaf, &f3_64->key, NULL, pool ) );
 
   fd_hash_t order[7] = {
       f1_00->key,
@@ -93,7 +93,7 @@ test_insert( fd_wksp_t * wksp ) {
 
   fd_hash_t        mr3_64a[1] = { { { 9 } } }; /* equivocating  */
   fd_reasm_fec_t * f3_64a     = fd_reasm_insert( reasm, mr3_64a, mr3_32, 3, 64, 2, 32, 1, 1, 0, NULL, ev );
-  FD_TEST( frontier_ele_query( frontier, &f3_64a->key, NULL, pool ) );
+  FD_TEST( cleaf_ele_query( cleaf, &f3_64a->key, NULL, pool ) );
 
   /* Equivocating first FEC set for slot 3 (mr3_0a) that chains of a
      different parent slot (2, 32) than the other version (mr3_0 chains
@@ -101,7 +101,7 @@ test_insert( fd_wksp_t * wksp ) {
 
   fd_hash_t        mr3_0a[1] = { { { 10 } } };
   fd_reasm_fec_t * f3_0a     = fd_reasm_insert( reasm, mr3_0a, mr2_32, 3, 0, 1, 32, 0, 0, 0, NULL, ev );
-  FD_TEST( frontier_ele_query( frontier, &f3_0a->key, NULL, pool ) );
+  FD_TEST( cleaf_ele_query( cleaf, &f3_0a->key, NULL, pool ) );
 
   fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
 }
@@ -172,8 +172,8 @@ test_publish( fd_wksp_t * wksp ) {
   fd_reasm_fec_t * newr = fd_reasm_root( reasm );
   FD_TEST( newr );
   FD_TEST( 0==memcmp( newr, mr2, sizeof(fd_hash_t) ) );
-  FD_TEST( ancestry_ele_query( reasm->ancestry, mr2, NULL, reasm_pool( reasm ) ) != NULL );
-  FD_TEST( frontier_ele_query( reasm->frontier, mr4, NULL, reasm_pool( reasm ) ) != NULL );
+  FD_TEST( cnode_ele_query( reasm->cnode, mr2, NULL, reasm_pool( reasm ) ) != NULL );
+  FD_TEST( cleaf_ele_query( reasm->cleaf, mr4, NULL, reasm_pool( reasm ) ) != NULL );
   FD_TEST( !fd_reasm_query( reasm, mr0 ) );
   FD_TEST( !fd_reasm_query( reasm, mr1 ) );
   FD_TEST( !fd_reasm_query( reasm, mr3 ) );
@@ -408,7 +408,7 @@ test_fec_after_eos(fd_wksp_t *wksp) {
   FD_TEST( !fd_reasm_query(reasm, mr8)->eqvoc );
   FD_TEST( !fd_reasm_query(reasm, mr9) );
 
-  /* now connect slot 2 from frontier to orphan*/
+  /* now connect slot 2 from cleaf to orphan*/
   fd_reasm_insert( reasm, mr7, mr6,  2,   32,    1,   32,      0,        0,        0, NULL, ev );
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr7) );
   FD_TEST( fd_reasm_pop(reasm) == fd_reasm_query(reasm, mr8) );
@@ -508,7 +508,7 @@ test_evict( fd_wksp_t * wksp ) {
 }
 
 /* Verify that every element in the out dlist has in_out==1, is in
-   ancestry or frontier (ie. the connected tree), and that parents
+   cnode or cleaf (ie. the connected tree), and that parents
    precede children. */
 static void
 verify_out_invariants( fd_reasm_t * reasm ) {
@@ -522,24 +522,24 @@ verify_out_invariants( fd_reasm_t * reasm ) {
     fd_reasm_fec_t * fec = out_iter_ele( iter, reasm->out, pool );
     FD_TEST( fec->in_out );
 
-    /* Must be in the connected tree (ancestry or frontier). */
-    FD_TEST( ancestry_ele_query( reasm->ancestry, &fec->key, NULL, pool ) ||
-             frontier_ele_query( reasm->frontier, &fec->key, NULL, pool ) );
+    /* Must be in the connected tree (cnode or cleaf). */
+    FD_TEST( cnode_ele_query( reasm->cnode, &fec->key, NULL, pool ) ||
+             cleaf_ele_query( reasm->cleaf, &fec->key, NULL, pool ) );
     out_cnt++;
   }
 
   /* Check that no element outside the dlist has in_out==1. */
   ulong in_out_cnt = 0;
-  for( ancestry_iter_t iter = ancestry_iter_init(       reasm->ancestry, pool );
-                              !ancestry_iter_done( iter, reasm->ancestry, pool );
-                        iter = ancestry_iter_next( iter, reasm->ancestry, pool ) ) {
-    fd_reasm_fec_t * fec = ancestry_iter_ele( iter, reasm->ancestry, pool );
+  for( cnode_iter_t iter = cnode_iter_init(       reasm->cnode, pool );
+                          !cnode_iter_done( iter, reasm->cnode, pool );
+                    iter = cnode_iter_next( iter, reasm->cnode, pool ) ) {
+    fd_reasm_fec_t * fec = cnode_iter_ele( iter, reasm->cnode, pool );
     if( fec->in_out ) in_out_cnt++;
   }
-  for( frontier_iter_t iter = frontier_iter_init(       reasm->frontier, pool );
-                              !frontier_iter_done( iter, reasm->frontier, pool );
-                        iter = frontier_iter_next( iter, reasm->frontier, pool ) ) {
-    fd_reasm_fec_t * fec = frontier_iter_ele( iter, reasm->frontier, pool );
+  for( cleaf_iter_t iter = cleaf_iter_init(       reasm->cleaf, pool );
+                          !cleaf_iter_done( iter, reasm->cleaf, pool );
+                    iter = cleaf_iter_next( iter, reasm->cleaf, pool ) ) {
+    fd_reasm_fec_t * fec = cleaf_iter_ele( iter, reasm->cleaf, pool );
     if( fec->in_out ) in_out_cnt++;
   }
   FD_TEST( in_out_cnt == out_cnt );
@@ -625,7 +625,7 @@ test_validate_cross_slot( fd_wksp_t * wksp ) {
     FD_TEST( !fd_reasm_query( reasm, same_bad_fec_idx          ) );
     FD_TEST( !fd_reasm_query( reasm, same_bad_parent_off       ) );
     FD_TEST( !fd_reasm_query( reasm, same_after_complete       ) );
-    FD_TEST( !subtrees_ele_query( reasm->subtrees, child, NULL, pool ) );
+    FD_TEST( !oroot_ele_query( reasm->oroot, child, NULL, pool ) );
     verify_out_invariants( reasm );
 
     FD_TEST( fd_reasm_pop( reasm )==parent_fec );
@@ -677,7 +677,7 @@ test_validate_cross_slot( fd_wksp_t * wksp ) {
     fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
   }
 
-  /* Child first: remove invalid orphaned subtree when parent arrives. */
+  /* Child first: remove invalid onode subtree when parent arrives. */
   {
     void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
     fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
@@ -703,8 +703,8 @@ test_validate_cross_slot( fd_wksp_t * wksp ) {
     FD_TEST( !child_fec );
     FD_TEST( !grandchild_fec );
     FD_TEST( fd_reasm_child ( reasm, parent_fec )==NULL );
-    FD_TEST( !subtrees_ele_query( reasm->subtrees, child, NULL, pool ) );
-    FD_TEST( !orphaned_ele_query( reasm->orphaned, grandchild, NULL, pool ) );
+    FD_TEST( !oroot_ele_query( reasm->oroot, child, NULL, pool ) );
+    FD_TEST( !onode_ele_query( reasm->onode, grandchild, NULL, pool ) );
     verify_out_invariants( reasm );
 
     FD_TEST( fd_reasm_pop( reasm )==parent_fec );
@@ -713,7 +713,7 @@ test_validate_cross_slot( fd_wksp_t * wksp ) {
     fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
   }
 
-  /* Child first: link valid orphaned subtree when parent arrives. */
+  /* Child first: link valid onode subtree when parent arrives. */
   {
     void *       mem   = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
     fd_reasm_t * reasm = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
@@ -783,15 +783,15 @@ test_remove_deep_orphan_subtree( fd_wksp_t * wksp ) {
     FD_TEST( fd_reasm_insert( reasm, &chain[i], &chain[i-1UL], 2UL, (uint)(i*32UL), 1, 32, 0, 0, 0, NULL, ev ) );
   }
 
-  FD_TEST( subtrees_ele_query( reasm->subtrees, &chain[0],                         NULL, pool ) );
-  FD_TEST( orphaned_ele_query( reasm->orphaned, &chain[DEEP_ORPHAN_CHAIN_LEN-1UL], NULL, pool ) );
+  FD_TEST( oroot_ele_query( reasm->oroot, &chain[0],                         NULL, pool ) );
+  FD_TEST( onode_ele_query( reasm->onode, &chain[DEEP_ORPHAN_CHAIN_LEN-1UL], NULL, pool ) );
 
   fd_reasm_fec_t * parent_fec = fd_reasm_insert( reasm, parent, root, 1UL, 0U, 1, 32, 0, 0, 0, NULL, ev );
   FD_TEST( parent_fec );
 
   for( ulong i=0UL; i<DEEP_ORPHAN_CHAIN_LEN; i++ ) FD_TEST( !fd_reasm_query( reasm, &chain[i] ) );
-  FD_TEST( !subtrees_ele_query( reasm->subtrees, &chain[0],                         NULL, pool ) );
-  FD_TEST( !orphaned_ele_query( reasm->orphaned, &chain[DEEP_ORPHAN_CHAIN_LEN-1UL], NULL, pool ) );
+  FD_TEST( !oroot_ele_query( reasm->oroot, &chain[0],                         NULL, pool ) );
+  FD_TEST( !onode_ele_query( reasm->onode, &chain[DEEP_ORPHAN_CHAIN_LEN-1UL], NULL, pool ) );
   FD_TEST( fd_reasm_free( reasm )==fec_max-2UL );
   verify_out_invariants( reasm );
 
@@ -1017,9 +1017,9 @@ test_remove_bank_eviction( fd_wksp_t * wksp ) {
   FD_TEST( reasm );
 
   fd_reasm_fec_t * pool     = reasm_pool( reasm );
-  frontier_t *     frontier = reasm->frontier;
-  subtrees_t *     subtrees = reasm->subtrees;
-  orphaned_t *     orphaned = reasm->orphaned;
+  cleaf_t *        cleaf    = reasm->cleaf;
+  oroot_t *        oroot    = reasm->oroot;
+  onode_t *        onode    = reasm->onode;
 
   fd_reasm_fec_t * ev[1];
 
@@ -1097,18 +1097,18 @@ test_remove_bank_eviction( fd_wksp_t * wksp ) {
   FD_TEST( !fd_reasm_query( reasm, mr1_32 ) );
 
   /* (1,64) should now be a subtree root — it was the direct child of
-     tail=(1,32) and became orphaned by the removal. */
+     tail=(1,32) and became onode by the removal. */
 
-  FD_TEST( subtrees_ele_query( subtrees, mr1_64, NULL, pool ) );
+  FD_TEST( oroot_ele_query( oroot, mr1_64, NULL, pool ) );
 
-  /* (1,64)'s children from slot 2 and slot 3 should be in orphaned. */
+  /* (1,64)'s children from slot 2 and slot 3 should be in onode. */
 
-  FD_TEST( orphaned_ele_query( orphaned, mr2_0,  NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr2_32, NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr2_64, NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr2_96, NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr3_0,  NULL, pool ) );
-  FD_TEST( orphaned_ele_query( orphaned, mr3_32, NULL, pool ) );
+  FD_TEST( onode_ele_query( onode, mr2_0,  NULL, pool ) );
+  FD_TEST( onode_ele_query( onode, mr2_32, NULL, pool ) );
+  FD_TEST( onode_ele_query( onode, mr2_64, NULL, pool ) );
+  FD_TEST( onode_ele_query( onode, mr2_96, NULL, pool ) );
+  FD_TEST( onode_ele_query( onode, mr3_0,  NULL, pool ) );
+  FD_TEST( onode_ele_query( onode, mr3_32, NULL, pool ) );
 
   /* Slot 2's first FEC and slot 3's first FEC should be subtree roots
      (they are direct children of (1,64) which is the tail's child, so
@@ -1116,15 +1116,15 @@ test_remove_bank_eviction( fd_wksp_t * wksp ) {
      re-roots each direct child of tail). */
 
   /* The out dlist should be empty — all previously connected FECs
-     were either popped ((1,0), (1,32)) or orphaned ((1,64) and
+     were either popped ((1,0), (1,32)) or onode ((1,64) and
      descendants). */
 
   FD_TEST( out_is_empty( reasm->out, pool ) );
 
-  /* The root should now be a frontier leaf (its only child (1,0) was
+  /* The root should now be a cleaf leaf (its only child (1,0) was
      evicted, so it has no children). */
 
-  FD_TEST( frontier_ele_query( frontier, mr_root, NULL, pool ) );
+  FD_TEST( cleaf_ele_query( cleaf, mr_root, NULL, pool ) );
 
   /* Clean up: release evicted elements back to pool. */
 

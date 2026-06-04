@@ -7,38 +7,38 @@
 #define POOL_T                 fd_reasm_fec_t
 #include "../../util/tmpl/fd_pool.c"
 
-#define MAP_NAME               ancestry
+#define MAP_NAME               cnode
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define MAP_NAME               frontier
+#define MAP_NAME               cleaf
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define MAP_NAME               orphaned
+#define MAP_NAME               onode
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define MAP_NAME               subtrees
+#define MAP_NAME               oroot
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
 #define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1),sizeof(fd_hash_t)))
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define DLIST_NAME             subtreel
+#define DLIST_NAME             olist
 #define DLIST_ELE_T            fd_reasm_fec_t
-#define DLIST_PREV             subtreel.prev
-#define DLIST_NEXT             subtreel.next
+#define DLIST_PREV             olist.prev
+#define DLIST_NEXT             olist.next
 #include "../../util/tmpl/fd_dlist.c"
 
 #define DLIST_NAME             out
@@ -70,12 +70,12 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   ulong        root;        /* pool idx of the root FEC set */
   ulong        pool_gaddr;  /* gaddr of the pool of FEC nodes backing the above maps / tree */
   ulong        wksp_gaddr;  /* gaddr of this reasm struct within the workspace */
-  ancestry_t * ancestry;    /* map of mr->fec. non-leaves of the connected tree */
-  frontier_t * frontier;    /* map of mr->fec. leaves of the connected tree */
-  orphaned_t * orphaned;    /* map of mr->fec. non-roots of the orphaned subtrees */
-  subtrees_t * subtrees;    /* map of mr->fec. roots of the orphaned subtrees */
-  subtreel_t   _subtrlf[1]; /* internal dlist of the elements in subtrees in no particular order */
-  subtreel_t * subtreel;    /* the join to the dlist */
+  cnode_t    * cnode;       /* map of mr->fec. non-leaves of the connected tree */
+  cleaf_t    * cleaf;       /* map of mr->fec. leaves of the connected tree */
+  onode_t    * onode;       /* map of mr->fec. non-roots of the orphaned subtrees */
+  oroot_t    * oroot;       /* map of mr->fec. roots of the orphaned subtrees */
+  olist_t      _olistf[1];  /* internal dlist of the elements in subtrees in no particular order */
+  olist_t    * olist;       /* the join to the dlist */
 
   out_t        _out[1];     /* delivery queue(dlist) of elements to output */
   out_t *      out;         /* the join to the dlist */
