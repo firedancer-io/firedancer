@@ -126,7 +126,6 @@ test_env_create( void ) {
   unprivileged_init( topo, topo_tile );
 
   env->execrp = tile_mem;
-  env->execrp->funk_pkey = -1;
   env->execrp->replay_in->mem    = replay_execrp->dcache;
   env->execrp->replay_in->chunk0 = fd_dcache_compact_chunk0( replay_execrp->dcache, replay_execrp->dcache );
   env->execrp->replay_in->wmark  = fd_dcache_compact_wmark ( replay_execrp->dcache, replay_execrp->dcache, replay_execrp->mtu );
