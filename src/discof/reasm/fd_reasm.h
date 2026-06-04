@@ -257,6 +257,14 @@ fd_reasm_fec_t *
 fd_reasm_query( fd_reasm_t       * reasm,
                 fd_hash_t  const * merkle_root );
 
+/* fd_reasm_query_connected returns a pointer to the ele keyed by
+   merkle_root if found and is connected to the reasm root, NULL
+   otherwise. */
+
+fd_reasm_fec_t *
+fd_reasm_query_connected( fd_reasm_t       * reasm,
+                          fd_hash_t  const * merkle_root );
+
 /* fd_reasm_{root,parent,child,sibling} returns a pointer in the
    caller's address space to the {root,parent,left-child,right-sibling}.
    Assumes reasm is a current local join and blk is a valid pointer to a
@@ -415,6 +423,23 @@ fd_reasm_pool_idx( fd_reasm_t * reasm, fd_reasm_fec_t * ele );
 void
 fd_reasm_confirm( fd_reasm_t      * reasm,
                   fd_hash_t const * block_id );
+
+/* fd_reasm_subtree_iter iterates over the subtree rooted at root in DFS
+   order using left-child / right-sibling pointers.  Pass cur==root to
+   begin.  Returns the next node in the traversal, or NULL when complete.
+
+   Typical usage:
+
+     fd_reasm_fec_t * cur = root;
+     while( cur ) {
+       // ... process cur ...
+       cur = fd_reasm_subtree_iter( reasm, root, cur );
+     }                                                                  */
+
+fd_reasm_fec_t *
+fd_reasm_subtree_iter( fd_reasm_t     * reasm,
+                       fd_reasm_fec_t * root,
+                       fd_reasm_fec_t * cur );
 
 /* fd_reasm_publish publishes merkle root as the new reasm root, pruning
    (ie. map remove and pool release) any FEC sets that do not descend

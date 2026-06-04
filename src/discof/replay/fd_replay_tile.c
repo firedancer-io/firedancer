@@ -112,7 +112,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_fwd_confirmed_buf_align(), fd_fwd_confirmed_buf_footprint( tile->replay.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, fd_fwd_confirmed_align(),     fd_fwd_confirmed_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
 
@@ -2172,7 +2172,24 @@ process_fec_complete( fd_replay_tile_t *  ctx,
     fd_store_remove( ctx->store, merkle_root );
     return;
   }
-  if( FD_UNLIKELY( fd_fwd_confirmed_remove( ctx->fwd_confirmed, merkle_root ) ) ) fd_reasm_confirm( ctx->reasm, merkle_root );
+  /* If the just-inserted FEC is connected, it may have adopted orphan
+     subtrees that are now also connected.  Walk the subtree rooted at
+     fec and drain any buffered forward confirmations that match.  This
+     handles the case where confirmation arrived before the connecting
+     FEC: eg. orphans O1->O2->...->B were buffered, and the just-inserted
+     fec links them all to the root.  Each node is visited at most once
+     across all inserts (only newly-connected nodes are walked). */
+
+  if( FD_LIKELY( !fd_reasm_query_connected( ctx->reasm, merkle_root ) ) ) return;
+
+  fd_reasm_fec_t * cur = fec;
+  while( cur ) {
+    if( FD_UNLIKELY( cur->slot_complete && fd_fwd_confirmed_remove( ctx->fwd_confirmed, &cur->key ) ) ) {
+      fd_reasm_confirm( ctx->reasm, &cur->key );
+      FD_LOG_NOTICE(( "confirmed FEC %lu is connected, removing from fwd_confirmed", cur->slot ));
+    }
+    cur = fd_reasm_subtree_iter( ctx->reasm, fec, cur );
+  }
 }
 
 static void
@@ -2278,14 +2295,15 @@ static void
 process_tower_duplicate_confirmed( fd_replay_tile_t *                ctx,
                                    fd_tower_slot_confirmed_t const * msg ) {
 
-  fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &msg->block_id );
+  fd_reasm_fec_t * fec = fd_reasm_query_connected( ctx->reasm, &msg->block_id );
   if( FD_UNLIKELY( !fec ) ) {
     if( FD_UNLIKELY( msg->slot < fd_reasm_root( ctx->reasm )->slot ) ) return;
+    FD_LOG_NOTICE(( "Saving block id for slot %lu", msg->slot ));
     fd_fwd_confirmed_insert( ctx->fwd_confirmed, &msg->block_id );
     return;
   }
 
-  /* else confirmed fec already in reasm */
+  /* else confirmed fec already in reasm AND is connected */
   fd_reasm_confirm( ctx->reasm, &msg->block_id );
 }
 
@@ -2676,7 +2694,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->block_id_map );
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->block_id_arr[ i ].block_id_seen = 0;
 
-  ctx->fwd_confirmed = fd_fwd_confirmed_join( fd_fwd_confirmed_new( ctx->fwd_confirmed, fwd_confirmed_mem, tile->replay.max_live_slots ) );
+  ctx->fwd_confirmed = fd_fwd_confirmed_join( fd_fwd_confirmed_new( fwd_confirmed_mem, tile->replay.max_live_slots ) );
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
 

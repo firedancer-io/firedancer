@@ -202,6 +202,16 @@ fd_reasm_query( fd_reasm_t       * reasm,
   return fec;
 }
 
+fd_reasm_fec_t *
+fd_reasm_query_connected( fd_reasm_t       * reasm,
+                          fd_hash_t  const * merkle_root ) {
+  fd_reasm_fec_t * pool = reasm_pool( reasm );
+  fd_reasm_fec_t * fec = NULL;
+  fec =                  ancestry_ele_query( reasm->ancestry, merkle_root, NULL, pool );
+  fec = fd_ptr_if( !fec, frontier_ele_query( reasm->frontier, merkle_root, NULL, pool ), fec );
+  return fec;
+}
+
 void
 fd_reasm_confirm( fd_reasm_t      * reasm,
                   fd_hash_t const * block_id ) {
@@ -230,6 +240,27 @@ fd_reasm_confirm( fd_reasm_t      * reasm,
     }
     fec = fd_reasm_parent( reasm, fec );
   }
+}
+
+fd_reasm_fec_t *
+fd_reasm_subtree_iter( fd_reasm_t     * reasm,
+                       fd_reasm_fec_t * root,
+                       fd_reasm_fec_t * cur ) {
+
+  /* Descend to leftmost child if possible. */
+
+  fd_reasm_fec_t * child = fd_reasm_child( reasm, cur );
+  if( FD_LIKELY( child ) ) return child;
+
+  /* No children.  Move to right sibling, or walk back up until we
+     find an ancestor with an unvisited sibling. */
+
+  while( FD_LIKELY( cur!=root ) ) {
+    fd_reasm_fec_t * sib = fd_reasm_sibling( reasm, cur );
+    if( FD_LIKELY( sib ) ) return sib;
+    cur = fd_reasm_parent( reasm, cur );
+  }
+  return NULL;
 }
 
 /* This is a gross case reasm needs to handle because Agave currently

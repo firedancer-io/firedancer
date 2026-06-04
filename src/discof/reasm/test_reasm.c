@@ -1322,6 +1322,229 @@ test_eqvoc_xid_evict( fd_wksp_t * wksp ) {
   FD_LOG_NOTICE(( "test_eqvoc_xid_evict passed" ));
 }
 
+void
+test_subtree_iter( fd_wksp_t * wksp ) {
+
+  /* Case 1: Single node (leaf), no children.
+     The iterator should visit just the root and then return NULL. */
+
+  {
+    ulong        fec_max = 32;
+    void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+    fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+    FD_TEST( reasm );
+
+    fd_hash_t mr0[1] = {{{ 0 }}};
+    fd_hash_t mr1[1] = {{{ 1 }}};
+    fd_reasm_fec_t * ev[1];
+
+    fd_reasm_init( reasm, mr0, 0 );
+    fd_reasm_fec_t * fec1 = fd_reasm_insert( reasm, mr1, mr0, 1, 0, 1, 32, 0, 1, 0, NULL, ev );
+    FD_TEST( fec1 );
+
+    /* Iterate starting at fec1 (a leaf). */
+
+    ulong cnt = 0;
+    fd_reasm_fec_t * cur = fec1;
+    while( cur ) {
+      FD_TEST( cur==fec1 ); /* only node */
+      cnt++;
+      cur = fd_reasm_subtree_iter( reasm, fec1, cur );
+    }
+    FD_TEST( cnt==1 );
+
+    fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  }
+
+  /* Case 2: Linear chain.
+     root -> A -> B -> C -> D
+     Iterate subtree rooted at A.  Should visit A, B, C, D in DFS
+     (pre-order) which is the same as insertion order here. */
+
+  {
+    ulong        fec_max = 32;
+    void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+    fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+    FD_TEST( reasm );
+
+    fd_hash_t mr0[1] = {{{ 0 }}};
+    fd_hash_t mrA[1] = {{{ 1 }}};
+    fd_hash_t mrB[1] = {{{ 2 }}};
+    fd_hash_t mrC[1] = {{{ 3 }}};
+    fd_hash_t mrD[1] = {{{ 4 }}};
+    fd_reasm_fec_t * ev[1];
+
+    fd_reasm_init( reasm, mr0, 0 );
+    fd_reasm_fec_t * fecA = fd_reasm_insert( reasm, mrA, mr0, 1, 0,  1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_fec_t * fecB = fd_reasm_insert( reasm, mrB, mrA, 1, 32, 1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_fec_t * fecC = fd_reasm_insert( reasm, mrC, mrB, 1, 64, 1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_fec_t * fecD = fd_reasm_insert( reasm, mrD, mrC, 1, 96, 1, 32, 0, 1, 0, NULL, ev );
+
+    fd_reasm_fec_t * expected[4] = { fecA, fecB, fecC, fecD };
+
+    ulong cnt = 0;
+    fd_reasm_fec_t * cur = fecA;
+    while( cur ) {
+      FD_TEST( cnt<4 );
+      FD_TEST( cur==expected[cnt] );
+      cnt++;
+      cur = fd_reasm_subtree_iter( reasm, fecA, cur );
+    }
+    FD_TEST( cnt==4 );
+
+    /* Iterate subtree rooted at B (a sub-chain).  Should visit B, C, D. */
+
+    fd_reasm_fec_t * expected2[3] = { fecB, fecC, fecD };
+    cnt = 0;
+    cur = fecB;
+    while( cur ) {
+      FD_TEST( cnt<3 );
+      FD_TEST( cur==expected2[cnt] );
+      cnt++;
+      cur = fd_reasm_subtree_iter( reasm, fecB, cur );
+    }
+    FD_TEST( cnt==3 );
+
+    fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  }
+
+  /* Case 3: Forking tree with cross-slot forks.
+
+        root (slot 0)
+          |
+          A (slot 1, fec 0, slot_complete)
+        /   \
+       B     D  (slot 2 fec 0 and slot 3 fec 0, forks off A)
+       |      \
+       C       E
+       (slot 2 fec 32, slot_complete)   (slot 3 fec 32, slot_complete)
+
+     B is A's left-child, D is B's right-sibling.
+     C is B's left-child, E is D's left-child.
+     DFS pre-order from A: A, B, C, D, E. */
+
+  {
+    ulong        fec_max = 32;
+    void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+    fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+    FD_TEST( reasm );
+
+    fd_hash_t mr0[1] = {{{ 10 }}};
+    fd_hash_t mrA[1] = {{{ 11 }}};
+    fd_hash_t mrB[1] = {{{ 12 }}};
+    fd_hash_t mrC[1] = {{{ 13 }}};
+    fd_hash_t mrD[1] = {{{ 14 }}};
+    fd_hash_t mrE[1] = {{{ 15 }}};
+    fd_reasm_fec_t * ev[1];
+
+    fd_reasm_init( reasm, mr0, 0 );
+    /*                                                   slot fec  p_off dcnt dc   sc  */
+    fd_reasm_fec_t * fecA = fd_reasm_insert( reasm, mrA, mr0, 1, 0,  1, 32, 0, 1, 0, NULL, ev );
+    fd_reasm_fec_t * fecB = fd_reasm_insert( reasm, mrB, mrA, 2, 0,  1, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_fec_t * fecD = fd_reasm_insert( reasm, mrD, mrA, 3, 0,  2, 32, 0, 0, 0, NULL, ev );
+    fd_reasm_fec_t * fecC = fd_reasm_insert( reasm, mrC, mrB, 2, 32, 1, 32, 0, 1, 0, NULL, ev );
+    fd_reasm_fec_t * fecE = fd_reasm_insert( reasm, mrE, mrD, 3, 32, 2, 32, 0, 1, 0, NULL, ev );
+
+    /* DFS from A: A -> B (left-child) -> C (B's child) -> D (B's sibling) -> E (D's child) */
+
+    fd_reasm_fec_t * expected[5] = { fecA, fecB, fecC, fecD, fecE };
+    ulong cnt = 0;
+    fd_reasm_fec_t * cur = fecA;
+    while( cur ) {
+      FD_TEST( cnt<5 );
+      FD_TEST( cur==expected[cnt] );
+      cnt++;
+      cur = fd_reasm_subtree_iter( reasm, fecA, cur );
+    }
+    FD_TEST( cnt==5 );
+
+    /* DFS from D.  Should visit D, E. */
+
+    fd_reasm_fec_t * expected2[2] = { fecD, fecE };
+    cnt = 0;
+    cur = fecD;
+    while( cur ) {
+      FD_TEST( cnt<2 );
+      FD_TEST( cur==expected2[cnt] );
+      cnt++;
+      cur = fd_reasm_subtree_iter( reasm, fecD, cur );
+    }
+    FD_TEST( cnt==2 );
+
+    /* DFS from B.  Should visit B, C. */
+
+    fd_reasm_fec_t * expected3[2] = { fecB, fecC };
+    cnt = 0;
+    cur = fecB;
+    while( cur ) {
+      FD_TEST( cnt<2 );
+      FD_TEST( cur==expected3[cnt] );
+      cnt++;
+      cur = fd_reasm_subtree_iter( reasm, fecB, cur );
+    }
+    FD_TEST( cnt==2 );
+
+    /* DFS from a leaf (E).  Should visit just E. */
+
+    cnt = 0;
+    cur = fecE;
+    while( cur ) {
+      FD_TEST( cur==fecE );
+      cnt++;
+      cur = fd_reasm_subtree_iter( reasm, fecE, cur );
+    }
+    FD_TEST( cnt==1 );
+
+    fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  }
+
+  /* Case 4: Orphans adopted after insert.
+     Insert orphans first, then the connecting FEC.  Verify subtree_iter
+     walks the entire connected subtree from the connecting FEC. */
+
+  {
+    ulong        fec_max = 32;
+    void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
+    fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+    FD_TEST( reasm );
+
+    fd_hash_t mr0[1] = {{{ 20 }}};
+    fd_hash_t mrA[1] = {{{ 21 }}};
+    fd_hash_t mrB[1] = {{{ 22 }}};
+    fd_hash_t mrC[1] = {{{ 23 }}};
+    fd_reasm_fec_t * ev[1];
+
+    fd_reasm_init( reasm, mr0, 0 );
+
+    /* Insert orphans first (B and C chain off A which doesn't exist yet). */
+
+    fd_reasm_insert( reasm, mrC, mrB, 2, 32, 1, 32, 0, 1, 0, NULL, ev );
+    fd_reasm_insert( reasm, mrB, mrA, 2, 0,  1, 32, 0, 0, 0, NULL, ev );
+
+    /* Insert A, which connects to root and adopts B and C. */
+
+    fd_reasm_fec_t * fecA = fd_reasm_insert( reasm, mrA, mr0, 1, 0, 1, 32, 0, 1, 0, NULL, ev );
+    FD_TEST( fecA );
+    FD_TEST( fd_reasm_query_connected( reasm, mrA ) );
+    FD_TEST( fd_reasm_query_connected( reasm, mrB ) );
+    FD_TEST( fd_reasm_query_connected( reasm, mrC ) );
+
+    /* Iterate from A: should visit A, B, C. */
+
+    ulong cnt = 0;
+    fd_reasm_fec_t * cur = fecA;
+    while( cur ) {
+      cnt++;
+      cur = fd_reasm_subtree_iter( reasm, fecA, cur );
+    }
+    FD_TEST( cnt==3 );
+
+    fd_wksp_free_laddr( fd_reasm_delete( fd_reasm_leave( reasm ) ) );
+  }
+
+  FD_LOG_NOTICE(( "test_subtree_iter passed" ));
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -1350,6 +1573,7 @@ main( int argc, char ** argv ) {
   test_confirm_out_ordering( wksp );
   test_remove_bank_eviction( wksp );
   test_insert_rejects_when_full_and_nothing_is_evictable( wksp );
+  test_subtree_iter( wksp );
 
   fd_halt();
   return 0;
