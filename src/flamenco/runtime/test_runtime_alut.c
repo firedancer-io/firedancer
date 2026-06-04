@@ -2241,10 +2241,11 @@ main( int argc, char ** argv ) {
   test_wire_encoded_field_offsets();
 
   /* Create workspace */
-  char * _page_sz = "gigantic";
-  ulong numa_idx = fd_shmem_numa_idx( 0 );
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"              );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 16UL                    );
+  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( 0UL ) );
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( _page_sz ),
-                                            16UL,
+                                            page_cnt,
                                             fd_shmem_cpu_idx( numa_idx ),
                                             "test_runtime_alut_wksp",
                                             0UL );
