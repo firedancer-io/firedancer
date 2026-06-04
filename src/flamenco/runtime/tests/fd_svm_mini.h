@@ -78,6 +78,10 @@ struct fd_svm_mini_limits {
 
   /* wksp alloc tag (0 uses default) */
   ulong wksp_tag;
+
+  /* additional wksp partitions / data size */
+  ulong wksp_addl_part_cnt;
+  ulong wksp_addl_sz;
 };
 
 typedef struct fd_svm_mini_limits fd_svm_mini_limits_t;
