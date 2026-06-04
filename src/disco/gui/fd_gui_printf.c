@@ -635,9 +635,9 @@ fd_gui_printf_block_engine( fd_gui_t * gui ) {
       jsonp_string( gui->http, "name",   gui->block_engine.name );
       jsonp_string( gui->http, "url",    gui->block_engine.url );
       jsonp_string( gui->http, "ip",     gui->block_engine.ip_cstr );
-      /* TODO: fix FD_BUNDLE_STATE_SLEEPING after adding frontend support */
       if( FD_LIKELY( gui->block_engine.status==FD_BUNDLE_STATE_CONNECTING ) )     jsonp_string( gui->http, "status", "connecting" );
       else if( FD_LIKELY( gui->block_engine.status==FD_BUNDLE_STATE_CONNECTED ) ) jsonp_string( gui->http, "status", "connected" );
+      else if( FD_LIKELY( gui->block_engine.status==FD_BUNDLE_STATE_SLEEPING ) )  jsonp_string( gui->http, "status", "sleeping" );
       else                                                                        jsonp_string( gui->http, "status", "disconnected" );
     jsonp_close_object( gui->http );
   jsonp_close_envelope( gui->http );
