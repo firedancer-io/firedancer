@@ -64,6 +64,116 @@ typedef struct fd_block_id_ele fd_block_id_ele_t;
 #define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
 #include "../../util/tmpl/fd_map_chain.c"
 
+/* fd_fwd_confirmed_buf buffers forward-confirmed block ids from tower
+   that have not yet been inserted into reasm.  When reasm later inserts
+   a FEC matching a buffered block id, we immediately confirm the chain.
+
+   Internally a pool + map_chain + dlist.  The dlist maintains insertion
+   order so the oldest entry can be evicted when the buffer is full. */
+
+struct confirmed {
+  fd_hash_t block_id;
+  ulong     next;
+  struct {
+    ulong next;
+    ulong prev;
+  } dlist;
+};
+typedef struct confirmed confirmed_t;
+
+#define MAP_NAME               confirmed_map
+#define MAP_ELE_T              confirmed_t
+#define MAP_KEY_T              fd_hash_t
+#define MAP_KEY                block_id
+#define MAP_NEXT               next
+#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_hash_t)))
+#define MAP_KEY_HASH(key,seed) (fd_hash((seed),(key),sizeof(fd_hash_t)))
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME               confirmed_dlist
+#define DLIST_ELE_T              confirmed_t
+#define DLIST_NEXT               dlist.next
+#define DLIST_PREV               dlist.prev
+#include "../../util/tmpl/fd_dlist.c"
+
+#define POOL_NAME               confirmed_pool
+#define POOL_T                  confirmed_t
+#include "../../util/tmpl/fd_pool.c"
+
+struct fd_fwd_confirmed {
+  confirmed_map_t   * map;
+  confirmed_dlist_t * dlist;
+  confirmed_t       * pool;
+};
+typedef struct fd_fwd_confirmed fd_fwd_confirmed_t;
+
+FD_FN_CONST static inline ulong
+fd_fwd_confirmed_align( void ) {
+  return fd_ulong_max( fd_ulong_max( confirmed_map_align(),
+                                     confirmed_dlist_align() ),
+                                     confirmed_pool_align() );
+}
+
+FD_FN_CONST static inline ulong
+fd_fwd_confirmed_footprint( ulong max ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, confirmed_map_align(),   confirmed_map_footprint( max ) );
+  l = FD_LAYOUT_APPEND( l, confirmed_dlist_align(), confirmed_dlist_footprint() );
+  l = FD_LAYOUT_APPEND( l, confirmed_pool_align(),  confirmed_pool_footprint( max ) );
+  return FD_LAYOUT_FINI( l, fd_fwd_confirmed_align() );
+}
+
+static inline fd_fwd_confirmed_t *
+fd_fwd_confirmed_new( fd_fwd_confirmed_t * buf,
+                          void *                   mem,
+                          ulong                    max ) {
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  void * map_mem   = FD_SCRATCH_ALLOC_APPEND( l, confirmed_map_align(),   confirmed_map_footprint( max ) );
+  void * dlist_mem = FD_SCRATCH_ALLOC_APPEND( l, confirmed_dlist_align(), confirmed_dlist_footprint() );
+  void * pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, confirmed_pool_align(),  confirmed_pool_footprint( max ) );
+
+  buf->map   = confirmed_map_new  ( map_mem,   max, 0UL );
+  buf->dlist = confirmed_dlist_new( dlist_mem           );
+  buf->pool  = confirmed_pool_new ( pool_mem,  max      );
+
+  return buf;
+}
+
+static inline fd_fwd_confirmed_t *
+fd_fwd_confirmed_join( fd_fwd_confirmed_t * buf ) {
+  buf->map   = confirmed_map_join  ( buf->map   );
+  buf->dlist = confirmed_dlist_join( buf->dlist );
+  buf->pool  = confirmed_pool_join ( buf->pool  );
+  return buf;
+}
+
+static inline void
+fd_fwd_confirmed_insert( fd_fwd_confirmed_t * buf,
+                         fd_hash_t const *    block_id ) {
+  if( FD_UNLIKELY( !confirmed_pool_free( buf->pool ) ) ) {
+    confirmed_t * oldest = confirmed_dlist_ele_peek_head( buf->dlist, buf->pool );
+    confirmed_map_ele_remove  ( buf->map,   &oldest->block_id, NULL, buf->pool );
+    confirmed_dlist_ele_remove( buf->dlist, oldest,                   buf->pool );
+    confirmed_pool_ele_release( buf->pool,  oldest );
+  }
+
+  confirmed_t * ele = confirmed_pool_ele_acquire( buf->pool );
+  ele->block_id = *block_id;
+  confirmed_map_ele_insert     ( buf->map,   ele, buf->pool );
+  confirmed_dlist_ele_push_tail( buf->dlist, ele, buf->pool );
+}
+
+static inline int
+fd_fwd_confirmed_remove( fd_fwd_confirmed_t * buf,
+                         fd_hash_t const *    block_id ) {
+  confirmed_t * ele = confirmed_map_ele_query( buf->map, block_id, NULL, buf->pool );
+  if( FD_LIKELY( !ele ) ) return 0;
+  confirmed_map_ele_remove  ( buf->map,   &ele->block_id, NULL, buf->pool );
+  confirmed_dlist_ele_remove( buf->dlist, ele,                   buf->pool );
+  confirmed_pool_ele_release( buf->pool,  ele );
+  return 1;
+}
+
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
@@ -293,6 +403,9 @@ struct fd_replay_tile {
   fd_block_id_ele_t * block_id_arr;
   ulong               block_id_map_seed;
   fd_block_id_map_t * block_id_map;
+
+  /* Buffer forward confirmed block ids that have not been received yet. */
+  fd_fwd_confirmed_t * fwd_confirmed;
 
   /* Capture-related configs */
   fd_capture_ctx_t *     capture_ctx;

@@ -112,6 +112,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),             fd_reasm_footprint( tile->replay.fec_max ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),             fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),      fd_vote_tracker_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_fwd_confirmed_buf_align(), fd_fwd_confirmed_buf_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),       fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
 
@@ -2170,6 +2171,7 @@ process_fec_complete( fd_replay_tile_t *  ctx,
     fd_store_remove( ctx->store, merkle_root );
     return;
   }
+  if( FD_UNLIKELY( fd_fwd_confirmed_remove( ctx->fwd_confirmed, merkle_root ) ) ) fd_reasm_confirm( ctx->reasm, merkle_root );
 }
 
 static void
@@ -2271,6 +2273,21 @@ process_tower_optimistic_confirmed( fd_replay_tile_t *                ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_oc_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+static void
+process_tower_duplicate_confirmed( fd_replay_tile_t *                ctx,
+                                   fd_tower_slot_confirmed_t const * msg ) {
+
+  fd_reasm_fec_t * fec = fd_reasm_query( ctx->reasm, &msg->block_id );
+  if( FD_UNLIKELY( !fec ) ) {
+    if( FD_UNLIKELY( msg->slot < fd_reasm_root( ctx->reasm )->slot ) ) return;
+    fd_fwd_confirmed_insert( ctx->fwd_confirmed, &msg->block_id );
+    return;
+  }
+
+  /* else confirmed fec already in reasm */
+  fd_reasm_confirm( ctx->reasm, &msg->block_id );
+}
+
 static inline int
 returnable_frag( fd_replay_tile_t *  ctx,
                  ulong               in_idx,
@@ -2343,7 +2360,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
         fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         if( msg->level==FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC && !msg->fwd ) process_tower_optimistic_confirmed( ctx, stem, msg );
-        if( msg->level==FD_TOWER_SLOT_CONFIRMED_DUPLICATE )               fd_reasm_confirm( ctx->reasm, &msg->block_id );
+        if( msg->level==FD_TOWER_SLOT_CONFIRMED_DUPLICATE )               process_tower_duplicate_confirmed ( ctx, msg );
       } else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_IGNORED ) ) {
         fd_tower_slot_ignored_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
         fd_tower_slot_done_t ignored = {
@@ -2496,6 +2513,7 @@ unprivileged_init( fd_topo_t const *      topo,
   void * reasm_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( tile->replay.fec_max ) );
   void * sched_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.sched_depth, tile->replay.max_live_slots ) );
   void * vote_tracker_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
+  void * fwd_confirmed_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_fwd_confirmed_align(),    fd_fwd_confirmed_footprint( tile->replay.max_live_slots ) );
   void * _capture_ctx       = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * dump_proto_ctx_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_dump_proto_ctx_t), sizeof(fd_dump_proto_ctx_t) );
   void * block_dump_ctx     = NULL;
@@ -2654,6 +2672,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, ctx->block_id_map_seed ) );
   FD_TEST( ctx->block_id_map );
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->block_id_arr[ i ].block_id_seen = 0;
+
+  ctx->fwd_confirmed = fd_fwd_confirmed_join( fd_fwd_confirmed_new( ctx->fwd_confirmed, fwd_confirmed_mem, tile->replay.max_live_slots ) );
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
 
