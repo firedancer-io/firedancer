@@ -1889,6 +1889,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "define_ltds_fee_only_semantics",
     .cleaned_up                = 0 },
 
+  { .index                     = offsetof(fd_features_t, validate_chained_block_id_2)>>3,
+    .id                        = {"\x0d\xbc\x3b\x68\xa2\x90\x42\x94\x71\x68\x24\xf6\xad\x2a\x32\xe9\x49\x30\x42\xa3\x80\x46\x91\x94\x6c\x28\x18\x33\xcd\x6f\x71\x55"},
+                                 /* vcmrw431aNM8ngQ46derkZXipoTGQdbHkEygBDh12dA */
+    .name                      = "validate_chained_block_id_2",
+    .cleaned_up                = 0 },
+
   { .index = ULONG_MAX }
 };
 
@@ -2181,6 +2187,7 @@ typedef struct fd_feature_id_lookup_entry fd_feature_id_lookup_entry_t;
 #define MAP_PERFECT_273 0xd388d8dbc65e2dcbUL, .val = &ids[273]
 #define MAP_PERFECT_274 0xbe56a012b91e1808UL, .val = &ids[274]
 #define MAP_PERFECT_275 0x902a0ec624adfb04UL, .val = &ids[275]
+#define MAP_PERFECT_276 0x944290a2683bbc0dUL, .val = &ids[276]
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -2467,4 +2474,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, disable_sbpf_v0_v1_v2_deployment     
 FD_STATIC_ASSERT( offsetof( fd_features_t, commission_rate_in_basis_points                         )>>3==273UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, loader_v3_minimum_extend_program_size                   )>>3==274UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, define_ltds_fee_only_semantics                          )>>3==275UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, validate_chained_block_id_2                             )>>3==276UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
