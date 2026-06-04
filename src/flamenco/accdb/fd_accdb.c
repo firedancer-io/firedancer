@@ -849,25 +849,38 @@ acc_unlink( fd_accdb_t * accdb,
     else if( FD_LIKELY( old_rc!=FD_ACCDB_EVICT_SENTINEL ) ) {
       /* Pinned by an active reader.  We cannot reclaim the line, but
          its accmeta slot is about to be deferred-released and recycled.
-         If we just skipped, a later writeback of this stil dirty line
+         If we just skipped, a later writeback of this still dirty line
          would pair the recycled accmeta's pubkey with the old account's
-         owner and data, a silent corruption.  Sever the back-reference
-         so background_preevict's writeback gate never fires for it.
+         owner and data, a silent corruption.  Mark the line persisted so
+         the writeback gate (!persisted && acc_idx!=UINT_MAX) never fires
+         for it — neither in CLOCK eviction (acquire_cache_line) nor in
+         background_preevict.
 
-         This is the only case that needs severing: a reader's pin does
-         not keep the slot alive, so the slot can recycle under it.
+         This is the only case that needs neutralizing: a reader's pin
+         does not keep the slot alive, so the slot can recycle under it.
 
-         CAS rather than store: we don't own the line, so the pinner
-         could release and the line be recycled to another account
-         underneath us. CASing acc_idx from THIS slot to UINT_MAX is
-         ABA-safe because our slot cannot be reused until the
-         epoch-gated drain_deferred_frees runs.
+         We do NOT sever acc_idx (set it to UINT_MAX).  acc_idx==UINT_MAX
+         is the cold-load "still loading" sentinel that acquire_inner's
+         STEP-13/14 spins on (line->acc_idx!=UINT_MAX); severing it would
+         hang the pinning reader forever in STEP-14, waiting for a publish
+         that never comes.  Setting persisted alone neutralizes the
+         writeback while leaving the STEP-14 invariant intact.
 
-         Leave key/owner/data intact: the reader still reads them, and
-         the line (gen still valid) is reclaimed by the next CLOCK sweep
-         once the pin drops.  That reclaim is lazy so the slot is
-         briefly dark capacity. */
-      FD_ATOMIC_CAS( &stale->acc_idx, acc_idx, UINT_MAX );
+         A plain store is sufficient: the line is pinned (refcnt>0) so
+         CLOCK/preevict cannot claim it (their refcnt 0->SENTINEL CAS
+         fails), and the pinning reader only ever reads key/owner/data
+         and, post-pin, writes the unrelated `referenced` byte — never
+         `persisted`.  So no other thread writes this byte while we do.
+
+         Leave key/owner/data/acc_idx intact: the reader still reads them.
+         Once the pin drops the line is reclaimed by CLOCK (or by the
+         reader's own release).  acc_idx still points at our now-recycled
+         slot, but CLOCK's evict_clear_acc_cache_ref on it is a no-op:
+         the recycled accmeta's cache_idx no longer matches this line's
+         packed cidx (same invariant the release path relies on, see the
+         refcnt-CAS-fail comment in fd_accdb_release).  That reclaim is
+         lazy so the slot is briefly dark capacity. */
+      FD_VOLATILE( stale->persisted ) = 1;
 
       /* The tombstone self-unlink an legitimately be pinned here,
          old version and purge unlinks are never pinned.  A live account

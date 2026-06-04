@@ -370,6 +370,103 @@ test_sentinel_unlink_no_poison( void ) {
   test_teardown( accdb, fd );
 }
 
+/* ------------------------------------------------------------------ */
+/* STEP-14 case: acc_unlink must not strand a reader pinned mid-acquire */
+/* ------------------------------------------------------------------ */
+
+/* Fiber context: read-acquire P on a fork, cache-hitting (and pinning)
+   P's resident line.  Suspends at "cache_try_pin:pinned" (STEP 3 of
+   fd_accdb_acquire_inner) holding the pin, then runs to completion
+   through STEP 13/14/15. */
+#define READ_FIBER_STACK_SZ (1UL<<21)
+struct read_fiber {
+  fd_racesan_async_t async[1];
+  fd_accdb_t *       accdb;
+  fd_accdb_fork_id_t fork_id;
+  uchar const *      pubkey;
+  fd_acc_t           acc[1];
+};
+typedef struct read_fiber read_fiber_t;
+
+static void
+read_fiber_exec( void * _ctx ) {
+  read_fiber_t * f = _ctx;
+  uchar const * pks[1] = { f->pubkey };
+  int wr[1] = { 1 };
+  memset( f->acc, 0, sizeof(f->acc) );
+  fd_accdb_acquire( f->accdb, f->fork_id, 1UL, pks, wr, f->acc );
+  fd_accdb_release( f->accdb, 1UL, f->acc );
+}
+
+/* test_step14_orphan_no_hang proves the acc_unlink pinned-reader branch
+   does NOT strand a reader that pinned the line mid-acquire.
+
+   Regression for the hang introduced when acc_unlink severed
+   line->acc_idx to UINT_MAX: that value is the cold-load "still loading"
+   sentinel, and acquire_inner STEP-14 spins `while(acc_idx==UINT_MAX)`
+   forever for a line nobody will ever re-publish.
+
+   Schedule (single thread, one fiber):
+     1. P open on root, closed (tombstone) on F, line resident + dirty.
+     2. Fiber R writably re-acquires P; at STEP 3 it cache-hits and PINS
+        P's resident line (refcnt 0->1) and SUSPENDS at
+        "cache_try_pin:pinned" — i.e. between STEP 3 and STEP 14.
+     3. Main thread runs advance_root(F): acc_unlink(P)'s reclaim CAS
+        fails under R's pin and takes the pinned-reader branch, which must
+        neutralize the writeback WITHOUT severing acc_idx.
+     4. Fiber R resumes.  STEP 14 must observe acc_idx!=UINT_MAX and
+        return promptly; the fiber EXITS.  With the buggy sever, STEP 14
+        spins forever (no hook inside the spin) and this never returns —
+        a hang, caught by the test timeout. */
+static void
+test_step14_orphan_no_hang( void ) {
+  int fd;
+  fd_accdb_t * accdb = test_setup( &fd, 256UL, 16UL, 1024UL, 1024UL, 1UL<<30UL );
+
+  uchar pubkey_P[ 32 ] = { 'P', 0 };
+  uchar owner_P [ 32 ] = { 0xAA, 0 };
+
+  fd_accdb_fork_id_t root0 = fd_accdb_attach_child( accdb, (fd_accdb_fork_id_t){ .val = USHORT_MAX } );
+  fd_accdb_fork_id_t F     = fd_accdb_attach_child( accdb, root0 );
+
+  /* P open on root0, closed (tombstone) on F; tombstone line resident +
+     dirty (persisted==0). */
+  write_acc( accdb, root0, pubkey_P, 100UL, owner_P, NULL, 0UL );
+  write_acc( accdb, F,     pubkey_P,   0UL, owner_P, NULL, 0UL );
+
+  /* Fiber R: writably re-acquire P (cache hit), pin the line, suspend at
+     STEP 3's pin hook holding refcnt=1. */
+  static read_fiber_t rf[1];
+  rf->accdb   = accdb;
+  rf->fork_id = F;
+  rf->pubkey  = pubkey_P;
+  void * rf_stack = fd_racesan_stack_create( READ_FIBER_STACK_SZ );
+  fd_racesan_async_new( rf->async, rf_stack, READ_FIBER_STACK_SZ, read_fiber_exec, rf );
+  int rc = fd_racesan_async_step_until( rf->async, "cache_try_pin:pinned", 100000UL );
+  FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+
+  /* Main thread: advance_root(F) -> acc_unlink(P) sees R's pin and takes
+     the pinned-reader branch (must not sever acc_idx). */
+  fd_accdb_advance_root( accdb, F );
+  drain_background_n( accdb, 4UL );
+
+  /* Resume R to completion.  If STEP-14 was stranded by an acc_idx sever,
+     this loop never terminates (the spin has no hook to yield on) and the
+     test hangs — the regression signal.  With the persisted-only fix R
+     exits promptly. */
+  for(;;) {
+    rc = fd_racesan_async_step( rf->async );
+    if( rc==FD_RACESAN_ASYNC_RET_EXIT ) break;
+    FD_TEST( rc==FD_RACESAN_ASYNC_RET_HOOK );
+  }
+  fd_racesan_async_delete( rf->async );
+  fd_racesan_stack_destroy( rf_stack, READ_FIBER_STACK_SZ );
+
+  FD_LOG_NOTICE(( "STEP-14 reader resumed without hang" ));
+
+  test_teardown( accdb, fd );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -377,6 +474,7 @@ main( int     argc,
 
   test_tombstone_orphan_ebr_poison();
   test_sentinel_unlink_no_poison();
+  test_step14_orphan_no_hang();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
