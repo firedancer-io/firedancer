@@ -76,6 +76,7 @@ fd_accdb_shmem_new( void * shmem,
                     ulong  partition_sz,
                     ulong  cache_footprint,
                     ulong  cache_min_reserved,
+                    int    bundle_enabled,
                     ulong  seed,
                     ulong  joiner_cnt );
 

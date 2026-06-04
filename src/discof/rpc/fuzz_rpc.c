@@ -93,7 +93,7 @@ setup_accdb( void ) {
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots, max_account_writes_per_slot,
                           partition_cnt, partition_sz, cache_footprint, cache_min_reserved,
-                          42UL, joiner_cnt ) );
+                          0, 42UL, joiner_cnt ) );
   FD_TEST( shmem );
 
   ulong accdb_fp = fd_accdb_footprint( max_live_slots );

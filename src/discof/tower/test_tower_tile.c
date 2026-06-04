@@ -268,7 +268,7 @@ mock_topo_with_accdb( fd_wksp_t *      wksp,
   ulong shmem_fp = fd_accdb_shmem_footprint( max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, cache_fp, cache_min_reserved, joiner_cnt );
   void * shmem_mem = fd_wksp_alloc_laddr( wksp, fd_accdb_shmem_align(), shmem_fp, 1UL );
   FD_TEST( shmem_mem );
-  FD_TEST( fd_accdb_shmem_new( shmem_mem, max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 42UL, joiner_cnt ) );
+  FD_TEST( fd_accdb_shmem_new( shmem_mem, max_accounts, tile->tower.max_live_slots, max_writes_per_slot, partition_cnt, partition_sz, cache_fp, cache_min_reserved, 0, 42UL, joiner_cnt ) );
 
   fd_topo_obj_t * shmem_obj = fd_topob_obj( topo, "accdb_shmem", "wksp" );
   shmem_obj->wksp_id = topo_wksp->id;

@@ -126,6 +126,7 @@ fd_accdb_shmem_new( void * shmem,
                     ulong  partition_sz,
                     ulong  cache_footprint,
                     ulong  cache_min_reserved,
+                    int    bundle_enabled,
                     ulong  seed,
                     ulong  joiner_cnt ) {
   if( FD_UNLIKELY( !shmem ) ) {
@@ -332,6 +333,7 @@ fd_accdb_shmem_new( void * shmem,
 
   accdb->partition_lock   = 0;
   accdb->snapshot_loading = 0;
+  accdb->bundle_enabled   = bundle_enabled;
 
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->clock_hand[ c ].val = 0UL;
   for( ulong c=0UL; c<FD_ACCDB_CACHE_CLASS_CNT; c++ ) accdb->cache_free[ c ].ver_top = (ulong)UINT_MAX;

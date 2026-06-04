@@ -52,7 +52,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
                           TEST_SYSVAR_PARTITION_CNT,
                           TEST_SYSVAR_PARTITION_SZ,
                           TEST_SYSVAR_CACHE_FOOTPRINT,
-                          640UL, 42UL, 1UL ) );
+                          640UL, 0, 42UL, 1UL ) );
   FD_TEST( shmem );
 
   ulong join_fp = fd_accdb_footprint( TEST_SYSVAR_MAX_LIVE_SLOTS );

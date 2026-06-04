@@ -1720,7 +1720,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
                         fd_acc_t *            out_accs ) {
   accdb->metrics->acquire_calls++;
 
-  FD_TEST( pubkeys_cnt<=5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) );
+  ulong max_acquire_cnt = accdb->shmem->bundle_enabled ? FD_ACCDB_MAX_ACQUIRE_CNT : FD_ACCDB_MAX_TX_ACCOUNT_LOCKS;
+  FD_TEST( pubkeys_cnt<=max_acquire_cnt );
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *accdb->my_epoch_slot ) = FD_VOLATILE_CONST( accdb->shmem->epoch );
   FD_HW_MFENCE(); /* StoreLoad: epoch store must be globally visible
@@ -1735,8 +1736,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   fd_accdb_fork_t * fork = &accdb->fork_pool[ fork_id.val ];
   uint root_generation = accdb->fork_pool[ accdb->shmem->root_fork_id.val ].shmem->generation;
 
-  fd_accdb_accmeta_t * accmetas[ 5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  ulong acc_map_idxs[ 5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  fd_accdb_accmeta_t * accmetas[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong acc_map_idxs[ FD_ACCDB_MAX_ACQUIRE_CNT ];
 
   /* Walk the hash chain for each pubkey and take the first visible
      match.  Correctness relies on newer entries always being prepended
@@ -1920,17 +1921,17 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   algorithm.  The CAS free list provides immediate recycling of
   //   fully-freed lines.
 
-  int exists_in_cache[ 5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  fd_accdb_cache_line_t * original_cache_line[ 5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  fd_accdb_cache_line_t * destination_cache_lines[ 5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ][ FD_ACCDB_CACHE_CLASS_CNT ];
+  int exists_in_cache[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  fd_accdb_cache_line_t * original_cache_line[ FD_ACCDB_MAX_ACQUIRE_CNT ];
+  fd_accdb_cache_line_t * destination_cache_lines[ FD_ACCDB_MAX_ACQUIRE_CNT ][ FD_ACCDB_CACHE_CLASS_CNT ];
 
   /* Saved acc_pool indices of evicted dirty cache lines.  These are
      captured before clearing acc_idx to UINT_MAX on the line struct, so
      that the sentinel protocol (step 14) works correctly while the
      evicted account metadata is still available for writeback in steps
      4 and 6. */
-  uint evicted_dest_acc[ 5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ][ FD_ACCDB_CACHE_CLASS_CNT ];
-  uint evicted_orig_acc[ 5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  uint evicted_dest_acc[ FD_ACCDB_MAX_ACQUIRE_CNT ][ FD_ACCDB_CACHE_CLASS_CNT ];
+  uint evicted_orig_acc[ FD_ACCDB_MAX_ACQUIRE_CNT ];
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] && !writable[ i ] ) ) continue;
@@ -1985,8 +1986,8 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   int write_ops_cnt = 0;
   int write_meta_cnt = 0;
   ulong total_write_sz = 0UL;
-  fd_accdb_disk_meta_t write_metas[ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  struct iovec write_ops[ 2UL*(FD_ACCDB_CACHE_CLASS_CNT+1UL)*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  fd_accdb_disk_meta_t write_metas[ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  struct iovec write_ops[ 2UL*(FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT ];
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] && !writable[ i ] ) ) continue;
@@ -2050,9 +2051,9 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   does not proceed to preadv2 from a location that hasn't been
   //   written.
   int                     pending_cnt = 0;
-  fd_accdb_accmeta_t *        pending_accs [ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  ulong                   pending_offs [ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  fd_accdb_cache_line_t * pending_lines[ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  fd_accdb_accmeta_t *    pending_accs [ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong                   pending_offs [ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  fd_accdb_cache_line_t * pending_lines[ (FD_ACCDB_CACHE_CLASS_CNT+1UL)*FD_ACCDB_MAX_ACQUIRE_CNT ];
 
   ulong file_offset;
   int   batch_contiguous;
@@ -2290,10 +2291,10 @@ fd_accdb_acquire_inner( fd_accdb_t *          accdb,
   //   being written cold multiple times and every write fails.
 
   ulong read_ops_cnt = 0UL;
-  ulong read_offsets[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  uchar * read_bases[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  ulong read_sizes[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
-  struct iovec read_ops[ FD_ACCDB_CACHE_CLASS_CNT*5UL*(2UL+MAX_TX_ACCOUNT_LOCKS) ];
+  ulong read_offsets[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  uchar * read_bases[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  ulong read_sizes[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
+  struct iovec read_ops[ FD_ACCDB_CACHE_CLASS_CNT*FD_ACCDB_MAX_ACQUIRE_CNT ];
 
   for( ulong i=0UL; i<pubkeys_cnt; i++ ) {
     if( FD_UNLIKELY( !accmetas[ i ] || exists_in_cache[ i ] ) ) continue;

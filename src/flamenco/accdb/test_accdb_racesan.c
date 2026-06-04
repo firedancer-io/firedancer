@@ -93,7 +93,7 @@ test_setup( int * out_fd,
   fd_accdb_shmem_t * shmem = fd_accdb_shmem_join(
       fd_accdb_shmem_new( shmem_mem, max_accounts, max_live_slots,
                           max_account_writes_per_slot, partition_cnt,
-                          partition_sz, cache_fp, 640UL, 42UL, 2UL ) );
+                          partition_sz, cache_fp, 640UL, 0, 42UL, 2UL ) );
   FD_TEST( shmem );
   test_shmem_mem = shmem_mem;
   test_shmem     = shmem;

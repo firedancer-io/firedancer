@@ -198,6 +198,7 @@ setup_topo_accdb( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, partition_sz,       "obj.%lu.partition_sz",       obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, cache_footprint,    "obj.%lu.cache_footprint",    obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, cache_min_reserved, "obj.%lu.cache_min_reserved", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, (ulong)!!bundle_enabled, "obj.%lu.bundle_enabled", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, joiner_cnt,         "obj.%lu.joiner_cnt",         obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, seed,               "obj.%lu.seed",               obj->id ) );
 
