@@ -52,7 +52,7 @@
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 struct xid {
-  ulong key; /* 32 msb slot | 32 lsb fec_set_idx.  if fec_set_idx is UINT_MAX, then this xid represents the block id for this slot. */
+  ulong key; /* 32 msb slot | 32 lsb fec_set_idx */
   ulong idx; /* pool idx of first FEC seen. Updated only on confirmation. */
   uint  cnt; /* count of FECs with this xid key.  If > 1, equivocation occurred on this FEC set */
 };
