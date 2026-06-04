@@ -124,6 +124,9 @@ struct fd_gossvf_tile_ctx {
 
   int allow_private_address;
 
+  fd_ip4_port_t gossip_addr;
+  fd_ip4_port_t src_addr;
+
   fd_keyswitch_t * keyswitch;
   fd_pubkey_t identity_pubkey[1];
 
@@ -569,7 +572,7 @@ is_ping_active( fd_gossvf_tile_ctx_t *  ctx,
 
   /* 2. If the node has actively ponged a ping, it is active */
   ping_t * ping = ping_map_ele_query( ctx->ping_map, pubkey, NULL, ctx->pings );
-  return ping!=NULL && ping->addr.l==addr.l;
+  return ping!=NULL && ping->addr.addr==addr.addr && ping->addr.port==addr.port;
 }
 
 static int
@@ -606,6 +609,10 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
                   fd_gossip_message_t *  view,
                   uchar *                failed,
                   fd_stem_context_t *    stem ) {
+  int is_loopback_peer = (ctx->peer.addr==ctx->src_addr.addr && ctx->peer.port==ctx->src_addr.port) ||
+                         (ctx->peer.addr==ctx->gossip_addr.addr && ctx->peer.port==ctx->gossip_addr.port) ||
+                         (fd_ip4_addr_is_loopback( ctx->peer.addr ) && ctx->peer.port==ctx->src_addr.port);
+
   ulong values_len;
   fd_gossip_value_t * values;
   switch( view->tag ) {
@@ -615,13 +622,16 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       return 0;
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       if( FD_UNLIKELY( !check_addr( ctx->peer, ctx->allow_private_address ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+      if( FD_UNLIKELY( is_loopback_peer ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
       if( FD_UNLIKELY( ping_if_unponged( ctx, ctx->peer, view->pull_request->contact_info->origin, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH:
+      if( FD_UNLIKELY( is_loopback_peer ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_LOOPBACK_IDX;
       values_len = view->push->values_len;
       values = view->push->values;
       break;
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
+      if( FD_UNLIKELY( is_loopback_peer ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_LOOPBACK_IDX;
       values_len = view->pull_response->values_len;
       values = view->pull_response->values;
       break;
@@ -639,7 +649,6 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       .addr = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].is_ipv6 ? 0U : value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].ip4,
       .port = value->contact_info->sockets[ FD_GOSSIP_CONTACT_INFO_SOCKET_GOSSIP ].port
     };
-    int drop = !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
 
     /* Sanitize sockets: zero out any with a multicast address.
        Matches Agave, which omits bad sockets from the cache but
@@ -652,6 +661,14 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
         sock->port = 0;
       }
     }
+
+    /* Prevent ping loopback */
+    if( FD_UNLIKELY( !memcmp( value->origin, ctx->identity_pubkey, 32UL ) ) ) continue;
+
+    int is_self_addr = (addr.addr==ctx->gossip_addr.addr && addr.port==ctx->gossip_addr.port) ||
+                       (addr.addr==ctx->src_addr.addr && addr.port==ctx->src_addr.port);
+    int is_loopback  = fd_ip4_addr_is_loopback( addr.addr ) && addr.port==ctx->gossip_addr.port;
+    int drop         = (is_self_addr | is_loopback) || !check_addr( addr, ctx->allow_private_address ) || ping_if_unponged( ctx, addr, value->origin, stem );
 
     if( FD_UNLIKELY( drop ) ) {
       if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
@@ -851,10 +868,12 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   int result = filter_shred_version( ctx, message, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_addresses( ctx, message, failed, stem );
+  result = verify_signatures( ctx, message, payload, ctx->sha, failed );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_signatures( ctx, message, payload, ctx->sha, failed );
+  /* verify_addresses includes validation checks against origin pubkey,
+     so it must come after verify_signatures. */
+  result = verify_addresses( ctx, message, failed, stem );
   if( FD_UNLIKELY( result ) ) return result;
 
   check_duplicate_instance( ctx, message );
@@ -1006,6 +1025,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx->round_robin_idx = tile->kind_id;
 
   ctx->allow_private_address = tile->gossvf.allow_private_address;
+  ctx->gossip_addr             = tile->gossvf.gossip_addr;
+  ctx->src_addr                = tile->gossvf.src_addr;
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );

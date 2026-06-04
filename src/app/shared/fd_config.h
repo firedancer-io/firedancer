@@ -290,6 +290,8 @@ struct fd_config {
     char          entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ][ 262 ];
     fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
 
+    /* The IPv4 addr that [gossip.host] resolves to. */
+    uint          resolved_host;
     ushort        port;
   } gossip;
 

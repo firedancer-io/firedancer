@@ -1059,13 +1059,15 @@ metric introduced.
     <int value="15" name="DroppedPruneWallclock" label="Prune (wallclock)" />
     <int value="16" name="DroppedPruneSignature" label="Prune (signature)" />
 
-    <int value="17" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
+    <int value="17" name="DroppedPushLoopback" label="Push (loopback)" />
+    <int value="18" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
 
-    <int value="18" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
+    <int value="19" name="DroppedPullResponseLoopback" label="Pull Response (loopback)" />
+    <int value="20" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
 
-    <int value="19" name="DroppedPingSignature" label="Ping (signature)" />
+    <int value="21" name="DroppedPingSignature" label="Ping (signature)" />
 
-    <int value="20" name="DroppedPongSignature" label="Pong (signature)" />
+    <int value="22" name="DroppedPongSignature" label="Pong (signature)" />
 </enum>
 
 <enum name="GossvfCrdsOutcome">

@@ -10,7 +10,6 @@
 #include "../../../util/tile/fd_tile_private.h"
 
 #include "../../firedancer/topology.h"
-#include "../../firedancer/topology.c"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../shared/fd_config.h" /* config_t */
@@ -55,8 +54,13 @@ restore_terminal( void ) {
   (void)tcsetattr( STDIN_FILENO, TCSANOW, &termios_backup );
 }
 
+extern fd_topo_obj_callbacks_t * CALLBACKS[];
+
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
+
+void
+resolve_gossip_entrypoints( config_t * config );
 
 /* repair_topo is a subset of "src/app/firedancer/topology.c" at commit
    0d8386f4f305bb15329813cfe4a40c3594249e96, slightly modified to work
