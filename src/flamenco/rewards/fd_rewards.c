@@ -755,7 +755,10 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *        bank,
                                       ulong              reward_lamports,
                                       ulong              new_credits_observed ) {
   fd_acc_t acc = fd_accdb_write_one( accdb, bank->accdb_fork_id, stake_pubkey->uc );
-  if( FD_UNLIKELY( !acc.lamports ) ) return 1; /* account does not exist */
+  if( FD_UNLIKELY( !acc.lamports ) ) {
+    fd_accdb_unwrite_one( accdb, &acc );
+    return 1; /* account does not exist */
+  }
 
   fd_stake_state_t const * stake_state_orig = fd_stakes_get_state( &acc );
   if( FD_UNLIKELY( !stake_state_orig || stake_state_orig->stake_type!=FD_STAKE_STATE_STAKE ) ) {
