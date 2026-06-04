@@ -214,7 +214,7 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(ushort,16)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(uint,  32)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(ulong, 64)
 
-#if FD_HAS_INT128 /* FIXME: These probably could benefit from x86 specializations */
+#ifdef __SIZEOF_INT128__ /* FIXME: These probably could benefit from x86 specializations */
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(uint128,128)
 #endif
 
@@ -225,7 +225,7 @@ FD_FN_CONST static inline int fd_ushort_popcnt( ushort x ) { return __builtin_po
 FD_FN_CONST static inline int fd_uint_popcnt  ( uint   x ) { return __builtin_popcount (       x ); }
 FD_FN_CONST static inline int fd_ulong_popcnt ( ulong  x ) { return __builtin_popcountl(       x ); }
 
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 FD_FN_CONST static inline int
 fd_uint128_popcnt( uint128 x ) {
   return  __builtin_popcountl( (ulong) x ) + __builtin_popcountl( (ulong)(x>>64) );
@@ -240,7 +240,7 @@ FD_FN_CONST static inline ushort fd_ushort_bswap( ushort x ) { return __builtin_
 FD_FN_CONST static inline uint   fd_uint_bswap  ( uint   x ) { return __builtin_bswap32( x ); }
 FD_FN_CONST static inline ulong  fd_ulong_bswap ( ulong  x ) { return __builtin_bswap64( x ); }
 
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 FD_FN_CONST static inline uint128
 fd_uint128_bswap( uint128 x ) {
   ulong xl = (ulong) x;
@@ -349,7 +349,7 @@ fd_ulong_pow2_dn( ulong x ) {
   return x;
 }
 
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 FD_FN_CONST static inline uint128
 fd_uint128_pow2_up( uint128 x ) {
   x--;
@@ -419,7 +419,7 @@ FD_SRC_UTIL_BITS_FD_BITS_IMPL(schar, uchar,    8)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(short, ushort,  16)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(int,   uint,    32)
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(long,  ulong,   64)
-#if FD_HAS_INT128
+#ifdef __SIZEOF_INT128__
 FD_SRC_UTIL_BITS_FD_BITS_IMPL(int128,uint128,128)
 #endif
 
