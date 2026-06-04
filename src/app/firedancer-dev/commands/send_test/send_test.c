@@ -52,6 +52,7 @@ send_test_topo( config_t * config ) {
   /* Setup topology */
   fd_topo_t * topo    = fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  topo->lazy_paging   = config->development.lazy_paging;
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];

@@ -105,6 +105,7 @@ load_cmd_fn( args_t *   args,
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  topo->lazy_paging   = config->development.lazy_paging;
   add_bench_topo( topo,
                   args->load.affinity,
                   args->load.benchg,
