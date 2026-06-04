@@ -1,6 +1,5 @@
 ifdef FD_HAS_HOSTED
 ifdef FD_HAS_LINUX
-ifdef FD_HAS_INT128
 
 $(call make-lib,fdctl_shared)
 
@@ -36,6 +35,5 @@ $(call add-objs,commands/watch/watch,fdctl_shared)
 endif # FD_HAS_ALLOCA
 $(call add-objs,commands/run/run commands/run/run1,fdctl_shared)
 
-endif
 endif
 endif

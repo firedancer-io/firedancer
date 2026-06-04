@@ -134,10 +134,8 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   // used, we can ignore it for now
 //REGISTER( "sol_curve_pairing_map",                 fd_vm_syscall_sol_curve_pairing_map );
 
-#if FD_HAS_INT128
   REGISTER( "sol_alt_bn128_group_op",                  fd_vm_syscall_sol_alt_bn128_group_op );
   REGISTER( "sol_alt_bn128_compression",               fd_vm_syscall_sol_alt_bn128_compression );
-#endif /* FD_HAS_INT128 */
 
 //REGISTER( "sol_big_mod_exp",                       fd_vm_syscall_sol_big_mod_exp );
 

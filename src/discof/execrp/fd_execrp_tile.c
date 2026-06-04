@@ -341,7 +341,7 @@ privileged_init( fd_topo_t const *      topo,
   fd_wksp_t * funk_wksp = fd_wksp_containing( fd_topo_obj_laddr( topo, funk_obj_id ) );
   FD_TEST( funk_wksp );
 
-#if defined(__linux__) && defined(__x86_64__)
+#if FD_ARCH_SUPPORTS_SANDBOX && defined(__x86_64__)
   if( FD_UNLIKELY( fd_sandbox_getpid()!=fd_sandbox_gettid() ) ) {
     FD_LOG_INFO(( "userland memory protection disabled: not compatible with single-process mode" ));
     return;
@@ -363,7 +363,7 @@ privileged_init( fd_topo_t const *      topo,
   ctx->funk_pkey = pkey;
   funk_mprotect_readonly( ctx );
   FD_LOG_INFO(( "userland memory protection enabled (pkey=%d)", pkey ));
-# endif /* defined(__linux__) && defined(__x86_64__) */
+# endif /* FD_ARCH_SUPPORTS_SANDBOX && defined(__x86_64__) */
 }
 
 static void
