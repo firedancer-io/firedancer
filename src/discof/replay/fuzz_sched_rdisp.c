@@ -10,7 +10,6 @@
 #include "fd_execrp.h"
 #include "fd_rdisp.h"
 #include "fd_sched.h"
-#include "../../ballet/block/fd_microblock.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
