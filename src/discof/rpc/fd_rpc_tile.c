@@ -18,6 +18,7 @@
 #include "../../flamenco/gossip/fd_gossip_message.h"
 #include "../../flamenco/genesis/fd_genesis_parse.h"
 #include "../../util/net/fd_ip4.h"
+#include "../../waltz/http/fd_http.h"
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
 
@@ -234,6 +235,9 @@ typedef struct fd_rpc_cluster_node fd_rpc_cluster_node_t;
 struct fd_rpc_tile {
   int delay_startup;
   fd_http_server_t * http;
+
+  ulong       cors_origin_cnt;
+  char const  (*cors_origin)[ FD_HTTP_CORS_ORIGIN_SZ ];
 
   fd_rpc_cluster_node_dlist_t * cluster_nodes_dlist;
   fd_rpc_cluster_node_t cluster_nodes[ FD_CONTACT_INFO_TABLE_SIZE ];
@@ -1748,6 +1752,21 @@ UNIMPLEMENTED(simulateTransaction)
 static fd_http_server_response_t
 rpc_http_request1( fd_rpc_tile_t *                  ctx,
                    fd_http_server_request_t const * request ) {
+  char const * allow_origin = fd_http_cors_match_origin( ctx->cors_origin, ctx->cors_origin_cnt, request->headers.origin );
+  if( FD_UNLIKELY( ctx->cors_origin_cnt && request->method==FD_HTTP_SERVER_METHOD_OPTIONS ) ) {
+    return (fd_http_server_response_t){
+      .status                       = 204,
+      .access_control_allow_origin  = allow_origin,
+      .access_control_allow_methods = allow_origin ? "GET, POST, OPTIONS" : NULL,
+      .access_control_allow_headers = allow_origin ? "Content-Type, Authorization" : NULL,
+      .access_control_max_age       = allow_origin ? 86400UL : 0UL,
+    };
+  }
+
+  if( FD_UNLIKELY( ctx->cors_origin_cnt && request->headers.origin && request->headers.origin[ 0 ] && !allow_origin ) ) {
+    return (fd_http_server_response_t){ .status = 403 };
+  }
+
   if( FD_UNLIKELY( request->method==FD_HTTP_SERVER_METHOD_GET && !strcmp( request->path, "/health" ) ) ) {
     int health_status = _getHealth( ctx );
 
@@ -1774,7 +1793,7 @@ rpc_http_request1( fd_rpc_tile_t *                  ctx,
   }
 
   if( FD_UNLIKELY( request->method!=FD_HTTP_SERVER_METHOD_POST ) ) {
-    return (fd_http_server_response_t){ .status = 405 };
+    return (fd_http_server_response_t){ .status = 405, .allow = ctx->cors_origin_cnt ? "GET, POST, OPTIONS" : "GET, POST" };
   }
 
   const char * parse_end;
@@ -1935,6 +1954,8 @@ rpc_http_request( fd_http_server_request_t const * request ) {
   fd_http_server_response_t response = rpc_http_request1( ctx, request );
   dt += fd_tickcount();
   fd_histf_sample( ctx->request_duration, (ulong)dt );
+
+  if( FD_UNLIKELY( ctx->cors_origin_cnt ) ) response.access_control_allow_origin = fd_http_cors_match_origin( ctx->cors_origin, ctx->cors_origin_cnt, request->headers.origin );
   return response;
 }
 
@@ -2011,6 +2032,8 @@ unprivileged_init( fd_topo_t const *      topo,
   cJSON_alloc_install( alloc );
 
   ctx->delay_startup = tile->rpc.delay_startup;
+  ctx->cors_origin_cnt = tile->rpc.access_control_allow_origin_cnt;
+  ctx->cors_origin = tile->rpc.access_control_allow_origin;
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->id_keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 

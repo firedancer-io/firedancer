@@ -9,6 +9,9 @@
 #define FD_HTTP_PARSE_CONTENT_LEN_OVERFLOW  (-1)
 #define FD_HTTP_PARSE_CONTENT_LEN_MALFORMED (-2)
 
+#define FD_HTTP_CORS_ORIGIN_MAX ( 16UL)
+#define FD_HTTP_CORS_ORIGIN_SZ  (256UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_http_parse_content_len parses an HTTP Content-Length header
@@ -39,6 +42,27 @@ fd_http_parse_content_len( char const * s,
   }
   *out = val;
   return FD_HTTP_PARSE_CONTENT_LEN_OK;
+}
+
+/* fd_http_cors_match_origin resolves the Access-Control-Allow-Origin
+   value to send for a request with the given Origin header against a
+   configured allowlist.  Returns "*" if the allowlist contains "*", the
+   matching entry from the allowlist if request_origin is present in it,
+   or NULL if CORS should not be applied to this response. */
+
+static inline char const *
+fd_http_cors_match_origin( char const   allowlist[][ FD_HTTP_CORS_ORIGIN_SZ ],
+                           ulong        allowlist_cnt,
+                           char const * request_origin ) {
+  if( FD_LIKELY( !allowlist_cnt ) ) return NULL; /* CORS disabled; do not inspect request_origin */
+  for( ulong i=0UL; i<allowlist_cnt; i++ ) {
+    if( FD_UNLIKELY( !strcmp( allowlist[ i ], "*" ) ) ) return "*";
+  }
+  if( FD_UNLIKELY( !request_origin || !request_origin[ 0 ] ) ) return NULL;
+  for( ulong i=0UL; i<allowlist_cnt; i++ ) {
+    if( !strcmp( allowlist[ i ], request_origin ) ) return allowlist[ i ];
+  }
+  return NULL;
 }
 
 FD_PROTOTYPES_END

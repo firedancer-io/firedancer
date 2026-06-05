@@ -243,6 +243,7 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   tiles.metric.prometheus_listen_address           );
   CFG_POP      ( ushort, tiles.metric.prometheus_listen_port              );
+  CFG_POP_ARRAY( cstr,   tiles.metric.access_control_allow_origin         );
 
   CFG_POP      ( cstr,   tiles.event.url                                  );
 
@@ -253,6 +254,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.gui.max_websocket_connections              );
   CFG_POP      ( ulong,  tiles.gui.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.gui.send_buffer_size_mb                    );
+  CFG_POP_ARRAY( cstr,   tiles.gui.access_control_allow_origin            );
 
   CFG_POP      ( bool,   tiles.rpc.enabled                                );
   CFG_POP      ( cstr,   tiles.rpc.rpc_listen_address                     );
@@ -261,6 +263,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( ulong,  tiles.rpc.max_http_request_length                );
   CFG_POP      ( ulong,  tiles.rpc.send_buffer_size_mb                    );
   CFG_POP      ( bool,   tiles.rpc.delay_startup                          );
+  CFG_POP_ARRAY( cstr,   tiles.rpc.access_control_allow_origin            );
 
   CFG_POP      ( ushort, tiles.repair.repair_client_listen_port           );
   CFG_POP      ( ulong,  tiles.repair.slot_max                            );

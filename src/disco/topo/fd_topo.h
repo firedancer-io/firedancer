@@ -4,6 +4,7 @@
 #include "../stem/fd_stem.h"
 #include "../../tango/fd_tango.h"
 #include "../../waltz/xdp/fd_xdp1.h"
+#include "../../waltz/http/fd_http.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../util/net/fd_net_headers.h"
@@ -375,6 +376,9 @@ struct fd_topo_tile {
       int websocket_compression;
       ulong tile_cnt;
 
+      ulong access_control_allow_origin_cnt;
+      char  access_control_allow_origin[ FD_HTTP_CORS_ORIGIN_MAX ][ FD_HTTP_CORS_ORIGIN_SZ ];
+
       char   wfs_bank_hash[ FD_BASE58_ENCODED_32_SZ ];
       ushort expected_shred_version;
       ulong  cache_size_gib;
@@ -396,11 +400,17 @@ struct fd_topo_tile {
 
       char identity_key_path[ PATH_MAX ];
       int  delay_startup;
+
+      ulong access_control_allow_origin_cnt;
+      char  access_control_allow_origin[ FD_HTTP_CORS_ORIGIN_MAX ][ FD_HTTP_CORS_ORIGIN_SZ ];
     } rpc;
 
     struct {
       uint   prometheus_listen_addr;
       ushort prometheus_listen_port;
+
+      ulong access_control_allow_origin_cnt;
+      char  access_control_allow_origin[ FD_HTTP_CORS_ORIGIN_MAX ][ FD_HTTP_CORS_ORIGIN_SZ ];
     } metric;
 
     struct {

@@ -68,11 +68,11 @@ test_oring( void ) {
     .ws_message = NULL,
   };
 
-  uchar scratch[ 1633024 ] __attribute__((aligned(128UL)));
+  uchar scratch[ 1633152 ] __attribute__((aligned(128UL)));
 #if FD_HAS_ZSTD
-  FD_TEST( fd_http_server_footprint( params )==1633024 );
+  FD_TEST( fd_http_server_footprint( params )==1633152 );
 #else
-  FD_TEST( fd_http_server_footprint( params )==329344 );
+  FD_TEST( fd_http_server_footprint( params )==329472 );
   FD_TEST( fd_http_server_footprint( params )<=sizeof( scratch ) );
 #endif
   fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
@@ -302,6 +302,101 @@ test_duplicate_content_length_different_close( void ) {
 }
 
 void
+test_duplicate_content_type_close( void ) {
+  FD_LOG_NOTICE(( "Testing duplicate Content-Type rejection" ));
+  test_close_reason(
+      "POST / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Content-Type: application/json\r\n"
+      "Content-Type: text/plain\r\n"
+      "Content-Length: 1\r\n"
+      "\r\n"
+      "x",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST,
+      default_test_params() );
+}
+
+void
+test_duplicate_origin_close( void ) {
+  FD_LOG_NOTICE(( "Testing duplicate Origin rejection" ));
+  test_close_reason(
+      "GET / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Origin: http://a.example.com\r\n"
+      "Origin: http://b.example.com\r\n"
+      "\r\n",
+      FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST,
+      default_test_params() );
+}
+
+/* Captures the Accept-Encoding header value seen by the request
+   callback so the test can assert that repeated occurrences are
+   concatenated correctly. */
+
+static char captured_accept_encoding[ 256 ];
+
+static fd_http_server_response_t
+request_capture_accept_encoding( fd_http_server_request_t const * request ) {
+  strncpy( captured_accept_encoding, request->headers.accept_encoding, sizeof( captured_accept_encoding )-1UL );
+  captured_accept_encoding[ sizeof( captured_accept_encoding )-1UL ] = '\0';
+  return (fd_http_server_response_t){ .status = 200 };
+}
+
+void
+test_multiple_accept_encoding_combined( void ) {
+  FD_LOG_NOTICE(( "Testing multiple Accept-Encoding headers are combined" ));
+
+  captured_accept_encoding[ 0 ] = '\0';
+
+  fd_http_server_params_t params = default_test_params();
+  fd_http_server_callbacks_t callbacks = {
+    .request = request_capture_accept_encoding,
+  };
+
+  ulong footprint = fd_ulong_align_up( fd_http_server_footprint( params ), 128UL );
+  uchar * scratch = aligned_alloc( 128UL, footprint );
+  FD_TEST( scratch );
+
+  fd_http_server_t * http = fd_http_server_join( fd_http_server_new( scratch, params, callbacks, NULL ) );
+  FD_TEST( http );
+  FD_TEST( fd_http_server_listen( http, 0U, 0U ) );
+
+  struct sockaddr_in server_addr = {0};
+  socklen_t server_addr_sz = sizeof( server_addr );
+  FD_TEST( !getsockname( fd_http_server_fd( http ), fd_type_pun( &server_addr ), &server_addr_sz ) );
+  ushort server_port = ntohs( server_addr.sin_port );
+
+  int client_fd = socket( AF_INET, SOCK_STREAM, 0 );
+  FD_TEST( client_fd>=0 );
+
+  struct sockaddr_in connect_addr = {
+    .sin_family      = AF_INET,
+    .sin_port        = htons( server_port ),
+    .sin_addr.s_addr = htonl( INADDR_LOOPBACK ),
+  };
+  FD_TEST( !connect( client_fd, fd_type_pun( &connect_addr ), sizeof( connect_addr ) ) );
+
+  char const * req =
+      "GET / HTTP/1.1\r\n"
+      "Host: localhost\r\n"
+      "Accept-Encoding: gzip\r\n"
+      "Accept-Encoding: deflate, br\r\n"
+      "\r\n";
+  send_all( client_fd, req, strlen( req ) );
+
+  for( ulong i=0UL; i<200UL && captured_accept_encoding[ 0 ]=='\0'; i++ ) {
+    fd_http_server_poll( http, 1 );
+  }
+
+  FD_TEST( !strcmp( captured_accept_encoding, "gzip, deflate, br" ) );
+
+  close( client_fd );
+  close( fd_http_server_fd( http ) );
+  fd_http_server_delete( fd_http_server_leave( http ) );
+  free( scratch );
+}
+
+void
 test_ws_bad_key_close( void ) {
   FD_LOG_NOTICE(( "Testing WebSocket bad Sec-WebSocket-Key" ));
   /* Key is 24 chars but unpadded, so it decodes to 18 bytes and
@@ -346,6 +441,9 @@ main( int     argc,
   test_content_length_overflow_close();
   test_transfer_encoding_close();
   test_duplicate_content_length_different_close();
+  test_duplicate_content_type_close();
+  test_duplicate_origin_close();
+  test_multiple_accept_encoding_combined();
   test_ws_bad_key_close();
   test_ws_early_data_close();
 

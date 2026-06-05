@@ -2,6 +2,7 @@
 #include "fd_metrics.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../util/net/fd_ip4.h"
+#include "../../waltz/http/fd_http.h"
 
 #include <sys/types.h>
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
@@ -27,6 +28,9 @@ typedef struct {
   fd_topo_t const * topo;
 
   fd_http_server_t * metrics_server;
+
+  ulong       cors_origin_cnt;
+  char const  (*cors_origin)[ FD_HTTP_CORS_ORIGIN_SZ ];
 
   long boot_ts;
 } fd_metric_ctx_t;
@@ -58,9 +62,22 @@ static fd_http_server_response_t
 metrics_http_request( fd_http_server_request_t const * request ) {
   fd_metric_ctx_t * ctx = (fd_metric_ctx_t *)request->ctx;
 
+  char const * allow_origin = fd_http_cors_match_origin( ctx->cors_origin, ctx->cors_origin_cnt, request->headers.origin );
+
+  if( FD_UNLIKELY( ctx->cors_origin_cnt && request->method==FD_HTTP_SERVER_METHOD_OPTIONS ) ) {
+    return (fd_http_server_response_t){
+      .status                       = 204,
+      .access_control_allow_origin  = allow_origin,
+      .access_control_allow_methods = allow_origin ? "GET, OPTIONS" : NULL,
+      .access_control_max_age       = allow_origin ? 86400UL : 0UL,
+    };
+  }
+
   if( FD_UNLIKELY( request->method!=FD_HTTP_SERVER_METHOD_GET ) ) {
     return (fd_http_server_response_t){
-      .status = 400,
+      .status                      = 405,
+      .allow                       = ctx->cors_origin_cnt ? "GET, OPTIONS" : "GET",
+      .access_control_allow_origin = allow_origin,
     };
   }
 
@@ -68,19 +85,22 @@ metrics_http_request( fd_http_server_request_t const * request ) {
     fd_prometheus_render_all( ctx->topo, ctx->metrics_server );
 
     fd_http_server_response_t response = {
-      .status       = 200,
-      .content_type = "text/plain; version=0.0.4",
+      .status                      = 200,
+      .content_type                = "text/plain; version=0.0.4",
+      .access_control_allow_origin = allow_origin,
     };
     if( FD_UNLIKELY( fd_http_server_stage_body( ctx->metrics_server, &response ) ) ) {
       FD_LOG_WARNING(( "fd_http_server_stage_body failed, metrics response too long" ));
       return (fd_http_server_response_t){
-        .status = 500,
+        .status                      = 500,
+        .access_control_allow_origin = allow_origin,
       };
     }
     return response;
   } else {
     return (fd_http_server_response_t){
-      .status = 404,
+      .status                      = 404,
+      .access_control_allow_origin = allow_origin,
     };
   }
 }
@@ -121,6 +141,8 @@ unprivileged_init( fd_topo_t const *      topo,
   fd_metric_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_metric_ctx_t ), sizeof( fd_metric_ctx_t ) );
 
   ctx->topo = topo;
+  ctx->cors_origin_cnt = tile->metric.access_control_allow_origin_cnt;
+  ctx->cors_origin = tile->metric.access_control_allow_origin;
   ctx->boot_ts = fd_log_wallclock();
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );

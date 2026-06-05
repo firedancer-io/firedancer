@@ -1201,6 +1201,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.metric.prometheus_listen_address, &tile->metric.prometheus_listen_addr ) ) )
       FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
     tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
+    tile->metric.access_control_allow_origin_cnt = config->tiles.metric.access_control_allow_origin_cnt;
+    fd_memcpy( tile->metric.access_control_allow_origin, config->tiles.metric.access_control_allow_origin, sizeof(tile->metric.access_control_allow_origin) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "event" ) ) ) {
 
@@ -1615,6 +1617,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.cache_size_gib         = config->firedancer.accounts.cache_size_gib;
     tile->gui.accdb_obj_id           = fd_pod_query_ulong( config->topo.props, "accdb", ULONG_MAX );
     FD_TEST( tile->gui.accdb_obj_id!=ULONG_MAX );
+    tile->gui.access_control_allow_origin_cnt = config->tiles.gui.access_control_allow_origin_cnt;
+    fd_memcpy( tile->gui.access_control_allow_origin, config->tiles.gui.access_control_allow_origin, sizeof(tile->gui.access_control_allow_origin) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rpc" ) ) ) {
 
@@ -1632,6 +1636,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     FD_TEST( tile->rpc.accdb_obj_id!=ULONG_MAX );
     tile->rpc.accdb_epoch_fseq_obj_id = fd_pod_query_ulong( config->topo.props, "accdb_epoch.rpc", ULONG_MAX );
     FD_TEST( tile->rpc.accdb_epoch_fseq_obj_id!=ULONG_MAX );
+
+    tile->rpc.access_control_allow_origin_cnt = config->tiles.rpc.access_control_allow_origin_cnt;
+    fd_memcpy( tile->rpc.access_control_allow_origin, config->tiles.rpc.access_control_allow_origin, sizeof(tile->rpc.access_control_allow_origin) );
 
     fd_cstr_ncpy( tile->rpc.identity_key_path, config->paths.identity_key, sizeof(tile->rpc.identity_key_path) );
 

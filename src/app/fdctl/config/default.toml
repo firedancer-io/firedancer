@@ -1426,6 +1426,13 @@ dynamic_port_range = "8900-9000"
         # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
 
+        # List of origins allowed to make cross-origin (CORS) requests
+        # to the HTTP server.  When empty (the default) no CORS headers
+        # are sent, and some (not all) browsers will block cross-origin
+        # requests.  Each entry must be a full origin like
+        # "https://example.com".  The entry "*" allows any origin.
+        access_control_allow_origin = []
+
     # The gui tile receives data from the validator and serves an HTTP
     # endpoint to clients to view it.
     [tiles.gui]
@@ -1467,6 +1474,13 @@ dynamic_port_range = "8900-9000"
         # dropped.  Larger values make the GUI server more tolerant to
         # slow clients but also increase memory usage.
         send_buffer_size_mb = 5120
+
+        # List of origins allowed to make cross-origin (CORS) requests
+        # to the HTTP server.  When empty (the default) no CORS headers
+        # are sent, and some (not all) browsers will block cross-origin
+        # requests.  Each entry must be a full origin like
+        # "https://example.com".  The entry "*" allows any origin.
+        access_control_allow_origin = []
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
