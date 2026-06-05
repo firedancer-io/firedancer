@@ -8,13 +8,6 @@ ROCKSDB_LIBS:=$(OPT)/lib/librocksdb.a $(OPT)/lib/libsnappy.a
 ifndef LIBCXX
 ROCKSDB_LIBS+=-lstdc++
 endif
-
-else
-$(warning "zstd not installed, skipping rocksdb")
 endif
-else
-$(warning "snappy not installed, skipping rocksdb")
 endif
-else
-$(warning "rocksdb not installed, skipping")
 endif

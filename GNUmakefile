@@ -70,9 +70,6 @@ ifndef MACHINE
 MACHINE=native
 endif
 
-$(info Using MACHINE=$(MACHINE))
-$(info Using EXTRAS=$(EXTRAS_PRE) $(EXTRAS))
-
 # Default target
 all:
 
