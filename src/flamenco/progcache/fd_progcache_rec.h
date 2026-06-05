@@ -125,6 +125,18 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
                        void *                          scratch,
                        ulong                           scratch_sz );
 
+/* fd_progcache_rec_compact compacts a program cache record so it uses
+   up less space.  Solana program deployers typically over-allocate the
+   program data account (by about 2x) to support future growth.  During
+   ELF loading, the entire size of the program might be used for scratch
+   calculations (due to awful ELF relocation semantics).  But after
+   loading, we can reallocate and truncate the data region. */
+
+void
+fd_progcache_rec_compact( fd_progcache_rec_t *       rec,
+                          fd_progcache_join_t *      join,
+                          fd_sbpf_elf_info_t const * elf_info );
+
 fd_progcache_rec_t *
 fd_progcache_rec_nx( fd_progcache_rec_t * rec );
 

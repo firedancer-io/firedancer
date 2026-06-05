@@ -2,6 +2,7 @@
 #include "../vm/fd_vm.h" /* fd_vm_syscall_register_slot, fd_vm_validate */
 #include "../../util/alloc/fd_alloc.h"
 
+#include <stdatomic.h>
 #include <stdlib.h>
 
 /* Can be overridden by test executables */
@@ -79,6 +80,56 @@ fd_progcache_val_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   return FD_LAYOUT_FINI( l, fd_progcache_val_align() );
 }
 
+void
+fd_progcache_rec_compact( fd_progcache_rec_t *       rec,
+                          fd_progcache_join_t *      join,
+                          fd_sbpf_elf_info_t const * elf_info ) {
+  if( FD_UNLIKELY( (!rec->data_gaddr) |
+                   (rec->rodata_sz >= rec->data_max) ) ) {
+    return;
+  }
+
+  /* New alloc params.  For SBPF v3+ (strict ELF), the buffer layout is
+     [rodata | text] so the used extent is rodata_sz + text_sz.  For
+     legacy (v0-v2), text is a subregion within rodata so rodata_sz
+     already covers the full used extent.
+
+     FIXME CLEAN UP THIS MESS */
+  fd_sbpf_elf_info_t compact_info = *elf_info;
+  int is_strict = fd_sbpf_enable_stricter_elf_headers_enabled( rec->sbpf_version );
+  compact_info.bin_sz = rec->rodata_sz + ( is_strict ? rec->text_sz : 0U );
+  ulong val_sz = fd_progcache_val_footprint( &compact_info );
+
+  /* Don't reallocate if the space savings are marginal */
+  ulong realloc_threshold = 100000UL;
+  if( FD_UNLIKELY( val_sz >= rec->data_max ) ) return;
+  ulong overhead = rec->data_max - val_sz;
+  if( overhead < realloc_threshold ) return;
+
+  /* Detach old allocation */
+  uchar * old_data       = fd_wksp_laddr_fast( join->data_base, rec->data_gaddr );
+  ulong   old_data_gaddr = rec->data_gaddr;
+  ulong   old_data_max   = rec->data_max;
+
+  /* New smaller allocation */
+  rec->data_gaddr = 0UL;
+  rec->data_max   = 0UL;
+  if( FD_UNLIKELY( !fd_progcache_val_alloc( rec, join, fd_progcache_val_align(), val_sz ) ) ) {
+    /* Revert to old allocation on OOM */
+    rec->data_gaddr = old_data_gaddr;
+    rec->data_max   = (uint)old_data_max;
+    return;
+  }
+
+  fd_memcpy( fd_wksp_laddr_fast( join->data_base, rec->data_gaddr ), old_data, val_sz );
+
+  if( FD_UNLIKELY( use_malloc() ) ) { /* test only */
+    free( old_data );
+  } else {
+    fd_alloc_free( join->alloc, old_data );
+  }
+}
+
 /* Program loader wrapper */
 
 fd_progcache_rec_t *
@@ -99,11 +150,11 @@ fd_progcache_rec_load( fd_progcache_rec_t *            rec,
 
   void * val = fd_wksp_laddr_fast( wksp, rec->data_gaddr );
   FD_SCRATCH_ALLOC_INIT( l, val );
-  void *               calldests_mem = NULL;
+  void * calldests_mem = NULL;
   if( has_calldests ) {
-    /*               */calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_ulong_max( 1UL, elf_info->text_cnt ) ) );
+    /* */calldests_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_ulong_max( 1UL, elf_info->text_cnt ) ) );
   }
-  void *               rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->bin_sz );
+  void * rodata_mem    = FD_SCRATCH_ALLOC_APPEND( l, 8UL, elf_info->bin_sz );
   FD_SCRATCH_ALLOC_FINI( l, fd_progcache_val_align() );
   FD_TEST( _l-(ulong)val == fd_progcache_val_footprint( elf_info ) );
 
