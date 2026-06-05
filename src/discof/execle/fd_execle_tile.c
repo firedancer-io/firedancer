@@ -173,6 +173,9 @@ hash_transactions( void *       mem,
   fd_memcpy( mixin, root, 32UL );
 }
 
+/* Frankendancer-only code to fix compilation error in v0.9 branch */
+fd_cost_tracker_t const * fd_bank_cost_tracker_query( fd_bank_t * bank FD_FN_UNUSED ) { return NULL; }
+
 static inline void
 handle_microblock( fd_execle_tile_t *  ctx,
                    ulong               seq,
