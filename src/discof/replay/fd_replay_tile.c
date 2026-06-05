@@ -1472,11 +1472,22 @@ can_process_fec( fd_replay_tile_t * ctx,
     return 0;
   }
 
-  /* TODO:FIXME: THE FULL CHECK DOESN'T ACCOUNT FOR EQUIVOCATION */
-
-  /* If fec_set_idx is 0, we need a new bank for a new slot.  Banks must
-     not be full in this case. */
-  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) {
+  /* Should we evict banks if there are no more free banks? The answer
+     is it depends.  At the very least, we need to make sure sched is
+     drained: that there are no more transactions/tasks in flight.  In
+     addition to this, the specific FEC we want to process is very
+     important here:
+     - If the FEC is the start of a new slot (fec_set_idx==0), then we
+       would need to provision a new bank (which we can't do).  Evict.
+     - If the FEC chains off of an allocated bank (a FEC set
+       corresponding to the middle of a block for a leaf node).  No new
+       bank is needed so we can ingest the FEC set.  Don't evict.
+     - If the FEC chains off of an allocated bank, but is the first
+       equivocating FEC.  When we equivocate, allocate a new bank for
+       the version of the block.  Evict. */
+  int is_new_block = fec->fec_set_idx==0;
+  int is_eqvoc     = fec->eqvoc && !fd_reasm_parent( ctx->reasm, fec )->eqvoc;
+  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && (is_new_block || is_eqvoc) ) ) {
     ctx->metrics.banks_full++;
     /* We only want to evict banks if sched is drained and banks is no
        longer making progress.  Otherwise, sched might not release
@@ -1499,6 +1510,37 @@ insert_fec_set( fd_replay_tile_t *  ctx,
                 fd_stem_context_t * stem,
                 fd_reasm_fec_t *    reasm_fec ) {
 
+  /* Read FEC set from the store.  This should happen before we try to
+     ingest the FEC set.  This allows us to filter out frags that were
+     in-flight when we published away minority forks that the frags land
+     on.  These frags would have no bank to execute against, because
+     their corresponding banks, or parent banks, have also been pruned
+     during publishing.  A query against store will rightfully tell us
+     that the underlying data is not found, implying that this is for a
+     minority fork that we can safely ignore. */
+
+  ulong wait = (ulong)fd_log_wallclock();
+  ulong work = wait;
+  FD_STORE_SLOCK_BEGIN( ctx->store ) {
+  ctx->metrics.store_query_acquire++;
+  work = (ulong)fd_log_wallclock();
+  fd_histf_sample( ctx->metrics.store_query_wait, work - wait );
+
+  fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
+  ctx->metrics.store_query_cnt++;
+  if( FD_UNLIKELY( !store_fec && !reasm_fec->is_leader ) ) {
+    /* The only case in which a FEC is not found in the store is either
+       if the FEC is from our own leader block or after repair has
+       notified is if the FEC was on a minority fork that has already
+       been published away.  In this case we abandon the entire slice
+       because it is no longer relevant. */
+    ctx->metrics.store_query_missing_cnt++;
+    ctx->metrics.store_query_missing_mr = reasm_fec->key.ul[0];
+    FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
+    FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
+    return 0;
+  }
+
   long now = fd_log_wallclock();
 
   reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
@@ -1511,12 +1553,7 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     /* If the first FEC set for a slot is observed, provision a new bank
        if you are not the leader.  Remove any stale block id map entry
        and update the block id entry. */
-    fd_bank_t * bank = NULL;
-    if( FD_UNLIKELY( reasm_fec->is_leader ) ) {
-      bank = ctx->leader_bank;
-    } else {
-      bank = fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now, 0 );
-    }
+    fd_bank_t * bank = reasm_fec->is_leader ? ctx->leader_bank : fd_banks_new_bank( ctx->banks, reasm_fec->parent_bank_idx, now, 0 );
 
     reasm_fec->bank_idx = bank->idx;
     reasm_fec->bank_seq = bank->bank_seq;
@@ -1533,9 +1570,13 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     block_id_ele->slot           = reasm_fec->slot;
     block_id_ele->latest_fec_idx = 0U;
     block_id_ele->latest_mr      = reasm_fec->key;
-  } else {
-    /* We are continuing to execute through a slot that we already have
-       a bank index for. */
+  } else if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
+    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+    block_id_ele->block_id_seen  = 1;
+    block_id_ele->latest_mr      = reasm_fec->key;
+    block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
+    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
+  } else { /* FEC for the middle of a block */
     reasm_fec->bank_idx = reasm_fec->parent_bank_idx;
     reasm_fec->bank_seq = reasm_fec->parent_bank_seq;
 
@@ -1548,14 +1589,6 @@ insert_fec_set( fd_replay_tile_t *  ctx,
     }
     block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
     block_id_ele->latest_mr      = reasm_fec->key;
-  }
-
-  if( FD_UNLIKELY( reasm_fec->slot_complete ) ) {
-    fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
-    block_id_ele->block_id_seen  = 1;
-    block_id_ele->latest_mr      = reasm_fec->key;
-    block_id_ele->latest_fec_idx = reasm_fec->fec_set_idx;
-    FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
   }
 
   /* If we are the leader, we don't need to process the FEC set. */
@@ -1572,63 +1605,33 @@ insert_fec_set( fd_replay_tile_t *  ctx,
   FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, key_b58, cmr_b58 ));
 # endif
 
-  sched_fec->shred_cnt              = reasm_fec->data_cnt;
-  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
-  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
-  sched_fec->bank_idx               = reasm_fec->bank_idx;
-  sched_fec->parent_bank_idx        = reasm_fec->parent_bank_idx;
-  sched_fec->slot                   = reasm_fec->slot;
-  sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
-  sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
-  fd_funk_txn_xid_t const root = fd_accdb_root_get( ctx->accdb_admin );
+  sched_fec->shred_cnt          = reasm_fec->data_cnt;
+  sched_fec->is_last_in_batch   = !!reasm_fec->data_complete;
+  sched_fec->is_last_in_block   = !!reasm_fec->slot_complete;
+  sched_fec->bank_idx           = reasm_fec->bank_idx;
+  sched_fec->parent_bank_idx    = reasm_fec->parent_bank_idx;
+  sched_fec->slot               = reasm_fec->slot;
+  sched_fec->parent_slot        = reasm_fec->slot - reasm_fec->parent_off;
+  sched_fec->is_first_in_block  = reasm_fec->fec_set_idx==0U;
+  sched_fec->fec                = store_fec;
+  sched_fec->data               = fd_store_fec_data( ctx->store, store_fec );
+  fd_funk_txn_xid_t const root  = fd_accdb_root_get( ctx->accdb_admin );
   fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, &root );
-  sched_fec->alut_ctx->accdb[0]     = ctx->accdb[0];
-  sched_fec->alut_ctx->els          = ctx->published_root_slot;
+  sched_fec->alut_ctx->accdb[0] = ctx->accdb[0];
+  sched_fec->alut_ctx->els      = ctx->published_root_slot;
 
-  /* Read FEC set from the store.  This should happen before we try to
-     ingest the FEC set.  This allows us to filter out frags that were
-     in-flight when we published away minority forks that the frags land
-     on.  These frags would have no bank to execute against, because
-     their corresponding banks, or parent banks, have also been pruned
-     during publishing.  A query against store will rightfully tell us
-     that the underlying data is not found, implying that this is for a
-     minority fork that we can safely ignore. */
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
+  FD_TEST( bank );
+  if( sched_fec->is_first_in_block ) {
+    bank->refcnt++;
+    FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
+  }
 
-  ulong wait = (ulong)fd_log_wallclock();
-  ulong work = wait;
-  FD_STORE_SLOCK_BEGIN( ctx->store ) {
-    ctx->metrics.store_query_acquire++;
-    work = (ulong)fd_log_wallclock();
-    fd_histf_sample( ctx->metrics.store_query_wait, work - wait );
 
-    fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
-    ctx->metrics.store_query_cnt++;
-    if( FD_UNLIKELY( !store_fec ) ) {
-
-      /* The only case in which a FEC is not found in the store after
-         repair has notified is if the FEC was on a minority fork that
-         has already been published away.  In this case we abandon the
-         entire slice because it is no longer relevant.  */
-
-      ctx->metrics.store_query_missing_cnt++;
-      ctx->metrics.store_query_missing_mr = reasm_fec->key.ul[0];
-      FD_BASE58_ENCODE_32_BYTES( reasm_fec->key.key, key_b58 );
-      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, key_b58 ));
-      return 0;
-    }
-    fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sched_fec->bank_idx );
-    FD_TEST( bank );
-    if( sched_fec->is_first_in_block ) {
-      bank->refcnt++;
-      FD_LOG_DEBUG(( "bank (idx=%lu, slot=%lu) refcnt incremented to %lu for sched", bank->idx, sched_fec->slot, bank->refcnt ));
-    }
-
-    sched_fec->fec  = store_fec;
-    sched_fec->data = fd_store_fec_data( ctx->store, store_fec );
-    if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and shred_offs. */
-      mark_bank_dead( ctx, stem, sched_fec->bank_idx );
-      return 1;
-    }
+  if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) { /* FIXME this critical section is unnecessarily complex. should refactor to just be held for the memcpy and shred_offs. */
+    mark_bank_dead( ctx, stem, sched_fec->bank_idx );
+    return 1;
+  }
   } FD_STORE_SLOCK_END;
 
   ctx->metrics.store_query_release++;
@@ -1885,7 +1888,7 @@ try_evict_frontier( fd_replay_tile_t *  ctx,
 
   ulong bank_idx = ctx->frontier_indices[ --ctx->frontier_cnt ];
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, bank_idx );
-  FD_TEST( !!bank && bank->child_idx!=ULONG_MAX );
+  FD_TEST( !!bank && bank->child_idx==ULONG_MAX );
   mark_bank_dead( ctx, stem, bank->idx );
   fd_sched_block_abandon( ctx->sched, bank->idx );
   return 1;
