@@ -1271,11 +1271,9 @@ fd_execute_txn( fd_runtime_t *      runtime,
                 fd_txn_in_t const * txn_in,
                 fd_txn_out_t *      txn_out ) {
 
-#if FD_HAS_FLATCC
   bool dump_insn = runtime->log.dump_proto_ctx &&
                    bank->f.slot>=runtime->log.dump_proto_ctx->dump_proto_start_slot &&
                    runtime->log.dump_proto_ctx->dump_instr_to_pb;
-#endif
 
   if( FD_UNLIKELY( runtime->log.log_collector ) ) fd_log_collector_init( runtime->log.log_collector, runtime->log.enable_log_collector );
 
@@ -1285,12 +1283,10 @@ fd_execute_txn( fd_runtime_t *      runtime,
     fd_instr_info_t * instr_info = &runtime->instr.trace[ runtime->instr.trace_length++ ];
     fd_instr_info_init_from_txn_instr( instr_info, txn_in, txn_out, &txn->instr[ i ] );
 
-#if FD_HAS_FLATCC
     if( FD_UNLIKELY( dump_insn ) ) {
       // Capture the input and convert it into a Protobuf message
       fd_dump_instr_to_protobuf( runtime, bank, txn_in, txn_out, instr_info, i );
     }
-#endif
 
     /* Update the current executing instruction index */
     runtime->instr.current_idx = i;
