@@ -45,7 +45,7 @@ ulong
 fd_fwd_confirmed_footprint( ulong max ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_fwd_confirmed_align(), sizeof(fd_fwd_confirmed_t) );
-  l = FD_LAYOUT_APPEND( l, confirmed_map_align(),   confirmed_map_footprint( max ) );
+  l = FD_LAYOUT_APPEND( l, confirmed_map_align(),   confirmed_map_footprint( confirmed_map_chain_cnt_est( max ) ) );
   l = FD_LAYOUT_APPEND( l, confirmed_dlist_align(), confirmed_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, confirmed_pool_align(),  confirmed_pool_footprint( max ) );
   return FD_LAYOUT_FINI( l, fd_fwd_confirmed_align() );
@@ -63,12 +63,12 @@ fd_fwd_confirmed_new( void * shmem,
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_fwd_confirmed_t * buf = FD_SCRATCH_ALLOC_APPEND( l, fd_fwd_confirmed_align(), sizeof(fd_fwd_confirmed_t) );
-  void * map_mem   = FD_SCRATCH_ALLOC_APPEND( l, confirmed_map_align(),   confirmed_map_footprint( max ) );
+  void * map_mem   = FD_SCRATCH_ALLOC_APPEND( l, confirmed_map_align(),   confirmed_map_footprint( confirmed_map_chain_cnt_est( max ) ) );
   void * dlist_mem = FD_SCRATCH_ALLOC_APPEND( l, confirmed_dlist_align(), confirmed_dlist_footprint() );
   void * pool_mem  = FD_SCRATCH_ALLOC_APPEND( l, confirmed_pool_align(),  confirmed_pool_footprint( max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_fwd_confirmed_align() ) == (ulong)shmem + footprint );
 
-  buf->map   = confirmed_map_new  ( map_mem,   max, 0UL );
+  buf->map   = confirmed_map_new  ( map_mem,   confirmed_map_chain_cnt_est( max ), 0UL );
   buf->dlist = confirmed_dlist_new( dlist_mem           );
   buf->pool  = confirmed_pool_new ( pool_mem,  max      );
 

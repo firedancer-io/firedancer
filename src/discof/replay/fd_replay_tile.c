@@ -2695,6 +2695,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) ctx->block_id_arr[ i ].block_id_seen = 0;
 
   ctx->fwd_confirmed = fd_fwd_confirmed_join( fd_fwd_confirmed_new( fwd_confirmed_mem, tile->replay.max_live_slots ) );
+  FD_TEST( ctx->fwd_confirmed );
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
 
