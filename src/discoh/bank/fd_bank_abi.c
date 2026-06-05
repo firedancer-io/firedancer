@@ -1,10 +1,11 @@
-
 #include "fd_bank_abi.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/runtime/fd_alut.h"
 #include "../../disco/pack/fd_pack_unwritable.h"
 #include "../../disco/pack/fd_compute_budget_program.h"
+
+#include <stddef.h>
 
 #define ABI_ALIGN( x ) __attribute__((packed)) __attribute__((aligned(x)))
 

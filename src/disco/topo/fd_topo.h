@@ -221,6 +221,9 @@ struct fd_topo_tile {
 
       ushort shred_version;
       int allow_private_address;
+
+      fd_ip4_port_t gossip_addr;
+      fd_ip4_port_t src_addr;
     } gossvf;
 
     struct {

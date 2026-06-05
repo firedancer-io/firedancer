@@ -170,7 +170,7 @@
    get the dedup cache max.  Since we are sizing the dedup cache for a
    generous margin, and this number not particularly fragile or
    sensitive, we can leave it static. */
-#define FD_DEDUP_CACHE_MAX (1<<15)
+#define FD_REQLIM_CACHE_MAX (1<<20)
 
 /* static map from request type to metric array index */
 static uint metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
@@ -337,6 +337,7 @@ struct ctx {
 
   fd_forest_t    * forest;
   fd_policy_t    * policy;
+  fd_reqlim_t    * dedup;
   fd_inflights_t * inflights;
   fd_repair_t    * protocol;
 
@@ -437,7 +438,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                      );
   l = FD_LAYOUT_APPEND( l, fd_repair_align(),         fd_repair_footprint     ()                                         );
   l = FD_LAYOUT_APPEND( l, fd_forest_align(),         fd_forest_footprint     ( tile->repair.slot_max )                  );
-  l = FD_LAYOUT_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_DEDUP_CACHE_MAX, FD_REPAIR_PEER_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_policy_align(),         fd_policy_footprint     ( FD_REPAIR_PEER_MAX )                     );
+  l = FD_LAYOUT_APPEND( l, fd_reqlim_align(),         fd_reqlim_footprint     ( FD_REQLIM_CACHE_MAX )                     );
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(),      fd_inflights_footprint  ()                                         );
   l = FD_LAYOUT_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint  ( lg_sign_depth )                          );
   l = FD_LAYOUT_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                         );
@@ -718,23 +720,13 @@ after_sign( ctx_t             * ctx,
      we've sent it and let the inflight timeout request it down the
      line. */
 
-  fd_policy_peer_t * active         = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
-  int                is_regular_req = pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.nonce > 0; // not a highest/orphan request
-
+  fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
   if( FD_UNLIKELY( !active ) ) {
-    if( FD_LIKELY( is_regular_req ) ) {
-      /* Artificially add to the inflights table, pretend we've sent it
-         and let the inflight timeout request it down the line. */
-      fd_inflights_request_insert( ctx->inflights, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
-    }
+     /* Already added to the inflights table, pretend we've sent it
+        and let the inflight timeout request it down the line. */
     return;
   }
   /* Happy path - all is well, our peer didn't drop out from beneath us. */
-  if( FD_LIKELY( is_regular_req ) ) {
-    fd_inflights_request_insert( ctx->inflights, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
-    fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
-  }
-
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_ORPHAN ) ) ctx->metrics->last_requested_orphan = pending->msg.orphan.slot;
   else                                                            ctx->metrics->last_requested_slot   = pending->msg.shred.slot;
 
@@ -793,12 +785,11 @@ after_shred( ctx_t      * ctx,
     if( FD_UNLIKELY( !blk_insert_check( ctx, blk, shred->slot, evicted ) ) ) return;
 
     if( FD_LIKELY( fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src, mr, cmr ) ) ) {
-      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_remove( ctx->inflights, nonce, shred->slot, shred->idx, &peer ) ) > 0 ) ) {
+      if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_match( ctx->inflights, nonce, shred->slot, shred->idx, &peer ) ) > 0 ) ) {
         fd_policy_peer_response_update( ctx->policy, &peer, rtt );
         fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
       }
     }
-
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
   }
@@ -1115,6 +1106,67 @@ after_frag( ctx_t *             ctx,
   }
 }
 
+/* Defer a request by adding it to the outstanding inflights table so it
+   can be re-requested after a timeout window.  Nonce is 0 because these
+   are not real requests made to the network, and cannot be matched
+   by a shred response. */
+static void
+defer_inflight_request( ctx_t * ctx, ulong slot, ulong shred_idx ) {
+  fd_hash_t hash = { .ul[0] = 0 };
+  fd_inflight_key_t inflight_req = { .slot = slot, .shred_idx = shred_idx, .nonce = 0 };
+  if( FD_LIKELY( !fd_inflight_map_ele_query( ctx->inflights->map, &inflight_req, NULL, ctx->inflights->pool ) ) ) {
+    fd_inflights_request_insert( ctx->inflights, 0, &hash, slot, shred_idx );
+  }
+}
+
+/* Should be called for any regular FD_REPAIR_KIND_SHRED request made. */
+static void
+record_inflight_request( ctx_t * ctx, ulong nonce, fd_pubkey_t const * peer, ulong slot, ulong shred_idx ) {
+  fd_inflights_request_insert( ctx->inflights, nonce, peer, slot, shred_idx );
+  fd_policy_peer_request_update( ctx->policy, peer );
+}
+
+
+/* Repair request invariants:
+
+   Highest window index requests and orphan requests are much less
+   fragile than regular shred requests.  This is because we request
+   orphans and highest window index requests whenever we "need" them,
+   i.e. we fire and forget them.
+
+   But regular shred requests are only iterated once per shred per slot.
+   This is for performance reasons - we don't want to iterate over the
+   forest more than necessary.  If we let knowledge of a regular shred
+   request get dropped, it's possible the request could get lost
+   forever.  This is why any regular shred request that is conceived
+   needs to be handled at the repair tile level.  All regular shred
+   requests must be added to the inflights outstanding table so it can
+   be re-requested after a timeout window.
+
+   An inflight entry should only ever be permanently removed upon
+   receipt of a shred response.
+
+   There are two methods through which we make regular shred requests:
+   1. policy_next
+   2. fd_inflights_request_pop
+
+   In general, policy_next makes the first request for shred X, and
+   fd_inflights_request_pop makes all subsequent requests for shred X at
+   DEDUP_TIMEOUT intervals.  This is to give each request a fair chance
+   to be received, but also to avoid colliding nonces.  This is because
+   we want to be as accurate as possible when tracking per-peer response
+   latency.
+
+   With eviction, it's possible for policy_next to make the same request
+   for shred X multiple times, in short timeout intervals.  Therefore we
+   need to have both policy_next and fd_inflights_request_pop requests
+   pass through the same dedup cache.  At the point of eviction, we
+   leave requests for that slot in the dedup cache and in the inflights
+   table. If an old request from before eviction happens to
+   dedup a request on the new insertion of the slot, these requests must
+   be queued up in inflights table so they can be re-requested after a
+   timeout window. */
+
 static inline void
 after_credit( ctx_t *             ctx,
               fd_stem_context_t * stem FD_PARAM_UNUSED,
@@ -1151,19 +1203,20 @@ after_credit( ctx_t *             ctx,
     ulong nonce; ulong slot; ulong shred_idx;
     *charge_busy = 1;
     fd_inflights_request_pop( ctx->inflights, &nonce, &slot, &shred_idx );
+
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
     if( FD_UNLIKELY( blk && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-      ctx->metrics->rerequest++;
-      nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, (uint)shred_idx, now );
-      if( FD_UNLIKELY( !peer ) ) {
-        /* No peers. But we CANNOT lose this request. */
-        /* Add this request to the inflights table, pretend we've sent it and let the inflight timeout request it down the line. */
-        fd_hash_t hash = { .ul[0] = 0 };
-        fd_inflights_request_insert( ctx->inflights, nonce, &hash, slot, shred_idx );
+
+      if( FD_UNLIKELY( !peer || fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, slot, (uint)shred_idx ), now ) ) ) {
+        /* No peers available, park the request in inflights. */
+        defer_inflight_request( ctx, slot, shred_idx );
       } else {
+        ctx->metrics->rerequest++;
+        nonce = fd_rnonce_ss_compute( ctx->repair_nonce_ss, 1, slot, (uint)shred_idx, now );
         fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)now/(ulong)1e6, (uint)nonce, slot, shred_idx );
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+        record_inflight_request( ctx, nonce, peer, slot, shred_idx ); /* Request is definitely a regular shred request. */
         return;
       }
     }
@@ -1171,9 +1224,23 @@ after_credit( ctx_t *             ctx,
 
   if( FD_UNLIKELY( fd_inflights_outstanding_free( ctx->inflights ) <= fd_signs_map_key_cnt( ctx->signs_map ) ) ) return; /* no new requests allowed */
 
-  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot, charge_busy );
+  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->dedup, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot, charge_busy );
   if( FD_UNLIKELY( !cout ) ) return;
+
+  if( ( cout->kind == FD_REPAIR_KIND_SHRED && fd_reqlim_next( ctx->dedup, fd_reqlim_key( FD_REPAIR_KIND_SHRED, cout->shred.slot, (uint)cout->shred.shred_idx ), now ) ) ) {
+    /* Here if policy_next is re-requesting a shred that's already been
+       requested. This could be happen during a race - imagine we make a
+       request for shred 0 in slot Y.  Then eviction causes slot Y to be
+       removed and then readded. policy_next will re-request shred 0,
+       but if we let it get dropped here, it's possible the request
+       could get lost forever. */
+    defer_inflight_request( ctx, cout->shred.slot, cout->shred.shred_idx );
+    return;
+  }
+
+  /* finally, send the request made by policy */
   fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
+  if( FD_LIKELY( cout->kind == FD_REPAIR_KIND_SHRED ) ) record_inflight_request( ctx, cout->shred.nonce, &cout->shred.to, cout->shred.slot, cout->shred.shred_idx );
 }
 
 static void
@@ -1273,7 +1340,8 @@ unprivileged_init( fd_topo_t const *      topo,
   ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                 );
   ctx->protocol     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),         fd_repair_footprint()                                         );
   ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint( tile->repair.slot_max )                  );
-  ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint( FD_DEDUP_CACHE_MAX, FD_REPAIR_PEER_MAX ) );
+  ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint( FD_REPAIR_PEER_MAX )                     );
+  ctx->dedup        = FD_SCRATCH_ALLOC_APPEND( l, fd_reqlim_align(),          fd_reqlim_footprint( FD_REQLIM_CACHE_MAX )                      );
   ctx->inflights    = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint()                                      );
   ctx->signs_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint( lg_sign_depth )                       );
   ctx->pong_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_queue_align(),    fd_signs_queue_footprint()                                    );
@@ -1282,9 +1350,10 @@ unprivileged_init( fd_topo_t const *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
-  ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol, &ctx->identity_public_key                                                      ) );
-  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,   tile->repair.slot_max, ctx->repair_seed                                        ) );
-  ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,   FD_DEDUP_CACHE_MAX, FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
+  ctx->protocol     = fd_repair_join        ( fd_repair_new        ( ctx->protocol,  &ctx->identity_public_key                                                      ) );
+  ctx->forest       = fd_forest_join        ( fd_forest_new        ( ctx->forest,    tile->repair.slot_max, ctx->repair_seed                                        ) );
+  ctx->policy       = fd_policy_join        ( fd_policy_new        ( ctx->policy,    FD_REPAIR_PEER_MAX, ctx->repair_seed, ctx->repair_nonce_ss ) );
+  ctx->dedup        = fd_reqlim_join        ( fd_reqlim_new        ( ctx->dedup,     FD_REQLIM_CACHE_MAX, ctx->repair_seed                      ) );
   ctx->inflights    = fd_inflights_join     ( fd_inflights_new     ( ctx->inflights, ctx->repair_seed+1234UL                                                       ) );
   ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( ctx->signs_map, lg_sign_depth, 0UL                                                            ) );
   ctx->pong_queue   = fd_signs_queue_join   ( fd_signs_queue_new   ( ctx->pong_queue                                                                               ) );

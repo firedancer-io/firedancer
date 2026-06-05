@@ -310,9 +310,10 @@ dump_cmd_fn( args_t      * args,
     fd_rng_t _rng[1];
     fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)fd_tickcount(), 0UL ) );
 
-    uchar * scratch = fd_alloca( FD_STEM_SCRATCH_ALIGN, stem_scratch_footprint( ctx.link_cnt, 0UL, 0UL ) );
+    uchar __attribute__((aligned(FD_STEM_SCRATCH_ALIGN))) scratch[ stem_scratch_footprint( ctx.link_cnt, 0UL, 0UL ) ];
+    uchar __attribute__((aligned(FD_METRICS_ALIGN))) metrics_mem[ FD_METRICS_FOOTPRINT( ctx.link_cnt ) ];
 
-    ctx.metrics_base = fd_metrics_join( fd_metrics_new( fd_alloca( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( ctx.link_cnt ) ), ctx.link_cnt ) );
+    ctx.metrics_base = fd_metrics_join( fd_metrics_new( metrics_mem, ctx.link_cnt ) );
     fd_metrics_register( ctx.metrics_base );
 
     /* The purpose of the warmup period is to ensure that all frags in

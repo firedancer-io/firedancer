@@ -36,7 +36,7 @@ static char const * FREE_HUGE_PAGE_PATH[ 2 ] = {
   "/sys/devices/system/node/node%lu/hugepages/hugepages-1048576kB/free_hugepages",
 };
 
-static ulong PAGE_SIZE[ 2 ] = {
+static ulong FD_PAGE_SIZE[ 2 ] = {
   2097152,
   1073741824,
 };
@@ -153,8 +153,8 @@ init( config_t const * config ) {
 
   ulong min_size[ 2 ] = {0};
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
-    min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
+    min_size[ 0 ] += FD_PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+    min_size[ 1 ] += FD_PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -164,7 +164,7 @@ init( config_t const * config ) {
     }
 
     char options[ 256 ];
-    FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", PAGE_SIZE[ i ], min_size[ i ] ) );
+    FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", FD_PAGE_SIZE[ i ], min_size[ i ] ) );
     FD_LOG_NOTICE(( "RUN: `mount -t hugetlbfs none %s -o %s`", mount_path[ i ], options ));
     if( FD_UNLIKELY( mount( "none", mount_path[ i ], "hugetlbfs", 0, options) ) )
       FD_LOG_ERR(( "mount of hugetlbfs at `%s` failed (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
@@ -303,8 +303,8 @@ check( config_t const * config,
   ulong numa_node_cnt = fd_shmem_numa_cnt();
   ulong required_min_size[ 2 ] = {0};
   for( ulong i=0UL; i<numa_node_cnt; i++ ) {
-    required_min_size[ 0 ] += PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
-    required_min_size[ 1 ] += PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
+    required_min_size[ 0 ] += FD_PAGE_SIZE[ 0 ] * fd_topo_huge_page_cnt( &config->topo, i, 0 );
+    required_min_size[ 1 ] += FD_PAGE_SIZE[ 1 ] * fd_topo_gigantic_page_cnt( &config->topo, i );
   }
 
   struct stat st;

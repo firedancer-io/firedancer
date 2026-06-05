@@ -691,8 +691,7 @@ test_switch_closed_vote_account( fd_wksp_t * wksp ) {
 
   /* Insert lockout and stake for candidate_slot=109 (fork C, ABC active).
      Do NOT insert stake for ABC on switch_slot=106 — ABC's vote account
-     was closed on fork A, so it was skipped during query_vote_accs for
-     slot 106. */
+     was closed on fork A, so it was skipped in slot 106. */
   fd_tower_lockos_insert( tower, 109, &acct.vote_acc, acct.votes );
   fd_tower_stakes_insert( tower, 109, &acct.vote_acc, acct.stake, ULONG_MAX );
 

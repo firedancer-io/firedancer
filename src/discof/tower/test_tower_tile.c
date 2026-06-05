@@ -1,15 +1,12 @@
-#define QUERY_VOTE_ACCS               mock_query_vote_accs
-#define UPDATE_EPOCH_VTRS             mock_update_epoch_vtrs
+#define QUERY_TOWERS mock_query_towers
+#define QUERY_VOTERS mock_query_voters
 
 #include "fd_tower_tile.c"
 
-/* Stub the bank-dependent epoch_vtr_t population for tests that don't
-   set up ctx->banks / ctx->accdb. */
-
 void
-mock_update_epoch_vtrs( fd_tower_tile_t *            ctx,
-                        fd_replay_slot_completed_t * slot_completed FD_PARAM_UNUSED,
-                        ulong                        epoch ) {
+mock_query_voters( fd_tower_tile_t *            ctx,
+                   fd_replay_slot_completed_t * slot_completed FD_PARAM_UNUSED,
+                   ulong                        epoch ) {
   ctx->root_epoch = epoch;
 }
 
@@ -235,15 +232,15 @@ test_count_vote_txn( void ) {
 #define FIXTURE_RECORD_SZ  (32UL + 32UL + 8UL + 8UL + FD_VOTE_STATE_DATA_MAX)
 #define FIXTURE_FILE_SZ    (FIXTURE_VTR_CNT * FIXTURE_RECORD_SZ)
 
-/* mock_query_vote_accs: loads voter data from a fixture file for the
+/* mock_query_towers: loads voter data from a fixture file for the
    current slot and calls count_vote_acc for each record. */
 
 ulong
-mock_query_vote_accs( fd_tower_tile_t *            ctx,
-                      fd_replay_slot_completed_t * slot_completed,
-                      fd_ghost_blk_t *             ghost_blk,
-                      int *                        found_our_vote_acct,
-                      ulong *                      our_vote_acct_bal ) {
+mock_query_towers( fd_tower_tile_t *            ctx,
+              fd_replay_slot_completed_t * slot_completed,
+              fd_ghost_blk_t *             ghost_blk,
+              int *                        found_our_vote_acct,
+              ulong *                      our_vote_acct_bal ) {
 
   /* Open the fixture file for this slot. */
 
@@ -274,6 +271,9 @@ mock_query_vote_accs( fd_tower_tile_t *            ctx,
     uchar const * data = rec + 80UL;
 
     count_vote_acc( ctx, slot_completed, ghost_blk, &vote_acc, stake, data, FD_VOTE_STATE_DATA_MAX );
+
+    ctx->vote_accs[i] = vote_acc;
+    fd_vote_account_node_pubkey( data, FD_VOTE_STATE_DATA_MAX, &ctx->id_keys[i] );
 
     total_stake += stake;
     prev_voter_idx = fd_tower_stakes_insert( ctx->tower, slot_completed->slot, &vote_acc, stake, prev_voter_idx );
@@ -326,6 +326,10 @@ test_fixture_replay( fd_wksp_t * wksp ) {
 
   ulong start_slot = 398915634UL;
   ulong num_slots  = 32UL;
+
+  fd_vote_stake_weight_t fixture_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
+  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, start_slot - 1, num_slots + MOCK_SLOT_MAX + 100, 1UL, fixture_stakes, 0UL ) );
+  ctx->mleaders->init_done[0] = 1;
 
   for( ulong slot = start_slot; slot < start_slot + num_slots; slot++ ) {
 
@@ -428,6 +432,11 @@ eqvoc_setup( fd_wksp_t * wksp ) {
   ctx->restore_fd = -1;
   memset( ctx->identity_key, 0x11, sizeof(fd_pubkey_t) );
   memset( ctx->vote_account, 0x22, sizeof(fd_pubkey_t) );
+
+  fd_vote_stake_weight_t eqvoc_stakes[1] = {{ .vote_key = {{0}}, .id_key = {{0}}, .stake = 1UL }};
+  ulong eqvoc_slot_cnt = EQVOC_BOOT_CNT + MOCK_SLOT_MAX + 100;
+  ctx->mleaders->lsched[0] = fd_epoch_leaders_join( fd_epoch_leaders_new( ctx->mleaders->_lsched[0], 0, EQVOC_START_SLOT - 1, eqvoc_slot_cnt, 1UL, eqvoc_stakes, 0UL ) );
+  ctx->mleaders->init_done[0] = 1;
 
   for( ulong slot = EQVOC_START_SLOT; slot < EQVOC_START_SLOT + EQVOC_BOOT_CNT; slot++ ) {
     fd_replay_slot_completed_t sc;

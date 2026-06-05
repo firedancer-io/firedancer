@@ -400,7 +400,7 @@ fd_ping_tracker_active( fd_ping_tracker_t * ping_tracker,
   if( FD_UNLIKELY( !peer_address.addr ) ) return 0;
   fd_ping_peer_t * peer = peer_map_ele_query( ping_tracker->peers, fd_type_pun_const( peer_pubkey ), NULL, ping_tracker->pool );
   if( FD_UNLIKELY( !peer ) ) return 0;
-  return (peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING) && peer->address.l==peer_address.l;
+  return (peer->state==FD_PING_TRACKER_STATE_VALID || peer->state==FD_PING_TRACKER_STATE_VALID_REFRESHING) && peer->address.addr==peer_address.addr && peer->address.port==peer_address.port;
 }
 
 int

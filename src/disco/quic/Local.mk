@@ -9,8 +9,6 @@ $(OBJDIR)/obj/disco/quic/test_quic_metrics.o: src/disco/quic/test_quic_metrics.t
 endif
 
 ifdef FD_HAS_HOSTED
-ifdef FD_HAS_ALLOCA
 $(call add-hdrs,fd_quic_tile.h)
 $(call add-objs,fd_quic_tile,fd_disco)
-endif
 endif

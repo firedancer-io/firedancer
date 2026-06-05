@@ -174,12 +174,16 @@ setup_topo_acc_pool( fd_topo_t * topo,
   return acc_pool_obj;
 }
 
-/* Resolves a hostname to a single ip address.  If multiple ip address
+/* Resolves an address to a single ip address.  If the address is
+   already a valid IPv4 address it is parsed directly, otherwise it is
+   treated as a hostname and resolved via DNS.  If multiple ip address
    records are returned by getaddrinfo, only the first IPV4 address is
    returned via ip_addr. */
 static int
 resolve_address( char const * address,
                  uint       * ip_addr ) {
+  if( FD_LIKELY( fd_cstr_to_ip4_addr( address, ip_addr ) ) ) return 1;
+
   struct addrinfo hints = { .ai_family = AF_INET };
   struct addrinfo * res;
   int err = getaddrinfo( address, NULL, &hints, &res );
@@ -303,6 +307,13 @@ resolve_gossip_entrypoints( config_t * config ) {
     if( FD_UNLIKELY( 0==resolve_peer( config->gossip.entrypoints[ i ], NULL, "gossip.entrypoints", hostname, &config->gossip.resolved_entrypoints[ i ], 1, NULL ) ) ) {
       FD_LOG_ERR(( "failed to resolve address of [gossip.entrypoints] entry \"%s\"", config->gossip.entrypoints[ i ] ));
     }
+  }
+
+  if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
+    if( FD_UNLIKELY( !resolve_address( config->firedancer.gossip.host, &config->gossip.resolved_host ) ) )
+      FD_LOG_ERR(( "could not resolve [gossip.host] %s", config->firedancer.gossip.host ));
+  } else {
+    config->gossip.resolved_host = 0U;
   }
 }
 
@@ -1172,11 +1183,20 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
     fd_memcpy( tile->gossvf.entrypoints, config->gossip.resolved_entrypoints, tile->gossvf.entrypoints_cnt * sizeof(fd_ip4_port_t) );
 
+    if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
+      tile->gossvf.gossip_addr.addr = config->gossip.resolved_host;
+    } else {
+      tile->gossvf.gossip_addr.addr = config->net.ip_addr;
+    }
+    tile->gossvf.gossip_addr.port = fd_ushort_bswap( config->gossip.port );
+
+    tile->gossvf.src_addr.addr = config->net.ip_addr;
+    tile->gossvf.src_addr.port = fd_ushort_bswap( config->gossip.port );
+
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
 
     if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
-      if( !resolve_address( config->firedancer.gossip.host, &tile->gossip.ip_addr ) )
-        FD_LOG_ERR(( "could not resolve [gossip.host] %s", config->firedancer.gossip.host ));
+      tile->gossip.ip_addr = config->gossip.resolved_host;
     } else {
       tile->gossip.ip_addr = config->net.ip_addr;
     }

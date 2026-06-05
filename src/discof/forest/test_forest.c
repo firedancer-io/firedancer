@@ -1565,7 +1565,7 @@ test_eqvoc_blk_wrong_parent( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
 
   fd_forest_fec_insert( forest, 3, 2, 63, 32, 1, 0, &mr_3_32_, &mr_3_0_ );
-  FD_TEST( fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ ) );
+  FD_TEST( !fd_forest_fec_chain_verify( forest, fd_forest_query( forest, 3 ), &mr_3_32_ ) );
   FD_TEST( fd_forest_merkle_last_incorrect_idx( fd_forest_query( forest, 3 ) ) == 0UL );
 }
 
@@ -2132,6 +2132,7 @@ main( int argc, char ** argv ) {
   test_fec_insert_reject_oob_after_verify( wksp );
   test_fec_insert_dup_confirm_larger_complete_idx( wksp );
 
+  FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }

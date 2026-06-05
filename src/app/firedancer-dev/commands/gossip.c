@@ -95,6 +95,10 @@ fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_
     gossvf_tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
     gossvf_tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
     gossvf_tile->gossvf.boot_timestamp_nanos = config->boot_timestamp_nanos;
+    gossvf_tile->gossvf.gossip_addr.addr = config->net.ip_addr;
+    gossvf_tile->gossvf.gossip_addr.port = fd_ushort_bswap( config->gossip.port );
+    gossvf_tile->gossvf.src_addr.addr    = config->net.ip_addr;
+    gossvf_tile->gossvf.src_addr.port    = fd_ushort_bswap( config->gossip.port );
     for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
       gossvf_tile->gossvf.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
     }

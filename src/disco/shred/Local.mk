@@ -3,9 +3,7 @@ $(call add-objs,fd_shredder,fd_disco)
 $(call add-objs,fd_stake_ci,fd_disco)
 ifdef FD_HAS_HOSTED
 $(call add-objs,fd_fec_resolver,fd_disco)
-ifdef FD_HAS_ALLOCA
 $(call add-objs,fd_shred_tile,fd_disco)
-endif
 $(call make-unit-test,test_fec_resolver,test_fec_resolver,fd_flamenco fd_disco fd_ballet fd_util fd_tango fd_reedsol)
 $(call run-unit-test,test_fec_resolver)
 endif
