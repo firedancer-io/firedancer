@@ -1270,6 +1270,11 @@ reported when you first connect by the `summary.tiles` message.
             12,
             ...
         ],
+        "interrupts": [
+            0,
+            5821,
+            ...
+        ],
         "priority": [
             "normal",
             "critical",
@@ -1294,6 +1299,7 @@ reported when you first connect by the `summary.tiles` message.
 | minflt       | `number[]`           | `minflt[i]` is the number of minor page faults that occurred for tile `i` since startup. Minor page faults occur for requested pages already in memory, but not in the page table |
 | majflt       | `number[]`           | `majflt[i]` is the number of major page faults that occurred for tile `i` since startup. Major page faults occur for requested pages not in memory or the page table |
 | last_cpu     | `number[]`           | `last_cpu[i]` is the CPU index that tile `i` was last recorded executing on |
+| interrupts   | `number[]`           | `interrupts[i]` is the number of device IRQs handled on the CPU that tile `i` is pinned to since startup. Only reported for fixed (pinned) tiles; other tiles report `0` |
 | priority     | `string[]`           | `priority[i]` is the priority label of tile `i`. One of `"floating"`, `"startup"`, `"normal"`, or `"critical"` |
 
 Note that a `null` entry in `timers` field indicates that the tile has
@@ -1311,7 +1317,8 @@ tile have not been published for the following fields
 - nivcsw
 - minflt
 - majflt
-- cpu_idx
+- last_cpu
+- interrupts
 
 Since the fields are not nullable, they contain the previously held
 value. The client should ignore / interpolate them where applicable.
